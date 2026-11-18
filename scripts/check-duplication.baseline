@@ -1,0 +1,6 @@
+CreateOwnerOnly(string)
+ReadAsync(string, CancellationToken)
+ResolveModel(DaemonConfig, RuntimeStartContext)
+StartMemoryIndexTask(string, string?, bool, bool, bool, TimeSpan)
+SweepStale(string, string, ILogger?)
+TimedDispatchToolCallAsync(JsonNode, JsonObject)

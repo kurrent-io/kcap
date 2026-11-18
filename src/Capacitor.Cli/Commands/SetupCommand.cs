@@ -20,6 +20,7 @@ using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Core.Harness.Pi;
 using Capacitor.Cli.Core.Instructions;
 using Capacitor.Cli.Core.LocalEdition;
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Mcp;
 using Capacitor.Cli.Core.Setup;
 using Capacitor.Cli.Core.Setup.Intelligence;
@@ -581,6 +582,12 @@ sealed class SetupCommand(
     /// <summary>Whether the edition choice offers the local edition, which runs on Apple silicon Macs and x64 Windows.</summary>
     internal bool LocalEditionAvailable { get; init; } = LocalPlatform.Current().SupportsLocalEdition;
 
+    internal bool SteeringOffered { get; init; } = SteeringIpc.Offered;
+
+    /// <summary>How long an unattended run waits on the server to confirm its credential; null is
+    /// <see cref="UnattendedCredential.ProbeTimeout"/>.</summary>
+    internal TimeSpan? UnattendedProbeTimeout { get; init; }
+
     /// <summary>The whole run's JSON report, set only while a <c>--json --no-prompt</c> run is in progress.</summary>
     SetupJsonReport? _json;
 
@@ -674,6 +681,7 @@ sealed class SetupCommand(
         var skipCopilotFlag  = args.Contains("--skip-copilot-hooks");
         var skipCopilotMcpFlag = args.Contains("--skip-copilot-mcp");
         var skipCopilotInstructionsFlag = args.Contains("--skip-copilot-instructions");
+        var skipCopilotToolSearchFlag = args.Contains("--skip-copilot-tool-search");
         var skipGeminiFlag   = args.Contains("--skip-gemini-hooks");
         var skipGeminiMcpFlag = args.Contains("--skip-gemini-mcp");
         var skipGeminiInstructionsFlag = args.Contains("--skip-gemini-instructions");
@@ -708,7 +716,8 @@ sealed class SetupCommand(
                           || args.Contains("--server-url")
                           || args.Any(a => a.StartsWith("--server-url=", StringComparison.Ordinal));
 
-        if (museAssistant && MuseAssistantPosture.ArgumentError(tenantGiven: serverUrlArg is not null) is { } museError) {
+        if (museAssistant
+         && MuseAssistantPosture.ArgumentError(tenantGiven: serverUrlArg is not null, steeringGiven: args.Contains(SetupSteering.Flag)) is { } museError) {
             await Console.Error.WriteLineAsync($"  {museError}");
 
             return SetupExit.Refused;
@@ -720,7 +729,7 @@ sealed class SetupCommand(
             return SetupExit.Refused;
         }
 
-        if (AnswerValueError(args) is { } answerError) {
+        if ((AnswerValueError(args) ?? SetupSteering.ArgumentError(args, SteeringOffered)) is { } answerError) {
             await Console.Error.WriteLineAsync($"  {answerError}");
 
             return SetupExit.Refused;
@@ -785,10 +794,9 @@ sealed class SetupCommand(
                 "Either re-run `kcap setup` from inside your repo, or drop --plugin-scope project to install user-scope hooks.");
             return SetupExit.Refused;
         }
-        AnsiConsole.Write(new Rule("[bold green]Welcome to kcap[/]").Centered());
+        WriteRule(new Rule("[bold green]Welcome to kcap[/]").Centered());
 
 
-        // Check if already configured
         var activeProfile  = profile.ActiveName;
         var existing       = profile.Profiles.GetValueOrDefault(activeProfile);
         var existingTokens = await store.LoadAsync(activeProfile);
@@ -805,12 +813,15 @@ sealed class SetupCommand(
             }
         }
 
-        // Step 1: Server
-        AnsiConsole.Write(new Rule("[yellow]Step 1/6 — Server[/]").LeftJustified());
+        WriteRule(new Rule("[yellow]Step 1/6 — Server[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Server);
         string serverUrl;
         string  provider;
         bool    loginComplete = false; // Discovery authenticates inline; skip the Step-2 login.
+
+        // Set by the local edition alone: what earlier setups of this installation were answered, and whether it existed.
+        LocalSetupAnswers? remembered  = null;
+        var                localReused = false;
 
         // Only a bare run asks: a named server, --local or --org has already chosen.
         if (serverUrlArg is null && local is null && requestedWorkspace is null && !noPrompt && AnsiConsole.Profile.Capabilities.Interactive) {
@@ -859,14 +870,17 @@ sealed class SetupCommand(
             // A named server can be one still being created, which the provisioner says to re-run setup against.
             if (!await WaitForWorkspaceAsync(serverUrl, NewWorkspaceWait)) return 1;
         } else if (local is not null) {
-            var (exit, committed) = await new LocalSetupTerminal(localInstallers, local, _json,
+            var terminal = new LocalSetupTerminal(localInstallers, local, _json,
                 local.WindowsService
                     ? progress => WindowsServiceStepAsync(progress, line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}"))
-                    : null).RunAsync();
+                    : null);
+            var (exit, committed) = await terminal.RunAsync();
 
             if (committed is null) return exit;
 
             (serverUrl, provider, loginComplete) = (committed.ServerUrl, AuthProvider.None, true);
+            remembered  = LocalSetupAnswers.For(config, committed.InstallationId);
+            localReused = terminal.Reused;
         } else {
             var discovered = await RunDiscoveryAsync(args, forceDevice, requestedWorkspace);
             if (discovered is null) return 1;
@@ -889,12 +903,11 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // Step 2: Login
-        AnsiConsole.Write(new Rule("[yellow]Step 2/6 — Login[/]").LeftJustified());
+        WriteRule(new Rule("[yellow]Step 2/6 — Login[/]").LeftJustified());
         _json?.Started(SetupJsonReport.SignIn);
 
         var unattended = noPrompt && !loginComplete && provider != AuthProvider.None
-            ? await new UnattendedCredential(chosenHttp).ProbeAsync(serverUrl, await ContextForAsync(activeProfile, serverUrl), time)
+            ? await new UnattendedCredential(chosenHttp, UnattendedProbeTimeout).ProbeAsync(serverUrl, await ContextForAsync(activeProfile, serverUrl), time)
             : null;
 
         var loginStepResult = await ReportUnattendedSignInAsync(unattended, activeProfile)
@@ -950,6 +963,7 @@ sealed class SetupCommand(
             CursorMcpPath:        cursor.UserMcpJson,
             CopilotMcpPath:       copilot.McpConfigJson,
             CopilotInstructionsPath: copilot.InstructionsMd,
+            CopilotSettingsPath: copilot.SettingsJson,
             GeminiInstructionsPath: gemini.GeminiMd,
             AntigravityMcpPath:       agy.McpConfigJson,
             AntigravityInstructionsPath: agy.InstructionsMd,
@@ -978,12 +992,10 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // A local server records every session as shared with its one user, whatever the profile says,
-        // so there is no audience to ask about and no reason to overwrite what the profile holds.
+        // A local server has one user, so there is no audience to ask about.
         var serverIsLocal = local is not null || LocalEndpoints.Read(localRoot).Classify(serverUrl) is LocalEndpointClass.Local;
 
-        // Step 3: Default session visibility
-        if (!serverIsLocal) AnsiConsole.Write(new Rule("[yellow]Step 3/6 — Default session visibility[/]").LeftJustified());
+        WriteRule(new Rule("[yellow]Step 3/6 — Default session visibility[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Visibility);
 
         string defaultVisibility;
@@ -998,9 +1010,17 @@ sealed class SetupCommand(
                       .Profiles.GetValueOrDefault(activeProfile)?.DefaultVisibility ?? "org_public");
 
         if (serverIsLocal) {
-            defaultVisibility = (GetArg(args, "--default-visibility")
-                              ?? (await AppConfig.LoadProfileConfig(config)).Profiles.GetValueOrDefault(activeProfile)?.DefaultVisibility
-                              ?? "org_public").ToLowerInvariant();
+            var flagged = GetArg(args, "--default-visibility")?.ToLowerInvariant();
+
+            defaultVisibility = flagged
+                             ?? remembered?.Visibility
+                             ?? LocalVisibility.For((await AppConfig.LoadProfileConfig(config)).Profiles.GetValueOrDefault(activeProfile)?.DefaultVisibility
+                                                    ?? LocalVisibility.Default).ToLowerInvariant();
+
+            // Kept so a later run without the flag does not read the value as one nobody chose.
+            if (flagged is not null && remembered is not null) (remembered = remembered with { Visibility = flagged }).Save(config);
+
+            await Console.Out.WriteLineAsync($"  Default visibility: {defaultVisibility} (not asked: a local installation has one user)");
         } else if (noPrompt) {
             defaultVisibility = (GetArg(args, "--default-visibility")
                               ?? (museAssistant ? MuseAssistantPosture.DefaultVisibility
@@ -1033,8 +1053,7 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // Step 4: Harnesses
-        AnsiConsole.Write(new Rule("[yellow]Step 4/6 — Harnesses[/]").LeftJustified());
+        WriteRule(new Rule("[yellow]Step 4/6 — Harnesses[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Harnesses);
         await Console.Out.WriteLineAsync("  kcap records sessions by installing hooks into your harnesses.");
         await Console.Out.WriteLineAsync();
@@ -1053,7 +1072,9 @@ sealed class SetupCommand(
             Grok:        harnesses.Detected(HarnessId.Grok),
             Muse:        harnesses.Detected(HarnessId.Muse),
             ClaudeHooksViaPowerShell: !ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable),
-            CopilotHostApp: harnesses.Detect(HarnessId.Copilot).HostApp);
+            CopilotHostApp: harnesses.Detect(HarnessId.Copilot).HostApp,
+            KiroCli:     harnesses.ResolveExecutable(HarnessId.Kiro) is not null,
+            KiroAgentCloned: File.Exists(kiro.KcapAgentJson));
 
         bool PromptYesNo(string text) =>
             AnsiConsole.Prompt(new ConfirmationPrompt(text) { DefaultValue = true });
@@ -1063,12 +1084,17 @@ sealed class SetupCommand(
         if (detectedSummary is not null)
             await Console.Out.WriteLineAsync($"  Detected harnesses: {detectedSummary}");
 
-        bool installAgents;
+        bool  installAgents;
+        bool? harnessAnswer = null;
 
         if (skipHarnesses) {
             // The one answer to the consent question below that no per-vendor flag spells.
             installAgents = false;
+            harnessAnswer = false;
             AnsiConsole.MarkupLine("  [dim]Skipping harnesses (--skip-harnesses).[/]");
+        } else if (SetupDecisions.RepeatsHarnessDecline(detected, noPrompt, remembered?.Harnesses)) {
+            installAgents = false;
+            AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(RememberedHarnessDeclineLine)}[/]");
         } else if (browserAgents is { } answered) {
             // Asked and answered in the browser minutes ago, so this step applies rather than
             // re-asks — the flow settles its Agents step on the decision being recorded, not on the
@@ -1086,7 +1112,12 @@ sealed class SetupCommand(
             // Set explicitly: NoPrompt alone does not imply InstallAgents, so leaving it to the
             // Options default would make --no-prompt stop installing agents.
             installAgents = SetupDecisions.DecideInstallAgents(detected, noPrompt, PromptYesNo);
+
+            if (!noPrompt && detectedSummary is not null) harnessAnswer = installAgents;
         }
+
+        if (remembered is not null && harnessAnswer is { } harnessesAnswered)
+            remembered = RememberHarnesses(remembered, harnessesAnswered, config);
 
         var stepOptions = new CodingAgentsStep.Options(
             SkipClaude:  skipClaude,
@@ -1103,6 +1134,7 @@ sealed class SetupCommand(
             SkipCursorMcp: skipCursorMcpFlag,
             SkipCopilotMcp: skipCopilotMcpFlag,
             SkipCopilotInstructions: skipCopilotInstructionsFlag,
+            SkipCopilotToolSearch: skipCopilotToolSearchFlag,
             SkipGeminiMcp: skipGeminiMcpFlag,
             SkipGeminiInstructions: skipGeminiInstructionsFlag,
             SkipAntigravityMcp: skipAntigravityMcpFlag,
@@ -1141,20 +1173,21 @@ sealed class SetupCommand(
                 : [serverUrl]);
 
         var stepInstallers = new CodingAgentsStep.Installers(
-            InstallClaudePlugin:    (settings, plugin) => InstallPlugin(settings, plugin, legacyProjectScope ? null : Path.GetDirectoryName(settings)),
-            InstallCodexHooks:      PluginCommand.InstallCodexHooks,
-            InstallCursorHooks:     PluginCommand.InstallCursorHooks,
-            InstallCopilotHooks:    path => PluginCommand.InstallCopilotHooks(path),
+            InstallClaudePlugin:    (settings, plugin) => ClaudePluginWriter.Install(settings, legacyProjectScope ? null : Path.GetDirectoryName(settings), plugin),
+            InstallCodexHooks:      CodexHooksWriter.Install,
+            InstallCursorHooks:     path => Edited(PluginCommand.InstallCursorHooks(path)),
+            InstallCopilotHooks:    path => PluginCommand.WriteCopilotHooks(path),
             CopilotHooksNeedPath:   () => PluginCommand.CopilotHooksNeedPath(),
-            InstallGeminiHooks:     PluginCommand.InstallGeminiHooks,
+            InstallGeminiHooks:     path => Edited(PluginCommand.InstallGeminiHooks(path)),
             CapacitorOnPath:        () => binaries.Finds("kcap"),
             InstallAgentSkills:     AgentsSkillsInstaller.TryInstall,
             CleanLegacyCodexSkills: legacyDir => AgentsSkillsInstaller.CleanLegacyCodexSkills(legacyDir).RemovedAny,
             // Read when it runs: a reported run swaps stderr for the writer its failure line comes from.
-            InstallKiroHooks:       agentPath => PluginCommand.InstallKiroHooks(agentPath, harnesses, Console.Error),
-            InstallPiExtension:     PiExtensionInstaller.Install,
-            InstallOpenCodeExtension: OpenCodeExtensionInstaller.Install,
-            InstallAntigravityHooks:  PluginCommand.InstallAntigravityHooks,
+            InstallKiroHooks:       agentPath => Edited(PluginCommand.InstallKiroHooks(agentPath, harnesses, Console.Error)),
+            InstallPiExtension:     PiExtensionInstaller.Apply,
+            InstallOpenCodeExtension: OpenCodeExtensionInstaller.Apply,
+            OpenCodeVersion:          () => new VendorVersionResolver(binaries).Resolve("opencode"),
+            InstallAntigravityHooks:  path => Edited(PluginCommand.InstallAntigravityHooks(path)),
             EnableCodexNetworkAccess: () => CodexConfigToml.EnableNetworkAccess(codexAllowDomains, codex.ConfigToml),
             RegisterCodexMcp:         () => CodexConfigToml.RegisterKcapMcpServers(codex.ConfigToml),
             // every non-Claude JSON harness registers the ForCursor subset — the full set,
@@ -1163,6 +1196,7 @@ sealed class SetupCommand(
             RegisterCopilotMcp:       () => HarnessMcpProjections.Copilot.Register(copilot.McpConfigJson, home),
             InstallCopilotInstructions: () => AgentInstructionsWriter.Write(
                 copilot.InstructionsMd, KcapAgentInstructions.Body),
+            EnableCopilotToolSearch:  () => CopilotToolSearch.Enable(copilot.SettingsJson),
             // Skills are already current when the on-disk marker matches this build AND
             // every owned kcap-* folder is present; used to skip the prompt + re-copy
             // (mirrors PluginCommand's postinstall fast path). A missing/stale marker — or a
@@ -1183,13 +1217,17 @@ sealed class SetupCommand(
             InstallAntigravityInstructions: () => AgentInstructionsWriter.Write(
                 agy.InstructionsMd, KcapAgentInstructions.Body),
             // Pi has no JSON MCP config — the "MCP" is a second extension file (kcap-mcp.ts).
-            InstallPiMcp:             PiMcpExtensionInstaller.Install,
+            InstallPiMcp:             PiMcpExtensionInstaller.Apply,
             InstallPiInstructions:    () => AgentInstructionsWriter.Write(
                 pi.AgentsMd, KcapAgentInstructions.Body),
             // Vibe's hooks.toml and MCP config.toml are TOML (not the JSON writer / Codex map).
-            InstallVibeHooks:         p => MistralVibeHooksInstaller.Install(p) != TomlConfigFile.Outcome.Failed,
+            InstallVibeHooks:         p => MistralVibeHooksInstaller.Install(p) switch {
+                TomlConfigFile.Outcome.Unchanged => SettingsEdit.Unchanged,
+                TomlConfigFile.Outcome.Updated   => SettingsEdit.Changed,
+                _                                => SettingsEdit.Failed,
+            },
             RegisterVibeMcp:          () => MistralVibeConfigToml.RegisterKcapMcpServers(vibe.ConfigToml),
-            InstallGrokHooks:         GrokHooksInstaller.Install,
+            InstallGrokHooks:         path => Edited(GrokHooksInstaller.Install(path)),
             // Muse's hooks and MCP servers share one JSON settings.json; an unparseable file is a failure, not a success.
             InstallMuseHooks:         p => InstallMuseHooks(p, home, muse, WriteLine),
             RegisterMuseMcp:          () => MuseSettingsJson.RegisterKcapMcpServers(muse.SettingsJson, home),
@@ -1215,7 +1253,11 @@ sealed class SetupCommand(
             if (gitConfigChanged) installedPaths.Add(gitHook.ConfigFilePath);
         }
 
-        if (CodexTrustReminder(installResult) is { } codexTrust) WriteLine(codexTrust);
+        // Ticking Codex is consent to kcap's hooks running there, and codex exec never asks for it itself.
+        var codexHookTrust = installResult.CodexHooksInstalled
+            ? await new CodexHookTrustSeeder(harnesses, home, time).SeedAsync(codex, CancellationToken.None)
+            : (CodexHookTrustSeed?)null;
+        if (CodexTrustReminder(installResult, codexHookTrust) is { } codexTrust) WriteLine(codexTrust);
 
         // A run that ends early from here on has still changed these, so it lists them on the way out.
         void ListChangedBeforeExit() {
@@ -1289,8 +1331,7 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // Step 5: Daemon name + save
-        AnsiConsole.Write(new Rule("[yellow]Step 5/6 — Agent Daemon[/]").LeftJustified());
+        WriteRule(new Rule("[yellow]Step 5/6 — Agent Daemon[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Daemon);
 
         // Built from the profile login stored the token under: discovery may have switched it after startup.
@@ -1333,7 +1374,6 @@ sealed class SetupCommand(
 
         await Console.Out.WriteLineAsync();
 
-        // Save config
         var activeName     = "default";
         var defaultProfile = new Profile();
         string? previousDaemonName = null;
@@ -1375,6 +1415,19 @@ sealed class SetupCommand(
                 serverUrl, saved, previousDaemonName, browserAnswers.FlowId, browserAnswers.FlowStillLive);
         }
 
+        // After the service and step 4's plugin install: the switch is flipped through the running daemon, and the
+        // steering plugin goes only where kcap's plugin is.
+        if (!museAssistant) {
+            var canAskSteering = !noPrompt && browserAgents is null && AnsiConsole.Profile.Capabilities.Interactive;
+            var steeringMod    = ClaudeSteeringMod.For(harnesses, home, accounts);
+
+            await SetupSteering.RunAsync(
+                args, SteeringOffered, SetupSteering.Eligible(daemonService, steeringMod),
+                canAskSteering ? suggested => AnsiConsole.Prompt(new ConfirmationPrompt($"  {SetupSteering.Question}") { DefaultValue = suggested }) : null,
+                DaemonStore.FromEnvironment(), daemonName, time, steeringMod,
+                line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}"));
+        }
+
         _json?.Completed(name: daemonName, outcome: daemonService?.Outcome ?? "skipped");
 
         var finalTokens = await store.LoadAsync(activeName);
@@ -1389,8 +1442,8 @@ sealed class SetupCommand(
         // Unnumbered, like the browser leg: only the local edition asks it.
         IntelligenceSetupResponse? intelligence = null;
 
-        if (local is not null) {
-            AnsiConsole.Write(new Rule("[yellow]Background intelligence[/]").LeftJustified());
+        if (local is not null && remembered is { } localAnswers) {
+            WriteRule(new Rule("[yellow]Background intelligence[/]").LeftJustified());
             _json?.Started(SetupJsonReport.Intelligence);
 
             var canAskIntelligence = !noPrompt && !local.NoPrompt && AnsiConsole.Profile.Capabilities.Interactive;
@@ -1399,15 +1452,15 @@ sealed class SetupCommand(
                 () => HeadlessHarnesses(daemonName, CancellationToken.None),
                 Environment.GetEnvironmentVariable,
                 canAskIntelligence ? IntelligenceQuestions ?? new IntelligenceQuestions() : null,
-                line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}")).RunAsync(local);
+                line => AnsiConsole.MarkupLine($"  {Markup.Escape(line)}"),
+                config, localAnswers.InstallationId).RunAsync(local, existing: localReused);
 
             _json?.Completed(outcome: intelligence?.Mode ?? "skipped");
 
             await Console.Out.WriteLineAsync();
         }
 
-        // Step 6: Import past sessions
-        AnsiConsole.Write(new Rule("[yellow]Step 6/6 — Import past sessions[/]").LeftJustified());
+        WriteRule(new Rule("[yellow]Step 6/6 — Import past sessions[/]").LeftJustified());
         _json?.Started(SetupJsonReport.Import);
 
         // detectPullRequest:false — Step 6 only needs (owner, name) to scope the repo import;
@@ -1421,7 +1474,7 @@ sealed class SetupCommand(
 
         // Auth requirements are satisfied when no login is required at all (provider
         // None), or the login this run just did (or already had) produced a usable,
-        // non-expired token — not merely "provider != None" (Decision 9).
+        // non-expired token — not merely "provider != None".
         // "usable token" = refresh-aware (mirrors the import path's own auth): an expired but
         // refreshable token still counts. The probe is wrapped so a token I/O / refresh failure
         // degrades to an ineligible (best-effort) skip rather than throwing out of setup — the
@@ -1436,8 +1489,11 @@ sealed class SetupCommand(
             AuthSatisfied:       authSatisfied,
             SkipImport:          skipImport,
             NoPrompt:            noPrompt,
-            PromptYesNo:         () => AnsiConsole.Prompt(new ConfirmationPrompt(ImportPrompt) { DefaultValue = true }),
-            PromptNameSessions:  () => AnsiConsole.Prompt(new ConfirmationPrompt(NameSessionsPrompt) { DefaultValue = false }),
+            PromptYesNo:         question => AnsiConsole.Prompt(new ConfirmationPrompt(Markup.Escape(question)) { DefaultValue = true }),
+            // Naming runs the user's own agent, which an installation without background intelligence never does.
+            PromptNameSessions:  LocalIntelligenceGate.For(config, localRoot).Allows(serverUrl)
+                ? () => AnsiConsole.Prompt(new ConfirmationPrompt(NameSessionsPrompt) { DefaultValue = false })
+                : null,
             Profiles:            saved,
             ProfileName:         activeName,
             ServerUrl:           serverUrl,
@@ -1450,21 +1506,26 @@ sealed class SetupCommand(
             BrowserFinished:     browserAnswers.FlowStillLive,
             BrowserHandoffPrompt: browserAnswers.HandoffPrompt,
             BrowserBackground:   browserAnswers.Background,
-            Skip:                importSkip,
+            // A skip flag replaces what an earlier setup of this installation left out; without one that is left out again.
+            Skip:                SetupDecisions.LeftOutOfImport(importSkip, remembered?.LeftOut),
             Intelligence:        intelligence,
             ImportOutcomes:      local?.ImportOutcomes,
             // A run that cannot ask imports what the flags chose; it never opens a prompt to find out.
-            ChooseProjects:      AnsiConsole.Profile.Capabilities.Interactive ? ChooseProjectsPrompt : null));
+            ChooseProjects:      AnsiConsole.Profile.Capabilities.Interactive ? ChooseProjectsPrompt : null,
+            RememberedImport:    remembered?.Import,
+            // Both saves build on the answers as they stand, so the second keeps what the first recorded.
+            ImportAnswered:      remembered is null ? null : import => (remembered = remembered with { Import = import }).Save(config),
+            LeftOut:             remembered is null ? null : leftOut => (remembered = remembered with { LeftOut = leftOut }).Save(config)));
 
         _json?.Completed(outcome: importResult.Ran ? "ran" : "skipped");
 
         await Console.Out.WriteLineAsync();
 
-        AnsiConsole.Write(new Rule("[green]Setup complete[/]").LeftJustified());
+        WriteRule(new Rule("[green]Setup complete[/]").LeftJustified());
 
         var grid = new Grid().AddColumn().AddColumn();
         grid.AddRow("[bold]Server[/]",     Markup.Escape(serverUrl));
-        if (!serverIsLocal) grid.AddRow("[bold]Visibility[/]", Markup.Escape(defaultVisibility));
+        grid.AddRow("[bold]Visibility[/]", Markup.Escape(defaultVisibility));
         grid.AddRow("[bold]Daemon[/]",     Markup.Escape(daemonName));
         if (museAssistant) grid.AddRow("[bold]Posture[/]", MuseAssistantPosture.SummaryValue);
 
@@ -1532,6 +1593,25 @@ sealed class SetupCommand(
         _json?.Done(serverUrl);
 
         return SetupExit.Done;
+    }
+
+    /// <summary>A step header fitted to the live window. Setup's console fixes its width when it is created, so a
+    /// window narrower than the buffer, or resized mid-wizard, would wrap every rule; one column is left free
+    /// because a rule exactly as wide as the window wraps on a console without delayed end-of-line wrap.</summary>
+    static void WriteRule(Rule rule) {
+        if (LiveWindowWidth() is { } width) AnsiConsole.Profile.Width = width - 1;
+
+        AnsiConsole.Write(rule);
+    }
+
+    static int? LiveWindowWidth() {
+        try {
+            if (Console.WindowWidth > 1) return Console.WindowWidth;
+        } catch (IOException) {
+            // No standard handle is a console; CONOUT$ may still be one.
+        }
+
+        return OperatingSystem.IsWindows() && WindowsConsoleWidth.Measure() is int width and > 1 ? width : null;
     }
 
     /// <summary>The closing "Next steps" box: a question per item, its answer indented beneath.</summary>
@@ -1644,8 +1724,45 @@ sealed class SetupCommand(
     /// <summary>Verbatim, pinned by <c>SetupCommandTests</c>.</summary>
     internal const string ImportPrompt = "Import past sessions from this machine?";
 
+    /// <summary>Asked instead of <see cref="ImportPrompt"/> when the project checklist follows a yes, so the
+    /// question is not read as all or nothing. Verbatim, pinned by <c>SetupCommandTests</c>.</summary>
+    internal const string ImportPromptBeforeChecklist = "Import past sessions from this machine? You choose which projects next.";
+
+    internal static string ChecklistCountLine(IReadOnlyList<SetupImportChoice> choices) {
+        var repos   = choices.Count(c => c.Repo is not null);
+        var folders = choices.Count(c => c.Folder is not null);
+        var named   = new List<string>();
+        if (repos > 0) named.Add(repos == 1 ? "1 repository" : $"{repos} repositories");
+        if (folders > 0) named.Add(folders == 1 ? "1 folder" : $"{folders} folders");
+
+        return $"{string.Join(" and ", named)} found; the next step lists them.";
+    }
+
+    internal const string RememberedHarnessDeclineLine =
+        "Not installing kcap into these harnesses: an earlier setup of this installation was told not to. Run kcap setup --local at a terminal to be asked again.";
+
+    internal const string HarnessDeclineNotSavedLine =
+        "Could not save this answer, so a later unattended setup would install kcap into these harnesses. Pass --skip-harnesses to it.";
+
+    internal const string LeftOutNotSavedLine =
+        "Could not save what this import leaves out, so a later setup would import it. Pass --skip-import-repo or --skip-import-folder to it again.";
+
+    internal const string RememberedImportDeclineLine =
+        "Not importing past sessions: an earlier setup of this installation was told not to. Run kcap import --all to import them, or kcap setup --local at a terminal to be asked again.";
+
+    internal const string ImportDeclineNotSavedLine =
+        "Could not save this answer, so a later unattended setup would import every past session on this machine. Pass --skip-import to it.";
+
+    /// <summary>A decline that is not saved is the one that matters: an unattended run without it installs.</summary>
+    internal static LocalSetupAnswers RememberHarnesses(LocalSetupAnswers remembered, bool install, ConfigRoot config) {
+        var answers = remembered with { Harnesses = install };
+        if (!answers.Save(config) && !install) AnsiConsole.MarkupLine($"  [yellow]![/] {Markup.Escape(HarnessDeclineNotSavedLine)}");
+
+        return answers;
+    }
+
     internal const string ChooseProjectsTitle =
-        "Which projects should this import include? Unticking one leaves it out of this import only.";
+        "Which projects should this import include? Unticking one leaves it out of the import, not out of recording.";
 
     /// <summary>Said whenever a project is left out, so it is not read as a setting that stops recording it.</summary>
     internal const string LeftOutNote =
@@ -1735,7 +1852,7 @@ sealed class SetupCommand(
         bool                          AuthSatisfied,
         bool                          SkipImport,
         bool                          NoPrompt,
-        Func<bool>                    PromptYesNo,
+        Func<string, bool>            PromptYesNo,
         ProfileContext                Profiles,
         string                        ProfileName,
         string                        ServerUrl,
@@ -1752,7 +1869,10 @@ sealed class SetupCommand(
         ImportSkip?                   Skip = null,
         IntelligenceSetupResponse?    Intelligence = null,
         bool?                         ImportOutcomes = null,
-        Func<IReadOnlyList<SetupImportChoice>, IReadOnlyList<SetupImportChoice>>? ChooseProjects = null);
+        Func<IReadOnlyList<SetupImportChoice>, IReadOnlyList<SetupImportChoice>>? ChooseProjects = null,
+        bool?                         RememberedImport = null,
+        Func<bool, bool>?             ImportAnswered = null,
+        Func<ImportSkip, bool>?       LeftOut = null);
 
     /// <summary><see cref="RunId"/> and <see cref="Handoff"/> are null whenever the foreground pass
     /// never ran (browser-answered, skipped, declined or <c>--no-prompt</c>). <see cref="PasteBlock"/>
@@ -1799,6 +1919,18 @@ sealed class SetupCommand(
             return new ImportStepResult(false, null, null, null);
         }
 
+        if (SetupDecisions.RepeatsImportDecline(inputs.SkipImport, inputs.NoPrompt, inputs.RememberedImport)) {
+            AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(RememberedImportDeclineLine)}[/]");
+
+            return new ImportStepResult(false, null, null, null);
+        }
+
+        // A "no" that is not saved is the one that matters: an unattended run without it imports everything.
+        void RememberImport(bool import) {
+            if (inputs.ImportAnswered?.Invoke(import) == false && !import)
+                AnsiConsole.MarkupLine($"  [yellow]![/] {Markup.Escape(ImportDeclineNotSavedLine)}");
+        }
+
         var                     unattributedOnDisk = 0;
         ImportDiscoverySummary? found              = null;
 
@@ -1839,34 +1971,41 @@ sealed class SetupCommand(
             return new ImportStepResult(false, null, null, null);
         }
 
+        var skip = inputs.Skip ?? ImportSkip.None;
+        IReadOnlyList<SetupImportChoice> choices = !inputs.NoPrompt && found is not null && inputs.ChooseProjects is not null
+            ? SetupImportChoice.From(found, skip)
+            : [];
+
+        // One ticked project is what the yes just answered for; one a saved answer left out still has to be offered.
+        var checklistFollows = choices.Count > 1 || choices is [{ Included: false }];
+        if (checklistFollows) AnsiConsole.MarkupLine($"  {Markup.Escape(ChecklistCountLine(choices))}");
+
+        var question = checklistFollows ? ImportPromptBeforeChecklist : ImportPrompt;
         var decision = SetupDecisions.DecideImport(
-            inputs.AuthSatisfied, inputs.SkipImport, inputs.NoPrompt, inputs.PromptYesNo);
+            inputs.AuthSatisfied, inputs.SkipImport, inputs.NoPrompt, () => inputs.PromptYesNo(question));
 
         if (decision.Outcome == SetupDecisions.ImportOutcome.Skip) {
             AnsiConsole.MarkupLine(decision.SkipReason is { } reason
                 ? $"  [dim]Skipping import — {Markup.Escape(reason)}.[/]"
                 : "  [dim]Run [cyan]kcap import --all[/] any time.[/]");
 
+            // A null reason is a declined prompt; the only other answer is the flag.
+            if (inputs.SkipImport || decision.SkipReason is null) RememberImport(false);
+
             return new ImportStepResult(false, null, null, null);
         }
 
-        var skip = inputs.Skip ?? ImportSkip.None;
+        if (checklistFollows && inputs.ChooseProjects is { } choose) {
+            var kept = choose(choices);
 
-        if (!inputs.NoPrompt && found is not null && inputs.ChooseProjects is { } choose) {
-            var choices = SetupImportChoice.From(found, skip);
+            if (kept.Count == 0) {
+                AnsiConsole.MarkupLine("  [dim]Nothing chosen to import. Run [cyan]kcap import[/] any time.[/]");
+                RememberImport(false);
 
-            // One project is what the yes just answered for; a list is a question only with two.
-            if (choices.Count > 1) {
-                var kept = choose(choices);
-
-                if (kept.Count == 0) {
-                    AnsiConsole.MarkupLine("  [dim]Nothing chosen to import. Run [cyan]kcap import[/] any time.[/]");
-
-                    return new ImportStepResult(false, null, null, null);
-                }
-
-                skip = SetupImportChoice.SkipFor(choices, kept, skip);
+                return new ImportStepResult(false, null, null, null);
             }
+
+            skip = SetupImportChoice.SkipFor(choices, kept, skip);
         }
 
         if (found is not null && inputs.Intelligence is { Mode: not IntelligenceModes.None } applied
@@ -1874,8 +2013,16 @@ sealed class SetupCommand(
               - SetupImportChoice.From(found, skip).Where(c => !c.Included).Sum(c => c.Sessions), applied) is { } cost)
             AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(cost)}[/]");
 
+        // An unattended run took the default rather than answering, so only an asked run records its yes.
+        if (!inputs.NoPrompt) RememberImport(true);
+
+        // Recorded once the import is certain to run, empty included, so ticking a project again is remembered too.
+        var leftOutSaved = inputs.LeftOut?.Invoke(skip) ?? false;
+
         if (!skip.IsEmpty) {
-            AnsiConsole.MarkupLine($"  Leaving out of this import only: {Markup.Escape(string.Join(", ", skip.Labels))}.");
+            var leftOutFor = leftOutSaved ? "this import and later setup runs of this installation" : "this import only";
+            AnsiConsole.MarkupLine($"  Leaving out of {leftOutFor}: {Markup.Escape(string.Join(", ", skip.Labels))}.");
+            if (inputs.LeftOut is not null && !leftOutSaved) AnsiConsole.MarkupLine($"  [yellow]![/] {Markup.Escape(LeftOutNotSavedLine)}");
             AnsiConsole.MarkupLine($"  [dim]{Markup.Escape(LeftOutNote)}[/]");
         }
 
@@ -1971,9 +2118,9 @@ sealed class SetupCommand(
     /// <summary>How long the server's background work on an import takes at its daily pace, or null when there is nothing
     /// to say.</summary>
     internal static string? ImportCostLine(int sessions, IntelligenceSetupResponse intelligence) =>
-        sessions <= 0 || intelligence.DaysFor(sessions) is not { } days ? null
+        sessions <= 0 || intelligence.DurationFor(sessions) is not { } duration ? null
         : $"The server works through {sessions:N0} imported session{(sessions == 1 ? "" : "s")} at up to "
-        + $"{intelligence.BacklogSessionTouchesPerDay:N0} a day: about {days} day{(days == 1 ? "" : "s")}.";
+        + $"{intelligence.BacklogSessionTouchesPerDay:N0} a day: {duration}.";
 
     static void PrintDiscovery(int repos, int attributed, int unmatched) =>
         AnsiConsole.MarkupLine(
@@ -2187,7 +2334,7 @@ sealed class SetupCommand(
             .. claudeRoots.Select(r => (IImportSource)new ClaudeImportSource(config, r, router, time)),
             .. codexRoots.Select(r => (IImportSource)new CodexImportSource(config, r, router, time)),
             new CursorImportSource(config, cursor.ProjectsDir, cursor.WorkspaceStorageDir, router, time, titlePaths: cursor),
-            new CopilotImportSource(config, harnesses.Of<CopilotHarness>().Paths, router, time),
+            new CopilotImportSource(config, harnesses.Of<CopilotHarness>().Paths, harnesses.Of<CopilotHarness>().Paths.VsCodeWorkspaceStorageDirs, router, time),
             new GeminiImportSource(harnesses.Of<GeminiHarness>().Paths.TmpDir, time),
             new KiroImportSource(config, harnesses.Of<KiroHarness>().Paths.SessionsDir, harnesses.Of<KiroHarness>().Crew, router, time),
             new PiImportSource(config, harnesses.Of<PiHarness>().Paths.SessionsDir, router, time),
@@ -2351,10 +2498,10 @@ sealed class SetupCommand(
             ? [SetupEdition.Choice.Local, SetupEdition.Choice.Cloud, SetupEdition.Choice.Existing]
             : [SetupEdition.Choice.Cloud, SetupEdition.Choice.Existing];
 
-        var choice = AnsiConsole.Prompt(new SelectionPrompt<SetupEdition.Choice>()
+        var choice = WizardChoice.Ask(AnsiConsole.Console, new SelectionPrompt<SetupEdition.Choice>()
             .Title("How do you want to run kcap?")
             .AddChoices(offered)
-            .UseConverter(SetupEdition.Label));
+            .UseConverter(SetupEdition.Label), SetupEdition.Label);
 
         telemetry.SettleEdition(choice == SetupEdition.Choice.Local);
         telemetry.Funnel.EditionChosen(SetupEdition.Wire(choice));
@@ -3301,28 +3448,33 @@ sealed class SetupCommand(
     /// True only once every event carries kcap's hook. The roots are written whenever any kcap hook is in
     /// the file, complete or not: a hook Muse runs finds its session log only through them.
     /// </summary>
-    internal static bool InstallMuseHooks(string settingsPath, UserHome home, MusePaths muse, Action<string> writeLine) {
-        var installed = MuseHooksInstaller.Install(settingsPath) is SettingsEdit.Changed or SettingsEdit.Unchanged
-                     && MuseHooksInstaller.HasAllHooks(settingsPath);
+    internal static SettingsEdit InstallMuseHooks(string settingsPath, UserHome home, MusePaths muse, Action<string> writeLine) {
+        var edit = MuseHooksInstaller.Install(settingsPath);
+        if (!MuseHooksInstaller.HasAllHooks(settingsPath)) edit = SettingsEdit.Failed;
 
         if (MuseHooksInstaller.IsWired(settingsPath) && !MuseHookRoots.Persist(home, muse))
             writeLine($"  [yellow]⚠[/] Could not write {Markup.Escape(MuseHookRoots.PathFor(home))} — "
                     + "Muse hooks may look for sessions outside this shell's XDG roots.");
 
-        return installed;
+        return edit;
     }
 
+    /// <summary>For an installer that cannot tell a current file from one it rewrote.</summary>
+    static SettingsEdit Edited(bool installed) => installed ? SettingsEdit.Changed : SettingsEdit.Failed;
+
     /// <summary>
-    /// Codex runs only hooks the user has trusted, so installed hooks record nothing until then. Codex offers
-    /// no command that trusts them: only its interactive prompt, <c>/hooks</c>, or the desktop app's settings,
-    /// and a per-run bypass flag. Null when this run installed no Codex hooks.
+    /// Codex runs only hooks it trusts. When kcap could not have Codex trust them, the line names the routes that
+    /// still work: its interactive prompt, <c>/hooks</c>, the desktop app's settings, or a per-run bypass flag.
+    /// Null when this run installed no Codex hooks.
     /// </summary>
-    internal static string? CodexTrustReminder(CodingAgentsStep.Result result) => result.CodexHooksInstalled
-        ? "  [yellow]![/] Codex records nothing until you trust the kcap hooks, and [cyan]codex exec[/] never shows "
+    internal static string? CodexTrustReminder(CodingAgentsStep.Result result, CodexHookTrustSeed? seed) =>
+        !result.CodexHooksInstalled ? null
+        : seed is CodexHookTrustSeed.Trusted or CodexHookTrustSeed.AlreadyTrusted
+            ? "  [green]✓[/] Codex trusts the kcap hooks, so [cyan]codex exec[/] records too"
+        : "  [yellow]![/] Codex records nothing until you trust the kcap hooks, and [cyan]codex exec[/] never shows "
         + "the trust prompt. Run [cyan]codex[/] once and accept it (or trust them in /hooks), or in the Codex desktop app "
-        + "use Settings → Hooks. A script that only runs [cyan]codex exec[/] can pass "
-        + "[cyan]--dangerously-bypass-hook-trust[/] to each run instead."
-        : null;
+        + "use Settings > Hooks. A script that only runs [cyan]codex exec[/] can pass "
+        + "[cyan]--dangerously-bypass-hook-trust[/] to each run instead.";
 
     /// <summary>
     /// The closing list of everything outside kcap's own config that this run changed, so nothing it

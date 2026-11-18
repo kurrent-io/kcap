@@ -11,7 +11,7 @@ namespace Capacitor.Cli.Tests.Unit.Harness.Pi;
 /// The Pi memory-injection contract, two halves with no compiler between them: the CLI writes a RAW
 /// fragment to stdout on session-start, and the generated kcap.ts extension captures it and appends it
 /// to each turn's chained system prompt in before_agent_start. The extension half is asserted as TEXT
-/// (PiExtensionInstallerTests / Task 2); only the gated live cert (PiMemoryIndexLiveCertTests, Task 3)
+/// (PiExtensionInstallerTests); only the gated live cert (PiMemoryIndexLiveCertTests)
 /// proves model receipt.
 /// </summary>
 public class PiSessionStartMemoryTests {
@@ -27,6 +27,19 @@ public class PiSessionStartMemoryTests {
     PiHookCommand Hook(string serverUrl = "http://localhost:5100") =>
         new(Config.Root, Resolutions.At(serverUrl, Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At(serverUrl, Config.Root), new FixedCapacitorHttpClient()), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory));
     static string Render(string? fragment) => PiHookCommand.RenderMemoryOutput(fragment);
+
+    /// <summary>A resume after the profile's repository list changed has to be judged afresh.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_sessions_end_lifts_an_exclusion_and_no_persons_disable(bool excluded) {
+        const string session = "11111111222233334444555555555555";
+        if (excluded) DisabledSessions.Exclude(session, Config.Root); else DisabledSessions.Mark(session, Config.Root);
+
+        await Hook("http://127.0.0.1:1").Handle(["--event", "session-end", "--file", "/x/11111111-2222-3333-4444-555555555555.jsonl"], TextWriter.Null);
+
+        await Assert.That(DisabledSessions.IsDisabled(session, Config.Root)).IsEqualTo(!excluded);
+    }
 
     // Byte-identical to pre-feature behaviour on every no-index path (opt-out, failure, spent lease):
     // the extension treats marker-prefixed stdout as a fragment, so a placeholder would be appended

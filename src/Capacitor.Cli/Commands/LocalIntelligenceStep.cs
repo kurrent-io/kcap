@@ -1,11 +1,14 @@
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Setup.Intelligence;
 
 namespace Capacitor.Cli.Commands;
 
 /// <summary>
 /// <c>kcap setup --local</c>'s background intelligence question. A flag answers it; otherwise a person is asked until
-/// the server takes an answer or they choose not now. Not now, as a flag too, stores nothing, so a re-run never clears
-/// what an earlier one chose. A refused or unreachable answer never fails setup: it says how to answer later.
+/// the server takes an answer or they choose not now, and a run that can do neither posts nothing. Not now stores
+/// nothing either, so a re-run never clears what an earlier one chose. A refused or unreachable answer never fails
+/// setup: it says how to answer later. An applied answer is recorded for <paramref name="installationId"/>, since
+/// whether this CLI may call a model for the installation's sessions depends on it.
 /// </summary>
 /// <param name="questions">Null when nobody can be asked.</param>
 /// <param name="say">One line for the person, unformatted.</param>
@@ -14,13 +17,18 @@ sealed class LocalIntelligenceStep(
         Func<Task<string[]>> harnesses,
         Func<string, string?> variable,
         IIntelligenceQuestions? questions,
-        Action<string> say) {
+        Action<string> say,
+        ConfigRoot config,
+        string installationId) {
     public const string ProviderChoice = "provider";
 
-    const string Later = "kcap local intelligence <answer> sets it up later.";
+    /// <summary>The command that sets it up, with every answer that turns it on.</summary>
+    public static string Later { get; } =
+        $"To set it up later, run kcap local intelligence with one of: {string.Join(", ", IntelligenceAnswer.Tokens.Where(t => t != IntelligenceAnswer.NoneToken))}.";
 
+    /// <param name="existing">The installation was there before this run, so the server may already hold an answer.</param>
     /// <returns>The answer as the server applied it, or null when none was.</returns>
-    public async Task<IntelligenceSetupResponse?> RunAsync(LocalSetupArgs args) {
+    public async Task<IntelligenceSetupResponse?> RunAsync(LocalSetupArgs args, bool existing = false) {
         if (args.Intelligence is { } given) {
             if (given == IntelligenceAnswer.None) return NotNow();
 
@@ -38,7 +46,11 @@ sealed class LocalIntelligenceStep(
             };
         }
 
-        if (questions is null) return Unset("Background intelligence: not chosen.");
+        // Nothing is posted either way, so a reuse keeps whatever the server already runs.
+        if (questions is null)
+            return Unset(existing
+                ? "Background intelligence: left as it was."
+                : "Background intelligence: off, so nothing runs and nothing leaves this machine for it.");
 
         var offered = await harnesses();
 
@@ -85,6 +97,8 @@ sealed class LocalIntelligenceStep(
 
     IntelligenceSetupResponse Applied(IntelligenceSetupResponse applied) {
         foreach (var line in LocalIntelligenceCommand.Summary(applied)) say(line);
+
+        if (!LocalIntelligenceCommand.Record(config, installationId, applied)) say(LocalIntelligenceCommand.RecordNotSavedLine);
 
         return applied;
     }

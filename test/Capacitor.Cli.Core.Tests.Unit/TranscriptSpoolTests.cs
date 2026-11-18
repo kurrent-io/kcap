@@ -100,6 +100,30 @@ public class TranscriptSpoolTests {
         await Assert.That(spool.NeedsImport(Sid)).IsTrue();
     }
 
+    [Test, NotInParallel]
+    public async Task A_hook_hears_of_a_marker_it_could_not_write_on_stderr() {
+        using var tmp    = new TempDir();
+        using var stderr = ConsoleOutput.StartErrorCapture();
+        var blocked = tmp.CreateFile("blocked", "");
+
+        await Assert.That(new TranscriptSpool(blocked, TimeProvider.System).MarkNeedsImport(Sid, "why")).IsFalse();
+
+        await Assert.That(stderr.GetCapturedError()).Contains("failed to write needs-import marker");
+    }
+
+    [Test, NotInParallel]
+    public async Task A_recorder_hears_of_a_marker_it_could_not_write_in_its_own_log_and_not_on_stderr() {
+        using var tmp    = new TempDir();
+        using var stderr = ConsoleOutput.StartErrorCapture();
+        var blocked = tmp.CreateFile("blocked", "");
+        var logged  = new List<string>();
+
+        await Assert.That(new TranscriptSpool(blocked, TimeProvider.System) { FailureLog = logged.Add }.MarkNeedsImport(Sid, "why")).IsFalse();
+
+        await Assert.That(logged.Single()).Contains("failed to write needs-import marker");
+        await Assert.That(stderr.GetCapturedError()).IsEmpty();
+    }
+
     /// <summary>
     /// The key must stay filename-safe: it becomes the basename, and the drain parses the prefix
     /// before the first dot. Anything carrying a separator is still rejected.
@@ -143,5 +167,33 @@ public class TranscriptSpoolTests {
                                () => false, CancellationToken.None);
         await Assert.That(seen).IsEquivalentTo(["""{"n":1}""", """{"n":2}"""]);
         await Assert.That(spool.HasBacklog(Sid)).IsFalse();
+    }
+
+    /// <summary>Each of these goes out on the next drain pass, whichever process runs it.</summary>
+    [Test]
+    public async Task A_discard_leaves_the_session_nothing_to_replay() {
+        using var tmp = new TempDir();
+        const string other = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        var spool = new TranscriptSpool(tmp.Path, time: TimeProvider.System);
+        spool.Append(Sid, """{"lines":["a"],"line_numbers":[0]}""");
+        spool.MarkNeedsImport(Sid, "a reason");
+        spool.MarkNeedsImport(Sid, "an owner's reason", owner: 4242);
+        tmp.CreateFile($"{Sid}.0.transcript.draining", """{"lines":["b"],"line_numbers":[1]}""");
+        spool.Append(other, """{"lines":["c"],"line_numbers":[0]}""");
+
+        spool.Discard(Sid);
+
+        await Assert.That(spool.HasBacklog(Sid)).IsFalse();
+        await Assert.That(spool.NeedsImport(Sid)).IsFalse();
+        await Assert.That(spool.SessionIdsWithBacklog()).IsEquivalentTo([other]);
+    }
+
+    [Test]
+    public async Task A_discard_of_a_session_with_nothing_held_does_nothing() {
+        using var tmp = new TempDir();
+
+        new TranscriptSpool(tmp.PathTo("never-made"), time: TimeProvider.System).Discard(Sid);
+
+        await Assert.That(Directory.Exists(tmp.PathTo("never-made"))).IsFalse();
     }
 }

@@ -1,0 +1,551 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "SessionStarted",
+        "id": "a4e6c83b-0164-5012-a6cf-6e9819ffb114",
+        "timestamp": "2026-06-17T21:10:25.1350000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:10:25.135Z",
+        "metadata": {
+          "$pi_entry_id": "019ed76b-c66e-74ed-b751-5ab9d7d58a74"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "timestamp": "2026-06-17T21:10:25.135Z",
+          "extensions": {
+            "pi": {
+              "cwd": "/work/repo",
+              "version": 3,
+              "parent_session": null,
+              "source": null,
+              "pi_version": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": []
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "7beb2cb8-a87e-5bc5-b8ed-c1592dbb4a2c",
+        "timestamp": "2026-06-17T21:10:36.0220000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:10:36.022Z",
+        "metadata": {
+          "$pi_entry_id": "9149edd4",
+          "$pi_parent_id": "d74ff1c3"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "content": "Create a file notes.txt containing the single line \u0022hello\u0022",
+          "timestamp": "2026-06-17T21:10:36.022Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "6689e1f5-5da4-5287-b55e-18d2712662ca",
+        "timestamp": "2026-06-17T21:10:38.3280000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:10:38.328Z",
+        "metadata": {
+          "$pi_entry_id": "087eed8a",
+          "$pi_parent_id": "9149edd4",
+          "$pi_render_parent": "9149edd4"
+        },
+        "usage": {
+          "input_tokens": "2",
+          "output_tokens": "73",
+          "total_tokens": "3760",
+          "cached_input_tokens": "0",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 3685,
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_01TF56gH1zE6uKAw4jmsnqQx",
+              "tool_name": "write",
+              "arguments": {
+                "path": "notes.txt",
+                "content": "hello\n"
+              },
+              "tool_kind": "edit"
+            }
+          ],
+          "timestamp": "2026-06-17T21:10:38.328Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "toolUse",
+              "parent_id": "9149edd4",
+              "cost": 0.02486625
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 5,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "b340b9d4-1ea7-58fc-ac1a-ed3ec6691fb5",
+        "timestamp": "2026-06-17T21:10:38.3350000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:10:38.335Z",
+        "metadata": {
+          "$pi_entry_id": "a70d1bb9",
+          "$pi_parent_id": "087eed8a",
+          "$pi_render_parent": "087eed8a"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "call_id": "toolu_01TF56gH1zE6uKAw4jmsnqQx",
+          "result": "\u003Ctool output elided for fixture\u003E",
+          "timestamp": "2026-06-17T21:10:38.335Z",
+          "extensions": {
+            "pi": {
+              "success": true,
+              "tool_name": "write",
+              "details": null,
+              "details_json": null,
+              "subagent": null,
+              "command": null,
+              "exit_code": null,
+              "user_bash": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 6,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "8549d789-e8e8-5471-93a1-2269d97f8eda",
+        "timestamp": "2026-06-17T21:10:40.8100000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:10:40.810Z",
+        "metadata": {
+          "$pi_entry_id": "63ed7d16",
+          "$pi_parent_id": "a70d1bb9",
+          "$pi_render_parent": "a70d1bb9"
+        },
+        "usage": {
+          "input_tokens": "2",
+          "output_tokens": "18",
+          "total_tokens": "3801",
+          "cached_input_tokens": "3685",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 96,
+        "payload": {
+          "content": "Assistant response.",
+          "timestamp": "2026-06-17T21:10:40.810Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "stop",
+              "parent_id": "a70d1bb9",
+              "cost": 0.0029024999999999997
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 7,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "5c2b09d9-03fa-5903-b5eb-8bf9be41bd25",
+        "timestamp": "2026-06-17T21:10:45.7420000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:10:45.742Z",
+        "metadata": {
+          "$pi_entry_id": "18f22bdc",
+          "$pi_parent_id": "63ed7d16",
+          "$pi_render_parent": "63ed7d16"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "content": "What files are in this directory?",
+          "timestamp": "2026-06-17T21:10:45.742Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 8,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "182c9cc5-469f-55a4-aa41-a5ab1e7a7a27",
+        "timestamp": "2026-06-17T21:10:47.6190000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:10:47.619Z",
+        "metadata": {
+          "$pi_entry_id": "7b95471f",
+          "$pi_parent_id": "18f22bdc",
+          "$pi_render_parent": "18f22bdc"
+        },
+        "usage": {
+          "input_tokens": "2",
+          "output_tokens": "49",
+          "total_tokens": "3860",
+          "cached_input_tokens": "3781",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 28,
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_01RrzjHmRfoBBLbanZvyLh9H",
+              "tool_name": "bash",
+              "arguments": {
+                "command": "ls -la"
+              },
+              "tool_kind": "execute"
+            }
+          ],
+          "timestamp": "2026-06-17T21:10:47.619Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "toolUse",
+              "parent_id": "18f22bdc",
+              "cost": 0.0033004999999999996
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 9,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "58e7bd84-c9c4-56b9-b41d-1c1be153d9d4",
+        "timestamp": "2026-06-17T21:10:47.6360000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:10:47.636Z",
+        "metadata": {
+          "$pi_entry_id": "95aeae5e",
+          "$pi_parent_id": "7b95471f",
+          "$pi_render_parent": "7b95471f"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "call_id": "toolu_01RrzjHmRfoBBLbanZvyLh9H",
+          "result": "\u003Ctool output elided for fixture\u003E",
+          "timestamp": "2026-06-17T21:10:47.636Z",
+          "extensions": {
+            "pi": {
+              "success": true,
+              "tool_name": "bash",
+              "details": null,
+              "details_json": null,
+              "subagent": null,
+              "command": null,
+              "exit_code": null,
+              "user_bash": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 10,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "47cda073-6662-56fe-b226-074872e824df",
+        "timestamp": "2026-06-17T21:10:49.2710000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:10:49.271Z",
+        "metadata": {
+          "$pi_entry_id": "d6c8afa2",
+          "$pi_parent_id": "95aeae5e",
+          "$pi_render_parent": "95aeae5e"
+        },
+        "usage": {
+          "input_tokens": "2",
+          "output_tokens": "36",
+          "total_tokens": "4041",
+          "cached_input_tokens": "3809",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 194,
+        "payload": {
+          "content": "Assistant response.",
+          "timestamp": "2026-06-17T21:10:49.271Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "stop",
+              "parent_id": "95aeae5e",
+              "cost": 0.004027
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 11,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "6f02c3b8-4b69-5c47-a4d9-965f9c36bf9e",
+        "timestamp": "2026-06-17T21:11:53.2110000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:11:53.211Z",
+        "metadata": {
+          "$pi_entry_id": "95a1343b",
+          "$pi_parent_id": "d74ff1c3"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "content": "Create a file notes.txt containing the single line \u0022goodbye\u0022",
+          "timestamp": "2026-06-17T21:11:53.211Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 12,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantThinkingGenerated",
+        "id": "3d483b76-d73c-5f15-a4d3-44eb5e576ba9",
+        "timestamp": "2026-06-17T21:11:56.3190000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:11:56.319Z",
+        "metadata": {
+          "$pi_entry_id": "14899cbd",
+          "$pi_parent_id": "95a1343b",
+          "$pi_render_parent": "95a1343b"
+        },
+        "usage": {
+          "input_tokens": "2",
+          "output_tokens": "82",
+          "total_tokens": "3771",
+          "cached_input_tokens": "3595",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 92,
+        "payload": {
+          "content": "Assistant reasoning.",
+          "timestamp": "2026-06-17T21:11:56.319Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "toolUse",
+              "parent_id": "95a1343b",
+              "cost": 0.0044325
+            }
+          }
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "180e4edf-f7e2-5a92-9c6c-15cb78559e94",
+        "timestamp": "2026-06-17T21:11:56.3190001\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:11:56.319Z",
+        "metadata": {
+          "$pi_entry_id": "14899cbd",
+          "$pi_parent_id": "95a1343b",
+          "$pi_render_parent": "95a1343b"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "toolu_0117jkeRfi6Zkiz31SmcE5pe",
+              "tool_name": "write",
+              "arguments": {
+                "path": "notes.txt",
+                "content": "goodbye\n"
+              },
+              "tool_kind": "edit"
+            }
+          ],
+          "timestamp": "2026-06-17T21:11:56.319000100Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 13,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "823d4373-f275-5fd4-8fe8-e185961a9cfb",
+        "timestamp": "2026-06-17T21:11:56.3240000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:11:56.324Z",
+        "metadata": {
+          "$pi_entry_id": "46c14f04",
+          "$pi_parent_id": "14899cbd",
+          "$pi_render_parent": "14899cbd"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "call_id": "toolu_0117jkeRfi6Zkiz31SmcE5pe",
+          "result": "\u003Ctool output elided for fixture\u003E",
+          "timestamp": "2026-06-17T21:11:56.324Z",
+          "extensions": {
+            "pi": {
+              "success": true,
+              "tool_name": "write",
+              "details": null,
+              "details_json": null,
+              "subagent": null,
+              "command": null,
+              "exit_code": null,
+              "user_bash": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 14,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "76a244ea-4a03-50ff-a153-62c9a80c5c90",
+        "timestamp": "2026-06-17T21:11:58.0460000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:11:58.046Z",
+        "metadata": {
+          "$pi_entry_id": "36bbbeae",
+          "$pi_parent_id": "46c14f04",
+          "$pi_render_parent": "46c14f04"
+        },
+        "usage": {
+          "input_tokens": "2",
+          "output_tokens": "21",
+          "total_tokens": "3816",
+          "cached_input_tokens": "3687",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 106,
+        "payload": {
+          "content": "Assistant response.",
+          "timestamp": "2026-06-17T21:11:58.046Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "stop",
+              "parent_id": "46c14f04",
+              "cost": 0.003041
+            }
+          }
+        }
+      }
+    ]
+  },
+  {
+    "line": 15,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "a9f423be-6387-52dd-9710-6f51f02bdab5",
+        "timestamp": "2026-06-17T21:12:23.4180000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:12:23.418Z",
+        "metadata": {
+          "$pi_entry_id": "fe2aed91",
+          "$pi_parent_id": "36bbbeae",
+          "$pi_render_parent": "36bbbeae"
+        },
+        "usage": null,
+        "cacheCreation": null,
+        "payload": {
+          "content": "/exit",
+          "timestamp": "2026-06-17T21:12:23.418Z"
+        }
+      }
+    ]
+  },
+  {
+    "line": 16,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "01ac7c41-677e-5821-92b6-8a9b55876cd8",
+        "timestamp": "2026-06-17T21:12:25.2090000\u002B00:00",
+        "recordTimestamp": "2026-06-17T21:12:25.209Z",
+        "metadata": {
+          "$pi_entry_id": "7fba83b0",
+          "$pi_parent_id": "fe2aed91",
+          "$pi_render_parent": "fe2aed91"
+        },
+        "usage": {
+          "input_tokens": "2",
+          "output_tokens": "11",
+          "total_tokens": "3832",
+          "cached_input_tokens": "3793",
+          "model": "claude-opus-4-8"
+        },
+        "cacheCreation": 26,
+        "payload": {
+          "content": "Assistant response.",
+          "timestamp": "2026-06-17T21:12:25.209Z",
+          "extensions": {
+            "pi": {
+              "provider": "anthropic",
+              "model": "claude-opus-4-8",
+              "stop_reason": "stop",
+              "parent_id": "fe2aed91",
+              "cost": 0.0023439999999999997
+            }
+          }
+        }
+      }
+    ]
+  }
+]

@@ -15,11 +15,13 @@ sealed class LocalUnitLock : IDisposable {
 
     LocalUnitLock(FileStream @lock) => _lock = @lock;
 
+    /// <summary>Anchored at the home, not at KCAP_LOCAL_ROOT or KCAP_CONFIG_DIR: the unit is one per user, so roots
+    /// with different overrides must meet at one lock.</summary>
+    public static string PathFor(UserHome home) => Path.Combine(home.Path, ".config", "kcap", "local-unit.lock");
+
     public static async Task<LocalUnitLock> AcquireAsync(UserHome home, TimeSpan wait, TimeProvider time, CancellationToken ct) {
-        // Anchored at the home, not at KCAP_LOCAL_ROOT or KCAP_CONFIG_DIR: the unit is one per user,
-        // so roots with different overrides must meet at one lock.
-        var dir  = Path.Combine(home.Path, ".config", "kcap");
-        var path = Path.Combine(dir, "local-unit.lock");
+        var path = PathFor(home);
+        var dir  = Path.GetDirectoryName(path)!;
 
         DurableDirectory.Ensure(dir, home.Path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 

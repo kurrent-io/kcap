@@ -147,6 +147,25 @@
         <Style Selector="TextBlock.toolLine.path">
             <Setter Property="TextTrimming" Value="{x:Static views:ChatTrimming.PathEllipsis}" />
         </Style>
+        <Style Selector="TextBlock.toolLine.openable">
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="TextBlock.toolLine.openable:pointerover">
+            <Setter Property="TextDecorations" Value="Underline" />
+        </Style>
+        <Style Selector="Border.toolOpenWarning">
+            <Setter Property="Margin" Value="0,6,0,4" />
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="TextBlock.toolOpenWarningText">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
         <!-- Must stay after .toolLine: same specificity, so the later rule is the one that wins. -->
         <Style Selector="SelectableTextBlock.toolLine.prose,
                          TextBlock.toolLine.prose">
@@ -191,6 +210,13 @@
         <Style Selector="ContentControl.pendingCard.packsWithPrevious">
             <Setter Property="Margin" Value="0,4,0,12" />
         </Style>
+        <!-- Invisible: the resize cursor is the only sign of a handle. The transparent fill is what
+             makes it hit-testable. -->
+        <Style Selector="Border.chatColumnHandle">
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Cursor" Value="SizeWestEast" />
+        </Style>
         <Style Selector="Border.thinkingBody">
             <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
             <Setter Property="BorderThickness" Value="2,0,0,0" />
@@ -198,16 +224,34 @@
             <Setter Property="Padding" Value="14,0,0,0" />
         </Style>
     </UserControl.Styles>
-    <Grid RowDefinitions="Auto,*,Auto">
-        <!-- What the hand-off carried over from the previous session; absent for any other session. -->
+    <UserControl.Resources>
+        <DataTemplate x:Key="ExpandChevron" x:DataType="vm:IExpandableItem">
+            <Panel Width="12" Height="12" VerticalAlignment="Center">
+                <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
+                               Foreground="{StaticResource KcapMutedBrush}" />
+                <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
+                               Foreground="{StaticResource KcapMutedBrush}" />
+            </Panel>
+        </DataTemplate>
+    </UserControl.Resources>
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
+        <!-- What the hand-off carried over from the previous session, in its own row above the transcript; absent for any other session or once dismissed. -->
         <Border x:Name="HandoffOutcomeCard" Grid.Row="0" Margin="22,14,22,0" Padding="13,10"
                 DataContext="{Binding HandoffOutcome}" x:DataType="vm:HandoffOutcomeViewModel"
                 IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}"
                 Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
                 BorderThickness="1" CornerRadius="8">
             <StackPanel Spacing="6">
-                <TextBlock x:Name="HandoffOutcomeHeader" Text="{Binding Header}" FontSize="13.5" FontWeight="SemiBold"
-                           Foreground="{StaticResource KcapTextBrush}" TextWrapping="Wrap" />
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBlock x:Name="HandoffOutcomeHeader" Text="{Binding Header}" FontSize="13.5" FontWeight="SemiBold"
+                               Foreground="{StaticResource KcapTextBrush}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                    <Button x:Name="HandoffOutcomeDismiss" Grid.Column="1" Classes="kcapGhost" Padding="5" Margin="0,-5,-8,-5"
+                            VerticalAlignment="Top" Foreground="{StaticResource KcapMutedBrush}"
+                            Command="{Binding DismissCommand}" IsVisible="{Binding CanDismiss}"
+                            AutomationProperties.Name="Dismiss" ToolTip.Tip="Dismiss">
+                        <views:AppIcon Kind="X" Size="14" />
+                    </Button>
+                </Grid>
                 <Grid x:Name="HandoffOutcomeNote" ColumnDefinitions="Auto,*" ColumnSpacing="8" IsVisible="{Binding HasNote}">
                     <views:AppIcon Kind="CircleAlert" Size="12" VerticalAlignment="Center" IsVisible="{Binding NoteNeedsAttention}"
                                    Foreground="{StaticResource KcapWarningBrush}" />
@@ -236,17 +280,17 @@
         </Border>
         <!-- The template owns the ScrollViewer: that is the shape Avalonia virtualizes. An
              ItemsControl inside an external ScrollViewer is measured at infinite height. -->
-        <ItemsControl x:Name="ChatItems" Grid.Row="1" ItemsSource="{Binding Items}">
+        <ItemsControl x:Name="ChatItems" Grid.Row="2" ItemsSource="{Binding Items}">
             <ItemsControl.Template>
                 <ControlTemplate>
                     <ScrollViewer x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" BringIntoViewOnFocusChange="False">
-                        <views:ChatTailPanel x:DataType="vm:ChatTabViewModel">
+                        <views:ChatTailPanel x:Name="ChatTail" x:DataType="vm:ChatTabViewModel">
                             <!-- ItemsPanel does not reach the presenter on its own: without this
                                  template binding it falls back to its own default StackPanel and
                                  every row is realized. -->
-                            <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" Margin="22,18,22,0" />
+                            <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" Margin="0,18,0,0" />
                             <!-- Inside the scroll, so it sits under the last message and follows the tail. -->
-                            <StackPanel Orientation="Horizontal" Spacing="6" Margin="14,0,22,8" IsVisible="{Binding ShowsLiveNote}">
+                            <StackPanel Orientation="Horizontal" Spacing="6" Margin="-8,0,0,8" IsVisible="{Binding ShowsLiveNote}">
                                 <views:OuroMascot Width="32" Height="32" Margin="0,-5" IsPlaying="{Binding ShowsLiveNote}" />
                                 <TextBlock Text="{Binding ActivityNote}" VerticalAlignment="Center"
                                            Foreground="{StaticResource KcapMutedBrush}" FontSize="13.5" />
@@ -257,7 +301,7 @@
             </ItemsControl.Template>
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
-                    <views:ChatVirtualizingPanel />
+                    <views:ChatVirtualizingPanel LaneWidth="{Binding $parent[views:ChatTabView].LaneWidth}" />
                 </ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.DataTemplates>
@@ -320,7 +364,7 @@
                     </Border>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantTextItem">
-                    <StackPanel MaxWidth="660" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
+                    <StackPanel HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Classes="toolKindChip"
                                        Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
@@ -334,21 +378,13 @@
                     </StackPanel>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantThinkingItem">
-                    <StackPanel MaxWidth="660" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="4">
+                    <StackPanel HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="4">
                         <Button Classes="toolSummary thinkingSummary" HorizontalAlignment="Left"
                                 Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
                                 AutomationProperties.Name="{Binding HeaderLabel}">
                             <views:ChatKindHeader Label="{Binding HeaderLabel}"
-                                                  IconKind="{x:Static views:ToolCategoryIcons.ThinkingIcon}">
-                                <views:ChatKindHeader.Status>
-                                    <Panel Width="12" Height="12" VerticalAlignment="Center">
-                                        <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                                       Foreground="{StaticResource KcapMutedBrush}" />
-                                        <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                                       Foreground="{StaticResource KcapMutedBrush}" />
-                                    </Panel>
-                                </views:ChatKindHeader.Status>
-                            </views:ChatKindHeader>
+                                                  IconKind="{x:Static views:ToolCategoryIcons.ThinkingIcon}"
+                                                  Status="{Binding}" StatusTemplate="{StaticResource ExpandChevron}" />
                         </Button>
                         <Border Classes="thinkingBody" IsVisible="{Binding IsExpanded}">
                             <views:MarkdownView Classes="thinking" Text="{Binding Text}"
@@ -375,6 +411,7 @@
                             </StackPanel>
                         </Border>
                         <Border Classes="shellOutput chatSystemCard" Margin="0,8,0,0"
+                                MaxWidth="{Binding $parent[views:ChatTabView].LaneWidth}"
                                 IsVisible="{Binding HasOutput}">
                             <StackPanel Spacing="6">
                                 <views:ChatKindHeader Label="Output" IconKind="{x:Static views:ToolCategoryIcons.CommandIcon}" />
@@ -392,16 +429,8 @@
                                 <Button Classes="toolSummary" IsVisible="{Binding IsCollapsible}"
                                         Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
                                         AutomationProperties.Name="{Binding ToggleAccessibleName}">
-                                    <views:ChatKindHeader Label="{Binding HeaderLabel}" IconKind="{Binding IconKind}">
-                                        <views:ChatKindHeader.Status>
-                                            <Panel Width="12" Height="12" VerticalAlignment="Center">
-                                                <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                                <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                            </Panel>
-                                        </views:ChatKindHeader.Status>
-                                    </views:ChatKindHeader>
+                                    <views:ChatKindHeader Label="{Binding HeaderLabel}" IconKind="{Binding IconKind}"
+                                                          Status="{Binding}" StatusTemplate="{StaticResource ExpandChevron}" />
                                 </Button>
                                 <views:MarkdownView Text="{Binding Text}" IsVisible="{Binding ShowsBody}"
                                                     FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
@@ -414,7 +443,7 @@
                 <DataTemplate x:DataType="vm:ToolCallItem">
                     <Panel>
                         <Grid x:Name="ToolCallRow" Margin="0,0,0,4" MinHeight="18" HorizontalAlignment="Stretch" IsVisible="{Binding !HasCard}"
-                              RowDefinitions="Auto,Auto,Auto">
+                              RowDefinitions="Auto,Auto,Auto,Auto">
                             <!-- The whole row opens what the call recorded. Its text is plain, not
                                  selectable: a selectable block takes the press before the button sees it,
                                  and the opened body below is where the text is copied from. -->
@@ -436,6 +465,9 @@
                                                Classes.prose="{Binding DetailIsProse}"
                                                Classes.path="{Binding DetailIsPath}"
                                                Classes.labelled="{Binding HasLabel}"
+                                               Classes.openable="{Binding CanOpenFile}"
+                                               ToolTip.Tip="{Binding FilePath}"
+                                               PointerPressed="OnToolPathPressed" PointerReleased="OnToolPathReleased"
                                                Text="{Binding Detail}"
                                                IsVisible="{Binding HasDetail}" />
                                     <!-- A bare name is fallback chrome only; a label already names the call, so the raw
@@ -457,7 +489,7 @@
                                         <Border Classes="toolRunning toolStatus" Width="8" Height="8"
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsRunning}" views:PulseClock.IsActive="{Binding IsRunning}"
-                                                Background="{StaticResource KcapWarningBrush}" />
+                                                Background="{StaticResource KcapPurpleBrush}" />
                                         <Border x:Name="ToolUnknownStatusPill" Classes="toolStatus" Width="8" Height="8"
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsOutcomeUnknown}" Background="{StaticResource KcapMutedBrush}"
@@ -474,23 +506,51 @@
                                     </Panel>
                                 </Grid>
                             </Button>
-                            <views:ToolImagePreview Grid.Row="1" Classes="toolBody kcapGhost" Margin="0,6,0,2" Path="{Binding PreviewPath}" />
-                            <Border x:Name="ToolInspection" Grid.Row="2" Classes="toolInspection" IsVisible="{Binding IsExpanded}">
-                                <ScrollViewer MaxHeight="320" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
-                                              AllowAutoHide="False" Focusable="True" AutomationProperties.Name="Tool details">
-                                    <ItemsControl ItemsSource="{Binding Inspection.Sections, FallbackValue={x:Null}}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:ToolInspectionSection">
-                                                <StackPanel Spacing="2" Margin="0,4,0,2">
-                                                    <TextBlock Classes="toolInspectionHeading" Text="{Binding Heading}" />
-                                                    <SelectableTextBlock Classes="toolLine prose" Classes.missing="{Binding IsMissing}"
-                                                                         Text="{Binding Text}" />
-                                                    <TextBlock Classes="toolInspectionNote" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </ScrollViewer>
+                            <Border x:Name="ToolOpenWarning" Grid.Row="1" Classes="toolOpenWarning" IsVisible="{Binding IsConfirmingOpen}">
+                                <StackPanel Spacing="8">
+                                    <StackPanel Spacing="2" IsVisible="{Binding !FileMissing}">
+                                        <TextBlock Classes="toolOpenWarningText" Text="Open this file with your operating system?" FontWeight="SemiBold" />
+                                        <TextBlock Classes="toolLine prose" Text="{Binding FilePath}" />
+                                        <TextBlock Classes="toolOpenWarningText"
+                                                   Text="It opens in whatever application your system uses for this kind of file. A program or script may run." />
+                                    </StackPanel>
+                                    <StackPanel Spacing="2" IsVisible="{Binding FileMissing}">
+                                        <TextBlock Classes="toolOpenWarningText" Text="This file no longer exists" FontWeight="SemiBold" />
+                                        <TextBlock Classes="toolLine prose" Text="{Binding FilePath}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button x:Name="ToolOpenConfirm" Content="Open" Classes="kcapPrimary" IsVisible="{Binding !FileMissing}"
+                                                Click="OnToolOpenConfirmClick" />
+                                        <Button x:Name="ToolOpenCancel" Classes="kcapGhost" Click="OnToolOpenCancelClick">
+                                            <Panel>
+                                                <TextBlock Text="Cancel" IsVisible="{Binding !FileMissing}" />
+                                                <TextBlock Text="Dismiss" IsVisible="{Binding FileMissing}" />
+                                            </Panel>
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <views:ToolImagePreview Grid.Row="2" Classes="toolBody kcapGhost" Margin="0,6,0,2" Path="{Binding PreviewPath}" />
+                            <Border x:Name="ToolInspection" Grid.Row="3" Classes="toolInspection" IsVisible="{Binding IsExpanded}">
+                                <StackPanel Spacing="4">
+                                    <Button x:Name="ToolOpenFile" Classes="kcapGhost kcapQuiet" Content="Open file…" HorizontalAlignment="Left"
+                                            IsVisible="{Binding CanOpenFile}" Click="OnToolOpenFileClick" />
+                                    <ScrollViewer MaxHeight="320" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                                                  AllowAutoHide="False" Focusable="True" AutomationProperties.Name="Tool details">
+                                        <ItemsControl ItemsSource="{Binding Inspection.Sections, FallbackValue={x:Null}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:ToolInspectionSection">
+                                                    <StackPanel Spacing="2" Margin="0,4,0,2">
+                                                        <TextBlock Classes="toolInspectionHeading" Text="{Binding Heading}" />
+                                                        <SelectableTextBlock Classes="toolLine prose" Classes.missing="{Binding IsMissing}"
+                                                                             Text="{Binding Text}" />
+                                                        <TextBlock Classes="toolInspectionNote" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </StackPanel>
                             </Border>
                         </Grid>
                         <Border x:Name="ToolCard" Classes="toolCard" IsVisible="{Binding HasCard}">
@@ -537,16 +597,8 @@
                                 <Button Classes="toolSummary" IsVisible="{Binding ShowsSummaryHeader}"
                                         Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
                                         AutomationProperties.Name="{Binding Summary}">
-                                    <views:ChatKindHeader Label="{Binding Summary}" IconKind="{Binding HeaderIconKind}">
-                                        <views:ChatKindHeader.Status>
-                                            <Panel Width="12" Height="12" VerticalAlignment="Center">
-                                                <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                                <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                            </Panel>
-                                        </views:ChatKindHeader.Status>
-                                    </views:ChatKindHeader>
+                                    <views:ChatKindHeader Label="{Binding Summary}" IconKind="{Binding HeaderIconKind}"
+                                                          Status="{Binding}" StatusTemplate="{StaticResource ExpandChevron}" />
                                 </Button>
                                 <ItemsControl ItemsSource="{Binding VisibleCalls}" IsVisible="{Binding HasVisibleCalls}" />
                             </StackPanel>
@@ -568,7 +620,11 @@
                 </DataTemplate>
             </ItemsControl.DataTemplates>
         </ItemsControl>
-        <Border x:Name="FindBar" Grid.Row="1" Classes="findBar" DataContext="{Binding Find}" x:DataType="vm:ChatFindViewModel"
+        <!-- Over the list rather than in it, so a handle drag is not read as the scrollbar's. -->
+        <Border x:Name="ChatColumnLeftHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset" />
+        <Border x:Name="ChatColumnRightHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset" />
+        <Border x:Name="ChatLaneHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the agent's messages. Double-click to reset" />
+        <Border x:Name="FindBar" Grid.Row="2" Classes="findBar" DataContext="{Binding Find}" x:DataType="vm:ChatFindViewModel"
                 IsVisible="{Binding IsOpen}">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="2">
                 <views:AppIcon Kind="Search" Size="14" Margin="4,0,2,0" Foreground="{StaticResource KcapMutedBrush}" />
@@ -592,27 +648,18 @@
             </Grid>
         </Border>
 
-        <StackPanel Grid.Row="1" Spacing="22" HorizontalAlignment="Center" VerticalAlignment="Center">
-            <TextBlock x:Name="ChatPhaseNote" Text="{Binding PhaseNote}"
-                       IsVisible="{Binding PhaseNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                       Foreground="{StaticResource KcapMutedBrush}" FontSize="14" HorizontalAlignment="Center" />
-            <StackPanel x:Name="ChatTerminalOffer" Orientation="Horizontal" HorizontalAlignment="Center"
-                        IsVisible="{Binding ShowsTerminalOffer}">
-                <TextBlock Text="Check on the agent in the " Foreground="{StaticResource KcapMutedBrush}" FontSize="14"
-                           VerticalAlignment="Center" />
-                <Button x:Name="ChatOpenTerminal" Classes="kcapLink" Command="{Binding ShowTerminalCommand}"
-                        VerticalAlignment="Center" AutomationProperties.Name="Open the terminal">
-                    <TextBlock Text="terminal" FontSize="14" />
-                </Button>
-            </StackPanel>
-        </StackPanel>
+        <views:SessionConnectionNotice x:Name="ChatConnectionBanner" Grid.Row="1" IsCompact="True"
+                DataContext="{Binding WorkspaceNotice}"
+                IsVisible="{Binding $parent[views:ChatTabView].((vm:ChatTabViewModel)DataContext).ShowsConnectionBanner}" />
+        <views:SessionConnectionNotice x:Name="ChatEmptyState" Grid.Row="2" DataContext="{Binding EmptyState}"
+                IsVisible="{Binding $parent[views:ChatTabView].((vm:ChatTabViewModel)DataContext).ShowsEmptyState}" />
 
         <!-- Everything about the next turn — runs, queue, in-flight note, composer — shares one band,
              so the transcript's last card never reads as part of the input area. -->
-        <Border x:Name="ComposerBand" Grid.Row="2" Padding="22,15,22,16"
+        <Border x:Name="ComposerBand" Grid.Row="3" Padding="22,15,22,16"
                 Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
                 BorderThickness="0,1,0,0">
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
+            <Grid x:Name="ComposerColumn" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                 <!-- The subagents and commands that outlive the turn, folded to a count until opened. 5px
                      here plus the toggle's 8px puts the title where the queue banner puts its text. -->
                 <Border x:Name="BackgroundTasksBanner" Grid.Row="0" Margin="0,0,0,8" Padding="5,4"
@@ -692,7 +739,50 @@
                     </StackPanel>
                 </Border>
 
-                <Border x:Name="QueuedMessagesBanner" Grid.Row="1" Margin="0,0,0,8" Padding="13,10"
+                <!-- A settled message to an attached agent waits for nothing: it sits apart from the queue with the server's
+                     word on it. -->
+                <ScrollViewer Grid.Row="1" Margin="0,0,0,8" MaxHeight="120" HorizontalScrollBarVisibility="Disabled"
+                              IsVisible="{Binding HasDeliveryNotices}">
+                    <ItemsControl x:Name="DeliveryNotices" ItemsSource="{Binding DeliveryNotices}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Spacing="6" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:QueuedChatMessage">
+                                <Border Padding="13,8" Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                                        BorderThickness="1" CornerRadius="8">
+                                    <Border.Styles>
+                                        <Style Selector="TextBlock.deliveryNote">
+                                            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+                                        </Style>
+                                        <Style Selector="TextBlock.deliveryNote.needsSender">
+                                            <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
+                                        </Style>
+                                        <Style Selector="TextBlock.deliveryNote.delivered">
+                                            <Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" />
+                                        </Style>
+                                    </Border.Styles>
+                                    <DockPanel>
+                                        <Panel DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,8,0" VerticalAlignment="Center">
+                                            <views:AppIcon Kind="Check" Size="12" Foreground="{StaticResource KcapSuccessBrush}" IsVisible="{Binding IsDelivered}" />
+                                            <views:AppIcon Kind="CircleAlert" Size="12" Foreground="{StaticResource KcapWarningBrush}" IsVisible="{Binding DeliveryNeedsSender}" />
+                                        </Panel>
+                                        <TextBlock DockPanel.Dock="Right" Text="{Binding DeliveryNote}" Classes="deliveryNote"
+                                                   Classes.needsSender="{Binding DeliveryNeedsSender}" Classes.delivered="{Binding IsDelivered}"
+                                                   FontSize="12" Margin="12,0,0,0" MaxWidth="320" TextWrapping="Wrap" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding DisplayText}" ToolTip.Tip="{Binding DisplayText}" FontSize="13.5"
+                                                   TextTrimming="CharacterEllipsis" MaxLines="1" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource KcapMutedBrush}" />
+                                    </DockPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <Border x:Name="QueuedMessagesBanner" Grid.Row="2" Margin="0,0,0,8" Padding="13,10"
                         Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
                         BorderThickness="1" CornerRadius="8" IsVisible="{Binding HasQueuedMessages}">
                     <StackPanel Spacing="6">
@@ -710,9 +800,9 @@
                                                 <TextBlock Text="{Binding PickupNote}"
                                                            IsVisible="{Binding PickupNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                                            FontSize="11" Foreground="{StaticResource KcapFaintBrush}" />
-                                                <TextBlock Text="Delivery unconfirmed" IsVisible="{Binding IsUnconfirmed}"
+                                                <TextBlock Text="Delivery unconfirmed" IsVisible="{Binding ShowsUnconfirmed}"
                                                            FontSize="11" Foreground="{StaticResource KcapMutedBrush}" />
-                                                <TextBlock Text="Delivery unconfirmed" IsVisible="{Binding IsForeign}"
+                                                <TextBlock Text="Delivery unconfirmed" IsVisible="{Binding ShowsForeignUnconfirmed}"
                                                            ToolTip.Tip="The server recorded this send but has no matching delivery receipt. This does not mean the agent is still waiting to run it."
                                                            FontSize="11" Foreground="{StaticResource KcapFaintBrush}" />
                                             </StackPanel>
@@ -720,7 +810,7 @@
                                                 <Button x:Name="DiscardQueuedButton" Classes="kcapChip" Content="Discard"
                                                         Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).DiscardQueuedCommand}"
                                                         CommandParameter="{Binding}" IsVisible="{Binding CanDiscard}"
-                                                        ToolTip.Tip="Stop tracking this message. It is not cancelled: the agent may still receive it."
+                                                        ToolTip.Tip="{Binding DiscardTip}"
                                                         BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
                                                         FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand"
                                                         AutomationProperties.Name="Discard unresolved message" />
@@ -743,7 +833,7 @@
                 </Border>
 
                 <!-- Messages held for the owner's approval: the owner decides each, a sender may withdraw their own. -->
-                <Border x:Name="HeldMessagesBanner" Grid.Row="2" Margin="0,0,0,8" Padding="13,10"
+                <Border x:Name="HeldMessagesBanner" Grid.Row="3" Margin="0,0,0,8" Padding="13,10"
                         Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
                         BorderThickness="1" CornerRadius="8" IsVisible="{Binding Held.HasItems, FallbackValue=False}">
                     <StackPanel Spacing="6">
@@ -796,7 +886,7 @@
                 <!-- Inset to the cards' text edge; a horizontal StackPanel here would never wrap it. The
                      band does not scroll, so the line cap keeps a server-sent reason from pushing the
                      composer off-screen. -->
-                <StackPanel x:Name="ChatActivityBand" Grid.Row="3" Margin="14,0,14,8" Spacing="2"
+                <StackPanel x:Name="ChatActivityBand" Grid.Row="4" Margin="14,0,14,8" Spacing="2"
                             IsVisible="{Binding ShowsActivityNote}">
                     <TextBlock x:Name="ChatActivityNote"
                                Text="{Binding ActivityNote}" ToolTip.Tip="{Binding ActivityNote}"
@@ -813,13 +903,13 @@
                     </StackPanel>
                 </StackPanel>
 
-                <Border x:Name="ReadOnlyBanner" Grid.Row="4" IsVisible="{Binding ShowsReadOnlyBanner}"
+                <Border x:Name="ReadOnlyBanner" Grid.Row="5" IsVisible="{Binding ShowsReadOnlyBanner}"
                         Background="{StaticResource KcapWarningDimBrush}" BorderBrush="{StaticResource KcapWarningBrush}"
                         BorderThickness="1" CornerRadius="8" Padding="12,7">
                     <TextBlock Text="{Binding ReadOnlyNotice, StringFormat='Read-only: {0}'}"
                                Foreground="{StaticResource KcapWarningBrush}" TextWrapping="Wrap" />
                 </Border>
-                <TextBlock x:Name="EndedComposerHint" AutomationProperties.AutomationId="EndedComposerHint" Grid.Row="4" Margin="14,0"
+                <TextBlock x:Name="EndedComposerHint" AutomationProperties.AutomationId="EndedComposerHint" Grid.Row="5" Margin="14,0"
                            Text="{Binding ComposerHint}" FontSize="12.5" Foreground="{StaticResource KcapFaintBrush}"
                            TextWrapping="Wrap">
                     <TextBlock.IsVisible>
@@ -830,10 +920,10 @@
                         </MultiBinding>
                     </TextBlock.IsVisible>
                 </TextBlock>
-                <Panel Grid.Row="4" IsVisible="{Binding Handoff, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <Panel Grid.Row="5" IsVisible="{Binding Handoff, Converter={x:Static ObjectConverters.IsNotNull}}">
                     <views:HandoffComposerView x:Name="HandoffComposer" DataContext="{Binding Handoff}" />
                 </Panel>
-                <Border x:Name="ComposerCard" Classes="attachTarget" Grid.Row="4" IsVisible="{Binding ShowsComposer}"
+                <Border x:Name="ComposerCard" Classes="attachTarget" Grid.Row="5" IsVisible="{Binding ShowsComposer}"
                         Background="{StaticResource KcapSurfaceRaisedBrush}"
                         BorderThickness="1" CornerRadius="10" Padding="13,8,13,12">
                     <StackPanel Spacing="6">
@@ -902,7 +992,7 @@
                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                             <Button x:Name="InterruptButton" Grid.Column="2" Classes="kcapChip" Content="{Binding InterruptLabel}"
                                     Command="{Binding InterruptCommand}" IsVisible="{Binding ShowsInterrupt}"
-                                    ToolTip.Tip="Interrupt the current turn without ending the session" Margin="12,0,0,0"
+                                    ToolTip.Tip="{Binding InterruptTip}" ToolTip.ShowOnDisabled="True" Margin="12,0,0,0"
                                     BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
                                     FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand" />
                             <Button x:Name="SendButton" Grid.Column="3" Classes="kcapPrimary" Content="Send" Command="{Binding SendCommand}" Margin="8,0,0,0"
@@ -913,7 +1003,7 @@
                     </StackPanel>
                 </Border>
 
-                <Border x:Name="AccountStrip" Grid.Row="5" Margin="0,6,0,0" IsVisible="{Binding ShowsAccountStrip}">
+                <Border x:Name="AccountStrip" Grid.Row="6" Margin="0,6,0,0" IsVisible="{Binding ShowsAccountStrip}">
                     <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
                         <ContentControl VerticalAlignment="Center"
                                         Content="{Binding AccountVendor, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=12}" />

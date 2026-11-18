@@ -238,6 +238,35 @@ public class ServerConnectionAdvertisementTests {
     }
 
     [Test]
+    public async Task DaemonConnect_advertises_compaction_once_a_handler_is_wired() {
+        var config = new DaemonConfig { Name = "test", ServerUrl = "http://127.0.0.1:1", ConfigRoot = Config.Root };
+        await using var conn = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance,
+            NullLogger<ServerConnection>.Instance, TimeProvider.System);
+        conn.OnCompactAgent += _ => Task.CompletedTask;
+
+        await Assert.That(conn.BuildDaemonConnect("mac", [], [], null, config.Advertisement).Capabilities)
+            .IsEquivalentTo([DaemonCapabilities.Compaction]);
+    }
+
+    [Test]
+    public async Task DaemonConnect_without_a_compaction_handler_does_not_advertise_it() {
+        var config = new DaemonConfig { Name = "test", ServerUrl = "http://127.0.0.1:1", ConfigRoot = Config.Root };
+        await using var conn = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance,
+            NullLogger<ServerConnection>.Instance, TimeProvider.System);
+
+        await Assert.That(conn.BuildDaemonConnect("mac", [], [], null, config.Advertisement).Capabilities).IsNull();
+    }
+
+    [Test]
+    public async Task CompactAgentCommand_serializes_with_snake_case_names() {
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            new CompactAgentCommand("a-1", Guid.Parse("00000000-0000-0000-0000-000000000001")),
+            CapacitorJsonContext.Default.CompactAgentCommand);
+
+        await Assert.That(json).IsEqualTo("{\"agent_id\":\"a-1\",\"dispatch_id\":\"00000000-0000-0000-0000-000000000001\"}");
+    }
+
+    [Test]
     public async Task SendRawInputCommand_serializes_with_snake_case_names() {
         var json = System.Text.Json.JsonSerializer.Serialize(
             new SendRawInputCommand("a-1", "Gw==", Guid.Parse("00000000-0000-0000-0000-000000000001")),

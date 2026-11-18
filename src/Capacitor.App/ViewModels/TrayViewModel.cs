@@ -102,7 +102,7 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
             IObservable<RemoteTraySummary>? remote = null,
             IObservable<UpdateMenuItem>? updateMenu = null, Func<Task>? updateAction = null,
             IObservable<bool>? restartPending = null, Action? openSettings = null, IObservable<bool>? finishSwitchOffered = null,
-            Func<Task>? finishSwitch = null, Action? openLaunchApprovals = null) {
+            Func<Task>? finishSwitch = null, Action? openLaunchApprovals = null, IObservable<string?>? toolTipHint = null) {
         _pause = pause;
 
         TogglePauseCommand = ReactiveCommand.Create<bool>(pause.RequestToggle);
@@ -164,7 +164,8 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
         var pendingWhileConnected = service.Status
             .CombineLatest(restartPending ?? Observable.Return(false), (status, pending) => pending && status.State == AttachState.Connected);
         var withRestartPending = withUpdate.CombineLatest(pendingWhileConnected,
-            (model, pending) => pending ? model with { Header = $"{model.Header} · {RestartPendingSuffix}" } : model);
+            (model, pending) => pending ? model with { Header = $"{model.Header} · {RestartPendingSuffix}" } : model)
+            .CombineLatest(toolTipHint ?? Observable.Return((string?)null), (model, hint) => model with { ToolTipHint = hint });
 
         // Status, snapshots (seeded above), pause.State, consent.PendingCount, attention,
         // pendingSummary, remoteSummary, shim, finish, update, and restartPending are all replay-1-shaped
@@ -225,6 +226,7 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
             string daemonName, AttachStatus status, DaemonStatusDto? snap, PauseState pauseState,
             IReadOnlySet<string> stopsInFlight, int pendingConsent, string? lifecycleAttention, PendingSummary pendingSummary,
             RemoteTraySummary remote) {
+        remote = WithoutSteeredHere(remote, status, snap);
         var (state, count) = ProjectAggregate(status, snap, remote);
         var baseState = state; // the connection/agent-count verdict, before either upgrade below
 
@@ -257,6 +259,18 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
             HeaderText(daemonName, status, snap, state, count, pendingAttention, pendingConsent,
                 lifecycleAttentionActive ? lifecycleAttention : null, pendingSummary, remote.SessionsNeedingAttention, usageLimits, terminalDialogs),
             BuildEntries(status, snap, stopsInFlight, remote), BuildPause(status, pauseState), pendingConsent);
+    }
+
+    /// The local daemon's entry stands for a session it steers; the registry's row for the same agent is not a second
+    /// session waiting. Attached ids are the daemon's own on both lanes, so only an attached entry is matched by id:
+    /// a hosted agent with the same id elsewhere is a different agent.
+    static RemoteTraySummary WithoutSteeredHere(RemoteTraySummary remote, AttachStatus status, DaemonStatusDto? snap) {
+        if (status.State != AttachState.Connected || snap is null || remote.AttentionEntries is not { Count: > 0 } entries) return remote;
+        var steered = snap.Agents.Where(a => a.Kind == AgentActionService.AttachedKind && a.Status is "Starting" or "Running")
+            .Select(a => a.Id).ToHashSet(StringComparer.Ordinal);
+        if (steered.Count == 0) return remote;
+        var kept = entries.Where(e => !(e.Kind == AgentActionService.AttachedKind && steered.Contains(e.Id))).ToList();
+        return kept.Count == entries.Count ? remote : remote with { SessionsNeedingAttention = kept.Count, AttentionEntries = kept };
     }
 
     /// Pure mapping, precedence top-down.
@@ -325,10 +339,13 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
         var laneConnected = directory.RemoteStale.Select(stale => !stale);
         return remoteRows.CombineLatest(laneConnected, attention, (rows, connected, sessions) => {
             var entries = rows.Where(r => r.SessionId is { } sid && sessions.Contains(sid))
-                .Select(r => new TrayAgentEntry(r.Id, $"{r.Title ?? r.Vendor} · on {r.MachineBadge}", r.Kind,
+                .Select(r => new TrayAgentEntry(r.Id,
+                    $"{r.Title ?? r.Vendor} · {(r.IsAttached ? AttachedAgentCopy.TerminalSession : $"on {r.MachineBadge}")}", r.Kind,
                     StopEnabled: AgentViewerAccess.From(r.ViewerRights).CanPressKeys, AgentOrigin.Remote))
                 .ToList();
-            return new RemoteTraySummary(rows.Count, connected, entries.Count, entries);
+            // An attached agent runs in its owner's terminal, not on a daemon: the local daemon already counts the ones
+            // this machine steers, and another machine's is no agent running anywhere.
+            return new RemoteTraySummary(rows.Count(r => !r.IsAttached), connected, entries.Count, entries);
         });
     }
 
@@ -433,7 +450,9 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
     }
 
     static string Label(AgentStatusDto agent) {
-        var line = $"{agent.Kind} · {agent.Vendor} · {RepoLabel.Leaf(agent.RepoPath)}";
+        var line = agent.Kind == AgentActionService.AttachedKind
+            ? AttachedAgentCopy.TerminalSession
+            : $"{agent.Kind} · {agent.Vendor} · {RepoLabel.Leaf(agent.RepoPath)}";
         if (UsageLimitNoticeDto.IsQuestion(agent.UsageLimit)) line = $"{line} · usage limit";
 
         // A native menu row cannot ellipsize itself, so the title is cut before the separator.

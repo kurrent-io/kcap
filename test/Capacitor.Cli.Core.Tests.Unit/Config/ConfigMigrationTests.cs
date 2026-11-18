@@ -20,14 +20,14 @@ public class ConfigMigrationTests {
 
         await Assert.That(wasMigrated).IsTrue();
 
-        await Assert.That(config.Version).IsEqualTo(2);
+        await Assert.That(config.Version).IsEqualTo(ProfileConfig.CurrentVersion);
         await Assert.That(config.ActiveProfile).IsEqualTo("default");
         await Assert.That(config.Profiles).ContainsKey("default");
 
         var defaultProfile = config.Profiles["default"];
         await Assert.That(defaultProfile.ServerUrl).IsEqualTo("https://my-server.com");
         await Assert.That(defaultProfile.Daemon!.Name).IsEqualTo("dev");
-        await Assert.That(defaultProfile.Daemon.MaxAgents).IsEqualTo(3);
+        await Assert.That(defaultProfile.Daemon.MaxAgents).IsEqualTo(ProfileConfig.CurrentVersion);
         await Assert.That(defaultProfile.DefaultVisibility).IsEqualTo("private");
         await Assert.That(defaultProfile.UpdateCheck).IsFalse();
         await Assert.That(defaultProfile.ExcludedRepos).Contains("owner/secret");
@@ -53,20 +53,20 @@ public class ConfigMigrationTests {
     }
 
     [Test]
-    public async Task Migrate_EmptyJson_CreatesEmptyV2() {
+    public async Task Migrate_EmptyJson_CreatesEmptyCurrent() {
         var result = ConfigMigration.MigrateIfNeeded("{}");
 
         await Assert.That(result.WasMigrated).IsTrue();
-        await Assert.That(result.Config.Version).IsEqualTo(2);
+        await Assert.That(result.Config.Version).IsEqualTo(ProfileConfig.CurrentVersion);
         await Assert.That(result.Config.Profiles).ContainsKey("default");
     }
 
     [Test]
-    public async Task Migrate_NonObjectJson_CreatesEmptyV2() {
+    public async Task Migrate_NonObjectJson_CreatesEmptyCurrent() {
         var result = ConfigMigration.MigrateIfNeeded("[]");
 
         await Assert.That(result.WasMigrated).IsTrue();
-        await Assert.That(result.Config.Version).IsEqualTo(2);
+        await Assert.That(result.Config.Version).IsEqualTo(ProfileConfig.CurrentVersion);
         await Assert.That(result.Config.Profiles).ContainsKey("default");
     }
 
@@ -100,7 +100,7 @@ public class ConfigMigrationTests {
         var deserialized = JsonSerializer.Deserialize(json, ProfileConfigJsonContext.Default.ProfileConfig);
 
         await Assert.That(deserialized).IsNotNull();
-        await Assert.That(deserialized!.Version).IsEqualTo(2);
+        await Assert.That(deserialized!.Version).IsEqualTo(ProfileConfig.CurrentVersion);
         await Assert.That(deserialized.ActiveProfile).IsEqualTo("default");
         await Assert.That(deserialized.Profiles).Count().IsEqualTo(2);
         await Assert.That(deserialized.Profiles["contoso"].ServerUrl).IsEqualTo("https://contoso.kcap.io");

@@ -52,6 +52,13 @@ public static class AtomicFile {
         }
     }
 
+    /// <summary>The directory and search pattern that find every temporary <see cref="Replace(string, byte[], UnixFileMode?, bool, bool)"/>
+    /// creates for <paramref name="path"/>, which sit beside the followed link target rather than the link.</summary>
+    public static (string Directory, string Pattern) Temporaries(string path, bool followLink = true) {
+        var destination = Path.GetFullPath(followLink ? Destination(path) : path);
+        return (Path.GetDirectoryName(destination)!, Path.GetFileName(destination) + ".*.tmp");
+    }
+
     static void Rename(string tmp, string destination) {
         if (OperatingSystem.IsWindows() && PosixRename.TryReplace(tmp, destination)) return;
 

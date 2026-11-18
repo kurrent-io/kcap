@@ -1,3 +1,4 @@
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Commands;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
@@ -15,19 +16,19 @@ public class WatcherCrewEndDecisionTests {
 
     [Test]
     public async Task Crew_finishing_ends_the_session_as_crew_finished() {
-        await Assert.That(WatchCommand.DecideEndReason(parentExited: false, crewFinished: true, wedgedCeiling: false, idle: false, copilotShutdown: false))
+        await Assert.That(SessionEnd.DecideEndReason(parentExited: false, crewFinished: true, wedgedCeiling: false, idle: false, copilotShutdown: false))
             .IsEqualTo("crew_finished");
     }
 
     /// <summary>The process exiting is the more specific fact when both are seen.</summary>
     [Test]
     public async Task A_parent_exit_outranks_crew_finishing() {
-        await Assert.That(WatchCommand.DecideEndReason(parentExited: true, crewFinished: true, wedgedCeiling: false, idle: false, copilotShutdown: false))
+        await Assert.That(SessionEnd.DecideEndReason(parentExited: true, crewFinished: true, wedgedCeiling: false, idle: false, copilotShutdown: false))
             .IsEqualTo("parent_exited");
     }
 
     [Test]
     public async Task No_signal_posts_no_end() {
-        await Assert.That(WatchCommand.DecideEndReason(false, false, false, false, false)).IsNull();
+        await Assert.That(SessionEnd.DecideEndReason(false, false, false, false, false)).IsNull();
     }
 }

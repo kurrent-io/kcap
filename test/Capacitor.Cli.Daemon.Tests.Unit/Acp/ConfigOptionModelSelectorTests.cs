@@ -7,13 +7,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Acp;
 
 /// <summary>
-/// Test plan item 3: unit-tests <see cref="ConfigOptionModelSelector.TrySelectAsync"/>
+/// Unit-tests <see cref="ConfigOptionModelSelector.TrySelectAsync"/>
 /// directly against a <see cref="FakeAcpAgent"/>-backed <see cref="AcpConnection"/> — no full
-/// <see cref="Capacitor.Cli.Daemon.Services.AcpHostedAgentRuntime"/> needed. Supersedes the
-/// equivalent coverage that used to live inline in <see cref="AcpHostedAgentRuntimeModelSelectionTests"/>
-/// (that file keeps its existing tests unmodified, since the runtime's legacy null-default
-/// modelSelector argument preserves its exact end-to-end behavior); this file adds
-/// selector-level unit coverage the old inline-only design couldn't isolate.
+/// <see cref="Capacitor.Cli.Daemon.Services.AcpHostedAgentRuntime"/> needed. End-to-end coverage
+/// stays in <see cref="AcpHostedAgentRuntimeModelSelectionTests"/>.
 /// </summary>
 public class ConfigOptionModelSelectorTests {
     static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(5);
@@ -150,7 +147,7 @@ public class ConfigOptionModelSelectorTests {
 
     // (e) a ct canceled WHILE session/set_config_option is in flight — TrySelectAsync must let
     // OperationCanceledException propagate out, never returning null for a cancellation the way it
-    // does for a resolution failure (spec-review Finding 2).
+    // does for a resolution failure.
     [Test]
     public async Task TrySelectAsync_CanceledWhileSetConfigOptionInFlight_PropagatesOperationCanceled() {
         await using var h = new Harness();

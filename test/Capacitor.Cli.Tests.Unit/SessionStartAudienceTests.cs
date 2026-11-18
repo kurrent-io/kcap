@@ -34,6 +34,27 @@ public class SessionStartAudienceTests {
     }
 
     [Test]
+    public async Task A_headless_run_loses_only_next_work() {
+        var audience = SessionStartAudience.Interactive with { IsHeadless = true };
+
+        await Assert.That(audience.GetsNextWork).IsFalse();
+        await Assert.That(audience.GetsDriverGuidance).IsTrue();
+        await Assert.That(audience.GetsOnboarding).IsTrue();
+        await Assert.That(SessionStartAudience.Interactive.GetsNextWork).IsTrue();
+    }
+
+    [Test]
+    [Arguments("""{"session_kind":"flow_participant"}""")]
+    [Arguments("""{"session_kind":"hosted_agent"}""")]
+    [Arguments("{}")]
+    public async Task The_ack_keeps_a_headless_run_headless(string ack) {
+        var audience = (SessionStartAudience.Interactive with { IsHeadless = true }).WithAck(JsonNode.Parse(ack));
+
+        await Assert.That(audience.IsHeadless).IsTrue();
+        await Assert.That(audience.GetsNextWork).IsFalse();
+    }
+
+    [Test]
     [Arguments("""{"session_kind":"flow_participant","flow_role":"reviewer"}""", false, false)]
     [Arguments("""{"session_kind":"hosted_agent"}""", true, false)]
     [Arguments("""{"session_kind":"something_new"}""", true, true)]

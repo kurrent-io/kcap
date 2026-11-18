@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Pi;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Pi;
@@ -58,5 +59,34 @@ public class PiExtensionInstallerTests {
         var path = tmp.PathTo("extensions", "kcap.ts");
 
         await Assert.That(PiExtensionInstaller.Remove(path)).IsFalse();
+    }
+
+    /// <summary>A re-run of setup must not rewrite a current file, or it reports a change that never happened.</summary>
+    [Test]
+    public async Task apply_leaves_a_current_file_untouched_and_reports_unchanged() {
+        using var tmp  = new TempDir();
+        var       path = tmp.PathTo("extensions", "kcap.ts");
+        await Assert.That(PiExtensionInstaller.Apply(path)).IsEqualTo(SettingsEdit.Changed);
+
+        var before = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(path, before);
+
+        await Assert.That(PiExtensionInstaller.Apply(path)).IsEqualTo(SettingsEdit.Unchanged);
+        await Assert.That(File.GetLastWriteTimeUtc(path)).IsEqualTo(before);
+    }
+
+    [Test]
+    public async Task apply_rewrites_an_edited_file_or_a_stale_marker() {
+        using var tmp  = new TempDir();
+        var       path = tmp.PathTo("extensions", "kcap.ts");
+        PiExtensionInstaller.Apply(path);
+
+        await File.WriteAllTextAsync(path, "// edited");
+        await Assert.That(PiExtensionInstaller.Apply(path)).IsEqualTo(SettingsEdit.Changed);
+        await Assert.That(await File.ReadAllTextAsync(path)).IsEqualTo(PiExtensionInstaller.ExtensionContent);
+
+        await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(path)!, PiExtensionInstaller.MarkerFileName), "0.0.1");
+        await Assert.That(PiExtensionInstaller.Apply(path)).IsEqualTo(SettingsEdit.Changed);
+        await Assert.That(PiExtensionInstaller.ReadMarker(path)).IsEqualTo(CapacitorVersion.Current());
     }
 }

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.LocalEdition;
@@ -104,12 +105,12 @@ public class LocalUninstallTests {
     [Test]
     public async Task Running_agents_refuse_the_uninstall_before_anything_is_stopped() {
         var installed = await InstallAsync();
-        Recorders.Busy.Add("daemon 'me': 2 agent(s) running");
+        Recorders.Busy.Add(new DaemonBusy("me", DaemonBusyReason.Running));
         _log.Clear();
 
         var refused = await Assert.ThrowsAsync<LocalLifecycleException>(() => UninstallAsync(purge: true));
 
-        await Assert.That(refused!.Message).Contains("2 agent(s) running");
+        await Assert.That(refused!.Message).Contains("A daemon is running agents (daemon 'me' is running or starting agents)");
         await Assert.That(_log).IsEquivalentTo(["recorders:busy?"]);
         await AssertUntouched(installed);
     }
@@ -117,10 +118,49 @@ public class LocalUninstallTests {
     [Test]
     public async Task Force_uninstalls_while_agents_run() {
         await InstallAsync();
-        Recorders.Busy.Add("daemon 'me': 1 agent(s) running");
+        Recorders.Busy.Add(new DaemonBusy("me", DaemonBusyReason.Running));
 
         await Assert.That(await UninstallAsync(purge: false, force: true)).IsEqualTo(LocalUninstallOutcome.Uninstalled);
         await Assert.That(_log).Contains("recorders:stop");
+    }
+
+    /// <summary>A daemon still starting cannot answer yet; it is refused as silent, never as running agents.</summary>
+    [Test]
+    public async Task A_daemon_that_did_not_answer_refuses_without_claiming_running_agents() {
+        var installed = await InstallAsync();
+        Recorders.Busy.Add(new DaemonBusy("me", DaemonBusyReason.NoAnswer));
+        _log.Clear();
+
+        var refused = await Assert.ThrowsAsync<LocalLifecycleException>(() => UninstallAsync(purge: false));
+
+        await Assert.That(refused!.Message).Contains("daemon 'me' did not answer in time; it may still be starting");
+        await Assert.That(refused.Message).Contains("Run the command again once it has started, or pass --force");
+        await Assert.That(refused.Message).DoesNotContain("running agents");
+        await AssertUntouched(installed);
+    }
+
+    /// <summary>A quick uninstall has a deadline, so a starting daemon is waited for no longer than its grace.</summary>
+    [Test]
+    public async Task A_quick_uninstall_waits_for_a_silent_daemon_only_within_its_grace() {
+        await InstallAsync();
+        var grace = TimeSpan.FromSeconds(8);
+
+        await Stack.RunAsync(_events,
+            (lease, state, ct) => new LocalUninstall(Service, Home, Recorders) { QuickGrace = grace }
+                .RunAsync(lease, state, purge: false, force: false, Config.Directory, ct),
+            CancellationToken.None);
+
+        await Assert.That(Recorders.BusyWait).IsNotNull();
+        await Assert.That(Recorders.BusyWait!.Value).IsLessThanOrEqualTo(grace);
+    }
+
+    [Test]
+    public async Task An_ordinary_uninstall_waits_for_a_starting_daemon_as_long_as_it_takes_to_start() {
+        await InstallAsync();
+
+        await UninstallAsync(purge: false);
+
+        await Assert.That(Recorders.BusyWait).IsNull();
     }
 
     [Test]
@@ -198,6 +238,47 @@ public class LocalUninstallTests {
         await Assert.That(Registry().Active?.Id).IsEqualTo(installed.InstallationId);
         await Assert.That(DefaultProfile().ServerUrl).IsEqualTo(installed.ServerUrl);
         await Assert.That(JournalAbsent()).IsTrue();
+    }
+
+    /// <summary>Every stop check can pass while Windows still holds the binaries of a server that has just exited.</summary>
+    [Test]
+    public async Task Uninstall_retries_the_deletion_while_an_exited_server_still_holds_its_files() {
+        await InstallAsync();
+        var attempts = 0;
+        var released = TimeProvider.System.GetTimestamp() + TimeProvider.System.TimestampFrequency / 2;
+
+        var outcome = await Stack.RunAsync(_events,
+            (lease, state, ct) => new LocalUninstall(Service, Home, Recorders) {
+                DeleteServerFiles = root => {
+                    attempts++;
+                    if (TimeProvider.System.GetTimestamp() < released) throw new UnauthorizedAccessException("Access to the path 'duckdb.dll' is denied.");
+                    LocalStackStop.Delete(root, "bin", "run");
+                },
+            }.RunAsync(lease, state, purge: false, force: false, Config.Directory, ct),
+            CancellationToken.None);
+
+        await Assert.That(outcome).IsEqualTo(LocalUninstallOutcome.Uninstalled);
+        await Assert.That(attempts).IsGreaterThan(1);
+        await Assert.That(Directory.Exists(Dir("bin"))).IsFalse();
+        await Assert.That(Directory.Exists(Dir("run"))).IsFalse();
+    }
+
+    [Test]
+    public async Task Uninstall_whose_files_stay_held_says_to_run_it_again() {
+        await InstallAsync();
+
+        var refused = await Assert.ThrowsAsync<LocalLifecycleException>(() => Stack.RunAsync(_events,
+            (lease, state, ct) => new LocalUninstall(Service, Home, Recorders, _time) {
+                DeleteServerFiles = _ => {
+                    _time.Advance(TimeSpan.FromMinutes(1));
+                    throw new UnauthorizedAccessException("Access to the path 'duckdb.dll' is denied.");
+                },
+            }.RunAsync(lease, state, purge: false, force: false, Config.Directory, ct),
+            CancellationToken.None));
+
+        await Assert.That(refused!.Message).Contains("duckdb.dll");
+        await Assert.That(refused.Message).Contains("Run kcap local uninstall again");
+        await Assert.That(File.Exists(Plist)).IsFalse();
     }
 
     [Test]
@@ -440,7 +521,7 @@ public class LocalUninstallTests {
     public async Task A_purge_recovery_will_not_end_running_agents_without_force() {
         await InstallAsync();
         await CrashAfterRetiredAsync();
-        Recorders.Busy.Add("daemon 'me': 1 agent(s) running or starting");
+        Recorders.Busy.Add(new DaemonBusy("me", DaemonBusyReason.Running));
 
         await Assert.ThrowsAsync<LocalLifecycleException>(() => Stack.RunAsync(_events, (_, s, _) => Task.FromResult(s), CancellationToken.None));
 
@@ -536,6 +617,47 @@ public class LocalUninstallTests {
         await Assert.That(File.Exists(Plist)).IsFalse();
         await Assert.That(Directory.Exists(Dir("bin"))).IsTrue();
         await Assert.That(Directory.Exists(Dir("run"))).IsTrue();
+    }
+
+    /// <summary>A server that let go of the root can still hold its binaries open for a moment; the deletion is retried
+    /// within the grace rather than leaving <c>bin/</c> behind a removed unit.</summary>
+    [Test]
+    public async Task A_quick_uninstall_retries_the_deletion_while_an_exiting_server_holds_its_files() {
+        await InstallAsync();
+        var attempts = 0;
+        var released = TimeProvider.System.GetTimestamp() + TimeProvider.System.TimestampFrequency / 2;
+
+        var outcome = await Stack.RunAsync(_events,
+            (lease, state, ct) => new LocalUninstall(Service, Home, Recorders) {
+                QuickGrace = TimeSpan.FromSeconds(5),
+                DeleteServerFiles = root => {
+                    attempts++;
+                    if (TimeProvider.System.GetTimestamp() < released) throw new IOException("kcap-server.exe is in use");
+                    LocalStackStop.Delete(root, "bin", "run");
+                },
+            }.RunAsync(lease, state, purge: false, force: true, Config.Directory, ct),
+            CancellationToken.None);
+
+        await Assert.That(outcome).IsEqualTo(LocalUninstallOutcome.Uninstalled);
+        await Assert.That(attempts).IsGreaterThan(1);
+        await Assert.That(Directory.Exists(Dir("bin"))).IsFalse();
+        await Assert.That(Directory.Exists(Dir("run"))).IsFalse();
+    }
+
+    [Test]
+    public async Task A_quick_uninstall_leaves_files_held_past_the_grace() {
+        await InstallAsync();
+
+        var outcome = await Stack.RunAsync(_events,
+            (lease, state, ct) => new LocalUninstall(Service, Home, Recorders) {
+                QuickGrace        = TimeSpan.FromSeconds(1),
+                DeleteServerFiles = _ => throw new IOException("kcap-server.exe is in use"),
+            }.RunAsync(lease, state, purge: false, force: true, Config.Directory, ct),
+            CancellationToken.None);
+
+        await Assert.That(outcome).IsEqualTo(LocalUninstallOutcome.Unloaded);
+        await Assert.That(File.Exists(Plist)).IsFalse();
+        await Assert.That(Directory.Exists(Dir("bin"))).IsTrue();
     }
 
     /// <summary>The waits before the stop come out of the same grace, so an app uninstaller's deadline holds; the server

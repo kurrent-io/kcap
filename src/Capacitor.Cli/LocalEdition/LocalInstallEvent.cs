@@ -23,7 +23,8 @@ abstract record LocalInstallEvent {
 
     public sealed record Unpacked(string Path) : LocalInstallEvent;
 
-    public sealed record Starting(string Unit) : LocalInstallEvent;
+    /// <param name="AlreadyRunning">A re-run changed nothing and found this installation's server already answering.</param>
+    public sealed record Starting(string Unit, bool AlreadyRunning = false) : LocalInstallEvent;
 
     public sealed record Ready(string ServerUrl) : LocalInstallEvent;
 

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Text;
 using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Services;
@@ -677,6 +678,7 @@ public partial class WorktreeManager(
             await CheckoutInTargetContextAsync(created.Path, () => RefuseIfRepositoryMovedAsync(created.SourceRepo, pinned, pinnedCommonDir));
             RefuseIfSourceMoved(created.SourceRepo, pinned);
             StripWorkspaceMcpConfig(created.Path);
+            await SkipStrippedIndexEntriesAsync(created.Path);
             RecordDaemonBaseline(created.Path);
         } catch {
             // A half-created worktree holds nothing of the agent's: its empty index reads as every file deleted.
@@ -762,11 +764,8 @@ public partial class WorktreeManager(
 
     /// <summary>Removes branch-authored vendor MCP configuration and logs what went, so an operator whose
     /// repo legitimately ships one can tell that kcap removed it rather than that the vendor ignored it.
-    /// <para>Called by the worktree creation paths. Borrowed snapshots do not call it — they never
-    /// materialise these files in the first place, because <see cref="PlanSnapshotExclusions"/> now folds in
-    /// the same list. An earlier version of this comment claimed "every creation path calls this", which
-    /// was not true and papered over exactly the gap that left <c>.kiro/settings/mcp.json</c> in a borrowed
-    /// snapshot.</para></summary>
+    /// <para>Borrowed snapshots do not call it: <see cref="PlanSnapshotExclusions"/> keeps these files from
+    /// being materialised at all.</para></summary>
     void StripWorkspaceMcpConfig(string worktreePath) {
         var removed = NeutralizeWorkspaceMcpConfig(worktreePath);
 
@@ -944,8 +943,17 @@ public partial class WorktreeManager(
             worktree.Path, GitTimeout, time, sourceReadOnly: true, [], "status", "--porcelain=v1", "-z", "--untracked-files=all");
         if (status.ExitCode != 0) return "its git status could not be read";
 
+        var index = await RunGitCaptureResult(
+            worktree.Path, GitTimeout, time, sourceReadOnly: true, [], "ls-files", "-t", "-z");
+        if (index.ExitCode != 0) return "its git index could not be read";
+
+        // Git's own record of the volume's case rule: a stripped `.MCP.JSON` is the file recorded as `.mcp.json`.
+        var ignoreCase = await RunGitCaptureResult(
+            worktree.Path, GitTimeout, time, sourceReadOnly: true, [], "config", "--type=bool", "core.ignorecase");
+
         var baseline = ReadDaemonBaseline(worktree.Path);
-        var changes  = GitPorcelain.ParseZ(status.Stdout).Count(entry => !IsDaemonEdit(worktree, baseline, entry));
+        var changes  = GitPorcelain.ParseZ(status.Stdout).Count(entry => !IsDaemonEdit(worktree, baseline, entry))
+                     + HiddenEdits(worktree.Path, baseline, index.Stdout, ignoreCase.Stdout.Trim() == "true");
         if (changes > 0) return $"{changes} uncommitted {(changes == 1 ? "change" : "changes")}";
 
         // An owned branch is deleted with the worktree, so its commits count even with HEAD moved elsewhere.
@@ -995,6 +1003,21 @@ public partial class WorktreeManager(
         (await RunGitCaptureResult(worktreePath, GitTimeout, time, sourceReadOnly: true, [],
             "rev-parse", "--verify", "--quiet", $"{reference}^{{commit}}")).ExitCode == 0;
 
+    /// <summary>Counts <c>skip-worktree</c> entries that differ from what the daemon recorded there, or
+    /// from the absence it left when it has no record. Status never reports these paths, so without this an
+    /// agent's edit to a stripped config file would be removed with the worktree.</summary>
+    internal static int HiddenEdits(
+            string worktreePath, Dictionary<string, string>? baseline, string lsFilesTagged, bool ignoreCase) {
+        var recorded = new Dictionary<string, string>(
+            baseline ?? [], ignoreCase ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+
+        return lsFilesTagged.Split('\0', StringSplitOptions.RemoveEmptyEntries)
+            .Where(static record => record.StartsWith("S ", StringComparison.Ordinal))
+            .Select(static record => record[2..])
+            .Count(path => SafeStamp(Path.Combine(worktreePath, path)) is not { } stamp
+                        || stamp != recorded.GetValueOrDefault(path, "-"));
+    }
+
     static bool IsDaemonEdit(WorktreeInfo worktree, Dictionary<string, string>? baseline, PorcelainEntry entry) {
         // Unstaged and still exactly as the daemon left it; anything staged is the agent's.
         if (baseline?.GetValueOrDefault(entry.Path) is { } recorded)
@@ -1030,10 +1053,8 @@ public partial class WorktreeManager(
         }
     }
 
-    /// <summary>Builds an independent, bundle-derived repository snapshot outside the source
-    /// checkout. Unlike a linked worktree it shares no gitdir, refs, reflogs, object alternates, or
-    /// worktree registration with the requester's repository.</summary>
     public const string ScratchDirectoryName = "scratch";
+    public const string BorrowedSnapshotsDirectoryName = "borrowed-snapshots";
 
     /// <summary>An empty workspace for a reviewer that judges only its prompt: no source repository, no
     /// files. It is still a git repository, because some vendors (Codex) refuse to run outside one.</summary>
@@ -1053,6 +1074,9 @@ public partial class WorktreeManager(
         }
     }
 
+    /// <summary>Builds an independent, bundle-derived repository snapshot outside the source
+    /// checkout. Unlike a linked worktree it shares no gitdir, refs, reflogs, object alternates, or
+    /// worktree registration with the requester's repository.</summary>
     public async Task<WorktreeInfo> CreateBorrowedSnapshotAsync(
             string sourceRepoRoot, string? name, CancellationToken ct) {
         return await CreateBorrowedSnapshotAsync(sourceRepoRoot, sourceRepoRoot, name, ct);
@@ -1074,7 +1098,7 @@ public partial class WorktreeManager(
         if (!Directory.Exists(cwd))
             throw new InvalidOperationException("borrowed_snapshot_cwd_missing");
         var gitRelativeCwd = await ReadGitRelativeCwdAsync(source, cwd, time, ct);
-        var root = Path.GetFullPath(Path.Combine(config.WorktreeRoot, "borrowed-snapshots"));
+        var root = Path.GetFullPath(Path.Combine(config.WorktreeRoot, BorrowedSnapshotsDirectoryName));
         EnsureSeparateRoots(source, root);
         CreateOwnerOnlyDirectory(root);
 
@@ -1118,11 +1142,10 @@ public partial class WorktreeManager(
     /// then replaces the live contents — the source repository is never used as the reviewer's cwd, and
     /// reviewer-created git metadata cannot survive into the next round. Vendor config is excluded along
     /// the ancestor chain of <paramref name="sourceCwd"/>.
-    /// <para><b>Takes a SOURCE cwd, not a target execution path.</b> The overloads this replaces took only
-    /// a target-side path, which left no way to obtain the git-derived prefix except by re-deriving it from
-    /// the target filesystem — the derivation that lets the launch and the classifier disagree. They had no
-    /// production callers, so removing them is cheaper than preserving an unsafe inference. There is no
-    /// fallback: a caller that cannot supply a source cwd cannot use this.</para></summary>
+    /// <para><b>Takes a SOURCE cwd, not a target execution path.</b> From a target-side path the only way
+    /// to obtain the git-derived prefix is to re-derive it from the target filesystem — the derivation that
+    /// lets the launch and the classifier disagree. There is no fallback: a caller that cannot supply a
+    /// source cwd cannot use this.</para></summary>
     public async Task SyncFromSourceAsync(
             string sourceRepoRoot, string sourceCwd, string targetWorktreePath,
             string[] excludePaths, CancellationToken ct) {
@@ -1590,8 +1613,8 @@ public partial class WorktreeManager(
     /// exotic aliases stay in the trusted-configuration residual documented on
     /// <see cref="EnsureSeparateRoots"/>.</para></summary>
     static bool IsAtOrUnder(string candidate, string root) {
-        candidate = candidate.Normalize(NormalizationForm.FormC);
-        root = root.Normalize(NormalizationForm.FormC);
+        candidate = UnicodeNormalization.ToNfc(candidate);
+        root = UnicodeNormalization.ToNfc(root);
         var prefix = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         return candidate.Equals(root, FileSystemPathComparison) ||
                candidate.StartsWith(prefix, FileSystemPathComparison);
@@ -1602,11 +1625,10 @@ public partial class WorktreeManager(
     /// <para>The snapshot root is created by the very call that checks it, so "resolve the final path" is
     /// undefined. Appending the tail without re-resolving also means a component substituted after the
     /// check cannot be followed by this function.</para>
-    /// <para><b>Every component, not just the deepest.</b> An earlier version tested <c>LinkTarget</c> on
-    /// the deepest existing component alone, so with <c>/alias -> /real</c> and an ordinary
-    /// <c>/alias/existing</c>, resolving <c>/alias/existing/new</c> returned the lexical path and the
-    /// containment check still missed a snapshot root reaching inside the source through the ancestor
-    /// link. Chains are followed with a bounded iteration count rather than trusted to terminate.</para>
+    /// <para><b>Every component, not just the deepest.</b> Testing <c>LinkTarget</c> on the deepest
+    /// existing component alone misses an ancestor link: with <c>/alias -> /real</c> and an ordinary
+    /// <c>/alias/existing</c>, resolving <c>/alias/existing/new</c> would return the lexical path, and the
+    /// containment check would miss a snapshot root reaching inside the source through <c>/alias</c>. Chains are followed with a bounded iteration count rather than trusted to terminate.</para>
     /// </summary>
     static string ResolveDeepestExisting(string path) {
         const int maxLinkHops = 64;
@@ -1654,7 +1676,7 @@ public partial class WorktreeManager(
     internal static string NormalizeRelativePath(string raw) {
         if (raw.Length == 0 || raw.StartsWith('/') || raw.Contains('\\') ||
             raw.Contains('\r') || raw.Contains('\n') ||
-            !raw.IsNormalized(NormalizationForm.FormC) ||
+            !UnicodeNormalization.IsNfc(raw) ||
             raw.Split('/').Any(p => p is "" or "." or "..") ||
             raw.Split('/').Any(p => p.Equals(".git", StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException($"borrowed_snapshot_invalid_path: {raw}");
@@ -1746,28 +1768,17 @@ public partial class WorktreeManager(
             right.TryGetValue(pair.Key, out var other) && pair.Value.Mode == other.Mode &&
             pair.Value.Length == other.Length && pair.Value.Hash.AsSpan().SequenceEqual(other.Hash));
 
-    /// <summary>Marks the excluded config paths <c>skip-worktree</c> so their absence from the snapshot is
-    /// not reported as a change — otherwise a tracked <c>src/.mcp.json</c> shows up as a DELETION in the
-    /// reviewer's <c>git status</c> and diff, and can produce a review finding about a deletion kcap
-    /// performed.
+    /// <summary>Marks every index entry the plan reserves <c>skip-worktree</c>, so a config file the snapshot
+    /// never materialised is not reported, staged or committed as a deletion — a deletion a reviewer would
+    /// otherwise read as the branch's.
     ///
-    /// <para><b>Reads the DESTINATION index, not the source's.</b> The destination is a fresh clone checked
-    /// out at <c>HEAD</c>, so a path staged-but-uncommitted in the source is in the SOURCE index and absent
-    /// here. Intersecting against the source listing would batch such a path and fail
-    /// <c>update-index</c> on a perfectly legitimate snapshot.</para>
+    /// <para>Reads the destination's own index: a path staged but uncommitted in the source is absent here,
+    /// and naming it would fail <c>update-index</c>. Membership comes from that listing, so an
+    /// <c>update-index</c> failure is real and propagates.</para>
     ///
-    /// <para><b>Membership decides, so failure is real.</b> The previous version swallowed every error to
-    /// cover "absent from the index". With membership established from the listing, a failure means
-    /// something else went wrong and it propagates.</para>
-    ///
-    /// <para><b>Batched on stdin.</b> The expanded set is <c>paths × depth</c> entries and O(depth²)
-    /// aggregate bytes, so argv could exceed <c>ARG_MAX</c>; <c>--stdin</c> also makes the paths literal,
-    /// where an ancestor directory named <c>:foo</c> or <c>-foo</c> would otherwise be read as pathspec
-    /// syntax.</para>
-    ///
-    /// <para>The targets are the index's OWN spellings, taken from the listing, so they are guaranteed to
-    /// name entries git will accept — and the case decision is made once, by the shared classifier.</para>
-    /// </summary>
+    /// <para>Paths go on stdin, not argv: the expanded set grows with cwd depth past <c>ARG_MAX</c>, and
+    /// <c>--stdin</c> paths are literal where an argv path starting with <c>:</c> or <c>-</c> is
+    /// not.</para></summary>
     static async Task ApplyReservedIndexPolicyAsync(
             string destination, SnapshotExclusionPlan plan, bool caseSensitive, TimeProvider time,
             CancellationToken ct) {
@@ -1775,13 +1786,8 @@ public partial class WorktreeManager(
         var targets = new List<string>();
         foreach (var record in SplitNulRecords(indexListing)) {
             ct.ThrowIfCancellationRequested();
-            // Every non-Unrelated match, Exact AND Descendant — the same set ReadSourceManifestAsync
-            // excludes. An earlier version marked only Exact on the reasoning that a descendant of a
-            // config path is not an index entry, which is backwards: the reserved parent may not be an
-            // entry, but a repository CAN track `.codex/config.toml/child` (the config pathname as a
-            // directory), and each such child is a real index entry. Omitted from the snapshot and left
-            // unmarked, it reads as a deletion — and an ordinary git operation in the snapshot could
-            // restore it and rebuild a live vendor-config tree.
+            // Descendants too: a repository can track `.codex/config.toml/child`, the config pathname as a
+            // directory. Left unmarked, an ordinary git operation could restore it as a live config tree.
             if (ClassifyReservedPath(record.Span, plan.Reserved, caseSensitive).Kind
                     == ReservedPathMatchKind.Unrelated)
                 continue;
@@ -1792,10 +1798,46 @@ public partial class WorktreeManager(
 
         if (targets.Count > 0)
             await RunGitWithNulStdinAsync(
-                destination, GitTimeout, time, targets, ct, "update-index", "--skip-worktree", "-z", "--stdin");
+                destination, GitTimeout, time, targets, ct, NoBranchHooks(),
+                "update-index", "--skip-worktree", "-z", "--stdin");
 
         Directory.CreateDirectory(Path.Combine(destination, ".git", "info"));
         File.AppendAllText(Path.Combine(destination, ".git", "info", "exclude"), "\n.attached/\n");
+    }
+
+    /// <summary>Marks what the strip removed from an owned worktree <c>skip-worktree</c>, so the removal is not
+    /// reported, staged or committed as the branch deleting it.
+    ///
+    /// <para>Runs on a fresh checkout, so a tracked path now missing was removed by the strip. It is marked
+    /// only when it is a config path, under one, or a link the strip unlinked on the way to one: content a
+    /// link pointed at stays visible. Writing the index fires <c>post-index-change</c>, hence the hook
+    /// override.</para></summary>
+    async Task SkipStrippedIndexEntriesAsync(string worktreePath) {
+        var caseSensitive = ProbeCaseSensitiveFileSystem(worktreePath);
+        var reserved      = PlanSnapshotExclusions("", caseSensitive).Reserved;
+        var missing       = await RunGitCaptureBytes(
+            worktreePath, GitTimeout, time, false, CancellationToken.None, "ls-files", "-d", "-z");
+
+        var targets = SplitNulRecords(missing)
+            .Where(record => ClassifyReservedPath(record.Span, reserved, caseSensitive).Kind != ReservedPathMatchKind.Unrelated
+                          || RoutesToReservedPath(record.Span, reserved, caseSensitive))
+            .Select(record => StrictUtf8.GetString(record.Span))
+            .ToList();
+
+        if (targets.Count > 0)
+            await RunGitWithNulStdinAsync(
+                worktreePath, GitTimeout, time, targets, CancellationToken.None, NoBranchHooks(),
+                "update-index", "--skip-worktree", "-z", "--stdin");
+    }
+
+    /// <summary>Whether <paramref name="rawPath"/> is a proper ancestor of a reserved path.</summary>
+    static bool RoutesToReservedPath(
+            ReadOnlySpan<byte> rawPath, (string Canonical, byte[] Bytes)[] reserved, bool caseSensitive) {
+        foreach (var candidate in reserved)
+            if (candidate.Bytes.Length > rawPath.Length && candidate.Bytes[rawPath.Length] == (byte)'/'
+             && AsciiPathEquals(rawPath, candidate.Bytes.AsSpan(0, rawPath.Length), caseSensitive))
+                return true;
+        return false;
     }
 
     static FileStream OpenSequentialRead(string path) => new(path, new FileStreamOptions {
@@ -1820,9 +1862,9 @@ public partial class WorktreeManager(
     }
 
     public async Task CleanupOrphanedAsync(IEnumerable<string>? activeWorktreePaths = null) {
-        // Legacy global root — clean up any leftover worktrees from before the per-repo change
+        // The global root: worktrees from daemons that predate per-repo roots, then the daemon-owned roots.
         var worktreePaths = activeWorktreePaths as string[] ?? [..activeWorktreePaths ?? []];
-        string[] daemonOwnedRoots = ["borrowed-snapshots", ScratchDirectoryName];
+        string[] daemonOwnedRoots = [BorrowedSnapshotsDirectoryName, ScratchDirectoryName];
         await CleanupDirectoryAsync(config.WorktreeRoot, worktreePaths, daemonOwnedRoots);
         foreach (var name in daemonOwnedRoots) {
             var ownedRoot = Path.Combine(config.WorktreeRoot, name);
@@ -1860,15 +1902,9 @@ public partial class WorktreeManager(
                 continue;
             var fullDir = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar);
 
-            // Two ways to be live, and BOTH are checked. A directory is live if it is itself an active
-            // worktree (or contains one) — the original rule — or, for a per-launch vendor state
-            // directory, if the snapshot it sits beside is: a state directory is never itself an active
-            // worktree path, so without the second arm the sweep reaps a running reviewer's HOME.
-            //
-            // Checking the first arm unconditionally is what keeps the suffix a hint rather than a
-            // classification. Snapshot directories are named from the agent id, so one could legitimately
-            // end in the suffix; deriving an "owner" and testing only that would then compare an active
-            // snapshot against a path that does not exist and delete the live worktree.
+            // Live if it is (or contains) an active worktree, or if it is a vendor state or review
+            // context directory beside an active snapshot. The first check runs unconditionally: a snapshot
+            // an older daemon named with the raw agent id can itself end in one of those suffixes.
             if (IsActive(fullDir, activePaths)) continue;
             if (fullDir.EndsWith(VendorStateSuffix, StringComparison.OrdinalIgnoreCase) &&
                 IsActive(fullDir[..^VendorStateSuffix.Length], activePaths))
@@ -2109,15 +2145,12 @@ public partial class WorktreeManager(
     /// <summary>
     /// The proof gate, applied where the overrides are HANDED TO GIT rather than where they are composed.
     ///
-    /// <para>An earlier revision proved the transport inside each producer of containment config instead.
-    /// Review found the hole that shape leaves: <c>ReadGitRelativeCwdAsync</c> passes
-    /// <c>core.quotePath=false</c> and is not a containment producer, so it carried an override past no
-    /// proof at all — a fourth call site would have had the same problem, and a fifth. Gating on "this run
-    /// carries overrides" cannot be forgotten by a new caller.</para>
+    /// <para>A proof inside each producer of containment config would miss callers that are not producers:
+    /// <c>ReadGitRelativeCwdAsync</c> passes <c>core.quotePath=false</c> and would carry that override past
+    /// no proof at all. Gating on "this run carries overrides" cannot be forgotten by a new caller.</para>
     ///
-    /// <para><b>Including <c>sourceReadOnly</c>'s own pair.</b> A revision of this gated only on
-    /// caller-supplied config, reasoning that losing that flag's suppressions costs a maintenance run.
-    /// Review corrected it: <c>core.fsmonitor</c> set to anything other than a boolean names a HOOK
+    /// <para><b>Including <c>sourceReadOnly</c>'s own pair.</b> Losing that flag's suppressions costs more
+    /// than a maintenance run: <c>core.fsmonitor</c> set to anything other than a boolean names a HOOK
     /// PROGRAM, which git runs whenever a command refreshes the index, so silently dropping
     /// <c>core.fsmonitor=false</c> re-exposes an execution surface — not a performance one. There is no
     /// per-key classification here for the same reason there is no filter-driver exemption: the argument
@@ -2226,9 +2259,8 @@ public partial class WorktreeManager(
         }
 
         // Every override this process passes goes through ONE composition, so the indices and the count are
-        // allocated in a single place. An earlier revision wrote the sourceReadOnly pair at fixed indices
-        // 0 and 1 with a fixed count of 2, which both displaced any inherited entry and left no room for a
-        // caller's own overrides.
+        // allocated in a single place: the sourceReadOnly pair must neither displace an inherited entry nor
+        // crowd out a caller's own overrides.
         GitConfigOverride[] composed = sourceReadOnly
             ? [.. SourceReadOnlyConfig, .. config ?? []]
             : config ?? [];

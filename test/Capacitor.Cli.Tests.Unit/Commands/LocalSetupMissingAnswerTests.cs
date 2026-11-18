@@ -20,9 +20,17 @@ public class LocalSetupMissingAnswerTests {
     [Test]
     public async Task Missing_one_names_that_one() {
         await Assert.That(LocalSetupTerminal.MissingAnswer(Args(singleUser: false, yes: true), Install, "/root"))
-            .DoesNotContain("--yes");
+            .StartsWith("Pass --single-user to install kcap local 1.4.1 in /root.");
         await Assert.That(LocalSetupTerminal.MissingAnswer(Args(singleUser: true, yes: false), Install, "/root"))
             .IsEqualTo("Pass --yes to install kcap local 1.4.1 in /root.");
         await Assert.That(LocalSetupTerminal.MissingAnswer(Args(singleUser: true, yes: true), Install, "/root")).IsNull();
+    }
+
+    /// <summary>The installation a reuse finds was confirmed when it was made, so a rerun repeats neither answer.</summary>
+    [Test]
+    public async Task A_reuse_misses_nothing() {
+        var reuse = new LocalPlan(PlanHint.Reuse, "1.4.1", new("0123456789abcdef0123456789abcdef", 9473, "http://localhost:9473", "1.4.1"));
+
+        await Assert.That(LocalSetupTerminal.MissingAnswer(Args(singleUser: false, yes: false), reuse, "/root")).IsNull();
     }
 }

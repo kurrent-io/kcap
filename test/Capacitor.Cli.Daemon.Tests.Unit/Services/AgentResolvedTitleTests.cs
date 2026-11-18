@@ -1,8 +1,3 @@
-using Capacitor.Cli.Daemon.Pty;
-using Capacitor.Cli.Daemon.Services;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging.Abstractions;
-
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
@@ -14,64 +9,7 @@ public class AgentResolvedTitleTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }
 
-    sealed class NoopHostLifetime : IHostApplicationLifetime {
-        public CancellationToken ApplicationStarted  => CancellationToken.None;
-        public CancellationToken ApplicationStopping => CancellationToken.None;
-        public CancellationToken ApplicationStopped  => CancellationToken.None;
-        public void StopApplication() { }
-    }
-
-    sealed class NoopPtyProcessFactory : IPtyProcessFactory {
-        public IPtyProcess Spawn(
-                string command, string[] args, string cwd,
-                Dictionary<string, string>? extraEnv = null, ushort cols = 120, ushort rows = 40,
-                IReadOnlyCollection<string>? removeEnv = null
-            ) => throw new NotSupportedException("AgentResolvedTitleTests never spawns a PTY");
-    }
-
-    sealed class NoopHttpClientFactory : IHttpClientFactory {
-        public HttpClient CreateClient(string name) => new();
-    }
-
-    sealed record Fixture(AgentOrchestrator Orchestrator, DaemonStatusNotifier Notifier, TempDaemonStore Daemons) {
-        public async Task CleanupAsync() {
-            await Orchestrator.DisposeAsync();
-            Daemons.Dispose();
-        }
-    }
-
-    Fixture Build() {
-        var daemons = new TempDaemonStore();
-
-        var config = new DaemonConfig {
-            Name         = "resolved-title-test",
-            ServerUrl    = "http://127.0.0.1:1",
-            Store        = daemons.Store,
-            WorktreeRoot = daemons.PathTo("worktrees"),
-        };
-
-        var store       = new LaunchConsentStore(config.Store.StateDirectory(config.Name), NullLogger.Instance, TimeProvider.System);
-        var broker      = new LaunchConsentBroker();
-        var decisionLog = new LaunchConsentDecisionLog(config.Store.StateDirectory(config.Name), NullLogger.Instance);
-        var gate        = new LaunchConsentGate(store, decisionLog, broker, TimeProvider.System, NullLogger<LaunchConsentGate>.Instance);
-
-        var tokens           = AuthFixtures.NewTokenStore(Config.Root);
-        var connection       = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System);
-        var worktreeManager  = new WorktreeManager(config, NullLogger<WorktreeManager>.Instance, NoSnapshotBarrier.Instance, TimeProvider.System);
-        var repoMatcher      = new RepoMatcher(config, NullLogger<RepoMatcher>.Instance, TimeProvider.System);
-        var permissionBridge = new LocalPermissionBridge(connection, NullLogger<LocalPermissionBridge>.Instance, EphemeralLoopbackPortSource.Instance, TimeProvider.System);
-        var notifier         = new DaemonStatusNotifier();
-
-        var orchestrator = new AgentOrchestrator(
-            config, Config.Root, TestHarnesses.Under(Home), connection, worktreeManager, repoMatcher,
-            new NoopPtyProcessFactory(), new NoopHttpClientFactory(), new FixedCapacitorHttpClient(),
-            tokens,
-            permissionBridge, new Dictionary<string, IHostedAgentLauncher>(),
-            new Dictionary<string, IHostedAgentRuntimeFactory>(), new NoopHostLifetime(),
-            NullLogger<AgentOrchestrator>.Instance, gate, TimeProvider.System, statusNotifier: notifier);
-
-        return new Fixture(orchestrator, notifier, daemons);
-    }
+    OrchestratorFixture Build() => new(Config, Home, "resolved-title-test", notifyOrchestrator: true);
 
     [Test]
     public async Task Resolved_title_replaces_the_prompt_seed_in_the_snapshot() {
@@ -83,7 +21,7 @@ public class AgentResolvedTitleTests {
 
             var dto = fx.Orchestrator.SnapshotAgentsForStatus().Single();
             await Assert.That(dto.Title).IsEqualTo("Stabilize the daemon lease test");
-        } finally { await fx.CleanupAsync(); }
+        } finally { await fx.DisposeAsync(); }
     }
 
     [Test]
@@ -94,7 +32,7 @@ public class AgentResolvedTitleTests {
 
             var dto = fx.Orchestrator.SnapshotAgentsForStatus().Single();
             await Assert.That(dto.Title).IsEqualTo("Fix the flaky test");
-        } finally { await fx.CleanupAsync(); }
+        } finally { await fx.DisposeAsync(); }
     }
 
     [Test]
@@ -111,6 +49,6 @@ public class AgentResolvedTitleTests {
             var v1 = fx.Notifier.Version;
             fx.Orchestrator.SetResolvedTitle(agent, "Stabilize the daemon lease test");
             await Assert.That(fx.Notifier.Version).IsEqualTo(v1);
-        } finally { await fx.CleanupAsync(); }
+        } finally { await fx.DisposeAsync(); }
     }
 }

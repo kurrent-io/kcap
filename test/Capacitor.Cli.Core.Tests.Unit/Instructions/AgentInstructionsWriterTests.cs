@@ -1,3 +1,4 @@
+using System.Text;
 using Capacitor.Cli.Core.Instructions;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Instructions;
@@ -11,6 +12,49 @@ public class AgentInstructionsWriterTests {
         await Assert.That(KcapAgentInstructions.Body).Contains("Flows you may offer");
         await Assert.That(KcapAgentInstructions.Body).Contains("get_flow_definition");
         await Assert.That(KcapAgentInstructions.Body).DoesNotContain("proactively OFFER an independent second-harness review");
+    }
+
+    /// The bytes PowerShell 5.1's `Set-Content -Encoding UTF8` writes: a BOM, the text, and its own CRLF after an
+    /// LF-separated body.
+    [Test]
+    public async Task Write_then_remove_gives_back_the_users_file_byte_for_byte() {
+        using var tmp = new TempDir();
+        var path = tmp.PathTo("copilot-instructions.md");
+        byte[] seed = [0xEF, 0xBB, 0xBF, .. "# Dana's rules\n\nAlways answer in British English.\r\n"u8];
+        File.WriteAllBytes(path, seed);
+
+        await Assert.That(AgentInstructionsWriter.Write(path, KcapAgentInstructions.Body)).IsEqualTo(AgentInstructionsWriter.Change.Updated);
+        await Assert.That(File.ReadAllBytes(path).AsSpan().StartsWith(seed.AsSpan(0, 3))).IsTrue();
+
+        await Assert.That(AgentInstructionsWriter.Remove(path)).IsEqualTo(AgentInstructionsWriter.Change.Updated);
+        await Assert.That(Convert.ToHexString(File.ReadAllBytes(path))).IsEqualTo(Convert.ToHexString(seed));
+    }
+
+    [Test]
+    public async Task A_new_file_has_no_bom() {
+        using var tmp = new TempDir();
+        var path = tmp.PathTo("AGENTS.md");
+
+        AgentInstructionsWriter.Write(path, KcapAgentInstructions.Body);
+
+        await Assert.That(File.ReadAllBytes(path)[0]).IsEqualTo((byte)'<');
+    }
+
+    /// The bytes PowerShell 5.1's `>` writes: UTF-16 LE with a BOM. Decoded as UTF-8 the text would be NUL-interleaved,
+    /// no marker would match, and the file would come back as mojibake plus a UTF-8 block.
+    [Test]
+    public async Task A_utf16_file_keeps_its_text_through_write_and_remove() {
+        using var tmp = new TempDir();
+        var path = tmp.PathTo("copilot-instructions.md");
+        const string text = "# Dana's rules\r\n\r\nAlways answer in British English.\r\n";
+        File.WriteAllBytes(path, [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(text)]);
+
+        await Assert.That(AgentInstructionsWriter.Write(path, KcapAgentInstructions.Body)).IsEqualTo(AgentInstructionsWriter.Change.Updated);
+        await Assert.That(File.ReadAllText(path)).StartsWith(text + "\n" + AgentInstructionsWriter.BeginMarker);
+        await Assert.That(AgentInstructionsWriter.IsInstalled(path)).IsTrue();
+
+        await Assert.That(AgentInstructionsWriter.Remove(path)).IsEqualTo(AgentInstructionsWriter.Change.Updated);
+        await Assert.That(Convert.ToHexString(File.ReadAllBytes(path))).IsEqualTo(Convert.ToHexString(Encoding.UTF8.GetBytes(text)));
     }
 
     [Test]

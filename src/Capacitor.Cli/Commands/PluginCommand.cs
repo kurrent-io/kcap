@@ -455,9 +455,10 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
                 // A byte-order mark makes Codex refuse the file whatever the marker says.
                 if (CodexHooksInstaller.ReadMarker(hooksPath) != CapacitorVersion.Current()
                  || CodexHooksInstaller.StartsWithByteOrderMark(hooksPath)) {
-                    if (InstallCodexHooks(hooksPath))
+                    if (InstallCodexHooks(hooksPath)) {
                         await env.Stdout.WriteLineAsync($"Codex hooks refreshed ({scope}: {hooksPath})");
-                    else {
+                        if (scope == "user") await TrustCodexHooksAsync(codex, refreshOnly: true);
+                    } else {
                         _refreshFailed = true;
                         await env.Stderr.WriteLineAsync(
                             $"Warning: could not refresh Codex hooks ({hooksPath}); continuing with MCP registration.");
@@ -532,12 +533,10 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
 
         await env.Stdout.WriteLineAsync($"Codex hooks installed ({scope}: {hooksPath})");
 
-        await env.Stdout.WriteLineAsync(
-            "Next: Codex will prompt to trust the kcap hooks on its next interactive launch — " +
-            "accept once to trust them all (or run /hooks inside Codex to trust them individually). " +
-            "`codex exec` and the Codex desktop app never prompt: run `codex` once, or trust the kcap hooks in the app's Settings → Hooks. " +
-            "Until then Codex records nothing, except a run passed `--dangerously-bypass-hook-trust`."
-        );
+        // Installing is the user's consent to kcap's hooks running. Project hooks live in the repository rather than
+        // this Codex home, so they stay with Codex's own prompt.
+        if (scope == "user") await TrustCodexHooksAsync(codex, refreshOnly: false);
+        else await env.Stdout.WriteLineAsync(CodexTrustPromptNote);
 
         // Skills are user-scoped only. Written to ~/.agents/skills/ so they
         // work across Codex and other compatible agents.
@@ -636,6 +635,33 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         }
     }
 
+    internal const string CodexTrustPromptNote =
+        "Next: Codex will prompt to trust the kcap hooks on its next interactive launch — " +
+        "accept once to trust them all (or run /hooks inside Codex to trust them individually). " +
+        "`codex exec` and the Codex desktop app never prompt: run `codex` once, or trust the kcap hooks in the app's Settings > Hooks. " +
+        "Until then Codex records nothing, except a run passed `--dangerously-bypass-hook-trust`.";
+
+    /// <summary>
+    /// Has Codex trust kcap's hooks in <paramref name="paths"/>. A refresh re-trusts only hooks kcap trusted before,
+    /// and stays quiet when nothing changed. Never fails the install: an untrusted outcome prints how to trust them.
+    /// </summary>
+    async Task TrustCodexHooksAsync(CodexPaths paths, bool refreshOnly) {
+        if (refreshOnly && !CodexConfigToml.HasHookTrustClaim(paths.ConfigToml)) return;
+
+        var seed = await new CodexHookTrustSeeder(env.Harnesses, env.Home, TimeProvider.System)
+            .SeedAsync(paths, CancellationToken.None);
+
+        if (refreshOnly && seed == CodexHookTrustSeed.AlreadyTrusted) return;
+
+        await env.Stdout.WriteLineAsync(CodexHookTrustLine(seed, paths.ConfigToml));
+    }
+
+    internal static string CodexHookTrustLine(CodexHookTrustSeed seed, string configPath) => seed switch {
+        CodexHookTrustSeed.Trusted        => $"Codex hooks trusted ({configPath}), so `codex exec` records too.",
+        CodexHookTrustSeed.AlreadyTrusted => "Codex already trusts the kcap hooks — no change needed.",
+        _                                 => CodexTrustPromptNote,
+    };
+
     async Task<int> RemoveCodex(string[] args) {
         var codex = env.Harnesses.Of<CodexHarness>().Paths;
 
@@ -693,6 +719,17 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
 
         await ReportNetworkRestoreAsync(network, codex.ConfigToml);
 
+        var trust = scope == "user"
+            ? CodexConfigToml.ReleaseHookTrust(codex.ConfigToml)
+            : CodexConfigToml.Change.Unchanged;
+        var trustFailed  = trust == CodexConfigToml.Change.Failed;
+        var trustRemoved = trust is CodexConfigToml.Change.Updated or CodexConfigToml.Change.UpdatedWithPreservedEntries;
+
+        if (trustRemoved)
+            await env.Stdout.WriteLineAsync($"Removed the Codex hook trust kcap added ({codex.ConfigToml})");
+        if (trustFailed)
+            await env.Stderr.WriteLineAsync($"Could not update {codex.ConfigToml} to remove the Codex hook trust kcap added.");
+
         if (scope == "user") CodexConfigToml.DeleteEmptyOwnershipLedger(codex.ConfigToml);
 
         // The skills are user-wide, so a project remove leaves them to a user-scope Codex still installed.
@@ -704,14 +741,14 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
 
         var accountsFailed = scope == "user" && !await UnwireUserAccountsAsync(HarnessId.Codex, codex.Home);
 
-        if (hooksFailed || mcpFailed || networkFailed || agents.HadErrors || legacy.HadErrors || accountsFailed) {
+        if (hooksFailed || mcpFailed || networkFailed || trustFailed || agents.HadErrors || legacy.HadErrors || accountsFailed) {
             await env.Stdout.WriteLineAsync("Removal incomplete — see errors above.");
 
             return 1;
         }
 
         if (!hooksRemoved && !mcpChanged && !mcpPreserved && network.Restored.Count == 0 && network.Kept.Count == 0
-         && !agents.RemovedAny && !legacy.RemovedAny) {
+         && !trustRemoved && !agents.RemovedAny && !legacy.RemovedAny) {
             await env.Stdout.WriteLineAsync("Nothing to remove — hooks and skills were not installed.");
         }
 
@@ -802,7 +839,13 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
             var steps = await LockedAsync(() => WireOne(account, refreshOnly, options));
             if (steps is null) break;
 
-            if (steps.Count > 0) ok &= await ReportAsync(account, steps, "Wired", "wire");
+            if (steps.Count == 0) continue;
+
+            var wired = await ReportAsync(account, steps, "Wired", "wire");
+            ok &= wired;
+
+            if (wired && vendor is HarnessId.Codex)
+                await TrustCodexHooksAsync(AccountLayouts.Codex(env.Home, account.Directory), refreshOnly);
         }
 
         return ok;
@@ -1289,6 +1332,10 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
                         ? $"OpenCode plugin refreshed ({pluginPath})"
                         : $"OpenCode plugin installed ({pluginPath})"
                 );
+
+                // Not on a refresh: that runs on every npm upgrade, where spawning the vendor is unwelcome.
+                if (!refreshOnly && OpenCodeVersionFloor.UpgradeNotice(env.OpenCodeVersion()) is { } upgrade)
+                    await env.Stderr.WriteLineAsync($"Warning: {upgrade}");
             } else if (!refreshOnly) {
                 // Fresh install: the plugin is the whole point — fail.
                 await env.Stderr.WriteLineAsync("Could not write the OpenCode plugin file.");
@@ -1794,8 +1841,12 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         // Register the kcap MCP servers in ~/.copilot/mcp-config.json so Copilot picks them
         // up with no manual JSON edit. Non-destructive + idempotent. Never fails the install:
         // a write error is a warning, not an error code (mirrors Cursor/Codex).
-        if (!args.Contains("--skip-copilot-mcp"))
+        if (!args.Contains("--skip-copilot-mcp")) {
             await RegisterCopilotMcpServersAsync();
+
+            if (!args.Contains("--skip-copilot-tool-search"))
+                await EnableCopilotToolSearchAsync(refreshOnly);
+        }
 
         // Install kcap's agent-instructions block so Copilot's model is steered toward the kcap MCP
         // tools. Non-destructive (only our marker block) + idempotent. Never fails the install.
@@ -1831,6 +1882,35 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
             // Unchanged: silent — same as Cursor's already-registered case.
         }
     }
+
+    /// <summary>Never fails the install: without tool search kcap's tools still work, they are just sent with
+    /// every request. A refresh stays quiet about a user who turned it off, who would otherwise hear it on every upgrade.</summary>
+    async Task EnableCopilotToolSearchAsync(bool refreshOnly) {
+        var settings = env.Harnesses.Of<CopilotHarness>().Paths.SettingsJson;
+
+        switch (CopilotToolSearch.Enable(settings)) {
+            case SettingsEdit.Changed:
+                await env.Stdout.WriteLineAsync(CopilotToolSearchOnLine(settings));
+                break;
+            case SettingsEdit.Unchanged when !refreshOnly && CopilotToolSearch.IsTurnedOff(settings):
+                await env.Stdout.WriteLineAsync(CopilotToolSearchOffLine(settings));
+                break;
+            case SettingsEdit.Malformed or SettingsEdit.Failed:
+                _refreshFailed = true;
+                await env.Stderr.WriteLineAsync(
+                    $"Warning: could not update {settings} to turn on Copilot tool search; run `copilot config toolSearch true` to turn it on.");
+                break;
+        }
+    }
+
+    internal static string CopilotToolSearchOnLine(string settings) =>
+        $"Copilot tool search turned on ({CopilotToolSearch.Key} in {settings}): Copilot now loads the tools of every MCP server, "
+      + "kcap's and your others, on demand instead of sending them with each request. "
+      + "Run `copilot config toolSearch false` to turn it off; kcap leaves a value you set alone.";
+
+    internal static string CopilotToolSearchOffLine(string settings) =>
+        $"Copilot tool search is off ({CopilotToolSearch.Key}: false in {settings}), so Copilot sends every kcap tool definition "
+      + "with each request. Run `copilot config toolSearch true` to load them on demand.";
 
     /// <summary>
     /// Installs kcap's marker-delimited instructions block into
@@ -1911,7 +1991,10 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
     /// embeds the event name in the command because Copilot hook payloads
     /// carry no uniform event-name field (see <c>CopilotHookCommand</c>).
     /// </summary>
-    public static bool InstallCopilotHooks(string hooksPath, Func<string?>? resolveBinaryPath = null) {
+    public static bool InstallCopilotHooks(string hooksPath, Func<string?>? resolveBinaryPath = null) =>
+        WriteCopilotHooks(hooksPath, resolveBinaryPath) is SettingsEdit.Changed or SettingsEdit.Unchanged;
+
+    public static SettingsEdit WriteCopilotHooks(string hooksPath, Func<string?>? resolveBinaryPath = null) {
         try {
             var binary = CopilotHookBinary(resolveBinaryPath);
             var hooks = new JsonObject();
@@ -1931,12 +2014,8 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
                 ["hooks"]   = hooks
             };
 
-            Directory.CreateDirectory(Path.GetDirectoryName(hooksPath)!);
-            File.WriteAllText(hooksPath, root.ToJsonString(WriteOpts));
-            CopilotHooksInstaller.WriteMarker(hooksPath);
-
-            return true;
-        } catch { return false; }
+            return OwnedFile.Write(hooksPath, root.ToJsonString(WriteOpts), CopilotHooksInstaller.ReadMarker(hooksPath), CopilotHooksInstaller.WriteMarker);
+        } catch { return SettingsEdit.Failed; }
     }
 
     /// <summary>
@@ -2044,7 +2123,11 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
         // deleted kcap.json is recreated). MCP is registered below regardless of the clone outcome.
         var hooksFailed = false;
         var hooksCurrent = refreshOnly && File.Exists(agentPath) && KiroHooksInstaller.ReadMarker(agentPath) == CapacitorVersion.Current();
-        if (!hooksCurrent) {
+        if (!hooksCurrent && !File.Exists(agentPath) && env.Harnesses.ResolveExecutable(HarnessId.Kiro) is null) {
+            hooksFailed = true;
+            await env.Stderr.WriteLineAsync(
+                $"Warning: {CodingAgentsStep.KiroCliMissingLine(args.Contains("--skip-kiro-mcp"), skipSkills)}");
+        } else if (!hooksCurrent) {
             if (InstallKiroHooks(agentPath, env.Harnesses, env.Stderr)) {
                 var clonedFrom = KiroHooksInstaller.ReadPreviousDefault(agentPath) ?? "your default agent";
                 await env.Stdout.WriteLineAsync(

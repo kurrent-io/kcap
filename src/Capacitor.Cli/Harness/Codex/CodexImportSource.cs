@@ -112,7 +112,8 @@ internal sealed class CodexImportSource(
             transcripts,
             ctx.MinLines,
             ct,
-            vendor: Vendor
+            vendor: Vendor,
+            excludeBeforeProbeAsync: ctx.ExcludeBeforeProbeAsync
         );
     }
 

@@ -30,38 +30,56 @@ public class ArtefactCommandTests {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(api.Calls).IsEquivalentTo(new[] { "version:a1" });
+        await Assert.That(console.GetCapturedOutput().ReplaceLineEndings("\n").Trim()).IsEqualTo("Plan published (v1)\nhttps://kcap.test/artefacts/a1");
+        await Assert.That(console.GetCapturedError().Trim()).IsEqualTo("Object key: page:a1");
         await Assert.That(api.VersionSources).IsEquivalentTo(new[] { "0123456789abcdef0123456789abcdef" });
     }
 
     [Test]
-    [Arguments("--to")]
-    [Arguments("--visibility")]
-    public async Task A_share_flag_without_its_value_changes_nothing(string flag) {
+    [Arguments("--visibility", "org")]
+    [Arguments("--to", "team:platform")]
+    public async Task A_publish_naming_an_audience_is_refused_and_says_where_sharing_went(string flag, string value) {
         var api = new RecordingArtefactsApi();
 
-        // --visibility scoped comes first so the bare flag under test is the last token either way.
-        string[] args = flag == "--to"
-            ? ["artefact", "share", "a1", "--visibility", "scoped", "--to"]
-            : ["artefact", "share", "a1", "--to", "team:platform", "--visibility"];
-
         using var console = ConsoleOutput.StartFullCapture();
-        var exit = await new ArtefactCommand(api).HandleAsync(args);
+        var exit = await new ArtefactCommand(api).HandleAsync(["page", "publish", Page(), flag, value]);
 
         await Assert.That(exit).IsEqualTo(1);
         await Assert.That(api.Calls).IsEmpty();
-        await Assert.That(console.GetCapturedError()).Contains($"{flag} needs a value");
+        await Assert.That(console.GetCapturedError()).Contains(ArtefactCommand.ShareSeparatelyMessage);
     }
 
     [Test]
-    public async Task Sharing_as_scoped_with_nobody_sends_an_explicit_empty_audience() {
+    public async Task Page_share_points_at_the_sharing_commands_and_changes_nothing() {
         var api = new RecordingArtefactsApi();
 
         using var console = ConsoleOutput.StartFullCapture();
-        var exit = await new ArtefactCommand(api).HandleAsync(["artefact", "share", "a1", "--visibility", "scoped"]);
+        var exit = await new ArtefactCommand(api).HandleAsync(["page", "share", "a1", "--visibility", "org"]);
 
-        await Assert.That(exit).IsEqualTo(0);
-        await Assert.That(api.SharedGrants).IsNotNull();
-        await Assert.That(api.SharedGrants!.Count).IsEqualTo(0);
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(api.Calls).IsEmpty();
+        await Assert.That(console.GetCapturedError()).Contains(ArtefactCommand.ShareSeparatelyMessage);
+    }
+
+    static readonly SharingAudienceDto Ada  = new("user:7", "Ada", "user", null, null, false);
+    static readonly SharingRelationDto View = new("viewer", "Can view");
+
+    static ArtefactDto Listed(string id, bool mine, List<SharedGrantDto>? shared, string visibility = "see shared_with", string? key = "") =>
+        new(id, "Plan", "u1", visibility, 1, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero), mine,
+            key == "" ? "page:" + id : key, shared, $"https://kcap.test/pages/{id}");
+
+    [Test]
+    public async Task The_listing_shows_who_each_page_is_shared_with() {
+        var lines = ArtefactCommand.ListLines([
+            Listed("p1", mine: true, [new(Ada, View)]),
+            Listed("p2", mine: true, [new(Ada, View), new(new("team:platform", "Platform", "team", null, null, false), View)]),
+            Listed("p3", mine: false, null, visibility: "org", key: null)
+        ]).ToList();
+
+        await Assert.That(lines[0]).IsEqualTo("PAGE  VERSION UPDATED     SHARED WITH                          OBJECT KEY  TITLE");
+        await Assert.That(lines[1]).IsEqualTo("p1    v1      2026-09-16  Ada (Can view)                       page:p1     Plan");
+        await Assert.That(lines[2]).IsEqualTo("p2    v1      2026-09-16  Ada (Can view), Platform (Can view)  page:p2     Plan");
+        await Assert.That(lines[3]).IsEqualTo("p3    v1      2026-09-16  org                                  -           Plan");
     }
 
     [Test]
@@ -69,7 +87,7 @@ public class ArtefactCommandTests {
         var api = new RecordingArtefactsApi();
 
         using var console = ConsoleOutput.StartFullCapture();
-        var exit = await new ArtefactCommand(api).HandleAsync(["artefact", "share", "a1", "--visibility", "org", "--title", "New"]);
+        var exit = await new ArtefactCommand(api).HandleAsync(["artefact", "delete", "a1", "--title", "New"]);
 
         await Assert.That(exit).IsEqualTo(1);
         await Assert.That(api.Calls).IsEmpty();
@@ -121,7 +139,7 @@ public class ArtefactCommandTests {
     static PageSearchHitDto Hit(string id, string title, string excerpt = "", string? name = "Ada Lovelace",
                                 bool mine = false) =>
         new(id, title, "github:42", name, "org", 2, new DateTimeOffset(2026, 9, 16, 10, 0, 0, TimeSpan.Zero),
-            mine, $"https://kcap.test/pages/{id}", excerpt, "body");
+            mine, $"https://kcap.test/pages/{id}", excerpt, "page:" + id, "body");
 
     static async Task<(int Exit, string Out, string Err)> SearchAsync(RecordingArtefactsApi api, params string[] args) {
         using var console = ConsoleOutput.StartFullCapture();
@@ -145,11 +163,11 @@ public class ArtefactCommandTests {
         var lines = output.TrimEnd().Split(Environment.NewLine);
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(lines).Count().IsEqualTo(5);
-        await Assert.That(lines[0]).IsEqualTo("PAGE  VERSION VISIBILITY UPDATED     AUTHOR        TITLE");
-        await Assert.That(lines[1]).IsEqualTo("p1    v2      org        2026-09-16  you           Ferry timetable");
+        await Assert.That(lines[0]).IsEqualTo("PAGE  VERSION UPDATED     AUTHOR        OBJECT KEY  TITLE");
+        await Assert.That(lines[1]).IsEqualTo("p1    v2      2026-09-16  you           page:p1     Ferry timetable");
         await Assert.That(lines[2]).IsEqualTo("    harbour departures");
-        await Assert.That(lines[3]).IsEqualTo("p2    v2      org        2026-09-16  Grace Hopper  Harbour schedule");
-        await Assert.That(lines[4]).IsEqualTo("p3    v2      org        2026-09-16  github:42     Untitled");
+        await Assert.That(lines[3]).IsEqualTo("p2    v2      2026-09-16  Grace Hopper  page:p2     Harbour schedule");
+        await Assert.That(lines[4]).IsEqualTo("p3    v2      2026-09-16  github:42     page:p3     Untitled");
     }
 
     /// <summary>Titles and excerpts of another person's page reach stdout as they are, so stderr carries
@@ -232,11 +250,9 @@ public class ArtefactCommandTests {
 
         public List<string> Calls { get; } = [];
 
-        public List<ArtefactGrantDto>? SharedGrants { get; private set; }
-
         static ArtefactWriteResult Written(string id) =>
             new ArtefactWriteResult.Written(new(
-                new(id, "Plan", "u1", "none", 1, DateTimeOffset.UnixEpoch, true, $"https://kcap.test/artefacts/{id}"), null));
+                new(id, "Plan", "u1", "none", 1, DateTimeOffset.UnixEpoch, true, "page:" + id, null, $"https://kcap.test/artefacts/{id}")));
 
         public Task<ArtefactWriteResult> PublishAsync(PublishArtefactBody body, CancellationToken ct = default) {
             Calls.Add("publish");
@@ -248,13 +264,6 @@ public class ArtefactCommandTests {
         public Task<ArtefactWriteResult> PublishVersionAsync(string artefactId, string html, List<string>? sources, CancellationToken ct = default) {
             Calls.Add($"version:{artefactId}");
             VersionSources = sources;
-            return Task.FromResult(Written(artefactId));
-        }
-
-        public Task<ArtefactWriteResult> SetVisibilityAsync(string artefactId, string visibility,
-                                                            List<ArtefactGrantDto>? grants, CancellationToken ct = default) {
-            Calls.Add($"share:{artefactId}");
-            SharedGrants = grants;
             return Task.FromResult(Written(artefactId));
         }
 
@@ -281,7 +290,7 @@ public class ArtefactCommandTests {
             return Task.FromResult<ArtefactReadResult>(artefactId == "hidden"
                 ? new ArtefactReadResult.NotFound()
                 : new ArtefactReadResult.Read(
-                    new(artefactId, "Plan", "u2", "org", 3, DateTimeOffset.UnixEpoch, false, $"https://kcap.test/pages/{artefactId}"),
+                    new(artefactId, "Plan", "u2", "org", 3, DateTimeOffset.UnixEpoch, false, null, null, $"https://kcap.test/pages/{artefactId}"),
                     version ?? 3, SharedHtml));
         }
     }

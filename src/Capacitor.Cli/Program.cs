@@ -156,6 +156,9 @@ if (command == "git-hook") return await GitHook.RunAsync(GitHookInvocation.Curre
 // Claude kills a SessionEnd hook after 1.5 s (ClaudeSessionEndHandoff), so the hand-off sits
 // ahead of ResolveServerUrl's git probes and the global spool drain, each of which can spend it.
 string? claudeHookBody = null;
+var claudeSideFlags   = isHook && args.Contains("--claude") ? ClaudeSideHooks.Requested(args).ToList() : [];
+var claudeSideOutputs = new List<string>();
+var claudeSideExit    = 0;
 if (isHook && args.Contains("--claude")) {
     try { claudeHookBody = await Console.In.ReadToEndAsync(); } catch { claudeHookBody = ""; }
 
@@ -163,17 +166,24 @@ if (isHook && args.Contains("--claude")) {
     HookTiming.Mark("stdin");
 
     if (args.Contains(ClaudeTitlePrompt.Flag)) {
+        var titleOutput = new StringWriter();
         var titled = ClaudeTitlePrompt.Handle(claudeHookBody, config, WatcherPaths.FromEnvironment(config),
-            ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable), Console.Out, Console.Error);
+            ClaudeStatusLineCommand.PosixShell(Environment.GetEnvironmentVariable), titleOutput, Console.Error);
         HookTiming.Mark("title-prompt");
 
-        return titled;
+        claudeSideOutputs.Add(titleOutput.ToString());
+        claudeSideExit = titled;
     }
 
-    // Every prompt waits on this hook, so a session never armed leaves before the profile's git probes.
+    // Every prompt waits on this hook, so a session never armed skips it before the profile's git probes.
     if (args.Contains(ClaudePassNotices.Flag)
      && (ClaudePassNotices.SessionIdOf(claudeHookBody) is not { } promptSession || !new PassNoticeSessions(config).IsArmed(promptSession)))
-        return 0;
+        claudeSideFlags.Remove(ClaudePassNotices.Flag);
+
+    // Written now unless another side hook may write too, so no later exit can lose it.
+    if (claudeSideOutputs.Count > 0 && !claudeSideFlags.Any(ClaudeSideHooks.Writes)) FlushClaudeSideOutputs();
+
+    if ((args.Contains(ClaudeTitlePrompt.Flag) || args.Contains(ClaudePassNotices.Flag)) && claudeSideFlags.Count == 0) return claudeSideExit;
 
     ClaudeSessionEnv.Persist(claudeHookBody, Environment.GetEnvironmentVariable(ClaudeSessionEnv.EnvFileVar), Console.Error);
 
@@ -182,7 +192,7 @@ if (isHook && args.Contains("--claude")) {
 
     if (ClaudeSessionEndHandoff.IsDetached(args)) {
         ClaudeSessionEndHandoff.EnterDetached(claudeHookBody, config);
-    } else if (ClaudeSessionEndHandoff.ShouldHandOff(args, claudeHookBody) && ClaudeSessionEndHandoff.TrySpawn(args, claudeHookBody, config, SystemProcessStarter.Instance)) {
+    } else if (ClaudeSessionEndHandoff.ShouldHandOff(args, claudeHookBody) && ClaudeSessionEndHandoff.TrySpawn(args, claudeHookBody, config, SystemProcessStarter.Instance, ClaudeSessionEndProcess.Live())) {
         HookTiming.Mark("session-end-handoff");
 
         return 0;
@@ -231,6 +241,13 @@ var services = new ServiceCollection()
 await using var sp = services.BuildValidated();
 
 TCommand Run<TCommand>() where TCommand : notnull => sp.GetRequiredService<TCommand>();
+
+void FlushClaudeSideOutputs() {
+    if (claudeSideOutputs.Count == 0) return;
+
+    if (ClaudeHookOutput.Merge(claudeSideOutputs, Console.Error) is { } merged) Console.Out.WriteLine(merged);
+    claudeSideOutputs.Clear();
+}
 
 ISessionsApi Api() => sp.GetRequiredService<ISessionsApi>();
 
@@ -309,7 +326,7 @@ if (args.Skip(1).Any(a => a is "--help" or "-h")) {
 // report-version: a no-server host must still hit ReportVersionCommand.HandleAsync's own
 // fail-open logic and return 0 silently, per its doc comment — never the generic
 // "No server configured" exit 1 this gate would otherwise produce.
-string[] offlineCommands = ["--help", "-h", "help", "--version", "-v", "logout", "cleanup", "config", "experimental", "daemon", "setup", "local", "status", "harness", "update", "refresh", "plugin", "accounts", "profile", "use", "repos", "login", "ignore", "allow", "remap", "uninstall", "cursor-verify-appendonly", "agent", "report-version", "muse-assistant", RefreshTokenHandoff.Command];
+string[] offlineCommands = ["--help", "-h", "help", "--version", "-v", "logout", "cleanup", "config", "experimental", "daemon", "setup", "local", "status", "harness", "update", "refresh", "plugin", "accounts", "profile", "use", "repos", "login", "ignore", "allow", "remap", "uninstall", "cursor-verify-appendonly", "agent", "report-version", "muse-assistant", "ide", RefreshTokenHandoff.Command];
 
 // `import --discover` reads local transcripts and never calls the server, so it belongs with the
 // offline commands — and it is most useful before setup has run, which is exactly when there is no
@@ -328,6 +345,7 @@ if (command == "import" && detachedImport is not null
 }
 
 if (baseUrl is null && !offlineCommands.Contains(command) && !offlineDiscover) {
+    FlushClaudeSideOutputs();
     Console.Error.WriteLine($"No server configured. Run `kcap setup` or set {ProfileOverrides.UrlVar}.");
 
     return 1;
@@ -630,6 +648,8 @@ switch (command) {
             case "pages":
             case "artefacts":
                 return await Run<McpArtefactsServer>().RunAsync();
+            case "sharing":
+                return await Run<McpSharingServer>().RunAsync();
             case "knowledge":
                 return await Run<McpKnowledgeServer>().RunAsync();
             case "pass":
@@ -670,6 +690,9 @@ switch (command) {
     case "page":
     case "artefact":
         return await Run<ArtefactCommand>().HandleAsync(args);
+
+    case "sharing":
+        return await Run<SharingCommand>().HandleAsync(args);
     // Not in PrintUsage: both answer as an unknown command does while the server does not offer passes.
     case "pass":
         return await Run<PassCommand>().HandleAsync(args);
@@ -699,45 +722,13 @@ switch (command) {
             return 1;
         }
 
-        // 1. Kill the watcher (and any subagent watchers)
-        var watchers = sp.GetRequiredService<WatcherManager>();
-        await watchers.KillWatcher(sessionId);
+        if (ExpectedServer.Mismatch(Environment.GetEnvironmentVariable, sp.GetRequiredService<CapacitorServer>().Url) is { } elsewhere) {
+            Console.Error.WriteLine(elsewhere);
 
-        // Also kill subagent watchers — scan PID files matching "{sessionId}-*"
-        var watcherDir = watchers.GetWatcherDir();
-
-        if (Directory.Exists(watcherDir)) {
-            foreach (var pidFile in Directory.GetFiles(watcherDir, $"{sessionId}-*.pid")) {
-                var subKey = Path.GetFileNameWithoutExtension(pidFile);
-                await watchers.KillWatcher(subKey);
-            }
+            return 1;
         }
 
-        // 2. Mark session as disabled (prevents future hook calls from sending data)
-        DisabledSessions.Mark(sessionId, config);
-
-        // 3. Tell server to delete session data
-        try {
-            switch (await Api().DeleteSessionAsync(sessionId)) {
-                case DeleteSessionResponse.Deleted:
-                    await Console.Out.WriteLineAsync($"Session {sessionId} disabled. Recording stopped and server data deleted.");
-
-                    break;
-                case DeleteSessionResponse.NotFound:
-                    await Console.Out.WriteLineAsync($"Session {sessionId} disabled. No server data found (may have already been deleted).");
-
-                    break;
-            }
-        } catch (CapacitorApiException ex) {
-            Console.Error.WriteLine(ex.Message);
-
-            // Local state has already changed, so a server that was never reached is not a failure.
-            if (ex.Status is not null) return 1;
-
-            await Console.Out.WriteLineAsync("Session disabled locally (watcher stopped, hooks silenced). Server data not deleted.");
-        }
-
-        return 0;
+        return await Run<DisableCommand>().Handle(sessionId, Api, Console.Out, Console.Error);
     }
     case "hide": {
         // The sessionId is forwarded into a server URL path but we keep the
@@ -755,6 +746,12 @@ switch (command) {
         if (!ArgParsing.TryNormalizeSessionGuid(resolved, out var sessionId)) {
             Console.Error.WriteLine($"Invalid session ID: '{resolved}'");
             Console.Error.WriteLine("  Session ID must be a UUID. Use `kcap recap --repo` to find recent session IDs.");
+
+            return 1;
+        }
+
+        if (ExpectedServer.Mismatch(Environment.GetEnvironmentVariable, sp.GetRequiredService<CapacitorServer>().Url) is { } elsewhere) {
+            Console.Error.WriteLine(elsewhere);
 
             return 1;
         }
@@ -871,6 +868,14 @@ switch (command) {
         // The detached import already opened its log, redirected output and detached at startup
         // (before this potentially slow resolution) so a parent exit can't truncate it.
         if (detachedImport is not null) DetachedImportLog.SignalAccepted();
+
+        using var disableGuard = detachedImport is not null && filterSession is not null
+            ? DisabledSessionImportGuard.Start(filterSession, config, time, () => {
+                Console.Error.WriteLine($"Session {filterSession} was disabled; stopping the import.");
+                Console.Error.Flush();
+                Environment.Exit(0);
+            })
+            : null;
 
         try {
             ImportCommand.ImportRunOutcome? outcome = null;
@@ -991,6 +996,9 @@ switch (command) {
     // ReportVersionCommand for why it never surfaces an error.
     case "report-version":
         return await Run<ReportVersionCommand>().HandleAsync();
+    // Hidden, like report-version: a stdio session host a client spawns, never typed by hand.
+    case "ide":
+        return await Run<IdeCommand>().HandleAsync();
     // Spawned detached by a hook that gave up on its own client creation (RefreshTokenHandoff); it
     // outlives the hook to finish the rotation. Not in PrintUsage — nobody types it by hand.
     case RefreshTokenHandoff.Command: {
@@ -1005,22 +1013,27 @@ switch (command) {
         // Codex blocks on this hook's stdout, so its stamp waits until the hook has answered.
         if (hookVendor is not null && hookVendor != HarnessId.Codex.VendorId) new HookActivity(config, time).Stamp(hookVendor);
 
-        // These block the agent's tool call, so they skip the spool drain below.
-        if (args.Contains("--claude") && args.Contains("--plan-read")) {
-            return await Run<ClaudeHookCommand>().HandlePlanRead(new StringReader(claudeHookBody!));
+        // These block the agent's tool call, so they skip the spool drain below. Several on one invocation run
+        // at once, each on its own command, and leave one object on stdout.
+        if (args.Contains("--claude") && claudeSideFlags.Count > 0) {
+            var runs = claudeSideFlags.Select(async flag => {
+                var output = new StringWriter();
+                var exit   = await ClaudeSideHooks.RunAsync(flag, Run<ClaudeHookCommand>(), claudeHookBody!, output);
+                return (Exit: exit, Output: output.ToString());
+            }).ToList();
+            var results = await Task.WhenAll(runs);
+
+            claudeSideOutputs.AddRange(results.Select(r => r.Output));
+            FlushClaudeSideOutputs();
+
+            return results.Select(r => r.Exit).Prepend(claudeSideExit).Max();
         }
-        if (args.Contains("--claude") && args.Contains("--task-list")) {
-            return await Run<ClaudeHookCommand>().HandleTaskList(new StringReader(claudeHookBody!));
-        }
-        if (args.Contains("--claude") && args.Contains("--plan-edit")) {
-            return await Run<ClaudeHookCommand>().HandlePlanEdit(new StringReader(claudeHookBody!));
-        }
-        if (args.Contains("--claude") && args.Contains(ClaudeWorkspaceSpanEvent.Flag)) {
-            return await Run<ClaudeHookCommand>().HandleWorkspaceSpan(new StringReader(claudeHookBody!));
-        }
-        if (args.Contains("--claude") && args.Contains(ClaudePassNotices.Flag)) {
-            return await Run<ClaudeHookCommand>().HandlePassNotices(new StringReader(claudeHookBody!));
-        }
+        // Started ahead of the spool drain, which it never waited on as a hook of its own: a span closed late leaves the
+        // baseline open, and the next turn takes edits made between turns for its own. On the pool, because a span with
+        // nothing to close runs its synchronous store and spool sweep before it first yields.
+        var stopSpans = args.Contains("--claude") && args.Contains(ClaudeSideHooks.StopSpans)
+            ? Task.Run(() => Run<ClaudeHookCommand>().HandleWorkspaceSpan(new StringReader(claudeHookBody!)))
+            : Task.FromResult(0);
         if (args.Contains("--claude")) await Run<ClaudeHookCommand>().RelaySessionStartAsync(claudeHookBody!);
 
         if (args.Contains("--claude") && baseUrl is not null) {
@@ -1040,7 +1053,8 @@ switch (command) {
             await poster.DrainSpoolsAsync(
                 new HookSpool(config, time, baseUrl),
                 new TranscriptSpool(config, time, baseUrl),
-                sessionId: null);
+                sessionId: null,
+                sweepCopilotPendingEnds: !args.Contains("--copilot"));
             HookTiming.Mark("global-spool-drain");
         }
         var vendorExit = await DispatchVendorHookAsync();
@@ -1055,6 +1069,7 @@ switch (command) {
         async Task<int> DispatchVendorHookAsync() {
             if (args.Contains("--claude")) {
                 var handled = await Run<ClaudeHookCommand>().Handle(new StringReader(claudeHookBody!), args.Contains(ClaudePassNotices.CapableFlag));
+                await stopSpans;
                 HookTiming.Mark("handled");
 
                 return handled;
@@ -1107,9 +1122,9 @@ switch (command) {
         await Console.Error.WriteLineAsync(
             "kcap cursor import has been removed. Use 'kcap import --cursor' instead.");
         return 2;
-    // Internal: D0 phase-0 empirical append-only verification harness. Hidden —
-    // not in help-usage.txt — run manually against a live Cursor transcript while gathering
-    // the D0 evidence; not part of the normal watch/hook/import surface.
+    // Internal: empirical append-only verification harness. Hidden — not in help-usage.txt —
+    // run manually against a live Cursor transcript; not part of the normal watch/hook/import
+    // surface.
     case "cursor-verify-appendonly":
         return await CursorVerifyAppendOnlyCommand.RunAsync(args, time);
 }
@@ -1153,7 +1168,7 @@ async Task PrintUsage() {
 }
 
 async Task<int> PrintCommandHelp(string cmd) {
-    var text = EmbeddedResources.TryLoad($"help-{cmd}.txt");
+    var text = EmbeddedResources.TryLoadHelp($"help-{cmd}.txt");
 
     if (text is not null) {
         await Console.Out.WriteAsync(text);

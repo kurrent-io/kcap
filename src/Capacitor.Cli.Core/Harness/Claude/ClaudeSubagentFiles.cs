@@ -15,6 +15,13 @@ public static class ClaudeSubagentFiles {
     public static string TranscriptPath(string parentTranscriptPath, string agentId) =>
         Path.Combine(DirectoryOf(parentTranscriptPath), $"{Prefix}{agentId}.jsonl");
 
+    /// <summary>The directory named for the session whose subagent <paramref name="agentId"/> writes
+    /// <paramref name="path"/>, by where Claude files one. Null for any other path.</summary>
+    public static string? SessionDirectoryOf(string path, string agentId) =>
+        Path.GetFileName(path) == $"{Prefix}{agentId}.jsonl" && Path.GetDirectoryName(path) is { } subagents && Path.GetFileName(subagents) == DirectoryName
+            ? Path.GetDirectoryName(subagents)
+            : null;
+
     /// The transcripts of the subagents started so far; none when the directory is missing or unreadable.
     public static IReadOnlyList<string> Transcripts(string parentTranscriptPath) {
         var directory = DirectoryOf(parentTranscriptPath);

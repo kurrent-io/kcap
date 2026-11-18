@@ -151,22 +151,21 @@ public class LiveWatchHardeningAcceptanceTests {
             await handshake;
     }
 
-    // ── 3+4. Global drain pass ordering + needs-import delivery, over a REAL HTTP round trip ──
+    // ── 3+4. Global drain pass ordering, over a REAL HTTP round trip ──
 
     /// <summary>
     /// A DIFFERENT vendor's next <c>kcap</c> invocation (<c>currentSessionId: null</c> — no
     /// session of its own, just running the global drain ahead of its own work) replays a prior
-    /// session's spooled start→(transcript, capped so it needs-import)→end in order, and the
-    /// needs-import marker is delivered as its own POST — all via REAL HTTP requests to a
-    /// WireMock server, not injected delegate functions.
+    /// session's spooled start→(transcript, capped so it needs-import)→end in order, with nothing
+    /// posted for the needs-import marker — all via REAL HTTP requests to a WireMock server, not
+    /// injected delegate functions.
     ///
     /// <para><c>LifecycleSpoolDrainTests.drains_start_then_transcript_then_end_for_a_session_with_no_further_hook</c>
-    /// and <c>...delivers_needs_import_marker_even_when_transcript_bytes_exceeded_cap</c> already
+    /// and <c>...reports_a_marked_session_locally_and_clears_its_markers_without_posting</c> already
     /// prove this exact ordering against injected poster delegates; this test proves the SAME
-    /// contract through <see cref="LifecycleSpoolDrain.RunAsync(CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?)"/>'s
-    /// production HTTP wrapper (route→POST mapping, status→<see cref="DrainOutcome"/> mapping,
-    /// the needs-import route literally hitting the wire) — the part the delegate-injected test
-    /// can't reach.</para>
+    /// contract through <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?,Func{string,string,DrainOutcome,bool}?,Func{string,string,bool}?,Capacitor.Cli.Core.Transcripts.LineCaptureDecider?,Action{string}?)"/>'s
+    /// production HTTP wrapper (route→POST mapping, status→<see cref="DrainOutcome"/> mapping)
+    /// — the part the delegate-injected test can't reach.</para>
     /// </summary>
     [Test]
     public async Task GlobalDrainPass_onADifferentVendorsInvocation_ReplaysPriorSessionInOrder_OverRealHttp() {
@@ -185,30 +184,45 @@ public class LiveWatchHardeningAcceptanceTests {
 
         await Assert.That(transcript.NeedsImport(sid)).IsTrue();
 
-        using var client = new HttpClient();
-        // currentSessionId: null — this drain pass belongs to a DIFFERENT vendor's own
-        // invocation; `sid`'s session never fires another hook of its own.
-        await LifecycleSpoolDrain.RunAsync(
-            Markers, client, server.Url!, lifecycle, transcript, currentSessionId: null,
-            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+        var sends = new SendOrder { InnerHandler = new HttpClientHandler() };
+        using var client = new HttpClient(sends);
 
-        var hits = server.LogEntries.Select(e => e.RequestMessage).ToList();
-        var routeOrder = hits.Select(h => h.Path).ToList();
+        // currentSessionId: null — these passes belong to a DIFFERENT vendor's own invocation; `sid`'s session never
+        // fires another hook of its own. On a loaded machine a post can outrun its timeout and reach the server after a
+        // later one, so the passes run until the spool is empty, the server is asked only what arrived, and order is
+        // judged on what the drain sent, first sends first.
+        var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(2);
+        while (lifecycle.HasBacklog(sid) && DateTime.UtcNow < deadline) {
+            await LifecycleSpoolDrain.RunAsync(
+                Config.Root, Markers, client, server.Url!, lifecycle, transcript, currentSessionId: null,
+                budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+        }
 
-        await Assert.That(routeOrder).Contains("/hooks/session-start/kiro");
-        await Assert.That(routeOrder).Contains("/hooks/session-needs-import");
-        await Assert.That(routeOrder).Contains("/hooks/session-end/kiro");
+        var arrived = server.LogEntries.Select(e => e.RequestMessage.Path).ToList();
 
-        // Ordering: start, THEN the needs-import marker (delivered once the transcript is
-        // resolved — dropped past its cap counts as resolved), THEN end LAST.
-        var startIdx  = routeOrder.IndexOf("/hooks/session-start/kiro");
-        var importIdx = routeOrder.IndexOf("/hooks/session-needs-import");
-        var endIdx    = routeOrder.IndexOf("/hooks/session-end/kiro");
-        await Assert.That(startIdx).IsLessThan(importIdx);
-        await Assert.That(importIdx).IsLessThan(endIdx);
+        await Assert.That(arrived).Contains("/hooks/session-start/kiro");
+        await Assert.That(arrived).DoesNotContain("/hooks/session-needs-import");
+        await Assert.That(arrived).Contains("/hooks/session-end/kiro");
+
+        var routeOrder = sends.Paths.ToList();
+
+        var startIdx = routeOrder.IndexOf("/hooks/session-start/kiro");
+        var endIdx   = routeOrder.IndexOf("/hooks/session-end/kiro");
+        await Assert.That(startIdx).IsLessThan(endIdx);
 
         await Assert.That(lifecycle.HasBacklog(sid)).IsFalse();
         await Assert.That(lifecycle.IsMarkedEnded(sid)).IsTrue();
+    }
+
+    /// <summary>The paths of the requests a client sent, in the order it sent them.</summary>
+    sealed class SendOrder : DelegatingHandler {
+        public System.Collections.Concurrent.ConcurrentQueue<string> Paths { get; } = new();
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) {
+            Paths.Enqueue(request.RequestUri!.AbsolutePath);
+
+            return base.SendAsync(request, cancellationToken);
+        }
     }
 
     // ── 5. Shutdown final-line contract, combining the probe AND the consuming read ──────────

@@ -64,7 +64,7 @@ public static class VerifyExit {
     public const int StartGate = 28;
     public const string StartGateToken = "verify_start_gate";
 
-    /// <summary>The gated start path detected drift between the evidence Phase A gated on and what
+    /// <summary>The gated start path detected drift between the evidence the start gate checked and what
     /// bootstrap was about to act on — the unit's plist content changed, or its digest stopped
     /// matching, in the window between the gate check and the boot-out/bootstrap it authorizes.
     /// Rolled back the same way a forward-phase failure is (bootout, plist retained).</summary>
@@ -87,7 +87,7 @@ public static class VerifyExit {
 internal enum StartGateReason { DirectiveMissing, DirectiveInvalid, IdentityMismatch, ForeignBinary, PackageInconsistent, EvidenceUnreadable }
 
 /// <summary>
-/// Spec §3.4 transaction engine: viability → marker → mutate → ownership+readiness poll → final
+/// Service transaction engine: viability → marker → mutate → ownership+readiness poll → final
 /// recheck → commit, or rollback to the verified-safe failure state. One forward cutoff bounds the
 /// entire forward phase (viability, clear, write, bootstrap, readiness AND the final recheck); a
 /// separately reserved rollback budget guarantees time to restore. Injectable seams (manager, pid
@@ -111,7 +111,7 @@ sealed class ServiceVerify(
     Func<string, bool>? digestMatches = null,
     Func<string, CancellationToken, Task<AdmissionFenceAcquireResult>>? acquireFence = null,
     Func<string, TimeSpan, Task>? endDaemon = null) {
-    static readonly TimeSpan LockWait      = TimeSpan.FromSeconds(10);
+    static readonly TimeSpan DefaultLockWait = TimeSpan.FromSeconds(10);
     static readonly TimeSpan PollInterval  = TimeSpan.FromMilliseconds(500);
     static readonly TimeSpan KillWait      = TimeSpan.FromSeconds(5);
     static readonly TimeSpan TargetProbeWait = TimeSpan.FromSeconds(5);
@@ -137,6 +137,9 @@ sealed class ServiceVerify(
     /// above.</summary>
     public static readonly TimeSpan AdvertisedBound = EndWait + DefaultForwardBudget + DefaultRollbackReserve;
 
+    /// <summary>How long each operation waits out another holder of the service lock.</summary>
+    internal TimeSpan LockWait { get; init; } = DefaultLockWait;
+
     readonly TimeSpan _forwardBudget    = forwardBudget ?? DefaultForwardBudget;
     readonly Func<string, CancellationToken, Task<AdmissionFenceAcquireResult>> _acquireFence =
         acquireFence ?? ((name, ct) => AdmissionFenceClient.AcquireAsync(store, name, FenceWait, time, ct));
@@ -158,19 +161,19 @@ sealed class ServiceVerify(
     }
 
     /// <summary>Whether the pinned profile resolves to a valid absolute http/https server URL — the
-    /// CLI-side enforcement of §4.1's precondition, so a <c>--replace</c> can never destroy a working
+    /// CLI-side precondition, so a <c>--replace</c> can never destroy a working
     /// unit only to install one whose daemon exits config-invalid. Default true for the engine's own
     /// tests; the command wires the real resolution.</summary>
     readonly Func<bool> _profileViable = profileViable ?? (() => true);
 
-    /// <summary>Install-only seam for the on-disk plist read (Phase B's pre/post-readiness recheck
+    /// <summary>Install-only seam for the on-disk plist read (the bootstrap step's pre/post-readiness recheck
     /// and install's final on-disk fingerprint recheck). Real launchd needs HOME to compute the
     /// path, so tests inject this directly.</summary>
     readonly Func<string, string?> _readPlist = readPlist ?? (path => {
         try { return File.Exists(path) ? File.ReadAllText(path) : null; } catch { return null; }
     });
 
-    /// <summary>Discriminated read shared by Phase A, marker recovery, and install rollback: unlike
+    /// <summary>Discriminated read shared by the start gate, marker recovery, and install rollback: unlike
     /// <see cref="_readPlist"/> composed with a separate exists check, a structural obstruction (a
     /// directory, a dangling symlink) can never be misread as confirmed absence.</summary>
     readonly Func<string, (LaunchdUnit.PlistRead Status, string? Content)> _discriminatedPlistRead =
@@ -185,19 +188,19 @@ sealed class ServiceVerify(
 
     /// <summary>The gated start seam: when non-null AND <c>gateEnv(ConsentSeedVar)</c> is
     /// PRESENT — any value, including empty, under the exact-value contract —
-    /// <see cref="StartVerifiedAsync"/> runs the pre-mutation gate (Phase A) and the
-    /// TOCTOU re-check before bootstrap (Phase B). Null (the default) leaves start completely
+    /// <see cref="StartVerifiedAsync"/> runs the pre-mutation gate and the
+    /// TOCTOU re-check before bootstrap. Null (the default) leaves start completely
     /// behavior-unchanged — the production caller in <c>DaemonCommands</c> passes
     /// <see cref="Environment.GetEnvironmentVariable(string)"/>.</summary>
     readonly Func<string, string?>? _gateEnv = gateEnv;
 
-    /// <summary>Digest seam for the gate's foreign/package-inconsistent check and Phase B's
+    /// <summary>Digest seam for the gate's foreign/package-inconsistent check and the bootstrap step's
     /// TOCTOU re-check. Defaults to <see cref="DaemonDigest.Matches"/>; tests that only care about
     /// the identity half of the gate inject a trivial pass here since the real digest is a
     /// fail-closed placeholder in dev/test builds.</summary>
     readonly Func<string, bool> _digestMatches = digestMatches ?? DaemonDigest.Matches;
 
-    /// <summary>The gate reason of the LAST Phase-A refusal, for an in-process caller (the ensure
+    /// <summary>The gate reason of the LAST start-gate refusal, for an in-process caller (the ensure
     /// ladder) that must map <see cref="VerifyExit.StartGate"/> to a recovery surface without
     /// re-parsing its own stderr. Null after a passing start, a non-gate exit, or a fresh engine —
     /// and reset at every operation entry, so a reused engine never carries a prior refusal into a
@@ -261,21 +264,21 @@ sealed class ServiceVerify(
         // directive — a bare `kcap daemon service start --verify` typed at a terminal never sees
         // this branch. `is not null` (not IsNullOrEmpty): an EMPTY invoking value is a deliberate
         // refusal under the exact-value contract, not absence, so it must still activate the gate —
-        // EvaluateStartGate's own directive check then reports DirectiveInvalid for it. Phase A runs
+        // EvaluateStartGate's own directive check then reports DirectiveInvalid for it. The start gate runs
         // right here (after the fresh query, before ANY write) so a rejected gate leaves absolutely
         // nothing touched — not even the marker.
         var gated = _gateEnv is not null && _gateEnv(ConsentSeedVar) is not null;
-        string? phaseAPlistContent = null;
+        string? gatedPlistContent = null;
 
-        // The unit's own baked KCAP_EXPECT_SERVER_URL, captured alongside Phase
-        // A's gate evaluation and threaded through to the readiness-timeout attribution below —
+        // The unit's own baked KCAP_EXPECT_SERVER_URL, captured alongside the start
+        // gate's evaluation and threaded through to the readiness-timeout attribution below —
         // there is no other point in this method that parses the unit's environment.
         string? unitExpectation = null;
 
         if (gated) {
             var plistPath = manager.UnitPath(serviceId);
             var (readStatus, content) = _discriminatedPlistRead(plistPath);
-            phaseAPlistContent = content;
+            gatedPlistContent = content;
 
             StartGateReason? reason;
             // A fresh query that saw the unit but a read that didn't is contradictory evidence, not
@@ -304,10 +307,10 @@ sealed class ServiceVerify(
         ServiceTxnMarker.Write(store, serviceId, new TxnMarker(1, "start", "captured", DescribeQuery(pre), "unloaded-plist-retained", null));
 
         if (gated) {
-            // Phase B: the gated path never kickstarts a loaded label the way the ungated Start()
+            // The bootstrap step: the gated path never kickstarts a loaded label the way the ungated Start()
             // below would — it boots it out first, then re-reads the plist and re-checks the digest
             // ONE more time immediately before bootstrap. That closes the TOCTOU window between
-            // Phase A's read and this mutation: anything that changed the evidence in between (a
+            // The start gate's read and this mutation: anything that changed the evidence in between (a
             // foreign writer, a swapped binary) must not ride the gate's earlier pass into a start.
             if (pre.Probe == LabelProbe.Loaded) {
                 manager.Stop(serviceId, Remaining(deadline), out var bootOutError);
@@ -334,13 +337,13 @@ sealed class ServiceVerify(
                 }
             }
 
-            // Same XmlException hazard as Phase A's parse, but here escaping is worse: it would
+            // Same XmlException hazard as the start gate's parse, but here escaping is worse: it would
             // abort AFTER the marker write and boot-out, past the point Rollback runs, leaving the
             // service stopped with a stuck marker instead of the guaranteed unloaded-plist-retained
             // outcome. A recheck that can't be parsed/validated is exactly what drift means — the
             // content changed (to something unreadable) or can no longer be confirmed unchanged —
             // so route it into the same drift branch rather than letting it throw.
-            if (!RecheckPlistUnchanged(serviceId, phaseAPlistContent)) {
+            if (!RecheckPlistUnchanged(serviceId, gatedPlistContent)) {
                 ServiceTxnMarker.Write(store, serviceId, new TxnMarker(1, "start", "gate-drift", DescribeQuery(pre), "unloaded-plist-retained", null));
                 return await Rollback(serviceId, VerifyExit.StartGateDrift, VerifyExit.StartGateDriftToken);
             }
@@ -401,13 +404,13 @@ sealed class ServiceVerify(
                 var (confirmed, confirmedPid) = await IsReadyAsync(serviceId, deadline, requirePid: pid);
                 if (confirmedPid is not null) observedJobPids.Add(confirmedPid.Value);
                 if (confirmed) {
-                    // Post-readiness recheck (spec §3, mirrors install/replace's own final recheck):
-                    // Phase B's pre-bootstrap recheck only bounds the recheck→exec race up to the
+                    // Post-readiness recheck (mirrors install/replace's own final recheck):
+                    // The bootstrap step's pre-bootstrap recheck only bounds the recheck→exec race up to the
                     // moment bootstrap started — a foreign writer swapping the plist or the binary
                     // bytes AFTER that, but before this commit, must not ride readiness into a
-                    // silent commit. Re-read the plist (contained) and compare against Phase A's own
+                    // silent commit. Re-read the plist (contained) and compare against the start gate's own
                     // captured content, and re-check the digest one more time.
-                    if (gated && !RecheckPlistUnchanged(serviceId, phaseAPlistContent)) {
+                    if (gated && !RecheckPlistUnchanged(serviceId, gatedPlistContent)) {
                         ServiceTxnMarker.Write(store, serviceId, new TxnMarker(1, "start", "gate-post-readiness-drift", DescribeQuery(pre), "unloaded-plist-retained", null));
                         return await Rollback(serviceId, VerifyExit.StartGateDrift, VerifyExit.StartGateDriftToken);
                     }
@@ -432,10 +435,10 @@ sealed class ServiceVerify(
     }
 
     /// <summary>Re-reads the plist and re-checks the digest (both contained — never an escaping
-    /// exception), comparing against Phase A's captured <paramref name="phaseAPlistContent"/>;
-    /// false means drift. Shared by Phase B's pre-bootstrap and post-readiness rechecks — callers
+    /// exception), comparing against the start gate's captured <paramref name="gatedPlistContent"/>;
+    /// false means drift. Shared by the bootstrap step's pre-bootstrap and post-readiness rechecks — callers
     /// own their own marker phase and rollback call.</summary>
-    bool RecheckPlistUnchanged(string serviceId, string? phaseAPlistContent) {
+    bool RecheckPlistUnchanged(string serviceId, string? gatedPlistContent) {
         var content = _readPlist(manager.UnitPath(serviceId));
         bool digestGood;
         try {
@@ -445,7 +448,7 @@ sealed class ServiceVerify(
             digestGood = false;
         }
 
-        return content == phaseAPlistContent && digestGood;
+        return content == gatedPlistContent && digestGood;
     }
 
     /// <summary>
@@ -574,7 +577,7 @@ sealed class ServiceVerify(
     /// baked <c>KCAP_URL</c> (precedence) or, absent that, its
     /// baked profile's <c>server_url</c> looked up via <see cref="ConfigMutator.TryLoadPure"/> under
     /// the unit's own baked <c>KCAP_CONFIG_DIR</c> (or the default config root when it baked none).
-    /// Fail-closed on absent required evidence (spec §3.4(b)): a gated launch is always app-managed,
+    /// Fail-closed on absent required evidence: a gated launch is always app-managed,
     /// so the invoking environment is expected to carry BOTH <c>KCAP_PROFILE</c> and
     /// <c>KCAP_EXPECT_SERVER_URL</c>, and the unit being gated is expected to carry its own baked
     /// <c>KCAP_EXPECT_SERVER_URL</c> — any of those missing, or the unit's server proving
@@ -673,7 +676,7 @@ sealed class ServiceVerify(
     /// rollback itself is the verified-safe state, marker deleted, and reports
     /// <paramref name="reasonExit"/>/<paramref name="reasonToken"/> — defaulted to a genuine
     /// readiness timeout, but a caller rolling back for a DIFFERENT reason (e.g. gated start's
-    /// Phase B drift) overrides both so exactly one verify_* line is ever printed for that failure,
+    /// bootstrap-step drift) overrides both so exactly one verify_* line is ever printed for that failure,
     /// mirroring <see cref="InstallRollback"/>'s own reasonToken parameter. Still loaded at reserve
     /// expiry → marker kept so a resumer can see the transaction never settled; that failure path
     /// always reports its OWN token regardless of the override, since the rollback itself did not
@@ -1167,7 +1170,7 @@ sealed class ServiceVerify(
     }
 
     /// <summary>
-    /// install --replace's ownership matrix (spec §3.4). Called after the pre-mutation probe was
+    /// install --replace's ownership matrix. Called after the pre-mutation probe was
     /// rejected as <see cref="LabelProbe.Unknown"/>, with the "captured" marker on disk. Everything it
     /// does draws from the shared forward <paramref name="deadline"/>. Returns a non-null exit code
     /// when a clear/kill couldn't be confirmed (marker retained at its last phase); otherwise falls

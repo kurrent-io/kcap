@@ -112,7 +112,7 @@ public class MachineIdFileTests {
     public async Task Get_WhenMachineJsonIsCorrupt_HealsTheFileAndReturnsAStableId() {
         // A corrupt machine.json (partial/garbled write) makes ReadPersisted() return null, so Get()
         // falls to Create(). Without the heal, Create()'s exclusive FileMode.CreateNew can't overwrite
-        // the existing corrupt file, so every Get() churns a fresh, UNPERSISTED GUID (Qodo #290 #2).
+        // the existing corrupt file, so every Get() churns a fresh, UNPERSISTED GUID.
         File.WriteAllText(MachinePath, "{ this is not valid json");
 
         var first = Machine.Get();

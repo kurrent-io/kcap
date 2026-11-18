@@ -14,9 +14,9 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Acp;
 /// are identical elsewhere. An unverified platform therefore gets no entry and advertises no borrowed
 /// review — honest, and fail-closed.</para>
 ///
-/// <para>This is NOT the version-keyed certification that was removed. That one keyed on a vendor
-/// build, which auto-updates underneath a user; it drifted by construction and died within days. OS
-/// and architecture do not change under a running daemon.</para>
+/// <para>This is NOT a version-keyed certification: a vendor build auto-updates underneath a user,
+/// so a gate keyed on it drifts by construction. OS and architecture do not change under a running
+/// daemon.</para>
 /// </summary>
 public class CopilotBorrowedReviewPolicyTests {
     public static IEnumerable<Func<(OSPlatform Os, Architecture Arch)>> Unverified() {
@@ -210,10 +210,9 @@ public class CopilotBorrowedReviewPolicyTests {
     /// impossible.
     ///
     /// <para>The check is passive today, so this costs an environment read rather than anything dangerous.
-    /// It is asserted by call count anyway, as a regression barrier: an earlier revision of this change
-    /// made availability EXECUTE an operator-configured command, and with a plain <c>bool</c> argument
-    /// that ran at every daemon's startup on every platform, including ones that can never borrow.
-    /// Keeping the thunk and pinning the call count means a future implementation cannot quietly become
+    /// It is asserted by call count anyway: if availability ever EXECUTED an operator-configured
+    /// command, a plain <c>bool</c> argument would run it at every daemon's startup on every platform,
+    /// including ones that can never borrow. Keeping the thunk and pinning the call count means a future implementation cannot quietly become
     /// expensive or side-effecting on an unsupported host.</para></summary>
     [Test]
     [Arguments("linux",   false)]

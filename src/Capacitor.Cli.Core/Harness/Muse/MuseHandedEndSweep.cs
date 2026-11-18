@@ -20,7 +20,8 @@ public static class MuseHandedEndSweep {
     /// <summary>Spools into <paramref name="lifecycle"/>, the spool for <paramref name="server"/>, every unattended
     /// request that is due and was handed over for that server, and returns how many. A request for another server is
     /// left to that server's drain; one written before requests recorded a server is taken by whichever drain sweeps
-    /// it. A request a resume holds, as the watcher would have held it, is dropped. Never throws.</summary>
+    /// it. A request a resume holds, as the watcher would have held it, is dropped, and so is one for a session a person
+    /// disabled. Never throws.</summary>
     public static int SpoolDue(WatcherPaths paths, HookSpool lifecycle, string? server, DaemonStore daemons, TimeProvider time) {
         var spooled = 0;
 
@@ -30,7 +31,9 @@ public static class MuseHandedEndSweep {
                 var failed = new List<MuseSessionEndRequest>();
 
                 while (MuseSessionEndRequest.TryClaim(paths, session, "sweep", time, recorded => recorded is null || ServerIdentity.SameServer(recorded, server)) is { } handed) {
-                    if (time.GetUtcNow() - handed.HandedAt < Unattended) {
+                    if (lifecycle.IsDisabledByPerson(session)) {
+                        MuseSessionEndRequest.Release(handed.ClaimedPath);
+                    } else if (time.GetUtcNow() - handed.HandedAt < Unattended) {
                         early.Add(handed);
                     } else if (MuseSessionEndRequest.ResumedSince(paths, session, handed.HandedAt) || HeldForResume(handed.Payload, session, daemons, time)) {
                         MuseSessionEndRequest.Release(handed.ClaimedPath);

@@ -33,30 +33,8 @@ public static class CodexHooksInstaller {
     /// a marker-aware build would no-op and leave stale command strings in
     /// place forever.
     /// </remarks>
-    public static bool IsInstalled(string hooksPath) {
-        var dir = Path.GetDirectoryName(hooksPath);
-        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;
-
-        if (File.Exists(Path.Combine(dir, MarkerFileName))) return true;
-        if (!File.Exists(hooksPath)) return false;
-
-        try {
-            if (JsonNode.Parse(File.ReadAllText(hooksPath)) is not JsonObject root) return false;
-            if (root["hooks"] is not JsonObject hooks) return false;
-
-            foreach (var (_, entries) in hooks) {
-                if (entries is not JsonArray arr) continue;
-
-                if (arr.Any(CodexHooksParser.EntryReferencesCapacitorCodexHook)) {
-                    return true;
-                }
-            }
-        } catch {
-            // Malformed JSON → treat as not installed; the next setup run
-            // will rewrite the file cleanly.
-        }
-        return false;
-    }
+    public static bool IsInstalled(string hooksPath) =>
+        HooksJson.IsInstalled(hooksPath, MarkerFileName, CodexHooksParser.EntryReferencesCapacitorCodexHook);
 
     /// <summary>
     /// True iff <paramref name="hooksPath"/> has any hook entry referencing the
@@ -98,37 +76,9 @@ public static class CodexHooksInstaller {
 
     static ReadOnlySpan<byte> Utf8ByteOrderMark => [0xEF, 0xBB, 0xBF];
 
-    /// <summary>
-    /// Returns the version string from the marker, or null when absent or
-    /// unreadable.
-    /// </summary>
-    public static string? ReadMarker(string hooksPath) {
-        var dir = Path.GetDirectoryName(hooksPath);
-        if (string.IsNullOrEmpty(dir)) return null;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try {
-            return File.Exists(marker) ? File.ReadAllText(marker).Trim() : null;
-        } catch {
-            return null;
-        }
-    }
+    public static string? ReadMarker(string hooksPath) => InstallMarker.Read(hooksPath, MarkerFileName);
 
-    public static void WriteMarker(string hooksPath) {
-        var dir = Path.GetDirectoryName(hooksPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        try {
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, MarkerFileName), CapacitorVersion.Current());
-        } catch {
-            // Best effort. Worst case the next upgrade re-runs the install
-            // unconditionally, which is idempotent.
-        }
-    }
+    public static void WriteMarker(string hooksPath) => InstallMarker.Write(hooksPath, MarkerFileName);
 
-    public static void DeleteMarker(string hooksPath) {
-        var dir = Path.GetDirectoryName(hooksPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { if (File.Exists(marker)) File.Delete(marker); } catch { /* non-fatal */ }
-    }
+    public static void DeleteMarker(string hooksPath) => InstallMarker.Delete(hooksPath, MarkerFileName);
 }

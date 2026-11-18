@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using System.IO.Hashing;
+using System.Text;
 using System.Text.Json.Nodes;
 using Capacitor.Models.Transcripts.Harness.Claude;
 using Google.Protobuf;
@@ -115,7 +118,7 @@ public class ClaudeServerParityTests {
     }
 
     /// <summary>Claude Code writes each block of one response as its own record with the response's usage
-    /// repeated; only a change of usage, or any record that is not an assistant one, re-arms it.</summary>
+    /// repeated; only a change of usage, or a record that is neither an assistant one nor server noise, re-arms it.</summary>
     [Test]
     public async Task The_usage_memory_suppresses_a_repeat_and_resets_on_any_other_record() {
         var ctx = Ctx();
@@ -131,8 +134,10 @@ public class ClaudeServerParityTests {
         await Assert.That(ClaudeTranscriptEvents.Instance.Project(Assistant("not-a-guid", U2), 1, Received, ctx).Rejected).IsNotNull();
         await Assert.That(HasUsage(E(Assistant(Uuid2, U1), ctx))).IsFalse();
         await Assert.That(HasUsage(E(Assistant(Uuid, U2), ctx))).IsTrue();
-        // Any other valid record, noise included, clears it.
+        // The server's noise types leave it alone; any other record clears it.
         E("""{"type":"progress"}""", ctx);
+        await Assert.That(HasUsage(E(Assistant(Uuid2, U2), ctx))).IsFalse();
+        E("""{"type":"something-new"}""", ctx);
         await Assert.That(HasUsage(E(Assistant(Uuid2, U2), ctx))).IsTrue();
     }
 
@@ -185,6 +190,29 @@ public class ClaudeServerParityTests {
 
         await Assert.That(((UserMessageReceived)imageOnly[0].Payload).Content).IsEqualTo("");
         await Assert.That(imageOnly[0].Attachments!).Count().IsEqualTo(1);
+    }
+
+    /// <summary>The server derives an image's id from the session's canonical id alone, on a subagent's stream too, and
+    /// refuses a canonical batch whose attachment carries any other.</summary>
+    [Test]
+    [Arguments(null)]
+    [Arguments("a4f2c1e9b7d3")]
+    public async Task An_image_id_is_the_servers_for_a_dashed_session_on_any_stream(string? agentId) {
+        var ctx = ClaudeTranscriptEvents.Instance.CreateContext("5cdc4fcc-ff9e-4fdc-8d93-cf47ff5a140a", agentId);
+        var e   = E($$$"""{"type":"user","uuid":"{{{Uuid}}}","message":{"content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"{{{Png}}}"}}]}}""", ctx);
+
+        await Assert.That(e[0].Attachments!.Single().Id).IsEqualTo(ServerAttachmentId("5cdc4fccff9e4fdc8d93cf47ff5a140a", Guid.Parse(Uuid), 0));
+    }
+
+    /// The server's derivation: the session's UTF-8, the message id's bytes, the image's index little-endian.
+    static Guid ServerAttachmentId(string canonicalSession, Guid messageId, int index) {
+        var session = Encoding.UTF8.GetBytes(canonicalSession);
+        var input   = new byte[session.Length + 20];
+        session.CopyTo(input, 0);
+        messageId.TryWriteBytes(input.AsSpan(session.Length));
+        BinaryPrimitives.WriteInt32LittleEndian(input.AsSpan(session.Length + 16), index);
+
+        return new Guid(XxHash128.Hash(input));
     }
 
     [Test]

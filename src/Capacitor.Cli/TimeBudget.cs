@@ -15,7 +15,12 @@ public static class TimeBudget {
     /// forever. The server's own StopAndDrain plus the "kcap import" recovery hint cover
     /// anything an abandoned drain didn't finish.
     /// </summary>
-    public static async Task<bool> RunCappedAsync(Func<Task> work, TimeSpan cap, TimeProvider time) {
+    public static async Task<bool> RunCappedAsync(Func<Task> work, TimeSpan cap, TimeProvider time) =>
+        await RunCappedOrRemainAsync(work, cap, time) is null;
+
+    /// <summary>Null when <paramref name="work"/> finished inside <paramref name="cap"/>; otherwise the work, still
+    /// running, for a caller that can wait for it later. Its fault is observed either way.</summary>
+    public static async Task<Task?> RunCappedOrRemainAsync(Func<Task> work, TimeSpan cap, TimeProvider time) {
         var workTask = work();
 
         using var cts       = new CancellationTokenSource();
@@ -29,13 +34,13 @@ public static class TimeBudget {
         // dropped. Only abandon when the work is genuinely still running past the cap.
         if (workTask.IsCompleted) {
             await workTask; // propagate exception if faulted
-            return true;
+            return null;
         }
 
         // Cap elapsed: abandon the work. Swallow any later fault so it doesn't surface as an
         // UnobservedTaskException — the hook process exits shortly after the POST anyway.
         _ = workTask.ContinueWith(static t => _ = t.Exception, TaskScheduler.Default);
 
-        return false;
+        return workTask;
     }
 }

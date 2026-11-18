@@ -34,6 +34,9 @@ public sealed class SessionAccessService : IDisposable {
     readonly IServerLane _lane;
     readonly TimeProvider _time;
     readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
+    /// Outlives the entries: a replacement lease for a refused session inherits the refusal, or a lane
+    /// drop before its first answer reads as Offline and shows the withheld transcript.
+    readonly HashSet<string> _refused = new(StringComparer.Ordinal);
     /// Which attempt currently holds each session's chat subscription — keyed by session, because
     /// the group is shared: two entries for one session are two claims on one membership.
     readonly Dictionary<string, (Entry Entry, int Attempt)> _chatOwners = new(StringComparer.Ordinal);
@@ -80,7 +83,7 @@ public sealed class SessionAccessService : IDisposable {
         lock (_lock) {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (!_entries.TryGetValue(sessionId, out entry!)) {
-                entry = new Entry(sessionId);
+                entry = new Entry(sessionId) { Refused = _refused.Contains(sessionId) };
                 _entries[sessionId] = entry;
                 Begin(entry);
             } else if (entry.Current == SessionAccessState.Denied) Begin(entry);
@@ -262,6 +265,8 @@ public sealed class SessionAccessService : IDisposable {
             SessionAccessState.Established => false,
             _ => entry.Refused,
         };
+        if (entry.Refused) _refused.Add(entry.SessionId);
+        else _refused.Remove(entry.SessionId);
         entry.Current = state;
         Enqueue(entry, state);
     }

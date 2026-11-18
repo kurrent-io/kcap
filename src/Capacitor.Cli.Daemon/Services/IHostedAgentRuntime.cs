@@ -49,8 +49,8 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// read loop can use as a liveness/lifecycle signal — <c>true</c> for <see cref="PtyHostedAgentRuntime"/>
     /// (Claude/Codex), <c>false</c> for the ACP runtime (its stdout is protocol traffic, never
     /// terminal output, so <see cref="ReadOutputAsync"/> never yields any bytes at all).
-    /// <see cref="AgentOrchestrator"/> uses this to pick between two lifecycle strategies (PR #244
-    /// review, Fix B/E): a PTY runtime's Starting→Running flip and startup-failure heuristic both
+    /// <see cref="AgentOrchestrator"/> uses this to pick between two lifecycle strategies:
+    /// a PTY runtime's Starting→Running flip and startup-failure heuristic both
     /// key off the FIRST output chunk / the output stream ending, which never happens for a
     /// no-terminal ACP runtime — without this flag an ACP agent would flip Running only once it
     /// exits (i.e. never while live) and get misclassified as a startup failure on every normal
@@ -61,6 +61,10 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// <summary>Whether a dialog read off the terminal is holding the agent's input. Called on the
     /// output read loop for the chunk it was read from, before the next chunk is read.</summary>
     void NoteTerminalDialog(bool showing) { }
+
+    /// <summary>Whether the agent's own prompt box is on the terminal, for a runtime whose screen is
+    /// read. Called on the output read loop like <see cref="NoteTerminalDialog"/>.</summary>
+    void NotePromptShown(bool shown) { }
 
     /// <summary>A hook relayed a turn starting or ending for this agent, which only a submitted prompt
     /// causes.</summary>
@@ -120,6 +124,11 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
 
         return Task.CompletedTask;
     }
+
+    /// <summary>Starts compacting the agent's context, or says why it will not. Synchronous, so a caller can hold its
+    /// own guard across the decision and the start. A runtime that records the user messages it sends records the
+    /// request as one, stamped with <paramref name="dispatchId"/>.</summary>
+    CompactionStart StartCompaction(Guid dispatchId) => CompactionStart.Unsupported;
 
     /// <summary>Wait until any prior structured prompt turn has received its terminal response.
     /// PTY runtimes have no structured turn boundary and use the completed default.</summary>

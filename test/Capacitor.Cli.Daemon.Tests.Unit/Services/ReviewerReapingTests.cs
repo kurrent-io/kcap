@@ -58,8 +58,8 @@ public class ReviewerReapingTests {
     }
 
     /// <summary>The other half of the ownership split: a bound being present must not DISABLE the legacy
-    /// backstop either (the pre-fix code returned early on any bound, so a bound-carrying reviewer was
-    /// never TTL- or idle-checked at all). Both legacy rules fire here on bound-carrying agents, and each
+    /// backstop either (returning early on any bound would leave a bound-carrying reviewer never TTL-
+    /// or idle-checked at all). Both legacy rules fire here on bound-carrying agents, and each
     /// reason is asserted individually so the two remain independently load-bearing.</summary>
     [Test]
     public async Task Legacy_ttl_and_idle_still_fire_for_a_bound_carrying_reviewer() {
@@ -180,14 +180,13 @@ public class ReviewerReapingTests {
     }
 
     /// <summary>
-    /// The defect this task fixes: the pre-Task-12 idle rule read <see cref="AgentInstance.LastOutputAt"/>,
-    /// which only PTY output chunks ever advance — for an ACP reviewer (cursor, copilot, gemini, kiro,
-    /// ACP-codex) it never moves past launch, so "2h idle" silently became a hard 2h cap from birth
-    /// regardless of real activity. Here an ACP-shaped agent has real activity (an envelope, standing in
+    /// The idle rule must not read <see cref="AgentInstance.LastOutputAt"/>, which only PTY output chunks
+    /// ever advance — for an ACP reviewer (cursor, copilot, gemini, kiro, ACP-codex) it never moves past
+    /// launch, so "2h idle" would be a hard 2h cap from birth regardless of real activity. Here an ACP-shaped agent has real activity (an envelope, standing in
     /// for transcript/turn traffic) at the 1h59m mark — under the 2h idle bound and the 6h TTL — while
     /// <c>LastOutputAt</c> is deliberately left frozen 5 REAL hours in the past (never stamped, exactly
     /// the ACP PTY-only defect). It must NOT be reaped. Mutating the idle check back to
-    /// <c>now - a.LastOutputAt</c> (the old comparison) makes this fail — see the task report.
+    /// <c>now - a.LastOutputAt</c> makes this fail.
     /// </summary>
     [Test]
     public async Task ACP_agent_with_envelope_activity_at_1h59m_is_not_reaped() {
@@ -272,7 +271,7 @@ public class ReviewerReapingTests {
 
     }
 
-    // ── The atomic reap claim (round-dispatch grace §3) ──────────────────────────────────────
+    // ── The atomic reap claim (round-dispatch grace) ──────────────────────────────────────
     //
     // Everything above judges SELECTION. These judge the CLAIM, which is the actual decision:
     // FindReviewersToReap reads a snapshot and the teardown happens later, so a reviewer that
@@ -601,10 +600,10 @@ public class ReviewerReapingTests {
     /// nothing fails to make it visible.</para>
     ///
     /// <para>The window is entered through <c>SendInputBeforeWriteHookForTest</c> rather than by
-    /// parking the refresh itself. That is not a shortcut — an earlier revision of this test DID park
-    /// a borrowed refresh, and it passed with the re-read deleted: without a real borrowed checkout the
-    /// refresh's own authorisation fails on release, so <c>HandleSendInput</c> returned at the
-    /// refresh's error path and never reached the write it was supposed to be proving something about.
+    /// parking the refresh itself. That is not a shortcut — parking a
+    /// borrowed refresh passes with the re-read deleted: without a real borrowed checkout the
+    /// refresh's own authorisation fails on release, so <c>HandleSendInput</c> returns at the
+    /// refresh's error path and never reaches the write it was supposed to be proving something about.
     /// The seam enters the genuine window instead of a vacuous one.</para>
     ///
     /// <para>Mutation anchor: removing the pre-write re-read (keeping only the entry check) fails on

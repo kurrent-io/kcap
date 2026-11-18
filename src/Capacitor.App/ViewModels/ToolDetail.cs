@@ -127,6 +127,16 @@ public static class ToolDetail {
         return null;
     }
 
+    /// The one file a row names, as an absolute path; null when it names none or several.
+    public static string? FilePath(string? inputJson, string? key, ToolCategory category, string? root) {
+        if (key is not null) return PathKeys.Contains(key) ? ResolvePreviewPath(RawForKey(inputJson, key), root) : null;
+        if (PatchTargets(inputJson, category) is { } targets)
+            return targets.Count == 1 ? ResolvePreviewPath(targets[0], root) : null;
+        foreach (var pathKey in PathKeys)
+            if (RawForKey(inputJson, pathKey) is { Length: > 0 } path) return ResolvePreviewPath(path, root);
+        return null;
+    }
+
     internal static string? ResolvePreviewPath(string? path, string? root) {
         if (string.IsNullOrWhiteSpace(path)) return null;
         try {

@@ -70,7 +70,7 @@ public static class TranscriptReader {
     /// agent flushes its last records (see <see cref="SharedFileText"/>).
     /// </summary>
     internal static async Task<bool> WaitForFinalLineCompletionAsync(
-            string path, TimeProvider time, int attempts = 4, int delayMs = 500) {
+            string path, TimeProvider time, int attempts = 4, int delayMs = 500, CancellationToken ct = default) {
         for (var i = 0; i < attempts; i++) {
             try {
                 if (IsFinalLineComplete(await ReadFinalLineSharedAsync(path))) return true;
@@ -79,7 +79,7 @@ public static class TranscriptReader {
             }
 
             try {
-                await Task.Delay(TimeSpan.FromMilliseconds(delayMs), time);
+                await Task.Delay(TimeSpan.FromMilliseconds(delayMs), time, ct);
             } catch {
                 // Never let a delay hiccup abort the shutdown path.
             }

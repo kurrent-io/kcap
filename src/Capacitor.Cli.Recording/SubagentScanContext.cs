@@ -1,7 +1,6 @@
 using System.Text;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
-using Capacitor.Cli.Core.Harness.Gemini;
 using Capacitor.Cli.Core.Http;
 
 namespace Capacitor.Cli.Recording;
@@ -16,7 +15,7 @@ internal sealed record SubagentScanContext(
     ) {
         try {
             using var client  = await Http.ForBackgroundAsync(ct);
-            var       payload = GeminiSubagentDiscovery.BuildStartPayload(sessionId, agentId, agentType, subFile);
+            var       payload = SubagentHookPayloads.Start(sessionId, agentId, agentType, subFile);
             using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
             using var resp    = await client.PostWithRetryAsync($"{Url}/hooks/subagent-start", content, Time, ct: ct);
 

@@ -17,13 +17,10 @@ using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-/// Local-attach (Phase 1) behaviours on AgentOrchestrator. Partial of
-/// AgentOrchestratorVendorTests to reuse its BuildOrchestrator + test doubles.
+/// Local-attach behaviours on AgentOrchestrator.
 [ParallelLimiter<SubprocessLimit>]
 public class AgentOrchestratorLocalAttachTests {
     [TempHome] public required TempHome Home { get; init; }
-
-    sealed class NoopRestartStrategy : IRestartStrategy { public RestartOutcome Restart() => RestartOutcome.NoOp; }
 
     static RestartCoordinator TestCoordinator(DaemonStore store) =>
         RestartCoordinator.ForTest(store, "test", "test", new NoopRestartStrategy(), TimeProvider.System);
@@ -203,7 +200,7 @@ public class AgentOrchestratorLocalAttachTests {
 
         await Assert.That(server.Calls.Count).IsEqualTo(0);
         await Assert.That(pty.LastEnv!.ContainsKey("KCAP_URL")).IsTrue();            // records as a plain local session
-        await Assert.That(pty.LastEnv!.ContainsKey("KCAP_AGENT_ID")).IsFalse();      // unregistered in Phase 1 → no agent_host_id tag
+        await Assert.That(pty.LastEnv!.ContainsKey("KCAP_AGENT_ID")).IsFalse();      // unregistered → no agent_host_id tag
         await Assert.That(pty.LastEnv!.ContainsKey("KCAP_RENDERED_AGENT")).IsFalse(); // native terminal permissions
         await Assert.That(pty.LastEnv!.ContainsKey("KCAP_DAEMON_URL")).IsFalse();
     }
@@ -821,7 +818,7 @@ public class AgentOrchestratorLocalAttachTests {
             });
 
             var config = new DaemonConfig { Store = daemons.Store, Name = "test", ServerUrl = "http://127.0.0.1:1" };
-            listener = new LocalControlServer(config, orch, TestCoordinator(daemons.Store), TestConsentIpc(config, daemons.CreateDir("consent")), TestPermissionIpc(), TestStatusIpc(config, orch, server), TestSettingsIpc(config, orch), TestFences.Ipc(config, orch), TestShutdown.Ipc(orch, TestCoordinator(daemons.Store)), TestAccountsIpc.Inert(), NullLogger<LocalControlServer>.Instance);
+            listener = new LocalControlServer(config, orch, TestCoordinator(daemons.Store), TestConsentIpc(config, daemons.CreateDir("consent")), TestPermissionIpc(), TestStatusIpc(config, orch, server), TestSettingsIpc(config, orch), TestFences.Ipc(config, orch), TestShutdown.Ipc(orch, TestCoordinator(daemons.Store)), TestAccountsIpc.Inert(), TestSteering.Switch(config), NullLogger<LocalControlServer>.Instance);
             await listener.StartAsync(cts.Token);
 
             var sockPath = daemons.Store.SocketPath("test");
@@ -870,7 +867,7 @@ public class AgentOrchestratorLocalAttachTests {
             });
 
             var config = new DaemonConfig { Store = daemons.Store, Name = "test", ServerUrl = "http://127.0.0.1:1" };
-            listener = new LocalControlServer(config, orch, TestCoordinator(daemons.Store), TestConsentIpc(config, daemons.CreateDir("consent")), TestPermissionIpc(), TestStatusIpc(config, orch, server), TestSettingsIpc(config, orch), TestFences.Ipc(config, orch), TestShutdown.Ipc(orch, TestCoordinator(daemons.Store)), TestAccountsIpc.Inert(), NullLogger<LocalControlServer>.Instance);
+            listener = new LocalControlServer(config, orch, TestCoordinator(daemons.Store), TestConsentIpc(config, daemons.CreateDir("consent")), TestPermissionIpc(), TestStatusIpc(config, orch, server), TestSettingsIpc(config, orch), TestFences.Ipc(config, orch), TestShutdown.Ipc(orch, TestCoordinator(daemons.Store)), TestAccountsIpc.Inert(), TestSteering.Switch(config), NullLogger<LocalControlServer>.Instance);
             await listener.StartAsync(cts.Token);
 
             var sockPath = daemons.Store.SocketPath("test");
@@ -908,7 +905,7 @@ public class AgentOrchestratorLocalAttachTests {
             orch.SeedAgentForTest("flow-1", kind: LaunchKind.ReviewFlow, flowRunId: "flow-7f3a", flowRole: "reviewer");
 
             var config = new DaemonConfig { Store = daemons.Store, Name = daemonName, ServerUrl = "http://127.0.0.1:1" };
-            listener = new LocalControlServer(config, orch, TestCoordinator(daemons.Store), TestConsentIpc(config, daemons.CreateDir("consent")), TestPermissionIpc(), TestStatusIpc(config, orch, server), TestSettingsIpc(config, orch), TestFences.Ipc(config, orch), TestShutdown.Ipc(orch, TestCoordinator(daemons.Store)), TestAccountsIpc.Inert(), NullLogger<LocalControlServer>.Instance);
+            listener = new LocalControlServer(config, orch, TestCoordinator(daemons.Store), TestConsentIpc(config, daemons.CreateDir("consent")), TestPermissionIpc(), TestStatusIpc(config, orch, server), TestSettingsIpc(config, orch), TestFences.Ipc(config, orch), TestShutdown.Ipc(orch, TestCoordinator(daemons.Store)), TestAccountsIpc.Inert(), TestSteering.Switch(config), NullLogger<LocalControlServer>.Instance);
             await listener.StartAsync(cts.Token);
 
             var sockPath = daemons.Store.SocketPath(daemonName);
@@ -1112,12 +1109,10 @@ public class AgentOrchestratorLocalAttachTests {
     }
 
     /// <summary>Every launch path must build its activity clock through the orchestrator's
-    /// <c>CreateActivityClock()</c>, which is what wires the stage-advance status-report hook. The
-    /// local-spawn path used to construct its <c>AgentInstance</c> without one, taking the record's
-    /// hookless default: inert today (a local spawn is PTY-only, and nothing PTY stamps a launch
-    /// stage), but silently arming the exact "feature is wired everywhere except here" failure the
-    /// moment this path gains an ACP runtime — which is how the ACP handshake stamps went no-op once
-    /// already. Asserting the HOOK (not merely that some clock exists) is the load-bearing part:
+    /// <c>CreateActivityClock()</c>, which is what wires the stage-advance status-report hook. A
+    /// local spawn built without one takes the record's hookless default: inert while a local spawn
+    /// is PTY-only (nothing PTY stamps a launch stage), but silently arming the exact "feature is
+    /// wired everywhere except here" failure the moment this path gains an ACP runtime. Asserting the HOOK (not merely that some clock exists) is the load-bearing part:
     /// the default clock is non-null too.</summary>
     [Test]
     public async Task Local_spawn_builds_its_activity_clock_through_the_shared_factory() {
@@ -1183,7 +1178,7 @@ public class AgentOrchestratorLocalAttachTests {
         public override Task UpdateRepoPathsAsync() { Calls.Add(nameof(UpdateRepoPathsAsync)); return Task.CompletedTask; }
         public override Task SendTerminalOutputAsync(string agentId, string base64Data, CancellationToken ct = default) { Calls.Add(nameof(SendTerminalOutputAsync)); return Task.CompletedTask; }
         public override Task AppendAgentRunEventAsync(string agentId, object evt) { Calls.Add(nameof(AppendAgentRunEventAsync)); RunEvents.Add(evt); return Task.CompletedTask; }
-        public override Task<EndAgentSessionResult> EndAgentSessionAsync(string agentId, string reason) { Calls.Add(nameof(EndAgentSessionAsync)); return Task.FromResult(new EndAgentSessionResult()); }
+        protected override Task<EndAgentSessionResult> SendEndAgentSessionAsync(string agentId, string reason) { Calls.Add(nameof(EndAgentSessionAsync)); return Task.FromResult(new EndAgentSessionResult()); }
 
         public override Task<PermissionDecision> RequestPermissionAsync(
                 string sessionId, string? toolName, JsonElement? toolInput, JsonElement? suggestions, CancellationToken ct = default

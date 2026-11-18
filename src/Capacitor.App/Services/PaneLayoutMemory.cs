@@ -9,17 +9,24 @@ public static class PaneLayoutMemory {
         panes.RailCollapsed = state.RailCollapsed;
         panes.ContextWidth = Resolve(state.ContextPaneWidth, PaneLayout.ContextMinWidth);
         panes.ContextCollapsed = state.ContextPaneCollapsed;
+        panes.ChatColumnFraction = Share(state.ChatColumnFraction, PaneLayout.ChatColumnDefaultFraction);
+        panes.ChatLaneWidth = Resolve(state.ChatLaneWidth, PaneLayout.ChatMessageMinWidth);
     }
+
+    static double Share(double? saved, double fallback) => saved is > 0 and <= 1 ? saved.Value : fallback;
 
     public static void Attach(PaneLayout panes, IAppStateStore store) =>
         panes.Changed += (_, _) => {
             var (railWidth, railCollapsed) = (panes.RailWidth, panes.RailCollapsed);
             var (contextWidth, contextCollapsed) = (panes.ContextWidth, panes.ContextCollapsed);
+            var (chatColumnFraction, chatLaneWidth) = (panes.ChatColumnFraction, panes.ChatLaneWidth);
             _ = store.UpdateAsync(s => s with {
                 RailWidth = railWidth,
                 RailCollapsed = railCollapsed,
                 ContextPaneWidth = contextWidth,
                 ContextPaneCollapsed = contextCollapsed,
+                ChatColumnFraction = chatColumnFraction,
+                ChatLaneWidth = chatLaneWidth,
             });
         };
 }

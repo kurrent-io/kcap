@@ -233,7 +233,7 @@ sealed class MuseHookCommand(
                 activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time, budget.Remaining))
             return false;
 
-        DisabledSessions.Mark(sessionId, config);
+        DisabledSessions.Exclude(sessionId, config);
         return true;
     }
 
@@ -254,8 +254,8 @@ sealed class MuseHookCommand(
         var budget    = clock.Budget(SessionEndCeiling);
 
         if (DisabledSessions.IsDisabled(sessionId, config)) {
-            // The marker withholds the spans until they are gone; a later hook retries the discard.
-            if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveMarker(sessionId, config);
+            // The exclusion withholds the spans until they are gone; a later hook retries the discard.
+            if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveExclusion(sessionId, config);
             return false;
         }
 
@@ -322,8 +322,8 @@ sealed class MuseHookCommand(
         var childLog = MusePaths.ChildSessionLogPath(parentLog, childId);
 
         var payload = isStart
-            ? MuseSubagentDiscovery.BuildStartPayload(parentId, agentId, agentType, childLog)
-            : MuseSubagentDiscovery.BuildStopPayload(parentId, agentId, agentType, childLog);
+            ? SubagentHookPayloads.Start(parentId, agentId, agentType, childLog)
+            : SubagentHookPayloads.Stop(parentId, agentId, agentType, childLog);
 
         await PostInOrderAsync(isStart ? "subagent-start" : "subagent-stop", payload.ToJsonString(), parentId, budget);
     }

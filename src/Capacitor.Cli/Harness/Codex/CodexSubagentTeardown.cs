@@ -1,6 +1,4 @@
-using System.Text;
 using Capacitor.Cli.Commands;
-using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Harness.Gemini;
@@ -50,19 +48,8 @@ sealed class CodexSubagentTeardown(ProfileContext profiles, ICapacitorHttpClient
             // always attempted even if the kill or drain hiccups; re-import recovers the rest.
             await SafeAsync(() => watchers.KillWatcher($"{sessionId}-{agentId}"));
             await SafeAsync(() => watchers.InlineDrainAsync(sessionId, sub.FilePath, agentId, vendor: "codex"));
-            await SafeAsync(() => PostStopAsync(sessionId, agentId, agentType, sub.FilePath));
+            await SafeAsync(() => SubagentLifecycleHooks.PostStopAsync(profiles, http, time, sessionId, agentId, agentType, sub.FilePath));
         }
-    }
-
-    async Task PostStopAsync(string sessionId, string agentId, string agentType, string subFile) {
-        // baseUrl is threaded into auth resolution so token/server selection matches the URL
-        // actually posted to (a process configured for a different default server must not
-        // resolve the wrong credential).
-        var       baseUrl = profiles.Resolution.ServerUrl!;
-        using var client  = await http.ForBackgroundAsync();
-        var       payload = CodexSubagentDiscovery.BuildStopPayload(sessionId, agentId, agentType, subFile);
-        using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-        await client.PostWithRetryAsync($"{baseUrl}/hooks/subagent-stop", content, time);
     }
 
     static async Task SafeAsync(Func<Task> op) {

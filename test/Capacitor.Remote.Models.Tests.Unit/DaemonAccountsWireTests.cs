@@ -63,6 +63,17 @@ public class DaemonAccountsWireTests {
     }
 
     [Test]
+    public async Task AgentInstance_binds_terminal_input_and_the_request_names_the_servers_fields() {
+        var agent = JsonSerializer.Deserialize("""{"agent_id":"a","status":"running","terminal_input":true}""", RemoteModelsJsonContext.Default.AgentInstanceDto)!;
+        var plain = JsonSerializer.Deserialize("""{"agent_id":"a","status":"running"}""", RemoteModelsJsonContext.Default.AgentInstanceDto)!;
+        var request = JsonSerializer.Serialize(new SendTerminalInputRequest("a", "bHM="), RemoteModelsJsonContext.Default.SendTerminalInputRequest);
+
+        await Assert.That(agent.TerminalInput).IsTrue();
+        await Assert.That(plain.TerminalInput).IsFalse();
+        await Assert.That(request).IsEqualTo("""{"agent_id":"a","data":"bHM="}""");
+    }
+
+    [Test]
     public async Task DaemonAccounts_binds_the_servers_row() {
         const string json = """
             {"daemon_name":"box","host_id":"h1","revision":7,"accounts":[{"id":"a1","vendor":"claude","directory":"/u/.claude-work","directory_key":"/u/.claude-work","label":"work","recording_state":"recording"}],"defaults":[{"vendor":"claude","directory":"/u/.claude","directory_key":"/u/.claude"}]}

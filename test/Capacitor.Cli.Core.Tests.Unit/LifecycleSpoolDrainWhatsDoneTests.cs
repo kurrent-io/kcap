@@ -6,10 +6,10 @@ using Capacitor.Cli.Core.Harness.Cursor;
 namespace Capacitor.Cli.Core.Tests.Unit;
 
 /// <summary>
-/// Task 12 / BLOCKER-2: <c>LifecycleSpoolDrain.PostOnce</c>'s (HttpClient/production
-/// overload's) job in Task 3 didn't carry <c>ClaudeHookCommand.ClaudePoster</c>'s
-/// <c>generate_whats_done</c> side effect (spawning the what's-done generator). Once this drain
-/// runs centrally (Task 12's Program.cs wiring + the daemon-periodic sweep) it can be the one that
+/// <c>LifecycleSpoolDrain.PostOnce</c>'s HttpClient/production overload must carry
+/// <c>ClaudeHookCommand.ClaudePoster</c>'s <c>generate_whats_done</c> side effect (spawning the
+/// what's-done generator). This drain runs centrally (Program.cs and the daemon-periodic sweep), so
+/// it can be the one that
 /// delivers a spooled session-end for ANY vendor — the server's <c>generate_whats_done</c> signal is
 /// vendor-agnostic (see <c>WatchCommand</c>'s parent-exit session-end path, which checks it for
 /// whatever <c>vendor</c> it was invoked with) — so dropping the side effect there would silently
@@ -44,7 +44,7 @@ public class LifecycleSpoolDrainWhatsDoneTests : IDisposable {
         var calls = new List<(string SessionId, string Vendor)>();
         using var client = new HttpClient();
         using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await LifecycleSpoolDrain.RunAsync(Markers, client, _server.Url!, life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, _server.Url!, life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: cts.Token,
             onWhatsDoneRequested: (sid, vendor) => calls.Add((sid, vendor)), time: TimeProvider.System);
 
@@ -64,7 +64,7 @@ public class LifecycleSpoolDrainWhatsDoneTests : IDisposable {
         var calls = new List<(string SessionId, string Vendor)>();
         using var client = new HttpClient();
         using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await LifecycleSpoolDrain.RunAsync(Markers, client, _server.Url!, life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, _server.Url!, life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: cts.Token,
             onWhatsDoneRequested: (sid, vendor) => calls.Add((sid, vendor)), time: TimeProvider.System);
 
@@ -84,7 +84,7 @@ public class LifecycleSpoolDrainWhatsDoneTests : IDisposable {
         var fired = false;
         using var client = new HttpClient();
         using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await LifecycleSpoolDrain.RunAsync(Markers, client, _server.Url!, life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, _server.Url!, life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: cts.Token,
             onWhatsDoneRequested: (_, _) => fired = true, time: TimeProvider.System);
 
@@ -104,7 +104,7 @@ public class LifecycleSpoolDrainWhatsDoneTests : IDisposable {
         var fired = false;
         using var client = new HttpClient();
         using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        await LifecycleSpoolDrain.RunAsync(Markers, client, _server.Url!, life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, _server.Url!, life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: cts.Token,
             onWhatsDoneRequested: (_, _) => fired = true, time: TimeProvider.System);
 
@@ -125,7 +125,7 @@ public class LifecycleSpoolDrainWhatsDoneTests : IDisposable {
         using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         // No onWhatsDoneRequested — the daemon's periodic drain and callers that don't need
         // the side effect may omit it; this must never throw.
-        await LifecycleSpoolDrain.RunAsync(Markers, client, _server.Url!, life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, _server.Url!, life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: cts.Token, time: TimeProvider.System);
 
         await Assert.That(life.HasBacklog(Sid)).IsFalse();

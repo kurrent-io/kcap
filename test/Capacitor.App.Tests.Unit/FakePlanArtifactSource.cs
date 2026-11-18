@@ -42,9 +42,14 @@ sealed class FakePlanArtifactSource : IPlanArtifactSource {
         return gate;
     }
 
-    public PlanArtifactsRead? Cached(string sessionId) => null;
+    /// Documents answered synchronously at a switch, as a warm cache does.
+    public Dictionary<string, PlanArtifactsRead> CachedReads { get; } = new(StringComparer.Ordinal);
 
-    public SessionPagesRead? CachedPages(string sessionId) => null;
+    public PlanArtifactsRead? Cached(string sessionId) => CachedReads.GetValueOrDefault(sessionId);
+
+    public Dictionary<string, SessionPagesRead> CachedPageReads { get; } = new(StringComparer.Ordinal);
+
+    public SessionPagesRead? CachedPages(string sessionId) => CachedPageReads.GetValueOrDefault(sessionId);
 
     public async Task<PlanArtifactsRead> ReadAsync(string sessionId, CancellationToken ct) {
         Requested.Add(sessionId);

@@ -51,7 +51,7 @@ namespace Capacitor.Cli.Tests.Integration;
 /// Effect 4 is NOT a guard on <c>importedSessionIds</c> membership, and must not be read as one.
 /// The privatize set is <c>HashSet(importedSessionIds) ∪ privateScopeSessionIds</c> and this root
 /// is already in the private scope, so rewiring membership to the resolved <c>Loaded</c> outcome
-/// would union the same single id and still emit exactly one PUT — verified by mutation. The
+/// would union the same single id and still emit exactly one PUT. The
 /// Done-grid assertions do not expose it either (<c>ComputePerSourceFinalCounts</c> takes the
 /// routed early return and ignores its <c>imported</c> argument). That rule is pinned instead by
 /// <see cref="RoutedPrivatizeMembershipTests"/>, which uses a source outside the private scope so
@@ -181,9 +181,9 @@ public class AntigravitySkippedChildOverrideRoutedLoopTests : IDisposable {
         // --- Effect 3: the printed per-session line is the "Loading" line, not the grey
         // "Already loaded ... (no new content)" no-op line (which is what a raw Skipped outcome
         // with no override would print instead). ---
-        await Assert.That(stdout).Contains($"Loading {Root} (antigravity)");
-        await Assert.That(stdout).DoesNotContain($"Already loaded {Root}");
-        await Assert.That(stdout).DoesNotContain($"Refreshed {Root}");
+        await Assert.That(stdout).Contains($"Loading {RootConvId} (antigravity)");
+        await Assert.That(stdout).DoesNotContain($"Already loaded {RootConvId}");
+        await Assert.That(stdout).DoesNotContain($"Refreshed {RootConvId}");
 
         // --- Effects 1 & 2: isolate the "== Done ==" section from the earlier "== Plan ==" one
         // (which unconditionally prints "Excluded" even at 0) and check both the totals and the

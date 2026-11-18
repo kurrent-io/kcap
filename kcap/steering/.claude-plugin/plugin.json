@@ -1,0 +1,9 @@
+{
+  "name": "kcap-steering",
+  "version": "0.1.0",
+  "description": "Lets the kcap daemon deliver messages sent from the kcap web and mobile apps to this terminal Claude Code session",
+  "author": {
+    "name": "Kurrent",
+    "email": "support@kurrent.io"
+  }
+}

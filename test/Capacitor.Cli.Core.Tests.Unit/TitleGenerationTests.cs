@@ -11,6 +11,36 @@ public class TitleGenerationTests {
     }
 
     [Test]
+    [Arguments("List the C# files under src")]
+    [Arguments("Port the F# parser")]
+    [Arguments("Fix #2131 table output")]
+    [Arguments("Rename snake_case keys")]
+    public async Task CleanTitle_keeps_a_hash_or_underscore_that_is_part_of_the_text(string title) =>
+        await Assert.That(TitleGeneration.CleanTitle(title)).IsEqualTo(title);
+
+    [Test]
+    [Arguments("# Fix login")]
+    [Arguments("### Fix login")]
+    [Arguments("**Fix login**")]
+    [Arguments("__Fix login__")]
+    [Arguments("`Fix` login")]
+    [Arguments("_Fix login_")]
+    [Arguments("*Fix login*")]
+    public async Task CleanTitle_strips_markdown_syntax(string raw) =>
+        await Assert.That(TitleGeneration.CleanTitle(raw)).IsEqualTo("Fix login");
+
+    [Test]
+    [Arguments("Fix *login* timeout", "Fix login timeout")]
+    [Arguments("Fix _login_ and **auth** timeout", "Fix login and auth timeout")]
+    [Arguments("**Fix `parse` timeout**", "Fix parse timeout")]
+    [Arguments("Fix `__init__` lookup", "Fix __init__ lookup")]
+    [Arguments("Fix `*args` and `_private` names", "Fix *args and _private names")]
+    [Arguments("Forward *args and **kwargs", "Forward *args and **kwargs")]
+    [Arguments("Compute 5 * 3 * 2", "Compute 5 * 3 * 2")]
+    public async Task CleanTitle_strips_inline_emphasis_but_not_identifiers(string raw, string expected) =>
+        await Assert.That(TitleGeneration.CleanTitle(raw)).IsEqualTo(expected);
+
+    [Test]
     public async Task CleanTitle_caps_length_at_120() {
         var longTitle = new string('a', 200);
 

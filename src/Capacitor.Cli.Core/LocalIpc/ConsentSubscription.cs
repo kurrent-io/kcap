@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Capacitor.Cli.Core.LocalIpc;
 
-/// One consent subscription attempt as a typed stream (spec §4.2). `Subscribed` is a
+/// One consent subscription attempt as a typed stream. `Subscribed` is a
 /// CLIENT-LOCAL boundary — emitted right after the subscribe write flushes, before any read,
 /// because an async iterator exposes no other observable point between "dialing" and
 /// "subscribed" (with an empty replay the first read never completes). It does not prove the
@@ -23,7 +23,7 @@ public static class ConsentSubscription {
         try {
             // Dial + subscribe write. ConsentSubscribeV2: a v1 daemon's codec rejects the byte
             // before routing and closes without replying — we yield Subscribed (the write
-            // flushed) and then end on EOF, never registering a subscriber there (spec §4.1).
+            // flushed) and then end on EOF, never registering a subscriber there.
             try {
                 await sock.ConnectAsync(new UnixDomainSocketEndPoint(store.SocketPath(daemonName)), ct);
                 stream = new NetworkStream(sock, ownsSocket: false);
@@ -31,7 +31,7 @@ public static class ConsentSubscription {
             } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                 throw;
             } catch (Exception ex) when (ex is IOException or SocketException) {
-                yield break; // failed dial/write: attempt over, no Subscribed, no clear (spec §5)
+                yield break; // failed dial/write: attempt over, no Subscribed, no clear
             }
 
             yield return new ConsentStreamEvent.Subscribed();
@@ -53,7 +53,7 @@ public static class ConsentSubscription {
 
                 // Structurally invalid (STJ leaves missing members null; `{}` decodes fine) is
                 // SKIPPED, not fatal — ending here would thrash: the resubscribe replay would
-                // redeliver the same invalid entry forever (spec §4.2).
+                // redeliver the same invalid entry forever.
                 if (!IsStructurallyValid(dto)) continue;
                 yield return new ConsentStreamEvent.Pending(dto!);
             }
@@ -65,7 +65,7 @@ public static class ConsentSubscription {
     static bool IsStructurallyValid(ConsentPendingDto? dto) =>
         dto is not null
         && !string.IsNullOrEmpty(dto.RequestId)
-        && !string.IsNullOrEmpty(dto.PromptId)   // consent/2 daemons always stamp it (spec §4.2)
+        && !string.IsNullOrEmpty(dto.PromptId)   // consent/2 daemons always stamp it
         && !string.IsNullOrEmpty(dto.Kind)
         && !string.IsNullOrEmpty(dto.RepoPath)
         && !string.IsNullOrEmpty(dto.Vendor)

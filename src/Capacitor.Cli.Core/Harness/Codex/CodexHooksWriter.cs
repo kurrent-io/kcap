@@ -5,9 +5,8 @@ namespace Capacitor.Cli.Core.Harness.Codex;
 public static class CodexHooksWriter {
     public const string HookCommand = "kcap hook --codex";
 
-    // PermissionRequest waits for the dashboard's decision, so Codex must not time it out.
-    const int PermissionRequestTimeout = 86400;
-    const int DefaultHookTimeout       = 30;
+    static readonly int PermissionRequestTimeout = (int)PermissionRequestHook.Timeout.TotalSeconds;
+    const int DefaultHookTimeout = 30;
 
     public static SettingsEdit Install(string hooksPath) {
         // Rewriting drops the mark, which Codex would otherwise reject the file for.

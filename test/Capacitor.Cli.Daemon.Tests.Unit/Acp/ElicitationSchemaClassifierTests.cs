@@ -74,7 +74,7 @@ public class ElicitationSchemaClassifierTests {
         await Assert.That(c.Options.Select(o => o.Label).ToArray()).IsEquivalentTo(new[] { "Ex", "Why", "Zed" });
     }
 
-    /// <summary>Mutation anchor (spec §8): BOTH the option set AND the bounds are asserted here,
+    /// <summary>Mutation anchor: BOTH the option set AND the bounds are asserted here,
     /// so dropping either from the classification fails this test.</summary>
     [Test]
     public async Task MultiSelectWithBounds_CarriesDeclaredBoundsAndOptions() {
@@ -226,7 +226,7 @@ public class ElicitationSchemaClassifierTests {
         await Assert.That(reason).IsEqualTo(expectedReason);
     }
 
-    // ===== Stage-order pins (spec §4.2: the FIRST failing stage's reason wins) =====
+    // ===== Stage-order pins (the FIRST failing stage's reason wins) =====
 
     /// <summary>A multi-property schema whose children are ALSO malformed reports the count
     /// (stage 3), never the children (stage 4+).</summary>

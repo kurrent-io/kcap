@@ -1,26 +1,29 @@
 using Capacitor.Cli.Recording;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands.Harness;
+using Capacitor.Cli.Harness.Copilot;
+using Capacitor.Cli.Recording.Harness.Copilot;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Kiro;
 using Capacitor.Cli.Core.Harness.Muse;
-using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.Harness.Gemini;
 using Capacitor.Cli.Harness.Grok;
 using Capacitor.Cli.Harness.OpenCode;
+using Capacitor.Cli.Recording.Harness.Claude;
 using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
 
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Workspace;
 
 namespace Capacitor.Cli.Commands;
@@ -54,7 +57,7 @@ class WatchCommand(
                         context.Uri, context.Options.AccessTokenProvider, time, report => Log(time, report), ct);
                 }
             )
-            .WithAutomaticReconnect(new InfiniteRetryPolicy())
+            .WithAutomaticReconnect(new HubRetryPolicy())
             .AddJsonProtocol(options => {
                     options.PayloadSerializerOptions.TypeInfoResolverChain.Insert(0, CapacitorJsonContext.Default);
                     options.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
@@ -62,9 +65,7 @@ class WatchCommand(
             )
             .Build();
 
-        // Halve KeepAliveInterval (15s → 7s); see ServerConnection for rationale.
-        // ServerTimeout stays at the 30s default for rollout safety.
-        hubConnection.KeepAliveInterval = TimeSpan.FromSeconds(7);
+        hubConnection.KeepAliveInterval = HubRetryPolicy.KeepAliveInterval;
 
         return hubConnection;
     }
@@ -83,22 +84,6 @@ class WatchCommand(
         ParentAlreadyDead
     }
 
-    /// <summary>What a stopping watcher does with the session end it would post.</summary>
-    internal enum SessionEndAction {
-        Post,
-
-        /// <summary>The session's hooks claim a new process; the end belongs to that one.</summary>
-        RunsOnElsewhere,
-
-        /// <summary>The daemon is stopping the hosted agent for resume, which continues the session.</summary>
-        HeldForResume
-    }
-
-    internal static SessionEndAction DecideSessionEnd(bool runsOnElsewhere, HostedAgent? hosted, Func<HostedAgent, bool> resuming) =>
-        runsOnElsewhere                                     ? SessionEndAction.RunsOnElsewhere
-      : hosted is { AgentId: not null } && resuming(hosted) ? SessionEndAction.HeldForResume
-      :                                                       SessionEndAction.Post;
-
     /// <summary>What a resume holds a handed end for, when it does: the agent its hook named, or the session.</summary>
     internal static string? AgentHoldingEndForResume(MuseSessionEndRequest handed, string sessionId) =>
         HandedEndHeld(handed.Payload, sessionId, h => SessionEndFence.ShouldHold(h, sessionId), SessionEndFence.ShouldHold);
@@ -108,7 +93,7 @@ class WatchCommand(
     internal static string? HandedEndHeld(
             string payload, string sessionId, Func<HostedAgent, bool> holdsRun, Func<ExitedSession, bool> holdsSession) {
         if (HandedEndRun(payload) is { } run)
-            return DecideSessionEnd(runsOnElsewhere: false, run, holdsRun) == SessionEndAction.HeldForResume ? run.AgentId : null;
+            return SessionEnd.DecideSessionEnd(runsOnElsewhere: false, run, holdsRun) == SessionEndAction.HeldForResume ? run.AgentId : null;
 
         return SessionId.Parse(sessionId) is { } session && holdsSession(new ExitedSession(session, null)) ? sessionId : null;
     }
@@ -137,15 +122,6 @@ class WatchCommand(
     /// watcher on a machine where Crew has run.</summary>
     internal static bool WatchesCrewEnd(string vendor, string? agentId, bool crewPresent) =>
         vendor == "kiro" && agentId is null && crewPresent;
-
-    /// <summary>The session-end reason the watcher posts for how it came to stop, or null when it posts none.</summary>
-    internal static string? DecideEndReason(bool parentExited, bool crewFinished, bool wedgedCeiling, bool idle, bool copilotShutdown) =>
-        parentExited    ? "parent_exited"
-      : crewFinished    ? "crew_finished"
-      : wedgedCeiling   ? "parent_dead_ceiling"
-      : idle            ? "idle_timeout"
-      : copilotShutdown ? "session_shutdown"
-      :                   null;
 
     /// <summary>
     /// Decides whether the parent-exit watchdog should run. Pure so the three
@@ -276,15 +252,27 @@ class WatchCommand(
         // guarantees the write is observed even though awaits already act as memory
         // barriers in practice.
         var parentExited = 0;
+        var stopRequested = 0;
+        // The run the transcript named when a stop arrived, and when; what follows belongs to whatever runs next.
+        string? stopRunId   = null;
+        var     stopNoted   = 0;
+        long    stopTicks   = 0;
         // set by the staged parent-dead recovery loop when it ends a wedged watcher on the ceiling.
         var wedgedCeilingExit = 0;
         // set when Kiro Crew is finished with a session its still-running kiro-cli process hosts.
         var crewFinished = 0;
         var armDeadParentOnConnect = false;
 
+        // Read by whatever decides how the session ended: a server stop sets the recorder's token a moment before cts
+        // hears of it, so a watch that fires in between would report an end the stop already owns.
+        var stopping = CancellationToken.None;
+
         var source       = new RecordingSource(sessionId, agentId, transcriptPath, vendor, cwd);
         var host         = new WatchRecorderHost(config, profiles, harnesses, http, watchers, time, ArmProcessWatches, cts.Cancel);
-        var housekeeping = new RecorderHousekeeping(source, skipTitle, parentPid, host, config, profiles, harnesses, http, router, time, accounts, home,
+        var titlesAllowed = server.LocalRoot is not { } localRoot || LocalIntelligenceGate.For(config, localRoot).Allows(Url);
+        if (!skipTitle && !titlesAllowed) Log(time, $"Not generating a title: {LocalIntelligenceGate.NotSetUp}");
+
+        var housekeeping = new RecorderHousekeeping(source, skipTitle || !titlesAllowed, parentPid, host, config, profiles, harnesses, http, router, time, accounts, home,
             message => Log(time, message), TouchHeartbeat);
 
         var hubConnection = BuildHubConnection($"{Url}/hubs/sessions");
@@ -294,6 +282,8 @@ class WatchCommand(
             server, housekeeping, time, message => Log(time, message), TouchHeartbeat));
 
         var state = recorder.State;
+
+        stopping = recorder.Stopping;
 
         // The recorder can stop itself, and only cts stops what runs beside it. Left to the end of RunAsync, a
         // parent monitor could see an agent exit right after its end hook and post a parent_exited end.
@@ -314,18 +304,69 @@ class WatchCommand(
         //
         // A stop request's sender waits only seconds (a kill 5s later, or the server's drain wait); nothing
         // waits on any other exit, so these tell the recorder rather than only cancelling.
+        void NoteStopRequest() {
+            Interlocked.Exchange(ref stopRequested, 1);
+
+            if (Interlocked.Exchange(ref stopNoted, 1) != 0) return;
+
+            Interlocked.Exchange(ref stopTicks, time.GetUtcNow().UtcTicks);
+            if (vendor == "copilot") Volatile.Write(ref stopRunId, CopilotRunBoundary.LatestIdOf(recorder.TranscriptPath));
+        }
+
+        // The run this watcher recorded: the one the transcript named when the stop arrived, or names now when the run was
+        // found over some other way. Unreadable, the spans opened by the stop, or by now.
+        WorkspaceRunCutoff RunCutoff() {
+            var ticks = Interlocked.Read(ref stopTicks);
+
+            return new WorkspaceRunCutoff(
+                ticks > 0 ? Volatile.Read(ref stopRunId) : CopilotRunBoundary.LatestIdOf(recorder.TranscriptPath),
+                ticks > 0 ? new DateTimeOffset(ticks, TimeSpan.Zero) : time.GetUtcNow());
+        }
+
         Console.CancelKeyPress += (_, e) => {
             e.Cancel = true;
+            NoteStopRequest();
             recorder.RequestStop();
         };
         using var sigtermReg = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => {
+            NoteStopRequest();
             recorder.RequestStop();
             ctx.Cancel = true;
         });
         using var stopRequest = WatcherStopSignal.Listen(Environment.ProcessId, () => {
             Log(time, "Stop requested; shutting down watcher");
+            NoteStopRequest();
             recorder.RequestStop();
         });
+
+        // Quitting VS Code terminates the watchers it started, and a session whose sessionEnd hook Copilot skipped has
+        // nothing else to send its end. Any other owner's end may arrive too: the server keeps a session's first.
+        var copilotSession = vendor == "copilot" && agentId is null;
+
+        bool CopilotStopEndApplies() =>
+            copilotSession && Volatile.Read(ref stopRequested) == 1 && !DisabledSessions.IsDisabledByPerson(sessionId, config);
+
+        // The end is held before the wait, which the teardown that stopped this watcher can cut short; a later spool
+        // drain sends it once the runtime has gone or the transcript ends on its shutdown line.
+        async Task<string?> CopilotStopEndAsync(string path) {
+            var held     = SessionEnd.ParentExitEndBody(sessionId, path, cwd, "parent_exited", time.GetUtcNow(), HostedAgent.FromEnvironment());
+            var holding  = CopilotPendingEnd.WriteWithRetryAsync(_paths, sessionId, held.ToJsonString(), Url, parentPid, path, time, HeldEndWriteWindow,
+                RunCutoff().RunId, Environment.ProcessId);
+
+            var reason = await CopilotStopRequestEnd.DecideAsync(
+                () => parentPid is { } runtime && !ProcessHelpers.IsProcessAlive(runtime),
+                () => CopilotFinalizeDrainCommand.LastLineIsShutdown(path),
+                time, CopilotStopRequestEnd.Wait);
+
+            // A premature first end is permanent, where a lost one is the server's stale sweep's to recover, so an end that
+            // could not be held for a session not shown over is left unsent.
+            var isHeld = await holding;
+            Log(time, reason is not null ? $"Stopped with the Copilot session over; ending it ({reason})"
+                : isHeld                 ? "Stopped before the Copilot session was over; its end is held for a later spool drain"
+                                         : "Stopped before the Copilot session was over and its end could not be held; leaving it to the server");
+
+            return reason;
+        }
 
         // SIGHUP defense-in-depth: setsid above should prevent the kernel from
         // delivering SIGHUP to us, but if a shell forwards SIGHUP explicitly to
@@ -357,6 +398,8 @@ class WatchCommand(
                     }
 
                     if (!ProcessHelpers.IsProcessAlive(ppid)) {
+                        if (stopping.IsCancellationRequested) return;
+
                         Log(time, $"Parent pid {ppid} exited; shutting down watcher");
                         Interlocked.Exchange(ref parentExited, 1);
                         cts.Cancel();
@@ -411,6 +454,8 @@ class WatchCommand(
                                     return;
 
                                 case ParentDeadRecovery.EndTerminal:
+                                    if (stopping.IsCancellationRequested) return;
+
                                     Log(time, $"Parent unresolved and no transcript progress for >{ceiling.TotalMinutes:F0}m; "
                                       + "ending session (parent_dead_ceiling)");
                                     Interlocked.Exchange(ref wedgedCeilingExit, 1);
@@ -456,6 +501,8 @@ class WatchCommand(
                         }
 
                         if (crewEnd.IsFinished()) {
+                            if (stopping.IsCancellationRequested) return;
+
                             Log(time, "Kiro Crew is finished with this session; shutting down watcher");
                             Interlocked.Exchange(ref crewFinished, 1);
                             cts.Cancel();
@@ -483,6 +530,7 @@ class WatchCommand(
         try {
             await recorder.RunAsync(cts.Token);
         } catch (OperationCanceledException) when (transport.StoppedBeforeConnect) {
+            var earlyRun = RunCutoff();
             await hubConnection.DisposeAsync();
 
             // A watcher stopped before it connected is still the one the Muse hook may have handed an
@@ -497,6 +545,11 @@ class WatchCommand(
                 }
             }
 
+            if (CopilotStopEndApplies() && await CopilotStopEndAsync(transcriptPath) is { } early) {
+                watchers.RemoveOwnPidFile(sessionId, Environment.ProcessId);
+                await PostCopilotEndAsync(sessionId, transcriptPath, cwd, repository: null, early, earlyRun);
+            }
+
             await logWriter.DisposeAsync();
 
             return 0;
@@ -509,6 +562,9 @@ class WatchCommand(
             state.BufferedLines.Clear();
             state.BufferedLineNumbers.Clear();
         }
+
+        // Before the final drain and any post or wait, each of which a replacement run can start during.
+        var run = RunCutoff();
 
         await recorder.FinishAsync(CancellationToken.None);
 
@@ -533,13 +589,15 @@ class WatchCommand(
         // its start hook already registered it, so skipping the end leaves it Live for good.
         // Runs after SignalR dispose so the server usually finds no watcher to drain; one that has
         // not yet processed the disconnect waits out its drain timeout, which the POST budget covers.
-        var endReason = DecideEndReason(
+        var endReason = SessionEnd.DecideEndReason(
             parentExited:  Volatile.Read(ref parentExited)      == 1,
             crewFinished:  Volatile.Read(ref crewFinished)      == 1,
             wedgedCeiling: Volatile.Read(ref wedgedCeilingExit) == 1,
             idle:          recorder.EndedIdle,
             // Read again: a resume can land after the grace ran out, and the final drain does not always run.
             copilotShutdown: recorder.EndedOnCopilotShutdown && !CopilotFinalizeDrainCommand.MovedPastShutdown(transcriptPath));
+
+        if (endReason is null && CopilotStopEndApplies()) endReason = await CopilotStopEndAsync(transcriptPath);
 
         // Cursor's idle-ceiling exit must not synthesize a session end: end synthesis has one owner, the
         // sessionEnd hook or the server's lease-gated sweep, and posting here would race whichever fires.
@@ -566,13 +624,13 @@ class WatchCommand(
 
         if (museEndRequest is { } handedEnd) {
             await SettleHandedEndsAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, handedEnd);
-        } else if (PostsOwnSessionEnd(endReason, agentId, cursorSuppressesEndPost)) {
+        } else if (SessionEnd.PostsOwnSessionEnd(endReason, agentId, cursorSuppressesEndPost)) {
             // A resumed session's hooks claim its new process; the end of the one this watcher followed
             // is then not the session's end, and the new process is left without a watcher.
             var claimant = LiveClaimant(sessionId);
             var hosted   = HostedAgent.FromEnvironment();
 
-            switch (DecideSessionEnd(SessionRunsOnElsewhere(vendor, agentId, claimant), hosted, h => SessionEndFence.ShouldHold(h, sessionId))) {
+            switch (SessionEnd.DecideSessionEnd(SessionRunsOnElsewhere(vendor, agentId, claimant), hosted, h => SessionEndFence.ShouldHold(h, sessionId))) {
                 case SessionEndAction.RunsOnElsewhere:
                     Log(time, $"Not posting a {endReason} session-end: the session runs on in pid {claimant}");
                     await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, claimant);
@@ -581,7 +639,8 @@ class WatchCommand(
                     Log(time, $"session end suppressed: agent {hosted?.AgentId} is resuming");
                     break;
                 default:
-                    await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, endReason);
+                    if (copilotSession) await PostCopilotEndAsync(sessionId, transcriptPath, cwd, state.Repository, endReason, run);
+                    else await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, endReason);
                     break;
             }
         }
@@ -591,19 +650,32 @@ class WatchCommand(
         return 0;
     }
 
+    // Within the 5 s KillWatcher gives a stopping watcher before it force-kills.
+    static readonly TimeSpan HeldEndWriteWindow = TimeSpan.FromSeconds(4);
+
+    /// <summary>Posts a Copilot watcher's own end, after the spool's: the server keeps a session's first end, and a sessionEnd
+    /// hook's spooled one carries the quit time. An end this watcher held is then no longer owed.</summary>
+    /// <param name="run">The run this watcher recorded, taken before any wait or post: a replacement run's spans are not
+    /// this end's to close.</param>
+    internal async Task PostCopilotEndAsync(string sessionId, string transcriptPath, string? cwd, RepositoryPayload? repository, string reason, WorkspaceRunCutoff run) {
+        await new AgentHookPoster(config, profiles, http, watchers, time).DrainSpoolsNowAsync(new HookSpool(config, time, Url), sessionId);
+
+        // Recording may have been turned off during the stop wait or the drain, and the end carries the session's paths.
+        if (DisabledSessions.IsDisabledByPerson(sessionId, config)) {
+            CopilotPendingEnd.Discard(_paths, sessionId, ownedBy: Environment.ProcessId);
+            return;
+        }
+
+        if (await PostSessionEndOnParentExitAsync(sessionId, transcriptPath, cwd, "copilot", repository, reason, run))
+            CopilotPendingEnd.Discard(_paths, sessionId, ownedBy: Environment.ProcessId);
+    }
+
     /// <summary>
     /// Whitelist of vendor values accepted by the server's session-end route.
     /// Used to reject unexpected --vendor input before interpolating into the URL
     /// path (defence-in-depth against path traversal even though the CLI runs locally).
     /// </summary>
     static readonly HashSet<string> KnownVendors = new(StringComparer.Ordinal) { "claude", "codex", "copilot", "gemini", "kiro", "pi", "opencode", "antigravity", "cursor", "mistral-vibe", "grok", "muse" };
-
-    /// <summary>
-    /// Total time budget for the parent-exit session-end POST, client creation included. A server
-    /// that has not yet seen this watcher's connection close waits up to 10s for a drain it already
-    /// had before answering, so the budget outlasts that wait; an end that still misses it is spooled.
-    /// </summary>
-    static readonly TimeSpan ParentExitPostBudget = TimeSpan.FromSeconds(15);
 
     static readonly TimeSpan WorkspaceEndCap = TimeSpan.FromSeconds(5);
 
@@ -618,14 +690,6 @@ class WatchCommand(
     /// </summary>
     internal static bool CursorSuppressesEndPost(string vendor, bool idleExit) => vendor == "cursor" && idleExit;
 
-    /// <summary>
-    /// Whether the watcher posts the session's end itself. Whether the session had a real turn does not
-    /// enter into it: the start hook registered the session before this watcher read a line, so a
-    /// turnless one left without its end stays Live for good.
-    /// </summary>
-    internal static bool PostsOwnSessionEnd([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] string? endReason, string? agentId, bool cursorSuppressesEndPost) =>
-        endReason is not null && agentId is null && !cursorSuppressesEndPost;
-
     /// <summary>A Copilot watcher's parent was found by name, so it being gone means the agent has stopped, not
     /// that a hook returned. Waiting for a re-resolve could not help: nothing above a watcher names the agent.</summary>
     internal static bool EndsWhenParentFoundDead(string vendor, string? agentId) => vendor == "copilot" && agentId is null;
@@ -636,7 +700,8 @@ class WatchCommand(
             string?            cwd,
             string             vendor,
             RepositoryPayload? repository,
-            string             reason = "parent_exited"
+            string             reason = "parent_exited",
+            WorkspaceRunCutoff? run        = null
         ) {
         if (!KnownVendors.Contains(vendor)) {
             Log(time, $"Parent-exit session-end skipped: unknown vendor '{vendor}'");
@@ -720,13 +785,17 @@ class WatchCommand(
             }
         }
 
-        var endHook = ParentExitEndBody(sessionId, transcriptPath, cwd, reason, time.GetUtcNow(), HostedAgent.FromEnvironment());
+        var endHook = SessionEnd.ParentExitEndBody(sessionId, transcriptPath, cwd, reason, time.GetUtcNow(), HostedAgent.FromEnvironment());
         var posted  = await PostSessionEndPayloadAsync(sessionId, vendor, endHook, repository, "Parent-exit");
 
         // After the end, which the watcher's short stop window protects, and only once it was posted or spooled:
         // a vendor without turn hooks opened its span at SessionStart, and one with them may have died mid-turn.
         // Its drain is bounded, and is the last chance a session with no other hook gets.
-        if (posted) await new WorkspaceSpanHook(config, profiles, http, time).EndAsync(sessionId, WorkspaceEndCap);
+        // A run cutoff keeps this end to its own run's spans, should a later run already have opened one.
+        if (posted) {
+            var spans = new WorkspaceSpanHook(config, profiles, http, time);
+            await (run is not null ? spans.EndRunAsync(sessionId, run, WorkspaceEndCap) : spans.EndAsync(sessionId, WorkspaceEndCap));
+        }
 
         return posted;
     }
@@ -747,25 +816,6 @@ class WatchCommand(
 
         end["session_id"]      = sessionId;
         end["transcript_path"] = transcriptPath;
-
-        return end;
-    }
-
-    /// <summary>The end a watcher posts for its own stop. The watcher inherits the environment of the agent
-    /// whose hook spawned it, so a hosted agent's end names that agent and its daemon epoch.</summary>
-    internal static JsonObject ParentExitEndBody(
-            string sessionId, string transcriptPath, string? cwd, string reason, DateTimeOffset endedAt, HostedAgent hosted) {
-        var end = new JsonObject {
-            ["session_id"]      = sessionId,
-            ["transcript_path"] = transcriptPath,
-            ["cwd"]             = cwd ?? "",
-            ["hook_event_name"] = "session_end",
-            ["reason"]          = reason,
-            // Scopes the server's SessionEnded id to this run: a vendor with no session-end hook ends only
-            // here, and a resumed session's second exit would otherwise dedupe against its first.
-            ["ended_at"]        = endedAt.ToString("O"),
-        };
-        SessionEndIncarnation.Stamp(end, hosted);
 
         return end;
     }
@@ -894,69 +944,9 @@ class WatchCommand(
         return HandedEndOutcome.Posted;
     }
 
-    /// <summary>True when the server accepted the end or it is spooled for the drain. A session with a spooled
-    /// backlog gets its end spooled behind it, so a stranded start still reaches the server first.</summary>
-    async Task<bool> PostSessionEndPayloadAsync(string sessionId, string vendor, JsonObject endHook, RepositoryPayload? repository, string what) {
-        if (repository is not null) {
-            endHook["repository"] = JsonNode.Parse(
-                JsonSerializer.Serialize(repository, CapacitorJsonContext.Default.RepositoryPayload)
-            );
-        }
-
-        var body  = endHook.ToJsonString();
-        var spool = new HookSpool(config, time, Url);
-
-        bool Spool(string why) {
-            var spooled = spool.Append(sessionId, $"session-end/{vendor}", body);
-            Log(time, $"{what} session-end {why}; {(spooled ? "spooled for the next drain" : "the spool write failed, so it is lost")}");
-
-            return spooled;
-        }
-
-        if (spool.HasBacklog(sessionId)) return Spool("queued behind the session's spooled hooks");
-
-        using var budgetCts = new CancellationTokenSource(ParentExitPostBudget, time);
-
-        try {
-            using var httpClient = await http.ForBackgroundAsync(budgetCts.Token);
-            using var content    = new StringContent(body, Encoding.UTF8, "application/json");
-
-            var url = $"{Url}/hooks/session-end/{vendor}";
-            using var response = await httpClient.PostWithRetryAsync(url, content, time, timeout: ParentExitPostBudget, ct: budgetCts.Token);
-
-            if (!response.IsSuccessStatusCode) {
-                var code = (int)response.StatusCode;
-
-                if (HookSpool.IsRetryable(code)) return Spool($"POST returned HTTP {code}");
-
-                Log(time, $"{what} session-end POST returned HTTP {code}");
-                return false;
-            }
-
-            Log(time, $"{what} session-end POST succeeded");
-
-            try {
-                var answer = await response.Content.ReadAsStringAsync(budgetCts.Token);
-                var node   = string.IsNullOrWhiteSpace(answer) ? null : JsonNode.Parse(answer);
-
-                if (node?["generate_whats_done"]?.GetValue<bool>() == true) {
-                    watchers.SpawnWhatsDoneGenerator(sessionId, vendor);
-                }
-            } catch (Exception ex) {
-                Log(time, $"{what} session-end response parse failed: {ex.Message}");
-            }
-
-            return true;
-        } catch (OperationCanceledException) {
-            return Spool($"POST timed out after {ParentExitPostBudget.TotalSeconds:F0}s");
-        } catch (HttpRequestException ex) {
-            return Spool($"POST failed: {ex.Message}");
-        } catch (Exception ex) {
-            Log(time, $"{what} session-end POST failed: {ex.Message}");
-        }
-
-        return false;
-    }
+    async Task<bool> PostSessionEndPayloadAsync(string sessionId, string vendor, JsonObject endHook, RepositoryPayload? repository, string what) =>
+        await new SessionEndPoster(config, Url, http, time, message => Log(time, message), (session, endVendor) => watchers.SpawnWhatsDoneGenerator(session, endVendor))
+            .PostAsync(sessionId, vendor, endHook, repository, what) is SessionEndDelivery.Delivered;
 
     /// <summary>The first prompt and first reply a title is generated from, read the way the watch loop reads them,
     /// for a generator that runs after the watcher is gone.</summary>
@@ -1000,19 +990,5 @@ class WatchCommand(
         } catch {
             return 0;
         }
-    }
-
-    /// <summary>
-    /// Retries SignalR reconnection indefinitely with exponential backoff capped at 30s.
-    /// The watcher is lightweight when idle — it should never give up while the session is active.
-    /// </summary>
-    sealed class InfiniteRetryPolicy : IRetryPolicy {
-        public TimeSpan? NextRetryDelay(RetryContext retryContext) =>
-            retryContext.PreviousRetryCount switch {
-                0 => TimeSpan.Zero,
-                1 => TimeSpan.FromSeconds(2),
-                2 => TimeSpan.FromSeconds(10),
-                _ => TimeSpan.FromSeconds(30),
-            };
     }
 }

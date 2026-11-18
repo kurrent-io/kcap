@@ -219,4 +219,45 @@ public class ImportDiscoverySummaryTests {
         await Assert.That(split.Sum(v => v.SessionCount)).IsEqualTo(s.UnmatchedFolders.Single().Sessions);
         await Assert.That(s.UnmatchedFolderVendors.ContainsKey("/w/kcap")).IsFalse();
     }
+
+    /// A transcript can record a Windows cwd with forward slashes; it is the same folder as its backslash
+    /// spelling, so it is one unmatched folder, named in backslashes.
+    [Test]
+    public async Task Both_spellings_of_a_windows_folder_are_one_unmatched_folder() {
+        var s = ImportDiscoverySummary.Build(
+            [("a", At(-1)), ("b", At(-2))],
+            new Dictionary<string, (string Owner, string Name)?> { ["a"] = null, ["b"] = null },
+            Windows,
+            folderBySession: new Dictionary<string, string> { ["a"] = "C:/Users/me/gone/agent-1", ["b"] = @"C:\Users\me\gone\agent-1" });
+
+        var folder = s.UnmatchedFolders.Single();
+
+        await Assert.That(folder.Folder).IsEqualTo(@"C:\Users\me\gone\agent-1");
+        await Assert.That(folder.Sessions).IsEqualTo(2);
+        await Assert.That(ImportDiscoveryRender.ToText(s)).DoesNotContain("C:/");
+    }
+
+    /// <summary>A session the capture scope keeps out is in no figure an import is chosen from, so nothing offers to
+    /// import or remap it.</summary>
+    [Test]
+    public async Task An_ignored_session_leaves_every_total_and_is_counted_apart() {
+        var s = ImportDiscoverySummary.Build(
+            [("kept", At(-1)), ("secret", At(-1)), ("secret-too", At(-2)), ("in-repo", At(-1)), ("listed", At(-1))],
+            new Dictionary<string, (string Owner, string Name)?> {
+                ["in-repo"] = ("Acme", "widgets"), ["listed"] = ("Acme", "widgets"),
+            },
+            Windows,
+            folderBySession: new Dictionary<string, string> {
+                ["kept"] = "/w/scratch", ["secret"] = "/w/secret", ["secret-too"] = "/w/secret", ["in-repo"] = "/w/widgets",
+            },
+            ignoredSessions: new HashSet<string> { "secret", "secret-too", "listed" });
+
+        await Assert.That(s.UnmatchedCount).IsEqualTo(1);
+        await Assert.That(s.UnmatchedFolders).IsEquivalentTo([new ImportUnmatchedFolder("/w/scratch", 1)]);
+        await Assert.That(s.Repos.Single().SessionCount).IsEqualTo(1);
+        await Assert.That(s.ByWindow.Single(w => w.Since is null).SessionCount).IsEqualTo(2);
+        await Assert.That(s.IgnoredCount).IsEqualTo(3);
+        await Assert.That(s.IgnoredFolders).IsEquivalentTo(
+            [new ImportIgnoredFolder("/w/secret", 2), new ImportIgnoredFolder(null, 1)], CollectionOrdering.Matching);
+    }
 }

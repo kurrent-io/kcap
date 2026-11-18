@@ -4,8 +4,7 @@ using Capacitor.Cli.Core.Accounts;
 namespace Capacitor.Cli.Core.Harness.Codex;
 
 /// <summary>Asks <c>codex app-server</c> <c>hooks/list</c> whether Codex trusts kcap's hooks in one Codex home.
-/// Only Codex can answer: it keeps trust as a hash of each hook's definition, computed its own way, so kcap never
-/// reads or writes that state itself.</summary>
+/// Only Codex can answer: it keeps trust as a hash of each hook's definition, computed its own way.</summary>
 public sealed class CodexHookTrustProbe(HarnessRegistry harnesses, UserHome home, TimeProvider time) {
     internal TimeSpan Deadline { get; init; } = TimeSpan.FromSeconds(5);
 
@@ -37,7 +36,7 @@ public sealed class CodexHookTrustProbe(HarnessRegistry harnesses, UserHome home
         } finally {
             // A Codex that missed the deadline gets no exit grace on top of it: kcap status waits on this.
             if (unanswered) VendorProcess.Stop(process);
-            else await CodexAppServer.ShutDownAsync(process, time).ConfigureAwait(false);
+            else await VendorProcess.ShutDownAsync(process, time).ConfigureAwait(false);
         }
 
         ct.ThrowIfCancellationRequested();

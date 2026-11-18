@@ -5,7 +5,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 namespace Capacitor.App.Services;
 
 /// Install before the first window is shown. Minimized windows remain visible to Avalonia and
-/// keep the Dock entry; hiding or closing the last window leaves the app in the tray.
+/// keep the Dock entry. Pending authorized notification badges keep it after the last window closes.
 public sealed class DesktopWindowLifecycle : IDisposable {
     readonly IActivatableLifetime? _activation;
     readonly Func<Action?> _showMainWindow;
@@ -13,6 +13,7 @@ public sealed class DesktopWindowLifecycle : IDisposable {
     readonly IDisposable _visibilitySubscription;
     readonly HashSet<Window> _visibleWindows = [];
     bool? _dockVisible;
+    int _pendingNotifications;
     bool _disposed;
 
     public DesktopWindowLifecycle(IActivatableLifetime? activation, Func<Action?> showMainWindow, Action<bool> setDockVisibility) {
@@ -50,8 +51,14 @@ public sealed class DesktopWindowLifecycle : IDisposable {
         return true;
     }
 
+    public void SetPendingNotificationCount(int count) {
+        if (_disposed) return;
+        _pendingNotifications = Math.Max(0, count);
+        UpdateDockVisibility();
+    }
+
     void UpdateDockVisibility() {
-        var visible = _visibleWindows.Count != 0;
+        var visible = _visibleWindows.Count != 0 || _pendingNotifications > 0;
         if (_dockVisible == visible) return;
         _dockVisible = visible;
         _setDockVisibility(visible);

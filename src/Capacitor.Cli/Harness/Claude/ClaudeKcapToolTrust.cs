@@ -36,6 +36,7 @@ internal static class ClaudeKcapToolTrust {
         "kcap-flows"     => McpFlowsServer.BuildToolsList(),
         "kcap-memory"    => McpMemoryServer.BuildToolsList(),
         "kcap-pages"     => McpArtefactsServer.BuildToolsList(),
+        "kcap-sharing"   => McpSharingServer.BuildToolsList(),
         "kcap-knowledge" => McpKnowledgeServer.BuildToolsList(),
         "kcap-pass"      => McpPassServer.BuildToolsList(),
         _                => [],

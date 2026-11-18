@@ -15,4 +15,13 @@ public sealed record IntelligenceSetupResponse(
     /// allowance, or null when the server reports no usable allowance.</summary>
     public int? DaysFor(int sessions) =>
         BacklogSessionTouchesPerDay <= 0 ? null : (int)Math.Ceiling(sessions / (double)BacklogSessionTouchesPerDay);
+
+    /// <summary><see cref="DaysFor"/> in words, or null when there is nothing to estimate. Work that leaves part of
+    /// one day's allowance unused reads "under a day", not a rounded-up "about 1 day".</summary>
+    public string? DurationFor(int sessions) => DaysFor(sessions) switch {
+        null or <= 0                                  => null,
+        1 when sessions < BacklogSessionTouchesPerDay => "under a day",
+        1                                             => "about a day",
+        var days                                      => $"about {days} days",
+    };
 }

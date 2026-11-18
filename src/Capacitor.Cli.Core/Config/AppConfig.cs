@@ -31,8 +31,13 @@ public record DaemonSettings {
     [JsonPropertyName("name")]
     public string? Name { get; init; }
 
+    public const int DefaultMaxAgents = 20;
+
+    /// Null means unset: the daemon applies <see cref="DefaultMaxAgents"/>. Left out of the file when
+    /// null, so a later change of default reaches everyone who never chose a value.
     [JsonPropertyName("max_agents")]
-    public int MaxAgents { get; init; } = 5;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxAgents { get; init; }
 
     [JsonPropertyName("claude_path")]
     public string? ClaudePath { get; init; }
@@ -320,8 +325,8 @@ public static class AppConfig {
 
         // Persist a v1→v2 migration when possible, but never drop the in-memory
         // migrated config if the write fails (e.g. read-only volume). Losing the
-        // server URL here previously caused `ServerUrl is required` at daemon
-        // startup despite the on-disk config being intact.
+        // server URL here fails daemon startup with `ServerUrl is required`
+        // despite the on-disk config being intact.
         if (result.ShouldPersist) {
             // Deprecation signal for the v1 config format. `ShouldPersist` is set ONLY
             // when a real v1 flat config was migrated (a fresh/empty config and an
@@ -363,7 +368,7 @@ public static class AppConfig {
 
     /// <summary>
     /// Coerce each profile's <c>default_visibility</c> to the same set the
-    /// legacy v1 config read path used to enforce (lowercase, restricted to
+    /// legacy v1 config read path enforces (lowercase, restricted to
     /// <see cref="ValidVisibilities"/>; fall back to <c>org_public</c>
     /// otherwise). Manual edits and v1→v2 migrations bypass the validation
     /// that <c>kcap config set</c> / <c>kcap setup</c> apply at write time,

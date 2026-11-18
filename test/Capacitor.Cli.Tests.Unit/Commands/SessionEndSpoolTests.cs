@@ -22,6 +22,21 @@ public class SessionEndSpoolTests {
         return body is null ? null : JsonNode.Parse(body);
     }
 
+    /// <summary>A session that ended after a person disabled it has nothing left on the server to end, and the end would
+    /// bring its deleted stream back.</summary>
+    [Test]
+    public async Task A_disabled_session_is_queued_no_end() {
+        var spool = new HookSpool(Config.Root, TimeProvider.System, server: null);
+        DisabledSessions.Mark("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Config.Root);
+
+        var queued = AgentHookPoster.SpoolEnds(
+            [Exited("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Exited("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")], "https://kcap.example", spool, TimeProvider.System);
+
+        await Assert.That(queued).IsEqualTo(1);
+        await Assert.That(spool.HasBacklog("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")).IsFalse();
+        await Assert.That(spool.HasBacklog("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")).IsTrue();
+    }
+
     [Test]
     public async Task Only_a_session_recorded_against_this_server_is_queued() {
         var spool = new HookSpool(Config.Root, TimeProvider.System, server: null);

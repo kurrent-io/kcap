@@ -26,13 +26,24 @@ internal static class WaitHarness {
         await Assert.That(condition()).IsTrue();
     }
 
+    /// <summary>For a condition that has to be awaited: each check is bounded too, or one that never completes would hang
+    /// the run with the deadline never looked at.</summary>
+    /// <param name="step">What a check waits for, as it should read in the failure.</param>
+    internal static async Task PollUntilAsync(Func<Task<bool>> condition, string step) {
+        var deadline = DateTime.UtcNow + PollBound;
+        while (!await condition().WithinDeadlineAsync(step) && DateTime.UtcNow < deadline)
+            await Task.Delay(10);
+
+        await Assert.That(await condition().WithinDeadlineAsync(step)).IsTrue();
+    }
+
     internal static async Task SpinUntilAsync(Func<bool> condition, TimeSpan timeout) {
         var deadline = DateTime.UtcNow + timeout;
         while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(10);
         if (!condition()) throw new TimeoutException("Condition was not met within the timeout.");
     }
 
-    /// <summary>Bound EVERY await a §3.3 regression could turn infinite. The pins here work by parking the
+    /// <summary>Bound EVERY await a lane regression could turn infinite. The pins here work by parking the
     /// lane and releasing it later in the same test, so a re-added execution await inside a handler would
     /// block before the release ever runs — and with no <c>[Timeout]</c> on these tests that is a suite hang,
     /// which is a far worse signal than a named failure. Every <c>Submit*ForTest</c> call (the seams that

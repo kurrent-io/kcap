@@ -5,6 +5,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.LocalEdition;
+using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Codex;
@@ -43,11 +44,9 @@ public sealed class StatusCommand(
         if (profiles.Resolution.IgnoredRepoProfile is { } ignored)
             await Line($"           {IgnoredRepoProfileLine(ignored)}");
 
-        // Auth
         var auth = await ResolveAuthAsync(tokenStore, machine, profiles.Name, server, profiles.Resolution.Endpoint);
         await Line($"  Auth:    {FormatAuthLine(auth, time.GetUtcNow())}");
 
-        // Hooks
         await Console.Out.WriteAsync("  Hooks:   ");
 
         var codexRefused = CodexRefusedHooks(harnesses);
@@ -70,7 +69,7 @@ public sealed class StatusCommand(
         foreach (var h in harnesses) {
             if (!harnesses.Detected(h.Id)) continue;
             if (h.Signals.IsWired) continue;
-            await Line($"           {h.Label} installed but kcap not configured — run `{(baseUrl is null ? "kcap setup" : InstallCommandFor(h.Id))}`");
+            await Line($"           {UnconfiguredLine(h, baseUrl is null ? "kcap setup" : InstallCommandFor(h.Id), harnesses.ResolveExecutable(h.Id) is not null)}");
         }
 
         var activity = new HookActivity(config, time);
@@ -87,7 +86,7 @@ public sealed class StatusCommand(
             await Line($"  Git:     {gitWarning}");
 
         // Daemon: the per-name PID files `kcap daemon status` reads, so the two agree.
-        var daemons = ReadDaemonEntries(store);
+        var daemons = await WithStartingAsync(store, ReadDaemonEntries(store), time);
         await Line($"  Daemon:  {DaemonLine(daemons)}");
 
         var (units, verifySupported) = await InstalledUnitsAsync();
@@ -122,13 +121,15 @@ public sealed class StatusCommand(
                 var trust     = h.Id == HarnessId.Codex ? HooksTrustToken(codexTrust) : null;
 
                 // Reinstalling cannot trust a hook, so an untrusted one names no install command.
+                var install = installed && !wired && trust != HookTrustStates.Untrusted ? InstallCommandFor(h.Id) : null;
+
                 return new StatusHarnessJson(
-                    h.VendorId, installed, wired,
-                    installed && !wired && trust != HookTrustStates.Untrusted ? InstallCommandFor(h.Id) : null,
+                    h.VendorId, installed, wired, install,
                     wired ? activity.LastEvent(h.VendorId) : null,
-                    trust);
+                    trust,
+                    install is null ? null : MissingCli(h, harnesses.ResolveExecutable(h.Id) is not null));
             })],
-            ReadDaemonEntries(store));
+            await WithStartingAsync(store, ReadDaemonEntries(store), time));
 
         await Console.Out.WriteLineAsync(StatusJsonRender.Render(payload));
 
@@ -155,7 +156,7 @@ public sealed class StatusCommand(
             harnesses,
             new StatusDaemonJson(
                 live.Count > 0,
-                [.. live.Select(e => new StatusDaemonEntryJson(e.Name, e.Pid!.Value, e.Version is { } v ? CapacitorVersion.Display(v) : null))],
+                [.. live.Select(e => new StatusDaemonEntryJson(e.Name, e.Pid!.Value, e.Version is { } v ? CapacitorVersion.Display(v) : null, e.Starting))],
                 daemons.Count > live.Count));
     }
 
@@ -308,6 +309,16 @@ public sealed class StatusCommand(
             ? $"expires in {remaining.TotalHours:F0}h"
             : $"expires in {remaining.TotalMinutes:F0}m";
 
+    /// <summary>The CLI a vendor's wiring runs, when it is not on PATH. Such a vendor is found by its app or data too,
+    /// so its install command alone would fail.</summary>
+    internal static string? MissingCli(IHarness h, bool cliOnPath) =>
+        !cliOnPath && h.Signals.NeedsCliToWire ? h.CliBinary : null;
+
+    internal static string UnconfiguredLine(IHarness h, string command, bool cliOnPath) =>
+        MissingCli(h, cliOnPath) is { } cli
+            ? $"{h.Label} found, but {cli} is not on PATH; install it, then run `{command}`"
+            : $"{h.Label} installed but kcap not configured — run `{command}`";
+
     static string InstallCommandFor(HarnessId id) =>
         id.PluginInstallFlag is { } flag ? $"kcap plugin install {flag}" : "kcap plugin install";
 
@@ -397,7 +408,7 @@ public sealed class StatusCommand(
         };
 
         static string Describe(DaemonEntry e) =>
-            e.Version is { } v ? $"{e.Name} (PID {e.Pid}, {CapacitorVersion.Display(v)})" : $"{e.Name} (PID {e.Pid})";
+            $"{e.Name} (PID {e.Pid}{(e.Version is { } v ? $", {CapacitorVersion.Display(v)}" : "")}{(e.Starting ? ", starting" : "")})";
     }
 
     /// <summary>How long status gives the unit read. On Windows it is also the budget schtasks shares
@@ -500,6 +511,19 @@ public sealed class StatusCommand(
         return lines;
     }
 
+    /// <summary>A ready daemon answers in well under a millisecond, and one that does not answer at all is reported as
+    /// running by its PID file alone.</summary>
+    static readonly TimeSpan StartingProbeBudget = TimeSpan.FromMilliseconds(250);
+
+    static async Task<List<DaemonEntry>> WithStartingAsync(DaemonStore store, List<DaemonEntry> entries, TimeProvider time) {
+        for (var i = 0; i < entries.Count; i++) {
+            if (entries[i].Alive && await LocalControlProbe.StartingAsync(store, entries[i].Name, entries[i].Pid, time, StartingProbeBudget) == true)
+                entries[i] = entries[i] with { Starting = true };
+        }
+
+        return entries;
+    }
+
     /// <summary>
     /// Every daemon PID file with the name, pid, and whether that process is still there. Shared by
     /// the Daemon line and the JSON payload so they cannot disagree about what is running.
@@ -550,7 +574,8 @@ public sealed class StatusCommand(
 
     /// <param name="Pid">Null when the marker is present but carries no usable PID.</param>
     /// <param name="Version">The version a live daemon recorded at startup, when it recorded one.</param>
-    internal sealed record DaemonEntry(string Name, int? Pid, bool Alive, string? Version = null);
+    /// <param name="Starting">Answering, but still probing its vendors.</param>
+    internal sealed record DaemonEntry(string Name, int? Pid, bool Alive, string? Version = null, bool Starting = false);
 
     /// <summary>
     /// Whether a wired agent has run a kcap hook on this machine: proof the hooks loaded (and, for
@@ -593,7 +618,8 @@ public sealed class StatusCommand(
 
     internal static string CodexUntrustedLine() =>
         $"{HarnessRegistry.LabelOf(HarnessId.Codex)}: kcap's hooks are installed, not trusted — Codex records nothing until you trust them. "
-      + "`codex exec` never asks: run `codex` once and accept the prompt (or trust them in /hooks), or use Settings → Hooks in the Codex app";
+      + "Run `kcap plugin install --codex` to have Codex trust them; `codex exec` never asks, so otherwise run `codex` once "
+      + "and accept the prompt (or trust them in /hooks), or use Settings > Hooks in the Codex app";
 
     /// <summary>The <c>hooks_trust</c> value of <c>kcap status --json</c>: null when there is no answer.</summary>
     internal static string? HooksTrustToken(CodexHooksTrust trust) => trust switch {

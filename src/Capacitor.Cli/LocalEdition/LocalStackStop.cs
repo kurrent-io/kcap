@@ -73,6 +73,38 @@ static class LocalStackStop {
         return LocalStackProbe.FindLive(root) is null;
     }
 
+    public static readonly TimeSpan DeleteRetryGap = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>How long the files of a server that passed every stop check may stay held before the deletion gives up.</summary>
+    static readonly TimeSpan ReleaseBudget = TimeSpan.FromSeconds(15);
+
+    /// <summary>Runs <paramref name="delete"/> again while it is refused and <paramref name="retry"/> allows. On Windows a
+    /// binary stays held for a moment after the server that ran it has exited, past every check a stop makes.</summary>
+    /// <returns>Null once it succeeds, or the refusal that ended the retries.</returns>
+    public static async Task<Exception?> DeleteWhenReleasedAsync(Action delete, Func<bool> retry, TimeProvider time, CancellationToken ct) {
+        while (true) {
+            try {
+                delete();
+                return null;
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                if (!retry()) return ex;
+            }
+
+            await Task.Delay(DeleteRetryGap, time, ct);
+        }
+    }
+
+    /// <summary><see cref="DeleteWhenReleasedAsync(Action, Func{bool}, TimeProvider, CancellationToken)"/> for up to
+    /// <see cref="ReleaseBudget"/>; throws <see cref="LocalLifecycleException"/> telling the user to run
+    /// <paramref name="rerun"/> once it runs out.</summary>
+    public static async Task DeleteWhenReleasedAsync(LocalRoot root, Action delete, string rerun, TimeProvider time, CancellationToken ct) {
+        var started = time.GetTimestamp();
+
+        if (await DeleteWhenReleasedAsync(delete, () => time.GetElapsedTime(started) < ReleaseBudget, time, ct) is { } held)
+            throw new LocalLifecycleException(
+                $"The local server is stopped, but a file under {root.Directory} is still in use ({held.Message}). Run {rerun} again.", held);
+    }
+
     /// <summary>Removes each named directory under the root, a link without following it, then syncs the root.</summary>
     public static void Delete(LocalRoot root, params string[] names) {
         foreach (var name in names) {

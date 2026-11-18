@@ -10,10 +10,10 @@ using Avalonia.Collections;
 using Avalonia.Threading;
 using Capacitor.App.NeedToKnow;
 using Capacitor.App.Services;
+using Capacitor.App.ViewModels.Composer;
 using Capacitor.App.Views;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
-using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
@@ -30,7 +30,7 @@ public enum ChatTabPhase { Waiting, Reading, Missing, Unavailable, Failed }
 /// Feed identity is part of the read generation: a distinct feed key clears the rows and installs a
 /// fresh feed in one UI-thread step, and any read still in flight for the old source completes
 /// under a stale generation and is discarded.
-public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
+public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     internal static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
     /// How long a send may go unechoed while the agent is not working before Enter is pressed once
     /// more, and again before the row says the agent has not picked it up. Outlasts the echo of a
@@ -149,18 +149,46 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         if (_findMemory?.Get(_origin, _agentId) is { } state) find.Restore(state);
         return find;
     }
-    public IAvaloniaReadOnlyList<QueuedChatMessage> QueuedMessages => _queuedMessages;
-    public bool HasQueuedMessages => _queuedMessages.Count > 0;
+    // Both views follow _queuedMessages, which alone tracks a message until its echo: a settled one still has to be
+    // matched to its transcript row.
+    readonly AvaloniaList<QueuedChatMessage> _waiting = new();
+    readonly AvaloniaList<QueuedChatMessage> _deliveryNotices = new();
+    /// What still waits for the agent.
+    public IAvaloniaReadOnlyList<QueuedChatMessage> QueuedMessages => _waiting;
+    public bool HasQueuedMessages => _waiting.Count > 0;
+    /// Messages to an attached agent the server has settled, delivered or not, which wait for nothing.
+    public IAvaloniaReadOnlyList<QueuedChatMessage> DeliveryNotices => _deliveryNotices;
+    public bool HasDeliveryNotices => _deliveryNotices.Count > 0;
     /// Unmatched server entries have no proven client identity.
     public string QueueSummary {
         get {
-            var foreign     = _queuedMessages.Count(q => q.IsForeign);
-            var unconfirmed = _queuedMessages.Count(q => q.IsUnconfirmed);
+            var foreign     = _waiting.Count(q => q.ShowsForeignUnconfirmed);
+            var unconfirmed = _waiting.Count(q => q.ShowsUnconfirmed);
             (int Count, string Word)[] segments =
-                [(_queuedMessages.Count - unconfirmed - foreign, "queued"), (unconfirmed + foreign, "unconfirmed")];
+                [(_waiting.Count - unconfirmed - foreign, "queued"), (unconfirmed + foreign, "unconfirmed")];
 
             return string.Join(" · ", segments.Where(s => s.Count > 0)
                 .Select((s, i) => i == 0 ? $"{MessageCount(s.Count)} {s.Word}" : $"{s.Count} {s.Word}"));
+        }
+    }
+
+    void SyncQueueViews() {
+        Mirror(_waiting, [.. _queuedMessages.Where(q => !q.IsSettled)]);
+        Mirror(_deliveryNotices, [.. _queuedMessages.Where(q => q.IsSettled)]);
+        this.RaisePropertyChanged(nameof(HasQueuedMessages));
+        this.RaisePropertyChanged(nameof(HasDeliveryNotices));
+        this.RaisePropertyChanged(nameof(QueueSummary));
+    }
+
+    /// Moves rows rather than rebuilding the view, so a bound row keeps its container.
+    static void Mirror(AvaloniaList<QueuedChatMessage> view, List<QueuedChatMessage> desired) {
+        for (var i = view.Count - 1; i >= 0; i--)
+            if (!desired.Contains(view[i])) view.RemoveAt(i);
+        for (var i = 0; i < desired.Count; i++) {
+            if (i < view.Count && ReferenceEquals(view[i], desired[i])) continue;
+            var at = view.IndexOf(desired[i]);
+            if (at >= 0) view.Move(at, i);
+            else view.Insert(i, desired[i]);
         }
     }
 
@@ -181,8 +209,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
 
     void RefreshQueue() {
         RefreshQueuedSend();
-        this.RaisePropertyChanged(nameof(HasQueuedMessages));
-        this.RaisePropertyChanged(nameof(QueueSummary));
+        SyncQueueViews();
     }
 
     /// A foreground run is the turn's own Task row in the transcript, so the band lists only what
@@ -202,7 +229,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     public HeldMessagesViewModel? Held { get; }
 
     readonly ObservableAsPropertyHelper<string?> _controlNote;
-    /// How the viewer's messages reach the agent and, when its keys are not theirs, why.
+    /// Input guidance, with turn-control limitations only while the agent is working.
     public string? ControlNote => _controlNote.Value;
     public ReadOnlyObservableCollection<PendingCardViewModel> PendingCards => Cards.PendingCards;
 
@@ -239,9 +266,28 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         }
     }
 
+    SessionConnectionPresentation? _workspaceNotice;
+    public SessionConnectionPresentation? WorkspaceNotice {
+        get => _workspaceNotice;
+        set {
+            this.RaiseAndSetIfChanged(ref _workspaceNotice, value);
+            RaisePhaseNote();
+            this.RaisePropertyChanged(nameof(ComposerHint));
+        }
+    }
+    public bool HasWorkspaceNotice => WorkspaceNotice is not null;
+    public bool HasMessages => _items.Count > 0;
+    public bool ShowsConnectionBanner => HasWorkspaceNotice && HasMessages;
+    public bool ShowsEmptyState => EmptyState is not null;
+    public SessionConnectionPresentation? EmptyState => HasMessages ? null : WorkspaceNotice ??
+        (PhaseNote.Length == 0 ? null : new SessionConnectionPresentation(PhaseNote,
+            ShowsTerminalOffer ? "The agent may be waiting for input in Terminal." : "",
+            Phase is ChatTabPhase.Waiting or ChatTabPhase.Reading && !_launchPromptUnconfirmed,
+            "Open Terminal", ShowsTerminalOffer ? ShowTerminalCommand : null));
+
     /// A working agent's chat is never empty for long, so an empty one is still waiting, read or not,
     /// until the session ends.
-    public string PhaseNote => _items.Count > 0 ? "" : Phase switch {
+    public string PhaseNote => HasWorkspaceNotice || _items.Count > 0 ? "" : Phase switch {
         ChatTabPhase.Waiting or ChatTabPhase.Reading when !_ended && _launchPromptUnconfirmed => LaunchPromptUnconfirmedNote,
         ChatTabPhase.Waiting or ChatTabPhase.Reading when !_ended => "Waiting for chat…",
         ChatTabPhase.Missing     => _missingNote ?? "The transcript file is missing",
@@ -267,6 +313,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     void RaisePhaseNote() {
         this.RaisePropertyChanged(nameof(PhaseNote));
         this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
+        this.RaisePropertyChanged(nameof(HasWorkspaceNotice));
+        this.RaisePropertyChanged(nameof(HasMessages));
+        this.RaisePropertyChanged(nameof(ShowsConnectionBanner));
+        this.RaisePropertyChanged(nameof(EmptyState));
+        this.RaisePropertyChanged(nameof(ShowsEmptyState));
     }
 
     /// The chips staged for the next prompt. A send clears the ones it carried, never the tray.
@@ -330,9 +381,15 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     readonly HashSet<(long Offset, string Text)> _literalInputHistory = [];
     int _recallEdits = -1;
     /// Replaces the composer text with the next older prompt; false when nothing changed.
-    public bool RecallOlder() => Recall(_history.Older(Recallable(), Unechoed()));
+    public bool RecallOlder() => !BoxHoldsOwnSend() && Recall(_history.Older(Recallable(), Unechoed()));
     /// Replaces the composer text with the next newer prompt, or the draft past the newest.
-    public bool RecallNewer() => Recall(_history.Newer(Recallable(), Unechoed()));
+    public bool RecallNewer() => !BoxHoldsOwnSend() && Recall(_history.Newer(Recallable(), Unechoed()));
+
+    /// Recall leaves the box alone until its own send settles: the outcome decides whether the
+    /// text is cleared or stays as a draft, and a recall in between would take it from both.
+    /// The edit count, not the text, decides: retyping the same words is a new draft.
+    bool BoxHoldsOwnSend() => Tracked.Any(q => !q.IsForeign && !q.Acknowledged
+        && q.ComposerEdits == _composerEdits && string.Equals(q.Text, _composerText, StringComparison.Ordinal));
 
     List<string> Unechoed() {
         _unechoed.RemoveAll(q => q.Acknowledged);
@@ -382,8 +439,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         catch (Exception ex) { Console.Error.WriteLine($"kcap: open attachment failed: {ex.Message}"); }
     }
 
+    // Shell-opening a file can launch it, so this is reached only through the row's warning.
+    void OpenFile(string path) {
+        try { _opener.Open(path); }
+        catch (Exception ex) { Console.Error.WriteLine($"kcap: open file failed: {ex.Message}"); }
+    }
+
     readonly ObservableAsPropertyHelper<string> _composerHint;
-    public string ComposerHint => _composerHint.Value;
+    public string ComposerHint => HasWorkspaceNotice && _input.Availability != SendAvailability.Ready ? "" : _composerHint.Value;
 
     UsageLimitNoticeDto? _usageLimit;
     TerminalDialogDto? _terminalDialog;
@@ -418,6 +481,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             this.RaiseAndSetIfChanged(ref _showsTerminalMenu, value);
             this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
             this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
+            this.RaisePropertyChanged(nameof(EmptyState));
+            this.RaisePropertyChanged(nameof(ShowsEmptyState));
         }
     }
 
@@ -444,6 +509,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// channel accepts the prompt. A reply answers the session's open questions, and no permission
     /// response will ever say so.
     public Func<string, Action>? InputSending { get; init; }
+    public ComposerPicker? Picker { get; init; }
     /// Raised once a turn has gone to the channel and was not refused.
     public event Action? TurnSubmitted;
     volatile string? _sessionId;
@@ -481,6 +547,23 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     /// Input + Send stay in the tree only while messaging is still possible. An ended session
     /// hides them and leaves the hint — a greyed empty box is the wrong affordance.
     public bool ShowsComposer => _showsComposer.Value;
+
+    bool _isAttached;
+    /// A terminal session the daemon steers: the server refuses its Escape, so its interrupt shows disabled.
+    public bool IsAttached {
+        get => _isAttached;
+        private set {
+            if (_isAttached == value) return;
+            this.RaiseAndSetIfChanged(ref _isAttached, value);
+            this.RaisePropertyChanged(nameof(InterruptTip));
+        }
+    }
+
+    public string InterruptTip => IsAttached ? AttachedAgentCopy.InterruptAtTerminal : "Interrupt the current turn without ending the session";
+
+    /// An attached agent that has gone ended nothing in its terminal, so it never reads as a finished session.
+    static readonly AgentStatusPresentation SteeringEnded = new(AgentStatusKind.Done, AttachedAgentCopy.SteeringEnded,
+        AttachedAgentCopy.SteeringEnded, false, [new(AttachedAgentCopy.SteeringEnded, "Status")]) { Ended = true };
 
     readonly ObservableAsPropertyHelper<bool> _showsInterrupt;
     public bool ShowsInterrupt => _showsInterrupt.Value;
@@ -691,6 +774,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             answerExpected: answerExpected, ended: _ended, liveCommands: work.Commands,
             terminalDialog: _terminalDialog is not null, interruption: _interruption, agentId: _agentId,
             turnAttested: _turnAttested);
+        if (IsAttached && _ended) AgentStatus = SteeringEnded;
         StatusText = AgentStatus.Label;
     }
 
@@ -791,13 +875,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             Action<ToolCard>? openCard = null, ComposerDrafts? drafts = null, LocalTranscripts? transcripts = null,
             IMessageSenderSource? senders = null, IObservable<AccountsSnapshotDto?>? accountReadings = null,
             IObservable<DateTimeOffset>? usageClock = null, IObservable<Unit>? signInCompleted = null,
-            IObservable<HandoffOutcomeDto?>? handoffOutcome = null, Action<string>? openLink = null,
-            ChatFindMemory? findMemory = null)
+            IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, Action<string>? openLink = null,
+            IObservable<AgentViewerAccess>? viewerAccess = null, ChatFindMemory? findMemory = null)
         : this(agentId, AgentOrigin.Local, LocalSession(agentId, daemon), daemon.Snapshots.Select(s => s.Daemon.SupportedVendors),
                input, uploader, projection is null ? null : LocalFeed(agentId, projection, time, transcripts), opener, time, permissions,
                runs, unavailableNote, null, sessionId, localDaemonOnAppServer, planActivity: planActivity, openCard: openCard,
                drafts: drafts, senders: senders, accountReadings: accountReadings, usageClock: usageClock,
-               signInCompleted: signInCompleted, handoffOutcome: handoffOutcome, openLink: openLink, findMemory: findMemory) { }
+               signInCompleted: signInCompleted, handoffOutcome: handoffOutcome, openLink: openLink, viewerAccess: viewerAccess,
+               findMemory: findMemory) { }
 
     public ChatTabViewModel(
             string agentId, AgentOrigin origin, IObservable<ChatSessionInfo> session, IObservable<string[]?> supportedVendors,
@@ -807,7 +892,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             IObservable<IReadOnlyList<QueuedInputItem>>? serverQueue = null, PlanActivity? planActivity = null,
             Action<ToolCard>? openCard = null, ComposerDrafts? drafts = null, IMessageSenderSource? senders = null,
             IObservable<AccountsSnapshotDto?>? accountReadings = null, IObservable<DateTimeOffset>? usageClock = null,
-            IObservable<Unit>? signInCompleted = null, IObservable<HandoffOutcomeDto?>? handoffOutcome = null,
+            IObservable<Unit>? signInCompleted = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null,
             Action<string>? openLink = null, IObservable<AgentViewerAccess>? viewerAccess = null,
             HeldMessagesViewModel? heldMessages = null, ChatFindMemory? findMemory = null) {
         _tracksAccountReadings = accountReadings is not null;
@@ -818,12 +903,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         _origin = origin;
         _agentId = agentId;
         _composerText = drafts?.Get(origin, agentId) ?? "";
+        _history.Stash(drafts?.TakeStash(origin, agentId) ?? "");
         drafts?.Watch(origin, agentId, OnStoredDraftChanged).DisposeWith(_disposables);
         _planActivity = planActivity;
         _openCard = openCard;
         // Null clears the card: the outcome belonged to a session the chat no longer shows.
-        handoffOutcome?.Select(outcome => outcome is null ? null : new HandoffOutcomeViewModel(outcome))
-            .ObserveOn(RxSchedulers.MainThreadScheduler)
+        handoffOutcome?.ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(card => HandoffOutcome = card, ex => LogOnce($"hand-off outcome: {ex.Message}"))
             .DisposeWith(_disposables);
         _input = input;
@@ -866,6 +951,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                 ApplyTerminalMenu(_usageLimit, _terminalDialog);
             })
             .DisposeWith(_disposables);
+
+        _queuedMessages.CollectionChanged += (_, _) => SyncQueueViews();
 
         // The note follows whether the chat is empty, which every path that adds or clears rows changes.
         var empty = true;
@@ -932,17 +1019,18 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                 this.WhenAnyValue(x => x.IsReadOnlyParticipant),
                 this.WhenAnyValue(x => x.HasTerminalMenu),
                 this.WhenAnyValue(x => x.AgentStatus),
-                (can, readOnly, menu, status) => can && !readOnly && !menu
+                this.WhenAnyValue(x => x.IsAttached),
+                (can, readOnly, menu, status, attached) => (can || attached) && !readOnly && !menu
                     && (status.Kind == AgentStatusKind.Working || status.IsRunningUnknownTurn))
             .ToProperty(this, x => x.ShowsInterrupt,
-                initialValue: _input.CanInterrupt && !IsReadOnlyParticipant && !HasTerminalMenu
+                initialValue: (_input.CanInterrupt || IsAttached) && !IsReadOnlyParticipant && !HasTerminalMenu
                     && (AgentStatus.Kind == AgentStatusKind.Working || AgentStatus.IsRunningUnknownTurn))
             .DisposeWith(_disposables);
 
         // The button still interrupts an unproven turn; only the shortcut, which a user presses
         // without looking, needs the daemon's proof that a prompt is not sitting idle.
-        _canInterruptWithEscape = this.WhenAnyValue(x => x.ShowsInterrupt, x => x.AgentStatus,
-                (shows, status) => shows && status.InForegroundTurn)
+        _canInterruptWithEscape = this.WhenAnyValue(x => x.ShowsInterrupt, x => x.AgentStatus, x => x.IsAttached,
+                (shows, status, attached) => shows && !attached && status.InForegroundTurn)
             .ToProperty(this, x => x.CanInterruptWithEscape, initialValue: false)
             .DisposeWith(_disposables);
 
@@ -960,8 +1048,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                 this.WhenAnyValue(x => x.UploadingFiles),
                 this.WhenAnyValue(x => x.TerminalMenuHint),
                 _intakeNotice,
-                (hint, availability, readOnly, uploading, menuHint, notice) =>
-                    availability == SendAvailability.Ended ? (readOnly ? "" : hint)
+                this.WhenAnyValue(x => x.IsAttached),
+                (hint, availability, readOnly, uploading, menuHint, notice, attached) =>
+                    availability == SendAvailability.Ended ? (readOnly ? "" : attached ? AttachedAgentCopy.SteeringEnded : hint)
                         : uploading > 0 ? $"Uploading {uploading} file{(uploading == 1 ? "" : "s")}…"
                         : notice ?? (readOnly ? ""
                             : menuHint.Length > 0 ? menuHint
@@ -978,7 +1067,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                 initialValue: !IsReadOnlyParticipant && _input.Availability != SendAvailability.Ended && Handoff is null)
             .DisposeWith(_disposables);
 
-        _controlNote = _input.WhenAnyValue(i => i.ControlNote)
+        _controlNote = Observable.CombineLatest(
+                _input.WhenAnyValue(i => i.ControlNote),
+                _input.WhenAnyValue(i => i.WorkingControlNote),
+                this.WhenAnyValue(x => x.AgentStatus, x => x.IsReadOnlyParticipant, x => x.HasTerminalMenu, x => x.ShowsInterrupt,
+                    (status, readOnly, menu, shows) => !shows && !readOnly && !menu
+                        && (status.Kind == AgentStatusKind.Working || status.IsRunningUnknownTurn)),
+                (note, workingNote, working) => note ?? (working ? workingNote : null))
             .ToProperty(this, x => x.ControlNote, initialValue: _input.ControlNote)
             .DisposeWith(_disposables);
 
@@ -992,7 +1087,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                 _input.WhenAnyValue(i => i.CanAttach).Select(_ => Unit.Default),
                 _input.WhenAnyValue(i => i.AttachHint).Select(_ => Unit.Default),
                 this.WhenAnyValue(x => x.IsReadOnlyParticipant).Select(_ => Unit.Default),
-                this.WhenAnyValue(x => x.TakesAttachments).Select(_ => Unit.Default))
+                this.WhenAnyValue(x => x.TakesAttachments).Select(_ => Unit.Default),
+                this.WhenAnyValue(x => x.IsAttached).Select(_ => Unit.Default))
             .Subscribe(_ => {
                 this.RaisePropertyChanged(nameof(IAttachmentSink.CanAttach));
                 this.RaisePropertyChanged(nameof(IAttachmentSink.AttachHint));
@@ -1017,8 +1113,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             this.WhenAnyValue(x => x.HasTerminalMenu),
             _queuedSendBusy,
             this.WhenAnyValue(x => x.HasSeed),
-            (text, can, readOnly, menu, busy, _) => can && !readOnly && !menu && !busy && !string.IsNullOrWhiteSpace(text)
-                && CanSendBeforeSeed);
+            Tray.WhenAnyValue(t => t.HasAttachments),
+            (text, can, readOnly, menu, busy, _, files) => can && !readOnly && !menu && !busy
+                && (files || !string.IsNullOrWhiteSpace(text)) && CanSendBeforeSeed);
         // The composer keeps whatever the user typed while the channel was deciding: only the
         // snapshot that was actually sent is cleared, and only once the channel commits it. The
         // edit count is what the text alone cannot say — an edit that lands back on the sent text
@@ -1101,7 +1198,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         _disposables.Add(DiscardQueuedCommand);
 
         InterruptCommand = ReactiveCommand.CreateFromTask(
-            () => _input.InterruptAsync(_lifetimeToken), this.WhenAnyValue(x => x.ShowsInterrupt));
+            () => _input.InterruptAsync(_lifetimeToken),
+            this.WhenAnyValue(x => x.ShowsInterrupt, x => x.IsAttached, (shows, attached) => shows && !attached));
         _disposables.Add(InterruptCommand);
 
         OpenLinkCommand = ReactiveCommand.Create<string>(openLink ?? (url => LinkPolicy.Open(_opener, url)));
@@ -1148,8 +1246,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         var attempts = Tracked.Concat(_superseded.Select(pair => pair.Old))
             .Distinct().OrderBy(q => q.SendOrder).ToList();
         foreach (var item in items.OrderBy(item => item.DispatchedAt)) {
-            // Empty ids cannot distinguish dispatches or establish ownership.
-            if (item.DispatchId == Guid.Empty || _discardedDispatches.Contains(item.DispatchId)) continue;
+            // Empty ids cannot distinguish dispatches or establish ownership. One its sender discarded is over, and
+            // listed it would tell them to send again what they withdrew.
+            if (item.DispatchId == Guid.Empty || _discardedDispatches.Contains(item.DispatchId)
+             || AttachedAgentCopy.DiscardedBySender(item.DeliveryState, item.DeliveryReason)) continue;
             if (_senders?.HasReceipt(item.DispatchId) == true) {
                 // The receipt can precede the first listing, but only an attempt present when
                 // that message was observed can acquire its id. A later identical send cannot.
@@ -1167,6 +1267,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             if (!listed.Add(item.DispatchId)) continue;
             // Snapshots have no revision; listing a known own row must disable its retry.
             if (attempts.FirstOrDefault(q => q.DispatchId == item.DispatchId) is { } known) {
+                known.SetDelivery(item.DeliveryState, item.DeliveryReason);
                 if (!known.IsForeign) {
                     known.MarkQueued(item.DispatchId);
                     if (!known.Acknowledged && !Tracked.Contains(known)) _queuedMessages.Add(known);
@@ -1176,8 +1277,16 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
             var own = attempts.FirstOrDefault(q => q.DispatchId is null && !q.Acknowledged && SameSender(q, item) && q.MatchesText(item.Text));
             if (own is not null) {
                 own.MarkQueued(item.DispatchId);
+                own.SetDelivery(item.DeliveryState, item.DeliveryReason);
                 if (!Tracked.Contains(own)) _queuedMessages.Add(own);
             } else _queuedMessages.Add(QueuedChatMessage.FromServer(item));
+        }
+        // The server stops listing a message it listed with a state only once that message is over: credited to its
+        // transcript row, superseded by the sender's next message, discarded, or ended with its process.
+        // A delivered one also settles every attempt it replaced.
+        foreach (var over in _queuedMessages.Where(q => q.DeliveryState is not null && q.DispatchId is { } id && !listed.Contains(id)).ToList()) {
+            if (over is { IsDelivered: true, IsForeign: false, Acknowledged: false }) Acknowledge(over);
+            RetireDiscarded(over, restorePredecessors: !over.IsDelivered);
         }
         foreach (var gone in _queuedMessages.Where(q => q.IsForeign && q.DispatchId is { } id && !listed.Contains(id)).ToList())
             _queuedMessages.Remove(gone);
@@ -1200,6 +1309,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         }
         ReadOnlyNotice = info.ReadOnlyNotice;
         IsReadOnlyParticipant = info.ReadOnlyNotice.Length > 0;
+        IsAttached = info.IsAttached;
         TakesAttachments = info.TakesAttachments;
         _vendor = info.Vendor;
         _root = info.Root;
@@ -1373,7 +1483,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         // A released tab's runs belong to the monitor that took its feed; this tab reads nothing more.
         if (_feedReleased) return;
         _items.Clear();
+        // A recall on screen gives way to the draft it replaced, or that draft would be stranded.
+        var restore = _history.IsShowing(Recallable()) ? _history.TakeDraft() : null;
         _history.Clear();
+        if (restore is not null) ComposerText = restore;
         _literalInputHistory.Clear();
         _unechoed.Clear();
         _superseded.Clear();
@@ -1415,7 +1528,22 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     }
 
     void ClearSentDraft(QueuedChatMessage queued) {
-        if (_composerEdits == queued.ComposerEdits && ComposerText == queued.Text) ComposerText = "";
+        if (_composerEdits == queued.ComposerEdits && ComposerText == queued.Text) ComposerText = DraftAfterSending(queued.Text);
+    }
+
+    /// The stashed draft goes back in the box, unless it is the very text that went out.
+    string DraftAfterSending(string sent) {
+        var draft = _history.TakeDraft();
+        return string.Equals(draft, sent, StringComparison.Ordinal) ? "" : draft;
+    }
+
+    /// The history dies with the tab, so its stash goes to the store: as the draft itself when the
+    /// box only shows a recall, beside the draft when the box holds other text of the user's own.
+    /// Either write takes a new revision, so a send settling after teardown cannot clear it.
+    void PreserveStash() {
+        if (_drafts is null) return;
+        if (_history.IsShowing(Recallable())) _drafts.Set(_origin, _agentId, _history.TakeDraft());
+        else _drafts.SetStash(_origin, _agentId, _history.TakeDraft());
     }
 
     void RestoreQueuedRow(QueuedChatMessage message, bool isPredecessor = false) {
@@ -1434,8 +1562,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
         RefreshQueue();
     }
 
-    void RetireDiscarded(QueuedChatMessage message) {
-        var predecessors = _superseded
+    void RetireDiscarded(QueuedChatMessage message, bool restorePredecessors = true) {
+        var predecessors = !restorePredecessors ? [] : _superseded
             .Where(pair => ReferenceEquals(pair.Replacement, message) && !pair.Old.Acknowledged)
             .Select(pair => pair.Old).Distinct().OrderBy(q => q.SendOrder).ToArray();
         if (message.DispatchId is { } id) {
@@ -1543,7 +1671,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                     !q.IsForeign && !q.Acknowledged && q.AttachmentIds.Count == 0 && q.MatchesText(snapshot))
                 : null;
             if (already is not null && Tray.Snapshot().Count == 0) {
-                if (_composerEdits == edits && ComposerText == snapshot) ComposerText = "";
+                if (_composerEdits == edits && ComposerText == snapshot) ComposerText = DraftAfterSending(snapshot);
                 return null;
             }
         }
@@ -1673,7 +1801,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     public IAttachmentSink Attachments => this;
 
     bool IAttachmentSink.CanAttach => _input.CanAttach && !IsReadOnlyParticipant && TakesAttachments;
-    string? IAttachmentSink.AttachHint => TakesAttachments ? _input.AttachHint : NoAttachmentsHint;
+    string? IAttachmentSink.AttachHint => TakesAttachments ? _input.AttachHint : IsAttached ? AttachedAgentCopy.NoFiles : NoAttachmentsHint;
     int IAttachmentSink.FreeSlots => Tray.FreeSlots;
 
     void IAttachmentSink.Accept(IntakeResult result) {
@@ -1892,6 +2020,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
                         var label = entry?.Label ?? (isToolSearch ? "Looked up tools" : foreignLabel ?? ToolSummary.RowLabel(name, category, e.ToolInputJson));
                         var chip = foreignLabel is not null ? KcapToolCatalogue.ForeignServer(name) : null;
                         var item = new ToolCallItem(name, detail, category, label, entry?.Card ?? ToolCardKind.None, e.ToolInputJson, chip, detailIsPath) { SessionOver = _ended };
+                        if (detailIsPath && _origin == AgentOrigin.Local
+                            && ToolDetail.FilePath(e.ToolInputJson, entry?.DetailKey, category, _root) is { } file)
+                            item.EnableOpenFile(file, OpenFile);
                         if (e.ToolCallId is { } id) {
                             cursor.Pending[id] = item;
                             if (name == ClaudeElicitation.ToolName) NoteQuestionCall(cursor, id, e.ToolInputJson);
@@ -2182,6 +2313,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
     }
 
     public Task TeardownAsync() {
+        PreserveStash();
         Interlocked.Increment(ref _generation);
         var lease = _lease;
         _lease = null;

@@ -11,8 +11,7 @@
 #                         forbids republishing a version even unchanged.
 # Exit 1 + "moved"     -> already published from a DIFFERENT commit: the
 #                         release tag was moved/re-cut after that version's
-#                         npm artifact was published (the AI-1514 failure
-#                         mode) — refuse.
+#                         npm artifact was published — refuse.
 # Exit 1 + "error"     -> the npm lookup did not complete successfully
 #                         (network/registry/auth error, or anything the
 #                         caller couldn't positively classify as a real

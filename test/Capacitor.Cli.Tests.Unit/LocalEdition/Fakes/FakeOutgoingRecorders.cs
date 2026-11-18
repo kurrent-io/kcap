@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Tests.Unit.LocalEdition.Fakes;
 sealed class FakeOutgoingRecorders(List<string> log, string watcherDirectory = "/watchers") : IOutgoingRecorders {
     public string WatcherDirectory { get; set; } = watcherDirectory;
 
-    public List<string> Busy { get; } = [];
+    public List<DaemonBusy> Busy { get; } = [];
 
     public bool StopSucceeds { get; set; } = true;
 
@@ -18,9 +18,13 @@ sealed class FakeOutgoingRecorders(List<string> log, string watcherDirectory = "
         return [.. Alive];
     }
 
-    public Task<IReadOnlyList<string>> BusyAsync() {
+    /// <summary>The wait the last <see cref="BusyAsync"/> was given.</summary>
+    public TimeSpan? BusyWait { get; private set; }
+
+    public Task<IReadOnlyList<DaemonBusy>> BusyAsync(TimeSpan? wait = null) {
         log.Add("recorders:busy?");
-        return Task.FromResult<IReadOnlyList<string>>(Busy);
+        BusyWait = wait;
+        return Task.FromResult<IReadOnlyList<DaemonBusy>>(Busy);
     }
 
     public Task<bool> StopAsync() {

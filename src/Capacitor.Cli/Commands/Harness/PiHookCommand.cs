@@ -90,14 +90,15 @@ sealed class PiHookCommand(
         // disable` must stop every POST and watcher restart for the session.
         if (DisabledSessions.IsDisabled(sessionId, config)) {
             if (eventName == "session-end") {
-                // The marker withholds the spans until they are gone; a later hook retries the discard.
-                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveMarker(sessionId, config);
+                // The exclusion withholds the spans until they are gone; a later hook retries the discard.
+                if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveExclusion(sessionId, config);
             }
+
             return 0;
         }
 
-        // Task 12: the cross-vendor backlog drain now runs centrally in Program.cs's
-        // `case "hook":` before dispatch — no longer wired here (removes the double-wire).
+        // The cross-vendor backlog drain runs centrally in Program.cs's `case "hook":` before
+        // dispatch, not here.
         var spool = new HookSpool(config, clock.Time, Url);
 
         var activeProfile = profiles.Effective;
@@ -155,7 +156,7 @@ sealed class PiHookCommand(
 
         if (await RepoExclusion.IsOutOfScopeAsync(router, config, enriched,
                                                   activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time)) {
-            DisabledSessions.Mark(sessionId, config);
+            DisabledSessions.Exclude(sessionId, config);
             return 0;
         }
 
@@ -215,9 +216,11 @@ sealed class PiHookCommand(
             , clock.Time);
 
             if (!drained) {
-                await Console.Error.WriteLineAsync(
-                    $"[kcap] pi session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST. "
-                  + $"Transcript tail may be incomplete — recoverable via: kcap import --pi --session {sessionId}");
+                var handed = DetachedBacklogImport.Spawn("--pi", sessionId, file, harnesses.Of<Capacitor.Cli.Core.Harness.Pi.PiHarness>().Paths.SessionsDir, config, profiles.Resolution, SystemProcessStarter.Instance);
+                await Console.Error.WriteLineAsync(handed
+                    ? $"[kcap] pi session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST, with the transcript handed to a detached import"
+                    : $"[kcap] pi session-end pre-drain cap ({PreHookDrainCap.TotalSeconds:0}s) elapsed; proceeding to POST. "
+                    + $"Transcript tail may be incomplete — recoverable via: kcap import --pi --session {sessionId}");
             }
         } catch (Exception ex) {
             Console.Error.WriteLine($"[kcap] pi session-end pre-hook failed: {ex.Message}");

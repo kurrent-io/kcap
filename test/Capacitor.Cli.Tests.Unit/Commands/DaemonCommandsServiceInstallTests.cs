@@ -40,7 +40,7 @@ internal sealed class DaemonCommandsServiceInstallTests {
     public async Task Each_unit_describes_its_own_supervision() {
         var service = new WindowsServiceManager(Config.Root, new FakeServicePipe(), new FakeServiceEnrollmentStore(), tasks: null);
 
-        await Assert.That(DaemonServiceCommands.Supervision(service)).IsEqualTo("kcap-service restarts it if it stops, and starts it when you sign in.");
+        await Assert.That(DaemonServiceCommands.Supervision(service)).IsEqualTo("kcap-service runs from boot, starts your daemon when you sign in, and restarts it if it stops.");
         await Assert.That(DaemonServiceCommands.Supervision(new WindowsScheduledTaskServiceManager(Config.Root))).DoesNotContain("SIGKILL");
         await Assert.That(DaemonServiceCommands.Supervision(new SystemdServiceManager(Home))).Contains("SIGKILL");
     }
@@ -119,7 +119,9 @@ internal sealed class DaemonCommandsServiceInstallTests {
         var manager = new CountingManager();
         var spec = new ServiceSpec(id, "/x/kcap-daemon", "/x/log", new Dictionary<string, string>(), []);
 
-        var exit = await new DaemonServiceCommands(Daemons.Store, Config.Root, Resolutions.None(Config.Root), manager, "test-id", Home, TimeProvider.System).InstallPlain(spec, startNow: true);
+        var exit = await new DaemonServiceCommands(Daemons.Store, Config.Root, Resolutions.None(Config.Root), manager, "test-id", Home, TimeProvider.System) {
+            LockWait = TimeSpan.FromMilliseconds(100),
+        }.InstallPlain(spec, startNow: true);
 
         await Assert.That(exit).IsEqualTo(1);
         await Assert.That(manager.InstallCalls).IsEqualTo(0);

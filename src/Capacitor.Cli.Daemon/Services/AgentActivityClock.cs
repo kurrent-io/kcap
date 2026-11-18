@@ -1,7 +1,7 @@
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// Monotonic per-agent activity clock (liveness-supervision spec §0/§1). One instance per launch — a
+/// Monotonic per-agent activity clock. One instance per launch — a
 /// relaunch gets a fresh one — fed by PTY output chunks, ACP transcript envelopes, ACP turn
 /// start/end, Antigravity's and Pi's own <c>agentActivity</c>-flagged advances, two independent
 /// <c>LocalPermissionBridge</c> reviewer tool-call-hit sites, and (round-dispatch grace) a
@@ -73,12 +73,16 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
     /// about a background subagent, and stopping the agent kills it, so only this means a stop
     /// interrupts no work.</summary>
     public bool NothingInFlight {
-        get { lock (_gate) return _awaitingInput && CountLiveLocked() == 0 && _unsettledSubagents.Count == 0; }
+        get { lock (_gate) return NothingInFlightLocked(); }
     }
 
     /// <summary>Fires outside <see cref="_gate"/> on every genuine <see cref="AwaitingInput"/>
     /// change, with the new value.</summary>
     public Action<bool>? OnAwaitingInputChanged { get; set; }
+
+    /// <summary>Fires outside <see cref="_gate"/> when a subagent report changes
+    /// <see cref="NothingInFlight"/>; an age retirement never does, since the id stays unsettled.</summary>
+    public Action? OnSubagentsSettledChanged { get; set; }
 
     /// <summary>Positive evidence that a turn is running now: the ACP turn gate held, or a PTY
     /// vendor's relayed prompt submit or tool call with no turn end or quiet mark since. False
@@ -116,14 +120,14 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
         get { lock (_gate) return _launchStage; }
     }
 
-    /// <summary>Fires the out-of-cycle status report (spec §1). Invoked OUTSIDE <see cref="_gate"/>,
+    /// <summary>Fires the out-of-cycle status report. Invoked OUTSIDE <see cref="_gate"/>,
     /// exactly once per GENUINE <see cref="SetLaunchStage"/> transition — never on a same-value re-set,
     /// and never from the other mutators; at most 4 per launch, so no cadence concern. Settable
     /// post-construction because the clock exists before the runtime that stamps stages does.</summary>
     public Action? OnLaunchStageChanged { get; set; }
 
     /// <summary>Monotonic elapsed time since the last <see cref="Advance"/>, sampled fresh on every
-    /// read — never a value stamped once and reused. Spec §0's confirmed-idle rule depends on that:
+    /// read — never a value stamped once and reused. The confirmed-idle rule depends on that:
     /// a status report attests silence measured AT report creation.</summary>
     public ulong IdleForMs {
         get {
@@ -387,53 +391,57 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
     /// <summary>A hook reported the id alive. Returns whether the live set changed. Dropped when
     /// stamped earlier than the latest report applied to the id, or within
     /// <see cref="SubagentRestartWindow"/> after the id's stop, while that stamp is honoured.
-    /// Raises no callback: the orchestrator reschedules expiry before it announces.</summary>
-    public bool SubagentSeen(string id, long sentAtMs) {
-        lock (_gate) {
-            _subagentsReported = true;
-            var now = time.GetTimestamp();
+    /// Raises no announcing callback: the orchestrator reschedules expiry before it announces.</summary>
+    public bool SubagentSeen(string id, long sentAtMs) =>
+        WithSettledChange(() => SubagentSeenLocked(id, sentAtMs));
 
-            if (!_subagents.TryGetValue(id, out var record)) {
-                _subagents[id] = new SubagentRecord { Live = true, ReportedTimestamp = now, SentAtMs = sentAtMs };
-                return true;
-            }
+    // Caller must hold _gate.
+    bool SubagentSeenLocked(string id, long sentAtMs) {
+        _subagentsReported = true;
+        var now = time.GetTimestamp();
 
-            if (StampHonoured(record)) {
-                if (sentAtMs < record.SentAtMs) return false;
-                if (!record.Live && sentAtMs - record.SentAtMs <= SubagentRestartWindow.TotalMilliseconds) return false;
-            }
-
-            var added = !record.Live;
-            record.Live = true;
-            record.ReportedTimestamp = now;
-            record.SentAtMs = sentAtMs;
-            return added;
+        if (!_subagents.TryGetValue(id, out var record)) {
+            _subagents[id] = new SubagentRecord { Live = true, ReportedTimestamp = now, SentAtMs = sentAtMs };
+            return true;
         }
+
+        if (StampHonoured(record)) {
+            if (sentAtMs < record.SentAtMs) return false;
+            if (!record.Live && sentAtMs - record.SentAtMs <= SubagentRestartWindow.TotalMilliseconds) return false;
+        }
+
+        var added = !record.Live;
+        record.Live = true;
+        record.ReportedTimestamp = now;
+        record.SentAtMs = sentAtMs;
+        return added;
     }
 
     /// <summary>A hook reported the id gone. Returns whether the live set changed or this was the
     /// first report. A stop for an id already stopped changes nothing, the stamp included; one
     /// stamped earlier than a later live report is the overtaken stop of a resumed run.</summary>
-    public bool SubagentStopped(string id, long sentAtMs) {
-        lock (_gate) {
-            var first = !_subagentsReported;
-            _subagentsReported = true;
-            if (_unsettledSubagents.TryGetValue(id, out var lastReport) && sentAtMs >= lastReport) _unsettledSubagents.Remove(id);
-            var now = time.GetTimestamp();
+    public bool SubagentStopped(string id, long sentAtMs) =>
+        WithSettledChange(() => SubagentStoppedLocked(id, sentAtMs));
 
-            if (!_subagents.TryGetValue(id, out var record)) {
-                _subagents[id] = new SubagentRecord { Live = false, ReportedTimestamp = now, SentAtMs = sentAtMs };
-                return first;
-            }
+    // Caller must hold _gate.
+    bool SubagentStoppedLocked(string id, long sentAtMs) {
+        var first = !_subagentsReported;
+        _subagentsReported = true;
+        if (_unsettledSubagents.TryGetValue(id, out var lastReport) && sentAtMs >= lastReport) _unsettledSubagents.Remove(id);
+        var now = time.GetTimestamp();
 
-            if (!record.Live) return false;
-            if (StampHonoured(record) && sentAtMs < record.SentAtMs) return false;
-
-            record.Live = false;
-            record.ReportedTimestamp = now;
-            record.SentAtMs = sentAtMs;
-            return true;
+        if (!_subagents.TryGetValue(id, out var record)) {
+            _subagents[id] = new SubagentRecord { Live = false, ReportedTimestamp = now, SentAtMs = sentAtMs };
+            return first;
         }
+
+        if (!record.Live) return false;
+        if (StampHonoured(record) && sentAtMs < record.SentAtMs) return false;
+
+        record.Live = false;
+        record.ReportedTimestamp = now;
+        record.SentAtMs = sentAtMs;
+        return true;
     }
 
     /// <summary>The only place an id is retired for age. At one instant under the gate: retires
@@ -466,6 +474,21 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
         }
     }
 
+    T WithSettledChange<T>(Func<T> apply) {
+        T result;
+        bool changed;
+        lock (_gate) {
+            var before = NothingInFlightLocked();
+            result = apply();
+            changed = NothingInFlightLocked() != before;
+        }
+        if (changed) OnSubagentsSettledChanged?.Invoke();
+        return result;
+    }
+
+    // Caller must hold _gate.
+    bool NothingInFlightLocked() => _awaitingInput && CountLiveLocked() == 0 && _unsettledSubagents.Count == 0;
+
     // Caller must hold _gate.
     bool StampHonoured(SubagentRecord record) =>
         time.GetElapsedTime(record.ReportedTimestamp) < SubagentStampRetention;
@@ -486,7 +509,7 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
     }
 
     /// <summary>Clears the stage stamp once the agent reaches Running — its absence from then on is
-    /// the steady-state, not a missing capability (spec §2).</summary>
+    /// the steady-state, not a missing capability.</summary>
     public void ClearLaunchStage() {
         lock (_gate) {
             _launchStage = null;

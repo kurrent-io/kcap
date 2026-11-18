@@ -21,7 +21,8 @@
             <StackPanel>
                 <views:UpdateIcon HorizontalAlignment="Left" />
 
-                <TextBlock x:Name="HeadingText" Margin="0,20,0,0" Text="{Binding Heading}"
+                <!-- A live region: a window's name change is not announced while focus sits on the Open button. -->
+                <TextBlock x:Name="HeadingText" Margin="0,20,0,0" Text="{Binding Heading}" AutomationProperties.LiveSetting="Polite"
                            FontSize="19" FontWeight="SemiBold" LineHeight="26" LetterSpacing="-0.2"
                            Foreground="{StaticResource KcapTextBrush}" />
                 <TextBlock Margin="0,14,0,0" HorizontalAlignment="Left" Text="{Binding Description}"

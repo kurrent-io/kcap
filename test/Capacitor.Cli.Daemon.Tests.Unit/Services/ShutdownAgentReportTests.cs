@@ -12,10 +12,10 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// </summary>
 public class ShutdownAgentReportTests {
     [Test]
-    public async Task Disposing_reports_every_live_agent_ended_with_a_shutdown_reason() {
+    public async Task Disposing_reports_every_live_agent_ended_with_a_shutdown_reason_held_by_this_process() {
         var server = new CaptureServerConnection();
         var orch   = AgentOrchestratorHarness.BuildOrchestrator(
-            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
+            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(), configure: c => c.InstanceId = "instance-now");
         orch.ShutdownIntent = ShutdownIntent.EndAgents;
 
         orch.SeedAgentForTest("shutdown-1", status: "Running");
@@ -23,9 +23,11 @@ public class ShutdownAgentReportTests {
 
         await orch.DisposeAsync();
 
-        foreach (var id in new[] { "shutdown-1", "shutdown-2" })
+        foreach (var id in new[] { "shutdown-1", "shutdown-2" }) {
             await Assert.That(server.ShutdownReports)
                 .Contains((id, "Failed", AgentOrchestrator.DaemonShutdownStopReason, false));
+            await Assert.That(server.ShutdownReportRunInstances).Contains((id, "instance-now"));
+        }
     }
 
     /// <summary>The token is the whole point: every other method on the real connection bakes in
@@ -44,6 +46,28 @@ public class ShutdownAgentReportTests {
 
         await Assert.That(server.ShutdownReports).IsNotEmpty();
         await Assert.That(server.ShutdownReports.All(r => !r.TokenAlreadyCancelled)).IsTrue();
+    }
+
+    /// <summary>Plain <c>kcap daemon stop</c>. The end would bring back what the person's disable deleted, and the rest of
+    /// the report goes out, since it names the agent and carries nothing of the session.</summary>
+    [Test]
+    public async Task A_disabled_sessions_shutdown_report_ends_no_session() {
+        const string disabled = "0123456789abcdef0123456789abcdef";
+        ConfigRoot? root = null;
+        var server = new CaptureServerConnection();
+        var orch   = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(), configure: config => root = config.ConfigRoot);
+        orch.ShutdownIntent = ShutdownIntent.EndAgents;
+
+        orch.SeedAgentForTest("marked", status: "Running").SessionId  = disabled;
+        orch.SeedAgentForTest("control", status: "Running").SessionId = "fedcba9876543210fedcba9876543210";
+        DisabledSessions.Mark(disabled, root!);
+        await Assert.That(server.IsDisabledByPerson(disabled)).IsTrue();
+
+        await orch.DisposeAsync();
+
+        await Assert.That(server.ShutdownSessionEnds).IsEquivalentTo(new[] { "control" });
+        await Assert.That(server.ShutdownReports.Select(report => report.AgentId)).Contains("marked");
     }
 
     /// <summary>An agent whose own finalizer already ran has reported its real ending; a second stop
@@ -101,6 +125,8 @@ public class ShutdownAgentReportTests {
         var orch   = AgentOrchestratorHarness.BuildOrchestrator(
             server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
         orch.ShutdownIntent = ShutdownIntent.EndAgents;
+        await Assert.That(orch.ShutdownReportBudget).IsEqualTo(TimeSpan.FromSeconds(5));
+        orch.ShutdownReportBudget = TimeSpan.FromMilliseconds(200);
 
         orch.SeedAgentForTest("hung-1", status: "Running");
 
@@ -108,6 +134,6 @@ public class ShutdownAgentReportTests {
         await orch.DisposeAsync();
         var elapsed = DateTime.UtcNow - started;
 
-        await Assert.That(elapsed).IsLessThan(AgentOrchestrator.ShutdownReportBudget + TimeSpan.FromSeconds(15));
+        await Assert.That(elapsed).IsLessThan(orch.ShutdownReportBudget + TimeSpan.FromSeconds(3));
     }
 }

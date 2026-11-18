@@ -27,6 +27,7 @@ internal sealed class DaemonLock : IDisposable {
     readonly string     _pidPath;
     readonly string     _lockPath;
     readonly string     _versionPath;
+    readonly string     _recordingPath;
     bool                _disposed;
 
     public string InstanceId { get; }
@@ -55,24 +56,25 @@ internal sealed class DaemonLock : IDisposable {
     /// (empty file) or unreadable content. Unlike the PID file (deleted on clean
     /// shutdown), the lock file's InstanceId is the persistent per-boot nonce every
     /// shipped version rewrites at boot and never deletes, so it witnesses the
-    /// immediately-preceding boot even one by an unaware binary. Phase B2-b
-    /// (sequenced-settlement design) uses it as the coverage boot-chain's chain-check.
+    /// immediately-preceding boot even one by an unaware binary. It is the coverage boot-chain's
+    /// chain-check.
     /// </summary>
     public string? PriorInstanceId { get; }
 
-    /// <summary>Phase B2-b (sequenced-settlement design §4.2.3): true iff the lock file was NON-EMPTY
+    /// <summary>True iff the lock file was NON-EMPTY
     /// but its content could not be read into a prior InstanceId (a read fault, or blank/garbage
     /// content). Distinguishes an unreadable prior lock from a genuinely empty first-ever/genesis slot
     /// (where this is false and <see cref="PriorInstanceId"/> is null): the coverage boot-chain treats
     /// an indeterminate prior as fail-closed, NEVER as genesis.</summary>
     public bool PriorLockIndeterminate { get; }
 
-    DaemonLock(FileStream stream, string lockPath, string pidPath, string versionPath, string instanceId,
+    DaemonLock(FileStream stream, string lockPath, string pidPath, string versionPath, string recordingPath, string instanceId,
                bool priorExitWasUnclean, int? priorHolderPid, string? priorInstanceId, bool priorLockIndeterminate) {
         _stream                = stream;
         _lockPath              = lockPath;
         _pidPath               = pidPath;
         _versionPath           = versionPath;
+        _recordingPath         = recordingPath;
         InstanceId             = instanceId;
         PriorExitWasUnclean    = priorExitWasUnclean;
         PriorHolderPid         = priorHolderPid;
@@ -168,7 +170,7 @@ internal sealed class DaemonLock : IDisposable {
             try { DaemonVersionMarker.Write(store, daemonName, version); } catch { /* best-effort */ }
         }
 
-        return new DaemonLock(stream, lockPath, pidPath, versionPath, instanceId, priorUnclean, priorPid, priorInstanceId, priorLockIndeterminate);
+        return new DaemonLock(stream, lockPath, pidPath, versionPath, store.RecordingMarkerPath(daemonName), instanceId, priorUnclean, priorPid, priorInstanceId, priorLockIndeterminate);
     }
 
     /// <summary>
@@ -257,6 +259,7 @@ internal sealed class DaemonLock : IDisposable {
         if (ours) {
             try { File.Delete(_pidPath); } catch { /* best-effort */ }
             try { File.Delete(_versionPath); } catch { /* best-effort */ }
+            try { File.Delete(_recordingPath); } catch { /* best-effort */ }
         }
 
         // Release the kernel-level flock last. Do NOT delete the lock file: the

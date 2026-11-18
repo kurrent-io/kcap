@@ -3,6 +3,9 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Harness.Antigravity;
 
+using WireMock.RequestBuilders;
+using WireMock.ResponseBuilders;
+using WireMock.Server;
 namespace Capacitor.Cli.Tests.Unit.Harness.Antigravity;
 
 /// <summary>
@@ -255,5 +258,38 @@ public class AntigravityImportSourceTests {
         var discovered = await source.DiscoverAsync(
             new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
         await Assert.That(discovered.Count).IsEqualTo(0);
+    }
+
+    /// <summary>The lifecycle bodies and the child watermark probe go to the server as written, so they are pinned.</summary>
+    [Test]
+    public async Task Import_posts_lifecycle_payloads_byte_for_byte() {
+        using var home = new TempDir();
+        WriteTranscript(home.Path, Root,  UserLine("2026-07-02T19:00:00Z"));
+        WriteTranscript(home.Path, Child, UserLine("2026-07-02T19:01:00Z"));
+        AppendInvoke(home.Path, Root, Child);
+        var transcript = Path.Combine(BrainDirUnder(home.Path, GuiSub, Root), ".system_generated", "logs", "transcript_full.jsonl");
+        File.SetLastWriteTimeUtc(transcript, new DateTime(2026, 7, 2, 19, 30, 0, DateTimeKind.Utc));
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet()).RespondWith(Response.Create().WithStatusCode(404));
+        server.Given(Request.Create().UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client = new HttpClient();
+
+        var source     = new AntigravityImportSource(new(new(home.Path), ""), TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, server.Url!, MinLines: 1, Home: new(home.Path)), CancellationToken.None);
+        await source.ImportSessionAsync(classified[0], new ImportContext(client, server.Url!, false), CancellationToken.None);
+
+        string Body(string path) => server.LogEntries.Single(e => e.RequestMessage.Path == path).RequestMessage.Body!;
+
+        await Assert.That(Body("/hooks/session-start/antigravity")).IsEqualTo(
+            """{"hook_event_name":"sessionStart","session_id":"aaaaaaaa00000000000000000000a001","started_at":"2026-07-02T19:00:00.0000000\u002B00:00","origin":"historical-import"}""");
+        await Assert.That(Body("/hooks/session-end/antigravity")).IsEqualTo(
+            """{"hook_event_name":"sessionEnd","session_id":"aaaaaaaa00000000000000000000a001","reason":"antigravity-import","ended_at":"2026-07-02T19:30:00.0000000\u002B00:00","origin":"historical-import"}""");
+        await Assert.That(server.LogEntries.Select(e => e.RequestMessage.Url.Replace(server.Url!, "")).Where(u => u.Contains("last-line")).ToArray())
+            .IsEquivalentTo(new[] {
+                "/api/sessions/aaaaaaaa00000000000000000000a001/last-line",
+                "/api/sessions/aaaaaaaa00000000000000000000a001/last-line?agentId=bbbbbbbb00000000000000000000b001",
+            });
     }
 }

@@ -43,6 +43,17 @@ public class CursorRewriteGuardTests {
     }
 
     [Test]
+    public async Task A_quarantine_that_cannot_be_written_is_reported_to_the_guards_log() {
+        Config.CreateFile("cursor-quarantine");
+        var logged = new List<string>();
+        var guard  = new CursorRewriteGuard(Config.Root, NewSessionId(), TimeProvider.System, logged.Add);
+
+        await Assert.That(guard.VerifyNotShrunk(newLength: 0, checkpointOffset: 1)).IsFalse();
+
+        await Assert.That(logged.Any(line => line.Contains("cursor_quarantine_marker_write_failed", StringComparison.Ordinal))).IsTrue();
+    }
+
+    [Test]
     public async Task VerifyNewRange_true_when_the_re_read_bytes_are_unchanged() {
         var guard    = new CursorRewriteGuard(Config.Root, NewSessionId(), TimeProvider.System);
         var original = Encoding.UTF8.GetBytes("line1\nline2\n");

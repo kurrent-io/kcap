@@ -1,0 +1,4 @@
+tree-sitter==0.25.2
+shfmt-py==4.2.0
+tree-sitter-c-sharp==0.23.5
+tree-sitter-yaml==0.7.2

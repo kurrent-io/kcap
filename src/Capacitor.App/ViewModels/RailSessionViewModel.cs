@@ -14,6 +14,8 @@ namespace Capacitor.App.ViewModels;
 /// One session row of the rail, retaining commands and bindings across directory revisions.
 public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public const string TerminalTooltip = "Started in a terminal, not hosted by a daemon";
+    public const string AttachedLabel = AttachedAgentCopy.TerminalSession;
+    public const string AttachedTooltip = AttachedAgentCopy.TerminalSessionTip;
 
     public string Id { get; }
     public string Key { get; }
@@ -53,6 +55,9 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     /// A live server row no daemon hosts: started in a terminal.
     bool _isTerminalSession;
     public bool IsTerminalSession { get => _isTerminalSession; private set => this.RaiseAndSetIfChanged(ref _isTerminalSession, value); }
+    /// A terminal session a daemon steers: labelled as one, never as an agent a daemon hosts.
+    bool _isAttached;
+    public bool IsAttached { get => _isAttached; private set => this.RaiseAndSetIfChanged(ref _isAttached, value); }
     bool _isEnded;
     public bool IsEnded { get => _isEnded; private set => this.RaiseAndSetIfChanged(ref _isEnded, value); }
     /// Up to two initials of the owner's name, for a row that is not the signed-in user's.
@@ -87,6 +92,13 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public string PullRequestTooltip => $"{PullRequest?.Description}\n\nLinked to this session: {SessionAccessibleName}\n{(HasMultiplePullRequests ? "Choose a pull request" : "Open pull request details")}";
     public bool HasPullRequest => PullRequest is not null;
     public string PullRequestAccessibleName => $"{(HasMultiplePullRequests ? "Choose from" : "Open")} {PullRequestLabel}{(HasPullRequestLifecycle ? $", {PullRequest?.Lifecycle}" : "")} for {Primary ?? Vendor}";
+    /// The right-click menu's items; each disables itself on a row it cannot act on.
+    public bool HasMenu { get; private set; }
+    public ReactiveCommand<Unit, Unit> RenameCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> MakePrivateCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> DeleteCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> TerminateCommand { get; private set; } = null!;
+    public string TerminateLabel => IsAttached ? AttachedAgentCopy.DisconnectSteering : "Terminate";
     readonly ObservableAsPropertyHelper<bool> _isSelected;
     public bool IsSelected => _isSelected.Value;
 
@@ -114,6 +126,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             IObservable<bool>? localOnAppServer = null, Action<string, AgentOrigin, PullRequestSubjectDto?>? openPullRequest = null,
             IObservable<Unit>? ageTicks = null,
             Action<string>? openServer = null, IObservable<RailGrouping>? grouping = null,
+            IRailSessionActions? sessionActions = null,
             IObservable<RailSort>? sort = null) {
         _time = time;
         _row = new BehaviorSubject<AgentRow>(row).DisposeWith(_disposables);
@@ -168,7 +181,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             .DisposeWith(_disposables);
 
         _showsRepo = (grouping ?? Observable.Return(RailGrouping.Repository)).CombineLatest(_row, (mode, current) =>
-                mode != RailGrouping.Repository && current.RepoGroupLabel is { Length: > 0 } and not "No repository")
+                mode != RailGrouping.Repository && current.RepoGroupLabel is { Length: > 0 } label && label != RepoIdentity.NoRepository.Label)
             .ToProperty(this, x => x.ShowsRepo, initialValue: false)
             .DisposeWith(_disposables);
 
@@ -187,6 +200,20 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
                 openPullRequest?.Invoke(Id, Origin(), item.Subject);
         });
         _disposables.Add(OpenPullRequestChoiceCommand);
+        BuildMenu(sessionActions);
+    }
+
+    void BuildMenu(IRailSessionActions? actions) {
+        HasMenu = actions is not null;
+        var owned = _row.Select(r => actions is not null && RailSessionActions.OwnsSession(r));
+        var running = _row.Select(r => actions is not null && RailSessionActions.CanTerminate(r));
+        var deletable = _row.Select(r => actions is not null && RailSessionActions.CanDelete(r));
+        RenameCommand = ReactiveCommand.Create(() => actions?.Rename(_row.Value), owned).DisposeWith(_disposables);
+        MakePrivateCommand = ReactiveCommand.CreateFromTask(
+            () => actions?.MakePrivateAsync(_row.Value, SessionAccessibleName) ?? Task.CompletedTask, owned).DisposeWith(_disposables);
+        DeleteCommand = ReactiveCommand.CreateFromTask(
+            () => actions?.DeleteAsync(_row.Value, SessionAccessibleName) ?? Task.CompletedTask, deletable).DisposeWith(_disposables);
+        TerminateCommand = ReactiveCommand.Create(() => actions?.Terminate(_row.Value, SessionAccessibleName), running).DisposeWith(_disposables);
     }
 
     AgentOrigin Origin() => IsServer ? AgentOrigin.Server : IsRemote ? AgentOrigin.Remote : AgentOrigin.Local;
@@ -211,6 +238,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         IsStarting = row.Origin == AgentOrigin.Pending;
         IsServer = row.Origin == AgentOrigin.Server;
         IsTerminalSession = row.IsTerminalSession;
+        IsAttached = row.IsAttached;
         IsEnded = row.IsEndedSession;
         OwnerInitials = Initials(row.OwnerName);
         var avatar = string.IsNullOrEmpty(row.OwnerAvatarUrl) ? null : row.OwnerAvatarUrl;
@@ -251,7 +279,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             var shown = _sort == RailSort.Created ? created : AsUtc(row.LastActivityAt ?? endedRaw);
             return $"{Since(shown)} · {UptimeFormat.Format(ended - created)}";
         }
-        var kind = row.Kind is "agent" or "session" ? null : row.Kind;
+        var kind = row.Kind is "agent" or "session" or AgentActionService.AttachedKind ? null : row.Kind;
         var borrowed = row.WorkLocation == WorkLocationText.Borrowed ? "borrowed" : null;
         var age = row.Origin == AgentOrigin.Remote ? null
             : Since(_sort == RailSort.Created ? created : AsUtc(row.LastActivityAt ?? row.CreatedAt));

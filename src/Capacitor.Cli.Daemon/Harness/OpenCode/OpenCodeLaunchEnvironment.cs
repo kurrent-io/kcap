@@ -48,7 +48,7 @@ internal static class OpenCodeLaunchEnvironment {
     /// loads inside the <c>opencode acp</c> process too. Its <c>session.created</c> handler then
     /// starts a SECOND, top-level capture — a lifecycle POST plus a spawned watcher — for the very
     /// session the ACP mapper is already recording. Measured with a controlled pair
-    /// (<c>docs/probes/2026-08-07-opencode-acp/</c> §4): identical 10s dwell, plugin confirmed
+    /// (<c>docs/probes/2026-08-07-opencode-acp/</c>): identical 10s dwell, plugin confirmed
     /// installed, default env created <c>~/.cache/kcap/opencode/&lt;sessionId&gt;.jsonl</c> and
     /// <c>OPENCODE_PURE=1</c> did not.</para>
     ///

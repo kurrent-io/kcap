@@ -29,9 +29,10 @@ public sealed record AppState(
     bool RailCollapsed = false,
     double? ContextPaneWidth = null,
     bool ContextPaneCollapsed = false,
+    double? ChatColumnFraction = null,
+    double? ChatLaneWidth = null,
     // When setup last sent the user to kcap.ai's sign-up; cleared once a sign-in commits.
     DateTimeOffset? WebSignUpOpenedAt = null,
-    bool WindowsServiceDeclined = false,
     // Null follows the installed version: a beta install takes betas, a stable one does not.
     bool? BetaUpdates = null,
     // "host/vendor:repo" -> account id, written by AccountMemory.
@@ -54,7 +55,11 @@ public sealed record AppState(
     // A setup attempt is unverified until its command and recording check both succeed.
     IReadOnlyList<string>? UnverifiedHarnessSetups = null,
     // Server URL -> the next-work target keys the launcher's band last showed, so a row can say it is new.
-    IReadOnlyDictionary<string, IReadOnlyList<string>>? NextWorkSeenByServer = null);
+    IReadOnlyDictionary<string, IReadOnlyList<string>>? NextWorkSeenByServer = null,
+    // Set once a CloseToTrayHint toast has said that closing the main window keeps kcap running.
+    bool CloseToTrayExplained = false,
+    // Canonical session ids whose hand-off card the user closed, newest last; see HandoffOutcomeDismissals.
+    IReadOnlyList<string>? DismissedHandoffOutcomes = null);
 
 public interface IAppStateStore {
     Task<AppState> LoadAsync();

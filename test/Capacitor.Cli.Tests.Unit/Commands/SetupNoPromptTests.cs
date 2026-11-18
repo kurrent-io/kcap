@@ -26,7 +26,7 @@ public class SetupNoPromptTests {
 
     HarnessRegistry Harnesses => TestHarnesses.Under(Home, TestBinaries.Searching(Bin, "codex"));
 
-    SetupCommand Command() {
+    SetupCommand Command(bool steeringOffered = true) {
         var http = new PlainHttpClientFactory();
 
         return new SetupCommand(
@@ -43,7 +43,8 @@ public class SetupNoPromptTests {
             router: new GitProviderRouter(), workdir: new WorkingDirectory(Config.Directory), TimeProvider.System,
             TestBinaries.None, TestAccounts.None, TestPluginEnvironment.For(Home, Home.PathTo("plugin")), NoLocalInstallation.Root,
             FakeLocalInstallerFactory.Unused) {
-            PickHandoffVendor = _ => throw new InvalidOperationException("--no-prompt must not offer the handoff picker")
+            PickHandoffVendor = _ => throw new InvalidOperationException("--no-prompt must not offer the handoff picker"),
+            SteeringOffered   = steeringOffered,
         };
     }
 
@@ -70,6 +71,19 @@ public class SetupNoPromptTests {
 
         await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(console.Text + capture.GetCapturedError());
         await Assert.That(File.Exists(Harnesses.Of<CodexHarness>().Paths.UserHooksJson)).IsTrue();
+    }
+
+    /// <summary>The server is never contacted: the refusal comes before anything changes.</summary>
+    [Test]
+    public async Task Steering_on_is_refused_up_front_where_steering_is_not_offered() {
+        using var server  = NoAuthServer();
+        using var capture = ConsoleOutput.StartFullCapture("\n");
+
+        var exit = await Command(steeringOffered: false).HandleAsync(["setup", "--server-url", server.Url!, "--no-prompt", "--steering", "on"]);
+
+        await Assert.That(exit).IsEqualTo(SetupExit.Refused);
+        await Assert.That(capture.GetCapturedError()).Contains($"--steering: {DaemonSteeringCommand.NotOfferedReason}");
+        await Assert.That(server.LogEntries).IsEmpty();
     }
 
     [Test]

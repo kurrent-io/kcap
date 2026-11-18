@@ -1,0 +1,82 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Capacitor.App.Views">
+    <Style Selector="Border.kcapBadge">
+        <Setter Property="Padding" Value="8,2" />
+        <Setter Property="CornerRadius" Value="999" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="TextBlock.kcapStatusWord">
+        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="LineHeight" Value="16" />
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Panel.kcapStatusGlyph">
+        <Setter Property="Width" Value="12" />
+        <Setter Property="Height" Value="12" />
+    </Style>
+    <Style Selector="Border.kcapBadge views|AppIcon">
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Border.kcapBadge.inflight">
+        <Setter Property="Background" Value="{StaticResource KcapPurpleDimBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="TextBlock.kcapStatusWord.inflight, Border.kcapBadge.inflight TextBlock.kcapStatusWord">
+        <Setter Property="Foreground" Value="{StaticResource KcapPurpleBrush}" />
+    </Style>
+    <Style Selector="Border.kcapBadge.success">
+        <Setter Property="Background" Value="{StaticResource KcapSuccessDimBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="TextBlock.kcapStatusWord.success, Border.kcapBadge.success TextBlock.kcapStatusWord">
+        <Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" />
+    </Style>
+    <Style Selector="Border.kcapBadge.attention">
+        <Setter Property="Background" Value="{StaticResource KcapWarningDimBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="TextBlock.kcapStatusWord.attention, TextBlock.kcapStatusWord.warning, Border.kcapBadge.attention TextBlock.kcapStatusWord">
+        <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
+    </Style>
+    <Style Selector="Border.kcapBadge.danger">
+        <Setter Property="Background" Value="{StaticResource KcapDangerDimBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="TextBlock.kcapStatusWord.danger, Border.kcapBadge.danger TextBlock.kcapStatusWord">
+        <Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" />
+    </Style>
+    <Style Selector="Border.kcapBadge.neutral">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+    </Style>
+    <Style Selector="Border.kcapBadge.neutral TextBlock.kcapStatusWord">
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="Border.kcapBadge.inflight views|AppIcon">
+        <Setter Property="Foreground" Value="{StaticResource KcapPurpleBrush}" />
+    </Style>
+    <Style Selector="Border.kcapBadge.success views|AppIcon">
+        <Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" />
+    </Style>
+    <Style Selector="Border.kcapBadge.attention views|AppIcon">
+        <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
+    </Style>
+    <Style Selector="Border.kcapBadge.danger views|AppIcon">
+        <Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" />
+    </Style>
+    <Style Selector="Border.kcapBadge.neutral views|AppIcon">
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="Border.kcapBadge.word">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+</Styles>

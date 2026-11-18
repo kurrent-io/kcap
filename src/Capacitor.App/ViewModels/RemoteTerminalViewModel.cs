@@ -18,6 +18,8 @@ public enum RemoteTerminalPhase { Waiting, Connecting, Live, Offline, Ended, Ref
 public sealed class RemoteTerminalViewModel : ReactiveObject {
     /// The hub's own bounds, and (0,0) is its clear sentinel — a client never sends one.
     const int MaxCols = 500, MaxRows = 200;
+    /// The server refuses a larger piece of typed input.
+    const int MaxInputBytes = 4096;
     static readonly TimeSpan[] Retry = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30)];
 
     readonly string _agentId;
@@ -58,6 +60,11 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
     bool _carriesOn;
     ITimer? _retry;
     int _failures;
+    bool _typing;
+    /// Keys and typed bytes, in the order produced. The hub runs a client's calls concurrently, so one goes out only
+    /// once the one before it has been answered; bytes typed meanwhile go out together.
+    readonly Queue<(string? Key, byte[]? Bytes, TaskCompletionSource Sent)> _input = new();
+    bool _pumping;
 
     ITerminalSurface? _surface;
     public ITerminalSurface? Surface { get => _surface; private set => this.RaiseAndSetIfChanged(ref _surface, value); }
@@ -109,11 +116,17 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
     bool CanControl => ControlRefusal is null;
     public string SizeNote => _sourceSize is { } s ? $"{s.Cols}×{s.Rows} · sized by the source" : "";
     public IReadOnlyList<SpecialKeyChoice> Keys => SpecialKeyMapper.Choices;
+    /// Whether keystrokes reach the agent as typed; otherwise only the named keys do.
+    public bool AcceptsTyping {
+        get => _typing;
+        private set => this.RaiseAndSetIfChanged(ref _typing, value);
+    }
     public ReactiveCommand<string, Unit> SendKeyCommand { get; }
 
     public RemoteTerminalViewModel(
             string agentId, IServerLane lane, IObservable<SessionAccessState> access, IObservable<bool> sessionEnded,
             IObservable<bool> visible, TimeProvider time, Func<ITerminalSurface> surfaceFactory,
+            IObservable<bool>? typing = null,
             IObservable<AgentViewerAccess>? viewer = null) {
         _agentId = agentId;
         _lane = lane;
@@ -121,8 +134,10 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
         _surfaceFactory = surfaceFactory;
         _token = _lifetime.Token;
         SendKeyCommand = ReactiveCommand.CreateFromTask<string>(
-            SendKeyAsync, _phases.CombineLatest(_controls, (phase, controls) => phase == RemoteTerminalPhase.Live && controls));
+            key => Enqueue(key, null), _phases.CombineLatest(_controls, (phase, controls) => phase == RemoteTerminalPhase.Live && controls));
         _disposables.Add(SendKeyCommand);
+        typing?.DistinctUntilChanged().ObserveOn(RxSchedulers.MainThreadScheduler)
+            .Subscribe(on => AcceptsTyping = on).DisposeWith(_disposables);
         viewer?.Select(v => v.CanPressKeys ? null : v.ControlRefusal).DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(refusal => {
                 ControlRefusal = refusal;
@@ -199,8 +214,11 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
         var surface = _surfaceFactory();
         var decoder = new Utf8StreamDecoder();
         surface.InputProduced += bytes => {
-            if (generation != _generation || SpecialKeyMapper.Map(bytes) is not { } key) return;
-            _ = SendKeyAsync(key);
+            if (generation != _generation) return;
+            if (TerminalScrollKey.TryCreate(bytes, out var wheel)) _ = Enqueue(wheel, null);
+            else if (!AcceptsTyping) {
+                if (SpecialKeyMapper.Map(bytes) is { } key) _ = Enqueue(key, null);
+            } else if (TerminalReportFilter.Strip(bytes) is { Length: > 0 } typed) _ = Enqueue(null, typed);
         };
         if (_sourceSize is { } size) surface.Resize(size.Cols, size.Rows);
         _decoder = decoder;
@@ -289,6 +307,7 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
 
     void Detach(RemoteTerminalPhase phase) {
         StopRetry();
+        DropInput();
         _generation++;
         _receiving = false;
         Phase = phase;
@@ -306,13 +325,62 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
         Report(_lane.UnsubscribeFromTerminalAsync(_agentId, CancellationToken.None), "unsubscribe"),
         ReleaseViewportAsync());
 
-    async Task SendKeyAsync(string key) {
-        if (!_subscribed || Phase != RemoteTerminalPhase.Live || !CanControl) return;
-        var outcome = await Report(_lane.SendSpecialKeyAsync(_agentId, key, _token), $"key {key}");
+    Task Enqueue(string? key, byte[]? bytes) {
+        if (!_subscribed || Phase != RemoteTerminalPhase.Live || !CanControl) return Task.CompletedTask;
+        var sent = Task.CompletedTask;
+        if (key is not null) sent = Add(key, null);
+        // A paste over the limit goes in pieces, cut only between characters.
+        for (var start = 0; bytes is not null && start < bytes.Length;) {
+            var end = Math.Min(start + MaxInputBytes, bytes.Length);
+            while (end < bytes.Length && end > start && (bytes[end] & 0xC0) == 0x80) end--;
+            if (end == start) end = Math.Min(start + MaxInputBytes, bytes.Length);
+            sent = Add(null, bytes[start..end]);
+            start = end;
+        }
+        if (!_pumping) _ = PumpInputAsync();
+        return sent;
+    }
+
+    Task Add(string? key, byte[]? bytes) {
+        var sent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _input.Enqueue((key, bytes, sent));
+        return sent.Task;
+    }
+
+    async Task PumpInputAsync() {
+        _pumping = true;
+        try {
+            while (_input.TryDequeue(out var head)) {
+                if (head.Key is { } key) {
+                    NoteRefusal(await Report(_lane.SendSpecialKeyAsync(_agentId, key, _token), $"key {key}"));
+                    head.Sent.TrySetResult();
+                    continue;
+                }
+                List<byte> batch = [.. head.Bytes!];
+                List<TaskCompletionSource> done = [head.Sent];
+                while (_input.TryPeek(out var next) && next.Bytes is { } more && batch.Count + more.Length <= MaxInputBytes) {
+                    _input.Dequeue();
+                    batch.AddRange(more);
+                    done.Add(next.Sent);
+                }
+                NoteRefusal(await Report(_lane.SendTerminalInputAsync(_agentId, [.. batch], _token), "input"));
+                foreach (var sent in done) sent.TrySetResult();
+            }
+        } finally {
+            _pumping = false;
+        }
+    }
+
+    void NoteRefusal(HubCallOutcome? outcome) {
         if (outcome is null) return;
         KeyRefusal = outcome.Result == HubCallResult.Denied && WireTokens.IsQuestionPending(outcome.Reason)
             ? AgentViewerAccess.QuestionPendingNote
             : null;
+    }
+
+    /// What was waiting to go out was meant for the terminal as it stood; a new subscribe starts clean.
+    void DropInput() {
+        while (_input.TryDequeue(out var item)) item.Sent.TrySetResult();
     }
 
     static async Task<HubCallOutcome?> Report(Task<HubCallOutcome> call, string what) {
@@ -330,6 +398,7 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
 
     public async Task TeardownAsync() {
         StopRetry();
+        DropInput();
         _generation++;
         _receiving = false;
         _disposables.Dispose();

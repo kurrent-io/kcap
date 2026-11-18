@@ -62,4 +62,13 @@ public class HubIdentityTests {
     [Test]
     public async Task A_legacy_token_stamped_with_its_server_is_the_same_identity() =>
         await Assert.That(HubIdentity.Changed(HubIdentity.Of(Ok("ana", server: null)), Ok("ana", "t2"))).IsFalse();
+
+    /// <summary>A hub that comes back as someone else, or as nobody a stored token names, has left the identity it had.</summary>
+    [Test]
+    public async Task A_reconnect_moves_off_an_identity_only_to_another_or_to_none() {
+        await Assert.That(HubIdentity.Moved(HubIdentity.Of(Ok("ana")), HubIdentity.Of(Ok("bob")))).IsTrue();
+        await Assert.That(HubIdentity.Moved(HubIdentity.Of(Ok("ana")), null)).IsTrue();
+        await Assert.That(HubIdentity.Moved(HubIdentity.Of(Ok("ana", server: null)), HubIdentity.Of(Ok("ana", "t2")))).IsFalse();
+        await Assert.That(HubIdentity.Moved(null, HubIdentity.Of(Ok("bob")))).IsFalse();
+    }
 }

@@ -1,5 +1,4 @@
 using System.Reactive;
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.PullRequests;
 
 namespace Capacitor.App.ViewModels;
@@ -9,6 +8,7 @@ public interface ISessionWorkspace {
     string AgentId { get; }
     WorkContextViewModel WorkContext { get; }
     PullRequestContextViewModel? PullRequests { get; }
+    SessionTitleEditorViewModel TitleEditor { get; }
     void OpenPullRequest(PullRequestSubjectDto? subject = null);
     Task TeardownAsync();
     /// Fires once the session is over for good; a row that only left this lane is not an end.

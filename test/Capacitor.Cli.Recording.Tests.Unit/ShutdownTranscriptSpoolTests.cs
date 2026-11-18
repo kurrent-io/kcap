@@ -102,7 +102,7 @@ public class ShutdownTranscriptSpoolTests {
         await Assert.That(result).IsEqualTo(TranscriptSpool.AppendResult.Appended);
         await Assert.That(spool.HasBacklog(Sid)).IsTrue();
 
-        // Replay via the same DrainAsync path the global drain (task 3) uses — only the
+        // Replay via the same DrainAsync path the global drain uses — only the
         // undelivered tail (lines 2 and 3) is replayed, in order, nothing from before LinesProcessed.
         var replayed = new List<string>();
         await spool.DrainAsync(Sid, body => {
@@ -115,6 +115,57 @@ public class ShutdownTranscriptSpoolTests {
         var lines = node["lines"]!.AsArray().Select(l => l!.GetValue<string>()).ToList();
         await Assert.That(lines).IsEquivalentTo(["{\"line\":2}", "{\"line\":3}"]);
         await Assert.That(spool.HasBacklog(Sid)).IsFalse();
+    }
+
+    /// <summary>A canonical drain projects the lines before a spooled Claude tail from the transcript it names. A vendor
+    /// whose lines stay raw spools the batch it always has.</summary>
+    [Test]
+    [Arguments("claude", true)]
+    [Arguments("kiro", false)]
+    public async Task A_spooled_tail_names_its_transcript_only_for_a_canonical_vendor(string vendor, bool named) {
+        using var tmp = new TempDir();
+        var path  = tmp.CreateFile("transcript.jsonl", "{\"line\":0}\n{\"line\":1}\n");
+        var spool = new TranscriptSpool(tmp.PathTo("spool"), time: TimeProvider.System);
+
+        await Recorders.For(Sid, path, null, vendor).SpoolUndeliveredTranscriptTailAsync(spool, 1, new CommitObservation.Uncovered(), CancellationToken.None);
+
+        var replayed = new List<string>();
+        await spool.DrainAsync(Sid, body => {
+            replayed.Add(body);
+            return Task.FromResult(DrainOutcome.Delivered);
+        }, () => false, CancellationToken.None);
+
+        var batch = System.Text.Json.Nodes.JsonNode.Parse(replayed.Single())!.AsObject();
+        await Assert.That(batch.ContainsKey("transcript_path")).IsEqualTo(named);
+        if (named) await Assert.That(batch["transcript_path"]!.GetValue<string>()).IsEqualTo(path);
+    }
+
+    /// <summary>An append can stall on the disk, and a recorder given up on there spools no more of its tail when it wakes:
+    /// the chunks after it are whichever recorder's has the source next. Here the host gives it up after the first chunk.</summary>
+    [Test]
+    public async Task A_recorder_given_up_on_mid_spool_spools_no_further_chunk() {
+        using var tmp = new TempDir();
+        var transcript = tmp.CreateFile("transcript.jsonl", string.Concat(Enumerable.Range(0, 250).Select(i => $"{{\"line\":{i}}}\n")));
+        var spool      = new TranscriptSpool(tmp.PathTo("spool"), time: TimeProvider.System);
+        var checks     = 0;
+        using var recorder = new TranscriptRecorder(
+            new RecordingSource(Sid, null, transcript, "kiro", null), new FakeRecorderTransport(), new NoStamps(), TimeProvider.System,
+            new RecorderContext(
+                new Capacitor.Cli.Core.Http.CapacitorServer("http://127.0.0.1:1", Config.Root, Resolutions.None(Config.Root)), new FakeRecorderHousekeeping(),
+                TimeProvider.System, _ => { }, () => { })) {
+            Abandoned = () => Interlocked.Increment(ref checks) > 1,
+        };
+
+        await recorder.SpoolUndeliveredTranscriptTailAsync(spool, 0, new CommitObservation.Uncovered(), CancellationToken.None);
+
+        var spooled = 0;
+        await spool.DrainAsync(Sid, body => {
+            spooled += System.Text.Json.Nodes.JsonNode.Parse(body)!["lines"]!.AsArray().Count;
+
+            return Task.FromResult(DrainOutcome.Delivered);
+        }, () => false, CancellationToken.None);
+
+        await Assert.That(spooled).IsEqualTo(TranscriptBatchBuffer.MaxLines);
     }
 
     [Test]
@@ -178,6 +229,34 @@ public class ShutdownTranscriptSpoolTests {
         await Assert.That(replay[^1]["lines"]!.AsArray().Count).IsEqualTo(0);
         await Assert.That(replay[^1]["observed_commits"]![0]!["sha"]!.GetValue<string>()).IsEqualTo("aaa");
         await Assert.That(replay[^1].AsObject().ContainsKey("more_follows")).IsFalse();
+    }
+
+    /// <summary>An append that fails can return after the host has given the recorder up, and the commits it would spool on
+    /// their own are then whichever recorder's has the source next. Here the host gives it up during that append.</summary>
+    [Test]
+    public async Task A_recorder_given_up_on_during_a_failed_append_spools_no_commits_after_it() {
+        using var tmp = new TempDir();
+        var lines      = Enumerable.Range(0, TranscriptBatchBuffer.MaxLines).Select(n => $"{{\"line\":{n}}}").Append("{\"pad\":\"" + new string('x', 8192) + "\"}");
+        var transcript = tmp.CreateFile("transcript.jsonl", string.Join('\n', lines) + "\n");
+        var commits    = new SessionCommits(tmp.PathTo("commits.jsonl"));
+        commits.Append(new ObservedCommit { Sha = "aaa", Message = "Fix watcher" });
+        var spool      = new TranscriptSpool(tmp.PathTo("spool"), capBytes: 4096, time: TimeProvider.System);
+        using var recorder = new TranscriptRecorder(
+            new RecordingSource(Sid, null, transcript, "claude", null), new FakeRecorderTransport(), new NoStamps(), TimeProvider.System,
+            new RecorderContext(
+                new Capacitor.Cli.Core.Http.CapacitorServer("http://127.0.0.1:1", Config.Root, Resolutions.None(Config.Root)), new FakeRecorderHousekeeping(),
+                TimeProvider.System, _ => { }, () => { })) {
+            Abandoned = () => spool.NeedsImport(Sid),
+        };
+
+        await recorder.SpoolUndeliveredTranscriptTailAsync(spool, 0, new CommitObservation.Covered(commits), CancellationToken.None);
+
+        var replay = new List<System.Text.Json.Nodes.JsonNode>();
+        await spool.DrainAsync(Sid, body => { replay.Add(System.Text.Json.Nodes.JsonNode.Parse(body)!); return Task.FromResult(DrainOutcome.Delivered); },
+            () => false, CancellationToken.None);
+
+        await Assert.That(replay.Count).IsEqualTo(1);
+        await Assert.That(replay[0]["lines"]!.AsArray().Count).IsEqualTo(TranscriptBatchBuffer.MaxLines);
     }
 
     /// <summary>Cap exhaustion at shutdown must never silently drop the tail — it marks needs-import

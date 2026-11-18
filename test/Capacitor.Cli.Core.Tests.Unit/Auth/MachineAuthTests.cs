@@ -494,12 +494,14 @@ public class MachineAuthTests : IDisposable {
     /// </summary>
     [Test]
     public async Task A_token_url_with_userinfo_does_not_leak_it_into_the_problem() {
-        // Loopback so the scheme check admits it and we reach the mint, which then fails (nothing
-        // listening on that path) and builds the Problem string containing the URL.
-        using var minter = new MachineTokenProvider(
+        // Loopback so the scheme check admits it and we reach the mint, whose refused connect builds the
+        // Problem string containing the URL.
+        using var minter  = new MachineTokenProvider(
             new MachineAuth(null, null, "http://id:supersecret@127.0.0.1:1/oauth2/token"), TimeProvider.System);
-        var       result = await minter.GetTokenAsync(
-            Workos, new MachineCredential("client_01ABC", "sekrit"), null, CancellationToken.None);
+        using var refused = RefusingHandler.Create();
+        var       result  = await minter.GetTokenAsync(
+            new WorkOSClient(new PlainHttpClientFactory(refused), TimeProvider.System),
+            new MachineCredential("client_01ABC", "sekrit"), null, CancellationToken.None);
 
         await Assert.That(result.Token).IsNull();
         await Assert.That(result.Problem).IsNotNull();

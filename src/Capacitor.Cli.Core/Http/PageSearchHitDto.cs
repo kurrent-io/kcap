@@ -5,6 +5,7 @@ namespace Capacitor.Cli.Core.Http;
 /// <summary>One page the server's search matched. <see cref="OwnerUserId"/> is the stored owner id,
 /// possibly a legacy one, so whether the page is the caller's is <see cref="IsOwner"/>.
 /// <see cref="MatchedIn"/> may carry a value newer than this binary knows.</summary>
+/// <param name="ObjectKey">The key <c>/api/sharing</c> takes. Null from a server kcap cannot share through.</param>
 public record PageSearchHitDto(
     [property: JsonPropertyName("artefact_id")]        string         ArtefactId,
     [property: JsonPropertyName("title")]              string         Title,
@@ -16,4 +17,5 @@ public record PageSearchHitDto(
     [property: JsonPropertyName("is_owner")]           bool           IsOwner,
     [property: JsonPropertyName("url")]                string         Url,
     [property: JsonPropertyName("excerpt")]            string         Excerpt,
+    [property: JsonPropertyName("object_key")]         string?        ObjectKey,
     [property: JsonPropertyName("matched_in")]         string         MatchedIn);

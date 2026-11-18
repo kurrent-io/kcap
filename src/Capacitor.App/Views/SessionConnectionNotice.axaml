@@ -1,0 +1,59 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.SessionConnectionNotice"
+             x:DataType="vm:SessionConnectionPresentation">
+    <UserControl.Styles>
+        <Style Selector="views|SessionConnectionNotice Panel.compactNotice">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="views|SessionConnectionNotice.compact Panel.compactNotice">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <Style Selector="views|SessionConnectionNotice.compact StackPanel.centeredNotice">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+    </UserControl.Styles>
+    <Panel>
+        <StackPanel Classes="centeredNotice" Spacing="12" MaxWidth="400" Margin="28"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Panel Height="28" Margin="0,0,0,4" HorizontalAlignment="Center" IsVisible="{Binding !IsPlain}">
+                <views:AppIcon Kind="LoaderCircle" Size="24" IsVisible="{Binding IsBusy}" Classes.kcapSpinning="{Binding IsBusy}"
+                               Foreground="{StaticResource KcapMutedBrush}" />
+                <views:AppIcon Kind="CircleAlert" Size="24" IsVisible="{Binding ShowsAlert}"
+                               Foreground="{StaticResource KcapWarningBrush}" />
+            </Panel>
+            <TextBlock x:Name="SessionNoticeTitle" Text="{Binding Title}" FontSize="16" FontWeight="SemiBold"
+                       TextAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}" />
+            <TextBlock Text="{Binding Detail}" FontSize="13.5" TextAlignment="Center" TextWrapping="Wrap"
+                       IsVisible="{Binding HasDetail}" Foreground="{StaticResource KcapMutedBrush}" />
+            <Button Classes.kcapPrimary="{Binding RepairsCause}" Classes.kcapChip="{Binding !RepairsCause}"
+                    Content="{Binding ActionLabel}" Command="{Binding Action}"
+                    IsVisible="{Binding HasAction}" HorizontalAlignment="Center" Margin="0,6,0,0" />
+        </StackPanel>
+        <!-- The launcher's notice card: the action sits under the copy, so a narrow pane wraps the
+             text at the card's full width instead of beside a button. -->
+        <Panel Classes="compactNotice">
+            <Border Margin="20,10" Padding="14,12" CornerRadius="12"
+                    Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
+                <!-- The gap is the icon's margin, not column spacing, so a notice without an icon starts at the padding. -->
+                <Grid ColumnDefinitions="Auto,*">
+                    <Panel Width="16" Height="16" VerticalAlignment="Top" Margin="0,2,10,0" IsVisible="{Binding !IsPlain}">
+                        <views:AppIcon Kind="LoaderCircle" Size="16" IsVisible="{Binding IsBusy}" Classes.kcapSpinning="{Binding IsBusy}" Foreground="{StaticResource KcapMutedBrush}" />
+                        <views:AppIcon Kind="CircleAlert" Size="16" IsVisible="{Binding ShowsAlert}" Foreground="{StaticResource KcapWarningBrush}" />
+                    </Panel>
+                    <StackPanel Grid.Column="1" Spacing="4">
+                        <TextBlock x:Name="NoticeTitle" Text="{Binding Title}" FontSize="13" FontWeight="Medium" LineHeight="20"
+                                   TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}" />
+                        <TextBlock Text="{Binding Detail}" FontSize="12.5" LineHeight="18" TextWrapping="Wrap"
+                                   IsVisible="{Binding HasDetail}" Foreground="{StaticResource KcapMutedBrush}" />
+                        <Button x:Name="NoticeAction" Classes.kcapPrimary="{Binding RepairsCause}" Classes.kcapChip="{Binding !RepairsCause}"
+                                Content="{Binding ActionLabel}" Command="{Binding Action}" IsVisible="{Binding HasAction}"
+                                HorizontalAlignment="Left" Margin="0,10,0,0" Padding="12,5" FontSize="12.5" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Panel>
+    </Panel>
+</UserControl>

@@ -22,6 +22,15 @@
             <Setter Property="Margin" Value="0,2,0,0" />
             <Setter Property="VerticalAlignment" Value="Top" />
         </Style>
+        <Style Selector="views|AppIcon.importStatusIcon">
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="views|AppIcon.importStatusIcon.success">
+            <Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" />
+        </Style>
+        <Style Selector="views|AppIcon.importStatusIcon.attention">
+            <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
+        </Style>
         <Style Selector="TextBlock.noticeTitle">
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
             <Setter Property="FontSize" Value="13" />
@@ -41,15 +50,26 @@
             <Setter Property="Margin" Value="0,4,0,2" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
-        <Style Selector="StackPanel.noticeActions">
-            <Setter Property="Orientation" Value="Horizontal" />
-            <Setter Property="Spacing" Value="8" />
+        <Style Selector="StackPanel.noticeActions, WrapPanel.noticeActions">
             <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="Margin" Value="0,10,0,0" />
         </Style>
-        <Style Selector="StackPanel.noticeActions > Button">
+        <Style Selector="StackPanel.noticeActions">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="Spacing" Value="8" />
+        </Style>
+        <Style Selector="WrapPanel.noticeActions">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Setter Property="ItemSpacing" Value="8" />
+            <Setter Property="LineSpacing" Value="4" />
+        </Style>
+        <Style Selector="StackPanel.noticeActions > Button, WrapPanel.noticeActions Button">
             <Setter Property="Padding" Value="12,5" />
             <Setter Property="FontSize" Value="12.5" />
+        </Style>
+        <Style Selector="Button.importDismiss.kcapGhost">
+            <Setter Property="Padding" Value="0,5" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
         </Style>
         <Style Selector="Border.startError">
             <Setter Property="Background" Value="{StaticResource KcapDangerDimBrush}" />
@@ -71,6 +91,46 @@
     <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Margin="0,16,0,0">
     <views:LauncherLayoutPanel Margin="24,0,24,24" Gap="20" ListMinHeight="200">
         <StackPanel x:Name="LauncherNotices" VerticalAlignment="Top" HorizontalAlignment="Stretch" MaxWidth="680" Spacing="8">
+            <Border x:Name="HistoryImportBanner" Classes="notice" x:DataType="vm:HistoryImportBannerViewModel"
+                    DataContext="{Binding $parent[views:LauncherPaneView].HistoryImport}"
+                    IsVisible="{Binding $parent[views:LauncherPaneView].((vm:HomeViewModel)DataContext).Notices.ShowHistory, FallbackValue=False}"
+                    AutomationProperties.Name="{Binding Status}" AutomationProperties.AccessibilityView="Content"
+                    AutomationProperties.ControlTypeOverride="Group" AutomationProperties.LandmarkType="Region">
+                <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
+                    <views:AppIcon Classes="noticeIcon importStatusIcon" Classes.kcapSpinning="{Binding Running}" Size="16"
+                                   Classes.success="{Binding Succeeded}" Classes.attention="{Binding NeedsAttention}"
+                                   Kind="{Binding Icon}" VerticalAlignment="Top" />
+                    <StackPanel Grid.Column="1" Spacing="4">
+                        <!-- Every state measures against the longest headline at the current width and font size. -->
+                        <Panel>
+                            <TextBlock Classes="noticeTitle" Text="{x:Static vm:HistoryImportBannerViewModel.UnfinishedHeadline}"
+                                       Opacity="0" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw" />
+                            <TextBlock Classes="noticeTitle" Text="{Binding Headline}" />
+                        </Panel>
+                        <TextBlock Classes="noticeBody" Text="{Binding Detail}" TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Detail}" />
+                        <WrapPanel Classes="noticeActions">
+                            <!-- Measure the primary action so switching to tertiary does not reflow the row. -->
+                            <Panel>
+                                <Button Classes="kcapPrimary" Content="Dismiss" Opacity="0" IsHitTestVisible="False"
+                                        Focusable="False" IsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
+                                <Button x:Name="HistoryImportDismissButton" Classes="importDismiss" Content="Dismiss"
+                                        Classes.kcapPrimary="{Binding !ShowsReopenSetup}" Classes.kcapGhost="{Binding ShowsReopenSetup}"
+                                        Command="{Binding DismissCommand}" Click="OnHistoryImportDismissClick" AutomationProperties.Name="Dismiss history import status" />
+                            </Panel>
+                            <!-- Keep the action's footprint when it is unavailable, so wrapping cannot move the composer. -->
+                            <Panel>
+                                <Button Classes="kcapPrimary" Content="{x:Static vm:HistoryImportBannerViewModel.ReopenSetupLabel}"
+                                        Opacity="0" IsHitTestVisible="False" Focusable="False"
+                                        IsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
+                                <Button x:Name="HistoryImportSetupButton" Classes="kcapPrimary"
+                                        Content="{x:Static vm:HistoryImportBannerViewModel.ReopenSetupLabel}"
+                                        Command="{Binding ReopenSetupCommand}" IsVisible="{Binding ShowsReopenSetup}" />
+                            </Panel>
+                        </WrapPanel>
+                    </StackPanel>
+                </Grid>
+            </Border>
             <Border x:Name="UpdateBanner" Classes="notice" IsVisible="{Binding Notices.ShowUpdate}">
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
                     <!-- Matches the update window's running steps. -->

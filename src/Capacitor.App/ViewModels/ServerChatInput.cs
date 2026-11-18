@@ -17,6 +17,7 @@ internal sealed class ServerChatInput : ChatInput {
     /// The listing does not say whether a session ran live or came in through a history import, so
     /// the hint names both rather than calling an imported one ended.
     internal const string EndedHint = "This session ended or was imported. Its recorded history is read-only.";
+    internal const string DaemonDownHint = "Its daemon is not running. Start it to message this session.";
 
     readonly string _agentId;
     readonly IServerLane _lane;
@@ -30,13 +31,15 @@ internal sealed class ServerChatInput : ChatInput {
     ViewerIdentityDto? _senderIdentity;
     AgentViewerAccess _viewer = AgentViewerAccess.Unrestricted;
     bool _hasConnected;
+    bool _attachable;
     string? _notice;
     // Bumped by every send and availability change, so an interrupt reply that lands after one of
     // them leaves the newer hint alone.
     int _noticeVersion;
 
     public ServerChatInput(string agentId, IServerLane lane, IObservable<SessionAccessState> access, IObservable<ChatSessionInfo> session, bool hasTerminal,
-            IObservable<ViewerIdentityDto?>? senderIdentity = null, IObservable<AgentViewerAccess>? viewer = null) {
+            IObservable<ViewerIdentityDto?>? senderIdentity = null, IObservable<AgentViewerAccess>? viewer = null,
+            IObservable<bool>? attachable = null) {
         _agentId = agentId;
         _lane = lane;
         _hasTerminal = hasTerminal;
@@ -47,6 +50,8 @@ internal sealed class ServerChatInput : ChatInput {
         })));
         _subscriptions.Add(access.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(a => Apply(() => _access = a)));
         _subscriptions.Add(session.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(i => Apply(() => _session = i)));
+        if (attachable is not null)
+            _subscriptions.Add(attachable.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(a => Apply(() => _attachable = a)));
         if (viewer is not null)
             _subscriptions.Add(viewer.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(v => Apply(() => _viewer = v)));
         // The token subject belongs to its issuer; the identity endpoint names the server's actor and aliases.
@@ -109,20 +114,27 @@ internal sealed class ServerChatInput : ChatInput {
             SendAvailability.Ready   => "Enter sends · Shift+Enter for a new line",
             SendAvailability.Sending => "Sending…",
             SendAvailability.Ended   => EndedHint,
+            _ when _session?.Status == AgentRow.DaemonDownStatus => DaemonDownHint,
             _                        => "Connecting to the session…",
         };
 
-    /// A session on another machine has no attachment lane yet: the hub call carries text alone.
-    public override bool CanAttach => false;
-    public override string? AttachHint => "attachments to a session on another machine are not supported yet";
+    /// The remote daemon fetches the files with its own credential, so only a daemon of the viewer's
+    /// own whose build fetches on dispatched input is offered them.
+    public override bool CanAttach => _attachable && CanAcceptText;
+    public override string? AttachHint => CanAttach ? null
+        : !_attachable ? AttachUnavailable
+        : Hint;
+
+    internal static readonly string AttachUnavailable =
+        $"attachments need a session kcap started on one of your machines, running kcap {LaunchAttachments.MinDaemonVersion} or later";
 
     public override async Task<ChatSendOutcome> SendAsync(string text, IReadOnlyList<string> attachmentIds, CancellationToken ct) {
         if (_disposed || !CanAcceptText || ct.IsCancellationRequested) return ChatSendOutcome.Rejected;
-        if (attachmentIds.Count > 0) return Settle(ChatSendOutcome.Rejected, AttachHint);
+        if (attachmentIds.Count > 0 && !CanAttach) return Settle(ChatSendOutcome.Rejected, AttachHint);
         _sending = true; _notice = null; _noticeVersion++; Raise();
         HubCallOutcome outcome;
         try {
-            outcome = await _lane.SendUserInputAsync(_agentId, text, ct);
+            outcome = await _lane.SendUserInputAsync(_agentId, text, attachmentIds, ct);
         } catch (Exception) {
             return Settle(ChatSendOutcome.Unconfirmed, Unconfirmed);
         }
@@ -176,6 +188,8 @@ internal sealed class ServerChatInput : ChatInput {
         this.RaisePropertyChanged(nameof(Availability));
         this.RaisePropertyChanged(nameof(CanAcceptText));
         this.RaisePropertyChanged(nameof(CanInterrupt));
+        this.RaisePropertyChanged(nameof(CanAttach));
+        this.RaisePropertyChanged(nameof(AttachHint));
         this.RaisePropertyChanged(nameof(ControlNote));
         this.RaisePropertyChanged(nameof(CanDiscardQueued));
         this.RaisePropertyChanged(nameof(SenderIdentity));

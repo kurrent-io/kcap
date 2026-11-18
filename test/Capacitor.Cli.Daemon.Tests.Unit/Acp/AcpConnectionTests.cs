@@ -17,8 +17,8 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Acp;
 /// the connection (via its <c>readStream</c>). <see cref="Pipe"/> gives us a real blocking/async
 /// reader — unlike <see cref="MemoryStream"/>, a read against an empty <see cref="Pipe"/> awaits
 /// until a writer produces more bytes or completes the writer side, which is what a real pipe to a
-/// child process does. Task 8 formalizes a richer fake agent on top of this same primitive; this
-/// harness stays intentionally minimal and local to this test file.
+/// child process does. <see cref="FakeAcpAgent"/> is the richer fake built on this same primitive;
+/// this harness stays intentionally minimal and local to this test file.
 /// </summary>
 public class AcpConnectionTests {
     static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(5);
@@ -208,10 +208,8 @@ public class AcpConnectionTests {
         await SwallowCancellation(runTask);
     }
 
-    // PR #244 review (Fix #3): OnServerRequest's contract is now Task<JsonElement?> — the handler
-    // can no longer return an un-serializable CLR object that WriteServerResponseAsync could only
-    // reject with a throw OUTSIDE any try/catch, silently orphaning the agent's request (no
-    // response ever written, wedging its wait on this id forever). These tests assert the
+    // A server request the connection never answers wedges the agent's wait on that id forever.
+    // These tests assert the
     // "always answered" guarantee holds across the three shapes a handler can produce: a value
     // becomes the JSON-RPC `result`, a thrown exception becomes a `-32603 Internal error`, and a
     // null return (the method ran but declined to handle it) becomes a `-32601 Method not found` —
@@ -413,12 +411,9 @@ public class AcpConnectionTests {
         await SwallowCancellation(runTask);
     }
 
-    // PR #244 review (Fix D, MAJOR): HandleResponse used to TryRemove the pending TCS FIRST, then
-    // parse error.code/error.message with the throwing GetInt32()/GetString() accessors. A
-    // well-formed-JSON-but-wrong-typed error payload (e.g. "code":"oops") made that parse throw,
-    // DispatchLineAsync's broad catch logged+skipped the frame, and the ALREADY-REMOVED TCS was
-    // never completed — the caller's RequestAsync hung until the connection was disposed. This
-    // test has a REAL pending RequestAsync awaiting id=1 (unlike the malformed-frame test above,
+    // A well-formed-JSON-but-wrong-typed error payload (e.g. "code":"oops") must still complete
+    // the pending request: if parsing it throws after the pending TCS is removed, the caller's
+    // RequestAsync hangs until the connection is disposed. This test has a REAL pending RequestAsync awaiting id=1 (unlike the malformed-frame test above,
     // whose id=2 has no pending caller and so never exercised the orphan path) and asserts the
     // caller faults with AcpRpcException instead of hanging.
     [Test]
@@ -706,7 +701,7 @@ public class AcpConnectionTests {
             .Throws<IOException>();
 
         await Assert.That(hookFired).IsTrue();
-        // The latch is set strictly BEFORE the hook is invoked (reconnect spec §5.2) — the commit
+        // The latch is set strictly BEFORE the hook is invoked — the commit
         // liveness check depends on that ordering.
         await Assert.That(latchAtHookTime).IsTrue();
         await Assert.That(connection.TransportEnded).IsTrue();

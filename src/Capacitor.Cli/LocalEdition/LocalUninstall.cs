@@ -11,16 +11,21 @@ namespace Capacitor.Cli.LocalEdition;
 /// returns as the same installation on the same port. A purge removes nothing until it has retired the installation
 /// (see <see cref="LocalPurge"/>).
 /// </summary>
-sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoingRecorders recorders) {
+sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoingRecorders recorders, TimeProvider? time = null) {
     /// <summary>Set, the uninstall gets this long, counted from this object's creation and so including every wait for a
     /// lock, before the server's unit is removed regardless; what is still running keeps <c>bin/</c> and <c>run/</c>.
     /// For an app uninstaller with a deadline; it cannot purge.</summary>
     public TimeSpan? QuickGrace { get; init; }
 
-    readonly long _created = TimeProvider.System.GetTimestamp();
+    readonly TimeProvider _time = time ?? TimeProvider.System;
+
+    readonly long _created = (time ?? TimeProvider.System).GetTimestamp();
 
     /// <summary>A server is asked to stop with at least this long, however much of the grace the locks took.</summary>
     static readonly TimeSpan MinimumStopGrace = TimeSpan.FromSeconds(1);
+
+    /// <summary>Removes <c>bin/</c> and <c>run/</c>; replaced in tests to hold a file open as an exiting server does.</summary>
+    internal Action<LocalRoot> DeleteServerFiles { get; init; } = root => LocalStackStop.Delete(root, "bin", "run");
 
     /// <summary>Throws <see cref="LocalLifecycleException"/> naming what stopped it; nothing is deleted before the
     /// stops are verified.</summary>
@@ -37,9 +42,13 @@ sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoin
 
         if (installation is null) return LocalUninstallOutcome.NotInstalled;
 
-        if (!force && await recorders.BusyAsync() is { Count: > 0 } busy)
-            throw new LocalLifecycleException(
-                $"A daemon is running agents ({string.Join("; ", busy)}). Stop them, or pass --force to end them with the daemon. Nothing was changed.");
+        // A quick uninstall waits for a starting daemon only as long as its grace lasts.
+        var busyWait = QuickGrace is { } quick ? quick - _time.GetElapsedTime(_created) : (TimeSpan?)null;
+
+        if (!force && await recorders.BusyAsync(busyWait) is { Count: > 0 } busy)
+            throw new LocalLifecycleException(DaemonBusy.AnyMayRunAgents(busy)
+                ? $"A daemon is running agents ({DaemonBusy.Lines(busy)}). Stop them, or pass --force to end them with the daemon. Nothing was changed."
+                : $"A daemon did not answer ({DaemonBusy.Lines(busy)}). Run the command again once it has started, or pass --force to stop it. Nothing was changed.");
 
         if (!await recorders.StopAsync())
             throw new LocalLifecycleException("A daemon or watcher could not be stopped, so the local installation was left as it is. Run kcap local uninstall again.");
@@ -49,27 +58,21 @@ sealed class LocalUninstall(ILocalServerService service, UserHome home, IOutgoin
         var unit = LocalServerUnit.ForInstallation(lease.Root, installation.Port);
 
         if (QuickGrace is { } grace) {
-            TimeSpan Left() {
-                var left = grace - TimeProvider.System.GetElapsedTime(_created);
-                return left > MinimumStopGrace ? left : MinimumStopGrace;
-            }
+            TimeSpan Remaining() => grace - _time.GetElapsedTime(_created);
+            TimeSpan Left() => Remaining() > MinimumStopGrace ? Remaining() : MinimumStopGrace;
 
             if (!await LocalStackStop.RunWithinAsync(lease.Root, unit, service, home, Left, ct)) return LocalUninstallOutcome.Unloaded;
 
-            try {
-                LocalStackStop.Delete(lease.Root, "bin", "run");
-            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-                // The server let go of the root but its process has not exited yet, and its files are still open.
-                return LocalUninstallOutcome.Unloaded;
-            }
+            var held = await LocalStackStop.DeleteWhenReleasedAsync(() => DeleteServerFiles(lease.Root),
+                () => Remaining() > LocalStackStop.DeleteRetryGap, _time, ct);
 
-            return LocalUninstallOutcome.Uninstalled;
+            return held is null ? LocalUninstallOutcome.Uninstalled : LocalUninstallOutcome.Unloaded;
         }
 
         if (!purge) {
             await LocalStackStop.RunAsync(lease.Root, unit, service, home, removeUnit: true, ct);
 
-            LocalStackStop.Delete(lease.Root, "bin", "run");
+            await LocalStackStop.DeleteWhenReleasedAsync(lease.Root, () => DeleteServerFiles(lease.Root), "kcap local uninstall", _time, ct);
             FaultPoints.Hit("uninstall:after-delete");
 
             return LocalUninstallOutcome.Uninstalled;

@@ -1,8 +1,6 @@
 using System.Net;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
@@ -20,72 +18,16 @@ namespace Capacitor.Cli.Commands;
 /// </summary>
 sealed class McpKnowledgeServer(ConfigRoot config, ProfileContext profiles, TokenStore tokens, ICapacitorHttpClient http,
         TelemetryStartup startup, GitProviderRouter router, WorkingDirectory workdir, TimeProvider time) {
-    public async Task<int> RunAsync() {
-        var baseUrl = profiles.Resolution.ServerUrl!;
-
-        // The repo and the client are resolved by the first tool call: the server is spawned for every
-        // session and most never call it, so startup stays local-only.
+    public Task<int> RunAsync() {
+        // The repository is resolved by the first tool call: the server is spawned for every session and most never call it.
         var repository = new CwdRepository(config, workdir.Path, router, time);
-        var tools      = BuildToolsList();
+        var server     = new McpServerDescriptor("kcap-knowledge", "knowledge", ServerInstructions, BuildToolsList()) {
+            ConfigureClient = client => client.Timeout = Timeout.InfiniteTimeSpan,
+        };
 
-        var loggedIn = false;
-        try { loggedIn = await tokens.LoadForProfileAsync(profiles.Name) is not null; } catch { }
-
-        var telemetry = CliTelemetry.Start(startup with { Command = "mcp-server" }, config, time);
-        telemetry.AddSharedProperty("logged_in", loggedIn);
-
-        await using var mcp = new McpTelemetry(telemetry);
-
-        var urlOk = HttpClientExtensions.IsAcceptableUrl(baseUrl);
-        using var sessionClient = new OnDemand<HttpClient>(async () => {
-            var created = await http.ForSessionAsync();
-            created.Timeout = Timeout.InfiniteTimeSpan;
-            return created;
-        });
-
-        async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            if (!urlOk)
-                return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
-
-            try {
-                var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync(client, baseUrl));
-            } catch (Exception ex) {
-                // The detail goes to stderr, not the client: an IO error's message can carry local paths.
-                await Console.Error.WriteLineAsync($"kcap mcp knowledge: unexpected error handling tools/call: {ex}");
-                return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);
-            }
-        }
-
-        async Task<string> TimedDispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            var start = time.GetTimestamp();
-            var tool  = McpTelemetry.SafeToolName(callRequest);
-            var ok    = false;
-
-            try {
-                var response = await DispatchToolCallAsync(callId, callRequest);
-                ok = McpTelemetry.ResponseOk(response);
-                return response;
-            } finally {
-                mcp.ToolCalled("kcap-knowledge", tool, ok, CommandTiming.ElapsedMs(start, time));
-            }
-        }
-
-        await using var stdin  = Console.OpenStandardInput();
-        await using var stdout = Console.OpenStandardOutput();
-        using var       reader = new StreamReader(stdin, Encoding.UTF8);
-        await using var writer = new StreamWriter(stdout, new UTF8Encoding(false));
-        writer.AutoFlush = true;
-
-        await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
-            null         => BuildErrorResponse(id, -32600, "Invalid request: method must be a string"),
-            "initialize" => BuildInitializeResponse(id, request),
-            "tools/list" => ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult),
-            _            => McpProtocol.TryHandleStandardMethod(method, id)
-                            ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
-        }, "knowledge");
-
-        return 0;
+        return McpServerHost.RunAsync(server, new(config, profiles, tokens, http, startup, time),
+            async (id, request, client, baseUrl) =>
+                await HandleToolCallAsync(id, request, client, baseUrl, await repository.GetHashAsync(client, baseUrl)));
     }
 
     internal static readonly TimeSpan RequestBudget = TimeSpan.FromSeconds(100);
@@ -99,19 +41,13 @@ sealed class McpKnowledgeServer(ConfigRoot config, ProfileContext profiles, Toke
         "list_category_merges proposes facts filed under different categories that read as the same lesson: " +
         "show the user both texts and merge_categories or dismiss_category_merge only on their decision.";
 
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
-        ToResponse<McpInitResult>(
-            id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-knowledge", "1.0.0"), ServerInstructions),
-            McpJsonContext.Default.McpInitResult);
-
     internal async Task<string> HandleToolCallAsync(
             JsonNode id, JsonObject request, HttpClient client, string baseUrl, string? cwdRepoHash) {
         var paramsNode = request["params"] as JsonObject;
         var toolName   = paramsNode?["name"] is JsonValue name && name.TryGetValue<string>(out var n) ? n : null;
         var arguments  = paramsNode?["arguments"] as JsonObject;
 
-        if (toolName is null) return BuildErrorResponse(id, -32602, "Missing params.name");
+        if (toolName is null) return McpResponses.Error(id, -32602, "Missing params.name");
 
         using var budget = new CancellationTokenSource(RequestBudget, time);
         var ct = budget.Token;
@@ -135,20 +71,20 @@ sealed class McpKnowledgeServer(ConfigRoot config, ProfileContext profiles, Toke
             var body = await response.Content.ReadAsStringAsync(ct);
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
-                return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+                return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
 
             if (!response.IsSuccessStatusCode)
-                return BuildToolResult(id, body.Length == 0
+                return McpResponses.ToolResult(id, body.Length == 0
                     ? $"Error: HTTP {(int)response.StatusCode} (no body)"
                     : $"Error: HTTP {(int)response.StatusCode} — {body}", isError: true);
 
-            return BuildToolResult(id, body.Length == 0 ? $"OK: HTTP {(int)response.StatusCode}" : body);
+            return McpResponses.ToolResult(id, body.Length == 0 ? $"OK: HTTP {(int)response.StatusCode}" : body);
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (OperationCanceledException) when (budget.IsCancellationRequested) {
-            return BuildToolResult(id, "Error: the server did not answer in time.", isError: true);
+            return McpResponses.ToolResult(id, "Error: the server did not answer in time.", isError: true);
         }
     }
 
@@ -346,27 +282,6 @@ sealed class McpKnowledgeServer(ConfigRoot config, ProfileContext profiles, Toke
     }
 
     static StringContent Json(JsonObject body) => new(body.ToJsonString(), Encoding.UTF8, "application/json");
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        };
-        return envelope.ToJsonString();
-    }
 
     static McpSchemaProperty Strings(string description) => new("array", description, new("string", "One value."));
 

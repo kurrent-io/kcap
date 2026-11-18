@@ -1,4 +1,6 @@
+using System.Reactive;
 using Capacitor.Cli.Core.Handoff;
+using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
@@ -10,12 +12,14 @@ public sealed class HandoffOutcomeViewModel {
     public const string SignInPartlyNote = "Your kcap sign-in was rejected partway, so only some of the previous session's work was carried over. Sign in again before your next hand-off.";
     public const string InterruptedNote = "The hand-off was cut short before its work items and plans were carried over.";
 
-    public HandoffOutcomeViewModel(HandoffOutcomeDto outcome) {
+    public HandoffOutcomeViewModel(HandoffOutcomeDto outcome, Func<Task>? dismiss = null) {
         Header = $"Continued from {(string.IsNullOrWhiteSpace(outcome.SourceTitle) ? outcome.SourceSessionId : HandoffOutcomeRow.Fold(outcome.SourceTitle))}";
         Note = NoteFor(outcome);
         NoteNeedsAttention = outcome.State is "failed" or "unauthorized" or "interrupted"
             || outcome is { State: "refused", Detail: not "source_active" };
         Rows = [.. outcome.Items.Select(HandoffOutcomeRow.From)];
+        CanDismiss = dismiss is not null;
+        DismissCommand = ReactiveCommand.CreateFromTask(dismiss ?? (() => Task.CompletedTask));
     }
 
     public string Header { get; }
@@ -23,6 +27,8 @@ public sealed class HandoffOutcomeViewModel {
     public bool HasNote => Note is not null;
     public bool NoteNeedsAttention { get; }
     public IReadOnlyList<HandoffOutcomeRow> Rows { get; }
+    public bool CanDismiss { get; }
+    public ReactiveCommand<Unit, Unit> DismissCommand { get; }
 
     static string? NoteFor(HandoffOutcomeDto outcome) {
         var partly = outcome.Items.Any(item => item.Result == "carried");

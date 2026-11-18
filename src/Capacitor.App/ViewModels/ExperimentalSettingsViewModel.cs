@@ -2,7 +2,6 @@ using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.LocalIpc;
 using ReactiveUI.Reactive;

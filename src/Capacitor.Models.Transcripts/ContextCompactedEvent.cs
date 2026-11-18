@@ -26,4 +26,19 @@ public sealed record ContextCompactedEvent {
     [JsonPropertyName("replacement_history_entries")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? ReplacementHistoryEntries { get; init; }
+
+    /// Context size before the compaction, in tokens; a Claude boundary carries it.
+    [JsonPropertyName("pre_tokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? PreTokens { get; init; }
+
+    /// Context size after it; older Claude builds do not write it.
+    [JsonPropertyName("post_tokens")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? PostTokens { get; init; }
+
+    /// `auto` or `manual`.
+    [JsonPropertyName("trigger")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Trigger { get; init; }
 }

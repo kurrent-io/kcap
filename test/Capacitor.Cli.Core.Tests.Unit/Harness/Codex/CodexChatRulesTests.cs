@@ -233,4 +233,63 @@ public class CodexChatRulesTests {
         var row = P(UserItem("<system-reminder><command>pwd</command></system-reminder>\n<user_shell_command>\n<command>\nls\n</command>\n</user_shell_command>")).Single();
         await Assert.That(row.Text).IsEqualTo("! ls");
     }
+
+    const string TagLed = "<environment_context> is what I mean by context";
+
+    /// A stored event as the server returns it, with what it kept beside the payload restored, then projected.
+    static IReadOnlyList<AcpEventEnvelope> Stored(string payloadJson, string? vendors = null, string? metadata = null) {
+        var rules   = TranscriptChat.RulesFor("codex")!;
+        var payload = CanonicalEventJson.TryParse(CanonicalEventTypes.UserMessageReceived, payloadJson)!;
+        rules.RestoreServerFacts(payload, vendors is null ? null : System.Text.Json.JsonDocument.Parse(vendors).RootElement.Clone(), metadata);
+        return TranscriptChat.Project(new CanonicalEvent(CanonicalEventTypes.UserMessageReceived, payload, Guid.Empty, Received), rules).Envelopes;
+    }
+
+    static string Content(string text) => $$"""{"content":{{System.Text.Json.JsonSerializer.Serialize(text)}}}""";
+
+    /// The two places the server keeps a message's content item kinds read the same: every part the person's
+    /// shows the line whole, a leading tag included.
+    [Test]
+    [Arguments("""{"codex":{"turn_id":"t1","content_item_kinds":["user.text"]}}""", null)]
+    [Arguments(null, """{"$codexTurnId":"t1","$codexContentItemKinds":"user.text","$vendor":"codex"}""")]
+    public async Task A_stored_line_whose_kinds_are_all_the_persons_shows_whole(string? vendors, string? metadata) {
+        var row = Stored(Content(TagLed), vendors, metadata).Single();
+        await Assert.That(row.Kind).IsEqualTo(AcpEventKind.UserMessage);
+        await Assert.That(row.Text).IsEqualTo(TagLed);
+    }
+
+    /// No kinds is an older server, or an older rollout: the text alone decides, as it always did.
+    [Test]
+    [Arguments(null, null)]
+    [Arguments("""{"pi":{"entry_id":"e"}}""", null)]
+    [Arguments(null, """{"$codexTurnId":"t1"}""")]
+    [Arguments(null, "{not json")]
+    [Arguments("""{"codex":{"content_item_kinds":["environments.environment_context"]}}""", null)]
+    [Arguments(null, """{"$codexContentItemKinds":""}""")]
+    public async Task A_stored_line_without_the_persons_kinds_keeps_the_text_only_reading(string? vendors, string? metadata) =>
+        await Assert.That(Stored(Content(TagLed), vendors, metadata)).IsEmpty();
+
+    /// The message's own slug is Codex's record; what the server kept beside it only fills what the slug lacks.
+    [Test]
+    public async Task Kinds_the_payload_carries_win_over_the_servers() {
+        var payload = """{"content":"<environment_context> is what I mean by context","extensions":{"codex":{"content_item_kinds":["environments.environment_context"]}}}""";
+        await Assert.That(Stored(payload, """{"codex":{"content_item_kinds":["user.text"]}}""")).IsEmpty();
+    }
+
+    /// The shared fixture's lines, rollout lines as Codex writes them: a line shows as the person's exactly when
+    /// the fixture says it is, by its content item kinds when it has them, and then whole, a leading tag included.
+    [Test]
+    public async Task Codex_user_lines_show_as_the_persons_exactly_when_the_fixture_says() {
+        var chat = TranscriptChat.For("codex")!;
+        foreach (var line in File.ReadLines(Path.Join(AppContext.BaseDirectory, "fixtures", "codex", "codex-user-lines.jsonl"))) {
+            using var doc = System.Text.Json.JsonDocument.Parse(line);
+            var human = doc.RootElement.GetProperty("expect_human").GetBoolean();
+            var text  = doc.RootElement.GetProperty("payload").GetProperty("content")[0].GetProperty("text").GetString()!;
+
+            var result = chat.ProjectWithInputs(line, 1, Received, chat.CreateContext("a1", null));
+            var rows   = result.Envelopes.Where(e => e.Kind == AcpEventKind.UserMessage).ToList();
+
+            await Assert.That(rows.Count).IsEqualTo(human ? 1 : 0).Because(line);
+            if (human) await Assert.That(rows[0].Text).IsEqualTo(text).Because(line);
+        }
+    }
 }

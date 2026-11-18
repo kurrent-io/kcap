@@ -2,8 +2,25 @@ kcap disable — Stop recording and delete all session data
 
 Usage: kcap disable [sessionId]
 
-Stops the watcher, prevents future hook events from being sent,
-and deletes all session data from the server (streams + read models).
+Stops the watchers and the daemon recorders, which make no final drain,
+prevents future hook events from being sent, and deletes all session
+data from the server (streams + read models). Every daemon on this
+machine is asked.
+
+Exits 1 and says why when something stays unconfirmed: a send may still
+land, a daemon or a watcher did not stop or answer, or the data is on
+another server. A server it can't reach exits 0 with the data kept; run
+it again to delete. Once a deletion ran before recording was confirmed
+stopped, every later run says that what landed after it may still be on
+the server, out of kcap's reach; the server's administrator can check.
+Once a run found a daemon sending the session to another server, every
+later run names that server, where this command can't delete. A run
+that can't record either of these for later runs says so.
+
+It does not stop a live hosted agent's own output and tools, which keep
+reaching the server until the agent ends, or the agent's status and
+heartbeat, which carry no session content. The command says when an
+agent is running the session.
 
 Arguments:
   sessionId               Session ID (defaults to KCAP_SESSION_ID

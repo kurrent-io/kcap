@@ -7,7 +7,7 @@ namespace Capacitor.Cli.Core.Mcp;
 /// record of the work (sessions, plans, work items), the destination the hooks already post to
 /// unprompted. That record is shared, so a write like merging two work items reaches past this
 /// session and rests on the server's own refusals. kcap-flows launches a paid hosted agent;
-/// kcap-memory, kcap-pages and kcap-knowledge can change shared content or its audience, so they
+/// kcap-memory, kcap-pages, kcap-sharing and kcap-knowledge can change shared content or its audience, so they
 /// rely on each tool's annotations instead: a harness that reads them still runs the reads and
 /// additive writes unprompted and gates the destructive ones. <paramref name="ToolTimeout"/> is how long one of
 /// the server's tool calls may block; a harness with a per-server tool timeout has it written into
@@ -44,7 +44,9 @@ public static class KcapMcpServers {
         new("kcap-handoff", ["mcp", "handoff"], NeedsProjectCwd: false,
             "Continue a session whose agent is gone: attach this session to its work items and unfinished plans.", AutoApprove: true),
         new("kcap-pages", ["mcp", "pages"], NeedsProjectCwd: true,
-            "Publish a self-contained HTML page — a plan, a report, a comparison, the artifact the user asked for — and get back a link to share. Sandboxed with no network access, so everything is inlined; private until you set visibility."),
+            "Publish a self-contained HTML page — a plan, a report, a comparison, the artifact the user asked for — and get back a link to share. Sandboxed with no network access, so everything is inlined; private until you share it with the kcap-sharing tools."),
+        new("kcap-sharing", ["mcp", "sharing"], NeedsProjectCwd: false,
+            "Share what kcap shares, such as a page, one grant at a time by the object_key its record carries: find who to share with, give or move a grant, take one away, list who it is shared with."),
         new("kcap-analytics", ["mcp", "analytics"], NeedsProjectCwd: true,
             "Query the org's AI coding-agent analytics (sessions, tools, tokens, cost, commits, PRs, evals) with read-only SQL. Repo-aware: defaults to the current repo; pass scope 'global' for org-wide.", AutoApprove: true),
         new("kcap-knowledge", ["mcp", "knowledge"], NeedsProjectCwd: true,

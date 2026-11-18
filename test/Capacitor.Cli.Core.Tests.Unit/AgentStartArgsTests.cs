@@ -70,7 +70,7 @@ public class AgentStartArgsTests {
 
     [Test]
     public async Task Daemon_flag_followed_by_another_flag_is_an_error_not_passed_through() {
-        // Without the fix, `--daemon --private` would set DaemonName = "--private" and crash
+        // Otherwise `--daemon --private` would set DaemonName = "--private" and crash
         // later in DaemonNameResolver.Resolve instead of failing cleanly here.
         var a = AgentStartArgs.Parse(["claude", "--daemon", "--private"]);
         await Assert.That(a.Error).IsNotNull();

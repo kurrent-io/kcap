@@ -26,8 +26,8 @@ internal sealed record CursorBorrowedReviewArtifact(string Version, string Launc
 /// independent facts — a future Cursor release printing a bare semver would diverge from the
 /// directory name without anything being wrong, and nothing in production compares them.</para>
 ///
-/// <para>Cursor auto-updated past this record on 2026-07-23, so the digests below describe an older
-/// build than the one most machines run. Under trust-by-default that is a stale note, not a fault —
+/// <para>Cursor auto-updates, so the digests below can describe an older build than the one most
+/// machines run. Under trust-by-default that is a stale note, not a fault —
 /// refresh it by re-running the maintainer probe suite against the installed build, never by
 /// recomputing the hashes alone (that would record a validation that never happened).</para>
 /// </summary>

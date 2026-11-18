@@ -157,7 +157,7 @@ public class WorkspaceSpanStoreTests {
         await rig.OpenAsync();
         rig.Write("survives.txt", "x");
         var span = JsonSerializer.Deserialize(File.ReadAllText(rig.Baselines().Single()), WorkspaceJsonContext.Default.WorkspaceSpan)!;
-        var sessionSpool = Path.Combine(rig.Spool.DirectoryPath, WorkspaceRig.Session);
+        var sessionSpool = Path.Join(rig.Spool.DirectoryPath, WorkspaceRig.Session);
         Directory.CreateDirectory(sessionSpool);
         File.WriteAllText(Path.Combine(sessionSpool, $"{span.SpanId:N}.json.{Guid.NewGuid():N}.tmp"), "{\"torn");
 
@@ -213,7 +213,7 @@ public class WorkspaceSpanStoreTests {
         rig.Write("unsent.txt", "x");
         // A file where the session's spool directory belongs makes every spool write fail.
         Directory.CreateDirectory(rig.Spool.DirectoryPath);
-        var blocker = Path.Combine(rig.Spool.DirectoryPath, WorkspaceRig.Session);
+        var blocker = Path.Join(rig.Spool.DirectoryPath, WorkspaceRig.Session);
         File.WriteAllText(blocker, "");
 
         await rig.Store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget);
@@ -223,6 +223,69 @@ public class WorkspaceSpanStoreTests {
         File.Delete(blocker);
         await rig.CloseAsync();
         await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Select(c => c.Path)).IsEquivalentTo(["unsent.txt"]);
+    }
+
+    /// <summary>A baseline the end could not close survives into the next run. That run starts its own, so the earlier
+    /// run's later close, bounded to the spans opened by its end, cannot take the new run's changes; a turn of the
+    /// same run still carries the survivor on.</summary>
+    [Test]
+    [Arguments(WorkspaceOpen.Run, false)]
+    [Arguments(WorkspaceOpen.Turn, true)]
+    public async Task A_baseline_that_survives_into_a_new_run_is_replaced(WorkspaceOpen mode, bool carriedOn) {
+        using var rig = new WorkspaceRig();
+        await rig.OpenAsync();
+        rig.Write("earlier.txt", "x");
+        var endedAt = rig.Time.GetUtcNow();
+        rig.Time.Advance(TimeSpan.FromMinutes(1));
+
+        Directory.CreateDirectory(rig.Spool.DirectoryPath);
+        var blocker = Path.Join(rig.Spool.DirectoryPath, WorkspaceRig.Session);
+        File.WriteAllText(blocker, "");
+        await rig.OpenAsync(mode: mode);
+        File.Delete(blocker);
+
+        rig.Write("later.txt", "x");
+        await rig.Store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget, new WorkspaceRunCutoff(null, endedAt));
+
+        await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Any(c => c.Path == "later.txt")).IsEqualTo(carriedOn);
+    }
+
+    /// <summary>An end that knows its run closes that run's spans only: not a later run's, and not one whose run was
+    /// unreadable, which the next run's start replaces. A span from before spans named a run falls back to the end's time.</summary>
+    [Test]
+    [Arguments("run-a", true)]
+    [Arguments("run-b", false)]
+    [Arguments("unknown", false)]
+    [Arguments("legacy", true)]
+    public async Task An_end_bounded_to_its_run_closes_that_runs_spans_only(string spanRun, bool closed) {
+        using var rig = new WorkspaceRig();
+        var run = spanRun switch { "legacy" => null, "unknown" => new WorkspaceRun(null), _ => new WorkspaceRun(spanRun) };
+        await rig.Store.OpenAsync(WorkspaceRig.Session, rig.Repo.Path, WorkspaceOpen.Run, WorkspaceRig.Budget, run);
+        rig.Write("made.txt", "x");
+
+        await rig.Store.EndSessionAsync(WorkspaceRig.Session, WorkspaceRig.Budget, new WorkspaceRunCutoff("run-a", rig.Time.GetUtcNow()));
+
+        await Assert.That(rig.Spooled().SelectMany(r => r.Changes).Any(c => c.Path == "made.txt")).IsEqualTo(closed);
+    }
+
+    /// <summary>A session directory that cannot be listed may still hold the run's spans, so the close owed for them stays.</summary>
+    [Test]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task A_session_dir_that_cannot_be_listed_still_holds_the_run() {
+        Skip.When(OperatingSystem.IsWindows(), "a mode bit is what makes the directory unlistable");
+        using var rig = new WorkspaceRig();
+        await rig.Store.OpenAsync(WorkspaceRig.Session, rig.Repo.Path, WorkspaceOpen.Run, WorkspaceRig.Budget, new WorkspaceRun("run-a"));
+        var run = new WorkspaceRunCutoff("run-a", rig.Time.GetUtcNow());
+        await Assert.That(rig.Store.Holds(WorkspaceRig.Session, run)).IsTrue();
+
+        var mode = File.GetUnixFileMode(rig.SessionSpanDir);
+        File.SetUnixFileMode(rig.SessionSpanDir, UnixFileMode.None);
+
+        try {
+            await Assert.That(rig.Store.Holds(WorkspaceRig.Session, run)).IsTrue();
+        } finally {
+            File.SetUnixFileMode(rig.SessionSpanDir, mode);
+        }
     }
 
     /// <summary>A Stop whose snapshot is slow must not hold the lock an <c>EnterWorktree</c> open of the same

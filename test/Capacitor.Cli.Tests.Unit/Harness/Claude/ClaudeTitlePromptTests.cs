@@ -12,8 +12,11 @@ public class ClaudeTitlePromptTests {
 
     WatcherPaths Watchers => new(Tmp.PathTo("watchers"));
 
-    static string Prompt(string sessionId) =>
-        new JsonObject { ["hook_event_name"] = "UserPromptSubmit", ["session_id"] = sessionId, ["prompt"] = "hi" }.ToJsonString();
+    static string Prompt(string sessionId, string? permissionMode = "bypassPermissions") {
+        var hook = new JsonObject { ["hook_event_name"] = "UserPromptSubmit", ["session_id"] = sessionId, ["prompt"] = "hi" };
+        if (permissionMode is not null) hook["permission_mode"] = permissionMode;
+        return hook.ToJsonString();
+    }
 
     string Run(string body, TextWriter? stderr = null, bool bashTool = true) {
         using var stdout = new StringWriter();
@@ -55,6 +58,30 @@ public class ClaudeTitlePromptTests {
     public async Task Asks_nothing_when_claude_has_no_bash_tool() {
         await Assert.That(Run(Prompt(Sid), bashTool: false)).IsEqualTo("");
         await Assert.That(Directory.Exists(Watchers.Directory)).IsFalse();
+    }
+
+    /// <summary>Outside bypass the Bash call stops for approval, or is denied under <c>claude -p</c>; no marker
+    /// either, or the session could never be asked after a switch to bypass.</summary>
+    [Test]
+    [Arguments("default")]
+    [Arguments("acceptEdits")]
+    [Arguments("plan")]
+    [Arguments("auto")]
+    [Arguments("dontAsk")]
+    [Arguments(null)]
+    public async Task Asks_nothing_and_leaves_no_marker_outside_bypass_permissions(string? permissionMode) {
+        await Assert.That(Run(Prompt(Sid, permissionMode))).IsEqualTo("");
+        await Assert.That(File.Exists(Tmp.PathTo("watchers", $"{Sid}.title-requested"))).IsFalse();
+    }
+
+    [Test]
+    public async Task Asks_on_the_first_prompt_after_a_switch_to_bypass_permissions() {
+        var before = Run(Prompt(Sid, "default"));
+        var after  = Run(Prompt(Sid));
+
+        await Assert.That(before).IsEqualTo("");
+        await Assert.That(JsonNode.Parse(after)!["hookSpecificOutput"]!["additionalContext"]!.GetValue<string>())
+            .Contains("kcap set-title --auto ");
     }
 
     [Test]

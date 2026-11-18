@@ -1,0 +1,238 @@
+[
+  {
+    "line": 0,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "SessionStarted",
+        "id": "3b18312a-ff14-40d2-be84-1aa53e5ef921",
+        "timestamp": "2026-11-05T03:44:15.0840000\u002B00:00",
+        "recordTimestamp": "2026-11-05T03:44:15.084Z",
+        "payload": {
+          "timestamp": "2026-11-05T03:44:15.084Z",
+          "extensions": {
+            "copilot": {
+              "cwd": "/tmp/vscode-copilot-test",
+              "git_root": "/tmp/vscode-copilot-test",
+              "branch": "master",
+              "repository": null,
+              "repository_host": null,
+              "host_type": null,
+              "copilot_version": "1.0.103-unstable.r41379698026.g3219c66",
+              "producer": "copilot-agent",
+              "source": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 141,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "SessionStarted",
+        "id": "3a6d8623-62ab-4845-a98a-7c31781edd4f",
+        "timestamp": "2026-11-05T03:44:15.0870000\u002B00:00",
+        "recordTimestamp": "2026-11-05T03:44:15.087Z",
+        "payload": {
+          "previous_session_id": "d6c19ec25a1647b2a311a59ed6609a25",
+          "timestamp": "2026-11-05T03:44:15.087Z",
+          "extensions": {
+            "copilot": {
+              "cwd": null,
+              "git_root": null,
+              "branch": null,
+              "repository": null,
+              "repository_host": null,
+              "host_type": null,
+              "copilot_version": null,
+              "producer": null,
+              "source": "fork"
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": {
+          "$copilotForkMarker": "true"
+        },
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 151,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "ba64d21e-a0fc-4823-b2ae-ba01d2aba105",
+        "timestamp": "2026-11-05T03:44:18.5730000\u002B00:00",
+        "recordTimestamp": "2026-11-05T03:44:18.573Z",
+        "payload": {
+          "content": "What was my first prompt?",
+          "timestamp": "2026-11-05T03:44:18.573Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 173,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "2e60fa52-7fae-4c94-8b07-986558a6af40",
+        "timestamp": "2026-11-05T03:56:51.0940000\u002B00:00",
+        "recordTimestamp": "2026-11-05T03:56:51.094Z",
+        "payload": {
+          "content": "What was my first prompt?",
+          "timestamp": "2026-11-05T03:56:51.094Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 184,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CopilotUsageBackfilled",
+        "id": "3b4b3842-2edd-4d17-8f86-2abda177f0a6",
+        "timestamp": "2026-11-05T03:56:53.0060000\u002B00:00",
+        "recordTimestamp": "2026-11-05T03:56:53.006Z",
+        "payload": {
+          "model": "claude-sonnet-5.5",
+          "input_tokens": 4,
+          "output_tokens": 25,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 189068,
+          "reasoning_tokens": 0,
+          "session_model": "claude-sonnet-5.5",
+          "request_count": null,
+          "request_cost": null,
+          "nano_aiu": null
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 185,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "027e339f-c500-dc3d-bb18-e53caee0288f",
+        "timestamp": "2026-11-05T03:56:53.0190000\u002B00:00",
+        "recordTimestamp": "2026-11-05T03:56:53.019Z",
+        "payload": {
+          "content": "Your first prompt was: \u0022Read a.txt and reply with its contents\u0022.",
+          "timestamp": "2026-11-05T03:56:53.019Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 189,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CopilotSessionMetrics",
+        "id": "ade49d17-a835-499e-b285-b35923e136f9",
+        "timestamp": "2026-11-05T03:56:53.2400000\u002B00:00",
+        "recordTimestamp": "2026-11-05T03:56:53.240Z",
+        "payload": {
+          "total_nano_aiu": 47292800000,
+          "total_premium_requests": 1.0000000000000002,
+          "cumulative_across_runs": true,
+          "run_marker": "bafbe9d5-8717-4bd1-98dc-be96d2fc374f",
+          "lines_added": null,
+          "lines_removed": null,
+          "files_modified_count": null,
+          "files_modified": null
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 191,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "CopilotUsageBackfilled",
+        "id": "b0a77db6-3701-404a-8925-8124f3ca8a09",
+        "timestamp": "2026-11-05T03:57:38.3590000\u002B00:00",
+        "recordTimestamp": "2026-11-05T03:57:38.359Z",
+        "payload": {
+          "model": "claude-sonnet-5.5",
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "reasoning_tokens": null,
+          "session_model": "claude-sonnet-5.5",
+          "request_count": null,
+          "request_cost": null,
+          "nano_aiu": null
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "CopilotSessionMetrics",
+        "id": "3c3b7931-d9a1-5c14-7701-3395838383f9",
+        "timestamp": "2026-11-05T03:57:38.3590000\u002B00:00",
+        "recordTimestamp": "2026-11-05T03:57:38.359Z",
+        "payload": {
+          "total_nano_aiu": 47292800000,
+          "total_premium_requests": 1.0000000000000002,
+          "cumulative_across_runs": true,
+          "run_marker": "bafbe9d5-8717-4bd1-98dc-be96d2fc374f",
+          "lines_added": null,
+          "lines_removed": null,
+          "files_modified_count": null,
+          "files_modified": null
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  }
+]

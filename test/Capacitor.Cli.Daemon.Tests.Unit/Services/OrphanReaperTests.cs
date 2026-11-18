@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Phase B (D4 §6.4(3)): <see cref="OrphanReaper"/> — reaps hosted-agent children that outlived
+/// <see cref="OrphanReaper"/> — reaps hosted-agent children that outlived
 /// a prior daemon run. Acts only on test-owned <see cref="DummyProcess"/> instances. OS-aware: the
 /// RECORD pass confirms-and-kills on a proven exact (pid, start-identity) match on every platform
 /// (macOS uses the exact <c>mac:{bootsessionuuid}:{p_uniqueid}</c> incarnation identity — M1-A;
@@ -50,8 +50,8 @@ public class OrphanReaperTests {
         // Record DELETION: on Linux/Windows the kill confirms and the record is dropped on the first
         // pass. On macOS the daemon is NOT the child's parent, so KillConfirmAsync may observe the
         // not-yet-parent-reaped zombie as still "alive" within its confirm window (macOS IsAlive has no
-        // zombie detection) and defer deletion to the next sweep — the spec's "eventual, next
-        // boot/heartbeat" macOS recovery. A second sweep (the heartbeat re-run), after WaitForExit has
+        // zombie detection) and defer deletion to the next sweep — macOS recovery is eventual, on the
+        // next boot/heartbeat. A second sweep (the heartbeat re-run), after WaitForExit has
         // let the pid settle to fully-dead, deletes the record deterministically on every platform.
         await reaper.ReapOnceAsync();
         await Assert.That(store.ReadAll()).IsEmpty();

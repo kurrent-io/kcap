@@ -30,7 +30,7 @@ public static class GitRepository {
 
     /// <summary>
     /// Resolves a LINKED-WORKTREE checkout to its main repository root, so user-facing repository
-    /// lists show actual repositories (GH #655). A linked worktree's <c>.git</c> is a file whose
+    /// lists show actual repositories. A linked worktree's <c>.git</c> is a file whose
     /// <c>gitdir:</c> target points into <c>&lt;main&gt;/.git/worktrees/&lt;name&gt;</c> — that
     /// main root is returned. A submodule's <c>.git</c> file points into <c>.git/modules</c>
     /// instead and is left alone: a submodule is a real repository of its own. A path whose

@@ -1,5 +1,8 @@
 using System.Net;
+using System.Text.Json;
 using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Transcripts;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
 
@@ -31,7 +34,7 @@ public class LifecycleSpoolDrainTests {
         });
         using var client = new HttpClient(handler);
 
-        await LifecycleSpoolDrain.RunAsync(Markers, client, "http://s", life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
 
         await Assert.That(posted).DoesNotContain("/hooks/transcript");
@@ -56,7 +59,7 @@ public class LifecycleSpoolDrainTests {
         });
         using var client = new HttpClient(handler);
 
-        await LifecycleSpoolDrain.RunAsync(Markers, client, "http://s", life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
 
         await Assert.That(posted).Contains("/hooks/transcript");
@@ -68,6 +71,207 @@ public class LifecycleSpoolDrainTests {
             var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
             return impl(request, body);
         }
+    }
+
+    const string Capabilities = "/api/ingest/capabilities";
+
+    static string ClaudeId(int n) => $"10000000-0000-4000-8000-{n:D12}";
+
+    static string ClaudeUser(int n) =>
+        $$$"""{"type":"user","uuid":"{{{ClaudeId(n)}}}","parentUuid":null,"timestamp":"2026-11-16T08:00:{{{n:D2}}}Z","message":{"role":"user","content":"line {{{n}}}"}}""";
+
+    static string ClaudeAssistant(int n) =>
+        $$$$"""{"type":"assistant","uuid":"{{{{ClaudeId(n)}}}}","parentUuid":"{{{{ClaudeId(n - 1)}}}}","timestamp":"2026-11-16T08:00:{{{{n:D2}}}}Z","message":{"model":"claude-x","content":[{"type":"text","text":"reply {{{{n}}}}"}],"usage":{"input_tokens":10,"output_tokens":5}}}""";
+
+    /// Drains the spool through the HTTP wrapper and returns every request, in order.
+    async Task<List<(string Path, string Body)>> DrainOverHttp(HookSpool life, TranscriptSpool tx, bool canonical) {
+        var requests = new List<(string, string)>();
+        using var handler = new StubHandler((req, body) => {
+            var path = req.RequestUri!.AbsolutePath;
+            requests.Add((path, body));
+
+            return path != Capabilities ? new HttpResponseMessage(HttpStatusCode.OK)
+                : canonical ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"canonical_format":1}""") }
+                : new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var client = new HttpClient(handler);
+
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+
+        return requests;
+    }
+
+    /// <summary>An older CLI's spool names no transcript. Projected without the lines before it, a tail could count a
+    /// repeated usage the raw path knows is not new.</summary>
+    [Test]
+    public async Task A_spooled_claude_tail_past_line_zero_without_its_transcript_drains_raw_as_spooled() {
+        using var tmp = new TempDir();
+        var sid     = Guid.NewGuid().ToString("N");
+        var life    = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx      = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var spooled = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(5)], [5], null);
+        tx.Append(sid, spooled);
+
+        var requests = await DrainOverHttp(life, tx, canonical: true);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo(["/hooks/transcript"]);
+        await Assert.That(requests[0].Body).IsEqualTo(spooled);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    [Test]
+    public async Task A_spooled_claude_tail_from_line_zero_drains_canonical() {
+        using var tmp = new TempDir();
+        var sid  = Guid.NewGuid().ToString("N");
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(0)], [0], null));
+
+        var requests = await DrainOverHttp(life, tx, canonical: true);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, CanonicalRoute.HttpPath]);
+        using var sent = JsonDocument.Parse(requests[1].Body);
+        await Assert.That(sent.RootElement.GetProperty("events").GetArrayLength()).IsEqualTo(1);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    [Test]
+    public async Task With_the_capability_off_a_spooled_claude_tail_drains_raw_as_spooled() {
+        using var tmp = new TempDir();
+        var sid     = Guid.NewGuid().ToString("N");
+        var life    = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx      = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var spooled = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(5)], [5], null, transcriptPath: tmp.PathTo("t.jsonl"));
+        tx.Append(sid, spooled);
+
+        var requests = await DrainOverHttp(life, tx, canonical: false);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, "/hooks/transcript"]);
+        await Assert.That(requests[1].Body).IsEqualTo(spooled);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    /// Drains the spool through the HTTP wrapper, with the canonical route answering <paramref name="canonical"/>, and
+    /// returns every request, in order.
+    async Task<List<(string Path, string Body)>> DrainAnswering(HookSpool life, TranscriptSpool tx, HttpStatusCode canonical) {
+        var requests = new List<(string, string)>();
+        using var handler = new StubHandler((req, body) => {
+            var path = req.RequestUri!.AbsolutePath;
+            requests.Add((path, body));
+
+            return path == Capabilities ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"canonical_format":1}""") }
+                : path == CanonicalRoute.HttpPath ? new HttpResponseMessage(canonical)
+                : new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        using var client = new HttpClient(handler);
+
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+
+        return requests;
+    }
+
+    /// <summary>The refusal is the canonical encoding's, so the tail is the raw route's to store, as spooled; the route's
+    /// projection has run past what the server holds, so the stream's next batch goes raw too.</summary>
+    [Test]
+    [Arguments(HttpStatusCode.BadRequest)]
+    [Arguments(HttpStatusCode.RequestEntityTooLarge)]
+    public async Task A_spooled_claude_tail_refused_canonical_for_good_drains_raw_as_spooled(HttpStatusCode refusal) {
+        using var tmp = new TempDir();
+        var sid   = Guid.NewGuid().ToString("N");
+        var life  = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx    = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var first = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(0)], [0], null);
+        var next  = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeAssistant(1)], [1], null);
+        tx.Append(sid, first);
+        tx.Append(sid, next);
+
+        var requests = await DrainAnswering(life, tx, refusal);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, CanonicalRoute.HttpPath, "/hooks/transcript", "/hooks/transcript"], CollectionOrdering.Matching);
+        await Assert.That(requests.Where(r => r.Path == "/hooks/transcript").Select(r => r.Body)).IsEquivalentTo([first, next], CollectionOrdering.Matching);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    /// <summary>A pass runs under a cap of a few seconds, so a server slow to say whether it takes canonical batches gets
+    /// the tail raw, as spooled, while the pass still has room to post it.</summary>
+    [Test]
+    public async Task A_spooled_claude_tail_drains_raw_as_spooled_when_the_capability_probe_hangs() {
+        using var tmp = new TempDir();
+        var sid     = Guid.NewGuid().ToString("N");
+        var life    = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx      = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var spooled = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(0)], [0], null);
+        tx.Append(sid, spooled);
+
+        using var handler = new HangingProbe(Capabilities);
+        using var client  = new HttpClient(handler);
+        // A pass's posts end with its budget.
+        using var cap     = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
+            budget: TimeSpan.FromSeconds(5), ct: cap.Token, time: TimeProvider.System);
+
+        await Assert.That(handler.Requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, "/hooks/transcript"], CollectionOrdering.Matching);
+        await Assert.That(handler.Requests[1].Body).IsEqualTo(spooled);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    /// Answers every request but <c>probe</c>, which it holds until the caller gives up.
+    sealed class HangingProbe(string probe) : HttpMessageHandler {
+        public List<(string Path, string Body)> Requests { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            var path = request.RequestUri!.AbsolutePath;
+            Requests.Add((path, request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct)));
+
+            if (path == probe) await Task.Delay(Timeout.Infinite, ct);
+
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
+    /// <summary>A lapsed credential or a server fault on the canonical route says nothing of the lines: the tail waits in
+    /// the spool for a retry, as it does on the raw route.</summary>
+    [Test]
+    [Arguments(HttpStatusCode.Unauthorized)]
+    [Arguments(HttpStatusCode.ServiceUnavailable)]
+    public async Task A_spooled_claude_tail_answered_retryable_on_the_canonical_route_stays_spooled(HttpStatusCode answer) {
+        using var tmp = new TempDir();
+        var sid  = Guid.NewGuid().ToString("N");
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(0)], [0], null));
+
+        var requests = await DrainAnswering(life, tx, answer);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, CanonicalRoute.HttpPath]);
+        await Assert.That(tx.HasBacklog(sid)).IsTrue();
+    }
+
+    /// <summary>Line 3 repeats line 2's usage, so only a projection that has seen line 2 knows it is not new.</summary>
+    [Test]
+    public async Task A_spooled_claude_tail_projects_after_the_lines_before_it_in_its_transcript() {
+        using var tmp = new TempDir();
+        var sid   = Guid.NewGuid().ToString("N");
+        var life  = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx    = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var lines = new[] { ClaudeUser(0), ClaudeAssistant(1), ClaudeAssistant(2), ClaudeAssistant(3) };
+        // Apart from the spools: a lifecycle spool adopts a stray .jsonl in its directory as one of its own.
+        var path  = tmp.CreateFile("claude/t.jsonl", lines);
+        tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [lines[3]], [3], null, transcriptPath: path));
+
+        var uninterrupted = CanonicalRoute.For("claude", sid, null, true)!;
+        uninterrupted.Encode(new() { SessionId = sid, Lines = lines[..3], LineNumbers = [0, 1, 2] }, DateTimeOffset.UnixEpoch);
+        uninterrupted.Acknowledged();
+        var expected = uninterrupted.Encode(new() { SessionId = sid, Lines = [lines[3]], LineNumbers = [3] }, DateTimeOffset.UnixEpoch);
+
+        var requests = await DrainOverHttp(life, tx, canonical: true);
+
+        using var sent = JsonDocument.Parse(requests.Single(r => r.Path == CanonicalRoute.HttpPath).Body);
+        await Assert.That(sent.RootElement.GetProperty("events").GetRawText())
+            .IsEqualTo(JsonSerializer.Serialize(expected.Events, CapacitorJsonContext.Default.CanonicalBatchEventArray));
     }
 
     /// <summary>A 401 is a lapsed credential, which <c>kcap login</c> repairs: the backlog must
@@ -83,7 +287,7 @@ public class LifecycleSpoolDrainTests {
         using var handler = new StubHandler((_, _) => new HttpResponseMessage(HttpStatusCode.Unauthorized));
         using var client  = new HttpClient(handler);
 
-        await LifecycleSpoolDrain.RunAsync(Markers, client, "http://s", life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
 
         await Assert.That(life.HasBacklog(Sid)).IsTrue();
@@ -102,7 +306,7 @@ public class LifecycleSpoolDrainTests {
         using var handler = new StubHandler((_, _) => new HttpResponseMessage(HttpStatusCode.BadRequest));
         using var client  = new HttpClient(handler);
 
-        await LifecycleSpoolDrain.RunAsync(Markers, client, "http://s", life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
 
         await Assert.That(life.HasBacklog(Sid)).IsFalse();
@@ -119,7 +323,7 @@ public class LifecycleSpoolDrainTests {
 
         var order = new List<string>();
         // currentSessionId=null → a DIFFERENT vendor's kcap invocation replaying a prior session.
-        await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
             lifecyclePoster: (route, body) => { order.Add($"L:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
             transcriptPoster: body => { order.Add($"T:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
@@ -141,7 +345,7 @@ public class LifecycleSpoolDrainTests {
         life.Append(Sid, "session-end/kiro", """{"phase":"end"}""");
 
         var order = new List<string>();
-        await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
             lifecyclePoster: (route, body) => { order.Add($"L:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
             // Transcript poster reports a transient failure — the tail never fully drains.
             transcriptPoster: body => { order.Add($"T:{body}"); return Task.FromResult(DrainOutcome.TransientStop); },
@@ -157,53 +361,56 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(life.HasBacklog(Sid)).IsTrue(); // session-end still spooled
     }
 
-    /// <summary>An owner's marker an abandoned drain left behind is a loss like any other, and a session flagged
-    /// twice is still reported once.</summary>
+    /// <summary>A marked session is reported locally once its tail is settled and nothing is posted for it. Its markers
+    /// then go, except one whose owner is still running: that owner removes it itself once its own drain finishes.</summary>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task delivers_one_needs_import_for_a_session_an_owners_marker_flags(bool alsoShared) {
+    public async Task reports_a_marked_session_locally_and_clears_its_markers_without_posting(bool ownerRunning) {
         using var tmp = new TempDir();
         var life = new HookSpool(tmp.Path, time: TimeProvider.System);
-        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
-        tx.MarkNeedsImport(Sid, "drain did not finish", owner: 4242);
-        if (alsoShared) tx.MarkNeedsImport(Sid, "shutdown tail: redaction of line 3 timed out");
-
-        var order = new List<string>();
-        await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
-            lifecyclePoster: (route, body) => { order.Add($"L:{route}:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
-            transcriptPoster: body => { order.Add($"T:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
-            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
-
-        await Assert.That(order).IsEquivalentTo([$"L:session-needs-import:{{\"session_id\":\"{Sid}\",\"needs_import\":true}}"]);
-    }
-
-    [Test]
-    public async Task delivers_needs_import_marker_even_when_transcript_bytes_exceeded_cap() {
-        using var tmp = new TempDir();
-        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
-        var tx   = new TranscriptSpool(tmp.PathTo("tx"), capBytes: 32, time: TimeProvider.System); // tiny cap
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), capBytes: 32, time: TimeProvider.System);
         life.Append(Sid, "session-start/kiro", """{"phase":"start"}""");
-        tx.Append(Sid, "{\"lines\":[\"" + new string('x', 100) + "\"]}"); // exceeds cap → needs-import marker
+        tx.Append(Sid, "{\"lines\":[\"" + new string('x', 100) + "\"]}"); // over the cap, so marked rather than spooled
+        tx.MarkNeedsImport(Sid, "drain did not finish", owner: ownerRunning ? Environment.ProcessId : int.MaxValue);
         life.Append(Sid, "session-end/kiro", """{"phase":"end"}""");
 
-        await Assert.That(tx.NeedsImport(Sid)).IsTrue();
-
         var order = new List<string>();
-        await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
             lifecyclePoster: (route, body) => { order.Add($"L:{route}:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
             transcriptPoster: body => { order.Add($"T:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
-            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System,
+            reportNeedsImport: sid => order.Add($"R:{sid}"));
 
         await Assert.That(order).IsEquivalentTo([
             """L:session-start/kiro:{"phase":"start"}""",
-            $"L:session-needs-import:{{\"session_id\":\"{Sid}\",\"needs_import\":true}}",
+            $"R:{Sid}",
             """L:session-end/kiro:{"phase":"end"}""",
-        ]);
+        ], CollectionOrdering.Matching);
+        await Assert.That(tx.NeedsImport(Sid)).IsEqualTo(ownerRunning);
     }
 
-    // Task 12 / BLOCKER-3: session-start/subagent-stop/session-end now share one spool
-    // file in prod, so a subagent-stop that arrives (or is only discovered) AFTER session-end was
+    /// <summary>A loss a reader finds after the session's end was delivered is reported all the same.</summary>
+    [Test]
+    public async Task reports_a_marker_left_after_the_end_was_delivered() {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        life.MarkEnded(Sid);
+        tx.MarkNeedsImport(Sid, "final drain did not complete");
+
+        var order = new List<string>();
+        await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
+            lifecyclePoster: (route, body) => { order.Add($"L:{route}:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
+            transcriptPoster: body => { order.Add($"T:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System,
+            reportNeedsImport: sid => order.Add($"R:{sid}"));
+
+        await Assert.That(order).IsEquivalentTo([$"R:{Sid}"]);
+        await Assert.That(tx.NeedsImport(Sid)).IsFalse();
+    }
+
+    // Session-start/subagent-stop/session-end share one spool file in prod, so a subagent-stop that arrives (or is only discovered) AFTER session-end was
     // already delivered is reachable. Same-pass, DrainRoutesAsync's phase-mismatch break already
     // withholds it correctly — but a bare re-run of RunAsync on a FRESH file containing only that
     // straggler would, without a durable "already ended" marker, treat it as an ordinary phase-1
@@ -220,7 +427,7 @@ public class LifecycleSpoolDrainTests {
         var order = new List<string>();
         Task<DrainOutcome> Deliver(string route, string body) { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); }
 
-        await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
             lifecyclePoster: Deliver,
             transcriptPoster: body => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
@@ -233,7 +440,7 @@ public class LifecycleSpoolDrainTests {
         life.Append(Sid, "subagent-stop/kiro", """{"phase":"straggler"}""");
         order.Clear();
 
-        await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
             lifecyclePoster: Deliver,
             transcriptPoster: body => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
@@ -245,11 +452,12 @@ public class LifecycleSpoolDrainTests {
     // The ordered drain every hook runs, and the route-agnostic one Claude's and Cursor's hooks run: the
     // run-boundary rule is one rule, so each scenario below holds for both.
     static async Task<List<string>> DrainAll(HookSpool life, TranscriptSpool tx, bool fifo = false) {
+        using var nothingDisabled = new TempConfigRoot();
         var order = new List<string>();
         Task<DrainOutcome> Deliver(string _, string body) { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); }
 
         if (fifo) await life.DrainAllAsync(null, Deliver, TimeSpan.FromSeconds(5), CancellationToken.None);
-        else await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
+        else await LifecycleSpoolDrain.RunAsync(nothingDisabled.Root, life, tx, currentSessionId: null,
             lifecyclePoster: Deliver,
             transcriptPoster: body => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
@@ -426,7 +634,7 @@ public class LifecycleSpoolDrainTests {
         life.Append(Sid, "session-end/kiro", """{"run":1,"phase":"end"}""");
         static Task<DrainOutcome> Refuse(string _, string __) => Task.FromResult(DrainOutcome.TransientStop);
         if (heldByFifo) await life.DrainAllAsync(null, Refuse, TimeSpan.FromSeconds(5), CancellationToken.None);
-        else await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null, lifecyclePoster: Refuse,
+        else await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null, lifecyclePoster: Refuse,
             transcriptPoster: _ => Task.FromResult(DrainOutcome.Delivered),
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
 
@@ -488,7 +696,7 @@ public class LifecycleSpoolDrainTests {
         var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
         life.Append(Sid, "session-end/kiro", """{"phase":"end"}""");
 
-        await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: null,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
             lifecyclePoster: (_, _) => Task.FromResult(DrainOutcome.TransientStop),
             transcriptPoster: _ => Task.FromResult(DrainOutcome.Delivered),
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
@@ -509,12 +717,143 @@ public class LifecycleSpoolDrainTests {
         life.Append(Sid, "session-start/kiro", """{"who":"current"}""");
 
         var order = new List<string>();
-        await LifecycleSpoolDrain.RunAsync(life, tx, currentSessionId: Sid,
+        await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: Sid,
             lifecyclePoster: (route, body) => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
             transcriptPoster: body => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
 
         await Assert.That(order[0]).IsEqualTo("""{"who":"current"}""");
         await Assert.That(order).Contains("""{"who":"other"}""");
+    }
+
+    const string Spooled = """{"session_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}""";
+    const string Tail    = """{"session_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","lines":["x"],"line_numbers":[0]}""";
+
+    HookSpool Lifecycle => new(Config.Root, TimeProvider.System, "http://s");
+
+    TranscriptSpool Transcript => new(Config.Root, TimeProvider.System, "http://s");
+
+    readonly List<string> _posted = [];
+
+    Task<DrainOutcome> PostLifecycle(string route, string body) {
+        _posted.Add(route);
+
+        return Task.FromResult(DrainOutcome.Delivered);
+    }
+
+    Task<DrainOutcome> PostTail(string body) {
+        _posted.Add("transcript");
+
+        return Task.FromResult(DrainOutcome.Delivered);
+    }
+
+    Task Drain() => LifecycleSpoolDrain.RunAsync(
+        Config.Root, Lifecycle, Transcript, currentSessionId: null, PostLifecycle, PostTail, TimeSpan.FromSeconds(30), TimeProvider.System, CancellationToken.None);
+
+    /// <summary>The check sits here because a discard at the disable covers only what a daemon held at that moment. A
+    /// hook's entries, and a tail left by a source that ended long before, wait for this pass.</summary>
+    [Test]
+    public async Task Nothing_of_a_disabled_session_is_posted_and_both_spools_go() {
+        Lifecycle.Append(Sid, "session-start", Spooled);
+        Lifecycle.Append(Sid, "session-end", Spooled);
+        Transcript.Append(Sid, Tail);
+        Transcript.MarkNeedsImport(Sid, "left by an earlier stop");
+        DisabledSessions.Mark(Sid, Config.Root);
+
+        await Drain();
+
+        await Assert.That(_posted).IsEmpty();
+        await Assert.That(Lifecycle.HasBacklog(Sid)).IsFalse();
+        await Assert.That(Transcript.HasBacklog(Sid)).IsFalse();
+        await Assert.That(Transcript.NeedsImport(Sid)).IsFalse();
+    }
+
+    /// <summary>An exclusion only quiets the hooks: what it spooled before the repository left scope is still recorded.</summary>
+    [Test]
+    public async Task An_excluded_sessions_spools_drain_as_ever() {
+        Lifecycle.Append(Sid, "session-start", Spooled);
+        Transcript.Append(Sid, Tail);
+        DisabledSessions.Exclude(Sid, Config.Root);
+
+        await Drain();
+
+        await Assert.That(_posted).Contains("transcript");
+        await Assert.That(_posted).Contains("session-start");
+    }
+
+    [Test]
+    public async Task Another_sessions_spools_are_left_to_drain() {
+        const string other = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        Lifecycle.Append(Sid, "session-start", Spooled);
+        Lifecycle.Append(other, "session-start", Spooled);
+        DisabledSessions.Mark(Sid, Config.Root);
+
+        await Drain();
+
+        await Assert.That(_posted).IsEquivalentTo(["session-start"]);
+        await Assert.That(Lifecycle.HasBacklog(other)).IsFalse();
+    }
+
+    /// <summary>Files from before the per-server directories sit in the root, where only a drain's adoption reaches them.</summary>
+    [Test]
+    public async Task A_disabled_sessions_files_in_the_legacy_root_go_too() {
+        Directory.CreateDirectory(Config.Root.Path(HookSpool.DirectoryName));
+        Directory.CreateDirectory(Config.Root.Path(TranscriptSpool.DirectoryName));
+        await File.WriteAllTextAsync(Config.Root.Path(HookSpool.DirectoryName, $"{Sid}.jsonl"), """{"route":"session-start","body":"{}"}""" + "\n");
+        await File.WriteAllTextAsync(Config.Root.Path(TranscriptSpool.DirectoryName, $"{Sid}.transcript.jsonl"), Tail + "\n");
+        DisabledSessions.Mark(Sid, Config.Root);
+
+        await Drain();
+
+        await Assert.That(_posted).IsEmpty();
+        await Assert.That(Lifecycle.HasBacklog(Sid)).IsFalse();
+        await Assert.That(Transcript.HasBacklog(Sid)).IsFalse();
+    }
+
+    /// <summary>A transient stop writes the remainder back, which restores what a discard had deleted under that pass.</summary>
+    [Test]
+    public async Task A_tail_a_transient_stop_wrote_back_goes_on_the_next_pass() {
+        Transcript.Append(Sid, Tail);
+        await LifecycleSpoolDrain.RunAsync(
+            Config.Root, Lifecycle, Transcript, currentSessionId: null, PostLifecycle, _ => Task.FromResult(DrainOutcome.TransientStop),
+            TimeSpan.FromSeconds(30), TimeProvider.System, CancellationToken.None);
+        await Assert.That(Transcript.HasBacklog(Sid)).IsTrue();
+
+        DisabledSessions.Mark(Sid, Config.Root);
+        await Drain();
+
+        await Assert.That(_posted).IsEmpty();
+        await Assert.That(Transcript.HasBacklog(Sid)).IsFalse();
+    }
+
+    /// <summary>A pass already under way when the person disables the session stops at its next post.</summary>
+    [Test]
+    public async Task A_session_disabled_during_a_pass_posts_nothing_more() {
+        Transcript.Append(Sid, Tail);
+        Transcript.Append(Sid, Tail);
+
+        await LifecycleSpoolDrain.RunAsync(
+            Config.Root, Lifecycle, Transcript, currentSessionId: null, PostLifecycle,
+            body => {
+                DisabledSessions.Mark(Sid, Config.Root);
+
+                return PostTail(body);
+            },
+            TimeSpan.FromSeconds(30), TimeProvider.System, CancellationToken.None);
+
+        await Assert.That(_posted.Count).IsEqualTo(1);
+    }
+
+    /// <summary><c>kcap disable</c> marks a session by its canonical id, and a spool keeps the id as the hook spelled it.</summary>
+    [Test]
+    public async Task A_marker_covers_any_spelling_of_the_session() {
+        const string dashed = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+        Lifecycle.Append(dashed, "session-start", Spooled);
+        DisabledSessions.Mark(Sid, Config.Root);
+
+        await Drain();
+
+        await Assert.That(_posted).IsEmpty();
+        await Assert.That(Lifecycle.HasBacklog(dashed)).IsFalse();
     }
 }

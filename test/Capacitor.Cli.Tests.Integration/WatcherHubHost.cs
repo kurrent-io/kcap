@@ -1,7 +1,6 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Transcripts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.SignalR;
@@ -22,8 +21,11 @@ public sealed class WatcherHubHost : IAsyncDisposable {
     readonly List<(string SessionId, string? AgentId)>      _connects    = [];
     readonly List<(bool Acked, TranscriptBatch Batch)>      _received    = [];
     readonly List<(string SessionId, string? AgentId)>      _drains      = [];
+    readonly List<string>                                   _registrations = [];
+    readonly List<CanonicalTranscriptBatch>                 _canonical   = [];
 
     WebApplication _app = null!;
+    volatile bool  _down;
 
     WatcherHubHost() { }
 
@@ -31,6 +33,10 @@ public sealed class WatcherHubHost : IAsyncDisposable {
 
     /// <summary>The position <c>WatcherConnect</c> answers with, from the 1-based count of connects so far.</summary>
     public Func<int, int> ResumeFrom { get; set; } = _ => 0;
+
+    /// <summary>Awaited inside <c>WatcherConnect</c>, after the connect is recorded, so a test can hold the server's
+    /// answer while the client gives up. Given the 1-based count of connects so far; null holds nothing.</summary>
+    public Func<int, Task?>? ConnectHold { get; set; }
 
     public IReadOnlyList<(string SessionId, string? AgentId)> Connects => Snapshot(_connects);
 
@@ -46,6 +52,26 @@ public sealed class WatcherHubHost : IAsyncDisposable {
 
     public IReadOnlyList<(string SessionId, string? AgentId)> Drains => Snapshot(_drains);
 
+    /// <summary>What <c>IngestCapabilities</c> answers. Null fails the call, as a server without it does.</summary>
+    public int? CanonicalFormat { get; set; }
+
+    /// <summary>Whether <c>SendCanonicalBatch</c> refuses every batch as unsupported, storing nothing.</summary>
+    public bool RefusesCanonical { get; set; }
+
+    /// <summary>The batches <c>SendCanonicalBatch</c> took, in arrival order.</summary>
+    public IReadOnlyList<CanonicalTranscriptBatch> CanonicalBatches {
+        get {
+            lock (_gate) return [.. _canonical];
+        }
+    }
+
+    /// <summary>What <c>WatcherConnect</c> answered and <c>WatcherDetach</c> asked, in the order the server did them.</summary>
+    public IReadOnlyList<string> Registrations {
+        get {
+            lock (_gate) return [.. _registrations];
+        }
+    }
+
     /// <summary>Every line number received, through either send method, in arrival order.</summary>
     public IReadOnlyList<int> ReceivedLineNumbers {
         get {
@@ -53,17 +79,29 @@ public sealed class WatcherHubHost : IAsyncDisposable {
         }
     }
 
-    /// <param name="port">Zero takes any free port; a number from <see cref="ReservePort"/> brings a hub up where a
-    /// watcher is already looking.</param>
-    public static async Task<WatcherHubHost> StartAsync(int port = 0) {
+    /// <param name="down">Aborts every request until <see cref="ComeUp"/>, so a watcher's connects fail as they would
+    /// against a server not yet up, on a port the hub already owns.</param>
+    /// <param name="parallelInvocations">How many calls of one connection the hub runs at once. Above one, a detach can
+    /// pass a connect still running, as it can on the real server.</param>
+    public static async Task<WatcherHubHost> StartAsync(bool down = false, int parallelInvocations = 1) {
         var host    = new WatcherHubHost();
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
-        builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddSingleton(host);
-        builder.Services.AddSignalR().AddJsonProtocol(o => o.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
+        builder.Services.AddSignalR(o => o.MaximumParallelInvocationsPerClient = parallelInvocations).AddJsonProtocol(o => o.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 
         host._app = builder.Build();
+        host._down = down;
+        host._app.Use(async (context, next) => {
+            if (host._down) {
+                context.Abort();
+
+                return;
+            }
+
+            await next(context);
+        });
         host._app.MapHub<WatcherHub>("/hubs/sessions");
         await host._app.StartAsync();
         host.Url = host._app.Urls.Single();
@@ -71,13 +109,8 @@ public sealed class WatcherHubHost : IAsyncDisposable {
         return host;
     }
 
-    /// <summary>A loopback port nothing listens on yet.</summary>
-    public static int ReservePort() {
-        using var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-
-        return ((IPEndPoint)probe.LocalEndpoint).Port;
-    }
+    /// <summary>Starts answering requests, for a hub started down.</summary>
+    public void ComeUp() => _down = false;
 
     /// <summary>Tells every connected watcher to stop, as the server does when a session ends.</summary>
     public Task PushStopAsync(string reason = "test") =>
@@ -106,12 +139,24 @@ public sealed class WatcherHubHost : IAsyncDisposable {
     }
 
     sealed class WatcherHub(WatcherHubHost host) : Hub {
-        public int WatcherConnect(string sessionId, string? agentId) {
+        public async Task<int> WatcherConnect(string sessionId, string? agentId) {
+            int resumeFrom, count;
+
             lock (host._gate) {
                 host._connects.Add((sessionId, agentId));
-
-                return host.ResumeFrom(host._connects.Count);
+                count      = host._connects.Count;
+                resumeFrom = host.ResumeFrom(count);
             }
+
+            if (host.ConnectHold?.Invoke(count) is { } hold) await hold;
+
+            lock (host._gate) host._registrations.Add($"registered {count}");
+
+            return resumeFrom;
+        }
+
+        public void WatcherDetach(string sessionId, string? agentId) {
+            lock (host._gate) host._registrations.Add("detached");
         }
 
         public void SendTranscriptBatch2(TranscriptBatch batch) {
@@ -127,5 +172,19 @@ public sealed class WatcherHubHost : IAsyncDisposable {
         public void WatcherDrainComplete(string sessionId, string? agentId) {
             lock (host._gate) host._drains.Add((sessionId, agentId));
         }
+
+        public CanonicalCapabilities IngestCapabilities() =>
+            host.CanonicalFormat is { } format ? new(format) : throw new HubException("Unknown hub method 'IngestCapabilities'");
+
+        public CanonicalAck SendCanonicalBatch(CanonicalTranscriptBatch batch) {
+            if (host.RefusesCanonical) return new(0, Unsupported: true, "canonical ingress is switched off");
+
+            lock (host._gate) host._canonical.Add(batch);
+
+            return new(batch.Lines is [.., var last] ? last.Number + 1 : 0, Unsupported: false, null);
+        }
     }
+
+    /// <summary>The server's answer to a canonical batch, with the reason the client does not read.</summary>
+    sealed record CanonicalAck(int NextLineNumber, bool Unsupported, string? Reason);
 }

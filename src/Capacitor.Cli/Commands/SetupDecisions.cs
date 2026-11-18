@@ -13,7 +13,8 @@ internal static class SetupDecisions {
     /// <summary>
     /// Human-readable, comma-joined list of detected harnesses (in a stable, user-facing
     /// order), or null when none are detected. Kiro is annotated because installing for it
-    /// makes a material change (clones the user's default agent and sets kcap as default).
+    /// makes a material change (clones the user's default agent and sets kcap as default), which
+    /// happens only with kiro-cli on PATH or kcap's Kiro agent already cloned.
     /// </summary>
     public static string? DetectedAgentsSummary(CodingAgentsStep.DetectedAgents d) {
         var names = new List<string>();
@@ -23,7 +24,7 @@ internal static class SetupDecisions {
         if (d.Cursor)      names.Add("Cursor");
         if (d.Copilot)     names.Add("Copilot");
         if (d.Gemini)      names.Add("Gemini");
-        if (d.Kiro)        names.Add("Kiro (installing sets kcap as your default Kiro agent)");
+        if (d.Kiro)        names.Add(d.KiroCli || d.KiroAgentCloned ? "Kiro (installing sets kcap as your default Kiro agent)" : "Kiro");
         if (d.Pi)          names.Add("Pi");
         if (d.OpenCode)    names.Add("OpenCode");
         if (d.Antigravity) names.Add("Antigravity");
@@ -46,6 +47,21 @@ internal static class SetupDecisions {
 
         return noPrompt || promptYesNo("Install kcap for these agents (hooks, skills, instructions, MCP)?");
     }
+
+    /// <summary>Whether a run that cannot ask repeats the "no" an earlier local setup of this installation was given,
+    /// instead of taking the unattended yes. Nothing detected is no question, so there is nothing to repeat.</summary>
+    public static bool RepeatsHarnessDecline(CodingAgentsStep.DetectedAgents d, bool noPrompt, bool? remembered) =>
+        noPrompt && remembered == false && DetectedAgentsSummary(d) is not null;
+
+    /// <summary>Whether a run that cannot ask repeats the "no" an earlier local setup of this installation gave the import,
+    /// instead of importing every session on the machine. <c>--skip-import</c> says no on its own.</summary>
+    public static bool RepeatsImportDecline(bool skipImport, bool noPrompt, bool? remembered) =>
+        !skipImport && noPrompt && remembered == false;
+
+    /// <summary>What this run's import leaves out: the skip flags when any were given, otherwise what an earlier
+    /// local setup of this installation left out. No flag parses to an empty skip, not to null.</summary>
+    public static ImportSkip LeftOutOfImport(ImportSkip flagged, ImportSkip? remembered) =>
+        flagged.IsEmpty && remembered is not null ? remembered : flagged;
 
     /// <summary>
     /// Folds the browser's Agents answer into options already built from this invocation's flags.

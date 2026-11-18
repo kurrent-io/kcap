@@ -1,0 +1,32 @@
+// §4.2 HIT
+// § 8 HIT
+// RFC 8628 §3.4 and SemVer §10 are citations.
+// RFC 8628 §3.4; see §4 HIT
+// Task 12 HIT
+// Finding 3 HIT
+// Decision 7 HIT
+// Phase A HIT
+// Phase D HIT
+// Phase 2 HIT
+// Phase E and Phase Delta and Phase A1 are domain terms.
+// MyTask 12 and Task 12B are domain terms.
+// Qodo #1 HIT
+// Qodo (#380, finding 3) HIT
+// Qodo (PR #380) HIT
+// Bugbot finding HIT
+// CodeRabbit-flagged HIT
+// Qodo (PRNG source) and Qodo (the HTML source) are domain terms.
+// Qodo findings renderer and Qodo fixer are domain terms.
+// Codex review is a product feature.
+// round-2 fix HIT
+// round2 review HIT
+// Round2 finding HIT
+// pre-fix HIT
+// Pre-fix HIT
+// an earlier revision HIT
+// An earlier draft HIT
+// an earlier version HIT
+// BLOCKER-1 HIT
+// BLOCKER2 HIT
+// a token the server no longer accepts
+// previously, used to, originally, and an earlier event

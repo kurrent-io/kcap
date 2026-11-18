@@ -99,7 +99,8 @@ public class NextWorkEmitterTests {
         await Assert.That(text).StartsWith("Present next work once per piece of work the user framed");
         await Assert.That(text).Contains("a question answered with nothing pending");
         await Assert.That(text).Contains("Never present after a step inside work that is still open");
-        await Assert.That(text).Contains("attached work is still open, do not present unless the user asked for next work or said they are done with or parking that work");
+        await Assert.That(text).Contains("While this session's work is open, \"what's next?\" means its next step: answer from its plan, parts or PR, not get_next_work");
+        await Assert.That(text).Contains("attached work is still open, do not present unless the user asked for work outside it or said they are done with or parking that work");
         await Assert.That(text).Contains("close_loose_end what you finished, declare the rest with declare_loose_end");
         await Assert.That(text).Contains("declare_loose_end (one call per item, never \"none\"), call get_next_work");
     }
@@ -151,6 +152,31 @@ public class NextWorkEmitterTests {
         await Assert.That(first).DoesNotContain(new string('x', 300));
 
         await Assert.That(Array.IndexOf(lines, NextWorkEmitter.Guidance)).IsGreaterThan(close);
+    }
+
+    [Test]
+    [Arguments("/repo/fa1efc1b2ecbbde9/evals", "https://kcap.example/repo/fa1efc1b2ecbbde9/evals")]
+    [Arguments("https://github.com/o/r/pull/42", "https://github.com/o/r/pull/42")]
+    [Arguments("//elsewhere.example/x", "//elsewhere.example/x")]
+    public async Task A_server_relative_href_is_joined_to_the_server_url(string href, string rendered) {
+        var ack = JsonNode.Parse(Ack)!;
+        ack["next_work"]!["rows"]![0]!["href"] = href;
+
+        var fragment = NextWorkEmitter.BuildFragment(ack, disabled: false, serverUrl: "https://kcap.example/")!;
+
+        await Assert.That(fragment).Contains($"Priya is waiting on your review  {rendered}\n");
+    }
+
+    /// <summary>The cap applies to the joined link, so a relative href that fits on its own can still be cut.</summary>
+    [Test]
+    public async Task The_field_cap_applies_after_the_join() {
+        var ack = JsonNode.Parse(Ack)!;
+        ack["next_work"]!["rows"]![0]!["href"] = "/" + new string('a', NextWorkEmitter.FieldCap - 1);
+
+        var fragment = NextWorkEmitter.BuildFragment(ack, disabled: false, serverUrl: "https://kcap.example")!;
+        var row      = fragment.Split('\n').Single(l => l.StartsWith("1. ", StringComparison.Ordinal));
+
+        await Assert.That(row).EndsWith("  " + ("https://kcap.example/" + new string('a', NextWorkEmitter.FieldCap))[..NextWorkEmitter.FieldCap]);
     }
 
     [Test]

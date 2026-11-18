@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Core.Acp;
 
 /// <summary>
 /// Typed <c>params</c> payloads for the ACP methods <c>Daemon.Acp.AcpConnection</c> callers
-/// (<c>AcpHostedAgentRuntime</c>, Task 9) send. These exist only so request construction can
+/// (<c>AcpHostedAgentRuntime</c>) send. These exist only so request construction can
 /// go through source-gen (<see cref="JsonSerializer.SerializeToElement{T}(T, System.Text.Json.Serialization.Metadata.JsonTypeInfo{T})"/>
 /// against <see cref="CapacitorJsonContext"/>) instead of the reflection-based overloads, which are
 /// unsafe under NativeAOT. Field names/shapes are pinned to the probe-confirmed wire shapes in
@@ -277,8 +277,8 @@ public sealed record PermissionOutcomeDto(
 /// <summary>
 /// Agent→client <c>elicitation/create</c> request params — the STABILIZED ACP shape
 /// (agent-client-protocol #1779, 2026-07-24; <c>schema/v1/schema.json</c>
-/// <c>CreateElicitationRequest</c>), replacing the pre-stabilization draft this daemon was
-/// originally modeled on (whose <c>options</c> array never existed on any stabilized wire).
+/// <c>CreateElicitationRequest</c>). The pre-stabilization draft's <c>options</c> array never
+/// existed on any stabilized wire.
 /// Mode variants: <c>"form"</c> carries <see cref="RequestedSchema"/>; <c>"url"</c> carries
 /// <see cref="ElicitationId"/> + <see cref="Url"/> (unsupported by this client — cancelled).
 /// Scope variants: session-scoped (<see cref="SessionId"/>) or request-scoped

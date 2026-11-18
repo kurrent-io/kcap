@@ -23,7 +23,7 @@ sealed class CaptureServerConnection : ServerConnection {
             config, new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System) =>
         _config = config;
 
-    public            string?                               ConnectionIdForTest { get; init; } = "connection-1";
+    public            string?                               ConnectionIdForTest { get; set; } = "connection-1";
     internal override string?                               CurrentConnectionId => ConnectionIdForTest;
     readonly List<(string AgentId, string Reason)> _launchFailedCalls = [];
 
@@ -41,7 +41,7 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>Completed the instant LaunchFailedAsync is entered (after recording the call) —
     /// lets a test prove the finalizer is genuinely INSIDE its verdict-report await, so a
     /// concurrent status emitter (reconnect re-registration) can be driven in exactly that
-    /// window (finding 2).</summary>
+    /// window.</summary>
     public TaskCompletionSource? LaunchFailedEntered { get; init; }
 
     /// <summary>When set, LaunchFailedAsync awaits this task before returning — holding the
@@ -164,7 +164,7 @@ sealed class CaptureServerConnection : ServerConnection {
     public int AgentRegisteredCallCount { get; private set; }
 
     /// <summary>Completed the instant AgentRegisteredAsync is entered — lets a test hold
-    /// re-registration inside that await and publish a verdict there (finding 1 refinement).</summary>
+    /// re-registration inside that await and publish a verdict there.</summary>
     public TaskCompletionSource? AgentRegisteredEntered { get; set; }
 
     /// <summary>When set, AgentRegisteredAsync awaits this before returning — holding the
@@ -174,7 +174,7 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>When set, every non-failure AgentStatusChanged send checks this runtime's verdict
     /// AT SEND TIME (via the lock-synchronised ReadVerdict); if a launch-window verdict is already
     /// published, <see cref="NonFailureStatusSentAfterVerdictPublished"/> latches true — the exact
-    /// "non-failure status after publication" invariant violation finding 1 closes.</summary>
+    /// "non-failure status after publication" invariant violation.</summary>
     public ITerminationVerdictSource? VerdictCaptureRuntime                     { get; set; }
     public bool                       NonFailureStatusSentAfterVerdictPublished { get; private set; }
 
@@ -235,7 +235,7 @@ sealed class CaptureServerConnection : ServerConnection {
         return RegistrationResponse?.Invoke(agentId) ?? AgentRegisteredResponse.Accepted;
     }
 
-    // ── Option B task 4: ACP bind/forward capture ────────────────────────────────────
+    // ── ACP bind/forward capture ────────────────────────────────────
     // Overrides the RAW hub-invoke seams (mirroring AcpServerConnectionTests' TestServerConnection)
     // rather than the higher-level gated AcpSessionStartedAsync/SendAcpEventsAsync, so every call
     // still goes through the REAL ConnectionRetry/IsReady gating the production wiring relies on.
@@ -339,7 +339,7 @@ sealed class CaptureServerConnection : ServerConnection {
             ?? (envelopes.Length == 0 ? new AcpBatchAck(-1, -1) : new AcpBatchAck(envelopes[^1].Seq, envelopes[^1].Seq));
     }
 
-    // ── §2.5 source-claim / confirm seams ───────────────────────────────────────────────
+    // ── Source-claim / confirm seams ───────────────────────────────────────────────
 
     /// <summary>Outcome the raw AcpSessionSourceClaim invoke returns; default Bound@token-1. A Rejected
     /// outcome models the server declining ownership.</summary>
@@ -415,8 +415,8 @@ sealed class CaptureServerConnection : ServerConnection {
     /// CleanupAgentAsync, so a useful signal that local cleanup completed.</summary>
     public Action? OnAgentUnregistered { get; init; }
 
-    /// <summary>Every agent id passed to AgentUnregisteredAsync, in call order. Phase B
-    /// (D1): a single-flight teardown must unregister an agent exactly once even under a racing
+    /// <summary>Every agent id passed to AgentUnregisteredAsync, in call order. A
+    /// single-flight teardown must unregister an agent exactly once even under a racing
     /// launch-catch + read-loop cleanup.</summary>
     public List<string> AgentUnregisteredCalls { get; } = [];
 
@@ -452,14 +452,29 @@ sealed class CaptureServerConnection : ServerConnection {
         return InputRejectionGate?.Task ?? Task.CompletedTask;
     }
 
-    public override Task AgentUnregisteredAsync(string agentId, string? stopReason = null) {
+    /// <summary>While set, every unregister fails as an unreachable server would, recording nothing.</summary>
+    public Exception? AgentUnregisteredThrow { get; set; }
+
+    /// <summary>While set, every unregister is recorded and then held until this completes; <see cref="UnregisterEntered"/>
+    /// completes once one is held.</summary>
+    public TaskCompletionSource? UnregisterGate { get; set; }
+
+    public TaskCompletionSource UnregisterEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public override async Task AgentUnregisteredAsync(string agentId, string? stopReason = null) {
+        if (AgentUnregisteredThrow is { } ex) throw ex;
+
         lock (AgentUnregisteredCalls) {
             AgentUnregisteredCalls.Add(agentId);
             AgentUnregisteredStopReasons[agentId] = stopReason;
         }
+        lock (AttachedCallOrder) AttachedCallOrder.Add($"unregister:{agentId}");
         OnAgentUnregistered?.Invoke();
 
-        return Task.CompletedTask;
+        if (UnregisterGate is { } gate) {
+            UnregisterEntered.TrySetResult();
+            await gate.Task;
+        }
     }
 
     public override Task UpdateRepoPathsAsync()
@@ -521,10 +536,30 @@ sealed class CaptureServerConnection : ServerConnection {
 
     public List<(string AgentId, int? ExitCode)> ShutdownReportExitCodes { get; } = [];
 
-    public override async Task ReportAgentEndedForShutdownAsync(
-            string agentId, string? sessionId, string status, string reason, int? exitCode, CancellationToken ct) {
-        lock (ShutdownReports) ShutdownReports.Add((agentId, status, reason, ct.IsCancellationRequested));
+    /// <summary>The daemon process each shutdown report's stop names as holding the run.</summary>
+    public List<(string AgentId, string? RunInstanceId)> ShutdownReportRunInstances { get; } = [];
+
+    public List<string> UpdatedTitles { get; } = [];
+
+    internal override Task<bool> UpdateTitleAsync(string sessionId, string title, CancellationToken ct) {
+        lock (UpdatedTitles) UpdatedTitles.Add(title);
+
+        return Task.FromResult(true);
+    }
+
+    /// <summary>The agents whose shutdown report carried the session end.</summary>
+    public List<string> ShutdownSessionEnds { get; } = [];
+
+    protected override async Task SendShutdownReportAsync(
+            string agentId, string? sessionId, string status, string reason, int? exitCode, string? runInstanceId, bool endSession,
+            CancellationToken ct) {
+        lock (ShutdownReports) {
+            ShutdownReports.Add((agentId, status, reason, ct.IsCancellationRequested));
+            if (endSession) ShutdownSessionEnds.Add(agentId);
+        }
+
         lock (ShutdownReportExitCodes) ShutdownReportExitCodes.Add((agentId, exitCode));
+        lock (ShutdownReportRunInstances) ShutdownReportRunInstances.Add((agentId, runInstanceId));
 
         if (ShutdownReportHangs) await Task.Delay(Timeout.Infinite, ct);
         if (ShutdownReportGate is { } gate) await gate.Task.WaitAsync(ct);
@@ -533,7 +568,7 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>When set, the shutdown report is recorded and then held until the gate completes.</summary>
     public TaskCompletionSource? ShutdownReportGate { get; set; }
 
-    // ── Task 8: resolved-model report capture ──────────────────────────────────
+    // ── Resolved-model report capture ──────────────────────────────────
     /// <summary>Every legacy (agentId, model) pair passed to ReportAgentResolvedModelAsync — proves
     /// the no-model / vendor-only launch keeps using the unchanged legacy channel.</summary>
     public List<(string AgentId, string Model)> ReportAgentResolvedModelCalls { get; } = [];
@@ -584,7 +619,7 @@ sealed class CaptureServerConnection : ServerConnection {
         return Task.CompletedTask;
     }
 
-    // ── §2.7 B6 arm-A: participant-park report capture ───────────────────────────────
+    // ── Participant-park report capture ───────────────────────────────
     /// <summary>The ack <see cref="ReportParticipantParkedAsync"/> returns; default
     /// <see cref="ParkAck.Parked"/>. A park state-machine test sets this to drive the three branches
     /// (Parked / Rejected / Ambiguous) deterministically.</summary>
@@ -615,7 +650,7 @@ sealed class CaptureServerConnection : ServerConnection {
         return ParkOutcome;
     }
 
-    public override async Task<EndAgentSessionResult> EndAgentSessionAsync(string agentId, string reason) {
+    protected override async Task<EndAgentSessionResult> SendEndAgentSessionAsync(string agentId, string reason) {
         EndSessionReasons.Add(reason);
         lock (AcpCallOrder) AcpCallOrder.Add($"endSession:{agentId}");
 
@@ -635,4 +670,117 @@ sealed class CaptureServerConnection : ServerConnection {
             JsonElement?      suggestions,
             CancellationToken ct = default
         ) => Task.FromResult(new PermissionDecision("deny", null, null));
+
+    // ── Attached agents: the raw hub seams, so the real connection builds every payload ──────────
+
+    /// <summary>Every <c>AgentRegisteredAcked</c> payload. Hosted registrations stop at the override above, so
+    /// only an attached agent's reaches here.</summary>
+    public List<AgentRegistered> AttachedRegistrations { get; } = [];
+
+    /// <summary>The server's answer to each attached registration; accepted when unset or null.</summary>
+    public Func<AgentRegistered, AgentRegisteredResponse?>? AttachedRegistrationAnswer { get; set; }
+
+    /// <summary>Every attached registration and unregistration, in the order the server saw them.</summary>
+    public List<string> AttachedCallOrder { get; } = [];
+
+    /// <summary>While set, every attached registration is recorded and then held until this completes;
+    /// <see cref="AttachedRegistrationEntered"/> completes once one is held.</summary>
+    public TaskCompletionSource? AttachedRegistrationGate { get; set; }
+
+    public TaskCompletionSource AttachedRegistrationEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    internal override async Task<AgentRegisteredResponse?> InvokeAgentRegisteredAckedRawAsync(AgentRegistered registration) {
+        lock (AttachedRegistrations) AttachedRegistrations.Add(registration);
+        lock (AttachedCallOrder) AttachedCallOrder.Add($"register:{registration.AgentId}");
+
+        if (AttachedRegistrationGate is { } gate) {
+            AttachedRegistrationEntered.TrySetResult();
+            await gate.Task;
+        }
+
+        return AttachedRegistrationAnswer?.Invoke(registration) ?? AgentRegisteredResponse.Accepted;
+    }
+
+    public List<ConfirmInputHandoverRequest> HandoverRequests { get; } = [];
+
+    /// <summary>The server's answer to each handover request; handed over unless set.</summary>
+    public Func<ConfirmInputHandoverRequest, ConfirmInputHandoverResponse?> HandoverAnswer { get; set; } =
+        _ => new ConfirmInputHandoverResponse(InputHandoverOutcome.HandedOver);
+
+    /// <summary>While set, every handover request is recorded and then held until this completes;
+    /// <see cref="HandoverEntered"/> completes once one is held.</summary>
+    public TaskCompletionSource? HandoverGate { get; set; }
+
+    public TaskCompletionSource HandoverEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>What the server answers the empty dispatch a daemon asks about to learn whether it takes attached agents:
+    /// drop, as such a server answers it ahead of everything else, unless set. Never in <see cref="HandoverRequests"/>.</summary>
+    public Func<Task<ConfirmInputHandoverResponse?>> SteeringProbe { get; set; } =
+        () => Task.FromResult<ConfirmInputHandoverResponse?>(new ConfirmInputHandoverResponse(InputHandoverOutcome.Drop));
+
+    int _steeringProbes;
+
+    public int SteeringProbes => Volatile.Read(ref _steeringProbes);
+
+    internal override async Task<ConfirmInputHandoverResponse?> InvokeConfirmInputHandoverRawAsync(ConfirmInputHandoverRequest request) {
+        if (request.DispatchId == Guid.Empty) {
+            Interlocked.Increment(ref _steeringProbes);
+
+            return await SteeringProbe();
+        }
+
+        lock (HandoverRequests) HandoverRequests.Add(request);
+
+        if (HandoverGate is { } gate) {
+            HandoverEntered.TrySetResult();
+            await gate.Task;
+        }
+
+        return HandoverAnswer(request);
+    }
+
+    /// <summary>While set, every link, Unconfirmed and attached rejection report fails as an unreachable server would.</summary>
+    public Exception? AttachedReportThrow { get; set; }
+
+    public List<ReportInputLinkRequest> LinkReports { get; } = [];
+
+    internal override Task InvokeReportInputLinkRawAsync(ReportInputLinkRequest request) {
+        if (AttachedReportThrow is { } ex) return Task.FromException(ex);
+
+        lock (LinkReports) LinkReports.Add(request);
+
+        return Task.CompletedTask;
+    }
+
+    public List<ReportInputUnconfirmedRequest> UnconfirmedReports { get; } = [];
+
+    internal override Task InvokeReportInputUnconfirmedRawAsync(ReportInputUnconfirmedRequest request) {
+        if (AttachedReportThrow is { } ex) return Task.FromException(ex);
+
+        lock (UnconfirmedReports) UnconfirmedReports.Add(request);
+
+        return Task.CompletedTask;
+    }
+
+    public List<(Guid DispatchId, string AgentId, string Reason)> AttachedRejections { get; } = [];
+
+    /// <summary>Whether the server recorded each attached rejection on the named agent's stream; recorded unless set.</summary>
+    public Func<Guid, string, bool> AttachedRejectionRecorded { get; set; } = (_, _) => true;
+
+    /// <summary>While set, every attached rejection fails with this, as a server whose hub method refused it would, and
+    /// counts in <see cref="AttachedRejectionAttempts"/>.</summary>
+    public Exception? AttachedRejectionThrow { get; set; }
+
+    public int AttachedRejectionAttempts { get; private set; }
+
+    internal override Task<bool> InvokeSendInputRejectedRawAsync(Guid dispatchId, string agentId, string reason) {
+        AttachedRejectionAttempts++;
+
+        if (AttachedReportThrow is { } ex) return Task.FromException<bool>(ex);
+        if (AttachedRejectionThrow is { } refused) return Task.FromException<bool>(refused);
+
+        lock (AttachedRejections) AttachedRejections.Add((dispatchId, agentId, reason));
+
+        return Task.FromResult(AttachedRejectionRecorded(dispatchId, agentId));
+    }
 }

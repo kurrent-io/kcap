@@ -100,9 +100,11 @@ sealed class UninstallCommand(
             var busy = await recorders.BusyAsync();
 
             if (busy.Count > 0) {
-                foreach (var line in busy) await console.Error.WriteLineAsync(line);
+                foreach (var entry in busy) await console.Error.WriteLineAsync(entry.Line);
 
-                await console.Error.WriteLineAsync("Stop them, or pass --force to end them. Nothing was changed.");
+                await console.Error.WriteLineAsync(DaemonBusy.AnyMayRunAgents(busy)
+                    ? "Stop them, or pass --force to end them. Nothing was changed."
+                    : "Run the command again once it has started, or pass --force to stop it. Nothing was changed.");
 
                 return 1;
             }
@@ -162,9 +164,18 @@ sealed class UninstallCommand(
         }
 
         if (!keepConfig) {
+            // A local server removed here is purged, which records its port as retired under the unit lock.
+            var kept = new List<string>();
+            if (RetiredPortsIn(configDir) is { } retired && (removeLocal || File.Exists(retired))) kept.Add("the record of retired local server ports");
+            if (UnitLockIn(configDir) is { } unitLock && (removeLocal || File.Exists(unitLock))) kept.Add("the local server lock");
+            var keptFiles = string.Join(" and ", kept);
+
             await console.Out.WriteLineAsync(
                 keptLocal is not null ? $"  • Remove kcap configuration from {configDir}, except the local server in {keptLocal}"
-                : local is not null && Directory.Exists(local.Root.Directory) ? $"  • Remove kcap configuration from {configDir} (local lifecycle safety metadata is kept)"
+                                        + (kept.Count > 0 ? $" and {keptFiles}" : "")
+                : local is not null && Directory.Exists(local.Root.Directory) ? $"  • Remove kcap configuration from {configDir} (local lifecycle safety metadata is kept"
+                                                                                + (kept.Count > 0 ? $", as {(kept.Count > 1 ? "are" : "is")} {keptFiles})" : ")")
+                : kept.Count > 0 ? $"  • Remove kcap configuration from {configDir}, except {keptFiles}"
                 : $"  • Delete the kcap config directory ({configDir})");
 
             if (!localFailed)
@@ -411,12 +422,16 @@ sealed class UninstallCommand(
                         "Investigate the errors above, then re-run `kcap uninstall` to finish.");
                 } else if (Directory.Exists(configDir)) {
                     try {
-                        UninstallFiles.DeleteConfig(configDir, localRoot);
+                        UninstallFiles.DeleteConfig(configDir, localRoot, [.. new[] { RetiredPortsIn(configDir), UnitLockIn(configDir) }.OfType<string>()]);
                         await console.Out.WriteLineAsync($"Removed configuration from: {configDir}");
                         if (keptLocal is not null)
                             await console.Out.WriteLineAsync($"Kept the local server and its data in {keptLocal}.");
                         else if (localRoot is not null)
                             await console.Out.WriteLineAsync($"Kept local lifecycle safety metadata in {localRoot} (no recordings).");
+                        if (RetiredPortsIn(configDir) is { } retired && File.Exists(retired))
+                            await console.Out.WriteLineAsync($"Kept the record of retired local server ports in {retired}.");
+                        if (UnitLockIn(configDir) is { } unitLock && File.Exists(unitLock))
+                            await console.Out.WriteLineAsync($"Kept the local server lock in {unitLock}.");
                     } catch (Exception ex) {
                         await console.Error.WriteLineAsync($"Could not remove config directory {configDir}: {ex.Message}");
                         hadFailures = true;
@@ -485,6 +500,14 @@ sealed class UninstallCommand(
 
     static bool HoldsLocalServer(LocalRoot root) =>
         File.Exists(root.RegistryPath) || StackDirectories.Any(name => Directory.Exists(Path.Combine(root.Directory, name)));
+
+    /// <summary>The user-wide retired-ports record when it lies inside <paramref name="configDir"/>, whose delete keeps it.</summary>
+    string? RetiredPortsIn(string configDir) => Inside(configDir, Core.LocalEdition.RetiredPorts.PathFor(home));
+
+    /// <summary>The user-wide unit lock when it lies inside <paramref name="configDir"/>, whose delete keeps it.</summary>
+    string? UnitLockIn(string configDir) => Inside(configDir, LocalUnitLock.PathFor(home));
+
+    static string? Inside(string configDir, string file) => UninstallFiles.Holds(configDir, file) ? Path.GetFullPath(file) : null;
 
     static string ShellQuote(string value) => "'" + value.Replace("'", "'\\''") + "'";
 

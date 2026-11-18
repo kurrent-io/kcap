@@ -13,7 +13,9 @@ using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.FirstRun;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.RepoEvidence;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.Harness.Cursor;
@@ -502,7 +504,7 @@ class ImportCommand(
     /// <c>--private</c> pass re-privates a session this run never actually (re)imported.
     ///
     /// <para>
-    /// Round-2 finding 1: an <c>AlreadyLoaded</c> parent can still ship brand-new content by
+    /// An <c>AlreadyLoaded</c> parent can still ship brand-new content by
     /// attaching a previously-unloaded nested child — real work that must NOT be suppressed just
     /// because the parent's OWN outcome looks like a no-op replay. <c>sentChildContent</c> is the
     /// out-of-band signal (see <see cref="ImportSessionResult"/>) that lets this distinguish the
@@ -824,7 +826,7 @@ class ImportCommand(
     /// we wrap around it.
     /// </summary>
     internal static string FormatSkippedReasonMarkup(string sessionId, string reason) =>
-        $"[red]✗[/] Skipping [cyan]{Markup.Escape(sessionId)}[/] [[{Markup.Escape(reason)}]]";
+        $"[red]✗[/] Skipping [cyan]{Markup.Escape(SessionIds.Display(sessionId))}[/] [[{Markup.Escape(reason)}]]";
 
     /// <summary>
     /// Builds the Spectre markup for the "✓ Loading {sid}... N lines [verb]"
@@ -832,7 +834,7 @@ class ImportCommand(
     /// brackets around <paramref name="verb"/> are doubled.
     /// </summary>
     internal static string FormatLoadedSummaryMarkup(string sessionId, int lines, string verb) =>
-        $"[green]✓[/] Loading [cyan]{Markup.Escape(sessionId)}[/]... {lines} lines [[{Markup.Escape(verb)}]]";
+        $"[green]✓[/] Loading [cyan]{Markup.Escape(SessionIds.Display(sessionId))}[/]... {lines} lines [[{Markup.Escape(verb)}]]";
 
     public async Task<int> HandleImport(
             string?                       filterCwd,
@@ -990,7 +992,6 @@ class ImportCommand(
                 if (fp is not null && ec is not null) {
                     allFileTuples.Add((s.SessionId, fp, ec, src.Vendor));
                 } else {
-                    // Cursor or other future non-file source.
                     cursorCwds[s.SessionId] = s.Cwd;
                 }
             }
@@ -1005,6 +1006,7 @@ class ImportCommand(
         var cwdRemap           = profileConfig.CwdRemap;
         var resolved           = new Dictionary<string, (string Owner, string Name)?>(StringComparer.Ordinal);
         var sessionCwds        = new Dictionary<string, string>(StringComparer.Ordinal);
+        var rawCwds            = new Dictionary<string, string>(StringComparer.Ordinal);
         var worktreeAttributed = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var vendor in new[] { HarnessId.Claude, HarnessId.Codex }) {
@@ -1015,7 +1017,7 @@ class ImportCommand(
 
             if (slice.Count == 0) continue;
 
-            var partial                                  = await ResolveTranscriptReposAsync(slice, codex: vendor is HarnessId.Codex, display, cwdRemap, sessionCwds, worktreeAttributed);
+            var partial                                  = await ResolveTranscriptReposAsync(slice, codex: vendor is HarnessId.Codex, display, cwdRemap, sessionCwds, worktreeAttributed, rawCwds);
             foreach (var kv in partial) resolved[kv.Key] = kv.Value;
         }
 
@@ -1074,12 +1076,18 @@ class ImportCommand(
             }
         }
 
-        // --- Missing cwd report ---
-        // Surface transcripts whose (possibly remapped) cwd no longer exists on
-        // disk so the user understands why some sessions won't match an org or
-        // repo scope, and can fix it by adding cwd_remap entries.
+        var (ignored, ignoredBeyondRemap, ignoredFolders) =
+            await CaptureScopeExclusionsAsync(discoveriesPerSource.SelectMany(d => d), rawCwds, sessionCwds, resolved, cwdRemap);
+
+        // Folders that no longer exist explain why a session matches no repository and can be remapped. An allow
+        // list that rejects an unresolved repository may admit it once remapped, so only a session no remap can
+        // bring back into scope is left out of that report.
         ReportWorktreeAttributions(worktreeAttributed.Count, display);
-        ReportMissingCwds(sessionCwds, cwdRemap, display, home);
+        ReportMissingCwds(
+            ignoredBeyondRemap.Count == 0
+                ? sessionCwds
+                : sessionCwds.Where(kv => !ignoredBeyondRemap.Contains(kv.Key)).ToDictionary(StringComparer.Ordinal),
+            cwdRemap, display, home);
 
         if (discoverOnly) {
             discoverySink(new ImportDiscoveryResult(
@@ -1093,7 +1101,11 @@ class ImportCommand(
                     sources.SelectMany((src, i) => discoveriesPerSource[i].Select(d => (d.SessionId, src.Vendor)))
                         .DistinctBy(s => s.SessionId)
                         .ToDictionary(s => s.SessionId, s => s.Vendor),
-                    sessionCwds),
+                    // An exclusion covers the folder a session recorded, so that is the folder it is named by.
+                    ignored.Count == 0
+                        ? sessionCwds
+                        : sessionCwds.Where(kv => !ignored.Contains(kv.Key)).Concat(ignoredFolders).ToDictionary(StringComparer.Ordinal),
+                    ignored),
                 ScannedVendors(sources)));
 
             return 0;
@@ -1101,6 +1113,12 @@ class ImportCommand(
 
         // --- Scope picker ---
         var profile = profiles.Effective;
+
+        // A local server's one user never chose an audience, so an unstamped import there would land org_public. A
+        // hosted server applies its own org-visibility policy to an unstamped session, which a stamp would override.
+        if (defaultVisibility is null
+            && LocalEndpoints.Read(LocalRoot.FromEnvironment(home)).Classify(baseUrl) is LocalEndpointClass.Local)
+            defaultVisibility = LocalVisibility.For(profile?.DefaultVisibility ?? LocalVisibility.Default);
 
         if (scope is null) {
             var distinct = resolved.Values
@@ -1213,7 +1231,7 @@ class ImportCommand(
 
         var visibilityDesc = forcePrivate
             ? "private (--private)"
-            : $"{profile?.DefaultVisibility ?? "org_public"} (from profile)";
+            : defaultVisibility is { } stamped ? $"{stamped} (from profile)" : "the server's default";
 
         if (!ImportScopePrompt.PromptConfirm(
                 console.Ansi,
@@ -1235,6 +1253,35 @@ class ImportCommand(
         var excludedPaths = profile?.ExcludedPaths;
         var allowedPaths  = profile?.AllowedPaths;
         var allowedRepos  = profile?.AllowedRepos;
+        var captureScope = new CaptureScope(router, config, home,
+                                            allowedPaths, excludedPaths, allowedRepos, excludedRepos, time);
+        using var exclusionGate = new SemaphoreSlim(8);
+
+        string? ResolveClassifiedCwd(SessionClassification candidate) =>
+            ResolveCwd(candidate, sessionCwds: null) is { } raw
+                ? ResolveCwd(raw, cwdRemap, worktreeAttributed: null, candidate.SessionId)
+                : null;
+
+        void RefreshClassifiedCwds(IEnumerable<SessionClassification> candidates) {
+            if (!captureScope.Configured) return;
+
+            foreach (var candidate in candidates) {
+                if (ResolveClassifiedCwd(candidate) is { } cwd) sessionCwds[candidate.SessionId] = cwd;
+                else sessionCwds.Remove(candidate.SessionId);
+            }
+        }
+
+        async Task<SessionClassification?> ExcludeBeforeProbeAsync(SessionClassification candidate) {
+            await exclusionGate.WaitAsync();
+            try {
+                IReadOnlyDictionary<string, string> currentCwd = ResolveClassifiedCwd(candidate) is { } cwd
+                    ? new Dictionary<string, string> { [candidate.SessionId] = cwd }
+                    : FrozenDictionary<string, string>.Empty;
+                return await captureScope.ExcludeBeforeProbeAsync(candidate, currentCwd);
+            } finally {
+                exclusionGate.Release();
+            }
+        }
 
         var classifyCtx = new ClassifyContext(
             HttpClient: httpClient,
@@ -1242,7 +1289,11 @@ class ImportCommand(
             MinLines: minLines,
             Home: home,
             Reimport: reimport
-        ) { Stderr = console.Error, TranscriptLedger = TranscriptImportLedger.Load(config) };
+        ) {
+            Stderr = console.Error,
+            TranscriptLedger = TranscriptImportLedger.Load(config),
+            ExcludeBeforeProbeAsync = captureScope.Configured ? ExcludeBeforeProbeAsync : null,
+        };
 
         IReadOnlyList<SessionClassification>[] classificationsPerSource;
 
@@ -1258,11 +1309,7 @@ class ImportCommand(
                         var probeTasks = sources.Select(async (s, idx) => {
                                     var slice = filteredPerSource[idx];
                                     var res   = await s.ClassifyAsync(slice, classifyCtx, CancellationToken.None);
-                                    // Per-source progress accounting: each ClassifyAsync produces
-                                    // one classification per discovered session, so we tick the
-                                    // bar by the slice size when the task completes. Per-probe
-                                    // ticks would require threading a callback through the
-                                    // IImportSource interface — we punt that to a follow-up.
+                                    // Excluded sessions count as classified without a server request.
                                     bar.Increment(slice.Count);
 
                                     return (idx, res);
@@ -1276,7 +1323,7 @@ class ImportCommand(
                     }
                 );
         } else {
-            display.Line($"Probing {totalAfterScope} sessions...");
+            display.Line($"Probing {totalAfterScope} session{(totalAfterScope == 1 ? "" : "s")}...");
 
             classificationsPerSource = await Task.WhenAll(
                 sources.Select(async (s, idx) => await s.ClassifyAsync(filteredPerSource[idx], classifyCtx, CancellationToken.None))
@@ -1310,8 +1357,8 @@ class ImportCommand(
             }
         }
 
-        // Flatten classifications.
         var classifications = classificationsPerSource.SelectMany(c => c).ToList();
+        RefreshClassifiedCwds(classifications);
 
         // One vendor can have a source per account root, so a session is routed back to the source that
         // discovered it rather than to its vendor.
@@ -1321,21 +1368,14 @@ class ImportCommand(
             foreach (var c in classificationsPerSource[i])
                 sourceBySession.TryAdd((c.Vendor, c.SessionId), sources[i]);
 
-        // Capture scope is decided here, over every source's output at once, and nowhere else.
-        var captureScope = new CaptureScope(router, config, home,
-                                            allowedPaths, excludedPaths, allowedRepos, excludedRepos, time);
-
+        // Local read failures also carry scope, even though they never reached a probe.
         if (captureScope.Configured) classifications = await captureScope.ApplyAsync(classifications, sessionCwds);
 
         // --- Resolve excluded-repo / excluded-path prompts (interactive without --yes only) ---
         // Repo and path exclusions are independent gates: a session is included only when
         // EVERY applicable exclusion key has been opted-in. Without that, opting into a
         // repo would silently bypass a path the user had explicitly ignored.
-        // Every session this run could still send, which is the same set CaptureScope stamps: an
-        // already-loaded one re-asserts its lifecycle hooks, so it is as much a question for the
-        // user as a new one, it counts toward what an answer withholds, and — since the block below
-        // only opens when a bucket is non-empty — it must be able to open it on its own.
-        var actionable = classifications.Where(CaptureScope.Actionable).ToList();
+        var actionable = classifications.Where(c => CaptureScope.Actionable(c) || c.Status == ClassificationStatus.Excluded).ToList();
 
         var excludedByRepo = actionable
             .SelectMany(c => c.ExcludedRepoKeys.Select(key => (Key: key, Session: c)))
@@ -1396,8 +1436,31 @@ class ImportCommand(
             }
         }
 
-        // Outside the prompt block: a session whose probe failed is never asked about, and must still
-        // land in Excluded when nothing opted its exclusion in.
+        // Only an explicit opt-in releases an excluded session for its server classification.
+        var optedIn = classifications
+            .Where(c => c.Status == ClassificationStatus.Excluded
+                     && !ShouldExclude(c, includedRepoKeys, includedPathKeys, includeOutsideAllowlist))
+            .Select(c => (c.Vendor, c.SessionId))
+            .ToHashSet();
+
+        if (optedIn.Count > 0) {
+            async Task<SessionClassification?> ExcludeUnlessApprovedAsync(SessionClassification candidate) {
+                var excluded = await ExcludeBeforeProbeAsync(candidate);
+                return excluded is not null && ShouldExclude(excluded, includedRepoKeys, includedPathKeys, includeOutsideAllowlist)
+                    ? excluded
+                    : null;
+            }
+
+            var optedInContext = classifyCtx with { ExcludeBeforeProbeAsync = ExcludeUnlessApprovedAsync };
+            var resumed = await Task.WhenAll(sources.Select((s, idx) => s.ClassifyAsync(
+                [.. filteredPerSource[idx].Where(d => optedIn.Contains((d.Vendor, d.SessionId)))],
+                optedInContext, CancellationToken.None)));
+            var bySession = resumed.SelectMany(r => r).ToDictionary(c => (c.Vendor, c.SessionId));
+
+            classifications = [.. classifications.Select(c => bySession.GetValueOrDefault((c.Vendor, c.SessionId)) ?? c)];
+            RefreshClassifiedCwds(classifications);
+        }
+
         for (var i = 0; i < classifications.Count; i++) {
             var c = classifications[i];
 
@@ -1407,11 +1470,6 @@ class ImportCommand(
         }
 
         // --- Plan grid ---
-        // Re-slice classifications by vendor for the sub-grid AFTER any
-        // post-classification mutations (--since prune, excluded-repo flips).
-        // The classifications list reflects every per-source-array entry by
-        // reference identity, but the per-source arrays were captured before
-        // the excluded-repo prompt — so rebuild from the flat list.
         var planCounts = ComputeCounts(classifications);
 
         Dictionary<string, ClassificationCounts>? planBySource = null;
@@ -1504,6 +1562,7 @@ class ImportCommand(
         var       titlesGenerated    = 0;
         var       titlesSkipped      = 0;
         var       titlesFailed       = 0;
+        var       modelCallsAllowed  = LocalIntelligenceGate.For(config, LocalRoot.FromEnvironment(home)).Allows(baseUrl);
         var       summariesGenerated = 0;
         var       summariesFailed    = 0;
         var       titleFailures      = new ConcurrentBag<(string SessionId, string Reason)>();
@@ -1514,9 +1573,11 @@ class ImportCommand(
         var       partitionSkipped   = new ConcurrentBag<string>();
         var       partitionFailed    = new ConcurrentBag<string>();
 
+        if ((!skipTitle || generateSummaries) && !modelCallsAllowed) display.Line($"Not naming or summarising sessions with a model: {LocalIntelligenceGate.NotSetUp}.");
+
         void WarnSession(string sessionId, string message) => display.Line(
-            $"! {sessionId}: {message}",
-            $"[yellow]![/] [cyan]{Markup.Escape(sessionId)}[/] {Markup.Escape(message)}"
+            $"! {SessionIds.Display(sessionId)}: {message}",
+            $"[yellow]![/] [cyan]{Markup.Escape(SessionIds.Display(sessionId))}[/] {Markup.Escape(message)}"
         );
 
         var events = new ChainWorkerEvents {
@@ -1530,7 +1591,7 @@ class ImportCommand(
             OnSessionErrored = (_, sid, reason) => {
                 if (selectedIds?.Contains(sid) == true) partitionFailed.Add(sid);
 
-                display.Line($"Skipping {sid} [{reason}]", FormatSkippedReasonMarkup(sid, reason));
+                display.Line($"Skipping {SessionIds.Display(sid)} [{reason}]", FormatSkippedReasonMarkup(sid, reason));
             },
             OnSessionWarning = (_, sid, message) => WarnSession(sid, message),
             OnSessionEnded = (_, c, outcome, lines) => {
@@ -1543,7 +1604,7 @@ class ImportCommand(
                     : "new";
 
                 display.Line(
-                    $"Loading {c.SessionId}... {lines} lines [{verb}]",
+                    $"Loading {SessionIds.Display(c.SessionId)}... {lines} lines [{verb}]",
                     FormatLoadedSummaryMarkup(c.SessionId, lines, verb)
                 );
             },
@@ -1551,7 +1612,7 @@ class ImportCommand(
                 var (sid, fp, _, vnd) = t;
 
                 // Titling shells out to the user's own `claude` / `codex`, on their subscription.
-                if (skipTitle) return;
+                if (skipTitle || !modelCallsAllowed) return;
 
                 // Don't schedule a title task for a source that doesn't support it.
                 // Cursor sets SupportsTitleGeneration=false because the composer
@@ -1583,7 +1644,7 @@ class ImportCommand(
                 );
             },
             OnBackgroundWorkReady = t => {
-                if (!t.GenerateWhatsDone || !generateSummaries) return;
+                if (!t.GenerateWhatsDone || !generateSummaries || !modelCallsAllowed) return;
 
                 Interlocked.Increment(ref summaryTaskCount);
                 var sid = t.SessionId;
@@ -1594,7 +1655,8 @@ class ImportCommand(
                             await concurrencyLimit.WaitAsync();
 
                             try {
-                                var rc = await new WhatsDoneCommand(config, profiles, harnesses, http, time)
+                                var rc = await new WhatsDoneCommand(config, profiles, harnesses, http, time,
+                                        LocalIntelligenceGate.For(config, LocalRoot.FromEnvironment(home)))
                                     .GenerateForSessionAsync(baseUrl, sid, _ => { }, vnd.VendorId);
 
                                 if (rc == 0) Interlocked.Increment(ref summariesGenerated);
@@ -1753,7 +1815,9 @@ class ImportCommand(
         }
 
         if (chains.Count > 0) {
-            display.BeginPhase($"Importing {chains.Sum(c => c.Count)} sessions");
+            var importing = chains.Sum(c => c.Count);
+
+            display.BeginPhase($"Importing {importing} session{(importing == 1 ? "" : "s")}");
 
             if (display.Tty) {
                 var r = default(ImportChainsResult);
@@ -1818,7 +1882,7 @@ class ImportCommand(
                                     // Subagent lines don't advance the parent bar; show a stripe
                                     // and swap the description while the subagent streams.
                                     slots[slot].IsIndeterminate = true;
-                                    slots[slot].Description     = $"{display.Indented}  [bold]Slot {slot + 1}[/] — [dim]↳[/] subagent [cyan]{Markup.Escape(aid)}[/] (parent {Markup.Escape(sid)})";
+                                    slots[slot].Description     = $"{display.Indented}  [bold]Slot {slot + 1}[/] — [dim]↳[/] subagent [cyan]{Markup.Escape(aid)}[/] (parent {Markup.Escape(SessionIds.Display(sid))})";
                                 },
                                 OnSubagentFinished = (slot, _, _, _) => {
                                     // Revert to the parent's "Loading" description and resume the
@@ -1857,7 +1921,7 @@ class ImportCommand(
                                 },
                             };
 
-                            r = await ImportChainsAsync(httpClient, baseUrl, chains, wrappedEvents, CancellationToken.None, sessionCwds, chainDefaultVisibility);
+                            r = await ImportChainsAsync(httpClient, baseUrl, chains, wrappedEvents, CancellationToken.None, sessionCwds, chainDefaultVisibility, stopAtLoss: filterSession is not null);
 
                             // Insurance, not presentation: the frame is erased on the way out, and an
                             // erase that ever fails should strand idle rows rather than a session name.
@@ -1876,12 +1940,12 @@ class ImportCommand(
                             }
 
                             string LoadingDesc(int slot, string sid, string verb) =>
-                                $"{display.Indented}  [bold]Slot {slot + 1}[/] — Loading [cyan]{Markup.Escape(sid)}[/] ({verb})";
+                                $"{display.Indented}  [bold]Slot {slot + 1}[/] — Loading [cyan]{Markup.Escape(SessionIds.Display(sid))}[/] ({verb})";
                         }
                     );
                 importResult = r!;
             } else {
-                importResult = await ImportChainsAsync(httpClient, baseUrl, chains, events, CancellationToken.None, sessionCwds, chainDefaultVisibility);
+                importResult = await ImportChainsAsync(httpClient, baseUrl, chains, events, CancellationToken.None, sessionCwds, chainDefaultVisibility, stopAtLoss: filterSession is not null);
             }
         } else {
             importResult = new(0, 0, 0);
@@ -1917,7 +1981,7 @@ class ImportCommand(
                 Progress: new CallbackProgress(ev => {
                     if (ev is ImportWarning w) WarnSession(w.SessionId, w.Message);
                 })
-            ) { Stderr = console.Error, TranscriptLedger = routedLedger };
+            ) { Stderr = console.Error, TranscriptLedger = routedLedger, StopAtLoss = filterSession is not null };
 
             async Task<ImportSessionResult> ImportOne(SessionClassification c) {
                 if (!sourceBySession.TryGetValue((c.Vendor, c.SessionId), out var src)) {
@@ -2017,19 +2081,19 @@ class ImportCommand(
                                         case ImportOutcome.Loaded:
                                         case ImportOutcome.Resumed:
                                             console.Ansi.MarkupLine(
-                                                $"{display.Indented}[green]✓[/] Loading [cyan]{Markup.Escape(c.SessionId)}[/] ({c.Vendor.VendorId})"
+                                                $"{display.Indented}[green]✓[/] Loading [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] ({c.Vendor.VendorId})"
                                             );
 
                                             break;
                                         case ImportOutcome.Skipped:
                                             console.Ansi.MarkupLine(
-                                                $"{display.Indented}[yellow]~[/] Skipping [cyan]{Markup.Escape(c.SessionId)}[/] (already current)"
+                                                $"{display.Indented}[yellow]~[/] Skipping [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] (already current)"
                                             );
 
                                             break;
                                         case ImportOutcome.Failed:
                                             console.Ansi.MarkupLine(
-                                                $"{display.Indented}[red]✗[/] Failed [cyan]{Markup.Escape(c.SessionId)}[/]"
+                                                $"{display.Indented}[red]✗[/] Failed [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/]"
                                             );
 
                                             break;
@@ -2039,13 +2103,15 @@ class ImportCommand(
                                             // lifecycle-only repair, etc.), not always "nested
                                             // under parent".
                                             console.Ansi.MarkupLine(
-                                                $"{display.Indented}[grey]·[/] Already loaded [cyan]{Markup.Escape(c.SessionId)}[/] (no new content)"
+                                                $"{display.Indented}[grey]·[/] Already loaded [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] (no new content)"
                                             );
 
                                             break;
                                         case null:
+                                            // The replay re-sent the session's lifecycle; nothing says whether that
+                                            // changed what the server holds, so the line claims no backfill.
                                             console.Ansi.MarkupLine(
-                                                $"{display.Indented}[grey]·[/] Refreshed [cyan]{Markup.Escape(c.SessionId)}[/] (repository backfill, already loaded)"
+                                                $"{display.Indented}[grey]·[/] Refreshed [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] (already loaded)"
                                             );
 
                                             break;
@@ -2066,31 +2132,35 @@ class ImportCommand(
                         switch (resolved) {
                             case ImportOutcome.Loaded:
                             case ImportOutcome.Resumed:
-                                display.Line($"Loading {c.SessionId} ({c.Vendor.VendorId})");
+                                display.Line($"Loading {SessionIds.Display(c.SessionId)} ({c.Vendor.VendorId})");
 
                                 break;
                             case ImportOutcome.Skipped:
-                                display.Line($"Skipping {c.SessionId} (already current)");
+                                display.Line($"Skipping {SessionIds.Display(c.SessionId)} (already current)");
 
                                 break;
                             case ImportOutcome.Failed:
-                                display.Line($"Failed {c.SessionId}");
+                                display.Line($"Failed {SessionIds.Display(c.SessionId)}");
 
                                 break;
                             case null when outcome is ImportOutcome.Skipped:
                                 // See the Tty branch above.
-                                display.Line($"Already loaded {c.SessionId} (no new content)");
+                                display.Line($"Already loaded {SessionIds.Display(c.SessionId)} (no new content)");
 
                                 break;
                             case null:
-                                display.Line($"Refreshed {c.SessionId} (repository backfill, already loaded)");
+                                display.Line($"Refreshed {SessionIds.Display(c.SessionId)} (already loaded)");
 
                                 break;
                         }
                     }
                 );
             }
-            routedLedger.Save();
+            try {
+                await routedLedger.ConfirmAsync(httpClient, time, CancellationToken.None);
+            } finally {
+                routedLedger.Save();
+            }
         }
 
         await RecordImportedRepositoriesAsync(classifications, selectedIds, sessionCwds, display);
@@ -2159,14 +2229,14 @@ class ImportCommand(
 
                                 for (var i = seenT; i < tList.Count; i++) {
                                     var (sid, reason) = tList[i];
-                                    console.Ansi.MarkupLine($"{display.Indented}[red]✗[/] title failed for [cyan]{Markup.Escape(sid)}[/]: {Markup.Escape(reason)}");
+                                    console.Ansi.MarkupLine($"{display.Indented}[red]✗[/] title failed for [cyan]{Markup.Escape(SessionIds.Display(sid))}[/]: {Markup.Escape(reason)}");
                                 }
 
                                 seenT = tList.Count;
 
                                 for (var i = seenS; i < sList.Count; i++) {
                                     var (sid, reason) = sList[i];
-                                    console.Ansi.MarkupLine($"{display.Indented}[red]✗[/] summary failed for [cyan]{Markup.Escape(sid)}[/]: {Markup.Escape(reason)}");
+                                    console.Ansi.MarkupLine($"{display.Indented}[red]✗[/] summary failed for [cyan]{Markup.Escape(SessionIds.Display(sid))}[/]: {Markup.Escape(reason)}");
                                 }
 
                                 seenS = sList.Count;
@@ -2189,10 +2259,10 @@ class ImportCommand(
                 }
 
                 foreach (var (sid, reason) in titleFailures)
-                    display.Line($"  ✗ title failed for {sid}: {reason}");
+                    display.Line($"  ✗ title failed for {SessionIds.Display(sid)}: {reason}");
 
                 foreach (var (sid, reason) in summaryFailures)
-                    display.Line($"  ✗ summary failed for {sid}: {reason}");
+                    display.Line($"  ✗ summary failed for {SessionIds.Display(sid)}: {reason}");
             }
         }
 
@@ -2383,28 +2453,22 @@ class ImportCommand(
                     var doc  = JsonDocument.Parse(line);
                     var root = doc.RootElement;
 
-                    // Skip file-history-snapshot entries
                     if (root.Str("type") == "file-history-snapshot") {
                         continue;
                     }
 
-                    // Extract cwd from metadata
                     meta.Cwd ??= root.Str("cwd");
 
-                    // Extract model from assistant message
                     meta.Model ??= root.Obj("message")?.Str("model");
 
-                    // Extract slug from metadata
                     meta.Slug ??= root.Str("slug");
 
-                    // Extract sessionId
                     meta.SessionId ??= root.Str("sessionId");
 
                     // Detached HEAD is recorded as "HEAD", which names no branch.
                     if (meta.GitBranch is null && root.Str("gitBranch") is { Length: > 0 } branch && branch != "HEAD")
                         meta.GitBranch = branch;
 
-                    // Extract first timestamp for continuation ordering
                     if (meta.FirstTimestamp is null
                      && root.Str("timestamp") is { } tsStr
                      && DateTimeOffset.TryParse(tsStr, out var ts)) {
@@ -2418,7 +2482,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort metadata extraction
         }
 
         return meta;
@@ -2438,7 +2501,6 @@ class ImportCommand(
             // If we seeked mid-file, skip the first partial line
             if (offset > 0) reader.ReadLine();
 
-            // Collect the last 50 non-empty lines
             var tail = new List<string>(50);
 
             while (reader.ReadLine() is { } line) {
@@ -2470,7 +2532,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort
         }
 
         return null;
@@ -2505,7 +2566,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort
         }
 
         return null;
@@ -2650,7 +2710,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort
         }
 
         return meta;
@@ -2705,7 +2764,7 @@ class ImportCommand(
     /// then promotes the read fallback if no mutation ever attributed. Import has no live tail
     /// to keep scanning, so — unlike the watcher's one-shot prefix scan — this always runs to
     /// end of file. <paramref name="findRoot"/>/<paramref name="detect"/> are injected so the
-    /// D1 gating in <see cref="ImportSingleSessionAsync"/> is unit-testable without disk.
+    /// evidence gating in <see cref="ImportSingleSessionAsync"/> is unit-testable without disk.
     /// </summary>
     internal static async Task<JsonObject?> TryBuildEvidenceRepositoryNodeAsync(
             string                                 vendor,
@@ -2803,6 +2862,10 @@ class ImportCommand(
             UserHome                            home
         ) {
         if (sessionCwds.Count == 0) return;
+
+        // The home prefix shortens only on this spelling. The remapper treats both separators alike, so a rule
+        // printed from here still matches the raw cwd.
+        sessionCwds = sessionCwds.ToDictionary(kv => kv.Key, kv => ImportScope.WindowsSpelling(kv.Value), StringComparer.Ordinal);
 
         var uniqueCwds = sessionCwds.Values.Distinct(StringComparer.Ordinal).ToList();
         var missing    = uniqueCwds.Where(c => !Directory.Exists(c)).ToHashSet(StringComparer.Ordinal);
@@ -3044,6 +3107,93 @@ class ImportCommand(
     }
 
     /// <summary>
+    /// The discovered sessions the profile's capture scope keeps out of any import, judged on each session's recorded
+    /// cwd with the fallback the import uses, and the subset that no remap can bring back. The import also excludes a
+    /// session whose recorded folder lies in an excluded repository when a remap, a worktree fallback or the harness's
+    /// recorded repository placed it elsewhere, so only those folders' repositories are detected, and it excludes the
+    /// checkout a session ran in even when its harness recorded another repository. A transcript that records no cwd is
+    /// placed by the import in the repository of its decoded project folder after remap and worktree fallback, which
+    /// stands in for the one discovery could not resolve. <c>Folders</c> names each excluded session by the folder it
+    /// was judged on, before any remap.
+    /// </summary>
+    async Task<(IReadOnlySet<string> All, IReadOnlySet<string> BeyondRemap, IReadOnlyDictionary<string, string> Folders)> CaptureScopeExclusionsAsync(
+            IEnumerable<DiscoveredSession>                            sessions,
+            IReadOnlyDictionary<string, string>                       rawCwds,
+            IReadOnlyDictionary<string, string>                       sessionCwds,
+            IReadOnlyDictionary<string, (string Owner, string Name)?> resolved,
+            IReadOnlyList<CwdRemap>?                                  cwdRemap) {
+        if (profiles.Effective is not { } profile)
+            return (FrozenSet<string>.Empty, FrozenSet<string>.Empty, FrozenDictionary<string, string>.Empty);
+
+        var judged = sessions
+            .Select(d => {
+                var recordedCwd = rawCwds.GetValueOrDefault(d.SessionId) ?? d.Cwd;
+                var folderCwd   = recordedCwd is null && d.SourceMeta.GetValueOrDefault("EncodedCwd") is string encoded
+                    ? SessionImporter.DecodeCwdFromDirName(encoded)
+                    : null;
+
+                var placedCwd   = folderCwd is not null && !sessionCwds.ContainsKey(d.SessionId)
+                    ? ResolveCwd(folderCwd, cwdRemap, worktreeAttributed: null, d.SessionId)
+                    : null;
+
+                return (d.SessionId, Cwd: recordedCwd ?? folderCwd, PlacedCwd: placedCwd,
+                    EffectiveCwd: placedCwd ?? sessionCwds.GetValueOrDefault(d.SessionId),
+                    Recorded: ParseRecordedRepository(d.SourceMeta.GetValueOrDefault(RecordedRepositoryKey) as string) is not null);
+            })
+            .ToList();
+
+        var repos        = new ConcurrentDictionary<string, (string Owner, string Name)?>(StringComparer.Ordinal);
+        var excludesRepo = profile.ExcludedRepos is { Length: > 0 };
+        var judgesRepo   = excludesRepo || profile.AllowedRepos is { Length: > 0 };
+
+        var rawDetect = judged
+            .Where(j => excludesRepo && j.Cwd is not null
+                     && (j.Recorded || j.PlacedCwd is not null
+                      || sessionCwds.TryGetValue(j.SessionId, out var effective) && !string.Equals(effective, j.Cwd, StringComparison.Ordinal)))
+            .Select(j => j.Cwd!);
+        var placedDetect = judged
+            .Where(j => judgesRepo && !j.Recorded && j.PlacedCwd is not null)
+            .Select(j => j.PlacedCwd!);
+        // A recorded repository names where the session goes, but the import still excludes the checkout it ran in.
+        var checkoutDetect = judged
+            .Where(j => excludesRepo && j.Recorded && j.EffectiveCwd is not null)
+            .Select(j => j.EffectiveCwd!);
+        var detect = rawDetect.Concat(placedDetect).Concat(checkoutDetect)
+            .Where(Directory.Exists)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        await Parallel.ForEachAsync(detect, new ParallelOptions { MaxDegreeOfParallelism = 8 }, async (cwd, _) => {
+            try {
+                var repo = await RepositoryDetection.DetectRepositoryAsync(router, config, cwd, time, detectPullRequest: false);
+                repos[cwd] = repo is { Owner: { } o, RepoName: { } n } ? (o, n) : null;
+            } catch {
+                repos[cwd] = null;
+            }
+        });
+
+        var all         = new HashSet<string>(StringComparer.Ordinal);
+        var beyondRemap = new HashSet<string>(StringComparer.Ordinal);
+        var folders     = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var (sessionId, cwd, placedCwd, effectiveCwd, recorded) in judged) {
+            var rawRepo  = cwd is not null && repos.GetValueOrDefault(cwd) is { } f ? $"{f.Owner}/{f.Name}" : null;
+            var repo     = placedCwd is not null && !recorded ? repos.GetValueOrDefault(placedCwd) : resolved.GetValueOrDefault(sessionId);
+            var checkout = recorded && effectiveCwd is not null && repos.GetValueOrDefault(effectiveCwd) is { } c ? $"{c.Owner}/{c.Name}" : null;
+
+            if (CaptureScope.ExcludesRecorded(profile, home, cwd, rawRepo)) beyondRemap.Add(sessionId);
+
+            if (CaptureScope.ExcludesDiscovered(profile, home, cwd, repo, rawRepo)
+             || excludesRepo && checkout is not null && RepoScope.Names(profile.ExcludedRepos!, checkout)) {
+                all.Add(sessionId);
+                if (cwd is not null) folders[sessionId] = cwd;
+            }
+        }
+
+        return (all, beyondRemap, folders);
+    }
+
+    /// <summary>
     /// Build a SessionId → repo lookup for every discovered transcript. Repo detection (git + `gh pr view`) is
     /// the slow part of discovery, so it runs once per distinct cwd (transcripts in one project share a repo), in
     /// parallel, with a status spinner on a TTY and a plain status line otherwise.
@@ -3054,7 +3204,8 @@ class ImportCommand(
             ImportDisplay                                                         display,
             IReadOnlyList<CwdRemap>?                                              cwdRemap            = null,
             IDictionary<string, string>?                                          sessionCwds        = null,
-            ISet<string>?                                                         worktreeAttributed = null
+            ISet<string>?                                                         worktreeAttributed = null,
+            IDictionary<string, string>?                                          rawCwds            = null
         ) {
         // Extract cwd per transcript first (cheap: ≤20-line file read).
         // Apply user-configured prefix remaps so historic transcripts pointing
@@ -3082,6 +3233,8 @@ class ImportCommand(
 
                 continue;
             }
+
+            if (raw is not null && rawCwds is not null) rawCwds[transcripts[i].SessionId] = raw;
 
             var effective = raw is null ? null : ResolveCwd(raw, cwdRemap, worktreeAttributed, transcripts[i].SessionId);
 
@@ -3338,12 +3491,14 @@ class ImportCommand(
             ChainWorkerEvents                 events,
             CancellationToken                 ct,
             IReadOnlyDictionary<string, string>? sessionCwds       = null,
-            string?                              defaultVisibility = null
+            string?                              defaultVisibility = null,
+            bool                                 stopAtLoss        = false
         ) {
-        var loaded  = 0;
-        var resumed = 0;
-        var errored = 0;
-        var ledger  = TranscriptImportLedger.ForRecording(config);
+        var loaded    = 0;
+        var resumed   = 0;
+        var errored   = 0;
+        var ledger    = TranscriptImportLedger.ForRecording(config);
+        var canonical = new IngestCapability(httpClient, baseUrl, time);
 
         var queue = Channel.CreateUnbounded<List<SessionClassification>>(
             new() {
@@ -3373,7 +3528,7 @@ class ImportCommand(
                                 var linesSent = 0;
 
                                 try {
-                                    (r, linesSent) = await ImportSingleSessionAsync(httpClient, baseUrl, session, slot, events, ledger, ct, sessionCwds, defaultVisibility);
+                                    (r, linesSent) = await ImportSingleSessionAsync(httpClient, baseUrl, session, slot, events, ledger, canonical, ct, sessionCwds, defaultVisibility, stopAtLoss);
                                 } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                                     throw;
                                 } catch (Exception ex) {
@@ -3400,6 +3555,7 @@ class ImportCommand(
 
         try {
             await Task.WhenAll(workers);
+            await ledger.ConfirmAsync(httpClient, time, ct);
         } finally {
             ledger.Save();
         }
@@ -3430,9 +3586,11 @@ class ImportCommand(
             int                    slot,
             ChainWorkerEvents      events,
             TranscriptImportLedger ledger,
+            IngestCapability       canonical,
             CancellationToken      ct,
             IReadOnlyDictionary<string, string>? sessionCwds       = null,
-            string?                              defaultVisibility = null
+            string?                              defaultVisibility = null,
+            bool                                 stopAtLoss        = false
         ) {
         // Denominator for the per-slot progress bar: the number of parent-transcript
         // lines this import will POST. For a resume, only the lines past the server's
@@ -3476,7 +3634,8 @@ class ImportCommand(
                     progress: perSessionProgress,
                     vendor: session.Vendor,
                     failOnError: true,
-                    completeLines: completeLines
+                    completeLines: completeLines,
+                    canonical: canonical
                 );
 
                 var (_, resumeTitleCancelled) = await TryPostCodexHarnessTitleAsync(httpClient, baseUrl, session, perSessionProgress, ct);
@@ -3593,7 +3752,7 @@ class ImportCommand(
             }
         }
 
-        // D1: the cwd itself isn't inside any git repo (or is missing entirely), so neither
+        // The cwd itself isn't inside any git repo (or is missing entirely), so neither
         // workspace_root above nor the cwd-based repository detection could find anything —
         // fall back to scanning the transcript's own tool-use paths for a resolvable git root,
         // same evidence rule the live watcher applies for sessions launched outside a repo.
@@ -3648,7 +3807,9 @@ class ImportCommand(
                 session.EncodedCwd,
                 time,
                 perSessionProgress,
-                session.Vendor
+                session.Vendor,
+                canonical,
+                stopAtLoss
             );
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;
@@ -3872,14 +4033,14 @@ class ImportCommand(
                     lost.Add(sessionId);
 
                     await display.Terminal.Error.WriteLineAsync(
-                        $"{display.Indented}! visibility={visibility} failed for {sessionId}: HTTP {(int)resp.StatusCode}"
+                        $"{display.Indented}! visibility={visibility} failed for {SessionIds.Display(sessionId)}: HTTP {(int)resp.StatusCode}"
                     );
                 }
             } catch (Exception ex) {
                 lost.Add(sessionId);
 
                 await display.Terminal.Error.WriteLineAsync(
-                    $"{display.Indented}! visibility={visibility} failed for {sessionId}: {ex.Message}"
+                    $"{display.Indented}! visibility={visibility} failed for {SessionIds.Display(sessionId)}: {ex.Message}"
                 );
             }
         }

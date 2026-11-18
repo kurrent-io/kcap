@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
@@ -10,7 +11,8 @@ using Capacitor.Cli.Core.Http;
 namespace Capacitor.Cli.Commands;
 
 sealed class WhatsDoneCommand(
-        ConfigRoot config, ProfileContext profiles, HarnessRegistry harnesses, ICapacitorHttpClient http, TimeProvider time) {
+        ConfigRoot config, ProfileContext profiles, HarnessRegistry harnesses, ICapacitorHttpClient http, TimeProvider time,
+        LocalIntelligenceGate intelligence) {
     public async Task<int> HandleGenerateWhatsDone(string baseUrl, string sessionId, string vendor = "claude") {
         // Redirect output to log file (same pattern as WatchCommand)
         var logDir = config.Path("logs");
@@ -33,6 +35,14 @@ sealed class WhatsDoneCommand(
     /// </summary>
     /// <param name="vendor">"claude" (default) or "codex" — picks the headless CLI runner.</param>
     public async Task<int> GenerateForSessionAsync(string baseUrl, string sessionId, Action<string> log, string vendor = "claude") {
+        if (IsDisabled(sessionId, log)) return 0;
+
+        if (!intelligence.Allows(baseUrl)) {
+            log($"Not generating a what's-done summary for session {sessionId}: {LocalIntelligenceGate.NotSetUp}");
+
+            return 0;
+        }
+
         log($"Generating what's-done summary for session {sessionId}");
 
         // The background lane, not the interactive one: both entry points are unattended — one has
@@ -95,6 +105,13 @@ sealed class WhatsDoneCommand(
 
         log($"Summary generated ({result.Result.Length} chars), model={result.Model}, input={result.InputTokens}, output={result.OutputTokens}");
 
+        return await PostSummaryAsync(httpClient, baseUrl, sessionId, result, log);
+    }
+
+    internal async Task<int> PostSummaryAsync(HttpClient httpClient, string baseUrl, string sessionId, ClaudeCliResult result, Action<string> log) {
+        // A summary takes longer than a person takes to disable the session, and this process runs on by itself.
+        if (IsDisabled(sessionId, log)) return 0;
+
         // 3. POST result back to server
         var payload = new WhatsDonePayload {
             SessionId        = sessionId,
@@ -124,6 +141,14 @@ sealed class WhatsDoneCommand(
         }
 
         return 0;
+    }
+
+    bool IsDisabled(string sessionId, Action<string> log) {
+        if (!DisabledSessions.IsDisabledByPerson(sessionId, config)) return false;
+
+        log($"Session {sessionId} was disabled, so it gets no summary");
+
+        return true;
     }
 
     static string FormatRecapAsText(List<RecapEntry> entries) {

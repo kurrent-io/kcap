@@ -16,6 +16,20 @@ static class VendorProcess {
         else psi.Environment[variable] = value;
     }
 
+    static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(2);
+
+    public static async Task ShutDownAsync(Process process, TimeProvider time) {
+        try {
+            process.StandardInput.Close();
+            using var grace = new CancellationTokenSource(ExitGrace, time);
+            await process.WaitForExitAsync(grace.Token).ConfigureAwait(false);
+        } catch (Exception ex) when (ex is OperationCanceledException or IOException or InvalidOperationException) {
+            // Still running, or its input already gone: the kill below settles it.
+        }
+
+        Stop(process);
+    }
+
     /// <summary>Kills the direct child only: a tree kill SIGSTOPs each process before killing it, and the
     /// daemon, which runs these probes too, must never stop a member of its own process group.</summary>
     public static void Stop(Process process) {

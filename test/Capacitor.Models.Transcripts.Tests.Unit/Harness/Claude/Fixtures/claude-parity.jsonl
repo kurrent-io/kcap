@@ -9,3 +9,8 @@
 {"type":"assistant","uuid":"not-a-guid","message":{"content":[{"type":"text","text":"rejected"}],"usage":{"input_tokens":99}}}
 {"type":"user","uuid":"10000000-0000-4000-8000-000000000010","timestamp":"2026-09-04T10:00:10Z","isSidechain":true,"message":{"content":[{"type":"tool_result","tool_use_id":"toolu_3","content":{"k":1}}]}}
 {"type":"user","message":{"content":"no uuid"}}
+{"type":"user","uuid":"10000000-0000-4000-8000-000000000012","parentUuid":"10000000-0000-4000-8000-000000000005","timestamp":"2026-09-04T10:00:12Z","message":{"content":"first try"}}
+{"type":"user","uuid":"10000000-0000-4000-8000-000000000013","parentUuid":"10000000-0000-4000-8000-000000000005","timestamp":"2026-09-04T10:00:13Z","message":{"content":"second try"}}
+{"type":"system","subtype":"compact_boundary","uuid":"10000000-0000-4000-8000-000000000014","parentUuid":null,"logicalParentUuid":"10000000-0000-4000-8000-000000000013","timestamp":"2026-09-04T10:00:14Z","content":"Conversation compacted","isMeta":false,"level":"info","compactMetadata":{"trigger":"auto","preTokens":167005}}
+{"type":"system","subtype":"compact_boundary","uuid":"10000000-0000-4000-8000-000000000015","parentUuid":"10000000-0000-4000-8000-000000000014","timestamp":"2026-09-04T10:00:15Z","isSidechain":true,"compactMetadata":{"trigger":"auto","preTokens":1,"postTokens":1}}
+{"type":"system","subtype":"compact_boundary","uuid":"10000000-0000-4000-8000-000000000016","parentUuid":"10000000-0000-4000-8000-000000000014","timestamp":"2026-09-04T10:00:16Z","compactMetadata":{"trigger":"manual","preTokens":225521,"postTokens":37040}}

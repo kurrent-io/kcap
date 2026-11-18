@@ -272,7 +272,7 @@ public class ClaudeLauncherReviewFlowTests {
         await Assert.That(argsEmpty).IsEquivalentTo(argsNull, CollectionOrdering.Matching);
     }
 
-    // === Phase A: read-only argv for a borrowed reviewer ===
+    // === Read-only argv for a borrowed reviewer ===
 
     [Test]
     public async Task Review_flow_borrowed_cwd_denies_write_and_exec_tools_instead_of_bypass() {

@@ -302,20 +302,12 @@ public partial class LaunchChipsView : UserControl {
                     VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
                 });
             if (account.IsDefault)
-                title.Children.Add(new Border {
-                    Background = raised, BorderBrush = border, BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(999), Padding = new Thickness(8, 3), Margin = new Thickness(8, 0, 0, 0),
-                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                    Child = new TextBlock { Text = "Default", FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = muted },
-                });
+                title.Children.Add(new StatusBadge { Text = "Default", Margin = new Thickness(8, 0, 0, 0) });
             var usage = choice.Removed || account.Id is not { } usageId ? null
                 : drawnUsage.TryGetValue(usageId, out var view) ? view : null;
             if (usage?.BlockedText is { } blockedText)
-                title.Children.Add(new Border {
-                    Background = this.Brush("KcapDangerDimBrush"), CornerRadius = new CornerRadius(999),
-                    Padding = new Thickness(8, 3), Margin = new Thickness(8, 0, 0, 0),
-                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                    Child = new TextBlock { Text = blockedText, FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = this.Brush("KcapDangerBrush") },
+                title.Children.Add(new StatusBadge {
+                    Classes = { "danger" }, Text = blockedText, Icon = LucideIconKind.CircleAlert, Margin = new Thickness(8, 0, 0, 0),
                 });
 
             var titles = new StackPanel();

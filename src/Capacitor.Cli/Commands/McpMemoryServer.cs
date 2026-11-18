@@ -2,7 +2,6 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Telemetry;
@@ -18,81 +17,14 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
     internal const string NotLoggedInMessage = AuthRejectionNotice.NotLoggedIn;
 
     public async Task<int> RunAsync() {
-        var baseUrl = profiles.Resolution.ServerUrl!;
-
         var repository = new CwdRepository(config, workdir.Path, router, time);
         var machineId  = await ResolveMachineIdAsync();
-        var tools      = BuildToolsList();
 
-        // Best-effort, and recorded even when the read throws: a stale token on disk must never
-        // block the server from starting, and an absent property is a different value in a funnel
-        // from a false one — "could not tell" belongs with "not logged in", not with a gap.
-        var loggedIn = false;
-        try { loggedIn = await tokens.LoadForProfileAsync(profiles.Name) is not null; } catch { }
-
-        // MCP servers are long-lived and denylisted under the top-level "mcp" command
-        // (CommandEvents.Denylisted) — a second facade under the reportable pseudo-command
-        // "mcp-server" is what lets per-tool-call events leave at all.
-        var telemetry = CliTelemetry.Start(startup with { Command = "mcp-server" }, config, time);
-        telemetry.AddSharedProperty("logged_in", loggedIn);
-
-        await using var mcp = new McpTelemetry(telemetry);
-
-        // Validate the server_url shape once, locally (pure string check — no network, token,
-        // or stderr). Used to fail gracefully instead of hard-exiting mid-request (below).
-        var urlOk = HttpClientExtensions.IsAcceptableUrl(baseUrl);
-
-        // Created on first use, so a session that never calls a tool stays local-only.
-        using var sessionClient = new OnDemand<HttpClient>(() => http.ForSessionAsync());
-
-        // Guarded tool dispatch: never let the stdio JSON-RPC loop die on one bad request. An
-        // unexpected failure would otherwise bubble out of the loop and kill the server mid-protocol;
-        // return a JSON-RPC tool error instead so it keeps serving.
-        async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            if (!urlOk)
-                return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
-
-            try {
-                var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, await repository.GetHashAsync(client, baseUrl), machineId);
-            } catch (Exception ex) {
-                // Unexpected: log the detail to stderr (not to the client, which could leak local
-                // paths from IO errors) and return a generic tool error, keeping the loop alive.
-                await Console.Error.WriteLineAsync($"kcap mcp memory: unexpected error handling tools/call: {ex}");
-                return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);
-            }
-        }
-
-        // Records which MCP tools agents actually reach for. Never touches the response path:
-        // the result (or the exception) is returned exactly as DispatchToolCallAsync produced it.
-        async Task<string> TimedDispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            var start = time.GetTimestamp();
-            var tool  = McpTelemetry.SafeToolName(callRequest);
-            var ok    = false;
-
-            try {
-                var response = await DispatchToolCallAsync(callId, callRequest);
-                ok = McpTelemetry.ResponseOk(response);
-                return response;
-            } finally {
-                mcp.ToolCalled("kcap-memory", tool, ok, CommandTiming.ElapsedMs(start, time));
-            }
-        }
-
-        await using var stdin  = Console.OpenStandardInput();
-        await using var stdout = Console.OpenStandardOutput();
-        using var       reader = new StreamReader(stdin, Encoding.UTF8);
-        await using var writer = new StreamWriter(stdout, new UTF8Encoding(false));
-        writer.AutoFlush = true;
-
-        await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
-            "initialize" => BuildInitializeResponse(id, request),
-            "tools/list" => BuildToolsListResponse(id, tools),
-            _            => McpProtocol.TryHandleStandardMethod(method, id)
-                            ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
-        }, "memory");
-
-        return 0;
+        return await McpServerHost.RunAsync(
+            new("kcap-memory", "memory", ServerInstructions, BuildToolsList()) { RejectsNonStringMethod = false },
+            new(config, profiles, tokens, http, startup, time),
+            async (id, request, client, baseUrl) =>
+                await HandleToolCallAsync(id, request, client, baseUrl, await repository.GetHashAsync(client, baseUrl), machineId));
     }
 
     async Task<string?> ResolveMachineIdAsync() {
@@ -105,16 +37,6 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
         "Use these tools for durable team knowledge — preferences, feedback, project facts, references. " +
         "Search memories before assuming there's no prior art on a task, and before saving a new one — they " +
         "hold learnings that aren't in the code.";
-
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
-        ToResponse<McpInitResult>(
-            id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-memory", "1.0.0"), ServerInstructions),
-            McpJsonContext.Default.McpInitResult
-        );
-
-    static string BuildToolsListResponse(JsonNode id, McpTool[] tools) =>
-        ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
 
     internal async Task<string> HandleToolCallAsync(
             JsonNode   id,
@@ -129,7 +51,7 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
         var arguments  = paramsNode?["arguments"]?.AsObject();
 
         if (toolName is null) {
-            return BuildErrorResponse(id, -32602, "Missing params.name");
+            return McpResponses.Error(id, -32602, "Missing params.name");
         }
 
         try {
@@ -150,28 +72,28 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
             var body = await httpResponse.Content.ReadAsStringAsync();
 
             if (httpResponse.StatusCode == HttpStatusCode.Unauthorized) {
-                return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
+                return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(tokens, profiles.Name, baseUrl, time), isError: true);
             }
 
             if (EntryTools.Contains(toolName) && IsServerWithoutLogs(httpResponse.StatusCode, body)) {
-                return BuildToolResult(id, LogsUnsupportedMessage, isError: true);
+                return McpResponses.ToolResult(id, LogsUnsupportedMessage, isError: true);
             }
 
             if (!httpResponse.IsSuccessStatusCode) {
-                return BuildToolResult(id, $"Error: HTTP {(int)httpResponse.StatusCode} — {body}", isError: true);
+                return McpResponses.ToolResult(id, $"Error: HTTP {(int)httpResponse.StatusCode} — {body}", isError: true);
             }
 
             if (toolName == "get_memory") await RecordUseAsync(client, baseUrl, body, time);
 
-            return BuildToolResult(id, toolName switch {
+            return McpResponses.ToolResult(id, toolName switch {
                 "update_memory" => WithUncheckedVersionNotice(arguments, body),
                 "save_memory"   => WithLogFormNotice(arguments, body),
                 _               => body
             });
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -316,7 +238,7 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
         if (args?[name] is null) return null;
 
         try {
-            if (TryReadInt(args, name, out var value)) return value;
+            if (McpToolArguments.TryReadIntLenient(args, name, out var value)) return value;
         } catch (ArgumentException) { }
 
         throw new ArgumentException($"'{name}' must be an integer.");
@@ -433,76 +355,6 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
             JsonValue v when v.TryGetValue<bool>(out var b) => b,
             _                                               => throw new ArgumentException($"'{key}' must be a boolean.")
         };
-
-    /// <summary>
-    /// Reads a numeric field as int, tolerant of JsonValue holding any underlying numeric type
-    /// (int/long/double) — TryGetValue&lt;int&gt; on a JsonValue constructed from a long returns false.
-    /// Returns false when the key is missing or the value is the wrong shape (e.g., a string).
-    /// Throws <see cref="ArgumentException"/> when the value is numeric but out of range for int,
-    /// so the caller (via <see cref="HandleToolCallAsync"/>) surfaces it as a JSON-RPC validation error
-    /// rather than silently falling back to the default.
-    /// </summary>
-    internal static bool TryReadInt(JsonObject? args, string key, out int value) {
-        value = 0;
-        var node = args?[key];
-
-        if (node is null) return false;
-
-        JsonValue v;
-
-        try {
-            v = node.AsValue();
-        } catch {
-            return false; // wrong shape (object/array)
-        }
-
-        if (v.TryGetValue(out value)) return true;
-
-        if (v.TryGetValue<long>(out var lv)) {
-            if (lv is < int.MinValue or > int.MaxValue)
-                throw new ArgumentException($"'{key}' value {lv} is out of range for int.");
-
-            value = (int)lv;
-
-            return true;
-        }
-
-        if (v.TryGetValue<double>(out var dv)) {
-            var rounded = (long)dv;
-
-            if (rounded < int.MinValue || rounded > int.MaxValue || rounded != dv)
-                throw new ArgumentException($"'{key}' value {dv} is out of range or non-integer for int.");
-
-            value = (int)rounded;
-
-            return true;
-        }
-
-        return false;
-    }
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        };
-
-        return envelope.ToJsonString();
-    }
 
     internal static McpTool[] BuildToolsList() => [
         new("search_memories",

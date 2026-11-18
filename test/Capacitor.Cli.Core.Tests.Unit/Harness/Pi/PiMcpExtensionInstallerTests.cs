@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Pi;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Pi;
@@ -33,7 +34,7 @@ public class PiMcpExtensionInstallerTests {
 
         // Async factory (pi awaits it before session_start → tools ready turn 1).
         await Assert.That(content).Contains("export default async function");
-        await Assert.That(content).Contains("const KCAP_MCP_SERVERS = [\"review\", \"sessions\", \"flows\", \"memory\", \"workitems\", \"plans\", \"handoff\", \"pages\", \"analytics\", \"knowledge\", \"pass\"];");
+        await Assert.That(content).Contains("const KCAP_MCP_SERVERS = [\"review\", \"sessions\", \"flows\", \"memory\", \"workitems\", \"plans\", \"handoff\", \"pages\", \"sharing\", \"analytics\", \"knowledge\", \"pass\"];");
         // MCP handshake incl. the mandatory notifications/initialized.
         await Assert.That(content).Contains("initialize");
         await Assert.That(content).Contains("notifications/initialized");
@@ -47,7 +48,7 @@ public class PiMcpExtensionInstallerTests {
         await Assert.That(content).Contains("function stopBridge");
         await Assert.That(content).Contains("session_shutdown");
         // A hosted Pi launch waits on session_start, so the retry there must not hold it.
-        await Assert.That(content).Contains("pi.on(\"session_start\", () => { void startBridge(); });");
+        await Assert.That(content).Contains("void startBridge().then(ensureReachable);");
         // Parallel, bounded startup (four hung servers ⇒ ~one timeout, not 4×).
         await Assert.That(content).Contains("Promise.all");
         // Teardown ladder EOF → SIGTERM → SIGKILL, plus a globalThis-guarded sync exit backstop.
@@ -61,6 +62,21 @@ public class PiMcpExtensionInstallerTests {
         // Dependency-free spawn of the stdio servers.
         await Assert.That(content).Contains("node:child_process");
         await Assert.That(content).Contains("new McpStdioClient(server, \"kcap\", [\"mcp\", server], {})");
+    }
+
+    /// <summary>Pins the on-demand surface: only memory search and get are declared up front, the rest wait for
+    /// tool_search, which the bridge activates itself because Pi starts it inactive.</summary>
+    [Test]
+    public async Task bridge_defers_all_but_the_memory_lookup_tools() {
+        var content = PiMcpExtensionInstaller.ExtensionContent;
+
+        await Assert.That(content).Contains("const KCAP_DIRECT_TOOLS = new Set([\"kcap_memory_search_memories\", \"kcap_memory_get_memory\"]);");
+        await Assert.That(content).Contains("exposure: direct ? \"direct\" : \"deferred\",");
+        await Assert.That(content).Contains("t.name === \"tool_search\" && t.exposure !== \"hidden\"");
+        await Assert.That(content).Contains("if (active.includes(\"tool_search\")) return;");
+        await Assert.That(content).Contains("pi.setActiveTools([...active, ...missing]);");
+        // Tool search ranks a tool by its namespace too, so each carries its server's description.
+        await Assert.That(content).Contains("\"memory\": \"Team memory — search, read, and save durable learnings.\"");
     }
 
     [Test]
@@ -101,5 +117,34 @@ public class PiMcpExtensionInstallerTests {
         var path = tmp.PathTo("extensions", "kcap-mcp.ts");
 
         await Assert.That(PiMcpExtensionInstaller.Remove(path)).IsFalse();
+    }
+
+    /// <summary>A re-run of setup must not rewrite a current file, or it reports a change that never happened.</summary>
+    [Test]
+    public async Task apply_leaves_a_current_file_untouched_and_reports_unchanged() {
+        using var tmp  = new TempDir();
+        var       path = tmp.PathTo("extensions", "kcap-mcp.ts");
+        await Assert.That(PiMcpExtensionInstaller.Apply(path)).IsEqualTo(SettingsEdit.Changed);
+
+        var before = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(path, before);
+
+        await Assert.That(PiMcpExtensionInstaller.Apply(path)).IsEqualTo(SettingsEdit.Unchanged);
+        await Assert.That(File.GetLastWriteTimeUtc(path)).IsEqualTo(before);
+    }
+
+    [Test]
+    public async Task apply_rewrites_an_edited_file_or_a_stale_marker() {
+        using var tmp  = new TempDir();
+        var       path = tmp.PathTo("extensions", "kcap-mcp.ts");
+        PiMcpExtensionInstaller.Apply(path);
+
+        await File.WriteAllTextAsync(path, "// edited");
+        await Assert.That(PiMcpExtensionInstaller.Apply(path)).IsEqualTo(SettingsEdit.Changed);
+        await Assert.That(await File.ReadAllTextAsync(path)).IsEqualTo(PiMcpExtensionInstaller.ExtensionContent);
+
+        await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(path)!, PiMcpExtensionInstaller.MarkerFileName), "0.0.1");
+        await Assert.That(PiMcpExtensionInstaller.Apply(path)).IsEqualTo(SettingsEdit.Changed);
+        await Assert.That(PiMcpExtensionInstaller.ReadMarker(path)).IsEqualTo(CapacitorVersion.Current());
     }
 }

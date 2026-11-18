@@ -6,6 +6,9 @@ using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
+using WireMock;
+using WireMock.RequestBuilders;
+using WireMock.ResponseBuilders;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
@@ -35,16 +38,21 @@ public class EvalContextCacheTests : IDisposable {
 
     int RunDirectories() => Directory.Exists(RunRoot) ? Directory.GetDirectories(RunRoot, EvidenceRunContext.DirectoryPrefix + "*").Length : 0;
 
-    (ServerConnection Connection, EvalContextCache Cache) Daemon(TimeSpan? heldReleaseDelay = null) {
+    /// <param name="heldRelease">Enables scope holds; a release is answered once the task this starts on its arrival completes.</param>
+    (ServerConnection Connection, EvalContextCache Cache) Daemon(Func<Task>? heldRelease = null) {
         const string ad = """{"max_tool_calls":48,"judge_byte_budget_bytes":600000,"page_budget_bytes":65536,"one_shot_limit_chars":400000,"retrospective_evidence_bytes":200000,"coverage_policy_version":"coverage-v2"}""";
-        _stub.Catalog(heldReleaseDelay is null ? ad : ad[..^1] + ",\"scope_holds\":true}", "[]", """[{"category":"safety","id":"q1","title":"t","question_text":"q","prompt":"P {TRACE_JSON}","prompt_version":"3","needs_tools":false}]""");
+        _stub.Catalog(heldRelease is null ? ad : ad[..^1] + ",\"scope_holds\":true}", "[]", """[{"category":"safety","id":"q1","title":"t","question_text":"q","prompt":"P {TRACE_JSON}","prompt_version":"3","needs_tools":false}]""");
         var issued   = _time.GetUtcNow();
         var manifest = EvidenceServerStub.Manifest("v1", "tok", null, issued, issued.AddMinutes(30), [EvidenceServerStub.Source(EvidenceServerStub.RootSource, 0, 124_999, 1)]);
         _stub.FreshScope(manifest);
         _stub.CursorPage("tok", manifest);
-        if (heldReleaseDelay is { } delay) {
+        if (heldRelease is { } release) {
             _stub.Route("POST", "evidence-scope/holds", 200, manifest[..^1] + ",\"held\":true}");
-            _stub.Route("DELETE", "evidence-scope/hold", 204, "", delay: delay);
+            _stub.Server.Given(Request.Create().WithPath($"/api/sessions/{EvidenceServerStub.SessionId}/evidence-scope/hold").UsingDelete())
+                .RespondWith(Response.Create().WithCallback(async _ => {
+                    await release();
+                    return new ResponseMessage { StatusCode = 204 };
+                }));
         }
         _stub.Route("GET", "evidence-turns", 200, EvidenceServerStub.TurnsPage(EvidenceServerStub.RootSource, [(0, 0, 124_999)]));
         _stub.Route("GET", "evidence-calls/summary", 200, EvidenceServerStub.Summary());
@@ -156,14 +164,18 @@ public class EvalContextCacheTests : IDisposable {
 
     [Test]
     public async Task A_slow_hold_release_never_holds_up_retiring_the_run() {
-        var (connection, cache) = Daemon(heldReleaseDelay: TimeSpan.FromSeconds(5));
+        // The release takes five seconds unless the test lets it finish sooner.
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (connection, cache) = Daemon(heldRelease: () => Task.WhenAny(finish.Task, Task.Delay(TimeSpan.FromSeconds(5))));
         await connection.PrepareEvalHandler!(Prepare("run-1"));
         await Assert.That(_stub.Requests("evidence-scope/holds").Count).IsEqualTo(1);
 
         var started = System.Diagnostics.Stopwatch.StartNew();
         await connection.CancelEvalHandler!(new CancelEvalCommand("run-1"));
+        var elapsed = started.Elapsed;
+        finish.TrySetResult();
 
-        await Assert.That(started.Elapsed).IsLessThan(TimeSpan.FromSeconds(3));
+        await Assert.That(elapsed).IsLessThan(TimeSpan.FromSeconds(3));
         await Assert.That(RunDirectories()).IsEqualTo(0);
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (_stub.Requests("evidence-scope/hold").Count == 0 && DateTime.UtcNow < deadline) await Task.Delay(50);

@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
@@ -33,17 +32,9 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
     public bool SupportsTitleGeneration => false; // the server titles from session.name.changed or the first prompt
     public bool AttachesChildContentOnReplay => true; // children are resent on every replay
 
-    static StringComparison PathComparison =>
-        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-
-    static string NormalizeForComparison(string path) {
-        try { return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar); }
-        catch { return path.TrimEnd('/', '\\'); }
-    }
-
     public Task<IReadOnlyList<DiscoveredSession>> DiscoverAsync(DiscoveryFilters filters, CancellationToken ct) {
         var sessionFilter = filters.FilterSession is { } sf ? ImportCommand.NormalizeGuid(sf) : null;
-        var normalizedCwd = filters.FilterCwd is { } fc ? NormalizeForComparison(fc) : null;
+        var normalizedCwd = filters.FilterCwd is { } fc ? ImportPaths.NormalizeForComparison(fc) : null;
         var sinceUtc      = filters.Since is { } since
             ? new DateTimeOffset(since.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc), TimeSpan.Zero)
             : (DateTimeOffset?)null;
@@ -62,7 +53,7 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
                 var (workspaceRoot, firstTs) = ReadHead(log);
                 if (workspaceRoot is null) continue;
 
-                if (normalizedCwd is not null && !NormalizeForComparison(workspaceRoot).Equals(normalizedCwd, PathComparison)) continue;
+                if (normalizedCwd is not null && !ImportPaths.NormalizeForComparison(workspaceRoot).Equals(normalizedCwd, ImportPaths.PathComparison)) continue;
 
                 firstTs ??= TryGetCreationUtc(log);
                 if (sinceUtc is { } cutoff && firstTs is { } ts && ts < cutoff) continue;
@@ -221,10 +212,6 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
         try { return File.GetCreationTimeUtc(path); } catch { return null; }
     }
 
-    static DateTimeOffset? TryGetLastWriteUtc(string path) {
-        try { return File.GetLastWriteTimeUtc(path); } catch { return null; }
-    }
-
     public async Task<IReadOnlyList<ImportCommand.SessionClassification>> ClassifyAsync(
             IReadOnlyList<DiscoveredSession> sessions, ClassifyContext ctx, CancellationToken ct) {
         var results = new List<ImportCommand.SessionClassification>(sessions.Count);
@@ -241,12 +228,18 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
             if (nonBlank == 0) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.ProbeError, 0, lastLine: 0, "empty transcript")); continue; }
             if (nonBlank < ctx.MinLines) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.TooShort, nonBlank, lastIdx)); continue; }
 
+            if (ctx.ExcludeBeforeProbeAsync is { } exclude
+             && await exclude(Classify(s, meta, ImportCommand.ClassificationStatus.New, nonBlank, lastIdx)) is { } excluded) {
+                results.Add(excluded);
+                continue;
+            }
+
             int? serverLastLine;
             try { serverLastLine = await FetchServerLastLineAsync(ctx.HttpClient, ctx.BaseUrl, s.SessionId, ct); }
             catch (SessionDeletedException) { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.Deleted, nonBlank, lastIdx)); continue; }
             catch { results.Add(Classify(s, meta, ImportCommand.ClassificationStatus.ProbeError, nonBlank, lastIdx, "watermark probe failed")); continue; }
 
-            meta.LastTimestamp = endedAt ?? TryGetLastWriteUtc(log);
+            meta.LastTimestamp = endedAt ?? ImportPaths.TryGetLastWriteUtc(log);
 
             var status       = ImportCommand.ClassificationStatus.New;
             var resumeFromLn = 0;
@@ -279,7 +272,7 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
         // lifecycle-less; re-runs are idempotent server-side.
         var startPayload = BuildSessionStartPayload(classification.SessionId, log, classification.Meta.Cwd, classification.Meta.FirstTimestamp);
         if (ctx.VisibilityStampFor(classification.Status) is { } visibility) startPayload["default_visibility"] = visibility;
-        if (!await PostSyntheticHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-start/muse", startPayload, ct)) return ImportOutcome.Failed;
+        if (!await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("session-start/muse", startPayload, ct)) return ImportOutcome.Failed;
 
         var startLine = classification.Status switch {
             ImportCommand.ClassificationStatus.Partial       => classification.ResumeFromLine,
@@ -308,7 +301,7 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
         if (!childrenRecorded) return new ImportSessionResult(ImportOutcome.Failed, sentChildContent);
 
         if (parentEndedAt is { } endedAt
-         && !await PostSyntheticHookAsync(ctx.HttpClient, ctx.BaseUrl, "session-end/muse",
+         && !await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("session-end/muse",
                 BuildSessionEndPayload(classification.SessionId, classification.Meta.Cwd, endedAt), ct))
             return ImportOutcome.Failed;
 
@@ -337,8 +330,8 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
 
             var label = MuseSubagentDiscovery.LabelFor(Path.GetFileName(Path.GetDirectoryName(childLog))!, labels);
 
-            if (!await PostSyntheticHookAsync(ctx.HttpClient, ctx.BaseUrl, "subagent-start",
-                    Strict(MuseSubagentDiscovery.BuildStartPayload(parentSessionId, label.AgentId, label.AgentType, childLog)), ct)) {
+            if (!await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("subagent-start",
+                    SubagentHookPayloads.Start(parentSessionId, label.AgentId, label.AgentType, childLog, strict: true), ct)) {
                 allRecorded = false;
                 continue;
             }
@@ -359,8 +352,8 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
 
             if (!stopChildren) continue;
 
-            if (!await PostSyntheticHookAsync(ctx.HttpClient, ctx.BaseUrl, "subagent-stop",
-                    Strict(MuseSubagentDiscovery.BuildStopPayload(parentSessionId, label.AgentId, label.AgentType, childLog)), ct))
+            if (!await Client(ctx.HttpClient, ctx.BaseUrl).PostSyntheticHookAsync("subagent-stop",
+                    SubagentHookPayloads.Stop(parentSessionId, label.AgentId, label.AgentType, childLog, strict: true), ct))
                 allRecorded = false;
         }
 
@@ -376,24 +369,18 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
         var childLogs    = MuseSubagentDiscovery.EnumerateChildLogs(parentLog);
 
         foreach (var log in childLogs.Prepend(parentLog))
-            if (TryGetLastWriteUtc(log) is { } written && (lastActivity is null || written > lastActivity))
+            if (ImportPaths.TryGetLastWriteUtc(log) is { } written && (lastActivity is null || written > lastActivity))
                 lastActivity = written;
 
         if (lastActivity is not { } last || time.GetUtcNow() - last <= AbandonedAfter) return false;
-        if (WatcherManager.PidAlive(watchers, sessionId)) return false;
+        if (WatcherLiveness.PidAlive(watchers, sessionId)) return false;
 
         var labels = MuseSubagentDiscovery.ResolveChildLabels(parentLog);
 
         return !childLogs.Any(childLog => {
             var label = MuseSubagentDiscovery.LabelFor(Path.GetFileName(Path.GetDirectoryName(childLog))!, labels);
-            return WatcherManager.PidAlive(watchers, $"{sessionId}-{label.AgentId}");
+            return WatcherLiveness.PidAlive(watchers, $"{sessionId}-{label.AgentId}");
         });
-    }
-
-    // Without strict the server answers 200 when it fails to record a child's start or stop.
-    static JsonObject Strict(JsonObject payload) {
-        payload["strict"] = true;
-        return payload;
     }
 
     static JsonObject BuildSessionStartPayload(string sessionId, string log, string? cwd, DateTimeOffset? startedAt) {
@@ -422,15 +409,7 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
         return payload;
     }
 
-    async Task<bool> PostSyntheticHookAsync(HttpClient client, string baseUrl, string routeSegment, JsonObject payload, CancellationToken ct) {
-        try {
-            using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-            using var resp    = await client.PostWithRetryAsync($"{baseUrl}/hooks/{routeSegment}", content, time, ct: ct);
-            return resp.IsSuccessStatusCode;
-        } catch {
-            return false;
-        }
-    }
+    RoutedImportClient Client(HttpClient http, string baseUrl) => new(http, time, baseUrl);
 
     async Task<int?> FetchServerLastLineAsync(HttpClient http, string baseUrl, string sessionId, CancellationToken ct) {
         using var resp = await http.GetWithRetryAsync($"{baseUrl}/api/sessions/{sessionId}/last-line", time, ct: ct);
@@ -454,3 +433,4 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
         SourceMeta = SourceMetaFor((string)s.SourceMeta![LogPathKey]!, lastLine),
     };
 }
+

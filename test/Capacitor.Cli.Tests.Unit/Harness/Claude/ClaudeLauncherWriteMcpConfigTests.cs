@@ -149,6 +149,24 @@ public class ClaudeLauncherWriteMcpConfigTests {
         await Assert.That(enabled).IsEquivalentTo(["one", "two", "three"]);
     }
 
+    /// <summary>The auto-mode offer Claude opens after a first reply would take a remote message as
+    /// its answer, so a hosted launch marks it seen, leaving every other key as it was.</summary>
+    [Test]
+    public async Task Trust_marks_the_auto_mode_offer_seen_and_keeps_other_keys() {
+        var (paths, configDir, _, worktree) = Seed();
+
+        File.WriteAllText(Path.Combine(configDir, ".claude.json"),
+            """{ "hasSeenAutoDefaultNudge": false, "numStartups": 3, "projects": { "/elsewhere": { "allowedTools": ["Bash"] } } }""");
+
+        ClaudeLauncher.TrustWorktreeInClaudeConfig(worktree, paths);
+
+        var root = JsonNode.Parse(File.ReadAllText(Path.Combine(configDir, ".claude.json")))!;
+        await Assert.That(root["hasSeenAutoDefaultNudge"]!.GetValue<bool>()).IsTrue();
+        await Assert.That(root["numStartups"]!.GetValue<int>()).IsEqualTo(3);
+        await Assert.That(root["projects"]!["/elsewhere"]!["allowedTools"]![0]!.GetValue<string>()).IsEqualTo("Bash");
+        await Assert.That(root["projects"]![ClaudeLauncher.NormalizeClaudeProjectKey(worktree)]!["hasTrustDialogAccepted"]!.GetValue<bool>()).IsTrue();
+    }
+
     static void WriteClaudeJsonWithServers(string configDir, string projectKey, JsonObject servers) {
         var json = new JsonObject {
             ["projects"] = new JsonObject {

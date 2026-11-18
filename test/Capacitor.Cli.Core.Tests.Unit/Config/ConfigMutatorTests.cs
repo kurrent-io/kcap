@@ -95,11 +95,11 @@ public class ConfigMutatorTests {
 
         var result = await ConfigMutator.MutateAsync(Config.Root, c => c with { MachineId = "post-migration" });
 
-        await Assert.That(result.Version).IsEqualTo(2);
+        await Assert.That(result.Version).IsEqualTo(ProfileConfig.CurrentVersion);
         await Assert.That(result.MachineId).IsEqualTo("post-migration");
         // migration survived the same publication as the mutation
         var reread = await AppConfig.LoadProfileConfig(Config.Root);
-        await Assert.That(reread.Version).IsEqualTo(2);
+        await Assert.That(reread.Version).IsEqualTo(ProfileConfig.CurrentVersion);
         await Assert.That(reread.MachineId).IsEqualTo("post-migration");
     }
 
@@ -276,11 +276,11 @@ public class ConfigMutatorTests {
 
         var cfg = await AppConfig.LoadProfileConfig(Config.Root);
 
-        await Assert.That(cfg.Version).IsEqualTo(2);           // migrated in memory
+        await Assert.That(cfg.Version).IsEqualTo(ProfileConfig.CurrentVersion); // migrated in memory
         // NOTE: LoadProfileConfig routes persistence through MutateAsync — one write is
-        // allowed here (the legacy-persist behavior), but the FILE must now be v2 and valid.
+        // allowed here (the legacy-persist behavior), but the FILE must now be the current version and valid.
         var reread = JsonDocument.Parse(await File.ReadAllTextAsync(AppConfig.GetConfigPath(Config.Root)));
-        await Assert.That(reread.RootElement.TryGetProperty("version", out var v) && v.GetInt32() == 2).IsTrue();
+        await Assert.That(reread.RootElement.TryGetProperty("version", out var v) && v.GetInt32() == ProfileConfig.CurrentVersion).IsTrue();
     }
 
     [Test]

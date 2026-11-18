@@ -37,91 +37,43 @@ internal sealed record AgyPidRecordCallbacks(Action<int> Record, Action Clear);
 /// <see cref="IHostedAgentRuntime"/> for Antigravity's CLI (<c>agy</c>) as an unattended review-flow
 /// reviewer.
 ///
-/// <para><b>Why this runtime looks nothing like <see cref="PtyHostedAgentRuntime"/> or
-/// <c>AcpHostedAgentRuntime</c>.</b> Every other runtime in this daemon wraps ONE long-lived child
-/// process (a PTY for Claude/Codex, or an ACP JSON-RPC connection for Cursor/Copilot/Kiro/Gemini)
-/// that lives for the whole hosted-agent session. <c>agy</c> has no such thing: every prompt turn is
-/// its own <c>agy -p …</c> invocation that exits when the turn ends, and there is NO PROCESS AT ALL
-/// between turns. That single fact is why this class needs an explicit phase machine where every
-/// other runtime gets logical liveness for free from "is the child still running".</para>
-///
-/// <para><b>Four rules, each a real defect if broken</b> (see the design spec's rationale for the
-/// full incident shapes these prevent):</para>
+/// <para>Every other runtime wraps ONE long-lived child for the whole session. Each <c>agy</c> turn is
+/// its own <c>agy -p …</c> invocation that exits when the turn ends, with NO PROCESS AT ALL between
+/// turns, so liveness needs an explicit phase machine. Five rules, each a real defect if broken:</para>
 ///
 /// <para><b>(a) The phase machine.</b> <see cref="RuntimePhase.Starting"/> → <see cref="RuntimePhase.Executing"/>
 /// when turn 1 spawns; <see cref="RuntimePhase.Executing"/> → <see cref="RuntimePhase.Idle"/> ONLY when the
-/// turn's child exits AFTER emitting a terminal <c>result</c> event; <see cref="RuntimePhase.Idle"/> →
-/// <see cref="RuntimePhase.Executing"/> when the next turn is dequeued; any phase → <see cref="RuntimePhase.Terminal"/>
-/// on a launch/turn deadline, a spawn/auth failure, an explicit stop, or — critically — EOF WITHOUT a
-/// terminal <c>result</c>. That last transition is the one easiest to get backwards: reading "the
-/// child's stdout closed" as "the turn finished" and going to <see cref="RuntimePhase.Idle"/> would park
-/// <see cref="ReadOutputAsync"/> forever, because nothing would ever again drive it toward terminal — the
-/// orchestrator's <c>FinalizeAgentRunAsync</c> fires from that stream's <c>await foreach</c>'s <c>finally</c>,
-/// so the session would simply hang. A child that died without a terminal <c>result</c> has lost the
-/// reviewer outright, and flow semantics already fast-fail a round on participant death — going
-/// <see cref="RuntimePhase.Terminal"/> here is what lets that existing machinery see the death at all.</para>
+/// child exits AFTER a terminal <c>result</c> event; <see cref="RuntimePhase.Idle"/> →
+/// <see cref="RuntimePhase.Executing"/> on the next turn; any phase → <see cref="RuntimePhase.Terminal"/> on a
+/// deadline, spawn/auth failure, explicit stop, or EOF WITHOUT a terminal <c>result</c>. Reading that EOF as
+/// Idle would park <see cref="ReadOutputAsync"/> forever and hang the session; Terminal is what lets flow
+/// semantics see the lost reviewer.</para>
 ///
-/// <para><b>(b) <see cref="HasExited"/> reports LOGICAL liveness, not process liveness.</b> Between turns
-/// there is genuinely no child process — a naive "no live child ⇒ exited" would make every
-/// <c>StopAgentCoreAsync</c> (which uses <see cref="HasExited"/> as its success criterion) trivially
-/// succeed while the reviewer is merely idle between turns, and would mis-report the final status once
-/// the runtime later does something with the (already falsely "exited") state. <see cref="RuntimePhase.Idle"/>
-/// reports <see langword="false"/> for exactly this reason — logically alive, no process needed to prove it.</para>
+/// <para><b>(b) <see cref="HasExited"/> reports LOGICAL liveness.</b> <see cref="RuntimePhase.Idle"/> reports
+/// <see langword="false"/>: "no live child ⇒ exited" would make <c>StopAgentCoreAsync</c> trivially succeed
+/// on a reviewer that is merely between turns.</para>
 ///
-/// <para><b>(c) <see cref="ReadOutputAsync"/> parks on ONE signal, created once.</b> It waits on
-/// <see cref="_terminalTcs"/> — a single <see cref="TaskCompletionSource"/> created in the constructor and
-/// completed EXACTLY ONCE, on entry to <see cref="RuntimePhase.Terminal"/> (see <see cref="EnterTerminal"/>).
-/// It must never be a per-turn signal: the orchestrator drives <c>FinalizeAgentRunAsync</c> from this
-/// stream's <c>await foreach</c> ending, so a signal that completed at the end of turn 1 would close the
-/// whole hosted-agent session after a single turn — exactly the bug this single, constructor-owned TCS
-/// exists to make structurally impossible.</para>
+/// <para><b>(c) <see cref="ReadOutputAsync"/> parks on ONE signal, created once.</b> <see cref="_terminalTcs"/>
+/// is created in the constructor and completed exactly once, in <see cref="EnterTerminal"/>. A per-turn
+/// signal would end the session after turn 1, since the orchestrator finalizes when that stream ends.</para>
 ///
-/// <para><b>(d) Lock order — <see cref="TerminateAsync"/> must NEVER take <see cref="_turnGate"/>.</b> The
-/// turn gate is held for a turn's WHOLE span — spawn, parse-drain, envelope-flush — by
-/// <see cref="RunTurnWorkerAsync"/>. <see cref="WaitForTurnIdleAsync"/> acquires it and releases
-/// IMMEDIATELY, so it only ever queues behind an in-flight turn; it never holds the gate itself.
-/// <see cref="TerminateAsync"/> instead takes the separate <see cref="_stateLock"/>, flips the phase to
-/// <see cref="RuntimePhase.Terminal"/>, and — OUTSIDE that lock — cancels <see cref="_ownerCts"/> and signals
-/// the current turn's child. Cancelling the owner token is what actually aborts the in-flight turn
-/// (<see cref="ProcessTurnAsync"/>'s line-read loop observes it) and so releases the gate. If
-/// <see cref="TerminateAsync"/> instead tried to acquire <see cref="_turnGate"/> before doing that, a
-/// long-running turn would already be holding it, <see cref="RuntimePhase.Terminal"/> could never be
-/// entered, <see cref="_terminalTcs"/> would never complete, and the runtime would be permanently
-/// unstoppable — a genuine deadlock, not a style preference. See the mutation check pinned in
-/// <c>AntigravityRuntimeLifecycleTests</c> for the reproduction.</para>
+/// <para><b>(d) <see cref="TerminateAsync"/> must NEVER take <see cref="_turnGate"/>.</b> A turn holds the gate
+/// for its whole span. <see cref="TerminateAsync"/> takes <see cref="_stateLock"/>, flips to Terminal, and —
+/// outside that lock — cancels <see cref="_ownerCts"/>, which is what aborts the turn and releases the gate.
+/// Taking the gate first deadlocks against a long turn (<c>AntigravityRuntimeLifecycleTests</c> pins it).</para>
 ///
-/// <para><b>(e) <see cref="WaitForConversationIdAsync"/> is not optional for a factory that binds a
-/// transcript.</b> <see cref="AcpSessionId"/> reads <c>""</c> until turn 1's <c>init</c> resolves it, and
-/// nothing else in this class's public surface forces that ordering: <see cref="SendUserInputAsync"/>
-/// returns as soon as the turn is enqueued — before the worker even dequeues it —
-/// <see cref="SendUserInputAndWaitForWriteAsync"/> resolves at SPAWN, still before any line is read, and
-/// <see cref="WaitForTurnIdleAsync"/> is NOT a substitute (its enqueue→gate hand-off is itself
-/// asynchronous, so it can observe a momentarily-free gate and return before the turn has even started).
-/// A factory that sends the initial prompt and immediately hands this runtime to the orchestrator — which
-/// reads <see cref="AcpSessionId"/> unconditionally and synchronously the moment a launch returns — WILL
-/// bind the transcript to <c>""</c>: a silent, permanent correlation break, not a flaky race. <b>Any
-/// factory for this runtime MUST <see langword="await"/> <see cref="WaitForConversationIdAsync"/> after
-/// sending the initial prompt and BEFORE returning control to the orchestrator.</b> The barrier itself is
-/// what guarantees this never hangs — it resolves on EVERY path a turn can end on, not just the obvious
-/// ones: <see cref="EnterTerminal"/> faults it for every route to <see cref="RuntimePhase.Terminal"/>
-/// (spawn/auth failure, either deadline, EOF-without-a-result, an explicit stop), and the clean-success
-/// tail of <see cref="ProcessTurnAsync"/> ALSO faults it (via
-/// <see cref="FaultConversationIdBarrierIfUnresolved"/>) for the one path that does NOT call
-/// <see cref="EnterTerminal"/> at all — a turn that settles to <see cref="RuntimePhase.Idle"/> having
-/// never seen a non-empty <c>conversation_id</c> on an <c>init</c> event (a malformed or missing
-/// <c>init</c> whose transcript nonetheless reaches a terminal <c>result</c>). A first cut of this fix
-/// missed exactly that second path — the SAME failure mode the barrier exists to prevent, reopened
-/// through a different door, because a healthy-looking Idle transition is easy to assume can't need
-/// fault handling. As belt-and-braces ONLY (never the primary defense, which is the barrier's own total
-/// resolution above), a factory MAY additionally pass its own launch-deadline token into
-/// <see cref="WaitForConversationIdAsync"/>.</para>
+/// <para><b>(e) A factory that binds a transcript MUST <see langword="await"/>
+/// <see cref="WaitForConversationIdAsync"/> after sending the initial prompt and before returning.</b>
+/// <see cref="AcpSessionId"/> reads <c>""</c> until turn 1's <c>init</c> resolves it, the orchestrator reads it
+/// the moment a launch returns, and neither <see cref="SendUserInputAsync"/>,
+/// <see cref="SendUserInputAndWaitForWriteAsync"/> nor <see cref="WaitForTurnIdleAsync"/> orders after it — so
+/// skipping the barrier binds the transcript to <c>""</c> permanently. The barrier resolves on EVERY way a turn
+/// ends: <see cref="EnterTerminal"/> faults it on each route to Terminal, and
+/// <see cref="FaultConversationIdBarrierIfUnresolved"/> faults it when a turn settles to Idle without ever
+/// seeing a <c>conversation_id</c>.</para>
 ///
-/// <para><b>Not this class's job (yet).</b> No ACP-style reconnect/resume — a dead turn child is either a
-/// clean end-of-turn (→ <see cref="RuntimePhase.Idle"/>) or a lost reviewer (→ <see cref="RuntimePhase.Terminal"/>),
-/// never something to resume mid-turn. No terminal capability (<see cref="EmitsTerminalOutput"/> is
-/// always <see langword="false"/> — agy's stdout is NDJSON protocol traffic, never terminal bytes).
-/// Never emits a <c>session_ended</c> envelope — the server's <c>EndAgentSession</c> owns that
-/// transition, exactly as it does for every other <see cref="IAcpTranscriptSource"/> runtime.</para>
+/// <para>No reconnect/resume, no terminal output (<see cref="EmitsTerminalOutput"/> is <see langword="false"/>;
+/// stdout is NDJSON), and no <c>session_ended</c> envelope — the server's <c>EndAgentSession</c> owns that.</para>
 /// </summary>
 internal sealed class AntigravityHostedAgentRuntime : IHostedAgentRuntime, IAcpTranscriptSource {
     /// <summary>
@@ -373,9 +325,9 @@ internal sealed class AntigravityHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         // though exactly one of them ever "wins" any given item.
         //
         // FullMode.Wait, paired with TryWrite (never WriteAsync), is what makes an over-cap send
-        // REJECTABLE: under DropWrite — which this used to use — TryWrite returns TRUE and discards
-        // the item, so EnqueueTurn's full-queue branch was unreachable and a user's message vanished
-        // with not even a log line. Wait mode is only "waiting" for a caller that awaits WriteAsync;
+        // REJECTABLE: under DropWrite, TryWrite returns TRUE and discards the item, so EnqueueTurn's
+        // full-queue branch would be unreachable and a user's message would vanish with not even a
+        // log line. Wait mode is only "waiting" for a caller that awaits WriteAsync;
         // TryWrite under it returns false immediately, which is the non-blocking rejection this
         // runtime wants (see EnqueueTurn on why blocking here would stall the whole command lane).
         _pendingTurns = Channel.CreateBounded<PendingTurn>(

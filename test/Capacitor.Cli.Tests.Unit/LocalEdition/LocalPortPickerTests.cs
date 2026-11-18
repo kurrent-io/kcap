@@ -23,6 +23,16 @@ public class LocalPortPickerTests {
     public async Task A_retired_default_is_skipped() =>
         await Assert.That(LocalPortPicker.Choose(Retiring(9473), _ => true)).IsNotEqualTo(9473);
 
+    /// <summary>A purge in another root, or of a root since removed, is known only to the user-wide record.</summary>
+    [Test]
+    public async Task A_port_retired_only_for_the_user_is_skipped() {
+        var seen = new List<int>();
+        var port = LocalPortPicker.Choose(InstallRegistry.Empty, p => { seen.Add(p); return true; }, retiredForUser: Retiring(9473));
+
+        await Assert.That(port).IsNotEqualTo(9473);
+        await Assert.That(seen).DoesNotContain(9473);
+    }
+
     [Test]
     public async Task The_first_free_fallback_after_a_busy_default_is_taken() {
         var seen = new List<int>();

@@ -1,0 +1,44 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "e8e408c8-0367-8f8f-f3e2-0eb2ae709268",
+        "timestamp": "2026-10-13T14:15:50.5410000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:50.5410000\u002B00:00",
+        "payload": {
+          "content": "Check the tests",
+          "timestamp": "2026-10-13T14:15:50.541Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "2b7a97bc-64c0-4cf0-616d-5e5163c23719",
+        "timestamp": "2026-10-13T14:15:53.3910000\u002B00:00",
+        "recordTimestamp": "2026-10-13T14:15:53.3910000\u002B00:00",
+        "payload": {
+          "content": "There are three test projects.",
+          "timestamp": "2026-10-13T14:15:53.391Z"
+        },
+        "usage": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  }
+]
