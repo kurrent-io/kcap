@@ -442,10 +442,12 @@ public partial class App : Application {
                 () => LocalSetupState.Pending(_localRoot), _shutdown.Token, () => LocalSetupCannotRetry(_localInstall));
             if (graphTook is { } graphAndWindow) {
                 var window = _windowBuild ?? TimeSpan.Zero;
-                StartupMarks.Mark("startup_phases", ("gate_ms", StartupMarks.Milliseconds(gateTook)),
+                var windowBuilt = _windowBuild is not null;
+                var at = StartupMarks.Now;
+                _ = Task.Run(() => StartupMarks.Mark("startup_phases", at, ("gate_ms", StartupMarks.Milliseconds(gateTook)),
                     ("graph_ms", StartupMarks.Milliseconds(graphAndWindow - window)),
-                    ("window_ms", _windowBuild is null ? null : StartupMarks.Milliseconds(window)),
-                    ("wizard", showWizard ? "true" : null));
+                    ("window_ms", windowBuilt ? StartupMarks.Milliseconds(window) : null),
+                    ("wizard", showWizard ? "true" : null)));
             }
 
             // After the wizard, so a service it installs is already the app's; off the UI thread.
@@ -2528,14 +2530,9 @@ public partial class App : Application {
         if (_windowBuild is not null) return window;
         _windowBuild = _time.GetElapsedTime(started);
 
-        // Called on the render thread: the time is taken there, the write is not.
-        Action MarkNow(string evt) => () => {
-            var at = StartupMarks.Now;
-            _ = Task.Run(() => StartupMarks.Mark(evt, at));
-        };
         // A window held behind an update's progress is hidden again before it renders; its mark waits for the real show.
-        RenderedFrame.FirstShownFrame(window, _time, at => _ = Task.Run(() => StartupMarks.Mark("window_shown", at)));
-        window.SessionRail.OnFirstSessionsPainted(MarkNow("first_sessions_painted"));
+        RenderedFrame.WhenDrawn(window, () => true, _time, at => _ = Task.Run(() => StartupMarks.Mark("window_shown", at)));
+        window.SessionRail.OnFirstSessionsPainted(_time, at => _ = Task.Run(() => StartupMarks.Mark("first_sessions_painted", at)));
         return window;
     }
 

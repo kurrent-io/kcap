@@ -24,7 +24,7 @@ public class RenderedFrameSmokeTests {
         var shown = 0;
         try {
             window.Show();
-            RenderedFrame.FirstShownFrame(window, TimeProvider.System, _ => shown++);
+            RenderedFrame.WhenDrawn(window, () => true, TimeProvider.System, _ => shown++);
             window.Hide();
             await RenderAsync();
             await Assert.That(shown).IsEqualTo(0);
