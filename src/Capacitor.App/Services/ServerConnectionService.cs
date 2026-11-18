@@ -247,8 +247,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 };
                 hub.Reconnected += async _ => {
                     spans.Up();
-                    // Tails ride the live hub, so a retired one coming back must leave its replacement's alone.
-                    if (ReferenceEquals(_hub, capturedHub)) EndTails();
+                    EndTails(capturedHub);
                     var subject = await ReadSubjectAsync().ConfigureAwait(false);
                     PublishConnected(generation, capturedHub, subject);
                 };
@@ -549,6 +548,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             var streams = _streams;
             var hub = _hub;
             if (streams is null || hub is not { State: HubConnectionState.Connected }) yield break;
+            lock (_tailLock) slot.Hub = hub;
             var source = streams.SubscribeAsync(stream, fromPosition, slot.Cts.Token).GetAsyncEnumerator(slot.Cts.Token);
             var refused = false;
             try {
@@ -589,10 +589,11 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     /// The subscription client resubscribes a reconnected connection's streams one at a time and stops at the first
     /// the server refuses, leaving the rest open and silent. Ending every tail instead has each consumer re-tail from
     /// its own position, so a refusal reaches only the stream it was for.
-    void EndTails() {
+    /// Only the tails subscribed on `hub`: a retired hub coming back must leave its replacement's alone.
+    void EndTails(HubConnection hub) {
         lock (_tailLock)
             foreach (var slot in _tails.Values)
-                slot.Cts.Cancel();
+                if (ReferenceEquals(slot.Hub, hub)) slot.Cts.Cancel();
     }
 
     readonly Dictionary<string, TailSlot> _tails = new(StringComparer.Ordinal);
@@ -601,6 +602,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     sealed class TailSlot(CancellationToken ct) {
         public readonly CancellationTokenSource Cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         public readonly TaskCompletionSource Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public HubConnection? Hub;
     }
 
     public Task<HubCallOutcome> SubscribeToTerminalAsync(string agentId, CancellationToken ct) => InvokeAsync(HubMethods.SubscribeToTerminal, ct, agentId);
