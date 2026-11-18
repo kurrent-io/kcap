@@ -246,9 +246,6 @@
     <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-lit, mv|MarkdownViewer Span.need-to-know-faded.need-to-know-lit Run.markdown-code-inline">
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
     </Style>
-    <Style Selector="mv|MarkdownViewer Run.need-to-know-glyph">
-        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
-    </Style>
     <Style Selector="mv|MarkdownViewer Span.markdown-marked">
         <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
     </Style>

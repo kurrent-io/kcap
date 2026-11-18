@@ -1024,8 +1024,6 @@
                                 <StackPanel Orientation="Horizontal" Spacing="2">
                                     <Button Content="Normal" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding DetailNormal}"
                                             Command="{Binding SetDetailCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Normal}" />
-                                    <Button Content="Marks" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding DetailMarked}"
-                                            Command="{Binding SetDetailCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Marked}" />
                                     <Button Content="Fade" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding DetailFaded}"
                                             Command="{Binding SetDetailCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Faded}">
                                         <Button.Flyout>
@@ -1050,8 +1048,6 @@
                                 <StackPanel Orientation="Horizontal" Spacing="2">
                                     <Button Content="Normal" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding FootnoteNormal}" IsEnabled="{Binding FootnoteCanBeNormal}"
                                             Command="{Binding SetFootnoteCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Normal}" />
-                                    <Button Content="Marks" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding FootnoteMarked}" IsEnabled="{Binding FootnoteCanBeMarked}"
-                                            Command="{Binding SetFootnoteCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Marked}" />
                                     <Button Content="Fade" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding FootnoteFaded}" IsEnabled="{Binding FootnoteCanBeFaded}"
                                             Command="{Binding SetFootnoteCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Faded}">
                                         <Button.Flyout>

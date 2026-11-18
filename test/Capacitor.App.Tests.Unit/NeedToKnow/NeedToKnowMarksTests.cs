@@ -14,7 +14,7 @@ public class NeedToKnowMarksTests {
     static readonly NeedToKnowBasis AllHidden = new(NeedToKnowDisplay.Hidden, NeedToKnowDisplay.Hidden);
     static readonly NeedToKnowBasis AllNormal = new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Normal);
 
-    /// One line per leaf block; a graded run shows as `{w:…}` or `{c:…}` when faded and `[w:…]` when marked.
+    /// One line per leaf block; a faded run shows as `{w:…}` or `{c:…}`.
     static string Render(string markdown, NeedToKnowBasis basis) {
         var document = Markdown.Parse(markdown, WithoutPass);
         NeedToKnowMarks.Apply(document, basis);
@@ -44,7 +44,6 @@ public class NeedToKnowMarksTests {
         return open + (graded.Level == NeedToKnowLevel.Detail ? "w:" : "c:") + Text(graded) + close;
     }
 
-    static readonly NeedToKnowBasis AllMarked = new(NeedToKnowDisplay.Marked, NeedToKnowDisplay.Marked);
 
     [Test]
     public async Task A_single_corner_pair_marks_detail() =>
@@ -71,8 +70,8 @@ public class NeedToKnowMarksTests {
         await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟", new(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Normal))).IsEqualTo("A. {w:B.} {c:C.}");
 
     [Test]
-    public async Task A_marked_span_is_one_run_however_many_inlines_it_holds() =>
-        await Assert.That(Render("A. ⌞Run `x` now.⌟ B.", AllMarked)).IsEqualTo("A. [w:Run `x` now.] B.");
+    public async Task A_graded_span_is_one_run_however_many_inlines_it_holds() =>
+        await Assert.That(Render("A. ⌞Run `x` now.⌟ B.", AllFaded)).IsEqualTo("A. {w:Run `x` now.} B.");
 
     [Test]
     public async Task A_footnote_span_nests_inside_a_detail_span_and_returns_to_it() =>

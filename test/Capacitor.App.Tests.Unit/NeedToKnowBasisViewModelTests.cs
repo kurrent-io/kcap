@@ -27,10 +27,10 @@ public class NeedToKnowBasisViewModelTests {
 
     [Test]
     public async Task Footnote_cannot_be_set_more_visible_than_detail() {
-        Model.SetDetailCommand.Execute(NeedToKnowDisplay.Marked).Subscribe();
+        Model.SetDetailCommand.Execute(NeedToKnowDisplay.Faded).Subscribe();
         Model.SetFootnoteCommand.Execute(NeedToKnowDisplay.Normal).Subscribe();
 
-        await Assert.That(NeedToKnowBasis.Current.Footnote).IsEqualTo(NeedToKnowDisplay.Marked);
+        await Assert.That(NeedToKnowBasis.Current.Footnote).IsEqualTo(NeedToKnowDisplay.Faded);
         await Assert.That(Model.FootnoteCanBeNormal).IsFalse();
     }
 

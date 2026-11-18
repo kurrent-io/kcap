@@ -27,10 +27,6 @@ public class NeedToKnowViewTests {
                 Dispatcher.UIThread.RunJobs();
                 await Assert.That(Reads(Paragraphs(root).Single())).IsEqualTo("Tests pass. CI is green.");
 
-                NeedToKnowBasis.Set(NeedToKnowBasis.Default with { Detail = NeedToKnowDisplay.Marked });
-                Dispatcher.UIThread.RunJobs();
-                await Assert.That(Reads(Paragraphs(root).Single())).IsEqualTo("Tests pass. ⌞7 ran.⌟ CI is green.");
-
                 NeedToKnowBasis.Set(NeedToKnowBasis.Default with { Detail = NeedToKnowDisplay.Faded });
                 Dispatcher.UIThread.RunJobs();
                 var greyed = Spans<Span>(Paragraphs(root).Single().Inlines!).Where(s => s.Classes.Contains("need-to-know-faded")).ToList();
