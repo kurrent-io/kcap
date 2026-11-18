@@ -235,6 +235,24 @@ sealed class CaptureServerConnection : ServerConnection {
         return RegistrationResponse?.Invoke(agentId) ?? AgentRegisteredResponse.Accepted;
     }
 
+    /// <summary>Holds every terminal-size send while set; unset, the send reaches the unconnected hub as before.</summary>
+    public TaskCompletionSource? DimensionsGate { get; set; }
+
+    int _dimensionsSends;
+    public int DimensionsSends => Volatile.Read(ref _dimensionsSends);
+
+    public override async Task SendTerminalDimensionsAsync(string agentId, int cols, int rows) {
+        Interlocked.Increment(ref _dimensionsSends);
+
+        if (DimensionsGate is { } gate) {
+            await gate.Task.ConfigureAwait(false);
+
+            return;
+        }
+
+        await base.SendTerminalDimensionsAsync(agentId, cols, rows).ConfigureAwait(false);
+    }
+
     // ── ACP bind/forward capture ────────────────────────────────────
     // Overrides the RAW hub-invoke seams (mirroring AcpServerConnectionTests' TestServerConnection)
     // rather than the higher-level gated AcpSessionStartedAsync/SendAcpEventsAsync, so every call

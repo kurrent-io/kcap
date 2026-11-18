@@ -381,6 +381,10 @@ internal record AgentInstance(
 
     internal Task? DiscoveryTask { get; set; }
 
+    /// <summary>The run start a launch refused for its connection still owes. Finalization waits for it, so the run's
+    /// stop cannot be followed by its start.</summary>
+    internal Task? RunStartTask { get; set; }
+
     /// <summary>
     /// True for locally-launched agents: the orchestrator makes no per-agent server call
     /// and does not attach the SignalR sink. An explicit share clears this.
@@ -4252,10 +4256,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // Wait briefly for the process to finalize so we get a real exit code.
             await agent.Runtime.WaitForExitAsync(TimeSpan.FromSeconds(5));
 
-            // Stop and drain transcript discovery before setting terminal status or appending
-            // AgentRunStopped, so a late discovery callback cannot send AgentRunHeartbeat after stop.
+            // Stop and drain transcript discovery and any owed run start before setting terminal status or
+            // appending AgentRunStopped, so neither a late AgentRunHeartbeat nor AgentRunStarted follows the stop.
             try { await agent.ExitedCts.CancelAsync(); } catch { /* best-effort */ }
             if (agent.DiscoveryTask is { } discoveryTask) await discoveryTask;
+            if (agent.RunStartTask is { } runStart) await runStart;
 
             var exitCode = agent.Runtime.ExitCode;
 
@@ -5854,7 +5859,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // The agent stays reported, so the registration that follows the connection's recovery sends it again.
         if (registration.RefusesConnection) {
             LogRegistrationRefusedForConnection(agent.Id, registration.RefusedReason);
-            _ = OnceRegisteredAsync(agent, () => StartRegisteredRunAsync(agent));
+            agent.RunStartTask = OnceRegisteredAsync(agent, () => StartRegisteredRunAsync(agent));
 
             return registration;
         }
@@ -5912,8 +5917,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
-    /// <summary>What a launch reports once the server holds the agent.</summary>
+    /// <summary>What a launch reports once the server holds the agent. Nothing for an agent refused or ended meanwhile:
+    /// a run start after the stop would mark the run running again.</summary>
     async Task StartRegisteredRunAsync(AgentInstance agent) {
+        if (agent.RegistrationRefused || agent.ExitedCts.IsCancellationRequested) return;
+
         // Report the PTY size so read-only viewers lock their xterm to it. Best-effort.
         try {
             await _server.SendTerminalDimensionsAsync(agent.Id, agent.CurrentCols, agent.CurrentRows);
@@ -5921,8 +5929,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             ReportDimsSendFailed(ex, agent.Id);
         }
 
-        // A run start would mark the run running again for an agent refused while the dimensions went out.
-        if (agent.RegistrationRefused) return;
+        if (agent.RegistrationRefused || agent.ExitedCts.IsCancellationRequested) return;
 
         _ = _server.AppendAgentRunEventAsync(
             agent.Id,

@@ -217,6 +217,42 @@ public class AgentOrchestratorVendorTests {
         await orch.HandleStopAgentForTest("displaced-launch");
     }
 
+    /// <summary>A launch refused for its connection that ends while its owed run start is under way sends no run start
+    /// after its stop, which would mark the stopped run running again.</summary>
+    [Test]
+    public async Task A_launch_refused_for_its_connection_that_ends_while_its_run_starts_sends_no_start_after_its_stop() {
+        using var repoPath = GitRepo.CreateWithCommit();
+        var server = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_a_daemon") };
+        var pty    = new ScriptedPtyProcess();
+
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(pty), AgentOrchestratorHarness.Launcher("claude"), allowedRepoPath: repoPath);
+
+        await orch.HandleLaunchAgentForTest(new LaunchAgentCommand(
+            AgentId: "displaced-ending", Prompt: "hi", Model: "opus", Effort: null,
+            RepoPath: repoPath, Tools: null, AttachmentIds: null, Vendor: "claude"));
+        var agent = orch.GetAgentForTest("displaced-ending")!;
+
+        // The recovery's own resend and the owed run start both hold on the terminal size.
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        server.DimensionsGate       = held;
+        server.RegistrationResponse = null;
+        var reRegistration = server.ReRegisterAgentsHook!();
+        await WaitHarness.PollUntilAsync(() => server.DimensionsSends >= 2);
+
+        pty.Exit();
+        await WaitHarness.PollUntilAsync(() => agent.ExitedCts.IsCancellationRequested);
+        held.SetResult();
+        await reRegistration;
+
+        List<object> Events() {
+            lock (server.RunEvents) return server.RunEvents.Where(e => e.AgentId == "displaced-ending").Select(e => e.Event).ToList();
+        }
+
+        await WaitHarness.PollUntilAsync(() => Events().Any(e => e is AgentRunStopped));
+        await Assert.That(Events().SkipWhile(e => e is not AgentRunStopped).Any(e => e is AgentRunStarted)).IsFalse();
+    }
+
     // A PTY codex runtime reports "pty" on AgentRegistered — the transport rides the runtime TYPE,
     // not the vendor (a codex agent is not automatically app-server).
     [Test]
