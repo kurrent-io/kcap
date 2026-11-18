@@ -1425,6 +1425,7 @@ public partial class App : Application {
                     && await access.GetAsync() == DesktopNotificationAccess.Allowed,
                 notification => _notificationSink?.Show(notification, _ => _coordinator?.ShowMainWindow()))
             : null;
+        var chatWarmup = new ChatViewWarmup(permissions, opener, _time);
         _coordinator = new MainWindowCoordinator(
             () => TrackStartupMarks(() => TrackNoticeWindow(notifier, TrackViewedAgent(BuildAndShowMainWindow(
                 shownService, _config, _appState, actions, notifier, ticker,
@@ -1470,7 +1471,10 @@ public partial class App : Application {
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
             restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace(),
             onHidden: () => _ = _closeToTrayHint?.OnHiddenAsync(),
-            onShown: () => _closeToTrayHint?.OnShown());
+            onShown: () => {
+                _closeToTrayHint?.OnShown();
+                if (!_holdingMainWindow && _coordinator?.Window is { } shown) chatWarmup.Schedule(shown);
+            });
         // A shutdown that started before this continuation resumed already ran its first
         // pass against a null coordinator, so a window built now must never be
         // close-protected (BeginShutdownPass's rule 1 is the general defense; this is the

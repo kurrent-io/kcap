@@ -317,6 +317,9 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             : new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, toggle) });
     }
 
+    /// Where a transparent view can join the tree at the width a workspace gets.
+    internal Panel WarmupHost => ContentPane;
+
     // ⌘F and ⌘G on macOS. Off macOS Ctrl+F and F3 yield to a focused terminal, where they are shell
     // and TUI keys.
     void BindFindShortcut() {
