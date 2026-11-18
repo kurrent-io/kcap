@@ -146,4 +146,23 @@ public class MainWindowAppMenuSmokeTests {
         opened[0].FindControl<Button>("AboutChangelogButton")!.Command!.Execute(null);
         await Assert.That(opener.Opened).IsEquivalentTo([AppMenuBar.ChangelogUrl]);
     });
+
+    /// A popup no taller than the screen still reaches the last row: the rows scroll above the version line.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_menu_taller_than_its_room_scrolls_to_the_last_row() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new Host(inWindow: true);
+        host.Menu.ShowAt(host.MenuButton);
+        Dispatcher.UIThread.RunJobs();
+        var scroller = (ScrollViewer)host.Rows.Parent!;
+        var content = (Grid)host.Menu.Content!;
+        content.MaxHeight = 200;
+        content.UpdateLayout();
+
+        await Assert.That(scroller.Extent.Height).IsGreaterThan(scroller.Viewport.Height);
+        var last = host.Rows.Children.OfType<Button>().Last();
+        last.BringIntoView();
+        content.UpdateLayout();
+        await Assert.That(scroller.Offset.Y).IsGreaterThan(0);
+    });
 }

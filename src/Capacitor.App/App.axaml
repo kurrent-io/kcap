@@ -575,6 +575,13 @@
         <Style Selector="Button.kcapGhost.kcapQuiet:disabled /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
         </Style>
+        <!-- A keyboard-focused row in a panel takes the hover fill, not Fluent's square white outline. -->
+        <Style Selector="FlyoutPresenter.kcapPanel Button.kcapGhost">
+            <Setter Property="FocusAdorner" Value="{x:Null}" />
+        </Style>
+        <Style Selector="FlyoutPresenter.kcapPanel Button.kcapGhost:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        </Style>
         <!-- A destructive primary: filled like kcapPrimary so it reads as the action, never bound to
              Enter, so the default key cannot remove or stop anything. -->
         <Style Selector="Button.kcapDangerFill">
