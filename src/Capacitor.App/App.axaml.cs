@@ -337,6 +337,7 @@ public partial class App : Application {
     }
 
     public override void OnFrameworkInitializationCompleted() {
+        IdleTrace.StartIfEnabled(Path.GetDirectoryName(LifecycleLog.Path)!);
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop) {
             // Closing the main window hides it; only an explicit quit ends the process.
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
