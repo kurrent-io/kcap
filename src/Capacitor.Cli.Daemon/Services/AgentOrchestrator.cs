@@ -6322,11 +6322,20 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     var registration = await _server.AgentRegisteredAsync(agent.Id, agent.Prompt, agent.Model, agent.Effort, agent.RepoPath, agent.SandboxPolicy, agent.ApprovalPolicy, agent.PermissionPreset, agent.RuntimeTransport, agent.Vendor, agent.StartTitle, agent.ContinuesAgentId,
                         agent.Account?.Directory, agent.Account?.AccountId, CurrentAccountLabel(agent.Account?.AccountId, agent.Account?.Label),
                         agent.AnnouncedResumedSessionId, resumeFirstAnnounce: agent.AnnouncedResumedSessionId is not null && !agent.ResumeAnswered);
+
+                    // Silencing the agent here would leave it out of the next DaemonConnect, and the server would
+                    // fail it as gone while it runs. The registration that follows the slot's recovery sends it again.
+                    if (registration.RefusesConnection) {
+                        LogReRegistrationRefusedForConnection(agent.Id, registration.RefusedReason);
+
+                        break;
+                    }
+
                     if (registration.Answered) agent.ResumeAnswered = true;
 
-                    // A refusal is the server's answer, not a transient failure: it is not retried, and the agent is
-                    // left out of later re-registrations too. A status sent for the refused id could clear the
-                    // failure the server recorded for it.
+                    // A refusal about the agent is the server's answer, not a transient failure: it is not retried,
+                    // and the agent is left out of later re-registrations too. A status sent for the refused id
+                    // could clear the failure the server recorded for it.
                     if (!registration.Registered) {
                         agent.RegistrationRefused = true;
                         LogRegistrationRefused(agent.Id, registration.RefusedReason);
@@ -7400,6 +7409,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Server refused the registration of agent {AgentId} ({Reason})")]
     partial void LogRegistrationRefused(string agentId, string? reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Server refused the re-registration of agent {AgentId} for this connection ({Reason}); it stays reported")]
+    partial void LogReRegistrationRefusedForConnection(string agentId, string? reason);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to send terminal dimensions for agent {AgentId} (read-only viewers may render garbled until the next reconnect)")]
     partial void LogTerminalDimsSendFailed(Exception ex, string agentId);

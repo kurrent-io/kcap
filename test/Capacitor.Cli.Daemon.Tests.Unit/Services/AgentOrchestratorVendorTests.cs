@@ -116,6 +116,41 @@ public class AgentOrchestratorVendorTests {
         await Assert.That(commands!.Single().Name).IsEqualTo("review");
     }
 
+    /// <summary>A refusal about the reporting connection rather than the agent leaves the agent reported: it stays in
+    /// the next <c>DaemonConnect</c>'s live list, and the next pass registers it and sends its status.</summary>
+    [Test]
+    [Arguments("not_a_daemon")]
+    [Arguments("connection_vanished")]
+    public async Task ReRegister_keeps_reporting_an_agent_refused_for_its_connection(string refusal) {
+        using var worktree = new TempDir();
+        string worktreePath = worktree.CreateDir("worktree");
+        var server = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, refusal) };
+
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
+
+        orch.RegisterAgentForTest(new AgentInstance(
+            "agent-displaced", null, "", null, worktreePath, "claude",
+            new PtyHostedAgentRuntime("claude", new StubPtyProcess(), TimeProvider.System), new WorktreeInfo(worktreePath, "", worktreePath, IsStandalone: true), new CancellationTokenSource()
+        ) {
+            ActivityClock = new AgentActivityClock(TimeProvider.System),
+            CreatedAt     = DateTime.UtcNow,
+            LastOutputAt  = DateTime.UtcNow
+        });
+
+        await server.ReRegisterAgentsHook!();
+        var statusesWhileRefused = server.StatusChangedCalls.Count;
+        var liveAfterRefusal     = server.GetLiveAgentIds!();
+
+        server.RegistrationResponse = null;
+        await server.ReRegisterAgentsHook!();
+
+        await Assert.That(statusesWhileRefused).IsEqualTo(0);
+        await Assert.That(liveAfterRefusal).Contains("agent-displaced");
+        await Assert.That(orch.GetAgentForTest("agent-displaced")!.IsServerSilent).IsFalse();
+        await Assert.That(server.AgentRegisteredCallCount).IsEqualTo(2);
+        await Assert.That(server.StatusChangedCalls.Select(c => c.AgentId)).IsEquivalentTo(new[] { "agent-displaced" });
+    }
+
     /// <summary>A refused fresh launch keeps running locally, and nothing more reaches the server under its id.
     /// Its stop still reaches the server as a status report, which is all that frees its slot there.</summary>
     [Test]
