@@ -19,9 +19,19 @@ public static class CopilotMovedChat {
     /// Local usage lines, which start one above it.</summary>
     public const int MarkerLineNumber = 1_500_000_000;
 
-    /// <summary>The first copied prompt of a moved chat's transcript, and the line and time of the resume that ends its
-    /// history.</summary>
-    public sealed record History(string Cwd, long FirstPromptAtMs, string FirstPrompt, int ResumeLine, DateTimeOffset ResumedAt);
+    /// <summary>The first copied prompt of a moved chat's transcript, and the line, envelope id and time of the resume
+    /// that ends its history.</summary>
+    public sealed record History(string Cwd, long FirstPromptAtMs, string FirstPrompt, int ResumeLine, string? ResumeId, DateTimeOffset ResumedAt);
+
+    /// <summary>Whether a transcript's first line is VS Code's migration start.</summary>
+    public static bool IsMoved(string firstLine) {
+        try {
+            return JsonNode.Parse(firstLine) is JsonObject record && Str(record["type"]) == "session.start"
+                && Str((record["data"] as JsonObject)?["producer"]) == Producer;
+        } catch (JsonException) {
+            return false;
+        }
+    }
 
     /// <summary>The history of a moved chat, read from its transcript's lines up to its first resume; null for any
     /// other transcript, or one whose history has not ended yet.</summary>
@@ -49,7 +59,8 @@ public static class CopilotMovedChat {
 
             if (type == "session.resume") {
                 return cwd is { Length: > 0 } && at is { } sent && prompt is not null
-                    ? new History(cwd, sent, prompt, number, DateTimeOffset.TryParse(Str(record?["timestamp"]), out var resumed) ? resumed : DateTimeOffset.UnixEpoch)
+                    ? new History(cwd, sent, prompt, number, Str(record?["id"]),
+                        DateTimeOffset.TryParse(Str(record?["timestamp"]), out var resumed) ? resumed : DateTimeOffset.UnixEpoch)
                     : null;
             }
 

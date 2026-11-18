@@ -14,6 +14,9 @@ namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Copilot;
 public class CopilotMoveMarkerTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
+    // Each test's own VS Code storage, so no workspace one test writes is searched by another.
+    readonly string _storage = "storage-" + Guid.NewGuid().ToString("N");
+
     const string MovedId = "e66918ea-28db-4c85-879a-f4538ce0725e";
     const string LocalId = "fa0d6e8d-7c9d-446f-a93c-5a2a89e011b4";
     const string Cwd     = "/work/vsc-a";
@@ -31,13 +34,13 @@ public class CopilotMoveMarkerTests {
     /// <summary>A workspace in VS Code's storage open on <paramref name="folder"/>, holding a Local chat log whose one
     /// request has the given time and prompt.</summary>
     string Workspace(string name, string folder, string chatId, long sentAt = SentAt, string prompt = Prompt) {
-        Tmp.CreateFile(Path.Combine("storage", name, "workspace.json"), new JsonObject { ["folder"] = new Uri(folder).AbsoluteUri }.ToJsonString());
+        Tmp.CreateFile(Path.Combine(_storage, name, "workspace.json"), new JsonObject { ["folder"] = new Uri(folder).AbsoluteUri }.ToJsonString());
 
         var request = new JsonObject { ["requestId"] = "request_1", ["timestamp"] = sentAt, ["message"] = new JsonObject { ["text"] = prompt } };
         var log     = new JsonObject { ["kind"] = 0, ["v"] = new JsonObject { ["version"] = 3, ["sessionId"] = chatId, ["requests"] = new JsonArray(request) } };
-        Tmp.CreateFile(Path.Combine("storage", name, "chatSessions", chatId + ".jsonl"), log.ToJsonString() + "\n");
+        Tmp.CreateFile(Path.Combine(_storage, name, "chatSessions", chatId + ".jsonl"), log.ToJsonString() + "\n");
 
-        return Tmp.PathTo("storage");
+        return Tmp.PathTo(_storage);
     }
 
     static string? Find(string storage, string[] transcript) =>
@@ -82,33 +85,84 @@ public class CopilotMoveMarkerTests {
         }
     }
 
+    static readonly DateTimeOffset Now = new(2026, 11, 18, 18, 0, 0, TimeSpan.Zero);
+
+    static (List<string> Lines, List<int> Numbers) Append(WatchState state, string path, string storage, string[] drained, int[] numbers, DateTimeOffset? at = null) {
+        List<string> lines = [.. drained];
+        List<int>    sent  = [.. numbers];
+        CopilotMoveMarker.Append(state, lines, sent, path, MovedId.Replace("-", ""), [storage], at ?? Now, _ => { });
+
+        return (lines, sent);
+    }
+
+    static string? Named(string line) => JsonNode.Parse(line)!["data"]!["sessionId"]?.GetValue<string>();
+
+    // Numbered as a rewrite renumbers them, so the resume is told by its envelope id, not its file position.
     [Test]
     public async Task The_marker_goes_after_the_resume_that_ends_the_history_and_is_staged() {
         var storage = Workspace("a", Cwd, LocalId);
         var path    = Tmp.CreateFile("events.jsonl", Transcript());
         var state   = new WatchState();
-        List<string> lines   = [.. Transcript()[2..]];
-        List<int>    numbers = [2, 3, 4];
 
-        CopilotMoveMarker.Append(state, lines, numbers, path, MovedId.Replace("-", ""), [storage], _ => { });
+        var (lines, numbers) = Append(state, path, storage, Transcript()[2..], [102, 103, 104]);
 
-        await Assert.That(numbers).IsEquivalentTo(new[] { 2, 3, CopilotMovedChat.MarkerLineNumber, 4 });
-        await Assert.That(JsonNode.Parse(lines[2])!["data"]!["sessionId"]!.GetValue<string>()).IsEqualTo(LocalId);
+        await Assert.That(numbers).IsEquivalentTo(new[] { 102, 103, CopilotMovedChat.MarkerLineNumber, 104 });
+        await Assert.That(Named(lines[2])).IsEqualTo(LocalId);
         await Assert.That(state.CopilotMoveMarkerStaged).IsTrue();
     }
 
-    // A later drain carries a later resume, which ends nothing.
+    // A watcher restarted past the resume, or one that found the Local chat only later, sends the marker first.
     [Test]
-    public async Task A_drain_without_the_ending_resume_stages_nothing() {
+    public async Task A_marker_found_after_the_resume_went_out_leads_a_later_drain() {
         var storage = Workspace("a", Cwd, LocalId);
-        var path    = Tmp.CreateFile("events.jsonl", [.. Transcript(), Transcript()[3]]);
-        var state   = new WatchState { CopilotMoveMarkerStaged = true };
-        List<string> lines   = [Transcript()[3]];
-        List<int>    numbers = [5];
+        var path    = Tmp.CreateFile("events.jsonl", Transcript());
+        var state   = new WatchState();
 
-        CopilotMoveMarker.Append(state, lines, numbers, path, MovedId.Replace("-", ""), [storage], _ => { });
+        var (lines, numbers) = Append(state, path, storage, [Transcript()[4]], [4]);
 
-        await Assert.That(numbers).IsEquivalentTo(new[] { 5 });
+        await Assert.That(numbers).IsEquivalentTo(new[] { CopilotMovedChat.MarkerLineNumber, 4 });
+        await Assert.That(Named(lines[0])).IsEqualTo(LocalId);
+    }
+
+    [Test]
+    public async Task A_transcript_of_another_chat_is_read_once_and_gets_no_marker() {
+        var storage = Workspace("a", Cwd, LocalId);
+        var path    = Tmp.CreateFile("events.jsonl", Transcript(producer: "copilot-agent"));
+        var state   = new WatchState();
+
+        var (_, numbers) = Append(state, path, storage, Transcript()[2..], [2, 3, 4]);
+
+        await Assert.That(numbers).IsEquivalentTo(new[] { 2, 3, 4 });
+        await Assert.That(state.CopilotTranscriptMoved == false).IsTrue();
+    }
+
+    // The Local chat's log can be missing or locked for a while: it is looked for again a minute later, a bounded
+    // number of times, and the marker goes out once it is found.
+    [Test]
+    public async Task A_local_chat_not_found_is_looked_for_again_and_given_up_on_after_the_limit() {
+        var path    = Tmp.CreateFile("events.jsonl", Transcript());
+        var storage = Tmp.PathTo(_storage);
+        var state   = new WatchState();
+
+        await Assert.That(Append(state, path, storage, [], []).Numbers).IsEmpty();
+        Workspace("a", Cwd, LocalId);
+        await Assert.That(Append(state, path, storage, [], [], Now.AddSeconds(30)).Numbers).IsEmpty();
+        await Assert.That(Append(state, path, storage, [], [], Now + CopilotMoveMarker.RetryEvery).Numbers).IsEquivalentTo(new[] { CopilotMovedChat.MarkerLineNumber });
+
+        var hopeless = new WatchState();
+        var empty    = Tmp.CreateDir("empty").Path;
+        for (var i = 0; i < CopilotMoveMarker.MaxLookups; i++) Append(hopeless, path, empty, [], [], Now + CopilotMoveMarker.RetryEvery * i);
+
+        await Assert.That(hopeless.CopilotMoveMarkerSent).IsTrue();
+    }
+
+    [Test]
+    public async Task A_sent_marker_is_not_sent_again() {
+        var storage = Workspace("a", Cwd, LocalId);
+        var path    = Tmp.CreateFile("events.jsonl", Transcript());
+        var state   = new WatchState { CopilotMoveMarkerSent = true, CopilotMoveMarkerStaged = true };
+
+        await Assert.That(Append(state, path, storage, Transcript()[2..], [2, 3, 4]).Numbers).IsEquivalentTo(new[] { 2, 3, 4 });
         await Assert.That(state.CopilotMoveMarkerStaged).IsFalse();
     }
 }

@@ -288,10 +288,16 @@ public class WatchState {
     public CopilotLocalUsageState? CopilotLocalUsage { get; set; }
 
     // A chat moved from Local: the marker naming its Local chat rides the batch with the resume that ends its copied
-    // history, and is sent once that batch lands.
+    // history, or the next batch when the Local chat is found later, and is sent once that batch lands.
     public bool CopilotMoveMarkerStaged { get; set; }
 
     public bool CopilotMoveMarkerSent { get; set; }
+
+    public bool? CopilotTranscriptMoved { get; set; }
+
+    public DateTimeOffset CopilotMoveNextLookupAt { get; set; }
+
+    public int CopilotMoveLookups { get; set; }
 
     // Byte offset (end of the last batch the runtime rewrite guard
     // verified and the server acked) the Cursor watcher's guard checks resume from each poll.

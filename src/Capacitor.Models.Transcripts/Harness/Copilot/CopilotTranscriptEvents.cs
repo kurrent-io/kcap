@@ -122,6 +122,13 @@ public sealed partial class CopilotTranscriptEvents : ITranscriptProjection {
         if (ctx.StartUnknown) return true;
 
         if (ctx.InMovedHistory) {
+            // The watcher sends the marker only once the history has ended, so a marker reaching a context still inside
+            // it (one rebuilt after the resume) ends it there.
+            if (type == MovedFromMarker) {
+                ctx.InMovedHistory = false;
+                return false;
+            }
+
             if (type != "session.resume") return true;
 
             ctx.InMovedHistory         = false;

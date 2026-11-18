@@ -73,7 +73,7 @@ public class CopilotMoveTests {
     [Test]
     public async Task A_rebuilt_context_drops_the_history_sent_again() {
         var ctx = Context();
-        ctx.Seed(isFork: false, transcriptStart: DateTimeOffset.Parse("2026-11-18T17:51:27.399Z"), movedFromLocal: true, movedHistoryEndsAtLine: FirstResume);
+        ctx.Seed(isFork: false, transcriptStart: DateTimeOffset.Parse("2026-11-18T17:51:27.399Z"), movedFromLocal: true, moveMarked: true, movedHistoryEndsAtLine: FirstResume);
 
         await Assert.That(Prompts(Project(Corpus().Skip(1), ctx, first: 1))).IsEquivalentTo(new[] { MovedTurn });
     }
@@ -88,4 +88,15 @@ public class CopilotMoveTests {
     }
 
     static string SourceDir([CallerFilePath] string path = "") => Path.GetDirectoryName(path)!;
+
+    [Test]
+    public async Task A_marker_reaching_a_context_rebuilt_inside_the_history_ends_it() {
+        var ctx = Context();
+        ctx.Seed(isFork: false, transcriptStart: DateTimeOffset.Parse("2026-11-18T17:51:27.399Z"), movedFromLocal: true);
+
+        var events = Project([Marker(LocalId), .. Corpus()[(FirstResume + 1)..]], ctx, first: FirstResume + 1);
+
+        await Assert.That(Prompts(events)).IsEquivalentTo(new[] { MovedTurn });
+        await Assert.That(Links(events).Single()).IsEqualTo(LocalId.Replace("-", ""));
+    }
 }
