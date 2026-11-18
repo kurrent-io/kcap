@@ -30,7 +30,7 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
         get => _detailFade;
         set {
             this.RaiseAndSetIfChanged(ref _detailFade, Math.Round(value));
-            NeedToKnowFades.Set(NeedToKnowFades.DetailKey, _detailFade);
+            NeedToKnowFades.Set(NeedToKnowLevel.Detail, _detailFade);
         }
     }
 
@@ -38,7 +38,7 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
         get => _footnoteFade;
         set {
             this.RaiseAndSetIfChanged(ref _footnoteFade, Math.Round(value));
-            NeedToKnowFades.Set(NeedToKnowFades.FootnoteKey, _footnoteFade);
+            NeedToKnowFades.Set(NeedToKnowLevel.Footnote, _footnoteFade);
         }
     }
 

@@ -243,8 +243,17 @@
     <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-footnote, mv|MarkdownViewer Span.need-to-know-faded.need-to-know-footnote Run.markdown-code-inline">
         <Setter Property="Foreground" Value="{DynamicResource NeedToKnowFootnoteFadeBrush}" />
     </Style>
+    <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-detail Run.markdown-code-inline">
+        <Setter Property="Background" Value="{DynamicResource NeedToKnowDetailCodeFadeBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-footnote Run.markdown-code-inline">
+        <Setter Property="Background" Value="{DynamicResource NeedToKnowFootnoteCodeFadeBrush}" />
+    </Style>
     <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-lit, mv|MarkdownViewer Span.need-to-know-faded.need-to-know-lit Run.markdown-code-inline">
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer Span.need-to-know-faded.need-to-know-lit Run.markdown-code-inline">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
     </Style>
     <Style Selector="mv|MarkdownViewer Span.markdown-marked">
         <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />

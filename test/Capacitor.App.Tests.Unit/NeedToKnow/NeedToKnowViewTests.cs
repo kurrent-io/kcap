@@ -2,8 +2,10 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia;
 using Avalonia.Headless;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Capacitor.App.NeedToKnow;
+using Capacitor.App.Views;
 using static Capacitor.App.Tests.Unit.AvaloniaSession;
 using static Capacitor.App.Tests.Unit.MarkdownViewHarness;
 
@@ -118,6 +120,30 @@ public class NeedToKnowViewTests {
                 Dispatcher.UIThread.RunJobs();
                 await Assert.That(footnote.Classes.Contains("need-to-know-lit")).IsFalse();
             } finally {
+                window.Close();
+            }
+        });
+    }
+
+    [Test]
+    public async Task Faded_inline_code_fades_its_background_too() {
+        await RunOnUiAsync(async () => {
+            NeedToKnowBasis.Set(new(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Faded));
+            var (window, root, _) = Show("Lead. ⌞Run `the command` here.⌟");
+            try {
+                var block = Paragraphs(root).Single();
+                var code = Spans<Run>(block.Inlines!).Single(r => r.Classes.Contains("markdown-code-inline"));
+                await Assert.That(((ISolidColorBrush)code.Background!).Color.A).IsEqualTo((byte)0x99);
+
+                NeedToKnowFades.Set(NeedToKnowLevel.Detail, 20);
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(((ISolidColorBrush)code.Background!).Color.A).IsEqualTo((byte)51);
+
+                window.MouseMove(At(block, Reads(block).IndexOf("command", StringComparison.Ordinal), window));
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(((ISolidColorBrush)code.Background!).Color.A).IsEqualTo((byte)0xFF);
+            } finally {
+                NeedToKnowFades.Set(NeedToKnowLevel.Detail, 60);
                 window.Close();
             }
         });
