@@ -1,5 +1,4 @@
 using Markdig;
-using Markdig.Extensions.Tables;
 using Markdig.Renderers;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
@@ -7,7 +6,7 @@ using Markdig.Syntax.Inlines;
 namespace Capacitor.App.NeedToKnow;
 
 /// Reads the importance marks in an agent's answer — `⌞…⌟` worth knowing, `⌞⌞…⌟⌟` only if curious —
-/// and greys or removes what they enclose. Every block starts at must-know, so a span left open ends
+/// and wraps what they enclose for display under the reader's basis. Every block starts at must-know, so a span left open ends
 /// with its block and a stray close is ignored. Only literal text is scanned: a mark inside code is
 /// the code's own text.
 public sealed class NeedToKnowMarks : IMarkdownExtension {
@@ -22,36 +21,32 @@ public sealed class NeedToKnowMarks : IMarkdownExtension {
 
     public static void Apply(MarkdownDocument document, NeedToKnowBasis basis) {
         foreach (var leaf in document.Descendants<LeafBlock>().ToArray())
-            if (leaf.Inline is { } root && Contains(root)) ApplyTo(leaf, root, basis);
+            if (leaf.Inline is { } root && Contains(root)) ApplyTo(root, basis);
     }
 
     static bool Contains(ContainerInline root) =>
         root.Descendants<LiteralInline>().Any(literal => literal.Content.AsSpan().IndexOfAny(Open, Close) >= 0);
 
-    static void ApplyTo(LeafBlock leaf, ContainerInline root, NeedToKnowBasis basis) {
+    static void ApplyTo(ContainerInline root, NeedToKnowBasis basis) {
         var graded = new List<(Inline Inline, NeedToKnowLevel Level)>();
-        var open = new List<NeedToKnowLevel>();
-        Walk(root, open, graded);
+        Walk(root, [], graded);
 
-        var hid = false;
-        foreach (var (inline, level) in graded) {
-            switch (basis.For(level)) {
-                case NeedToKnowDisplay.Hidden:
-                    inline.Remove();
-                    hid = true;
-                    break;
-                case NeedToKnowDisplay.Greyed:
-                    var grey = new GreyedInline(level);
-                    inline.InsertAfter(grey);
-                    inline.Remove();
-                    grey.AppendChild(inline);
-                    break;
+        // Neighbouring pieces at one level share a wrapper, so a marked span shows one pair of brackets
+        // and a hidden one leaves one mark.
+        for (var i = 0; i < graded.Count;) {
+            var level = graded[i].Level;
+            var end = i + 1;
+            while (end < graded.Count && graded[end].Level == level && ReferenceEquals(graded[end].Inline.PreviousSibling, graded[end - 1].Inline)) end++;
+            if (basis.For(level) is var display and not NeedToKnowDisplay.Normal) {
+                var wrapper = new GradedInline(level, display);
+                graded[end - 1].Inline.InsertAfter(wrapper);
+                for (var j = i; j < end; j++) {
+                    graded[j].Inline.Remove();
+                    wrapper.AppendChild(graded[j].Inline);
+                }
             }
+            i = end;
         }
-        if (!hid) return;
-        DropEmptyContainers(root);
-        TidySpaces(root);
-        if (!HasContent(root)) RemoveBlock(leaf);
     }
 
     /// Gives every leaf inline the level in force where it sits, splitting literals at their marks.
@@ -115,41 +110,4 @@ public sealed class NeedToKnowMarks : IMarkdownExtension {
     }
 
     static NeedToKnowLevel Level(List<NeedToKnowLevel> open) => open.Count == 0 ? NeedToKnowLevel.MustKnow : open.Max();
-
-    static void DropEmptyContainers(ContainerInline container) {
-        foreach (var nested in container.OfType<ContainerInline>().ToArray()) {
-            DropEmptyContainers(nested);
-            if (nested.FirstChild is null) nested.Remove();
-        }
-    }
-
-    /// A hidden span leaves the spaces either side of it; one is kept, and none at the block's edges.
-    static void TidySpaces(ContainerInline root) {
-        var literals = root.Descendants<LiteralInline>().ToList();
-        for (var i = 1; i < literals.Count; i++) {
-            var previous = literals[i - 1].Content.ToString();
-            var current = literals[i].Content.ToString();
-            if (previous.Length > 0 && char.IsWhiteSpace(previous[^1]) && current.Length > 0
-                && (char.IsWhiteSpace(current[0]) || current[0] is '.' or ',' or ';' or ':' or '!' or '?'))
-                literals[i - 1].Content = new(previous.TrimEnd());
-        }
-        if (literals.Count == 0) return;
-        literals[0].Content = new(literals[0].Content.ToString().TrimStart());
-        literals[^1].Content = new(literals[^1].Content.ToString().TrimEnd());
-    }
-
-    static bool HasContent(ContainerInline root) =>
-        root.Descendants<Inline>().Any(inline => inline switch {
-            LiteralInline literal => !literal.Content.IsEmptyOrWhitespace(),
-            ContainerInline or LineBreakInline => false,
-            _ => true,
-        });
-
-    /// A block whose content is all hidden goes, and so does a list item or list it leaves empty.
-    /// A table cell keeps its place.
-    static void RemoveBlock(Block block) {
-        if (block.Parent is not { } parent || parent is TableCell) return;
-        parent.Remove(block);
-        if (parent is ListItemBlock or ListBlock && parent.Count == 0) RemoveBlock(parent);
-    }
 }

@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Threading;
 using Capacitor.App.NeedToKnow;
@@ -22,7 +23,13 @@ public class NeedToKnowViewTests {
 
                 NeedToKnowBasis.Set(NeedToKnowBasis.Default with { WorthKnowing = NeedToKnowDisplay.Hidden });
                 Dispatcher.UIThread.RunJobs();
-                await Assert.That(Reads(Paragraphs(root).Single())).IsEqualTo("Tests pass. CI is green.");
+                var hidden = Spans<InlineUIContainer>(Paragraphs(root).Single().Inlines!).Single().Child as TextBlock;
+                await Assert.That(hidden!.Text).IsEqualTo("⋯");
+                await Assert.That((ToolTip.GetTip(hidden) as TextBlock)?.Text).IsEqualTo("7 ran.");
+
+                NeedToKnowBasis.Set(NeedToKnowBasis.Default with { WorthKnowing = NeedToKnowDisplay.Marked });
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(Reads(Paragraphs(root).Single())).IsEqualTo("Tests pass. ⌞7 ran.⌟ CI is green.");
 
                 NeedToKnowBasis.Set(NeedToKnowBasis.Default with { WorthKnowing = NeedToKnowDisplay.Greyed });
                 Dispatcher.UIThread.RunJobs();

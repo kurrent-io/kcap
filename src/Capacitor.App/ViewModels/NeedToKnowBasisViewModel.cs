@@ -20,9 +20,11 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
     public ReactiveCommand<NeedToKnowDisplay, Unit> SetOnlyIfCuriousCommand { get; }
 
     public bool WorthKnowingNormal => _basis.WorthKnowing == NeedToKnowDisplay.Normal;
+    public bool WorthKnowingMarked => _basis.WorthKnowing == NeedToKnowDisplay.Marked;
     public bool WorthKnowingGreyed => _basis.WorthKnowing == NeedToKnowDisplay.Greyed;
     public bool WorthKnowingHidden => _basis.WorthKnowing == NeedToKnowDisplay.Hidden;
     public bool OnlyIfCuriousNormal => _basis.OnlyIfCurious == NeedToKnowDisplay.Normal;
+    public bool OnlyIfCuriousMarked => _basis.OnlyIfCurious == NeedToKnowDisplay.Marked;
     public bool OnlyIfCuriousGreyed => _basis.OnlyIfCurious == NeedToKnowDisplay.Greyed;
     public bool OnlyIfCuriousHidden => _basis.OnlyIfCurious == NeedToKnowDisplay.Hidden;
 
@@ -30,8 +32,8 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
         _basis = basis;
         NeedToKnowBasis.Set(basis);
         foreach (var name in new[] {
-                     nameof(WorthKnowingNormal), nameof(WorthKnowingGreyed), nameof(WorthKnowingHidden),
-                     nameof(OnlyIfCuriousNormal), nameof(OnlyIfCuriousGreyed), nameof(OnlyIfCuriousHidden),
+                     nameof(WorthKnowingNormal), nameof(WorthKnowingMarked), nameof(WorthKnowingGreyed), nameof(WorthKnowingHidden),
+                     nameof(OnlyIfCuriousNormal), nameof(OnlyIfCuriousMarked), nameof(OnlyIfCuriousGreyed), nameof(OnlyIfCuriousHidden),
                  })
             this.RaisePropertyChanged(name);
     }

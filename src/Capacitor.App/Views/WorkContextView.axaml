@@ -1008,30 +1008,34 @@
                         <TextBlock Text="NEED TO KNOW BASIS" Classes="eyebrow" />
                     </Button>
                     <Border Classes="sectionBody">
-                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" RowSpacing="8" ColumnSpacing="12">
-                            <TextBlock Text="Worth knowing" FontSize="13" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
-                            <Border Grid.Column="1" Classes="kcapSegment" HorizontalAlignment="Left">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Worth knowing" FontSize="13" Foreground="{StaticResource KcapMutedBrush}" />
+                            <Border Classes="kcapSegment" HorizontalAlignment="Left">
                                 <StackPanel Orientation="Horizontal" Spacing="2">
                                     <Button Content="Normal" Classes="kcapSegmentItem" Classes.active="{Binding WorthKnowingNormal}"
                                             Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Normal}" />
+                                    <Button Content="Marks" Classes="kcapSegmentItem" Classes.active="{Binding WorthKnowingMarked}"
+                                            Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Marked}" />
                                     <Button Content="Grey" Classes="kcapSegmentItem" Classes.active="{Binding WorthKnowingGreyed}"
                                             Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Greyed}" />
                                     <Button Content="Hide" Classes="kcapSegmentItem" Classes.active="{Binding WorthKnowingHidden}"
                                             Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Hidden}" />
                                 </StackPanel>
                             </Border>
-                            <TextBlock Grid.Row="1" Text="Only if curious" FontSize="13" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
-                            <Border Grid.Row="1" Grid.Column="1" Classes="kcapSegment" HorizontalAlignment="Left">
+                            <TextBlock Text="Only if curious" FontSize="13" Foreground="{StaticResource KcapMutedBrush}" Margin="0,6,0,0" />
+                            <Border Classes="kcapSegment" HorizontalAlignment="Left">
                                 <StackPanel Orientation="Horizontal" Spacing="2">
                                     <Button Content="Normal" Classes="kcapSegmentItem" Classes.active="{Binding OnlyIfCuriousNormal}"
                                             Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Normal}" />
+                                    <Button Content="Marks" Classes="kcapSegmentItem" Classes.active="{Binding OnlyIfCuriousMarked}"
+                                            Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Marked}" />
                                     <Button Content="Grey" Classes="kcapSegmentItem" Classes.active="{Binding OnlyIfCuriousGreyed}"
                                             Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Greyed}" />
                                     <Button Content="Hide" Classes="kcapSegmentItem" Classes.active="{Binding OnlyIfCuriousHidden}"
                                             Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Hidden}" />
                                 </StackPanel>
                             </Border>
-                        </Grid>
+                        </StackPanel>
                     </Border>
                 </StackPanel>
             </StackPanel>
