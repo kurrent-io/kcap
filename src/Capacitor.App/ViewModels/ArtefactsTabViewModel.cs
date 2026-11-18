@@ -42,6 +42,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     bool _tornDown;
     string? _pendingPath;
     bool _documentsFailed;
+    SessionPlansReadKind? _documentsKind;
     bool _pagesFailed;
     /// The kind of the last pages answer this lease applied; null until one lands.
     SessionPlansReadKind? _pagesKind;
@@ -199,6 +200,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         if (_tornDown || _source is null) return;
         _pendingPath = null;
         _documentsFailed = false;
+        _documentsKind = null;
         if (string.IsNullOrEmpty(sessionId)) {
             _reads.ClearCurrent(() => {
                 RaiseLoading();
@@ -227,6 +229,13 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         if (_tornDown) return;
         _reads.Refresh();
         _pageReads.Refresh();
+    }
+
+    /// Reads again only what is neither in flight nor answered Ready.
+    public void RefreshUnlessReady() {
+        if (_tornDown) return;
+        if (_reads.HasCurrent && !_reads.IsReading && (_documentsFailed || _documentsKind != SessionPlansReadKind.Ready)) _reads.Refresh();
+        if (_pageReads.HasCurrent && !_pageReads.IsReading && (_pagesFailed || _pagesKind != SessionPlansReadKind.Ready)) _pageReads.Refresh();
     }
 
     /// Re-reads only the page list, which the work context pane shows whether or not the tab is open.
@@ -378,6 +387,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     /// per workspace per tick for nothing.
     void Apply(PlanArtifactsRead read) {
         _documentsFailed = read.Kind == SessionPlansReadKind.Unreachable;
+        if (!_documentsFailed) _documentsKind = read.Kind;
         switch (read.Kind) {
             case SessionPlansReadKind.Ready:
                 Show(read.Body?.Artifacts ?? []);

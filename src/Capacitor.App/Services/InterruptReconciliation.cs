@@ -9,9 +9,17 @@ public sealed record InterruptReconciliation(IReadOnlyList<PendingInterrupt> Pen
     const string ElicitationToolName = "AskUserQuestion";
 
     public static InterruptReconciliation FromDetail(SessionDetailDto detail) {
+        var folded = Fold(null, detail.Events ?? []);
+        return detail.EndedAt is null || folded.Ended ? folded : new([], true);
+    }
+
+    /// Continues prior with the events that follow it in the stream; an end is final.
+    public static InterruptReconciliation Fold(InterruptReconciliation? prior, IEnumerable<SessionEventDto> events) {
+        if (prior is { Ended: true }) return prior;
         var pending = new Dictionary<string, PendingInterrupt>(StringComparer.Ordinal);
-        var ended = detail.EndedAt is not null;
-        foreach (var evt in detail.Events ?? []) {
+        foreach (var p in prior?.Pending ?? []) pending[p.RequestId] = p;
+        var ended = false;
+        foreach (var evt in events) {
             switch (evt.EventType) {
                 case "InterruptIssued" when evt.Body is { } body && Read(body, "request_id", "requestId") is { Length: > 0 } id:
                     if (Parse(id, body) is { } interrupt) pending[id] = interrupt;
@@ -21,13 +29,11 @@ public sealed record InterruptReconciliation(IReadOnlyList<PendingInterrupt> Pen
                     break;
                 case "SessionEnded":
                 case var t when t.StartsWith("UserClosedSession", StringComparison.Ordinal):
-                    pending.Clear();
                     ended = true;
                     break;
             }
         }
-        if (ended) pending.Clear();
-        return new([.. pending.Values], ended);
+        return ended ? new([], true) : new([.. pending.Values], false);
     }
 
     static PendingInterrupt? Parse(string id, JsonElement body) {

@@ -1167,8 +1167,10 @@ public partial class App : Application {
 
         // After the directory, which feeds it the session→agent map: a server-lane item names a
         // session, and only that map turns it into the agent whose card it belongs on.
-        var readDetail = ServerSessionHttp.DetailReader(sessionHttp, profiles);
+        SessionDetailReader readDetail = new SharedSessionDetailReader(ServerSessionHttp.DetailReader(sessionHttp, profiles)).ReadAsync;
         var readSubagent = ServerSessionHttp.SubagentEventsReader(sessionHttp, profiles);
+        var readEvents = ServerSessionHttp.SessionEventsReader(sessionHttp, profiles);
+        var readSummary = ServerSearchHttp.Summary(sessionHttp, profiles);
         var uploader = new ServerAttachmentUploader(sessionHttp, profiles);
         var heldMessages = new HeldMessagesApi(sessionHttp, profiles);
         var permissions = new PermissionService(
@@ -1181,8 +1183,8 @@ public partial class App : Application {
         lane.AccountsRevisionReached = (revision, ct) => accounts.ReachedAsync(revision, TimeSpan.FromSeconds(10), ct);
         var sessionAccess = new SessionAccessService(serverLane, _time);
         var permissionFeed = new ServerPermissionFeed(
-            serverLane, sessionAccess, permissions, readDetail, directory.VendorOfSession, _time);
-        var attention = new SessionAttentionTracker(serverLane, readDetail, _time);
+            serverLane, sessionAccess, permissions, new SessionInterruptLog(readEvents, readSummary), directory.VendorOfSession, _time);
+        var attention = new SessionAttentionTracker(serverLane, new SessionInterruptLog(readEvents, readSummary), _time);
         _sessionAccess = sessionAccess;
         // Sessions the rail hides are not read: nothing would show their PRs.
         var railShown = new ReplaySubject<Func<AgentRow, bool>>(1);

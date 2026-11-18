@@ -33,6 +33,7 @@ internal sealed class SingleFlightReader<TState, TResult>(
     public TState? CurrentState => _current is { } lease ? lease.State : default;
     public bool IsCurrentSettled => _current is { Settled: true };
     public bool IsLoading => _current is { Settled: false };
+    public bool IsReading => _current is { IsReading: true };
     public Task? PendingReadForTesting => _current?.Pending ?? _outstanding.LastOrDefault()?.Pending;
 
     public void Switch(TState state, Action? beforeStart = null) {

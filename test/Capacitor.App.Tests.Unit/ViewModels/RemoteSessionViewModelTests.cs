@@ -1646,22 +1646,94 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    /// Opening a tab reads each artefacts route once: the grant that follows the session switch
+    /// finds that read in flight or answered.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_artefacts_tab_re_reads_when_access_becomes_ready() {
+    public async Task Opening_a_session_reads_plan_artifacts_and_pages_once() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var accessReady = new TaskCompletionSource<HubCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+            h.Lane.AccessWatchHandler = _ => accessReady.Task;
+            var source = new FakePlanArtifactSource();
+            var documents = source.Gate();
+            var pages = source.GatePages();
+            var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), source);
+            await WaitUntilAsync(() => source.Requested.Count == 1 && source.RequestedPages.Count == 1, what: "open reads started");
+
+            accessReady.SetResult(HubCallOutcome.Ok);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            documents.SetResult(source.Default);
+            pages.SetResult(source.DefaultPages);
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await (vm.Artefacts.PendingPagesForTesting ?? Task.CompletedTask);
+            await Task.Delay(50);
+
+            await Assert.That(source.Requested.Count).IsEqualTo(1);
+            await Assert.That(source.RequestedPages.Count).IsEqualTo(1);
+            await vm.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_grant_after_an_answered_read_does_not_read_again() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
             var accessReady = new TaskCompletionSource<HubCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
             h.Lane.AccessWatchHandler = _ => accessReady.Task;
             var source = new FakePlanArtifactSource();
             var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), source);
-            // Settle the initial read before granting access, so the ready edge must start a new read.
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await (vm.Artefacts.PendingPagesForTesting ?? Task.CompletedTask);
+
+            accessReady.SetResult(HubCallOutcome.Ok);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await Task.Delay(50);
+
+            await Assert.That(source.Requested.Count).IsEqualTo(1);
+            await Assert.That(source.RequestedPages.Count).IsEqualTo(1);
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// A read the server refused before it would grant the session is asked again once it does.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_artefacts_tab_re_reads_an_unavailable_answer_when_access_becomes_ready() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var accessReady = new TaskCompletionSource<HubCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+            h.Lane.AccessWatchHandler = _ => accessReady.Task;
+            var source = new FakePlanArtifactSource();
+            source.Enqueue(PlanArtifactsRead.Of(SessionPlansReadKind.Unavailable));
+            var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), source);
             await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
             await Assert.That(source.Requested.Count).IsEqualTo(1);
 
             accessReady.SetResult(HubCallOutcome.Ok);
             await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
             await WaitUntilAsync(() => source.Requested.Count == 2, what: "re-read on ready");
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// Access granted again after the first grant, as a reconnect does, reads afresh.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_later_grant_re_reads_the_artefacts() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var source = new FakePlanArtifactSource();
+            var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), source);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await Task.Delay(50);
+            var before = source.Requested.Count;
+
+            h.Lane.SessionAccessChangedSubject.OnNext("0123456789abcdef0123456789abcdef");
+            await WaitUntilAsync(() => source.Requested.Count > before, what: "re-read on the later grant");
             await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
             await vm.TeardownAsync();
         });

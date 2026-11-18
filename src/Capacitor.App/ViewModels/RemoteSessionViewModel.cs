@@ -204,6 +204,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     }
 
     bool _hasEstablishedAccess;
+    bool _artefactsGrantSeen;
     bool _connectionFailed;
     readonly LocalServerRecoveryViewModel? _localServer;
     public ReactiveCommand<Unit, Unit> RetryConnectionCommand { get; }
@@ -398,7 +399,12 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         WorkContext.PullRequests = PullRequests;
         _accessStates.Where(s => s == SessionAccessState.Established)
             .ObserveOn(RxSchedulers.MainThreadScheduler)
-            .Subscribe(_ => Artefacts.Refresh()).DisposeWith(_disposables);
+            .Subscribe(_ => {
+                // The lease's first grant finds the read the session switch started.
+                if (_artefactsGrantSeen) Artefacts.Refresh();
+                else Artefacts.RefreshUnlessReady();
+                _artefactsGrantSeen = true;
+            }).DisposeWith(_disposables);
         var viewer = _rows.Select(r => AgentViewerAccess.From(r.ViewerRights) with { AtTerminal = r.IsAttached }).DistinctUntilChanged();
         // An attached agent has no terminal here: its session runs in its owner's.
         var hasTerminal = !row.IsAttached && HostedHarnessCatalog.ShowsTerminal(null, row.Vendor);
@@ -648,7 +654,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     }
 
     void AcquireLease(string sessionId) {
-        if (_leasedSession != sessionId) _hasEstablishedAccess = false;
+        if (_leasedSession != sessionId) { _hasEstablishedAccess = false; _artefactsGrantSeen = false; }
         _leasedSession = sessionId;
         // The lease's first state arrives asynchronously; without this the pane keeps the previous
         // session's verdict until it does.
