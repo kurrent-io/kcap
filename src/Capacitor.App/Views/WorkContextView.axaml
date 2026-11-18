@@ -1095,7 +1095,7 @@
                                                         <StackPanel Spacing="2" Margin="6" MinWidth="160">
                                                             <Button Classes="kcapGhost topicAsk" Click="OnTopicLooseEndsClick"
                                                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="13.5"
-                                                                    Content="File its bookmarks as loose ends" />
+                                                                    Content="File bookmarks as loose ends" />
                                                         </StackPanel>
                                                     </Flyout>
                                                 </Grid.ContextFlyout>
