@@ -84,8 +84,8 @@ public partial class App : Application {
         closed: () => _uninstalling || _uninstallMode is not null);
     StartupMarks StartupMarks => field ??= new StartupMarks(LifecycleLog, _time, StartupMarks.CurrentProcessStart());
     TimeSpan? _windowBuild;
-    // The startup frame was closed before the graph took it over, so the main window is built hidden.
-    bool _startupWindowClosed;
+    // The frame put up before the graph existed, open or since closed; the graph's window replaces neither.
+    MainWindow? _startupFrame;
     static readonly TimeSpan StartupFrameWait = TimeSpan.FromMilliseconds(500);
 
     // The update this launch finishes, once StartAsync has taken its record; null on an ordinary launch.
@@ -1008,10 +1008,9 @@ public partial class App : Application {
                 (gate, profiles) = await reevaluate().ConfigureAwait(true);
             } while ((gate is GateResult.Incomplete { Reason: GateReason.LocalSetupPending } || localSetupPending())
                   && setupCannotRetry?.Invoke() != true && !shutdown.IsCancellationRequested);
-
-            if (shutdown.IsCancellationRequested) return;
         }
 
+        if (shutdown.IsCancellationRequested) return;
         buildGraph(gate, profiles, laneQuiesced);
     }
 
@@ -1453,7 +1452,7 @@ public partial class App : Application {
                 sessions: sessions, railPreferences: railPreferences, profileName: profiles?.Name,
                 modelCatalog: modelCatalog.Catalog, uploader: uploader, appServerUrl: profiles?.Resolution.ServerUrl,
                 openFeedback: openFeedback, settingsAction: _appMenu.SettingsAction,
-                adopt: TakeAdoptableWindow(), show: !_holdingMainWindow && !_startupWindowClosed,
+                adopt: TakeAdoptableWindow(), show: !_holdingMainWindow && _startupFrame is null,
                 requestSetup: () => _ = RestartForSetupAsync(desktop),
                 historyImport: _settingsImports.LastOrDefault() ?? _historyImport?.Run,
                 backgroundPriority: lifecycle.BackgroundPriority, reloadState: lifecycle.ReloadState,
@@ -1488,12 +1487,8 @@ public partial class App : Application {
             _coordinator.Prepare();
             // A setup window adopted as the main window is already on screen; it waits for the hand-over too.
             _coordinator.Window?.Hide();
-        } else if (_startupWindowClosed) {
-            _coordinator.Prepare();
-            _startupWindowClosed = false;
-            _updateHandedOver.TrySetResult();
         } else {
-            _coordinator.ShowMainWindow();
+            OpenMainWindow(_coordinator, hadStartupFrame: _startupFrame is not null);
             _updateHandedOver.TrySetResult();
         }
         desktop.MainWindow = _coordinator.Window;
@@ -2531,8 +2526,15 @@ public partial class App : Application {
             PaneLayoutMemory.Apply(window.Panes, savedState);
             PaneLayoutMemory.Attach(window.Panes, appState);
         }
-        if (show) window.Show();
+        if (show && !placed) window.Show();
         return window;
+    }
+
+    // A startup frame is adopted where it stands, minimized or behind another app as the user left it,
+    // and one the user closed leaves the window built but hidden: showing either would reopen it.
+    internal static void OpenMainWindow(MainWindowCoordinator coordinator, bool hadStartupFrame) {
+        if (hadStartupFrame) coordinator.Prepare();
+        else coordinator.ShowMainWindow();
     }
 
     // Only the first main window: a later rebuild is not start-up.
@@ -2543,7 +2545,9 @@ public partial class App : Application {
         _windowBuild = _time.GetElapsedTime(started);
 
         // A window held behind an update's progress is hidden again before it renders; its mark waits for the real show.
-        RenderedFrame.WhenDrawn(window, () => true, _time, at => _ = Task.Run(() => StartupMarks.Mark("window_shown", at)));
+        // An adopted startup frame is already being watched.
+        if (!ReferenceEquals(window, _startupFrame))
+            RenderedFrame.WhenDrawn(window, () => true, _time, at => _ = Task.Run(() => StartupMarks.Mark("window_shown", at)));
         window.SessionRail.OnFirstSessionsPainted(_time, at => _ = Task.Run(() => StartupMarks.Mark("first_sessions_painted", at)));
         return window;
     }
@@ -2552,17 +2556,18 @@ public partial class App : Application {
     // and waits for it to be drawn; the graph's window factory adopts it. A launch finishing an
     // update keeps the window back, so it shows nothing here.
     async Task<bool> ShowStartupWindowAsync(ProfileContext? profiles) {
-        _postUpdate ??= InferUpdate(IsLocalServer(profiles?.Resolution.ServerUrl, _localRoot)
-            && AppComponentStamp.Owed(_config, CapacitorVersion.CurrentDisplay()));
+        if (_postUpdate is null) {
+            var serverUrl = profiles?.Resolution.ServerUrl;
+            var owed = await Task.Run(() => IsLocalServer(serverUrl, _localRoot) && AppComponentStamp.Owed(_config, CapacitorVersion.CurrentDisplay()));
+            _postUpdate ??= InferUpdate(owed);
+        }
         if (_postUpdate is not null || _shutdownStarted) return false;
         var state = await _appState.LoadAsync();
         if (_shutdownStarted || _shutdown.IsCancellationRequested) return false;
 
         var window = ShowStartupWindow(state, _uiScale, _appState);
         _adoptableWindow = (window, state);
-        window.Closed += (_, _) => {
-            if (window.ShowsStartup) _startupWindowClosed = true;
-        };
+        _startupFrame = window;
         var drawn = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         RenderedFrame.WhenDrawn(window, () => true, _time, at => {
             _ = Task.Run(() => StartupMarks.Mark("window_shown", at));

@@ -81,6 +81,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         RailSplitter.IsVisible = !collapsed;
         StartupRail.Width = Panes.RailWidth;
         StartupRail.IsVisible = !collapsed;
+        StartupMainStatus.IsVisible = collapsed;
         RailToggleIcon.Kind = collapsed ? LucideIconKind.PanelLeftOpen : LucideIconKind.PanelLeftClose;
         ApplyRailAttention();
         ApplyRailClearance();

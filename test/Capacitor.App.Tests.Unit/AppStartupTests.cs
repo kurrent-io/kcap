@@ -10,6 +10,7 @@ using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.App.Services.Mutation;
+using Capacitor.App.Services.Onboarding;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.App.Views;
@@ -19,6 +20,7 @@ using DynamicData;
 using TUnit.Assertions.Enums;
 using AppUnderTest = Capacitor.App.App;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Config;
 
 namespace Capacitor.App.Tests.Unit;
 
@@ -169,6 +171,71 @@ public class AppStartupTests {
         await Assert.That(saved.WindowMaximized).IsTrue();
         await Assert.That(saved.WindowWidth).IsEqualTo(1300);
         await Assert.That(saved.WindowHeight).IsEqualTo(700);
+    }
+
+    /// A quit while the startup frame waits to be drawn builds no graph: its services would start after teardown began.
+    [Test]
+    public async Task A_quit_before_the_graph_builds_nothing() {
+        using var shutdown = new CancellationTokenSource();
+        await shutdown.CancelAsync();
+        var builds = 0;
+
+        await AppUnderTest.RunWizardThenBuildGraphAsync(
+            new GateResult.Complete(), null, showWizard: false, (_, _) => Task.FromResult(true),
+            () => Task.FromResult<(GateResult, ProfileContext?)>((new GateResult.Complete(), null)),
+            (_, _, _) => builds++, () => false, shutdown.Token);
+
+        await Assert.That(builds).IsEqualTo(0);
+    }
+
+    /// A startup frame the user minimized while it loaded stays minimized when the graph adopts it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_minimized_startup_window_is_adopted_without_being_restored() {
+        var appState = AppState();
+        var savedState = await appState.LoadAsync();
+        var (same, state, hasVm) = await AvaloniaSession.DispatchAsync(() => {
+            var startup = AppUnderTest.ShowStartupWindow(savedState, uiScale: null, appState);
+            Dispatcher.UIThread.RunJobs();
+            startup.WindowState = WindowState.Minimized;
+
+            var service = new FakeDaemonClientService();
+            var (actions, notifier) = NewActions(service);
+            var coordinator = new MainWindowCoordinator(() => AppUnderTest.BuildAndShowMainWindow(
+                service, Config.Root, appState, actions, notifier, new FakeTicker(), CancellationToken.None,
+                TestActivity.New(), new NeverLaunchClient(), TimeProvider.System, adopt: (startup, savedState)));
+            AppUnderTest.OpenMainWindow(coordinator, hadStartupFrame: true);
+            Dispatcher.UIThread.RunJobs();
+
+            var window = coordinator.Window!;
+            var result = (ReferenceEquals(window, startup), window.WindowState, window.DataContext is MainWindowViewModel);
+            coordinator.QuitInProgress = true;
+            window.Close();
+            return result;
+        });
+
+        await Assert.That(same).IsTrue();
+        await Assert.That(state).IsEqualTo(WindowState.Minimized);
+        await Assert.That(hasVm).IsTrue();
+    }
+
+    /// With the rail collapsed the loading line moves to the main pane rather than leaving it blank.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_startup_window_with_the_rail_collapsed_says_it_is_loading() {
+        var appState = AppState();
+        await appState.UpdateAsync(s => s with { RailCollapsed = true });
+        var savedState = await appState.LoadAsync();
+        var (railShown, mainShown) = await AvaloniaSession.DispatchAsync(() => {
+            var startup = AppUnderTest.ShowStartupWindow(savedState, uiScale: null, appState);
+            Dispatcher.UIThread.RunJobs();
+            var result = (startup.StartupRail.IsEffectivelyVisible, startup.StartupMainStatus.IsEffectivelyVisible);
+            startup.Close();
+            return result;
+        });
+
+        await Assert.That(railShown).IsFalse();
+        await Assert.That(mainShown).IsTrue();
     }
 
     [Test]
