@@ -159,8 +159,8 @@ internal sealed class SessionRunMonitor : IDisposable {
         } finally {
             await Dispatcher.UIThread.InvokeAsync(() => {
                 _reading = false;
-                // A change raised while this read ran found it busy.
-                if (generation == _generation && _feed is RemoteTranscriptFeed { HasPendingChanges: true }) Read();
+                // A switch or a change made while this read ran found it busy.
+                if (generation != _generation || _feed is RemoteTranscriptFeed { HasPendingChanges: true }) Read();
             });
         }
     }

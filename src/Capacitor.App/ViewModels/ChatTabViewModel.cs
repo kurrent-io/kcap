@@ -136,8 +136,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     volatile FeedLease? _lease;
     ITimer? _timer;
     bool _ticking;
-    /// Bumped when the session ends or the feed switches: a local feed is polled on until a read
-    /// started after the bump lands, so the last lines written before the end still arrive.
+    bool _writerDone;
+    /// Bumped when the transcript's writer is done or the feed switches: a polled feed is read on
+    /// until a read started after the bump lands, so the last lines written still arrive.
     int _settleEpoch;
     int _settledEpoch;
     volatile Task? _pendingRead;
@@ -837,7 +838,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                     if (change.Reason == ChangeReason.Remove)
                         info = (info ?? ChatSessionInfo.Gone) with {
                             Status = "Completed", StatusLabel = "Done", Ended = true, UsageLimit = null,
-                            TerminalDialog = null, WaitsOnUser = false,
+                            TerminalDialog = null, WaitsOnUser = false, WriterDone = true,
                         };
                     else if (change.Reason is ChangeReason.Add or ChangeReason.Update)
                         info = ChatSessionInfo.FromLocal(change.Current, ended: false);
@@ -1314,9 +1315,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         ApplyAccount(info);
         _status = info.Status;
         _interruption = info.Interruption;
+        var writerDone = info.Ended && info.WriterDone;
+        if (writerDone && !_writerDone) _settleEpoch++;
+        _writerDone = writerDone;
         if (_ended != info.Ended) {
             _ended = info.Ended;
-            if (_ended) _settleEpoch++;
             foreach (var call in _items.OfType<ToolGroupItem>().SelectMany(static group => group.Calls).Where(static call => !call.IsSettled))
                 call.SessionOver = _ended;
             RaisePhaseNote();
@@ -1349,12 +1352,15 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         UpdateTicking();
     }
 
-    /// The tick drives the elapsed-time note, the pickup check, the runs' clocks and a local feed's
-    /// tail, none of which can change once the session has ended. A remote feed signals its reads.
+    /// The tick drives the elapsed-time note, the pickup check, the runs' clocks and a polled feed's
+    /// reads; only the reads can still change once the session has ended. A remote session's feed
+    /// signals its own reads. A feed whose writer is never reported done, such as a subagent's,
+    /// keeps its cadence.
     void UpdateTicking() {
         if (_timer is not { } timer) return;
         var wanted = !_ended
-            || _lease is { Feed: not RemoteTranscriptFeed } && Volatile.Read(ref _settledEpoch) != _settleEpoch;
+            || _lease is { Feed: not RemoteTranscriptFeed }
+                && (!_writerDone || Volatile.Read(ref _settledEpoch) != _settleEpoch);
         if (wanted == _ticking) return;
         _ticking = wanted;
         var period = wanted ? PollInterval : Timeout.InfiniteTimeSpan;

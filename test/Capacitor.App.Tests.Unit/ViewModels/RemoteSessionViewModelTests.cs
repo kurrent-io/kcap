@@ -1410,6 +1410,27 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    /// A row that moves to another session while a read of the first is in flight still has the
+    /// replacement read, with no poll to fall back on.
+    [Test]
+    public async Task A_remote_background_monitor_reads_a_session_switched_to_during_a_read() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var subagent = new SessionDetailFetch(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            var row = Harness.Row(vendor: "claude");
+            h.Directory.Rows.AddOrUpdate(row);
+            var latest = default(RunningWork);
+            using var monitor = new SessionRunMonitor(row.Key, work => latest = work, () => { }, new FakeDaemonClientService(),
+                h.Directory, h.Access, (session, _) => Task.FromResult(session == "s2" ? subagent : h.Detail), h.Lane, h.Time);
+
+            h.Directory.Rows.AddOrUpdate(row with { SessionId = "s2" });
+            await WaitUntilAsync(() => latest.Subagents == 1, what: "the replacement session read, with no time advanced");
+            await Assert.That(monitor.IsTickingForTesting).IsFalse();
+        });
+    }
+
     /// The rail looks a session running in a terminal up by its server key, so its work is published
     /// under that key, and stays there once the workspace closes.
     [Test]
