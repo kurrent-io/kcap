@@ -200,7 +200,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             if (Equals(_project, value)) return;
             this.RaiseAndSetIfChanged(ref _project, value);
             if (_sessions is not null) _sessions.Project = value?.Id;
-            _lastWorkItems = WorkItemsIn(_listed, value);
+            _lastWorkItems = WorkItemsIn(_listed, value, _time.GetUtcNow());
             this.RaisePropertyChanged(nameof(ProjectLabel));
             this.RaisePropertyChanged(nameof(ProjectInitial));
             this.RaisePropertyChanged(nameof(IsAllProjects));
@@ -441,7 +441,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         sessions?.Snapshots.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(snapshot => {
             if (_disposables.IsDisposed) return;
             _listed = snapshot;
-            var items = WorkItemsIn(snapshot, _project);
+            var items = WorkItemsIn(snapshot, _project, _time.GetUtcNow());
             if (items.SequenceEqual(_lastWorkItems)) return;
             _lastWorkItems = items;
             ApplyGrouping();
@@ -635,14 +635,17 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     internal static string WorkItemKey(string workItemId) => $"workitem:{workItemId}";
 
-    /// The work items the project's listed sessions arrived with, the one worked on most recently first: a session
-    /// in progress is the most recent there is.
-    static IReadOnlyList<RailWorkItem> WorkItemsIn(ServerSessionsSnapshot listed, RailProject? project) {
+    static readonly TimeSpan WorkItemActiveFor = TimeSpan.FromDays(3);
+
+    /// The work items the project's listed sessions arrived with that are in progress or were worked on lately, the one
+    /// worked on most recently first: a session in progress is the most recent there is.
+    static IReadOnlyList<RailWorkItem> WorkItemsIn(ServerSessionsSnapshot listed, RailProject? project, DateTimeOffset now) {
         if (project is null) return [];
         return [.. listed.Live.Concat(listed.MineLive).Concat(listed.Ended).Append(listed.Pinned).OfType<RepoSessionDto>()
             .Where(row => row.WorkItem is not null && (row.Repo?.Hash ?? row.PrimaryRepoHash) is { } hash && project.RepoHashes.Contains(hash, StringComparer.Ordinal))
             .DistinctBy(row => row.SessionId)
             .GroupBy(row => row.WorkItem!.WorkItemId, StringComparer.Ordinal)
+            .Where(sessions => sessions.Any(row => row.Status == "active") || sessions.Max(row => row.LastActivityAt) > now - WorkItemActiveFor)
             .OrderByDescending(sessions => sessions.Any(row => row.Status == "active"))
             .ThenByDescending(sessions => sessions.Max(row => row.LastActivityAt))
             .ThenBy(sessions => sessions.Key, StringComparer.Ordinal)

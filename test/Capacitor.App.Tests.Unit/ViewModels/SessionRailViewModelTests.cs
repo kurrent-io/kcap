@@ -1044,4 +1044,69 @@ public class SessionRailViewModelTests {
             }
         });
     }
+
+    // ── work items ─────────────────────────────────────────────────────────────────────────────
+
+    static RepoSessionDto Tracked(string id, string workItem, DateTime lastActivity, string status = "ended") => new() {
+        SessionId = id, Status = status, AccessLevel = "full", Vendor = "claude", Title = id,
+        Owner = new() { UserId = "me", DisplayName = "Alexey" },
+        StartedAt = new DateTimeOffset(lastActivity.AddHours(-1)), LastActivityAt = new DateTimeOffset(lastActivity),
+        EndedAt = status == "ended" ? new DateTimeOffset(lastActivity) : null,
+        Repo = new() { Hash = "h", Owner = "kurrent-io", Name = "kcap-cli" },
+        WorkItem = new() { WorkItemId = workItem, Title = workItem },
+    };
+
+    static (FakeAgentDirectory Directory, FakeServerSessionsService Sessions, SessionRailViewModel Rail) BuildWithWorkItems() {
+        var directory = new FakeAgentDirectory();
+        var sessions = new FakeServerSessionsService();
+        var rail = new SessionRailViewModel(directory, _ => { }, _ => { },
+            new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(Noon)),
+            openServerSession: _ => { }, sessions: sessions,
+            preferences: RailPreferences.Default with { Grouping = RailGrouping.WorkItem, Project = new RailProject("p", "P", ["h"]) },
+            readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, [])));
+        return (directory, sessions, rail);
+    }
+
+    static void List(FakeAgentDirectory directory, FakeServerSessionsService sessions, params RepoSessionDto[] listed) {
+        foreach (var dto in listed) {
+            (dto.Status == "active" ? sessions.LiveCache : sessions.EndedCache).AddOrUpdate(dto);
+            directory.Rows.AddOrUpdate(AgentRow.FromServer(dto, hostedPresentation: false));
+        }
+    }
+
+    /// A work item nobody has worked on for three days leaves the rail's work items, and its sessions fall back to their days.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Only_work_items_worked_on_lately_head_the_rail() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, rail) = BuildWithWorkItems();
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("recent", "AI-1", Noon.AddDays(-2)), Tracked("old", "AI-2", Noon.AddDays(-4)));
+
+                var workItems = rail.Groups.Where(g => g.IsWorkItem).Select(g => g.Label);
+                await Assert.That(workItems).IsEquivalentTo(new[] { "AI-1" });
+                await Assert.That(rail.Groups.Where(g => !g.IsWorkItem).SelectMany(Ids)).Contains("old");
+            }
+        });
+    }
+
+    /// A work item shows its five most recent sessions plus any live or open one, and counts the rest for its page.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_work_item_shows_its_recent_live_and_open_sessions() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, rail) = BuildWithWorkItems();
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, [
+                    .. Enumerable.Range(1, 8).Select(i => Tracked($"s{i}", "AI-1", Noon.AddHours(-i))),
+                    Tracked("live", "AI-1", Noon.AddDays(-1), status: "active"),
+                ]);
+                rail.SelectedSessionKey = "server:s8";
+
+                var group = rail.Groups.Single(g => g.IsWorkItem);
+                await Assert.That(Ids(group)).IsEquivalentTo(new[] { "s1", "s2", "s3", "s4", "s5", "live", "s8" });
+                await Assert.That(group.MoreText).IsEqualTo("2 more");
+            }
+        });
+    }
 }

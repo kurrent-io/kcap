@@ -55,6 +55,12 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         }
     }
 
+    const int WorkItemKeeps = 5;
+
+    readonly ObservableAsPropertyHelper<string?> _moreText;
+    /// Counts a work item's sessions past its most recent few that are neither live nor open; its page lists them all.
+    public string? MoreText => _moreText.Value;
+
     readonly ObservableAsPropertyHelper<string> _countText;
     public string CountText => _countText.Value;
     bool _countIsPartial;
@@ -133,8 +139,17 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
             this.RaisePropertyChanged(nameof(Tooltip));
         }).DisposeWith(_disposables);
 
+        var kept = query.CombineLatest(selectedSessionKey, (rows, selected) => (Keys: KeptOfWorkItem(rows.Items, selected), rows.Count))
+            .Replay(1).RefCount();
+        _moreText = (workItem is null ? Observable.Return(0) : kept.Select(k => k.Count - k.Keys.Count))
+            .Select(hidden => hidden > 0 ? $"{hidden} more" : null).DistinctUntilChanged()
+            .ToProperty(this, x => x.MoreText, initialValue: null)
+            .DisposeWith(_disposables);
+        var shown = workItem is null ? group.Connect()
+            : group.Connect().Filter(kept.Select(k => (Func<AgentRow, bool>)(row => k.Keys.Contains(row.Key))));
+
         Sessions = new ReadOnlyObservableCollection<RailSessionViewModel>(_sessionsSource);
-        group.Connect()
+        shown
             .TransformWithInlineUpdate(row => new RailSessionViewModel(row, selectedSessionKey, agentsWithPending, remoteStale,
                 openLocal, openRemote, time, agentsAwaitingAnswer, agentsRunningWork,
                 pullRequests, localOnAppServer, openPullRequest, ageTicks, openServer, grouping, sort,
@@ -192,13 +207,24 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     static (string Text, bool Partial) CountFor(IEnumerable<AgentRow> rows, bool endedListPartial) {
         int live = 0, ended = 0;
         foreach (var row in rows) {
-            if (row.IsEndedSession || row is { Origin: AgentOrigin.Local, Status: "Completed" }) ended++;
+            if (IsEnded(row)) ended++;
             else live++;
         }
         var more = endedListPartial ? "+" : "";
         if (ended > 0 && live > 0) return ($"{live} live · {ended}{more} ended", endedListPartial);
         var count = live + ended;
         return (count == 1 && !endedListPartial ? "1 session" : $"{count}{more} sessions", endedListPartial);
+    }
+
+    static bool IsEnded(AgentRow row) => row.IsEndedSession || row is { Origin: AgentOrigin.Local, Status: "Completed" };
+
+    static HashSet<string> KeptOfWorkItem(IEnumerable<AgentRow> rows, string? selectedKey) {
+        var all = rows.ToList();
+        var kept = all.OrderByDescending(row => row.LastActivityAt ?? row.CreatedAt).Take(WorkItemKeeps).Select(row => row.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var row in all)
+            if (!IsEnded(row) || (row.Origin == AgentOrigin.Pending ? $"local:{row.Id}" : row.Key) == selectedKey) kept.Add(row.Key);
+        return kept;
     }
 
     // Key's own prefixes ("repo:", "path:", "daemon:{owner}/{daemon}:{path}") are a group identity,

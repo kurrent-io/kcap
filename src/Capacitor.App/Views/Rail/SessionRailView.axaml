@@ -649,6 +649,7 @@
                                             </Grid>
                                         </Button>
                                         <views:FoldPanel IsOpen="{Binding IsExpanded}" Animates="{Binding IsWorkItem}">
+                                        <StackPanel>
                                         <rail:RailList ItemsSource="{Binding Sessions}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:RailSessionViewModel">
@@ -705,6 +706,13 @@
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </rail:RailList>
+                                        <Button x:Name="RailWorkItemMore" Classes="kcapGhost kcapQuiet" HorizontalAlignment="Left" Padding="9,4" Margin="0,0,0,4"
+                                                IsVisible="{Binding MoreText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                Command="{Binding $parent[rail:SessionRailView].((vm:MainWindowViewModel)DataContext).OpenWorkItemCommand, FallbackValue={x:Null}}"
+                                                CommandParameter="{Binding WorkItemId}">
+                                            <TextBlock Text="{Binding MoreText}" />
+                                        </Button>
+                                        </StackPanel>
                                         </views:FoldPanel>
                                     </StackPanel>
                                 </Border>
