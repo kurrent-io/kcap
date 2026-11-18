@@ -292,8 +292,12 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 Publish(generation, new(ServerLaneState.Retrying, ex.Message, Failure: LaneFailures.Unanswered(ex)));
             } finally {
                 // An abandoned loop finishing late must not clear the connection a newer loop owns.
-                Interlocked.CompareExchange(ref _streams, null, streams);
-                Interlocked.CompareExchange(ref _hub, null, hub);
+                lock (_lifecycleLock) {
+                    if (ReferenceEquals(_hub, hub)) {
+                        _hub = null;
+                        _streams = null;
+                    }
+                }
                 if (hub is not null) await hub.DisposeAsync().ConfigureAwait(false);
                 // The hub goes first: disposed, the client's courtesy unsubscribe finds a dead
                 // connection and skips it (the library itself catches ObjectDisposedException),
@@ -545,8 +549,13 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 previous.Cts.Cancel();
                 await previous.Done.Task.ConfigureAwait(false);
             }
-            var streams = _streams;
-            var hub = _hub;
+            SignalRSubscriptionClient? streams;
+            HubConnection? hub;
+            // As a pair, under the lock that installs and clears them, so both are from one connection.
+            lock (_lifecycleLock) {
+                streams = _streams;
+                hub = _hub;
+            }
             if (streams is null || hub is not { State: HubConnectionState.Connected }) yield break;
             lock (_tailLock) slot.Hub = hub;
             var source = streams.SubscribeAsync(stream, fromPosition, slot.Cts.Token).GetAsyncEnumerator(slot.Cts.Token);
