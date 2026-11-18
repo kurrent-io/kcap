@@ -10,6 +10,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.GitHubHtml;
+using Capacitor.App.NeedToKnow;
 using Capacitor.App.Services;
 using MarkView.Avalonia;
 using MarkView.Avalonia.Rendering.Inlines;
@@ -73,6 +74,8 @@ public sealed class MarkdownView : ContentControl {
     readonly FindHighlighter _find = new();
     int _currentFind = -1;
     bool _nonLeftRelease;
+    NeedToKnowBasis? _renderedBasis;
+    IDisposable? _basisWatch;
 
     static MarkdownView() {
         TextProperty.Changed.AddClassHandler<MarkdownView>((view, _) => {
@@ -146,12 +149,20 @@ public sealed class MarkdownView : ContentControl {
         _selectionHost?.UpdateSelection(this);
         _attached = true;
         RelabelAgentLinks();
+        // Replays the current basis, so a view detached across a change catches up on return.
+        _basisWatch = NeedToKnowBasis.Changes.Subscribe(OnBasisChanged);
+    }
+
+    void OnBasisChanged(NeedToKnowBasis basis) {
+        if (basis != _renderedBasis && Flavor == MarkdownFlavor.Chat && NeedToKnowMarks.HasMarks(Text)) Render();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
         _selectionHost?.RemoveSelection(this);
         _selectionHost = null;
         _attached = false;
+        _basisWatch?.Dispose();
+        _basisWatch = null;
         WatchTitles();
         base.OnDetachedFromVisualTree(e);
     }
@@ -243,6 +254,7 @@ public sealed class MarkdownView : ContentControl {
         if (ToolTip.GetTip(_viewer) is not null) ToolTip.SetTip(_viewer, null);
         _find.Forget();
         if (_viewer.Markdown == Text) _viewer.Markdown = null;
+        _renderedBasis = NeedToKnowBasis.Current;
         try {
             _viewer.Markdown = Text;
             Content = _viewer;

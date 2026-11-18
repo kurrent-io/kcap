@@ -235,6 +235,10 @@
         <Setter Property="FontSize" Value="13.5" />
         <Setter Property="FontStyle" Value="Italic" />
     </Style>
+    <!-- Text an answer marked as worth knowing or only if curious, under a greyed need-to-know basis. -->
+    <Style Selector="mv|MarkdownViewer Span.need-to-know-greyed, mv|MarkdownViewer Span.need-to-know-greyed Run.markdown-code-inline">
+        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+    </Style>
     <Style Selector="mv|MarkdownViewer Span.markdown-marked">
         <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
     </Style>

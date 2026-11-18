@@ -24,7 +24,15 @@ public static class ExperimentalFeatures {
         DesktopAppOnly: true,
         OnByDefault: false);
 
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork];
+    public static ExperimentalFeature NeedToKnowBasis { get; } = new(
+        "need-to-know-basis",
+        "Need to know basis",
+        "Ask agents to mark the worth-knowing and only-if-curious parts of their replies, and choose in the desktop app's right bar whether each is shown, greyed or hidden. Applies to sessions started after it is turned on.",
+        AppliesLive: true,
+        DesktopAppOnly: true,
+        OnByDefault: false);
+
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, NeedToKnowBasis];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>
