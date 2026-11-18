@@ -1401,6 +1401,10 @@ public class ChatTabViewSmokeTests {
 
                 var toggle = host.View.GetVisualDescendants().OfType<Button>()
                     .Single(b => b.Classes.Contains("bookmarkHere") && b.DataContext is AssistantTextItem);
+                var pastToggle = toggle.TranslatePoint(new Point(toggle.Bounds.Width + 12, toggle.Bounds.Height / 2), host.Window)!.Value;
+                host.Window.MouseMove(pastToggle);
+                host.Settle();
+                await Assert.That(toggle.Opacity).IsEqualTo(1);
                 Click(host, toggle);
                 host.Settle();
                 var message = host.Chat.Bookmarks.All.Single();

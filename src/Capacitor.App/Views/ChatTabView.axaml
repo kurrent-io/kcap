@@ -50,7 +50,9 @@
             <Setter Property="Margin" Value="0,4,0,4" />
         </Style>
         <!-- A message's change-of-topic toggle shows only while the message is pointed at or the
-             toggle has keyboard focus, so it does not repeat down every row. -->
+             toggle has keyboard focus, so it does not repeat down every row. A message counts as
+             pointed at across its whole row, so a short one does not hide the toggles under the
+             pointer just past them. -->
         <Style Selector="Button.topicHere">
             <Setter Property="Opacity" Value="0" />
             <Setter Property="Height" Value="18" />
@@ -72,7 +74,7 @@
         <Style Selector="Grid.topicEnd:pointerover Button.topicEndRemove, Button.topicEndRemove:focus-visible">
             <Setter Property="Opacity" Value="1" />
         </Style>
-        <Style Selector="Border.userTurn:pointerover Button.topicHere, StackPanel.assistantTurn:pointerover Button.topicHere, Button.topicHere:focus-visible">
+        <Style Selector="Panel.turn:pointerover Button.topicHere, Button.topicHere:focus-visible">
             <Setter Property="Opacity" Value="1" />
         </Style>
         <!-- A message's bookmark toggle shows on hover like the topic toggle, and stays once taken. -->
@@ -90,7 +92,7 @@
             <Setter Property="ToolTip.Tip" Value="Remove this message's bookmark" />
             <Setter Property="AutomationProperties.Name" Value="Remove message bookmark" />
         </Style>
-        <Style Selector="Border.userTurn:pointerover Button.bookmarkHere, StackPanel.assistantTurn:pointerover Button.bookmarkHere, Button.bookmarkHere:focus-visible">
+        <Style Selector="Panel.turn:pointerover Button.bookmarkHere, Button.bookmarkHere:focus-visible">
             <Setter Property="Opacity" Value="1" />
         </Style>
         <!-- A marked message's header carries the same icon, and that one undoes the mark. -->
@@ -360,18 +362,83 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.DataTemplates>
                 <DataTemplate x:DataType="vm:UserTurnItem">
-                    <Border Classes="userTurn" Classes.undelivered="{Binding IsUndelivered}"
-                            HorizontalAlignment="Right" MaxWidth="520" Margin="0,8,0,12" Padding="14,11" CornerRadius="10">
-                        <StackPanel Spacing="6">
-                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
-                                <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
-                                    <TextBlock.Text>
-                                        <MultiBinding Converter="{x:Static views:FirstTextConverter.Instance}">
-                                            <Binding Path="Sender.Title" />
-                                            <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
-                                        </MultiBinding>
-                                    </TextBlock.Text>
-                                </TextBlock>
+                    <Panel Classes="turn" Background="Transparent" Margin="0,8,0,12">
+                        <Border Classes="userTurn" Classes.undelivered="{Binding IsUndelivered}"
+                                HorizontalAlignment="Right" MaxWidth="520" Padding="14,11" CornerRadius="10">
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                                    <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
+                                        <TextBlock.Text>
+                                            <MultiBinding Converter="{x:Static views:FirstTextConverter.Instance}">
+                                                <Binding Path="Sender.Title" />
+                                                <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                    <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
+                                               IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <Button Classes="kcapGhost topicHere" Classes.on="{Binding StartsTopic}"
+                                            Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
+                                            CommandParameter="{Binding}" />
+                                    <Button Classes="kcapGhost bookmarkHere" Classes.on="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                            Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Bookmarks.ToggleMessageCommand}"
+                                            CommandParameter="{Binding}">
+                                        <Panel>
+                                            <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNull}}" />
+                                            <views:AppIcon Kind="Bookmark" Size="12" Filled="True" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                                           Foreground="{Binding Bookmark.Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}, FallbackValue={x:Null}}" />
+                                        </Panel>
+                                    </Button>
+                                </StackPanel>
+                                <views:MarkdownView Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}"
+                                                    FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
+                                                    OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
+                                                    RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
+                                <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:UserAttachment">
+                                            <Panel Margin="0,2,8,2">
+                                                <views:ToolImagePreview x:Name="AttachmentPreview" Classes="kcapGhost" Path="{Binding PreviewPath}" ExpandsOnClick="False"
+                                                                        ToolTip.Tip="{Binding FileName}"
+                                                                        AutomationProperties.Name="{Binding FileName}"
+                                                                        Command="{Binding $parent[views:ChatTabView].((vm:ChatTabViewModel)DataContext).OpenAttachmentCommand}"
+                                                                        CommandParameter="{Binding}" />
+                                                <Border IsVisible="{Binding #AttachmentPreview.Unavailable}" Padding="8,4" CornerRadius="8"
+                                                        Background="{StaticResource KcapSurfaceBrush}"
+                                                        BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <views:AppIcon Kind="Paperclip" Size="14" VerticalAlignment="Center"
+                                                                       Foreground="{StaticResource KcapMutedBrush}" />
+                                                        <TextBlock Text="{Binding FileName}" FontSize="12" MaxWidth="240"
+                                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                                   Foreground="{StaticResource KcapTextBrush}" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </Panel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6" IsVisible="{Binding IsUndelivered}">
+                                    <views:AppIcon Kind="CircleMinus" Size="14" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource KcapMutedBrush}" />
+                                    <TextBlock Grid.Column="1" Text="{x:Static vm:UserTurnItem.UndeliveredNote}" FontSize="12" TextWrapping="Wrap"
+                                               VerticalAlignment="Center" Foreground="{StaticResource KcapMutedBrush}" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </Panel>
+                </DataTemplate>
+                <DataTemplate x:DataType="vm:AssistantTextItem">
+                    <Panel Classes="turn" Background="Transparent" Margin="0,8,0,12">
+                        <StackPanel HorizontalAlignment="Left" Spacing="6">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Classes="toolKindChip"
+                                           Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
                                 <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
                                            IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                 <Button Classes="kcapGhost topicHere" Classes.on="{Binding StartsTopic}"
@@ -387,73 +454,12 @@
                                     </Panel>
                                 </Button>
                             </StackPanel>
-                            <views:MarkdownView Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}"
+                            <views:MarkdownView Text="{Binding Text}"
                                                 FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
                                                 OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
                                                 RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
-                            <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <WrapPanel Orientation="Horizontal" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:UserAttachment">
-                                        <Panel Margin="0,2,8,2">
-                                            <views:ToolImagePreview x:Name="AttachmentPreview" Classes="kcapGhost" Path="{Binding PreviewPath}" ExpandsOnClick="False"
-                                                                    ToolTip.Tip="{Binding FileName}"
-                                                                    AutomationProperties.Name="{Binding FileName}"
-                                                                    Command="{Binding $parent[views:ChatTabView].((vm:ChatTabViewModel)DataContext).OpenAttachmentCommand}"
-                                                                    CommandParameter="{Binding}" />
-                                            <Border IsVisible="{Binding #AttachmentPreview.Unavailable}" Padding="8,4" CornerRadius="8"
-                                                    Background="{StaticResource KcapSurfaceBrush}"
-                                                    BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
-                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                    <views:AppIcon Kind="Paperclip" Size="14" VerticalAlignment="Center"
-                                                                   Foreground="{StaticResource KcapMutedBrush}" />
-                                                    <TextBlock Text="{Binding FileName}" FontSize="12" MaxWidth="240"
-                                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                               Foreground="{StaticResource KcapTextBrush}" />
-                                                </StackPanel>
-                                            </Border>
-                                        </Panel>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6" IsVisible="{Binding IsUndelivered}">
-                                <views:AppIcon Kind="CircleMinus" Size="14" VerticalAlignment="Center"
-                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                <TextBlock Grid.Column="1" Text="{x:Static vm:UserTurnItem.UndeliveredNote}" FontSize="12" TextWrapping="Wrap"
-                                           VerticalAlignment="Center" Foreground="{StaticResource KcapMutedBrush}" />
-                            </Grid>
                         </StackPanel>
-                    </Border>
-                </DataTemplate>
-                <DataTemplate x:DataType="vm:AssistantTextItem">
-                    <StackPanel Classes="assistantTurn" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Classes="toolKindChip"
-                                       Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
-                            <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
-                                       IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                            <Button Classes="kcapGhost topicHere" Classes.on="{Binding StartsTopic}"
-                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
-                                    CommandParameter="{Binding}" />
-                            <Button Classes="kcapGhost bookmarkHere" Classes.on="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Bookmarks.ToggleMessageCommand}"
-                                    CommandParameter="{Binding}">
-                                <Panel>
-                                    <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNull}}" />
-                                    <views:AppIcon Kind="Bookmark" Size="12" Filled="True" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                                   Foreground="{Binding Bookmark.Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}, FallbackValue={x:Null}}" />
-                                </Panel>
-                            </Button>
-                        </StackPanel>
-                        <views:MarkdownView Text="{Binding Text}"
-                                            FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
-                                            OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
-                                            RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
-                    </StackPanel>
+                    </Panel>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantThinkingItem">
                     <StackPanel HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="4">
