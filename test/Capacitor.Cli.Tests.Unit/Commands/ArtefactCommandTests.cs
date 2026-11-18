@@ -30,7 +30,7 @@ public class ArtefactCommandTests {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(api.Calls).IsEquivalentTo(new[] { "version:a1" });
-        await Assert.That(console.GetCapturedOutput().Trim().Split('\n')[^1]).IsEqualTo("https://kcap.test/artefacts/a1");
+        await Assert.That(console.GetCapturedOutput().ReplaceLineEndings("\n").Trim()).IsEqualTo("Plan published (v1)\nhttps://kcap.test/artefacts/a1");
         await Assert.That(console.GetCapturedError().Trim()).IsEqualTo("Object key: page:a1");
         await Assert.That(api.VersionSources).IsEquivalentTo(new[] { "0123456789abcdef0123456789abcdef" });
     }

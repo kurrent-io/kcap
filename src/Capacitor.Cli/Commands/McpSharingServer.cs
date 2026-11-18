@@ -70,10 +70,6 @@ sealed class McpSharingServer(ConfigRoot config, ProfileContext profiles, TokenS
 
             if (await RefusalAsync(id, response, body, baseUrl) is { } refusal) return refusal;
 
-            if (toolName is "search_sharing_candidates" && NoCandidates(body)
-             && await CannotShareAsync(client, SharingApi.SharingUrl(baseUrl, objectKey), budget.Token) is { } cannot)
-                return McpResponses.ToolResult(id, cannot, isError: true);
-
             return toolName switch {
                 "set_sharing_grant"    => McpResponses.ToolResult(id, $"{audience} now holds '{relation}'. list_sharing_grants shows every grant."),
                 "remove_sharing_grant" => McpResponses.ToolResult(id, $"{audience} holds no grant now. list_sharing_grants shows every grant."),
@@ -105,32 +101,6 @@ sealed class McpSharingServer(ConfigRoot config, ProfileContext profiles, TokenS
             return result.ToJsonString();
         } catch (JsonException) {
             return body;
-        }
-    }
-
-    static bool NoCandidates(string body) {
-        try {
-            return JsonNode.Parse(body)?["candidates"] is JsonArray { Count: 0 };
-        } catch (JsonException) {
-            return false;
-        }
-    }
-
-    /// <summary>A server lists no candidates to someone who may not share, so an empty list alone reads as "nobody matched".</summary>
-    static async Task<string?> CannotShareAsync(HttpClient client, string sharingUrl, CancellationToken ct) {
-        using var response = await client.GetAsync(sharingUrl, ct);
-        if (!response.IsSuccessStatusCode) return null;
-
-        try {
-            if (JsonNode.Parse(await response.Content.ReadAsStringAsync(ct)) is not JsonObject listed
-             || listed["can_manage"] is not JsonValue manage || !manage.TryGetValue<bool>(out var canManage) || canManage)
-                return null;
-
-            return listed["manage_refusal"] is JsonValue refusal && refusal.TryGetValue<string>(out var why) && why.Length > 0
-                ? $"Error: you cannot share this: {why}"
-                : "Error: you cannot share this; list_sharing_grants shows who it is shared with.";
-        } catch (JsonException) {
-            return null;
         }
     }
 

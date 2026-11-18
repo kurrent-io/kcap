@@ -40,7 +40,7 @@ public class SharingCommandTests {
 
         await RunAsync(sharing, "candidates", "page:a1", "platform", "team");
 
-        await Assert.That(sharing.Calls).IsEquivalentTo(new[] { "candidates:page:a1:platform team", "get:page:a1" });
+        await Assert.That(sharing.Calls).IsEquivalentTo(new[] { "candidates:page:a1:platform team" });
     }
 
     [Test]
@@ -61,20 +61,8 @@ public class SharingCommandTests {
         await Assert.That(error).Contains("kcap sharing set");
     }
 
-    /// <summary>A server lists no candidates to someone who may not share, which alone would read as "nobody matched".</summary>
     [Test]
-    public async Task Candidates_for_something_you_may_not_share_say_why() {
-        var sharing = new RecordingSharingApi { Listing = new(false, "Only the owner shares this page.", []) };
-
-        var (exit, output, error) = await RunAsync(sharing, "candidates", "page:a1", "platform");
-
-        await Assert.That(exit).IsEqualTo(1);
-        await Assert.That(output).IsEmpty();
-        await Assert.That(error.Trim()).IsEqualTo("You cannot change who this is shared with: Only the owner shares this page.");
-    }
-
-    [Test]
-    public async Task No_match_for_something_you_may_share_says_nobody_matched() {
+    public async Task No_match_says_nobody_matched() {
         var (exit, output, _) = await RunAsync(new RecordingSharingApi(), "candidates", "page:a1", "platform");
 
         await Assert.That(exit).IsEqualTo(0);
@@ -149,11 +137,9 @@ public class SharingCommandTests {
 
         public SharingWriteResult WriteResult { get; init; } = new SharingWriteResult.Applied();
 
-        public SharingDto Listing { get; init; } = new(true, null, []);
-
         public Task<SharingRead<SharingDto>> GetAsync(string objectKey, CancellationToken ct = default) {
             Calls.Add($"get:{objectKey}");
-            return Task.FromResult<SharingRead<SharingDto>>(new SharingRead<SharingDto>.Found(Listing));
+            return Task.FromResult<SharingRead<SharingDto>>(new SharingRead<SharingDto>.Found(new(true, null, [])));
         }
 
         public Task<SharingRead<SharingCandidatesDto>> CandidatesAsync(string objectKey, string? query, CancellationToken ct = default) {

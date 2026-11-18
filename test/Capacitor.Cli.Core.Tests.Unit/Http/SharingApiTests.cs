@@ -124,6 +124,19 @@ public class SharingApiTests : IDisposable {
         await Assert.That(refused!.Error).IsEqualTo(new SharingErrorDto("refused", "Server returned HTTP 400"));
     }
 
+    /// <summary>A read the server refuses says why in its own words, not as a bare status.</summary>
+    [Test]
+    public async Task A_refused_read_carries_the_servers_message() {
+        _server.Given(Request.Create().WithPath("/api/sharing/page:a1/candidates").UsingGet())
+               .RespondWith(Response.Create().WithStatusCode(HttpStatusCode.Forbidden).WithHeader("Content-Type", "application/json")
+                                    .WithBody("""{"code":"refused","message":"Only the owner shares this page."}"""));
+
+        var thrown = await Assert.That(async () => await Api().CandidatesAsync("page:a1", "sam")).Throws<CapacitorApiException>();
+
+        await Assert.That(thrown!.Message).IsEqualTo("Only the owner shares this page.");
+        await Assert.That(thrown.Status).IsEqualTo(403);
+    }
+
     [Test]
     public async Task A_write_to_a_hidden_object_is_not_found() {
         _server.Given(Request.Create().WithPath("/api/sharing/page:a1/grants/user:9").UsingDelete())

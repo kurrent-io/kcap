@@ -39,6 +39,11 @@ internal sealed class SharingApi(ICapacitorHttpClient http, CapacitorServer serv
 
         if (response.StatusCode == HttpStatusCode.NotFound) return new SharingRead<T>.NotFound();
         if (response.StatusCode == HttpStatusCode.ServiceUnavailable) throw new CapacitorApiException(503, CatchingUpMessage);
+
+        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Forbidden or HttpStatusCode.Conflict or HttpStatusCode.UnprocessableEntity
+         && await ReadErrorAsync(response, ct) is { } error)
+            throw new CapacitorApiException((int)response.StatusCode, error.Message);
+
         if (response.StatusCode != HttpStatusCode.OK) throw await CapacitorApiRequests.FailureAsync(response);
 
         var value = await response.Content.ReadFromJsonAsync(type, ct)

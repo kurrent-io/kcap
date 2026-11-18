@@ -31,7 +31,7 @@ class SharingCommand(ISharingApi sharing) {
                 _            => Fail($"Unknown sharing subcommand: {args[1]}")
             };
         } catch (CapacitorApiException ex) {
-            await Console.Error.WriteLineAsync(ex.Message);
+            await Console.Error.WriteLineAsync(ArtefactCommand.ForTerminal(ex.Message));
             return 1;
         } catch (ArgumentException ex) {
             return Fail(ex.Message);
@@ -72,13 +72,11 @@ class SharingCommand(ISharingApi sharing) {
             foreach (var line in Table(["AUDIENCE", "KIND", "RELATION", "CAN MOVE TO", "REMOVABLE", "NAME"], rows)) yield return line;
         }
 
-        if (!listed.CanManage) yield return CannotShare(listed.ManageRefusal);
+        if (!listed.CanManage)
+            yield return listed.ManageRefusal is { Length: > 0 } refusal
+                ? Cell($"You cannot change who this is shared with: {refusal}")
+                : "You can see who this is shared with, but not change it.";
     }
-
-    /// <summary>A server lists no candidates to someone who may not share, so an empty list alone reads as "nobody matched".</summary>
-    internal static string CannotShare(string? refusal) => refusal is { Length: > 0 }
-        ? Cell($"You cannot change who this is shared with: {refusal}")
-        : "You can see who this is shared with, but not change it.";
 
     async Task<int> CandidatesAsync(string[] args) {
         if (Parse(args) is not { } parsed) return 1;
@@ -88,11 +86,6 @@ class SharingCommand(ISharingApi sharing) {
 
         switch (await sharing.CandidatesAsync(parsed.Positionals[0], query)) {
             case SharingRead<SharingCandidatesDto>.Found({ Candidates.Count: 0 }):
-                if (await sharing.GetAsync(parsed.Positionals[0]) is SharingRead<SharingDto>.Found({ CanManage: false } listed)) {
-                    await Console.Error.WriteLineAsync(CannotShare(listed.ManageRefusal));
-                    return 1;
-                }
-
                 Console.WriteLine(query.Length == 0
                     ? "No candidates to suggest. Name someone to look for."
                     : Cell($"No candidates match \"{query}\"."));
