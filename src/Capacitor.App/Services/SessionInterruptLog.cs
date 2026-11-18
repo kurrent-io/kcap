@@ -3,10 +3,12 @@ namespace Capacitor.App.Services;
 /// Folds each session's interrupts from its event stream, reading only the events after the ones
 /// already folded. A session read for the first time is folded from its first event: an interrupt
 /// issued anywhere in the stream and never resolved is still pending, so no tail window is enough.
-/// Only an ended session skips that, on its summary's word, since an end clears every interrupt.
+/// Only an ended session skips that, since an end clears every interrupt: on the listing's word
+/// when it lists the session, held for no longer than the answer, else on its summary's.
 /// One log per reconciler: a read joined from elsewhere could predate the ping that asked for it.
-public sealed class SessionInterruptLog(SessionEventsReader readEvents, Func<string, CancellationToken, Task<SummaryFetch>> readSummary)
-        : ISessionInterruptSource {
+public sealed class SessionInterruptLog(
+        SessionEventsReader readEvents, Func<string, CancellationToken, Task<SummaryFetch>> readSummary,
+        Func<string, bool?>? listedEnded = null) : ISessionInterruptSource {
     /// From is the count of events folded into Interrupts.
     sealed record Folded(long From, InterruptReconciliation Interrupts);
 
@@ -24,7 +26,9 @@ public sealed class SessionInterruptLog(SessionEventsReader readEvents, Func<str
             generation = _generation;
         }
         if (known is { Interrupts.Ended: true }) return new(known.Interrupts);
-        if (known is null && await readSummary(sessionId, ct).ConfigureAwait(false) is { Outcome: ServerReadOutcome.Ok, Session.EndedAt: not null }) {
+        var listed = known is null ? listedEnded?.Invoke(sessionId) : null;
+        if (listed is true) return new(new([], true));
+        if (known is null && listed is null && await readSummary(sessionId, ct).ConfigureAwait(false) is { Outcome: ServerReadOutcome.Ok, Session.EndedAt: not null }) {
             var ended = new Folded(0, new([], true));
             Commit(sessionId, ended, generation);
             return new(ended.Interrupts);

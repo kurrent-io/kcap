@@ -153,4 +153,30 @@ public class SessionInterruptLogTests {
         await Assert.That(stream.Froms[0]).IsEqualTo(0);
         await Assert.That(stream.Summaries).IsEqualTo(2);
     }
+
+    /// A session the listing shows ended needs neither its summary nor its stream, and the answer is
+    /// not kept: the next read asks the listing again.
+    [Test]
+    public async Task A_session_listed_ended_is_answered_without_a_request() {
+        var stream = new Stream().Append(Issued("r1"));
+        bool? listed = true;
+        var log = new SessionInterruptLog(stream.Read, stream.Summary, _ => listed);
+
+        await Assert.That((await log.ReadAsync("s1", CancellationToken.None)).Interrupts!.Ended).IsTrue();
+        await Assert.That(stream.Summaries).IsEqualTo(0);
+        await Assert.That(stream.Froms).IsEmpty();
+
+        listed = null;
+        await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "r1" });
+        await Assert.That(stream.Summaries).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_session_listed_live_skips_the_summary_and_folds_the_stream() {
+        var stream = new Stream().Append(Issued("r1"));
+        var log = new SessionInterruptLog(stream.Read, stream.Summary, _ => false);
+
+        await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "r1" });
+        await Assert.That(stream.Summaries).IsEqualTo(0);
+    }
 }
