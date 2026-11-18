@@ -228,11 +228,6 @@ public sealed class MarkdownView : ContentControl {
             bookmarks.Add(items, source);
     }
 
-    public void BookmarkMessage() {
-        var text = Content is SelectableTextBlock plain ? plain.Text ?? "" : MarkViewSelection.AllText(_viewer);
-        if (Bookmarks is { } bookmarks && DataContext is ChatItemViewModel source) bookmarks.AddMessage(text, source);
-    }
-
     /// Selects the first run of text reading as <paramref name="quote"/> and returns where it starts,
     /// in this view's coordinates; null when the view shows no such text.
     internal Rect? Highlight(string quote) {

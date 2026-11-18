@@ -50,7 +50,7 @@ public class ChatBookmarksTests {
             var topics = new ChatTopics(items);
             var bookmarks = new ChatBookmarks(topics);
             bookmarks.Add(["Done"], reply);
-            bookmarks.AddMessage("Done", reply);
+            bookmarks.ToggleMessageCommand.Execute(reply).Subscribe();
             topics.ToggleChange(ask);
             topics.ToggleChange(next);
             var folded = (ChatTopicItem)items[0];
@@ -65,7 +65,8 @@ public class ChatBookmarksTests {
             await Assert.That(topics.TakeReveal()).IsEqualTo(new ChatReveal(reply, "Done"));
 
             bookmarks.RevealCommand.Execute(bookmarks.All[1]).Subscribe();
-            await Assert.That(topics.TakeReveal()).IsEqualTo(new ChatReveal(reply, null, Whole: true));
+            await Assert.That(topics.TakeReveal()).IsEqualTo(new ChatReveal(reply, null));
+            await Assert.That(reply.Bookmark).IsSameReferenceAs(bookmarks.All[1]);
         });
     }
 

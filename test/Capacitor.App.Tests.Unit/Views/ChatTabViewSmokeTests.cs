@@ -1385,8 +1385,8 @@ public class ChatTabViewSmokeTests {
         });
     }
 
-    /// A bookmark leads back to its message and selects what it was taken from: the text picked, or
-    /// the whole message, in place of whatever else was selected.
+    /// A bookmark leads back to its message and selects the text it was taken from in place of whatever
+    /// else was selected; a whole message's bookmark, taken with the message's toggle, selects nothing.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Revealing_a_bookmark_selects_its_text_in_the_message() {
@@ -1399,11 +1399,14 @@ public class ChatTabViewSmokeTests {
                 var reply = host.View.GetVisualDescendants().OfType<MarkdownView>().Single(v => v.DataContext is AssistantTextItem);
                 var viewer = (MarkView.Avalonia.MarkdownViewer)reply.Content!;
 
-                Invoke(MenuRow(OpenContextMenu(host, reply, MarkdownViewHarness.Paragraphs(reply).First()), "Bookmark message"));
+                var toggle = host.View.GetVisualDescendants().OfType<Button>()
+                    .Single(b => b.Classes.Contains("bookmarkHere") && b.DataContext is AssistantTextItem);
+                Click(host, toggle);
                 host.Settle();
                 var message = host.Chat.Bookmarks.All.Single();
                 await Assert.That(message.Text).IsEqualTo("To cover: 1. Lock order 2. Retry jitter 3. Logging");
                 await Assert.That(message.Quote).IsNull();
+                await Assert.That(toggle.Classes.Contains("on")).IsTrue();
 
                 var item = reply.GetVisualDescendants().OfType<TextBlock>()
                     .First(t => MarkdownViewHarness.Reads(t).EndsWith("Retry jitter", StringComparison.Ordinal));
@@ -1420,7 +1423,12 @@ public class ChatTabViewSmokeTests {
                 reply.ClearSelection();
                 host.Chat.Bookmarks.RevealCommand.Execute(message).Subscribe();
                 host.Settle();
-                await Assert.That(MarkViewSelection.SelectedText(viewer)).IsEqualTo(MarkViewSelection.AllText(viewer));
+                await Assert.That(MarkViewSelection.SelectedText(viewer)).IsEmpty();
+
+                Click(host, toggle);
+                host.Settle();
+                await Assert.That(host.Chat.Bookmarks.All).DoesNotContain(message);
+                await Assert.That(toggle.Classes.Contains("on")).IsFalse();
             } finally { await host.CloseAsync(); }
         });
     }

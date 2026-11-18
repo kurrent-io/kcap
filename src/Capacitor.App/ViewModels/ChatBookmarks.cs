@@ -20,11 +20,15 @@ public sealed class ChatBookmarks : ReactiveObject {
         _all.CollectionChanged += OnChanged;
         RemoveCommand = ReactiveCommand.Create<ChatBookmark>(bookmark => All.Remove(bookmark));
         RevealCommand = ReactiveCommand.Create<ChatBookmark>(Reveal);
+        ToggleMessageCommand = ReactiveCommand.Create<ChatItemViewModel>(ToggleMessage);
     }
+
+    /// Bookmarks a whole message, or takes its bookmark away.
+    public ReactiveCommand<ChatItemViewModel, Unit> ToggleMessageCommand { get; }
 
     public ReactiveCommand<ChatBookmark, Unit> RemoveCommand { get; }
 
-    /// Brings the message a bookmark came from into view, with the bookmarked text, or all of it, picked out.
+    /// Brings the message a bookmark came from into view, with the bookmarked text picked out.
     public ReactiveCommand<ChatBookmark, Unit> RevealCommand { get; }
 
     AvaloniaList<ChatBookmark> _all;
@@ -72,13 +76,17 @@ public sealed class ChatBookmarks : ReactiveObject {
             .Select(b => new ChatBookmark(b.Text, message, b.Quote)));
     }
 
-    /// Bookmarks all of <paramref name="source"/>, shown as <paramref name="text"/>.
-    public void AddMessage(string text, ChatItemViewModel source) {
-        if (Tidy(text) is { Length: > 0 } tidy) All.Add(new ChatBookmark(tidy, _topics.OrdinalOf(source)));
+    void ToggleMessage(ChatItemViewModel source) {
+        if (source.Bookmark is { } taken) {
+            All.Remove(taken);
+            return;
+        }
+        var text = Tidy(source switch { UserTurnItem user => user.Text, AssistantTextItem reply => reply.Text, _ => "" });
+        All.Add(new ChatBookmark(text.Length > 0 ? text : "Message", _topics.OrdinalOf(source)));
     }
 
     void Reveal(ChatBookmark bookmark) {
-        if (bookmark.Message is { } ordinal && _topics.MessageAt(ordinal) is { } row) _topics.Reveal(row, bookmark.Quote, whole: bookmark.Quote is null);
+        if (bookmark.Message is { } ordinal && _topics.MessageAt(ordinal) is { } row) _topics.Reveal(row, bookmark.Quote);
     }
 
     void OnChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) {
@@ -100,6 +108,20 @@ public sealed class ChatBookmarks : ReactiveObject {
         }
         if (_all.Where(static b => b.Message is null).ToList() is { Count: > 0 } loose) sections.Add(new ChatBookmarkGroup(null, loose));
         Sections = sections;
+        MarkMessages();
+    }
+
+    readonly List<ChatItemViewModel> _marked = [];
+
+    void MarkMessages() {
+        foreach (var row in _marked) row.Bookmark = null;
+        _marked.Clear();
+        var messages = _topics.Messages();
+        foreach (var bookmark in _all)
+            if (bookmark is { Quote: null, Message: { } ordinal } && ordinal < messages.Count && messages[ordinal] is { Bookmark: null } row) {
+                row.Bookmark = bookmark;
+                _marked.Add(row);
+            }
     }
 
     static string Tidy(string text) =>

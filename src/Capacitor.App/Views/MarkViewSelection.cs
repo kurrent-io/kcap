@@ -59,10 +59,6 @@ static class MarkViewSelection {
         return TextBetween(layer, Math.Min(anchor, focus), Math.Max(anchor, focus));
     }
 
-    /// Everything the viewer shows, as a copy of all of it would read.
-    public static string AllText(MarkdownViewer viewer) =>
-        LayerOf(viewer) is { } layer ? TextBetween(layer, 0, int.MaxValue) : "";
-
     /// Selects the first run of text that reads as <paramref name="quote"/>, whitespace aside, and
     /// returns where it starts in the viewer's coordinates; null when the viewer shows no such text.
     public static Rect? Select(MarkdownViewer viewer, string quote) {

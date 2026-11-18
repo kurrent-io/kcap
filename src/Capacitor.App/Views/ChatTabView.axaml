@@ -75,6 +75,24 @@
         <Style Selector="Border.userTurn:pointerover Button.topicHere, StackPanel.assistantTurn:pointerover Button.topicHere, Button.topicHere:focus-visible">
             <Setter Property="Opacity" Value="1" />
         </Style>
+        <!-- A message's bookmark toggle shows on hover like the topic toggle, and stays once taken. -->
+        <Style Selector="Button.bookmarkHere">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="ToolTip.Tip" Value="Bookmark this message" />
+            <Setter Property="AutomationProperties.Name" Value="Bookmark message" />
+        </Style>
+        <Style Selector="Button.bookmarkHere.on">
+            <Setter Property="Opacity" Value="1" />
+            <Setter Property="ToolTip.Tip" Value="Remove this message's bookmark" />
+            <Setter Property="AutomationProperties.Name" Value="Remove message bookmark" />
+        </Style>
+        <Style Selector="Border.userTurn:pointerover Button.bookmarkHere, StackPanel.assistantTurn:pointerover Button.bookmarkHere, Button.bookmarkHere:focus-visible">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
         <!-- A marked message's header carries the same icon, and that one undoes the mark. -->
         <Style Selector="Button.topicHere.on">
             <Setter Property="IsVisible" Value="False" />
@@ -359,6 +377,15 @@
                                 <Button Classes="kcapGhost topicHere" Classes.on="{Binding StartsTopic}"
                                         Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
                                         CommandParameter="{Binding}" />
+                                <Button Classes="kcapGhost bookmarkHere" Classes.on="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                        Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Bookmarks.ToggleMessageCommand}"
+                                        CommandParameter="{Binding}">
+                                    <Panel>
+                                        <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNull}}" />
+                                        <views:AppIcon Kind="Bookmark" Size="12" Filled="True" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                                       Foreground="{Binding Bookmark.Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}, FallbackValue={x:Null}}" />
+                                    </Panel>
+                                </Button>
                             </StackPanel>
                             <views:MarkdownView Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}"
                                                 FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
@@ -412,6 +439,15 @@
                             <Button Classes="kcapGhost topicHere" Classes.on="{Binding StartsTopic}"
                                     Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
                                     CommandParameter="{Binding}" />
+                            <Button Classes="kcapGhost bookmarkHere" Classes.on="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Bookmarks.ToggleMessageCommand}"
+                                    CommandParameter="{Binding}">
+                                <Panel>
+                                    <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNull}}" />
+                                    <views:AppIcon Kind="Bookmark" Size="12" Filled="True" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                                   Foreground="{Binding Bookmark.Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}, FallbackValue={x:Null}}" />
+                                </Panel>
+                            </Button>
                         </StackPanel>
                         <views:MarkdownView Text="{Binding Text}"
                                             FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"

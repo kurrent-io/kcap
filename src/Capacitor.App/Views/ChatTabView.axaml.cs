@@ -810,14 +810,13 @@ public partial class ChatTabView : UserControl {
     void OnTopicRevealing() {
         var topics = _topics;
         Dispatcher.UIThread.Post(() => {
-            if (ReferenceEquals(topics, _topics) && topics?.TakeReveal() is { } reveal) ShowRow(reveal.Row, reveal.Quote, reveal.Whole);
+            if (ReferenceEquals(topics, _topics) && topics?.TakeReveal() is { } reveal) ShowRow(reveal.Row, reveal.Quote);
         }, DispatcherPriority.Loaded);
     }
 
     /// Scrolls a row, such as a topic's header, to the top of the transcript, and selects
-    /// <paramref name="quote"/> in it, scrolling on to the quote if it falls below the view, or all
-    /// its text when <paramref name="whole"/>.
-    void ShowRow(ChatItemViewModel target, string? quote = null, bool whole = false) {
+    /// <paramref name="quote"/> in it, scrolling on to the quote if it falls below the view.
+    void ShowRow(ChatItemViewModel target, string? quote = null) {
         if (ChatItems.Items is not { } items) return;
         var index = items.IndexOf(target);
         if (index < 0) return;
@@ -832,12 +831,8 @@ public partial class ChatTabView : UserControl {
         if (ChatItems.ContainerFromIndex(index) is not { } row || row.TranslatePoint(default, _scroll) is not { } top) return;
         var max = Math.Max(0, _scroll.Extent.Height - _scroll.Viewport.Height);
         _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(_scroll.Offset.Y + top.Y - RevealGap, 0, max));
-        if (quote is null && !whole) return;
+        if (quote is null) return;
         foreach (var held in _selectedMarkdown.ToArray()) held.ClearSelection();
-        if (quote is null) {
-            foreach (var text in row.GetVisualDescendants().OfType<MarkdownView>()) text.SelectAll();
-            return;
-        }
         foreach (var text in row.GetVisualDescendants().OfType<MarkdownView>()) {
             if (text.Highlight(quote) is not { } found) continue;
             ChatItems.UpdateLayout();
