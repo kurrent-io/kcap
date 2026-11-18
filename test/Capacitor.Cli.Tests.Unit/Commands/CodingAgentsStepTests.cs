@@ -1848,22 +1848,23 @@ public class CodingAgentsStepTests {
         await Assert.That(sink.Lines).Contains(l => l.Contains("Copilot hooks installed"));
     }
 
-    /// <summary>VS Code runs new hooks at once, so the note asks a restart only of a terminal Copilot session, and
-    /// of VS Code only for the kcap tools, which a run that skips Copilot's MCP servers does not install.</summary>
+    /// <summary>VS Code runs new hooks at once, so the hooks note asks a restart only of a terminal Copilot session; the
+    /// VS Code restart is asked whenever the MCP servers are newly registered, even beside hooks already in place.</summary>
     [Test]
-    [Arguments(false, true)]
-    [Arguments(true, false)]
-    public async Task Copilot_hooks_note_asks_vs_code_to_restart_only_for_the_tools(bool skipMcp, bool namesVsCodeRestart) {
+    [Arguments(SettingsEdit.Changed, JsonMcpConfigWriter.Change.Updated, true, true)]
+    [Arguments(SettingsEdit.Unchanged, JsonMcpConfigWriter.Change.Updated, false, true)]
+    [Arguments(SettingsEdit.Changed, JsonMcpConfigWriter.Change.Unchanged, true, false)]
+    public async Task Copilot_notes_ask_a_restart_only_for_what_changed(
+            SettingsEdit hooks, JsonMcpConfigWriter.Change mcp, bool hooksNote, bool mcpNote) {
         var sink     = new Sink();
-        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: false, NoPrompt: false,
-            SkipCopilotMcp: skipMcp);
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: false, NoPrompt: false);
         var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: true);
+        var installers = new InstallerCalls().AsInstallers() with { InstallCopilotHooks = _ => hooks, RegisterCopilotMcp = () => mcp };
 
-        await RunAsync(options, detected, TestPaths(), new InstallerCalls().AsInstallers(), prompt: _ => true, writeLine: sink.Write);
+        await RunAsync(options, detected, TestPaths(), installers, prompt: _ => true, writeLine: sink.Write);
 
-        var note = sink.Lines.Single(l => l.Contains("Note: chats in VS Code are stored now"));
-        await Assert.That(note).Contains("Restart any copilot session running in a terminal");
-        await Assert.That(note.Contains("quit and reopen VS Code to give Copilot kcap's tools")).IsEqualTo(namesVsCodeRestart);
+        await Assert.That(sink.Lines.Contains(CopilotHooksNote)).IsEqualTo(hooksNote);
+        await Assert.That(sink.Lines.Contains(CopilotMcpNote)).IsEqualTo(mcpNote);
     }
 
     [Test]

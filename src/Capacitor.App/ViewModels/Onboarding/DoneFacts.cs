@@ -12,7 +12,7 @@ namespace Capacitor.App.ViewModels.Onboarding;
 /// <param name="ServiceDetail">What the daemon's last outcome reported beyond the problem itself, or null.</param>
 /// <param name="PathAdded">This setup put kcap on the terminal's PATH, which only terminals opened afterwards see.</param>
 /// <param name="CopilotRecording">Copilot's hooks installed.</param>
-/// <param name="CopilotTools">kcap's tools installed for Copilot, which a VS Code already running loads only once it restarts.</param>
+/// <param name="CopilotTools">kcap's tools installed for Copilot, with or without its hooks; a VS Code already running loads them only once it restarts.</param>
 public sealed record DoneFacts(
     IReadOnlyList<string> Recording,
     bool                  CodexRecording,
