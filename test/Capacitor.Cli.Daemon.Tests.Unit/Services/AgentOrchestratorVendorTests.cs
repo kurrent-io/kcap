@@ -124,8 +124,7 @@ public class AgentOrchestratorVendorTests {
     public async Task ReRegister_keeps_reporting_an_agent_refused_for_its_connection(string refusal) {
         using var worktree = new TempDir();
         string worktreePath = worktree.CreateDir("worktree");
-        var refusing = true;
-        var server = new CaptureServerConnection { RegistrationResponse = _ => refusing ? new AgentRegisteredResponse(false, refusal) : null };
+        var server = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, refusal) };
 
         await using var orch = AgentOrchestratorHarness.BuildOrchestrator(server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
 
@@ -142,7 +141,7 @@ public class AgentOrchestratorVendorTests {
         var statusesWhileRefused = server.StatusChangedCalls.Count;
         var liveAfterRefusal     = server.GetLiveAgentIds!();
 
-        refusing = false;
+        server.RegistrationResponse = null;
         await server.ReRegisterAgentsHook!();
 
         await Assert.That(statusesWhileRefused).IsEqualTo(0);
