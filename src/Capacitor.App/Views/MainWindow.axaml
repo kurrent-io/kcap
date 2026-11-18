@@ -56,7 +56,6 @@
                             <Grid.IsVisible>
                                 <MultiBinding Converter="{x:Static BoolConverters.And}">
                                     <Binding Path="CurrentWorkspace" Converter="{x:Static ObjectConverters.IsNull}" />
-                                    <Binding Path="!IsSearchOpen" />
                                     <Binding Path="WorkItemPage" Converter="{x:Static ObjectConverters.IsNull}" />
                                     <Binding Path="AllSessionsPage" Converter="{x:Static ObjectConverters.IsNull}" />
                                 </MultiBinding>
@@ -85,7 +84,6 @@
                             <ContentControl.IsVisible>
                                 <MultiBinding Converter="{x:Static BoolConverters.And}">
                                     <Binding Path="CurrentWorkspace" Converter="{x:Static ObjectConverters.IsNotNull}" />
-                                    <Binding Path="!IsSearchOpen" />
                                     <Binding Path="WorkItemPage" Converter="{x:Static ObjectConverters.IsNull}" />
                                     <Binding Path="AllSessionsPage" Converter="{x:Static ObjectConverters.IsNull}" />
                                 </MultiBinding>
@@ -99,8 +97,6 @@
                                 </views:RetainedViewTemplate>
                             </ContentControl.DataTemplates>
                         </ContentControl>
-
-                        <views:SessionSearchView x:Name="SearchCover" IsVisible="{Binding IsSearchOpen}" />
 
                         <views:WorkItemPageView x:Name="WorkItemCover" DataContext="{Binding WorkItemPage}"
                                                 IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
@@ -158,6 +154,8 @@
                         <views:AppIcon Kind="ArrowRight" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
                     </Button>
                 </StackPanel>
+
+                <views:SessionSearchView x:Name="SearchCover" />
             </Panel>
         </LayoutTransformControl>
 

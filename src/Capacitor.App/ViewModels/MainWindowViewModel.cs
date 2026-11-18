@@ -239,7 +239,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// Null without a server sessions service.
     public SessionSearchViewModel? Search { get; }
 
-    /// The search page covers the main area; CurrentWorkspace and its watches carry on beneath it.
+    /// The search palette floats over the window; CurrentWorkspace and its watches carry on beneath it.
     public bool IsSearchOpen {
         get;
         private set => this.RaiseAndSetIfChanged(ref field, value);

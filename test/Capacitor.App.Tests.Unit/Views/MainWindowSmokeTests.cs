@@ -1927,13 +1927,13 @@ public class MainWindowSmokeTests {
         await Assert.That(hiddenBefore).IsTrue();
         await Assert.That(host.Vm.IsSearchOpen).IsTrue();
         await Assert.That(cover.IsEffectivelyVisible).IsTrue();
-        await Assert.That(host.Named<Grid>("LauncherPane").IsVisible).IsFalse();
+        await Assert.That(host.Named<Grid>("LauncherPane").IsVisible).IsTrue();
         await Assert.That(host.Focused).IsSameReferenceAs(host.Named<TextBox>("SearchQueryBox"));
     });
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Escape_in_the_query_hides_the_cover_and_keeps_the_workspace_view() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Escape_in_the_query_hides_the_palette_over_the_still_visible_workspace() => AvaloniaSession.RunOnUiAsync(async () => {
         WorkspaceViewModel? built = null;
         FakeDaemonClientService? service = null;
         using var host = new SearchWindowHost(workspaceFactory: id => built = NewWorkspace(service!, NewActions(service!).Actions, id));
@@ -1945,15 +1945,15 @@ public class MainWindowSmokeTests {
 
         host.Vm.OpenSearchCommand.Execute().Subscribe();
         host.Settle();
-        var coveredHidden = !workspaceHost.IsVisible;
+        var visibleBeneath = workspaceHost.IsVisible;
         var stillInTree = view.IsAttachedToVisualTree();
         host.Window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
         host.Settle();
 
-        await Assert.That(coveredHidden).IsTrue();
+        await Assert.That(visibleBeneath).IsTrue();
         await Assert.That(stillInTree).IsTrue();
         await Assert.That(host.Vm.IsSearchOpen).IsFalse();
-        await Assert.That(host.Named<SessionSearchView>("SearchCover").IsVisible).IsFalse();
+        await Assert.That(host.Named<SessionSearchView>("SearchCover").IsHitTestVisible).IsFalse();
         await Assert.That(workspaceHost.IsVisible).IsTrue();
         await Assert.That(host.Vm.CurrentWorkspace).IsSameReferenceAs(built);
         await Assert.That(workspaceHost.GetVisualDescendants().OfType<WorkspaceView>().Single()).IsSameReferenceAs(view);
@@ -1961,7 +1961,7 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Rail_field_click_while_open_selects_the_query_text() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Rail_field_click_while_open_selects_the_query_text_and_leaves_the_field_a_placeholder() => AvaloniaSession.RunOnUiAsync(async () => {
         using var host = new SearchWindowHost();
         var field = host.Named<Button>("RailSearchButton");
         Click(host, field);
@@ -1973,10 +1973,30 @@ public class MainWindowSmokeTests {
 
         Click(host, field);
 
-        await Assert.That(label).IsEqualTo("auth");
+        await Assert.That(label).IsEqualTo("Search…");
         await Assert.That(host.Vm.Search!.Query).IsEqualTo("auth");
         await Assert.That(host.Focused).IsSameReferenceAs(query);
         await Assert.That(query.SelectedText).IsEqualTo("auth");
+    });
+
+    /// A press on the dimmed backdrop closes the palette; a press inside the card does not.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Pressing_outside_the_palette_closes_it() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Vm.OpenSearchCommand.Execute().Subscribe();
+        host.Settle();
+
+        Click(host, host.Named<TextBox>("SearchQueryBox"));
+        var openAfterInside = host.Vm.IsSearchOpen;
+        var below = new Point(host.Window.ClientSize.Width / 2, host.Window.ClientSize.Height - 4);
+        host.Window.MouseDown(below, MouseButton.Left);
+        host.Window.MouseUp(below, MouseButton.Left);
+        host.Settle();
+
+        await Assert.That(openAfterInside).IsTrue();
+        await Assert.That(host.Vm.IsSearchOpen).IsFalse();
+        await Assert.That(host.Named<SessionSearchView>("SearchCover").IsHitTestVisible).IsFalse();
     });
 
     /// ⌘K is bound everywhere. Off macOS Ctrl+K is too, and it yields while the terminal has focus,

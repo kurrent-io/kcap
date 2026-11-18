@@ -10,11 +10,16 @@ using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
-/// The search page drawn over the main area. DataContext is the window's MainWindowViewModel,
+/// The search palette floating over the window. DataContext is the window's MainWindowViewModel,
 /// inherited. Focus never leaves the query box: the tabs and rows are not focusable, and the box
 /// takes the page's keys before the window's navigation sees them.
 public partial class SessionSearchView : UserControl {
+    // Outlasts the card's transition, so the fade finishes before the palette is hidden.
+    static readonly TimeSpan CloseDuration = TimeSpan.FromMilliseconds(170);
+
     readonly SerialDisposable _focusRequests = new();
+    readonly SerialDisposable _openState = new();
+    IDisposable? _hide;
     Point? _pointerAt;
     ScrollViewer? _hitsScroll;
 
@@ -23,10 +28,12 @@ public partial class SessionSearchView : UserControl {
         SearchQueryBox.AddHandler(KeyDownEvent, OnQueryKeyDown, RoutingStrategies.Tunnel);
         SearchHits.AddHandler(PointerWheelChangedEvent, OnHitsWheel, RoutingStrategies.Tunnel, handledEventsToo: true);
         SearchHits.TemplateApplied += (_, e) => _hitsScroll = e.NameScope.Find<ScrollViewer>("SearchHitsScroll");
-        this.GetObservable(IsVisibleProperty).Subscribe(visible => {
-            if (visible) Dispatcher.UIThread.Post(() => SearchQueryBox.Focus(), DispatcherPriority.Loaded);
-        });
-        DataContextChanged += (_, _) => _focusRequests.Disposable = Window?.SearchFocusRequests.Subscribe(_ => FocusAndSelect());
+        DataContextChanged += (_, _) => {
+            _focusRequests.Disposable = Window?.SearchFocusRequests.Subscribe(_ => FocusAndSelect());
+            _openState.Disposable = DataContext is MainWindowViewModel window
+                ? window.WhenAnyValue(x => x.IsSearchOpen).Subscribe(ShowOpen)
+                : null;
+        };
         // New results, or an unavailable hit's removal, move the highlight to the first hit but keep the old scroll
         // offset, which can leave that hit off screen for Enter to open.
         SearchHits.ItemsView.CollectionChanged += (_, e) => {
@@ -37,6 +44,29 @@ public partial class SessionSearchView : UserControl {
 
     MainWindowViewModel? Window => DataContext as MainWindowViewModel;
     SessionSearchViewModel? Search => Window?.Search;
+
+    // A closing palette stays drawn while it fades but takes no input: disabling it also moves focus off the query.
+    void ShowOpen(bool open) {
+        _hide?.Dispose();
+        _hide = null;
+        IsEnabled = open;
+        IsHitTestVisible = open;
+        if (open) {
+            SearchCard.Height = double.NaN;
+            IsVisible = true;
+            Dispatcher.UIThread.Post(() => {
+                if (!IsEnabled) return;
+                SearchBackground.Classes.Set("open", true);
+                SearchQueryBox.Focus();
+            }, DispatcherPriority.Loaded);
+            return;
+        }
+        if (!IsVisible) return;
+        // Closing empties the list; holding the card's height keeps it from collapsing mid-fade.
+        SearchCard.Height = SearchCard.Bounds.Height;
+        SearchBackground.Classes.Set("open", false);
+        _hide = DispatcherTimer.RunOnce(() => IsVisible = false, CloseDuration);
+    }
 
     void FocusAndSelect() {
         SearchQueryBox.Focus();
@@ -146,8 +176,9 @@ public partial class SessionSearchView : UserControl {
         if (index >= 0 && index != search.HighlightIndex) search.MoveHighlight(index - search.HighlightIndex);
     }
 
-    // Only the strip above the page's panel stands in for the title bar.
     void OnBackgroundPointerPressed(object? sender, PointerPressedEventArgs e) {
-        if (ReferenceEquals(e.Source, SearchBackground) && e.GetPosition(this).Y < 20) WindowChrome.BeginDrag(this, e);
+        if (!ReferenceEquals(e.Source, SearchBackground) || Window is not { } window) return;
+        window.DismissSearchCommand.Execute().Subscribe();
+        e.Handled = true;
     }
 }

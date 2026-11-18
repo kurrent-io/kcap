@@ -4,7 +4,8 @@
              xmlns:views="clr-namespace:Capacitor.App.Views"
              xmlns:svc="clr-namespace:Capacitor.App.Services"
              x:Class="Capacitor.App.Views.SessionSearchView"
-             x:DataType="vm:MainWindowViewModel">
+             x:DataType="vm:MainWindowViewModel"
+             IsVisible="False">
     <UserControl.Styles>
         <Style Selector="Button.searchTab">
             <Setter Property="Padding" Value="10,4" />
@@ -38,23 +39,62 @@
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
+        <Style Selector="Border.searchKey">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="5,0" />
+            <Setter Property="MinWidth" Value="18" />
+        </Style>
+        <Style Selector="Border.searchKey > TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="TextBlock.searchKeyHint">
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+        </Style>
+        <Style Selector="Panel#SearchBackground">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.14" Easing="CubicEaseOut" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Panel#SearchBackground.open">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Border#SearchCard">
+            <Setter Property="RenderTransform" Value="translateY(-10px) scale(0.97)" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.16" Easing="CubicEaseOut" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Panel#SearchBackground.open Border#SearchCard">
+            <Setter Property="RenderTransform" Value="none" />
+        </Style>
     </UserControl.Styles>
 
-    <Border x:Name="SearchBackground" Background="{StaticResource KcapCanvasBrush}" PointerPressed="OnBackgroundPointerPressed">
-        <DockPanel MaxWidth="760" Margin="24,20,24,16">
-            <Border DockPanel.Dock="Top" Background="{StaticResource KcapSurfaceBrush}"
-                    BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1" CornerRadius="10">
-                <StackPanel>
-                    <Grid Height="52" ColumnDefinitions="Auto,*,Auto" Margin="14,0">
+    <!-- Presses on the backdrop itself, never on the card, dismiss. -->
+    <Panel x:Name="SearchBackground" Background="{StaticResource KcapScrimBrush}" PointerPressed="OnBackgroundPointerPressed">
+        <Border x:Name="SearchCard" RenderTransformOrigin="50%,0%" MaxWidth="680" MaxHeight="540" Margin="24,96,24,24" VerticalAlignment="Top"
+                Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                BorderThickness="1" CornerRadius="12" ClipToBounds="True" BoxShadow="0 16 48 0 #99000000">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top">
+                    <Grid Height="52" ColumnDefinitions="Auto,*" Margin="16,0">
                         <views:AppIcon Kind="Search" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
                         <TextBox x:Name="SearchQueryBox" Grid.Column="1" Classes="kcapEmbedded" Margin="8,0"
-                                 VerticalAlignment="Center" PlaceholderText="Search…"
+                                 VerticalAlignment="Center" PlaceholderText="Search sessions…"
                                  Text="{Binding Search.Query, FallbackValue=''}"
                                  IsReadOnly="{Binding SearchSignedOut}"
                                  AutomationProperties.Name="Search sessions" />
-                        <Button x:Name="SearchEscapeChip" Grid.Column="2" Classes="kcapChip" Content="esc"
-                                Padding="6,2" FontSize="11" CornerRadius="5" Focusable="False" VerticalAlignment="Center"
-                                Command="{Binding DismissSearchCommand}" AutomationProperties.Name="Close search" />
                     </Grid>
                     <ProgressBar x:Name="SearchProgress" Height="2" MinHeight="2" IsIndeterminate="True"
                                  Foreground="{StaticResource KcapMutedBrush}" Background="Transparent">
@@ -65,10 +105,9 @@
                             </MultiBinding>
                         </ProgressBar.IsVisible>
                     </ProgressBar>
-                    <Border Height="1" Background="{StaticResource KcapBorderBrush}" />
                     <StackPanel Orientation="Horizontal" Spacing="4" Margin="10,8" IsVisible="{Binding !SearchSignedOut}">
-                        <Button x:Name="SearchSidebarTab" Classes="kcapChip searchTab" Content="Sidebar"
-                                Click="OnSidebarTabClick" AutomationProperties.Name="Sidebar">
+                        <Button x:Name="SearchSidebarTab" Classes="kcapChip searchTab" Content="Recent"
+                                Click="OnSidebarTabClick" AutomationProperties.Name="Recent">
                             <Classes.active>
                                 <MultiBinding Converter="{x:Static views:SameValueConverter.Same}">
                                     <Binding Path="Search.Tab" FallbackValue="{x:Null}" />
@@ -95,90 +134,110 @@
                             </Classes.active>
                         </Button>
                     </StackPanel>
-                </StackPanel>
-            </Border>
-
-            <TextBlock DockPanel.Dock="Bottom" x:Name="SearchFooter" Text="↑↓ move · ↵ open · tab switch · esc close"
-                       FontSize="11" Foreground="{StaticResource KcapFaintBrush}" HorizontalAlignment="Center" Margin="0,12,0,0" />
-
-            <Panel Margin="0,10,0,0">
-                <StackPanel x:Name="SearchSignInPrompt" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Top"
-                            Margin="0,24,0,0" IsVisible="{Binding SearchShowsSignIn}">
-                    <TextBlock Text="Sign in to search sessions" FontSize="13" Foreground="{StaticResource KcapMutedBrush}"
-                               HorizontalAlignment="Center" />
-                    <Button x:Name="SearchSignInButton" Classes="kcapPrimary" Content="Sign in" HorizontalAlignment="Center"
-                            Command="{Binding SignInCommand}" AutomationProperties.Name="Sign in" />
+                    <Border Height="1" Background="{StaticResource KcapBorderBrush}" />
                 </StackPanel>
 
-                <DockPanel x:Name="SearchResults" IsVisible="{Binding !SearchShowsSignIn}">
-                    <TextBlock DockPanel.Dock="Top" x:Name="SearchListMessage" Text="{Binding Search.ListMessage, FallbackValue={x:Null}}"
-                               FontSize="13" Foreground="{StaticResource KcapMutedBrush}" Margin="10,6" TextWrapping="Wrap"
-                               IsVisible="{Binding Search.ListMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
-                    <!-- The list owns its ScrollViewer so the panel can virtualize: only the rows on screen are built. -->
-                    <ItemsControl x:Name="SearchHits" ItemsSource="{Binding Search.Hits, FallbackValue={x:Null}}">
-                        <ItemsControl.Template>
-                            <ControlTemplate>
-                                <ScrollViewer x:Name="SearchHitsScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                                    <ItemsPresenter x:Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
-                                </ScrollViewer>
-                            </ControlTemplate>
-                        </ItemsControl.Template>
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <VirtualizingStackPanel />
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:SearchHitViewModel">
-                                <Button Classes="kcapGhost searchHit" Classes.highlighted="{Binding IsHighlighted}"
-                                        Click="OnHitClick" PointerMoved="OnHitPointerMoved"
-                                        AutomationProperties.Name="{Binding TitleText}">
-                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                                        <!-- The avatar is read as its owner's name; the initials stay out, or a bare letter is announced. -->
-                                        <Border Width="22" Height="22" CornerRadius="11" VerticalAlignment="Top" ClipToBounds="True"
-                                                Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
-                                                AutomationProperties.Name="{Binding OwnerName}" AutomationProperties.AccessibilityView="{Binding OwnerAvatarView}">
-                                            <Panel>
-                                                <TextBlock Text="{Binding OwnerInitials}" FontSize="9" FontWeight="SemiBold"
-                                                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                           Foreground="{StaticResource KcapMutedBrush}" AutomationProperties.AccessibilityView="Raw" />
-                                                <views:RemoteAvatar Url="{Binding OwnerAvatarUrl}" AutomationProperties.AccessibilityView="Raw" />
+                <Border DockPanel.Dock="Bottom" x:Name="SearchFooter" BorderBrush="{StaticResource KcapBorderBrush}"
+                        BorderThickness="0,1,0,0" Padding="14,8">
+                    <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="16">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Border Classes="searchKey"><TextBlock Text="↑↓" /></Border>
+                            <TextBlock Classes="searchKeyHint" Text="Navigate" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                            <Border Classes="searchKey"><TextBlock Text="tab" /></Border>
+                            <TextBlock Classes="searchKeyHint" Text="Switch" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6">
+                            <Border Classes="searchKey"><TextBlock Text="esc" /></Border>
+                            <TextBlock Classes="searchKeyHint" Text="Close" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6">
+                            <Border Classes="searchKey"><TextBlock Text="↵" /></Border>
+                            <TextBlock Classes="searchKeyHint" Text="Open" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <Panel Margin="6,4,6,6">
+                    <StackPanel x:Name="SearchSignInPrompt" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Top"
+                                Margin="0,24,0,0" IsVisible="{Binding SearchShowsSignIn}">
+                        <TextBlock Text="Sign in to search sessions" FontSize="13" Foreground="{StaticResource KcapMutedBrush}"
+                                   HorizontalAlignment="Center" />
+                        <Button x:Name="SearchSignInButton" Classes="kcapPrimary" Content="Sign in" HorizontalAlignment="Center"
+                                Command="{Binding SignInCommand}" AutomationProperties.Name="Sign in" />
+                    </StackPanel>
+
+                    <DockPanel x:Name="SearchResults" IsVisible="{Binding !SearchShowsSignIn}">
+                        <TextBlock DockPanel.Dock="Top" x:Name="SearchListMessage" Text="{Binding Search.ListMessage, FallbackValue={x:Null}}"
+                                   FontSize="13" Foreground="{StaticResource KcapMutedBrush}" Margin="10,6" TextWrapping="Wrap"
+                                   IsVisible="{Binding Search.ListMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
+                        <!-- The list owns its ScrollViewer so the panel can virtualize: only the rows on screen are built. -->
+                        <ItemsControl x:Name="SearchHits" ItemsSource="{Binding Search.Hits, FallbackValue={x:Null}}">
+                            <ItemsControl.Template>
+                                <ControlTemplate>
+                                    <ScrollViewer x:Name="SearchHitsScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                        <ItemsPresenter x:Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+                                    </ScrollViewer>
+                                </ControlTemplate>
+                            </ItemsControl.Template>
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:SearchHitViewModel">
+                                    <Button Classes="kcapGhost searchHit" Classes.highlighted="{Binding IsHighlighted}"
+                                            Click="OnHitClick" PointerMoved="OnHitPointerMoved"
+                                            AutomationProperties.Name="{Binding TitleText}">
+                                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                            <!-- The avatar is read as its owner's name; the initials stay out, or a bare letter is announced. -->
+                                            <Border Width="22" Height="22" CornerRadius="11" VerticalAlignment="Top" ClipToBounds="True"
+                                                    Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
+                                                    AutomationProperties.Name="{Binding OwnerName}" AutomationProperties.AccessibilityView="{Binding OwnerAvatarView}">
+                                                <Panel>
+                                                    <TextBlock Text="{Binding OwnerInitials}" FontSize="9" FontWeight="SemiBold"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                               Foreground="{StaticResource KcapMutedBrush}" AutomationProperties.AccessibilityView="Raw" />
+                                                    <views:RemoteAvatar Url="{Binding OwnerAvatarUrl}" AutomationProperties.AccessibilityView="Raw" />
+                                                </Panel>
+                                            </Border>
+                                            <StackPanel Grid.Column="1" Spacing="3">
+                                                <!-- Left-aligned so the star column shrinks to a short title and the chip follows it. -->
+                                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6" HorizontalAlignment="Left">
+                                                    <TextBlock x:Name="SearchHitTitle" views:SearchSnippetText.Runs="{Binding Title}"
+                                                               FontSize="13.5" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                                    <Border x:Name="SearchHitPrChip" Grid.Column="1" CornerRadius="5" Padding="5,0" VerticalAlignment="Center"
+                                                            Background="{StaticResource KcapSurfaceRaisedBrush}"
+                                                            IsVisible="{Binding PrNumber, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                        <TextBlock Text="{Binding PrNumber, StringFormat='#{0}'}" FontSize="11"
+                                                                   Foreground="{StaticResource KcapMutedBrush}" />
+                                                    </Border>
+                                                    <TextBlock Grid.Column="2" Text="{Binding Speaker}" Classes="searchMeta" VerticalAlignment="Center"
+                                                               IsVisible="{Binding Speaker, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                </Grid>
+                                                <TextBlock x:Name="SearchHitSnippet" views:SearchSnippetText.Runs="{Binding Snippet}"
+                                                           FontSize="12.5" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" MaxLines="2"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           IsVisible="{Binding Snippet.Count, Converter={x:Static views:CountIsNotZeroConverter.Instance}}" />
+                                                <TextBlock Text="{Binding Caption}" Classes="searchMeta" FontSize="11.5"
+                                                           IsVisible="{Binding Caption, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                            </StackPanel>
+                                            <Panel Grid.Column="2" VerticalAlignment="Top">
+                                                <TextBlock Text="{Binding WhenText}" Classes="searchMeta" IsVisible="{Binding !IsOpening}" />
+                                                <views:AppIcon Kind="LoaderCircle" Size="12" Foreground="{StaticResource KcapMutedBrush}"
+                                                               HorizontalAlignment="Right" IsVisible="{Binding IsOpening}"
+                                                               Classes.kcapSpinning="{Binding IsOpening}" />
                                             </Panel>
-                                        </Border>
-                                        <StackPanel Grid.Column="1" Spacing="3">
-                                            <!-- Left-aligned so the star column shrinks to a short title and the chip follows it. -->
-                                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6" HorizontalAlignment="Left">
-                                                <TextBlock x:Name="SearchHitTitle" views:SearchSnippetText.Runs="{Binding Title}"
-                                                           FontSize="13.5" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
-                                                <Border x:Name="SearchHitPrChip" Grid.Column="1" CornerRadius="5" Padding="5,0" VerticalAlignment="Center"
-                                                        Background="{StaticResource KcapSurfaceRaisedBrush}"
-                                                        IsVisible="{Binding PrNumber, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                                    <TextBlock Text="{Binding PrNumber, StringFormat='#{0}'}" FontSize="11"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                                </Border>
-                                                <TextBlock Grid.Column="2" Text="{Binding Speaker}" Classes="searchMeta" VerticalAlignment="Center"
-                                                           IsVisible="{Binding Speaker, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                            </Grid>
-                                            <TextBlock x:Name="SearchHitSnippet" views:SearchSnippetText.Runs="{Binding Snippet}"
-                                                       FontSize="12.5" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" MaxLines="2"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       IsVisible="{Binding Snippet.Count, Converter={x:Static views:CountIsNotZeroConverter.Instance}}" />
-                                            <TextBlock Text="{Binding Caption}" Classes="searchMeta" FontSize="11.5"
-                                                       IsVisible="{Binding Caption, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                        </StackPanel>
-                                        <Panel Grid.Column="2" VerticalAlignment="Top">
-                                            <TextBlock Text="{Binding WhenText}" Classes="searchMeta" IsVisible="{Binding !IsOpening}" />
-                                            <views:AppIcon Kind="LoaderCircle" Size="12" Foreground="{StaticResource KcapMutedBrush}"
-                                                           HorizontalAlignment="Right" IsVisible="{Binding IsOpening}"
-                                                           Classes.kcapSpinning="{Binding IsOpening}" />
-                                        </Panel>
-                                    </Grid>
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </DockPanel>
-            </Panel>
-        </DockPanel>
-    </Border>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </DockPanel>
+                </Panel>
+            </DockPanel>
+        </Border>
+    </Panel>
 </UserControl>
