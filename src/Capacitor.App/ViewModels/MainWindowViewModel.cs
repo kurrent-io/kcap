@@ -1462,13 +1462,13 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             "connecting"   => new(ServerConnectingText, StatusColors.Pending),
             "reconnecting" => new(ReconnectingText, StatusColors.Pending),
             "disconnected" => new(ServerLostText, StatusColors.InProgress),
-            _ when appLane is { State: ServerLaneState.Connecting } => new(ServerConnectingText, StatusColors.Pending),
-            _ when appLane is { State: ServerLaneState.Retrying } app => new(ReconnectingText, StatusColors.Pending, Detail: app.Detail),
             _ when otherInstall is { CopyFailure: not null } copy => new(DaemonNotUpdatedText, StatusColors.InProgress, Detail: OtherInstallMessage(copy)),
             _ when restartPending == DaemonRestartWait.Turns => new(RestartPendingText, StatusColors.InProgress, Detail: RestartPendingMessage),
             _ when otherInstall is { } other => new(DaemonNotUpdatedText, StatusColors.InProgress, Detail: OtherInstallMessage(other)),
             _ when restartPending == DaemonRestartWait.Agents => new(RestartPendingText, StatusColors.InProgress, Detail: RestartWhenNoAgentsMessage),
             _ when restartPending == DaemonRestartWait.Unstated => new(RestartPendingText, StatusColors.InProgress, Detail: RestartUnstatedMessage),
+            _ when appLane is { State: ServerLaneState.Connecting } => new(ServerConnectingText, StatusColors.Pending),
+            _ when appLane is { State: ServerLaneState.Retrying } app => new(ReconnectingText, StatusColors.Pending, Detail: app.Detail),
             _ => null,
         };
     }

@@ -445,6 +445,15 @@ public class MainWindowViewModelTests {
         await Assert.That(alert!.Detail).IsEqualTo("socket closed");
     }
 
+    /// A daemon left behind by an update is the actionable diagnosis, so the app lane's word gives way to it.
+    [Test]
+    public async Task AlertFor_keeps_a_daemon_left_behind_ahead_of_the_apps_lane() {
+        var copy = new DaemonOnOtherInstall("1.0.0", "/old/kcap", CopyFailure: "denied");
+        var alert = MainWindowViewModel.AlertFor(new AttachStatus(AttachState.Connected, null, null), "connected",
+            otherInstall: copy, appLane: new ServerLaneStatus(ServerLaneState.Retrying));
+        await Assert.That(alert!.Text).IsEqualTo(MainWindowViewModel.DaemonNotUpdatedText);
+    }
+
     /// Waiting on the daemon hub will not restore an expired sign-in, so it wins whatever the attach says.
     [Test]
     [Arguments(AttachState.Connected, null, "reconnecting")]
