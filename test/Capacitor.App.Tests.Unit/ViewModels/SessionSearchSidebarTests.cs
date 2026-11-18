@@ -22,7 +22,7 @@ public class SessionSearchSidebarTests {
         public int Closed { get; private set; }
 
         public Harness(Func<RailSessionViewModel, bool>? openSidebar = null) {
-            Rail = new SessionRailViewModel(Directory, _ => { }, _ => { }, TimeProvider.System, openServerSession: Opened.Add);
+            Rail = new SessionRailViewModel(Directory, _ => { }, _ => { }, TimeProvider.System, openServerSession: Opened.Add, afterPaint: run => run());
             Vm = new SessionSearchViewModel(
                 (request, _) => {
                     Requests.Add(request);

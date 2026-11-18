@@ -920,6 +920,8 @@ public class MainWindowSmokeTests {
 
                 Row("Fix the flaky test").Command!.Execute(null);
                 Dispatcher.UIThread.RunJobs();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Dispatcher.UIThread.RunJobs();
 
                 var result = (vm.CurrentWorkspace?.AgentId,
                     SelectedClass: Row("Fix the flaky test").Classes.Contains("selected"),

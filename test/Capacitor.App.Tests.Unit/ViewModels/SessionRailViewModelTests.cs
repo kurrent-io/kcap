@@ -97,7 +97,7 @@ public class SessionRailViewModelTests {
             service, remote, new FakeServerLane(), new RepoIdentityResolver(originUrl ?? (_ => null)),
             resolveRepoRoot ?? Resolve, null, null, TimeProvider.System);
         var rail = new SessionRailViewModel(
-            directory, open ?? (_ => { }), openRemote ?? (_ => { }), TimeProvider.System);
+            directory, open ?? (_ => { }), openRemote ?? (_ => { }), TimeProvider.System, afterPaint: run => run());
         return (service, remote, rail);
     }
 
@@ -111,7 +111,7 @@ public class SessionRailViewModelTests {
                 new Dictionary<string, RailPullRequestSummary> {
                     ["published"] = new([new(Capacitor.Cli.Core.PullRequests.PullRequestWire.Subject(FakePullRequestSource.Link(42)), null, "Open")])
                 });
-            using var rail = new SessionRailViewModel(directory, opened.Add, _ => { }, TimeProvider.System, pullRequests: prs);
+            using var rail = new SessionRailViewModel(directory, opened.Add, _ => { }, TimeProvider.System, pullRequests: prs, afterPaint: run => run());
             var row = AgentRow.FromLocal(Dto("a", "/repo") with { SessionId = null }, new RepoIdentity("path:/repo", "repo"));
             directory.Rows.AddOrUpdate(row);
             var session = rail.Groups.Single().Sessions.Single();
@@ -511,6 +511,69 @@ public class SessionRailViewModelTests {
                 await Assert.That(remoteSession.MachineBadge).IsEqualTo("work-mac");
             }
         });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_clicked_row_is_selected_before_its_open_runs_and_a_refused_open_reverts_it() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var paints = new Queue<Action>();
+            var opened = new List<string>();
+            var (directory, rail) = OpeningRail(paints, opened, refuse: "refused");
+            using (directory)
+            using (rail) {
+                RailSessionViewModel Row(string id) => rail.Groups.Single().Sessions.Single(s => s.Id == id);
+
+                Row("next").OpenCommand.Execute().Subscribe();
+                await Assert.That(Row("next").IsSelected).IsTrue();
+                await Assert.That(Row("open").IsSelected).IsFalse();
+                await Assert.That(opened).IsEmpty();
+                paints.Dequeue()();
+                await Assert.That(opened).IsEquivalentTo(["next"]);
+                await Assert.That(Row("next").IsSelected).IsTrue();
+
+                Row("refused").OpenCommand.Execute().Subscribe();
+                await Assert.That(Row("refused").IsSelected).IsTrue();
+                paints.Dequeue()();
+                await Assert.That(Row("refused").IsSelected).IsFalse();
+                await Assert.That(Row("next").IsSelected).IsTrue();
+            }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_later_click_supersedes_an_open_not_yet_run() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var paints = new Queue<Action>();
+            var opened = new List<string>();
+            var (directory, rail) = OpeningRail(paints, opened, refuse: null);
+            using (directory)
+            using (rail) {
+                RailSessionViewModel Row(string id) => rail.Groups.Single().Sessions.Single(s => s.Id == id);
+
+                Row("next").OpenCommand.Execute().Subscribe();
+                Row("refused").OpenCommand.Execute().Subscribe();
+                while (paints.Count > 0) paints.Dequeue()();
+
+                await Assert.That(opened).IsEquivalentTo(["refused"]);
+                await Assert.That(Row("refused").IsSelected).IsTrue();
+                await Assert.That(Row("next").IsSelected).IsFalse();
+            }
+        });
+    }
+
+    static (FakeAgentDirectory Directory, SessionRailViewModel Rail) OpeningRail(Queue<Action> paints, List<string> opened, string? refuse) {
+        var directory = new FakeAgentDirectory();
+        SessionRailViewModel? rail = null;
+        rail = new SessionRailViewModel(directory, id => {
+            opened.Add(id);
+            if (id != refuse) rail!.SelectedSessionKey = $"local:{id}";
+        }, _ => { }, TimeProvider.System, afterPaint: paints.Enqueue);
+        foreach (var id in new[] { "open", "next", "refused" })
+            directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto(id, "/repo"), new RepoIdentity("path:/repo", "repo")));
+        rail.SelectedSessionKey = "local:open";
+        return (directory, rail);
     }
 
     [Test]

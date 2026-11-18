@@ -8,6 +8,8 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using Avalonia.Rendering.Composition;
+using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
@@ -66,16 +68,41 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     DateOnly _today;
 
     string? _selectedSessionKey;
+    string? _openSessionKey;
+    int _opening;
+    readonly Action<Action> _afterPaint;
+
     public string? SelectedSessionKey {
         get => _selectedSessionKey;
         set {
             if (_disposables.IsDisposed) return;
-            this.RaiseAndSetIfChanged(ref _selectedSessionKey, value);
-            _selectedSessionKeyChanges.OnNext(value);
+            _openSessionKey = value;
+            ShowSelected(value);
             _stateFilter.OnNext(StateFilter());
             _sessions?.Keep(value is { } key && key.StartsWith("server:", StringComparison.Ordinal) ? key["server:".Length..] : null);
         }
     }
+
+    void ShowSelected(string? key) {
+        this.RaiseAndSetIfChanged(ref _selectedSessionKey, key, nameof(SelectedSessionKey));
+        _selectedSessionKeyChanges.OnNext(key);
+    }
+
+    // A dispatcher priority is not enough: the frame is held back while the previous one is still drawing.
+    static void PostAfterPaint(Action job) =>
+        (Compositor.TryGetDefaultCompositor()?.RequestCommitAsync() ?? Task.CompletedTask)
+            .ContinueWith(_ => Dispatcher.UIThread.Post(job), TaskScheduler.Default);
+
+    Action<string> SelectingFirst(string keyPrefix, Action<string> open) => id => {
+        if (_disposables.IsDisposed) return;
+        var opening = ++_opening;
+        ShowSelected(keyPrefix + id);
+        _afterPaint(() => {
+            if (opening != _opening || _disposables.IsDisposed) return;
+            open(id);
+            ShowSelected(_openSessionKey);
+        });
+    };
 
     RailScope _scope;
     public RailScope Scope {
@@ -293,9 +320,14 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Func<string, CancellationToken, Task<RailWorkItems?>>? readWorkItems = null,
             IObservable<Unit>? workItemsChanged = null,
             IObservable<IReadOnlySet<string>>? suggestedSessions = null,
-            Action<AgentRow>? stopSession = null, Action? closeWorkspace = null) {
+            Action<AgentRow>? stopSession = null, Action? closeWorkspace = null,
+            Action<Action>? afterPaint = null) {
         _directory = directory;
         _closeWorkspace = closeWorkspace;
+        _afterPaint = afterPaint ?? PostAfterPaint;
+        openLocalSession = SelectingFirst("local:", openLocalSession);
+        openRemoteSession = SelectingFirst("remote:", openRemoteSession);
+        if (openServerSession is not null) openServerSession = SelectingFirst("server:", openServerSession);
         _actions = [
             new(LucideIconKind.CircleStop, rows => rows[0].IsAttached ? AttachedAgentCopy.DisconnectSteering : "Stop",
                 row => stopSession is not null && RailSessionViewModel.Stoppable(row), rows => stopSession!(rows[0]), SingleRow: true),
@@ -548,7 +580,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     /// Hides the session for this user, by its id, so it stays gone when its daemon row hands over to the server's.
     void Remove(IReadOnlyList<AgentRow> rows) {
         if (_disposables.IsDisposed) return;
-        if (rows.Any(row => row.Key == _selectedSessionKey)) _closeWorkspace?.Invoke();
+        if (rows.Any(row => row.Key == _openSessionKey)) _closeWorkspace?.Invoke();
         SetRemoved(_removed.Concat(rows.Select(row => SessionIds.Canonical(row.SessionId)).OfType<string>()), persist: true);
     }
 
@@ -681,7 +713,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     Func<AgentRow, bool> StateFilter() {
         var state = _state;
-        var selected = _selectedSessionKey;
+        var selected = _openSessionKey;
         var project = _project;
         var removed = _removed.ToFrozenSet(StringComparer.Ordinal);
         return row => row.Key == selected
