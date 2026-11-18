@@ -275,6 +275,49 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     public bool DetailIsProse => Category == ToolCategory.Question;
     public bool DetailIsPath { get; } = detailIsPath;
 
+    string? _filePath;
+    Action<string>? _openFile;
+    bool _isConfirmingOpen;
+    bool _fileMissing;
+
+    /// The file the detail names, set only where it lives on this machine.
+    public string? FilePath => _filePath;
+    public bool CanOpenFile => _openFile is not null;
+
+    /// The warning strip is up: nothing opens until it is confirmed.
+    public bool IsConfirmingOpen {
+        get => _isConfirmingOpen;
+        private set => this.RaiseAndSetIfChanged(ref _isConfirmingOpen, value);
+    }
+
+    public bool FileMissing {
+        get => _fileMissing;
+        private set => this.RaiseAndSetIfChanged(ref _fileMissing, value);
+    }
+
+    public void EnableOpenFile(string path, Action<string> open) {
+        _filePath = path;
+        _openFile = open;
+        this.RaisePropertyChanged(nameof(FilePath));
+        this.RaisePropertyChanged(nameof(CanOpenFile));
+    }
+
+    public void RequestOpenFile() {
+        if (_filePath is not { } path) return;
+        FileMissing = !File.Exists(path) && !Directory.Exists(path);
+        IsConfirmingOpen = true;
+    }
+
+    public void CancelOpenFile() => IsConfirmingOpen = false;
+
+    /// The existence check repeats here: the file can go between the warning and the confirm.
+    public void ConfirmOpenFile() {
+        IsConfirmingOpen = false;
+        if (_filePath is not { } path || _openFile is not { } open) return;
+        if (!File.Exists(path) && !Directory.Exists(path)) return;
+        open(path);
+    }
+
     ToolCard? _card;
     public ToolCard? Card {
         get => _card;

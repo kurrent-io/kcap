@@ -18,14 +18,14 @@ namespace Capacitor.Cli.Commands;
 /// its hash and snapshot are the CLI's; the server keys it off the path and the workspace root the
 /// same way discovery keys a repo file. Same stdio JSON-RPC loop as <see cref="McpWorkItemsServer"/>.</summary>
 sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenStore tokens, ICapacitorHttpClient http,
-        TelemetryStartup startup, WorkingDirectory workdir, TimeProvider time) {
+        TelemetryStartup startup, WorkingDirectory workdir, McpCaptureScope scope, TimeProvider time) {
     /// <summary>The server's per-artifact transport cap; a larger document is declared by hash only.</summary>
     internal const int MaxSnapshotBytes = 256 * 1024;
 
     /// <summary>The reserved plan id the server resolves to the session's most recently written plan.</summary>
     internal const string CurrentPlan = "current";
 
-    public Task<int> RunAsync() {
+    public async Task<int> RunAsync() {
         // Resolved once, from the running harness rather than the inherited environment (see
         // HarnessRequesterContext): a relative document path is resolved against the directory the
         // harness is working in, and the repo root is what the path is keyed against.
@@ -33,11 +33,11 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
         var repoRoot = GitRepository.FindRoot(cwd);
 
         // In arrival order: a task call addresses the plan that the call before it declared.
-        var server = new McpServerDescriptor("kcap-plans", "plans", ServerInstructions, BuildToolsList()) {
+        var server = new McpServerDescriptor("kcap-plans", "plans", InstructionsFor(await scope.IsOutOfScopeAsync()), BuildToolsList()) {
             OrderKey = McpStdioLoop.InArrivalOrder,
         };
 
-        return McpServerHost.RunAsync(server, new(config, profiles, tokens, http, startup, time),
+        return await McpServerHost.RunAsync(server, new(config, profiles, tokens, http, startup, time),
             (id, request, client, baseUrl) => HandleToolCallAsync(id, request, client, baseUrl, cwd, repoRoot));
     }
 
@@ -47,6 +47,13 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
         "discrete steps, declare them with set_plan_tasks and record every status change with " +
         "update_plan_task; after context compaction, get_plan returns the list with its ids. Keep whatever " +
         "ledger your own workflow asks for as well — these tools replace the harness's task list, not your notes.";
+
+    /// <summary>A session outside the capture scope is never sent to the server, so it has no plan to declare against.</summary>
+    internal const string OutOfScopeInstructions =
+        "This session is outside kcap's capture scope and is not recorded, so it keeps no plan ledger: track its " +
+        "plan and tasks with your harness's own tools.";
+
+    internal static string InstructionsFor(bool outOfScope) => outOfScope ? OutOfScopeInstructions : ServerInstructions;
 
     internal async Task<string> HandleToolCallAsync(
             JsonNode   id,

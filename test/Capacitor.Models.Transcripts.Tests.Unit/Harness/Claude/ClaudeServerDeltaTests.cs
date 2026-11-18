@@ -210,4 +210,34 @@ public class ClaudeServerDeltaTests {
         await Assert.That(parsed).IsTypeOf<UserMessageRetractedEvent>();
         await Assert.That(((UserMessageRetractedEvent)parsed!).MessageId).IsEqualTo(Guid.Parse(Cancelled));
     }
+
+    static string AssistantWithUsage(string uuid) =>
+        $$$$"""{"type":"assistant","uuid":"{{{{uuid}}}}","message":{"content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":10,"output_tokens":5}}}""";
+
+    /// <summary>The server skips the noise types before its usage memory is touched, so a response whose blocks
+    /// straddle one is still counted once. A library echo is a usage-less first event.</summary>
+    [Test]
+    [Arguments("progress")]
+    [Arguments("system")]
+    [Arguments("file-history-snapshot")]
+    [Arguments("queue-operation")]
+    public async Task A_noise_record_between_two_assistant_records_keeps_the_usage_an_echo(string noiseType) {
+        var ctx = Ctx();
+        E(AssistantWithUsage(Record), ctx);
+        E($$$"""{"type":"{{{noiseType}}}","uuid":"a1b2c3d4-0000-4000-8000-0000000000f1"}""", ctx);
+        var second = E(AssistantWithUsage(Resubmit), ctx);
+
+        await Assert.That(second[0].Usage).IsNull();
+    }
+
+    /// <summary>A record type the server does not list as noise clears its memory, as a prompt does.</summary>
+    [Test]
+    public async Task An_unlisted_record_type_between_two_assistant_records_counts_the_usage_again() {
+        var ctx = Ctx();
+        E(AssistantWithUsage(Record), ctx);
+        E("""{"type":"something-new","uuid":"a1b2c3d4-0000-4000-8000-0000000000f1"}""", ctx);
+        var second = E(AssistantWithUsage(Resubmit), ctx);
+
+        await Assert.That(second[0].Usage).IsNotNull();
+    }
 }

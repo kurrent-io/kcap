@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Recording.Capture;
 
 namespace Capacitor.Cli.Recording.Tests.Unit;
@@ -182,6 +183,7 @@ public class SecretRedactorTests {
 
         await Assert.That(result).DoesNotContain(secretMarker);
         await Assert.That(result).IsEqualTo(SecretRedactor.OversizeLinePlaceholder);
+        await Assert.That(CaptureLossLine.Is(result)).IsTrue();
         // A wedged regex does not return at all, so the budget only has to be short of "hung" —
         // tightening it further measures the scheduler rather than the size cap.
         await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(2));
@@ -1275,5 +1277,69 @@ public class SecretRedactorTests {
 
         await Assert.That(result).DoesNotContain("ghp_abc123");
         await Assert.That(result).StartsWith("plain log output with GITHUB_TOKEN=");
+    }
+
+    static RedactionLossReason? LossOf(string line) =>
+        SecretRedactor.RedactLineWithOutcome(line, new RedactionBudget(TimeProvider.System, TimeSpan.FromMinutes(1)), SecretRedactor.OutOfProcessPatterns.Value).Loss;
+
+    /// The largest growth a rewrite gives a line of <paramref name="bytes"/>: a redacted secret beside a value of DEL
+    /// characters, each re-escaped at six bytes.
+    static string Escaping(int bytes) => "{\"pwd\":\"x\",\"t\":\"" + new string((char)0x7F, bytes - 18) + "\"}";
+
+    static string Nested(int depth) => new string('[', depth) + new string(']', depth);
+
+    /// A line of <paramref name="bytes"/> whose every string a redaction marker replaces: each three-byte <c>"",</c> under
+    /// a secret key becomes <c>"[REDACTED]",</c>, the largest growth a marker gives.
+    static string SecretEmptyStrings(int bytes) {
+        var line = "{\"pwd\":[" + string.Join(",", Enumerable.Repeat("\"\"", (bytes - 9) / 3)) + "]}";
+
+        return line.Insert(1, new string(' ', bytes - line.Length));
+    }
+
+    /// <summary>A replay skips the lines the capture rule calls lost and projects the ones it calls kept, so on every line it
+    /// decides it has to say what the redaction does.</summary>
+    [Test]
+    public async Task The_capture_rule_says_what_the_redaction_does_with_a_line_it_decides() {
+        (string Name, string Line)[] lines = [
+            ("a record", """{"type":"user","message":{"content":"hi"}}"""),
+            ("a secret", """{"password":"hunter2hunter2","note":"token=ghp_abc123def456ghi789jkl012"}"""),
+            ("a comment", """{"a":1 /* c */}"""),
+            ("text", "not json"),
+            ("long text", new string('x', SecretRedactor.MaxRedactableLineChars + 1)),
+            ("a cut record", """{"type":"user","message":"""),
+            ("a lone surrogate value", """{"a":"\ud800"}"""),
+            ("a lone surrogate name", """{"\udc00":1}"""),
+            ("nesting at the limit", Nested(CaptureRule.MaxDepth + 1)),
+            ("nesting under the limit", Nested(CaptureRule.MaxDepth)),
+            ("an oversized record", "{\"t\":\"" + new string('x', CaptureRule.MaxRecordBytes) + "\"}"),
+            ("the largest growth at the largest kept size", Escaping(CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth)),
+            ("markers for every string at the largest kept size", SecretEmptyStrings(CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth)),
+        ];
+
+        var disagreements = new List<string>();
+
+        foreach (var (name, line) in lines) {
+            var rule = CaptureRule.Of(line);
+            var loss = LossOf(line);
+            var agrees = rule switch {
+                LineCapture.Kept => loss is null,
+                LineCapture.Lost => loss is { } reason && !reason.IsTransient(),
+                _                => false,
+            };
+
+            if (!agrees) disagreements.Add($"{name}: rule {rule}, redaction {loss?.ToString() ?? "none"}");
+        }
+
+        await Assert.That(disagreements).IsEmpty();
+    }
+
+    /// <summary>Just past the largest size the rule keeps, a rewrite can already lose a line, so the rule leaves it to the
+    /// redaction.</summary>
+    [Test]
+    public async Task A_rewrite_can_take_a_line_just_past_the_largest_kept_size_over_the_limit() {
+        var line = Escaping(CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth + 16);
+
+        await Assert.That(CaptureRule.Of(line)).IsEqualTo(LineCapture.Undecided);
+        await Assert.That(LossOf(line)).IsEqualTo(RedactionLossReason.OutputLimit);
     }
 }

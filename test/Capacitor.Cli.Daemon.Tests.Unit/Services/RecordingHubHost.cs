@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -44,6 +45,12 @@ public sealed class RecordingHubHost : IAsyncDisposable {
     /// <summary>Awaited inside <c>SendTranscriptBatch2</c>, given the batch's first line, once the call is recorded.</summary>
     public Func<int?, Task?>? BatchHold { get; set; }
 
+    /// <summary>What <c>IngestCapabilities</c> answers.</summary>
+    public int CanonicalFormat { get; set; }
+
+    /// <summary>Whether <c>SendCanonicalBatch</c> refuses every batch as unsupported.</summary>
+    public bool RefusesCanonical { get; set; }
+
     /// <summary>Whether the hub closes every connection as it opens, as a server in trouble can.</summary>
     public bool ClosesNewConnections { get; set; }
 
@@ -54,7 +61,7 @@ public sealed class RecordingHubHost : IAsyncDisposable {
     public int Refusals => Volatile.Read(ref _refusals);
 
     /// <summary>What the hub did, in order: <c>connect {session}</c>, <c>detach {session}</c>, <c>drain {session}</c>,
-    /// <c>batch {first line}</c>.</summary>
+    /// <c>batch {first line}</c>, <c>capabilities</c>, <c>canonical {first line}</c>.</summary>
     public IReadOnlyList<string> Calls {
         get {
             lock (_gate) return [.. _calls];
@@ -209,6 +216,18 @@ public sealed class RecordingHubHost : IAsyncDisposable {
             host.Record($"batch {batch.LineNumbers?.FirstOrDefault()}");
 
             if (host.BatchHold?.Invoke(batch.LineNumbers?.FirstOrDefault()) is { } hold) await hold;
+        }
+
+        public CanonicalCapabilities IngestCapabilities() {
+            host.Record("capabilities");
+
+            return new(host.CanonicalFormat);
+        }
+
+        public CanonicalSendResult SendCanonicalBatch(CanonicalTranscriptBatch batch) {
+            host.Record($"canonical {batch.Lines.FirstOrDefault()?.Number}");
+
+            return host.RefusesCanonical ? new(0, Unsupported: true) : new(batch.Lines is [.., var last] ? last.Number + 1 : 0, Unsupported: false);
         }
     }
 }

@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Transcripts;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -135,6 +136,103 @@ public class InlineDrainTests : IDisposable {
 
         var root = JsonDocument.Parse(requests[0].RequestMessage.Body!).RootElement;
         await Assert.That(root.GetProperty("vendor").GetString()).IsEqualTo("codex");
+    }
+
+    static string ClaudeId(int n) => $"10000000-0000-4000-8000-{n:D12}";
+
+    static string ClaudeUser(int n) =>
+        $$$"""{"type":"user","uuid":"{{{ClaudeId(n)}}}","parentUuid":{{{(n == 0 ? "null" : $"\"{ClaudeId(n - 1)}\"")}}},"timestamp":"2026-11-16T08:00:{{{n:D2}}}Z","message":{"role":"user","content":"line {{{n}}}"}}""";
+
+    static string ClaudeAssistant(int n, int inputTokens) =>
+        $$$$"""{"type":"assistant","uuid":"{{{{ClaudeId(n)}}}}","parentUuid":"{{{{ClaudeId(n - 1)}}}}","timestamp":"2026-11-16T08:00:{{{{n:D2}}}}Z","message":{"model":"claude-x","content":[{"type":"text","text":"reply {{{{n}}}}"}],"usage":{"input_tokens":{{{{inputTokens}}}},"output_tokens":5}}}""";
+
+    const string ClaudeSession = "5cdc4fcc-ff9e-4fdc-8d93-cf47ff5a140a";
+
+    /// Line 40 repeats line 39's usage, so only a drain that projected the lines before its first knows the usage is
+    /// not new. The server holds lines 0–39 and takes canonical batches.
+    string[] ServeClaudeDrainFromLine40() {
+        _server.Given(Request.Create().WithPath($"/api/sessions/{ClaudeSession}/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody("""{"last_line_number": 39}"""));
+        _server.Given(Request.Create().WithPath("/api/ingest/capabilities").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody("""{"canonical_format":1}"""));
+        _server.Given(Request.Create().WithPath(CanonicalRoute.HttpPath).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200));
+
+        return [.. Enumerable.Range(0, 45).Select(n => n % 2 == 0 && n != 40 ? ClaudeUser(n) : ClaudeAssistant(n, inputTokens: n == 40 ? 39 : n))];
+    }
+
+    List<string> Posts() => [.. _server.LogEntries.Where(e => e.RequestMessage.Method == "POST").Select(e => e.RequestMessage.Path)];
+
+    [Test]
+    public async Task A_claude_drain_from_line_40_sends_the_events_a_projection_from_line_zero_has() {
+        const string sessionId = ClaudeSession;
+
+        var lines = ServeClaudeDrainFromLine40();
+
+        using var tmp = new TempDir();
+        var transcriptPath = tmp.CreateFile("transcript.jsonl", lines);
+
+        await Watchers.InlineDrainAsync(sessionId, transcriptPath, null);
+
+        var uninterrupted = CanonicalRoute.For("claude", sessionId, null, true)!;
+        uninterrupted.Encode(new() { SessionId = sessionId, Lines = lines[..40], LineNumbers = [.. Enumerable.Range(0, 40)] }, DateTimeOffset.UnixEpoch);
+        uninterrupted.Acknowledged();
+        var expected = uninterrupted.Encode(new() { SessionId = sessionId, Lines = lines[40..], LineNumbers = [.. Enumerable.Range(40, 5)] }, DateTimeOffset.UnixEpoch);
+
+        await Assert.That(Posts()).IsEquivalentTo([CanonicalRoute.HttpPath]);
+
+        var sent   = _server.LogEntries.Single(e => e.RequestMessage.Method == "POST").RequestMessage.Body!;
+        var events = JsonDocument.Parse(sent).RootElement.GetProperty("events");
+        await Assert.That(events.EnumerateArray().Select(e => e.GetProperty("event_id").GetGuid())).IsEquivalentTo(expected.Events.Select(e => e.EventId));
+        await Assert.That(events.GetRawText()).IsEqualTo(JsonSerializer.Serialize(expected.Events, CapacitorJsonContext.Default.CanonicalBatchEventArray));
+    }
+
+    /// <summary>The drain runs inside the agent's own SessionEnd hook, so a replay it cannot finish in time is given up
+    /// for raw lines rather than waited out.</summary>
+    [Test]
+    public async Task A_claude_drain_whose_replay_overruns_its_budget_sends_raw_lines() {
+        var lines = ServeClaudeDrainFromLine40();
+
+        using var tmp = new TempDir();
+        var transcriptPath = tmp.CreateFile("transcript.jsonl", lines);
+
+        var watchers = TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(), drainReplayBudget: TimeSpan.Zero);
+        await watchers.InlineDrainAsync(ClaudeSession, transcriptPath, null);
+
+        await Assert.That(Posts()).IsEquivalentTo(["/hooks/transcript"]);
+    }
+
+    /// <summary>The drain runs inside the agent's own SessionEnd hook, under a cap of a few seconds, so a server slow to
+    /// say whether it takes canonical batches gets raw lines while the cap still has room for them.</summary>
+    [Test]
+    public async Task A_claude_drain_whose_capability_probe_hangs_sends_raw_lines_inside_the_hooks_cap() {
+        using var handler = new HangingProbe();
+        using var tmp     = new TempDir();
+        var transcriptPath = tmp.CreateFile("transcript.jsonl", [ClaudeUser(0), ClaudeAssistant(1, inputTokens: 1)]);
+        var watchers       = TestWatchers.For(Config.Root, Resolutions.At("http://kcap.test", Config.Root), new FixedCapacitorHttpClient(background: handler));
+
+        // The cap Claude's SessionEnd hook gives its drain.
+        await watchers.InlineDrainAsync(ClaudeSession, transcriptPath, null).WaitAsync(TimeSpan.FromSeconds(8));
+
+        await Assert.That(handler.Posts).IsEquivalentTo(["/hooks/transcript"]);
+    }
+
+    /// A server that holds the capability probe until the caller gives up, has no lines of the session, and takes every post.
+    sealed class HangingProbe : HttpMessageHandler {
+        public List<string> Posts { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            var path = request.RequestUri!.AbsolutePath;
+
+            if (path == "/api/ingest/capabilities") await Task.Delay(Timeout.Infinite, ct);
+            if (request.Method == HttpMethod.Post) Posts.Add(path);
+
+            return new HttpResponseMessage(HttpStatusCode.OK) {
+                Content = new StringContent(path.EndsWith("/last-line", StringComparison.Ordinal) ? """{"last_line_number":-1}""" : "", Encoding.UTF8, "application/json"),
+            };
+        }
     }
 
     /// <summary>An unescaped id would split the query or lose its tail to a fragment, and the drain would read another stream's watermark.</summary>

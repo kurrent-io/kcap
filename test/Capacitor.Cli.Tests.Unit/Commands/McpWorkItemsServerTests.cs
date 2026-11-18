@@ -15,7 +15,7 @@ public class McpWorkItemsServerTests {
     // Resolutions.None: these tests exercise routing, not profile selection.
     McpWorkItemsServer Server() =>
         new(Config.Root, Resolutions.None(Config.Root), AuthFixtures.NewTokenStore(Config.Root), new FixedCapacitorHttpClient(), NoTelemetry.Startup,
-            new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory), TimeProvider.System);
+            new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory), new McpCaptureScope(Config.Root, Resolutions.None(Config.Root), new GitProviderRouter(), new UserHome(AppContext.BaseDirectory), new WorkingDirectory(AppContext.BaseDirectory), TimeProvider.System), TimeProvider.System);
 
     static ValueTask<string?> NoRepo() => ValueTask.FromResult<string?>(null);
 
@@ -450,6 +450,27 @@ public class McpWorkItemsServerTests {
         await Assert.That(headless).Contains("declare_work_item");
         await Assert.That(McpWorkItemsServer.ServerInstructions).EndsWith(headless);
         await Assert.That(McpWorkItemsServer.InstructionsFor(headless: false)).IsEqualTo(McpWorkItemsServer.ServerInstructions);
+    }
+
+    [Test]
+    public async Task Disabling_the_next_work_nudge_drops_the_completion_rule_but_keeps_asked_for_next_work() {
+        var instructions = McpWorkItemsServer.InstructionsFor(headless: false, nextWorkNudgeDisabled: true);
+
+        await Assert.That(instructions).DoesNotContain(NextWorkEmitter.CompletionInstruction);
+        await Assert.That(instructions).Contains("call get_next_work first");
+        await Assert.That(McpWorkItemsServer.InstructionsFor(headless: false, nextWorkNudgeDisabled: false))
+            .IsEqualTo(McpWorkItemsServer.ServerInstructions);
+    }
+
+    [Test]
+    public async Task Out_of_scope_instructions_keep_asked_for_next_work_and_drop_every_declaration() {
+        var instructions = McpWorkItemsServer.OutOfScopeInstructions;
+
+        await Assert.That(instructions).Contains("call get_next_work first");
+        await Assert.That(instructions).DoesNotContain(NextWorkEmitter.CompletionInstruction);
+
+        foreach (var write in new[] { "declare_work_item", "declare_work_breakdown", "declare_work_relation", "declare_loose_end", "claim_loose_end" })
+            await Assert.That(instructions).DoesNotContain(write);
     }
 
     // ── declared breakdown + relations ───────────────────────────────────────

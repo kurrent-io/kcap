@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Telemetry;
 using Capacitor.Cli.Plans;
@@ -85,6 +86,17 @@ public class McpPlansServerTests {
         await Assert.That(s).Contains("set_plan_tasks");
         await Assert.That(s).Contains("update_plan_task");
         await Assert.That(s).Contains("not your notes");
+    }
+
+    [Test]
+    public async Task Out_of_scope_instructions_drop_the_plan_ledger() {
+        var instructions = McpPlansServer.InstructionsFor(outOfScope: true);
+
+        await Assert.That(instructions).IsEqualTo(McpPlansServer.OutOfScopeInstructions);
+        await Assert.That(instructions).DoesNotContain("declare_plan_document");
+        await Assert.That(instructions).DoesNotContain("set_plan_tasks");
+        await Assert.That(instructions).DoesNotContain("update_plan_task");
+        await Assert.That(McpPlansServer.InstructionsFor(outOfScope: false)).IsEqualTo(McpPlansServer.ServerInstructions);
     }
 
     // ── declare_plan_document ────────────────────────────────────────────────
@@ -500,7 +512,7 @@ public class McpPlansServerTests {
     // Resolutions.None: these tests exercise routing, not profile selection.
     McpPlansServer Server(TimeSpan? declareLockWait = null) =>
         new(Config.Root, Resolutions.None(Config.Root), AuthFixtures.NewTokenStore(Config.Root), new FixedCapacitorHttpClient(), NoTelemetry.Startup,
-            new WorkingDirectory(AppContext.BaseDirectory), TimeProvider.System) { DeclareLockWait = declareLockWait ?? TimeSpan.FromSeconds(5) };
+            new WorkingDirectory(AppContext.BaseDirectory), new McpCaptureScope(Config.Root, Resolutions.None(Config.Root), new GitProviderRouter(), new UserHome(AppContext.BaseDirectory), new WorkingDirectory(AppContext.BaseDirectory), TimeProvider.System), TimeProvider.System) { DeclareLockWait = declareLockWait ?? TimeSpan.FromSeconds(5) };
 
     async Task<(ScriptedHandler Handler, string Response)> DispatchAsync(
             string toolName, string argsJson, ScriptedHandler? handler = null, string? cwd = null, string? repoRoot = null, McpPlansServer? server = null) {

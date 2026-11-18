@@ -99,6 +99,55 @@ public class ClaudeHookCommandTests {
         await Assert.That(fx.Spool.SessionIdsWithBacklog()).IsEmpty();
     }
 
+    static string Lifecycle(string eventName, string sessionId, string cwd) =>
+        new JsonObject { ["hook_event_name"] = eventName, ["session_id"] = sessionId, ["cwd"] = cwd }.ToJsonString();
+
+    /// <summary>A session out of the profile's scope at its start stays quiet until it ends, even once its cwd moves
+    /// into scope. The title prompt reads only the exclusion marker, so without one the first prompt asks for a
+    /// title nobody records.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task a_session_started_out_of_scope_stays_quiet_until_it_ends(bool clientUnavailable) {
+        var allowed  = Tmp.CreateDir("allowed");
+        var outside  = Tmp.PathTo("outside");
+        var sid      = Guid.NewGuid().ToString();
+        using var fx = new Fixture(Config.Root, profile: new Profile { AllowedPaths = [allowed] });
+
+        await fx.EnterAsync(Lifecycle("SessionStart", sid, outside), clientUnavailable);
+
+        using var title = new StringWriter();
+        var prompt = new JsonObject {
+            ["hook_event_name"] = "UserPromptSubmit", ["session_id"] = sid, ["prompt"] = "hi", ["permission_mode"] = "bypassPermissions",
+        }.ToJsonString();
+        ClaudeTitlePrompt.Handle(prompt, Config.Root, new WatcherPaths(Tmp.PathTo("watchers")), bashTool: true, title, TextWriter.Null);
+        await Assert.That(title.ToString()).IsEqualTo("");
+
+        await fx.EnterAsync(Lifecycle("Stop", sid, allowed.PathTo("missing")), clientUnavailable);
+        await Assert.That(fx.RouteOrder).IsEmpty();
+        await Assert.That(fx.Spool.SessionIdsWithBacklog()).IsEmpty();
+
+        await fx.EnterAsync(Lifecycle("SessionEnd", sid, outside), clientUnavailable);
+        await Assert.That(DisabledSessions.IsDisabled(sid.Replace("-", ""), Config.Root)).IsFalse();
+    }
+
+    /// <summary>The exclusion marker keeps the run quiet but not its permission prompts, which still reach the
+    /// handler (ungoverned, no watcher) as they do when a later probe finds the session out of scope.</summary>
+    [Test]
+    public async Task a_permission_request_in_a_run_excluded_at_its_start_still_reaches_the_handler() {
+        var allowed  = Tmp.CreateDir("allowed");
+        var sid      = Guid.NewGuid().ToString();
+        using var fx = new Fixture(Config.Root, profile: new Profile { AllowedPaths = [allowed] });
+        await fx.EnterAsync(Lifecycle("SessionStart", sid, Tmp.PathTo("outside")));
+
+        await fx.HandleAsync(new JsonObject {
+            ["hook_event_name"] = "PermissionRequest", ["session_id"] = sid, ["cwd"] = allowed.PathTo("missing"),
+            ["tool_name"] = "Bash", ["tool_input"] = new JsonObject { ["command"] = "ls" },
+        }.ToJsonString());
+
+        await Assert.That(fx.RequestCount("/hooks/permission-record")).IsEqualTo(1);
+    }
+
     /// <summary>Pins the seam's position: <c>PreToolUse</c> is decided before a client is ever built,
     /// so an unreachable server or a slow auth probe — both of which return early from
     /// <c>HandleWithDeps</c> — cannot silently disable a deny. The injected factory throws, so any
@@ -2715,6 +2764,8 @@ public class ClaudeHookCommandTests {
 
         /// <summary>Every request the stub server saw, for a test asserting that none arrived.</summary>
         public int ServerRequestCount => _memoryServer.LogEntries.Count;
+
+        public int RequestCount(string path) => _memoryServer.LogEntries.Count(e => e.RequestMessage.Path == path);
 
         public bool MemoryIndexRequested    => MemoryIndexRequestCount > 0;
         public int  MemoryIndexRequestCount => _memoryServer.LogEntries

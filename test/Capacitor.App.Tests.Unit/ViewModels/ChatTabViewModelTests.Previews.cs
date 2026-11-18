@@ -82,8 +82,62 @@ public partial class ChatTabViewModelTests {
                 await Assert.That(call.Outcome).IsEqualTo(ToolOutcome.Done);
                 await Assert.That(ToolDetail.ImageFile(call.InputJson)).IsEqualTo(imagePath);
                 await Assert.That(call.PreviewPath).IsNull();
+                await Assert.That(call.CanOpenFile).IsFalse();
             } finally {
                 await chat.TeardownAsync();
+            }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_local_path_opens_only_after_its_warning_is_confirmed() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            var target = Tmp.CreateFile("notes.md", "x");
+            var path = Tmp.CreateFile("open.jsonl", [ReadCallLine.Replace("/repo/x/src/a.cs", "notes.md")]);
+            try {
+                await h.PushAsync(Dto(path) with { WorktreePath = Tmp.Path });
+                var call = Group(h.Chat, 0).Calls[0];
+                await Assert.That(call.CanOpenFile).IsTrue();
+                await Assert.That(call.FilePath).IsEqualTo(target);
+
+                call.RequestOpenFile();
+                await Assert.That(call.IsConfirmingOpen).IsTrue();
+                await Assert.That(call.FileMissing).IsFalse();
+                await Assert.That(h.Opener.Opened).IsEmpty();
+                call.CancelOpenFile();
+                await Assert.That(call.IsConfirmingOpen).IsFalse();
+                await Assert.That(h.Opener.Opened).IsEmpty();
+
+                call.RequestOpenFile();
+                call.ConfirmOpenFile();
+                await Assert.That(call.IsConfirmingOpen).IsFalse();
+                await Assert.That(h.Opener.Opened).IsEquivalentTo(new[] { target });
+            } finally {
+                await h.TeardownAsync();
+            }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_missing_file_is_reported_and_never_opened() {
+        await RunOnUiAsync(async () => {
+            var h = Claude();
+            var target = Tmp.CreateFile("gone.md", "x");
+            var path = Tmp.CreateFile("missing.jsonl", [ReadCallLine.Replace("/repo/x/src/a.cs", "gone.md")]);
+            try {
+                await h.PushAsync(Dto(path) with { WorktreePath = Tmp.Path });
+                var call = Group(h.Chat, 0).Calls[0];
+                call.RequestOpenFile();
+                File.Delete(target);
+                call.ConfirmOpenFile();
+                await Assert.That(h.Opener.Opened).IsEmpty();
+                call.RequestOpenFile();
+                await Assert.That(call.FileMissing).IsTrue();
+            } finally {
+                await h.TeardownAsync();
             }
         });
     }

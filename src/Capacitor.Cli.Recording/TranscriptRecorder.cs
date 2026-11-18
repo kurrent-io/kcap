@@ -6,6 +6,7 @@ using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Core.RepoEvidence;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Recording.Harness.Antigravity;
 using Capacitor.Cli.Recording.Harness.Copilot;
@@ -44,6 +45,9 @@ public sealed class TranscriptRecorder(
     // A drain and a reconnect's re-registration take turns. Both move the frontiers, and the server drops a line at or
     // below one it took, so a line sent before the server's answer would sit above the gap a rewind resends.
     readonly SemaphoreSlim _rewindGate = new(1, 1);
+
+    readonly RecorderCanonicalRoute _canonical = new(transport, source, time, context.Log,
+        ReplayCapture.With(raw => HeldLineRedaction.FirstTry(raw, context.RedactionClock)));
 
     readonly CancellationTokenSource _stop     = new();
     readonly CancellationTokenSource _titleCts = new();
@@ -88,6 +92,11 @@ public sealed class TranscriptRecorder(
 
     /// <summary>How a poll opens the transcript; null opens the file. A test counts the bytes a poll reads through it.</summary>
     internal Func<string, FileStream>? OpenTranscript { get; init; }
+
+    /// <summary>How long the final drain may spend projecting the lines before the cursor for a canonical route, which
+    /// it rebuilds after a send that failed. A kill follows a stop request within 5s, and a 200 MB transcript replays in
+    /// 6-9s, so a drain that overruns this sends raw lines and leaves the spool its time.</summary>
+    internal TimeSpan FinalDrainReplayBudget { get; init; } = TimeSpan.FromSeconds(2);
 
     /// <summary>Whether the host has given this source up for good. It reads as a lost claim, because the claim file can
     /// outlive that decision: a delete that failed leaves it in place.</summary>
@@ -525,17 +534,21 @@ public sealed class TranscriptRecorder(
             _stop.Cancel();
         }
 
+        var route = await _canonical.OpenAsync(State.LinesProcessed, stop);
+
         // Resumed mid-session: rebuild what the lines before the cursor would have fed, such as a tool
-        // that opened before it, which idle-end would otherwise mistake for an idle agent. At line 0 the
-        // drain delivers the whole file and feeds every consumer itself.
+        // that opened before it, which idle-end would otherwise mistake for an idle agent, or a canonical route's
+        // projection. At line 0 the drain delivers the whole file and feeds every consumer itself.
         if (State.LinesProcessed > 0) {
             var replay = new List<TranscriptReplayConsumer>();
+            if (route is { } routeReplay) replay.Add(routeReplay.Consumer(stop));
             if (State.SecondaryRoots is { } secondaryRoots) replay.Add(SecondaryRootsReplay(secondaryRoots, vendor));
             if (CreatedPullRequestAdapters.For(vendor) is { } prAdapter) replay.Add(CreatedPullRequestsReplay(State, vendor, prAdapter, log));
             if (ToolCallTracking.TracksClaudeToolCalls(vendor, isSessionWatcher: agentId is null)) replay.Add(ToolCallTracking.ClaudePendingToolCallsReplay(State.PendingClaudeToolCalls));
             if (ToolCallTracking.TracksCodexToolCalls(vendor)) replay.Add(ToolCallTracking.CodexWatcherStateReplay(State, isChildWatcher: agentId is not null));
             if (ToolCallTracking.TracksCopilotToolCalls(vendor, TranscriptPath, State.CopilotHostMissing)) replay.Add(new(WindowOnly: false, line => { ToolCallTracking.UpdateCopilotPendingToolCalls(State.PendingCopilotToolCalls, line); return false; }));
             await TranscriptReplay.ReplayAsync(TranscriptPath, State.LinesProcessed, replay, stop, log, _progress.Tick);
+            route?.Replayed();
         }
     }
 
@@ -544,6 +557,10 @@ public sealed class TranscriptRecorder(
     // left to detach it.
     async Task<int> ConnectAsync(CancellationToken stop, TimeSpan? budget = null) {
         if (Abandoned?.Invoke() == true && HasLostClaim()) throw new OperationCanceledException($"{source.Key} was given up on before its connect");
+
+        // The first connect and every re-registration: a connection may reach another server, and a source that went raw
+        // gets another chance.
+        _canonical.Reset();
 
         using var abandon = CancellationTokenSource.CreateLinkedTokenSource(stop, _givenUp.Token);
 
@@ -1353,6 +1370,15 @@ public sealed class TranscriptRecorder(
 
                 StampLines(drainRead.Lines, drainRead.LineNumbers);
 
+                // After a connect or a failed send, a canonical route projects the lines before the cursor first.
+                if (newLines.Count > 0 && await _canonical.OpenAsync(state.LinesProcessed, ct) is { } route) {
+                    using var budget = new CancellationTokenSource(isFinalDrain ? FinalDrainReplayBudget : Timeout.InfiniteTimeSpan, time);
+                    using var replay = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
+
+                    await TranscriptReplay.ReplayAsync(transcriptPath, state.LinesProcessed, [route.Consumer(replay.Token)], replay.Token, log, _progress.Tick);
+                    route.Replayed();
+                }
+
                 // SignalR dispatch binds by arity; the record payload keeps additive fields compatible.
                 var batch = new TranscriptBatch {
                     SessionId       = sessionId,
@@ -1370,6 +1396,8 @@ public sealed class TranscriptRecorder(
                     sent = await TranscriptBatchBuffer.SendAsync(
                         batch,
                         async chunk => {
+                            if (await _canonical.TrySendAsync(chunk, state.LinesProcessed, ct)) return null;
+
                             var ack = await transport.SendBatchAsync(chunk, ct);
 
                             return vendor == "cursor" ? ack : null;
@@ -1663,7 +1691,8 @@ public sealed class TranscriptRecorder(
                 if (spooled && HasLostClaim()) return null;
 
                 result = transcriptSpool.Append(sessionId,
-                    TranscriptSpool.BuildTranscriptSpoolBatch(sessionId, agentId, vendor, chunk.Lines, chunk.LineNumbers!, chunk.ObservedCommits, chunk.MoreFollows),
+                    TranscriptSpool.BuildTranscriptSpoolBatch(sessionId, agentId, vendor, chunk.Lines, chunk.LineNumbers!, chunk.ObservedCommits, chunk.MoreFollows,
+                        CanonicalVendors.Contains(vendor) ? transcriptPath : null),
                     chunk.MoreFollows ? commitsOnly : null);
                 if (result != TranscriptSpool.AppendResult.Appended) {
                     if (spooled && commitsOnly is not null && !HasLostClaim() && transcriptSpool.Append(sessionId, commitsOnly) != TranscriptSpool.AppendResult.Appended)

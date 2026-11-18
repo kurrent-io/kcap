@@ -17,6 +17,11 @@ public sealed class InlineDrainRedaction(TimeProvider time, SecretPatterns? patt
     public CapturedLines Encode(string rawLine, Action<RedactionLossReason, int> reportLoss) =>
         TranscriptCapture.EncodeUntilHeld([rawLine], static () => false, time, reportLoss, patterns);
 
+    /// <summary>The first try's redaction of a line on its own, which a replay before the drain decides a large line
+    /// with.</summary>
+    public RedactionOutcome Redact(string rawLine) =>
+        SecretRedactor.RedactLineWithOutcome(rawLine, new RedactionBudget(time), patterns ?? SecretRedactor.WatcherPatterns);
+
     public CapturedLines Retry(string rawLine, Action<RedactionLossReason, int> reportLoss) {
         CanRetry = false;
 

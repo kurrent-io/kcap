@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Recording.Capture;
 
 namespace Capacitor.Cli.Recording;
@@ -10,15 +11,15 @@ namespace Capacitor.Cli.Recording;
 public static partial class SecretRedactor {
     // Only malformed input uses this smaller textual-fallback limit.
     internal const int MaxRedactableLineChars = 64 * 1024;
-    internal const int MaxRecordBytes = 4 * 1024 * 1024;
+    internal const int MaxRecordBytes = CaptureRule.MaxRecordBytes;
 
     internal const string RedactedMarker = "[REDACTED]";
 
     internal const string OversizeLinePlaceholder =
-        """{"type":"redacted_oversize_line","reason":"line exceeded SecretRedactor size limit"}""";
+        $$"""{"type":"{{CaptureLossLine.OversizeType}}","reason":"line exceeded SecretRedactor size limit"}""";
 
     internal const string UnparsableOutputPlaceholder =
-        """{"type":"redacted_unparsable_line","reason":"redacted line was no longer valid JSON"}""";
+        $$"""{"type":"{{CaptureLossLine.UnparsableType}}","reason":"redacted line was no longer valid JSON"}""";
 
     // A deadline only a super-linear pattern reaches: the linear patterns together cost about
     // 90 ns per char, so a 16M-char value takes under two seconds, while the JSON-key pattern is
@@ -112,7 +113,7 @@ public static partial class SecretRedactor {
 
     // Scan first so an unchanged record keeps its original encoding and cannot exceed an output cap.
     static bool Rewrite(ReadOnlySpan<byte> utf8, Span<char> decoded, Utf8JsonWriter? writer, RedactionBudget budget, SecretPatterns patterns) {
-        var reader = new Utf8JsonReader(utf8, ReaderOptions);
+        var reader = new Utf8JsonReader(utf8, CaptureRule.ReaderOptions);
 
         var redactedAny = false;
         var keyIsSecret = false;
@@ -122,7 +123,7 @@ public static partial class SecretRedactor {
 
         while (reader.Read()) {
             budget.Check();
-            if (reader.CurrentDepth >= 1000 && reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray)
+            if (reader.CurrentDepth >= CaptureRule.MaxDepth && reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray)
                 throw new InvalidOperationException("JSON depth exceeds the processing limit.");
             var inSecret = secretDepth >= 0;
 
@@ -200,10 +201,6 @@ public static partial class SecretRedactor {
 
         return redactedAny;
     }
-
-    // One look-ahead level distinguishes excessive depth from malformed text without raw fallback.
-    static readonly JsonReaderOptions ReaderOptions =
-        new() { MaxDepth = 1001, CommentHandling = JsonCommentHandling.Allow };
 
     static readonly JsonWriterOptions WriterOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 

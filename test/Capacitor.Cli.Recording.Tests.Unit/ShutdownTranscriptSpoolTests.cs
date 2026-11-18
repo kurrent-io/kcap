@@ -117,6 +117,29 @@ public class ShutdownTranscriptSpoolTests {
         await Assert.That(spool.HasBacklog(Sid)).IsFalse();
     }
 
+    /// <summary>A canonical drain projects the lines before a spooled Claude tail from the transcript it names. A vendor
+    /// whose lines stay raw spools the batch it always has.</summary>
+    [Test]
+    [Arguments("claude", true)]
+    [Arguments("kiro", false)]
+    public async Task A_spooled_tail_names_its_transcript_only_for_a_canonical_vendor(string vendor, bool named) {
+        using var tmp = new TempDir();
+        var path  = tmp.CreateFile("transcript.jsonl", "{\"line\":0}\n{\"line\":1}\n");
+        var spool = new TranscriptSpool(tmp.PathTo("spool"), time: TimeProvider.System);
+
+        await Recorders.For(Sid, path, null, vendor).SpoolUndeliveredTranscriptTailAsync(spool, 1, new CommitObservation.Uncovered(), CancellationToken.None);
+
+        var replayed = new List<string>();
+        await spool.DrainAsync(Sid, body => {
+            replayed.Add(body);
+            return Task.FromResult(DrainOutcome.Delivered);
+        }, () => false, CancellationToken.None);
+
+        var batch = System.Text.Json.Nodes.JsonNode.Parse(replayed.Single())!.AsObject();
+        await Assert.That(batch.ContainsKey("transcript_path")).IsEqualTo(named);
+        if (named) await Assert.That(batch["transcript_path"]!.GetValue<string>()).IsEqualTo(path);
+    }
+
     /// <summary>An append can stall on the disk, and a recorder given up on there spools no more of its tail when it wakes:
     /// the chunks after it are whichever recorder's has the source next. Here the host gives it up after the first chunk.</summary>
     [Test]

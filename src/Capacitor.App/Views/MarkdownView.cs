@@ -122,7 +122,10 @@ public sealed class MarkdownView : ContentControl {
             if (_nonLeftRelease) return;
             if (OpenLink is { } open && open.CanExecute(e.Url)) open.Execute(e.Url);
         };
-        AddHandler(ContextRequestedEvent, (_, e) => ContextLinkUrl = LinkAt(e), RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(ContextRequestedEvent, (_, e) => {
+            ContextLinkUrl = LinkAt(e);
+            ContextImage = ImageUnder(e.Source as Visual) is { ShowsPicture: true } image ? image : null;
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
         MarkViewSelection.Attach(this, _viewer, CopySelectionAsync);
         // Bubble on the host runs after the viewer's own move, which has already chosen Hand or
         // the arrow. Prose takes the I-beam and a link the hand; a bare image stays on the arrow.
@@ -202,6 +205,11 @@ public sealed class MarkdownView : ContentControl {
         e.TryGetPosition(_viewer, out var point)
             ? FindHyperlinkAt(_viewer, point)?.NavigateUri?.ToString() ?? ImageUnder(e.Source as Visual)?.Target
             : _linkKeys.CurrentUrl;
+
+    /// The picture a context menu was opened on, once it has loaded.
+    internal MarkdownImage? ContextImage { get; private set; }
+
+    public Task CopyImageAsync() => ContextImage is { } image ? ImageClipboard.CopyAsync(this, image.Picture) : Task.CompletedTask;
 
     public async Task CopyLinkAsync() {
         if (ContextLinkUrl is not { } url || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Transcripts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.SignalR;
@@ -21,6 +22,7 @@ public sealed class WatcherHubHost : IAsyncDisposable {
     readonly List<(bool Acked, TranscriptBatch Batch)>      _received    = [];
     readonly List<(string SessionId, string? AgentId)>      _drains      = [];
     readonly List<string>                                   _registrations = [];
+    readonly List<CanonicalTranscriptBatch>                 _canonical   = [];
 
     WebApplication _app = null!;
     volatile bool  _down;
@@ -49,6 +51,19 @@ public sealed class WatcherHubHost : IAsyncDisposable {
     }
 
     public IReadOnlyList<(string SessionId, string? AgentId)> Drains => Snapshot(_drains);
+
+    /// <summary>What <c>IngestCapabilities</c> answers. Null fails the call, as a server without it does.</summary>
+    public int? CanonicalFormat { get; set; }
+
+    /// <summary>Whether <c>SendCanonicalBatch</c> refuses every batch as unsupported, storing nothing.</summary>
+    public bool RefusesCanonical { get; set; }
+
+    /// <summary>The batches <c>SendCanonicalBatch</c> took, in arrival order.</summary>
+    public IReadOnlyList<CanonicalTranscriptBatch> CanonicalBatches {
+        get {
+            lock (_gate) return [.. _canonical];
+        }
+    }
 
     /// <summary>What <c>WatcherConnect</c> answered and <c>WatcherDetach</c> asked, in the order the server did them.</summary>
     public IReadOnlyList<string> Registrations {
@@ -157,5 +172,19 @@ public sealed class WatcherHubHost : IAsyncDisposable {
         public void WatcherDrainComplete(string sessionId, string? agentId) {
             lock (host._gate) host._drains.Add((sessionId, agentId));
         }
+
+        public CanonicalCapabilities IngestCapabilities() =>
+            host.CanonicalFormat is { } format ? new(format) : throw new HubException("Unknown hub method 'IngestCapabilities'");
+
+        public CanonicalAck SendCanonicalBatch(CanonicalTranscriptBatch batch) {
+            if (host.RefusesCanonical) return new(0, Unsupported: true, "canonical ingress is switched off");
+
+            lock (host._gate) host._canonical.Add(batch);
+
+            return new(batch.Lines is [.., var last] ? last.Number + 1 : 0, Unsupported: false, null);
+        }
     }
+
+    /// <summary>The server's answer to a canonical batch, with the reason the client does not read.</summary>
+    sealed record CanonicalAck(int NextLineNumber, bool Unsupported, string? Reason);
 }

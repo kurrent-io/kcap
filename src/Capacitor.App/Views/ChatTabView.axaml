@@ -147,6 +147,25 @@
         <Style Selector="TextBlock.toolLine.path">
             <Setter Property="TextTrimming" Value="{x:Static views:ChatTrimming.PathEllipsis}" />
         </Style>
+        <Style Selector="TextBlock.toolLine.openable">
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="TextBlock.toolLine.openable:pointerover">
+            <Setter Property="TextDecorations" Value="Underline" />
+        </Style>
+        <Style Selector="Border.toolOpenWarning">
+            <Setter Property="Margin" Value="0,6,0,4" />
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="TextBlock.toolOpenWarningText">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
         <!-- Must stay after .toolLine: same specificity, so the later rule is the one that wins. -->
         <Style Selector="SelectableTextBlock.toolLine.prose,
                          TextBlock.toolLine.prose">
@@ -424,7 +443,7 @@
                 <DataTemplate x:DataType="vm:ToolCallItem">
                     <Panel>
                         <Grid x:Name="ToolCallRow" Margin="0,0,0,4" MinHeight="18" HorizontalAlignment="Stretch" IsVisible="{Binding !HasCard}"
-                              RowDefinitions="Auto,Auto,Auto">
+                              RowDefinitions="Auto,Auto,Auto,Auto">
                             <!-- The whole row opens what the call recorded. Its text is plain, not
                                  selectable: a selectable block takes the press before the button sees it,
                                  and the opened body below is where the text is copied from. -->
@@ -446,6 +465,9 @@
                                                Classes.prose="{Binding DetailIsProse}"
                                                Classes.path="{Binding DetailIsPath}"
                                                Classes.labelled="{Binding HasLabel}"
+                                               Classes.openable="{Binding CanOpenFile}"
+                                               ToolTip.Tip="{Binding FilePath}"
+                                               PointerPressed="OnToolPathPressed" PointerReleased="OnToolPathReleased"
                                                Text="{Binding Detail}"
                                                IsVisible="{Binding HasDetail}" />
                                     <!-- A bare name is fallback chrome only; a label already names the call, so the raw
@@ -484,23 +506,51 @@
                                     </Panel>
                                 </Grid>
                             </Button>
-                            <views:ToolImagePreview Grid.Row="1" Classes="toolBody kcapGhost" Margin="0,6,0,2" Path="{Binding PreviewPath}" />
-                            <Border x:Name="ToolInspection" Grid.Row="2" Classes="toolInspection" IsVisible="{Binding IsExpanded}">
-                                <ScrollViewer MaxHeight="320" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
-                                              AllowAutoHide="False" Focusable="True" AutomationProperties.Name="Tool details">
-                                    <ItemsControl ItemsSource="{Binding Inspection.Sections, FallbackValue={x:Null}}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:ToolInspectionSection">
-                                                <StackPanel Spacing="2" Margin="0,4,0,2">
-                                                    <TextBlock Classes="toolInspectionHeading" Text="{Binding Heading}" />
-                                                    <SelectableTextBlock Classes="toolLine prose" Classes.missing="{Binding IsMissing}"
-                                                                         Text="{Binding Text}" />
-                                                    <TextBlock Classes="toolInspectionNote" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </ScrollViewer>
+                            <Border x:Name="ToolOpenWarning" Grid.Row="1" Classes="toolOpenWarning" IsVisible="{Binding IsConfirmingOpen}">
+                                <StackPanel Spacing="8">
+                                    <StackPanel Spacing="2" IsVisible="{Binding !FileMissing}">
+                                        <TextBlock Classes="toolOpenWarningText" Text="Open this file with your operating system?" FontWeight="SemiBold" />
+                                        <TextBlock Classes="toolLine prose" Text="{Binding FilePath}" />
+                                        <TextBlock Classes="toolOpenWarningText"
+                                                   Text="It opens in whatever application your system uses for this kind of file. A program or script may run." />
+                                    </StackPanel>
+                                    <StackPanel Spacing="2" IsVisible="{Binding FileMissing}">
+                                        <TextBlock Classes="toolOpenWarningText" Text="This file no longer exists" FontWeight="SemiBold" />
+                                        <TextBlock Classes="toolLine prose" Text="{Binding FilePath}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button x:Name="ToolOpenConfirm" Content="Open" Classes="kcapPrimary" IsVisible="{Binding !FileMissing}"
+                                                Click="OnToolOpenConfirmClick" />
+                                        <Button x:Name="ToolOpenCancel" Classes="kcapGhost" Click="OnToolOpenCancelClick">
+                                            <Panel>
+                                                <TextBlock Text="Cancel" IsVisible="{Binding !FileMissing}" />
+                                                <TextBlock Text="Dismiss" IsVisible="{Binding FileMissing}" />
+                                            </Panel>
+                                        </Button>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <views:ToolImagePreview Grid.Row="2" Classes="toolBody kcapGhost" Margin="0,6,0,2" Path="{Binding PreviewPath}" />
+                            <Border x:Name="ToolInspection" Grid.Row="3" Classes="toolInspection" IsVisible="{Binding IsExpanded}">
+                                <StackPanel Spacing="4">
+                                    <Button x:Name="ToolOpenFile" Classes="kcapGhost kcapQuiet" Content="Open file…" HorizontalAlignment="Left"
+                                            IsVisible="{Binding CanOpenFile}" Click="OnToolOpenFileClick" />
+                                    <ScrollViewer MaxHeight="320" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                                                  AllowAutoHide="False" Focusable="True" AutomationProperties.Name="Tool details">
+                                        <ItemsControl ItemsSource="{Binding Inspection.Sections, FallbackValue={x:Null}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:ToolInspectionSection">
+                                                    <StackPanel Spacing="2" Margin="0,4,0,2">
+                                                        <TextBlock Classes="toolInspectionHeading" Text="{Binding Heading}" />
+                                                        <SelectableTextBlock Classes="toolLine prose" Classes.missing="{Binding IsMissing}"
+                                                                             Text="{Binding Text}" />
+                                                        <TextBlock Classes="toolInspectionNote" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </StackPanel>
                             </Border>
                         </Grid>
                         <Border x:Name="ToolCard" Classes="toolCard" IsVisible="{Binding HasCard}">

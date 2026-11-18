@@ -56,6 +56,11 @@ public record TranscriptBatch {
     [JsonPropertyName("more_follows")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool MoreFollows { get; init; }
+
+    // A spooled batch's source, which the drain replays the lines before the batch from. A server ignores it.
+    [JsonPropertyName("transcript_path")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? TranscriptPath { get; init; }
 }
 
 /// <summary>Who wrote a transcript line, when the recorder can place it: the dispatch that produced it, or a person
@@ -1111,6 +1116,7 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(WorkItems.WorkItemErrorDto))]
 [JsonSerializable(typeof(RepositoryPayload))]
 [JsonSerializable(typeof(TranscriptBatch))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Transcripts.CanonicalTranscriptBatch))]
 [JsonSerializable(typeof(SessionTitlePayload))]
 [JsonSerializable(typeof(HarnessTitleHook))]
 [JsonSerializable(typeof(WhatsDonePayload))]
@@ -1283,6 +1289,8 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(AcpLaunchConfirmOutcome))]
 [JsonSerializable(typeof(ParkParticipantOutcome))]
 [JsonSerializable(typeof(TranscriptBatchAck))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Transcripts.CanonicalSendResult))]
+[JsonSerializable(typeof(Capacitor.Cli.Core.Transcripts.CanonicalCapabilities))]
 // The AcpSessionStarted hub method's optional metadata argument. Registered as its own root type
 // (not just nested inside another JsonSerializable graph) because SignalR's JsonHubProtocol
 // serializes each hub-invocation argument independently by its declared type.

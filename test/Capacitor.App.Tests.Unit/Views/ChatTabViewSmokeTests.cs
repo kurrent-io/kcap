@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Collections.Specialized;
 using System.Globalization;
 using System.Reactive.Linq;
@@ -2224,6 +2225,37 @@ public class ChatTabViewSmokeTests {
             await host.LoadAsync(Tmp.CreateFile("live.jsonl", [ToolCallLine, ReadCallLine]));
             await Assert.That(SummaryOrNull(host.View)?.IsVisible ?? false).IsFalse();
             await Assert.That(ToolRows(host.View)).Count().IsEqualTo(2);
+            await host.CloseAsync();
+        });
+    }
+
+    /// A click on a path raises the warning without toggling the row; only Open launches the file.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Clicking_a_path_warns_before_opening_the_file() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            var target = Tmp.CreateFile("notes.md", "x");
+            await host.LoadAsync(Tmp.CreateFile("path.jsonl", [ReadCallLine.Replace("\"/repo/x/src/a.cs\"", JsonSerializer.Serialize(target))]));
+            var row = ToolRows(host.View).Single();
+            var item = (ToolCallItem)row.DataContext!;
+            var detail = row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowDetail");
+            await Assert.That(detail.Classes.Contains("openable")).IsTrue();
+
+            Click(host, detail);
+            await Assert.That(item.IsConfirmingOpen).IsTrue();
+            await Assert.That(item.IsExpanded).IsFalse();
+            await Assert.That(host.Opener.Opened).IsEmpty();
+
+            Click(host, row.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToolOpenConfirm"));
+            await Assert.That(item.IsConfirmingOpen).IsFalse();
+            await Assert.That(host.Opener.Opened).IsEquivalentTo(new[] { target });
+
+            item.ToggleCommand.Execute().Subscribe();
+            host.Settle();
+            Click(host, row.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToolOpenFile"));
+            await Assert.That(item.IsConfirmingOpen).IsTrue();
+            await Assert.That(host.Opener.Opened).Count().IsEqualTo(1);
             await host.CloseAsync();
         });
     }

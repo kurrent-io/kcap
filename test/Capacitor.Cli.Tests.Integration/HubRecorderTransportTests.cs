@@ -2,6 +2,7 @@ using System.Text.Json;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Recording;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.DependencyInjection;
@@ -89,6 +90,61 @@ public class HubRecorderTransportTests {
         await Assert.That(hub.Registrations.ToList().IndexOf("registered 1")).IsLessThan(hub.Registrations.ToList().LastIndexOf("detached"));
     }
 
+    /// <summary>The payload options <c>kcap watch</c> builds, with nothing to fall back on, so a type the AOT build cannot
+    /// serialize fails here as it would there.</summary>
+    static HubConnection WatchConnection(WatcherHubHost hub) =>
+        new HubConnectionBuilder()
+            .WithUrl($"{hub.Url}/hubs/sessions")
+            .AddJsonProtocol(options => {
+                options.PayloadSerializerOptions.TypeInfoResolver     = CapacitorJsonContext.Default;
+                options.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
+            })
+            .Build();
+
+    static CanonicalTranscriptBatch Canonical(int line) =>
+        CanonicalRoute.For("claude", Source.SessionId, Source.AgentId, serverSupports: true)!.Encode(new TranscriptBatch {
+            SessionId   = Source.SessionId,
+            AgentId     = Source.AgentId,
+            Vendor      = "claude",
+            Lines       = ["""{"type":"user","uuid":"30000000-0000-4000-8000-000000000001","timestamp":"2026-11-16T08:00:00Z","message":{"role":"user","content":"hi"}}"""],
+            LineNumbers = [line],
+        }, DateTimeOffset.UtcNow);
+
+    [Test]
+    public async Task A_canonical_batch_reaches_the_hub_and_its_answer_is_read() {
+        await using var hub        = await WatcherHubHost.StartAsync();
+        await using var connection = WatchConnection(hub);
+        var             transport  = Transport(connection, Source.Key);
+        var             batch      = Canonical(4);
+        hub.CanonicalFormat = 1;
+        await transport.ConnectAsync(Source, CancellationToken.None);
+
+        await Assert.That(await transport.SupportsCanonicalAsync(CancellationToken.None)).IsTrue();
+        await Assert.That(await transport.SendCanonicalBatchAsync(batch, CancellationToken.None)).IsEqualTo(new CanonicalSendResult(5, Unsupported: false));
+        await Assert.That(hub.CanonicalBatches.Single().Events.Select(e => e.EventId)).IsEquivalentTo(batch.Events.Select(e => e.EventId));
+
+        hub.RefusesCanonical = true;
+
+        await Assert.That((await transport.SendCanonicalBatchAsync(batch, CancellationToken.None)).Unsupported).IsTrue();
+    }
+
+    /// <summary>An older server has no capability call, and a server on a newer format is one this client cannot feed.</summary>
+    [Test]
+    [Arguments(null)]
+    [Arguments(2)]
+    public async Task A_server_without_format_one_takes_no_canonical_batches(int? format) {
+        await using var hub        = await WatcherHubHost.StartAsync();
+        await using var connection = WatchConnection(hub);
+        var             transport  = Transport(connection, Source.Key);
+        hub.CanonicalFormat = format;
+        await transport.ConnectAsync(Source, CancellationToken.None);
+
+        await Assert.That(await transport.SupportsCanonicalAsync(CancellationToken.None)).IsFalse();
+
+        await transport.SendBatchAsync(new TranscriptBatch { SessionId = Source.SessionId, Lines = ["{}"], LineNumbers = [0], Vendor = "claude" }, CancellationToken.None);
+        await hub.WaitForAsync(h => h.Batches.Count == 1, "the raw batch after the answer");
+    }
+
     /// <summary>What a transport on a connection that outlives its sources adds to the hub transport.</summary>
     sealed class DetachingTransport(HubRecorderTransport inner, HubConnection connection) : IRecorderTransport {
         public bool IsConnected => inner.IsConnected;
@@ -96,6 +152,10 @@ public class HubRecorderTransportTests {
         public Task<int> ConnectAsync(RecordingSource source, CancellationToken ct) => inner.ConnectAsync(source, ct);
 
         public Task<int> SendBatchAsync(TranscriptBatch batch, CancellationToken ct) => inner.SendBatchAsync(batch, ct);
+
+        public Task<bool> SupportsCanonicalAsync(CancellationToken ct) => inner.SupportsCanonicalAsync(ct);
+
+        public Task<CanonicalSendResult> SendCanonicalBatchAsync(CanonicalTranscriptBatch batch, CancellationToken ct) => inner.SendCanonicalBatchAsync(batch, ct);
 
         public Task SendTitleAsync(string sessionId, string title, CancellationToken ct) => inner.SendTitleAsync(sessionId, title, ct);
 
