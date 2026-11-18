@@ -118,6 +118,9 @@ public partial class App : Application {
     readonly UiScaleSetting _uiScale;
     readonly ProgressiveDisclosurePreferences? _progressiveDisclosure;
     readonly BetaUpdatesSetting _betaUpdates;
+    // The constructor's read of app-state.json, handed to the first main window and then dropped:
+    // a later window must read what the earlier one saved.
+    AppState? _startupState;
 
     // Set only in a copy started to uninstall; nothing of the normal app is built in it.
     readonly UninstallMode? _uninstallMode = Program.Uninstall;
@@ -142,9 +145,11 @@ public partial class App : Application {
 #pragma warning disable RS0030 // the one store the ban points every other site at
         _appState = new AppStateStore(_config.Path("app-state.json"));
 #pragma warning restore RS0030
-        _uiScale = UiScaleSetting.LoadAsync(_appState).GetAwaiter().GetResult();
-        _betaUpdates = BetaUpdatesSetting.LoadAsync(_appState).GetAwaiter().GetResult();
-        _progressiveDisclosure = _appState.LoadAsync().GetAwaiter().GetResult().ProgressiveDisclosure;
+        var state = _appState.LoadAsync().GetAwaiter().GetResult();
+        _uiScale = UiScaleSetting.From(_appState, state);
+        _betaUpdates = BetaUpdatesSetting.From(_appState, state);
+        _progressiveDisclosure = state.ProgressiveDisclosure;
+        _startupState = state;
     }
 
     internal static TelemetryStartup DesktopTelemetry(
@@ -873,6 +878,8 @@ public partial class App : Application {
             LifecycleLog.Write("install_deferred", ("replaces", string.Join(", ", plan.Replaces)));
             if (ReferenceEquals(desktop.MainWindow, shown)) desktop.MainWindow = null;
             shown?.Close();
+            // The guard waits on the user as long as setup does, so the window after it reads the state afresh.
+            _startupState = null;
             _ = StartAsync(desktop, guarded: false);
         }
         var window = BuildInstallLocationWindow(
@@ -1452,7 +1459,7 @@ public partial class App : Application {
                 sessions: sessions, railPreferences: railPreferences, profileName: profiles?.Name,
                 modelCatalog: modelCatalog.Catalog, uploader: uploader, appServerUrl: profiles?.Resolution.ServerUrl,
                 openFeedback: openFeedback, settingsAction: _appMenu.SettingsAction,
-                adopt: TakeAdoptableWindow(), show: !_holdingMainWindow,
+                adopt: TakeAdoptableWindow(), state: TakeStartupState(), show: !_holdingMainWindow,
                 requestSetup: () => _ = RestartForSetupAsync(desktop),
                 historyImport: _settingsImports.LastOrDefault() ?? _historyImport?.Run,
                 backgroundPriority: lifecycle.BackgroundPriority, reloadState: lifecycle.ReloadState,
@@ -1975,6 +1982,8 @@ public partial class App : Application {
     async Task<bool> RunWizardModeAsync(
             IClassicDesktopStyleApplicationLifetime desktop, DaemonMutationLane lane, OutcomeChannel channel,
             IProcessRunner runner, ILoginShellProbe probe, ProfileContext? profiles, bool alreadyAuthenticated) {
+        // Setup can run for as long as the user likes, so the window after it reads the state afresh.
+        _startupState = null;
         var cliPath = CliResolver.ResolvePath(Environment.GetEnvironmentVariable, File.Exists, Program.Host.CliDirectory);
         // Same rule as the shim coordinator's: only a resolved ABSOLUTE path is linkable.
         var shimTarget = ShimTargetFor(cliPath, Program.Host.CliOutlivesApp);
@@ -2361,7 +2370,7 @@ public partial class App : Application {
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? modelCatalog = null,
             IAttachmentUploader? uploader = null, string? appServerUrl = null,
             Action<FeedbackCategory>? openFeedback = null, IObservable<Action?>? settingsAction = null,
-            (MainWindow Window, AppState State)? adopt = null, bool show = true,
+            (MainWindow Window, AppState State)? adopt = null, AppState? state = null, bool show = true,
             Action? requestSetup = null, HistoryImportRun? historyImport = null,
             IObservable<bool>? backgroundPriority = null, IObservable<ReloadState?>? reloadState = null,
             IObservable<bool>? isReloading = null, Func<CancellationToken, Task>? reloadDaemon = null,
@@ -2449,15 +2458,15 @@ public partial class App : Application {
         // Both rail actions route through the one call, each naming the lane of the row that was
         // clicked: an unproven twin pair keeps a row on each lane under the same id, and the VM's
         // own lookup would open the local one for both.
-        // Read once before the rail exists, like the window size, so it opens in the shape of the
-        // user this profile last resolved to; the lane's own answer rebinds it below.
+        // One read for the rail and the window placement below, before the rail exists, so it opens in
+        // the shape of the user this profile last resolved to; the lane's own answer rebinds it below.
+        var savedState = adopt?.State ?? state ?? appState.LoadAsync().GetAwaiter().GetResult();
         RailPreferences? initialRail = null;
         string? railUser = null;
         Func<string, Task<RailPreferences>>? bindRailUser = null;
         Action<RailPreferences>? persistRail = null;
         if (railPreferences is { } prefs && appServerUrl is { Length: > 0 } url && profileName is { Length: > 0 } name) {
-            initialRail = prefs.LoadAsync(url, name).GetAwaiter().GetResult();
-            railUser = prefs.LastUserAsync(url, name).GetAwaiter().GetResult();
+            (initialRail, railUser) = RailPreferencesStore.Opening(savedState, url, name);
             bindRailUser = async userId => {
                 railUser = userId;
                 return await prefs.BindUserAsync(url, name, userId).ConfigureAwait(false);
@@ -2516,7 +2525,6 @@ public partial class App : Application {
         window.Notifier = notifier;
         window.ContentScale = uiScale;
         window.Onboarding = null;
-        var savedState = adopt?.State ?? appState.LoadAsync().GetAwaiter().GetResult();
         WindowSizeMemory.Apply(window, savedState);
         WindowSizeMemory.Attach(window, appState);
         PaneLayoutMemory.Apply(window.Panes, savedState);
@@ -3028,6 +3036,12 @@ public partial class App : Application {
             _closeUpdateFinishWindow?.Invoke();
             return ShowLifecyclePromptDialogAsync(DialogOwner(), prompt, ct);
         });
+
+    AppState? TakeStartupState() {
+        var state = _startupState;
+        _startupState = null;
+        return state;
+    }
 
     // Once only: a later rebuild (after a real close) must not reach for a window that is gone.
     (MainWindow Window, AppState State)? TakeAdoptableWindow() {

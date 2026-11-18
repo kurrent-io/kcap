@@ -101,6 +101,30 @@ public class AppStartupTests {
         await Assert.That(height).IsEqualTo(888);
     }
 
+    /// A state the caller already read is what the window opens on; the store is not read again.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task BuildAndShowMainWindow_opens_on_the_state_it_is_handed() {
+        var appState = AppState();
+        await appState.UpdateAsync(s => s with { WindowWidth = 1552, WindowHeight = 888 });
+        var handed = await appState.LoadAsync();
+        await appState.UpdateAsync(s => s with { WindowWidth = 1600, WindowHeight = 900 });
+
+        var size = await AvaloniaSession.DispatchAsync(() => {
+            var service = new FakeDaemonClientService();
+            var (actions, notifier) = NewActions(service);
+            var window = AppUnderTest.BuildAndShowMainWindow(service, Config.Root, appState, actions, notifier, new FakeTicker(),
+                CancellationToken.None, TestActivity.New(), new NeverLaunchClient(), TimeProvider.System, state: handed);
+            Dispatcher.UIThread.RunJobs();
+            var result = (window.Width, window.Height);
+            window.Close();
+            return result;
+        });
+
+        await Assert.That(size.Width).IsEqualTo(1552);
+        await Assert.That(size.Height).IsEqualTo(888);
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task BuildAndShowMainWindow_restores_the_remembered_window_placement() {

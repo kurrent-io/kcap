@@ -8,13 +8,11 @@ public sealed class RailPreferencesStore(IAppStateStore store) {
     public static string UserKey(string serverUrl, string userId) => $"{serverUrl.TrimEnd('/')}|{userId}";
     public static string ProfileKey(string serverUrl, string profileName) => $"{serverUrl.TrimEnd('/')}|{profileName}";
 
-    /// The set of the user this profile last resolved to, else the defaults.
-    public async Task<RailPreferences> LoadAsync(string serverUrl, string profileName) {
-        var state = await store.LoadAsync().ConfigureAwait(false);
-        return state.LastUserByProfile is { } users && users.TryGetValue(ProfileKey(serverUrl, profileName), out var userId)
-            ? For(state, serverUrl, userId)
-            : RailPreferences.Default;
-    }
+    /// The user this profile last resolved to, if any, and that user's set, else the defaults.
+    public static (RailPreferences Preferences, string? UserId) Opening(AppState state, string serverUrl, string profileName) =>
+        state.LastUserByProfile is { } users && users.TryGetValue(ProfileKey(serverUrl, profileName), out var userId)
+            ? (For(state, serverUrl, userId), userId)
+            : (RailPreferences.Default, null);
 
     /// Records that the profile resolved to this user and returns that user's set, else the defaults.
     public async Task<RailPreferences> BindUserAsync(string serverUrl, string profileName, string userId) {
@@ -23,12 +21,6 @@ public sealed class RailPreferencesStore(IAppStateStore store) {
             LastUserByProfile = new Dictionary<string, string>(state.LastUserByProfile ?? new Dictionary<string, string>(), StringComparer.Ordinal) { [key] = userId },
         }).ConfigureAwait(false);
         return For(await store.LoadAsync().ConfigureAwait(false), serverUrl, userId);
-    }
-
-    /// The user this profile last resolved to, if any.
-    public async Task<string?> LastUserAsync(string serverUrl, string profileName) {
-        var state = await store.LoadAsync().ConfigureAwait(false);
-        return state.LastUserByProfile is { } users && users.TryGetValue(ProfileKey(serverUrl, profileName), out var userId) ? userId : null;
     }
 
     public Task SaveAsync(string serverUrl, string userId, RailPreferences preferences) =>
