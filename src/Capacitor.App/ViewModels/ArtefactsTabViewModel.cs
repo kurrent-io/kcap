@@ -43,6 +43,9 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     string? _pendingPath;
     bool _documentsFailed;
     SessionPlansReadKind? _documentsKind;
+    /// A grant met a read in flight; the answer it settles with decides whether to read again.
+    bool _documentsRecheck;
+    bool _pagesRecheck;
     bool _pagesFailed;
     /// The kind of the last pages answer this lease applied; null until one lands.
     SessionPlansReadKind? _pagesKind;
@@ -201,6 +204,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         _pendingPath = null;
         _documentsFailed = false;
         _documentsKind = null;
+        _documentsRecheck = false;
         if (string.IsNullOrEmpty(sessionId)) {
             _reads.ClearCurrent(() => {
                 RaiseLoading();
@@ -231,11 +235,17 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         _pageReads.Refresh();
     }
 
-    /// Reads again only what is neither in flight nor answered Ready.
+    /// Reads again unless the answer is Ready, waiting for a read in flight to answer first.
     public void RefreshUnlessReady() {
         if (_tornDown) return;
-        if (_reads.HasCurrent && !_reads.IsReading && (_documentsFailed || _documentsKind != SessionPlansReadKind.Ready)) _reads.Refresh();
-        if (_pageReads.HasCurrent && !_pageReads.IsReading && (_pagesFailed || _pagesKind != SessionPlansReadKind.Ready)) _pageReads.Refresh();
+        if (_reads.HasCurrent) {
+            if (_reads.IsReading) _documentsRecheck = true;
+            else if (_documentsFailed || _documentsKind != SessionPlansReadKind.Ready) _reads.Refresh();
+        }
+        if (_pageReads.HasCurrent) {
+            if (_pageReads.IsReading) _pagesRecheck = true;
+            else if (_pagesFailed || _pagesKind != SessionPlansReadKind.Ready) _pageReads.Refresh();
+        }
     }
 
     /// Re-reads only the page list, which the work context pane shows whether or not the tab is open.
@@ -388,6 +398,10 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     void Apply(PlanArtifactsRead read) {
         _documentsFailed = read.Kind == SessionPlansReadKind.Unreachable;
         if (!_documentsFailed) _documentsKind = read.Kind;
+        if (_documentsRecheck) {
+            _documentsRecheck = false;
+            if (read.Kind != SessionPlansReadKind.Ready) _reads.Refresh();
+        }
         switch (read.Kind) {
             case SessionPlansReadKind.Ready:
                 Show(read.Body?.Artifacts ?? []);
@@ -453,6 +467,10 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     /// says the server could not be reached rather than reading as empty.
     void ApplyPages(SessionPagesRead read) {
         _pagesFailed = read.Kind == SessionPlansReadKind.Unreachable;
+        if (_pagesRecheck) {
+            _pagesRecheck = false;
+            if (read.Kind != SessionPlansReadKind.Ready) _pageReads.Refresh();
+        }
         if (_pagesFailed && _pagesKind is not null) return;
         _pagesKind = read.Kind;
         var now = _time.GetUtcNow();
@@ -518,6 +536,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         ClosePage();
         _pagesFailed = false;
         _pagesKind = null;
+        _pagesRecheck = false;
         PagesExpanded = false;
         if (_pages.Count > 0) {
             _pages.Clear();

@@ -1719,6 +1719,60 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    /// The grant meets the open read in flight; when that read answers Unavailable, the grant's
+    /// read still happens.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_grant_during_the_open_read_re_reads_when_that_read_answers_unavailable() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var accessReady = new TaskCompletionSource<HubCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+            h.Lane.AccessWatchHandler = _ => accessReady.Task;
+            var source = new FakePlanArtifactSource();
+            var documents = source.Gate();
+            var pages = source.GatePages();
+            var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), source);
+            await WaitUntilAsync(() => source.Requested.Count == 1 && source.RequestedPages.Count == 1, what: "open reads started");
+
+            accessReady.SetResult(HubCallOutcome.Ok);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await Task.Delay(50);
+            documents.SetResult(PlanArtifactsRead.Of(SessionPlansReadKind.Unavailable));
+            pages.SetResult(Capacitor.Cli.Core.Pages.SessionPagesRead.Of(SessionPlansReadKind.Unavailable));
+
+            await WaitUntilAsync(() => source.Requested.Count == 2 && source.RequestedPages.Count == 2, what: "re-read after the unavailable answer");
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await (vm.Artefacts.PendingPagesForTesting ?? Task.CompletedTask);
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// Giving the lease back and taking it again for the same session is not a new session: the
+    /// grant reads afresh rather than trusting the answer the artefacts kept.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_grant_after_the_same_session_is_leased_again_re_reads_the_artefacts() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var source = new FakePlanArtifactSource();
+            var row = Harness.Row(sessionId: "0123456789abcdef0123456789abcdef");
+            var vm = h.Build(row, source);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await Task.Delay(50);
+            var before = source.Requested.Count;
+            var watches = h.Lane.AccessWatches.Count;
+
+            h.Directory.Rows.AddOrUpdate(row with { Status = "Completed" });
+            await WaitUntilAsync(() => h.Lane.ChatUnsubscribes.Count > 0, what: "lease released");
+            h.Directory.Rows.AddOrUpdate(row);
+            await WaitUntilAsync(() => h.Lane.AccessWatches.Count > watches, what: "lease taken again");
+            await WaitUntilAsync(() => source.Requested.Count > before, what: "re-read on the second lease's grant");
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await vm.TeardownAsync();
+        });
+    }
+
     /// Access granted again after the first grant, as a reconnect does, reads afresh.
     [Test]
     [NotInParallel("AvaloniaSession")]
