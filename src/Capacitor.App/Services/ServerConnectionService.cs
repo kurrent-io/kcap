@@ -37,6 +37,9 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     readonly Action<string, (string Key, string? Value)[]>? _log;
     ServerLaneState? _loggedState;
     readonly Lock _redialLock = new();
+    // True from a loop's admission until it publishes its first status, a window in which the
+    // status still describes the loop it replaced.
+    bool _admittedUnannounced;
     Task? _redial;
     readonly BehaviorSubject<ServerLaneStatus> _status = new(new(ServerLaneState.Dormant));
     readonly Subject<Unit> _agentsChanged = new();
@@ -167,6 +170,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             // now carries a stale generation and is dropped. Cancelling the captured source under
             // the same lock stops the loop admitted at THIS generation and no other.
             _generation++;
+            _admittedUnannounced = false;
             _status.OnNext(new(ServerLaneState.SignedOut, detail, Epoch: _generation));
             _loopCts?.Cancel();
             parked = _generation;
@@ -208,6 +212,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
                 _loopCts = cts;
                 token = cts.Token;
+                _admittedUnannounced = true;
             }
             _loop = Task.Run(() => RunAsync(generation, token), CancellationToken.None);
         } finally {
@@ -312,6 +317,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         bool logged;
         lock (_lifecycleLock) {
             if (_closed || generation != _generation) return false;
+            _admittedUnannounced = false;
             _status.OnNext(status with { Epoch = generation });
             logged = ShouldLog(status.State);
         }
@@ -704,7 +710,8 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     /// Only a lane waiting out its ladder is redialled: a Connecting one has an attempt in flight
     /// (a sign-in restart's, say) that a restart would cancel, and a parked one waits for sign-in.
     bool NeedsRedial() =>
-        _hub is not { State: HubConnectionState.Connected }
+        !_admittedUnannounced
+        && _hub is not { State: HubConnectionState.Connected }
         && _status.Value.State is ServerLaneState.Retrying or ServerLaneState.Dormant;
 
     /// Walks the chain because SignalR surfaces the negotiate failure wrapped as often as bare.
