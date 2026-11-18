@@ -26,21 +26,16 @@ public static class ImageClipboard {
     }
 
     /// Copies a local image file at full size rather than the downscaled preview of it. The preview
-    /// stands in when the file cannot be read or decoded. It is drawn into a bitmap of this class's
-    /// own before the read starts: the preview's lease can end while the read is in flight, and the
-    /// preview cache disposes its bitmaps on eviction.
+    /// stands in when the file cannot be read or decoded, drawn into a bitmap of this class's own;
+    /// the caller keeps the preview alive until the returned task completes.
     public static async Task CopyFileAsync(Visual owner, string path, IImage? preview) {
         if (TopLevel.GetTopLevel(owner)?.Clipboard is not { } clipboard) return;
-        Bitmap? fallback = null;
         try {
-            fallback = preview is null ? null : Rasterise(preview);
             var bitmap = path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase) ? null : await DecodeAsync(path);
-            if (bitmap is null) (bitmap, fallback) = (fallback, null);
+            bitmap ??= preview is null ? null : Rasterise(preview);
             if (bitmap is not null) await SetAsync(clipboard, bitmap, owned: true);
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: copy image failed: {ex.Message}");
-        } finally {
-            fallback?.Dispose();
         }
     }
 

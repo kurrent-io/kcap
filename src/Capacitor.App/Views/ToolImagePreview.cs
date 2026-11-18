@@ -61,8 +61,10 @@ public sealed class ToolImagePreview : Button {
 
     public bool CanCopyImage => _image.Source is not null && !string.IsNullOrEmpty(Path);
 
-    public Task CopyImageAsync() =>
-        CanCopyImage ? ImageClipboard.CopyFileAsync(this, Path!, _image.Source) : Task.CompletedTask;
+    public async Task CopyImageAsync() {
+        if (!CanCopyImage || _loaded?.Lease() is not { } lease) return;
+        using (lease) await ImageClipboard.CopyFileAsync(this, Path!, lease.Image);
+    }
 
     public bool ExpandsOnClick {
         get => GetValue(ExpandsOnClickProperty);
