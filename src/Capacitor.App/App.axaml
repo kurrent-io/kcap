@@ -669,7 +669,7 @@
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
         <!-- A refresh glyph turning while its read is in flight: the click's only feedback when
-             the result is unchanged. -->
+             the result is unchanged. Only BusyIndicator.IsBusy applies the class. -->
         <Style Selector="views|AppIcon.kcapSpinning">
             <Setter Property="RenderTransform" Value="rotate(0deg)" />
             <Style.Animations>
