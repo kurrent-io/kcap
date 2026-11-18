@@ -34,6 +34,10 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     readonly HubRetryPolicy _retry;
     Exception? _refusedReconnect;
     readonly Action<ILoggingBuilder>? _hubLogging;
+    readonly Action<string, (string Key, string? Value)[]>? _log;
+    ServerLaneState? _loggedState;
+    readonly Lock _redialLock = new();
+    Task? _redial;
     readonly BehaviorSubject<ServerLaneStatus> _status = new(new(ServerLaneState.Dormant));
     readonly Subject<Unit> _agentsChanged = new();
     readonly Subject<Unit> _daemonsChanged = new();
@@ -70,7 +74,9 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     Task _loop = Task.CompletedTask;
     volatile HubConnection? _hub;
 
-    public ServerConnectionService(ProfileContext? profiles, ICredentialSource? credentials, TimeProvider time, LocalRoot? localRoot = null)
+    public ServerConnectionService(
+            ProfileContext? profiles, ICredentialSource? credentials, TimeProvider time, LocalRoot? localRoot = null,
+            Action<string, (string Key, string? Value)[]>? log = null)
         : this(
             time,
             profiles?.Resolution.ServerUrl,
@@ -79,6 +85,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 : async () => (await credentials.ResolveAsync(default)).Bearer,
             localRoot: localRoot,
             refusal: profiles is null ? null : LocalDestination.Refusal(profiles.Resolution.ServerUrl, profiles.Resolution.Endpoint),
+            log: log,
             updateCheckOff: profiles?.Effective?.UpdateCheck == false) { }
 
     readonly LocalRoot? _localRoot;
@@ -88,8 +95,11 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     internal ServerConnectionService(
             TimeProvider time, string? serverUrl, Func<Task<string?>> accessTokenProvider,
             TimeSpan[]? reconnectDelays = null, Action<ILoggingBuilder>? hubLogging = null,
-            LocalRoot? localRoot = null, string? refusal = null, bool updateCheckOff = false) {
+            LocalRoot? localRoot = null, string? refusal = null,
+            Action<string, (string Key, string? Value)[]>? log = null,
+            bool updateCheckOff = false) {
         _localRoot      = localRoot;
+        _log            = log;
         _refusal        = refusal;
         _updateCheckOff = updateCheckOff;
         _time = time;
@@ -104,6 +114,20 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         }, reconnectDelays);
         _hubLogging = hubLogging;
     }
+
+    /// SignalR awaits the token on every negotiate and reconnect with no deadline of its own, so a
+    /// resolve that never returns would hold the lane down for the life of the process. Above the
+    /// token store's own worst case: its cross-process lock wait plus a full refresh budget.
+    internal TimeSpan TokenTimeout { get; init; } = TimeSpan.FromSeconds(60);
+
+    /// How long a restart waits for the loop it retires. A loop still running past it is abandoned
+    /// rather than awaited, so one stuck in a hub's start or dispose cannot keep the lane down.
+    internal TimeSpan LoopRetireGrace { get; init; } = TimeSpan.FromSeconds(10);
+
+    /// How long a launch that found no live hub waits on the redial it starts.
+    internal TimeSpan LaunchRedialWait { get; init; } = TimeSpan.FromSeconds(10);
+
+    Task<string?> TokenAsync() => _token().WaitAsync(TokenTimeout, _time);
 
     public IObservable<ServerLaneStatus> Status => _status.AsObservable();
     public IObservable<Unit> AgentInstancesChanged => _agentsChanged.AsObservable();
@@ -149,6 +173,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             _status.OnNext(new(ServerLaneState.SignedOut, detail, Epoch: _generation));
             _loopCts?.Cancel();
         }
+        LogTransition(new(ServerLaneState.SignedOut, detail), _generation);
     }
 
     /// Retires the running loop and admits a new one under a fresh generation. A park landing while
@@ -170,8 +195,8 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 generation = _generation;
             }
             previous?.Cancel();
-            await AwaitQuietly(_loop).ConfigureAwait(false);
-            previous?.Dispose();
+            if (await RetiredAsync(_loop).ConfigureAwait(false)) previous?.Dispose();
+            else Log("server_lane_loop_abandoned", ("epoch", generation.ToString(System.Globalization.CultureInfo.InvariantCulture)));
 
             CancellationToken token;
             lock (_lifecycleLock) {
@@ -252,8 +277,9 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             } catch (Exception ex) {
                 Publish(generation, new(ServerLaneState.Retrying, ex.Message, Failure: LaneFailures.Unanswered(ex)));
             } finally {
-                _streams = null;
-                _hub = null;
+                // An abandoned loop finishing late must not clear the connection a newer loop owns.
+                Interlocked.CompareExchange(ref _streams, null, streams);
+                Interlocked.CompareExchange(ref _hub, null, hub);
                 if (hub is not null) await hub.DisposeAsync().ConfigureAwait(false);
                 // A reconnect attempt already past its stop check can still meet a 401 while the hub disposes.
                 Interlocked.Exchange(ref _refusedReconnect, null);
@@ -279,7 +305,31 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         lock (_lifecycleLock) {
             if (_closed || generation != _generation) return false;
             _status.OnNext(status with { Epoch = generation });
+        }
+        LogTransition(status, generation);
+        return true;
+    }
+
+    /// One line per change of state, skipping Connecting: a lane retrying on the ladder alternates
+    /// Connecting and Retrying every step, and only its first failure says anything new.
+    void LogTransition(ServerLaneStatus status, int generation) {
+        if (_log is null || status.State == ServerLaneState.Connecting) return;
+        lock (_lifecycleLock) {
+            if (_loggedState == status.State) return;
+            _loggedState = status.State;
+        }
+        Log("server_lane", ("state", status.State.ToString()), ("detail", status.Detail),
+            ("epoch", generation.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+    }
+
+    void Log(string evt, params (string Key, string? Value)[] fields) => _log?.Invoke(evt, fields);
+
+    async Task<bool> RetiredAsync(Task loop) {
+        try {
+            await AwaitQuietly(loop).WaitAsync(LoopRetireGrace, _time).ConfigureAwait(false);
             return true;
+        } catch (TimeoutException) {
+            return false;
         }
     }
 
@@ -321,7 +371,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     HubConnection Build() {
         var builder = new HubConnectionBuilder()
             .WithUrl($"{_serverUrl}/hubs/sessions", o => {
-                o.AccessTokenProvider = _token;
+                o.AccessTokenProvider = TokenAsync;
                 HttpClientExtensions.AddObservationHeaders(o.Headers, _updateCheckOff);
                 // Every negotiation and every WebSocket upgrade, reconnects included.
                 // The guard follows redirects itself, so it can check each hop; the handler under it follows none.
@@ -390,7 +440,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
 
     async Task<string?> ReadSubjectAsync() {
         try {
-            return await _token().ConfigureAwait(false) is { } token ? JwtClaims.TryGetString(token, "sub") : null;
+            return await TokenAsync().ConfigureAwait(false) is { } token ? JwtClaims.TryGetString(token, "sub") : null;
         } catch {
             return null;
         }
@@ -593,15 +643,38 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         if (_status.Value.State == ServerLaneState.SignedOut)
             return new LaunchOutcome(false, null, "Not signed in to the server.", Unauthorized: true);
         try {
-            var hub = _hub;
-            if (hub is not { State: HubConnectionState.Connected })
-                return new LaunchOutcome(false, null, "Not connected to the server.");
+            var hub = _hub is { State: HubConnectionState.Connected } live ? live : await RedialAsync(ct).ConfigureAwait(false);
+            if (hub is null)
+                return _status.Value.State == ServerLaneState.SignedOut
+                    ? new LaunchOutcome(false, null, "Not signed in to the server.", Unauthorized: true)
+                    : new LaunchOutcome(false, null, "Not connected to the server.");
             var agentId = await hub.InvokeAsync<string>(
                 HubMethods.RequestLaunchAgentV2, LaunchPayload.For(request), ct).ConfigureAwait(false);
             return new LaunchOutcome(Started: true, AgentId: agentId, Error: null);
         } catch (Exception ex) {
             return new LaunchOutcome(false, null, ex.Message, IsUnauthorized(ex));
         }
+    }
+
+    /// A launch is the user asking for the server now, so it redials at once instead of leaving the
+    /// lane to its ladder, then waits a short while for the result. Concurrent launches share one
+    /// redial: a second restart would cancel the connection the first is waiting on.
+    async Task<HubConnection?> RedialAsync(CancellationToken ct) {
+        if (_serverUrl is null) return null;
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var watch = _status.Subscribe(s => {
+            if (s.State == ServerLaneState.SignedOut || _hub is { State: HubConnectionState.Connected }) ready.TrySetResult();
+        });
+        lock (_redialLock) {
+            if (_redial is not { IsCompleted: false }) {
+                Log("server_lane_redial", ("trigger", "launch"), ("state", _status.Value.State.ToString()));
+                _redial = RestartAsync(CancellationToken.None);
+            }
+        }
+        try {
+            await ready.Task.WaitAsync(LaunchRedialWait, _time, ct).ConfigureAwait(false);
+        } catch (TimeoutException) { }
+        return _hub is { State: HubConnectionState.Connected } hub ? hub : null;
     }
 
     /// Walks the chain because SignalR surfaces the negotiate failure wrapped as often as bare.
