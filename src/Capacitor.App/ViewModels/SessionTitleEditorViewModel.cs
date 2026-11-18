@@ -93,6 +93,9 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
     // the UI thread, each act only on a request they consume themselves.
     long _pendingRequest;
     long _lastRequest;
+    // Holds an expiry's claim and notice together against disposal, so no notice starts after teardown.
+    readonly Lock _expiryGate = new();
+    bool _retired;
     readonly SerialDisposable _requestExpiry = new();
 
     /// Begins the edit now, or once the session turns out renamable within <paramref name="within"/>: a
@@ -106,7 +109,9 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
         var request = Interlocked.Increment(ref _lastRequest);
         Volatile.Write(ref _pendingRequest, request);
         _requestExpiry.Disposable = time.CreateTimer(_ => {
-            if (Interlocked.CompareExchange(ref _pendingRequest, 0, request) == request) _notifier.Notify(CannotRenameCopy);
+            lock (_expiryGate) {
+                if (!_retired && Interlocked.CompareExchange(ref _pendingRequest, 0, request) == request) _notifier.Notify(CannotRenameCopy);
+            }
         }, null, within, Timeout.InfiniteTimeSpan);
     }
 
@@ -166,6 +171,7 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
     };
 
     public void Dispose() {
+        lock (_expiryGate) _retired = true;
         DropRequest();
         _requestExpiry.Dispose();
         _disposed.Cancel();
