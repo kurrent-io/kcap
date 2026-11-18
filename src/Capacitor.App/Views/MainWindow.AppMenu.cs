@@ -43,7 +43,7 @@ public partial class MainWindow {
             ToggleAppMenu();
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(PointerPressedEvent, (_, _) => _altTap.Cancel(), RoutingStrategies.Tunnel, handledEventsToo: true);
-        Deactivated += (_, _) => _altTap.Cancel();
+        Deactivated += (_, _) => _altTap.Reset();
     }
 
     AboutWindow? _about;

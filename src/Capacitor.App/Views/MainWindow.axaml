@@ -128,7 +128,10 @@
                                             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
                                         </Style>
                                     </StackPanel.Styles>
-                                    <StackPanel x:Name="AppMenuRows" Spacing="2" />
+                                    <!-- The popup is capped at the screen's height; a long menu scrolls rather than clipping its last rows. -->
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                        <StackPanel x:Name="AppMenuRows" Spacing="2" />
+                                    </ScrollViewer>
                                     <Border Height="1" Margin="8,4" Background="{StaticResource KcapBorderBrush}" />
                                     <TextBlock x:Name="AppMenuVersionText" Text="{Binding AppVersionLabel}"
                                                Foreground="{StaticResource KcapFaintBrush}" FontSize="12" Margin="10,4" />

@@ -60,4 +60,29 @@ public class AltTapTests {
 
         await Assert.That(tap.KeyUp(Key.LeftAlt)).IsTrue();
     }
+
+    /// Auto-repeat after a chord or a cancel must not rearm the hold it belongs to.
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_repeat_does_not_rearm_a_cancelled_hold(bool byChord) {
+        var tap = new AltTap();
+        tap.KeyDown(Key.LeftAlt, KeyModifiers.Alt);
+        if (byChord) tap.KeyDown(Key.Left, KeyModifiers.Alt);
+        else tap.Cancel();
+        tap.KeyDown(Key.LeftAlt, KeyModifiers.Alt);
+
+        await Assert.That(tap.KeyUp(Key.LeftAlt)).IsFalse();
+    }
+
+    /// A release that went to another window never arrives, so the next press starts a new hold.
+    [Test]
+    public async Task After_a_reset_the_next_press_can_tap() {
+        var tap = new AltTap();
+        tap.KeyDown(Key.LeftAlt, KeyModifiers.Alt);
+        tap.Reset();
+        tap.KeyDown(Key.LeftAlt, KeyModifiers.Alt);
+
+        await Assert.That(tap.KeyUp(Key.LeftAlt)).IsTrue();
+    }
 }
