@@ -2438,7 +2438,9 @@ public partial class App : Application {
                 .Where(list => list is not null)
                 .Select(list => list!),
             readWorkItems: sessions is null ? null : readWorkItems,
-            workItemsChanged: sessions?.Snapshots.Select(_ => Unit.Default).Merge(workItemPages?.Changed ?? Observable.Never<Unit>()),
+            // A person's change moves the work item its session arrives with, so the listing is read again.
+            workItemsChanged: sessions?.Snapshots.Select(_ => Unit.Default)
+                .Merge((workItemPages?.Changed ?? Observable.Never<Unit>()).Do(changed => { _ = sessions.ReconcileAsync(); })),
             suggestedSessions: workItemPages?.SuggestedSessions,
             stopSession: actions.RequestStop,
             closeWorkspace: () => vm?.CloseWorkspace());

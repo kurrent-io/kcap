@@ -83,6 +83,7 @@ sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
     public IObservable<bool> Current => CurrentSubject;
     public RailScope Scope { get => _scope.Value; set { if (_scope.Value != value) _scope.OnNext(value); } }
     public IObservable<RailScope> ScopeChanges => _scope;
+    public string? Project { get; set; }
 
     public Task ShowMoreAsync() { ShowMoreCalls++; return Task.CompletedTask; }
     public Task ReconcileAsync() { ReconcileCalls++; return Task.CompletedTask; }

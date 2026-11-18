@@ -65,6 +65,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
     int _laneEpoch;
     bool _connected;
     int _pages = 1;
+    string? _project;
     bool _busy;
     bool _rerun;
     bool _fullRequested;
@@ -222,6 +223,21 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
                 _keptRow = null;
                 _paging.OnNext(new(0, 0, 1, false, false));
                 _scope.OnNext(value);
+                EmitSnapshot();
+            }
+            ReconcileIfConnected();
+        }
+    }
+
+    public string? Project {
+        get { lock (_lock) return _project; }
+        set {
+            lock (_lock) {
+                if (_disposed || _project == value) return;
+                _project = value;
+                _pages = 1;
+                _ended.Clear();
+                _paging.OnNext(new(0, 0, 1, false, false));
                 EmitSnapshot();
             }
             ReconcileIfConnected();
@@ -493,6 +509,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
             int generation, laneEpoch, pages, account;
             long readSeq, titleSeq;
             RailScope scope;
+            string? project;
             bool full;
             lock (_lock) {
                 generation = _generation;
@@ -500,6 +517,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
                 laneEpoch = _laneEpoch;
                 pages = _pages;
                 scope = _scope.Value;
+                project = _project;
                 full = _fullRequested;
                 _fullRequested = false;
                 readSeq = _deleteSeq;
@@ -513,7 +531,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
             var unauthorized = false;
             TimeSpan? refused = null;
             try {
-                (snapshot, unauthorized, refused) = await ReadAsync(scope, pages, full).ConfigureAwait(false);
+                (snapshot, unauthorized, refused) = await ReadAsync(scope, project, pages, full).ConfigureAwait(false);
             } catch (Exception) {
                 // A data-plane read that throws is a missed refresh, never an app fault.
             }
@@ -521,9 +539,9 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
             bool rerun;
             List<TaskCompletionSource> served;
             lock (_lock) {
-                // A read taken under another scope or page count answers a question no longer asked,
-                // and one admitted while the lane is down answers for a lane that is not there.
-                if (generation == _generation && _connected && !_disposed && scope == _scope.Value && pages == _pages) {
+                // A read taken under another scope, project or page count answers a question no longer
+                // asked, and one admitted while the lane is down answers for a lane that is not there.
+                if (generation == _generation && _connected && !_disposed && scope == _scope.Value && project == _project && pages == _pages) {
                     if (snapshot is not null && EndsUnlisted(snapshot)) {
                         // Its waiters are served by the full read that publishes, not by this one.
                         _fullRequested = true;
@@ -601,7 +619,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         EmitSnapshot();
     }
 
-    async Task<(Snapshot? Snapshot, bool Unauthorized, TimeSpan? RetryAfter)> ReadAsync(RailScope scope, int pages, bool full) {
+    async Task<(Snapshot? Snapshot, bool Unauthorized, TimeSpan? RetryAfter)> ReadAsync(RailScope scope, string? project, int pages, bool full) {
         var owner = scope == RailScope.Mine ? "me" : null;
         var (scoped, failure) = await ReadLiveAsync(owner).ConfigureAwait(false);
         if (scoped is null) return (null, failure.Unauthorized, failure.RetryAfter);
@@ -621,7 +639,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         var next = 0;
         void Launch() {
             for (; inFlight.Count < EndedPagesInFlight && next < count; next++)
-                inFlight.Enqueue(_fetch(new ServerSessionsQuery("ended", owner, PageSize, next * PageSize), abandon.Token));
+                inFlight.Enqueue(_fetch(new ServerSessionsQuery("ended", owner, PageSize, next * PageSize, project), abandon.Token));
         }
         // Pages past a short or failed one are dropped unread, exactly as a one-by-one read would never ask.
         void Abandon() {
@@ -749,7 +767,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
             var (client, status, _, _) = await http.ForWaitAsync(ct).ConfigureAwait(false);
             using (client) {
                 if (status is not (AuthStatus.Ok or AuthStatus.NoAuthRequired)) return new(null, 0, Unauthorized: true);
-                var url = $"{serverUrl.TrimEnd('/')}/{ApiRoutes.SessionListing(query.State, query.Owner, query.Limit, query.Offset)}";
+                var url = $"{serverUrl.TrimEnd('/')}/{ApiRoutes.SessionListing(query.State, query.Owner, query.Limit, query.Offset, query.ProjectId)}";
                 using var response = await client.GetAsync(url, ct).ConfigureAwait(false);
                 if (response.StatusCode == HttpStatusCode.Unauthorized) return new(null, 0, Unauthorized: true);
                 // The server-wide cap answers a one-second wait, the shortest a refusal can ask for.

@@ -30,6 +30,9 @@ public interface IServerSessionsService {
     IObservable<bool> Current { get; }
     RailScope Scope { get; set; }
     IObservable<RailScope> ScopeChanges { get; }
+    /// The project whose ended sessions are paged, or null for every project. Live sessions are listed
+    /// whatever the project. A server that does not know the filter pages every project's.
+    string? Project { get; set; }
     /// Asks for one more page of ended sessions; refused silently at the offset cap.
     Task ShowMoreAsync();
     /// Re-reads the live listing and the whole ended prefix and replaces the caches with the result.

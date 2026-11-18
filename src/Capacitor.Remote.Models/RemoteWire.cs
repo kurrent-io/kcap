@@ -63,9 +63,10 @@ public static class ApiRoutes {
     public static string LooseEndPart(string workItemId, string looseEndId) =>
         $"api/work-items/{Uri.EscapeDataString(workItemId)}/loose-ends/{Uri.EscapeDataString(looseEndId)}/part";
     public const string SessionOwners  = "api/sessions/owners";
-    public static string SessionListing(string state, string? owner, int limit, int offset) =>
+    public static string SessionListing(string state, string? owner, int limit, int offset, string? projectId = null) =>
         $"api/sessions/listing?state={state}&limit={limit}&offset={offset}"
-        + (owner is null ? "" : $"&owner={Uri.EscapeDataString(owner)}");
+        + (owner is null ? "" : $"&owner={Uri.EscapeDataString(owner)}")
+        + (projectId is null ? "" : $"&project_id={Uri.EscapeDataString(projectId)}");
     public static string SessionDetail(string sessionId) =>
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/detail";
     public static string SessionHandoffContext(string sessionId) =>

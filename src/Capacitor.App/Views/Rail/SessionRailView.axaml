@@ -639,9 +639,11 @@
                                                 <TextBlock x:Name="RailWorkItemTitle" Text="{Binding Label}" FontSize="14"
                                                            Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                                 <Panel x:Name="RailWorkItemRing" Grid.Column="1" Width="14" Height="14" VerticalAlignment="Center">
-                                                    <Ellipse Stroke="{StaticResource KcapBorderStrongBrush}" StrokeThickness="2" />
-                                                    <Arc x:Name="RailWorkItemProgress" StartAngle="-90" SweepAngle="{Binding PartsSweep}"
+                                                    <Ellipse Stroke="{StaticResource KcapBorderStrongBrush}" StrokeThickness="2" IsVisible="{Binding !IsDone}" />
+                                                    <Arc x:Name="RailWorkItemProgress" StartAngle="-90" SweepAngle="{Binding PartsSweep}" IsVisible="{Binding !IsDone}"
                                                          Stroke="{StaticResource KcapMutedBrush}" StrokeThickness="2" StrokeLineCap="Round" />
+                                                    <views:AppIcon x:Name="RailWorkItemDone" Kind="Check" Size="14" IsVisible="{Binding IsDone}"
+                                                                   Foreground="{StaticResource KcapSuccessBrush}" />
                                                 </Panel>
                                                 <Button x:Name="RailWorkItemToggle" Grid.Column="1" Command="{Binding ToggleCommand}"
                                                         HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Padding="0"

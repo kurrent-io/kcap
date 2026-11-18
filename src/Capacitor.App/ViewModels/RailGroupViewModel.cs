@@ -30,6 +30,8 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public int PartsDone { get => _partsDone; private set => this.RaiseAndSetIfChanged(ref _partsDone, value); }
     int _partsTotal;
     public int PartsTotal { get => _partsTotal; private set => this.RaiseAndSetIfChanged(ref _partsTotal, value); }
+    bool _isDone;
+    public bool IsDone { get => _isDone; private set => this.RaiseAndSetIfChanged(ref _isDone, value); }
     public string PartsText => $"{PartsDone}/{PartsTotal}";
     public double PartsSweep => PartsTotal == 0 ? 0 : 360.0 * PartsDone / PartsTotal;
     public bool IsNoRepository { get; }
@@ -48,7 +50,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public bool ShowsHeaderBadge => _showsHeaderBadge.Value;
     public string Tooltip {
         get {
-            if (IsWorkItem) return $"{Label}\n{PartsDone} of {PartsTotal} parts done";
+            if (IsWorkItem) return IsDone ? $"{Label}\nDone" : $"{Label}\n{PartsDone} of {PartsTotal} parts done";
             var root = IsFolder ? $"{RootDisplay}\nFolder, not a repository with a remote" : RootDisplay;
             if (_countIsPartial) root += "\nCounts cover the ended sessions loaded so far";
             return HeaderStatus is { } status ? $"{root}\n\n{status.Tip}" : root;
@@ -153,6 +155,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         Relabel(item.Title);
         PartsDone = item.PartsDone;
         PartsTotal = item.PartsTotal;
+        IsDone = item.Done;
         this.RaisePropertyChanged(nameof(PartsText));
         this.RaisePropertyChanged(nameof(PartsSweep));
         this.RaisePropertyChanged(nameof(Tooltip));

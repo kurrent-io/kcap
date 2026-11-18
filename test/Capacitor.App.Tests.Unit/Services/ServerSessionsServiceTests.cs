@@ -58,6 +58,71 @@ public class ServerSessionsServiceTests {
         await Assert.That(unrelated.IsExpanded).IsFalse();
     });
 
+    /// A session sits under the work item it arrived with, the work item worked on most recently first, and a
+    /// later page brings a work item no earlier page held. A session that arrived with none stays in its day.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Listed_sessions_gather_under_the_work_item_they_arrive_with() => AvaloniaSession.RunOnUiAsync(async () => {
+        var (lane, listing, time, service) = Build();
+        using var serviceLifetime = service;
+        listing.Answer("active", "me", 0, 0);
+        listing.Answer("active", null, 0, 0);
+        static RepoSessionWorkItemDto Item(string id, string status = "in_progress", string? part = null) => new() {
+            WorkItemId = id, Title = id, Status = status, PartsDone = 1, PartsTotal = 3,
+            Part = part is null ? null : new() { WorkItemId = $"{id}-part", Title = part },
+        };
+        var rows = Rows("s", 1, 21).Select((row, at) => row with {
+            Repo = new() { Hash = "h", Owner = "kurrent-io", Name = "kcap" },
+            LastActivityAt = DateTimeOffset.UnixEpoch.AddDays(30 - at),
+        }).ToArray();
+        rows[0] = rows[0] with { WorkItem = Item("offline-queue", part: "Retry on reconnect") };
+        rows[1] = rows[1] with { WorkItem = Item("plan-ledger", "done") };
+        rows[3] = rows[3] with { WorkItem = Item("offline-queue") };
+        rows[20] = rows[20] with { WorkItem = Item("memory-search") };
+        listing.Answer("ended", "me", 0, 21, rows[..20]);
+        listing.Answer("ended", "me", 20, 21, rows[20..]);
+        using var remote = new FakeRemoteAgents();
+        using var directory = new AgentDirectory(new FakeDaemonClientService(), remote, lane,
+            new RepoIdentityResolver(_ => null), path => path, null, null, time, sessions: service);
+        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, time, sessions: service,
+            preferences: RailPreferences.Default with { Grouping = RailGrouping.WorkItem, Project = new("p1", "kcap", ["h"]) },
+            readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, [])));
+        Connect(lane);
+        IEnumerable<RailGroupViewModel> WorkItems() => rail.Groups.Where(g => g.IsWorkItem);
+        await Eventually(() => WorkItems().Sum(g => g.Sessions.Count) == 3 && rail.ShowsShowMore, "first page in rail");
+
+        await Assert.That(listing.Calls.Where(q => q.State == "ended").All(q => q.ProjectId == "p1")).IsTrue();
+        await Assert.That(string.Join(",", rail.Groups.TakeWhile(g => g.IsWorkItem).Select(g => g.WorkItemId))).IsEqualTo("offline-queue,plan-ledger");
+        await Assert.That(WorkItems().First().Sessions.Select(s => s.Id)).IsEquivalentTo(["s1", "s4"]);
+        await Assert.That(WorkItems().Select(g => g.IsDone)).IsEquivalentTo([false, true]);
+        await Assert.That(rail.Groups.Where(g => !g.IsWorkItem).Sum(g => g.Sessions.Count)).IsEqualTo(17);
+
+        await rail.ShowMoreCommand.Execute();
+        await Eventually(() => WorkItems().Count() == 3, "second page in rail");
+
+        await Assert.That(WorkItems().Last().Sessions.Select(s => s.Id)).IsEquivalentTo(["s21"]);
+        await Assert.That(rail.ShowsShowMore).IsFalse();
+    });
+
+    /// A project's ended sessions page from their first page, and the live listing stays every project's.
+    [Test]
+    public async Task Picking_a_project_pages_its_ended_sessions_from_the_first_page() {
+        var (lane, listing, _, service) = Build();
+        using var _ = service;
+        ScriptDefault(listing);
+        Connect(lane);
+        await Eventually(() => service.Ended.Count == 20, "first page");
+        await service.ShowMoreAsync();
+        await Eventually(() => service.Ended.Count == 40, "two pages");
+
+        service.Project = "p1";
+        await Eventually(() => listing.Calls.Any(q => q.ProjectId == "p1") && service.Ended.Count == 20, "project's first page");
+
+        var scoped = listing.Calls.Where(q => q.ProjectId == "p1").ToList();
+        await Assert.That(scoped.All(q => q is { State: "ended", Offset: 0 })).IsTrue();
+        await Assert.That(listing.Calls.SkipWhile(q => q.ProjectId is null).Where(q => q.State == "ended").All(q => q.ProjectId == "p1")).IsTrue();
+    }
+
     /// Answers each (state, owner, offset) from a script and records every query; a gate holds a
     /// matching query open until the test releases it.
     sealed class ScriptedListing {

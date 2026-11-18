@@ -29,4 +29,6 @@ public sealed record RepoSessionDto {
     /// session recorded before its CLI reported it.
     [JsonPropertyName("recording")]         public RepoSessionRecordingDto? Recording { get; init; }
     [JsonPropertyName("repo")]              public RepoSessionRepositoryDto? Repo { get; init; }
+    /// Null when the session sits in no work item the viewer can see, and from a server without work items version 2.
+    [JsonPropertyName("work_item")]         public RepoSessionWorkItemDto? WorkItem { get; init; }
 }
