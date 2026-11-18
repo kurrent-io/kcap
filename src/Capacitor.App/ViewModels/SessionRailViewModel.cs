@@ -39,8 +39,12 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     HashSet<string> _removed;
     readonly Action? _closeWorkspace;
     readonly IReadOnlyList<RailAction> _actions;
-    readonly Action<string, string>? _fileSession;
-    readonly Action<string, string>? _unfileSession;
+    readonly Func<string, string, Task<bool>>? _fileSession;
+    readonly Func<string, string, Task<bool>>? _unfileSession;
+    // Drops shown ahead of the server: session id → the work item it was dropped on, null when dropped out. Each holds
+    // until a listing agrees or the server refuses it.
+    readonly Dictionary<string, string?> _dropped = new(StringComparer.Ordinal);
+    readonly IAppNotifier? _notifier;
     readonly BehaviorSubject<IReadOnlySet<string>> _marked = new(FrozenSet<string>.Empty);
     string? _markAnchor;
     bool _applying;
@@ -339,10 +343,12 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             IObservable<IReadOnlySet<string>>? suggestedSessions = null,
             Action<AgentRow>? stopSession = null, Action? closeWorkspace = null,
             Action<Action>? afterPaint = null,
-            Action<string, string>? fileSession = null, Action<string, string>? unfileSession = null) {
+            Func<string, string, Task<bool>>? fileSession = null, Func<string, string, Task<bool>>? unfileSession = null,
+            IAppNotifier? notifier = null) {
         _directory = directory;
         _fileSession = fileSession;
         _unfileSession = unfileSession;
+        _notifier = notifier;
         _closeWorkspace = closeWorkspace;
         _afterPaint = afterPaint ?? PostAfterPaint;
         openLocalSession = SelectingFirst("local:", openLocalSession);
@@ -486,7 +492,9 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             if (_disposables.IsDisposed) return;
             _listed = snapshot;
             var items = WorkItemsIn(snapshot, _project, _time.GetUtcNow());
-            if (items.SequenceEqual(_lastWorkItems)) return;
+            var landed = _dropped.Where(drop => drop.Value == items.FirstOrDefault(item => item.PartBySession.ContainsKey(drop.Key))?.Id).ToList();
+            foreach (var drop in landed) _dropped.Remove(drop.Key);
+            if (landed.Count == 0 && items.SequenceEqual(_lastWorkItems)) return;
             _lastWorkItems = items;
             ApplyGrouping();
         }).DisposeWith(_disposables);
@@ -669,15 +677,27 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         if (workItemId is { } target) {
             List<string> moving = [.. sessions.Where(id => workItemOf.GetValueOrDefault(id) != target)];
             return _fileSession is not { } file || moving.Count == 0 ? null : () => {
-                foreach (var id in moving) file(target, id);
-                ClearMarks();
+                Drop(moving, target, id => file(target, id));
+                Groups.FirstOrDefault(group => group.WorkItemId == target)?.Expand();
             };
         }
         List<string> leaving = [.. sessions.Where(workItemOf.ContainsKey)];
-        return _unfileSession is not { } unfile || leaving.Count == 0 ? null : () => {
-            foreach (var id in leaving) unfile(workItemOf[id], id);
-            ClearMarks();
-        };
+        return _unfileSession is not { } unfile || leaving.Count == 0 ? null : () => Drop(leaving, null, id => unfile(workItemOf[id], id));
+    }
+
+    void Drop(IReadOnlyList<string> sessions, string? workItem, Func<string, Task<bool>> send) {
+        foreach (var session in sessions) _dropped[session] = workItem;
+        ClearMarks();
+        ApplyGrouping();
+        foreach (var session in sessions) _ = SettleDropAsync(session, workItem, send(session));
+    }
+
+    async Task SettleDropAsync(string session, string? workItem, Task<bool> sent) {
+        if (await sent || _disposables.IsDisposed) return;
+        _notifier?.Notify(workItem is null ? "Couldn't remove the session from the work item" : "Couldn't move the session");
+        if (!_dropped.TryGetValue(session, out var shown) || shown != workItem) return;
+        _dropped.Remove(session);
+        ApplyGrouping();
     }
 
     List<RailSessionViewModel> ShownRows() =>
@@ -704,8 +724,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     static readonly TimeSpan WorkItemActiveFor = TimeSpan.FromDays(3);
 
-    /// The work items the project's listed sessions arrived with that are in progress or were worked on lately, the one
-    /// worked on most recently first: a session in progress is the most recent there is.
+    /// The work items the project's listed sessions arrived with that are in progress or were worked on lately, newest
+    /// created first so that filing a session under one never moves it.
     static IReadOnlyList<RailWorkItem> WorkItemsIn(ServerSessionsSnapshot listed, RailProject? project, DateTimeOffset now) {
         if (project is null) return [];
         return [.. listed.Live.Concat(listed.MineLive).Concat(listed.Ended).Append(listed.Pinned).OfType<RepoSessionDto>()
@@ -713,8 +733,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .DistinctBy(row => row.SessionId)
             .GroupBy(row => row.WorkItem!.WorkItemId, StringComparer.Ordinal)
             .Where(sessions => sessions.Any(row => row.Status == "active") || sessions.Max(row => row.LastActivityAt) > now - WorkItemActiveFor)
-            .OrderByDescending(sessions => sessions.Any(row => row.Status == "active"))
-            .ThenByDescending(sessions => sessions.Max(row => row.LastActivityAt))
+            .OrderByDescending(sessions => sessions.First().WorkItem!.CreatedAt)
             .ThenBy(sessions => sessions.Key, StringComparer.Ordinal)
             .Select(sessions => {
                 var item = sessions.First().WorkItem!;
@@ -733,6 +752,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         var workItemOf = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var item in items)
             foreach (var session in item.PartBySession.Keys) workItemOf.TryAdd(session, item.Id);
+        foreach (var (session, workItem) in _dropped) {
+            workItemOf.Remove(session);
+            if (workItem is not null && items.Any(item => item.Id == workItem)) workItemOf[session] = workItem;
+        }
         _workItemOf.OnNext(workItemOf.ToFrozenDictionary(StringComparer.Ordinal));
         _workItems.EditDiff(items, (a, b) => a == b);
         // A new comparer clears and re-adds every group, so it goes out only when the order it encodes moved.

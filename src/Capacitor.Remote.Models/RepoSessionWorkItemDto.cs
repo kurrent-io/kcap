@@ -11,4 +11,6 @@ public sealed record RepoSessionWorkItemDto {
     [JsonPropertyName("parts_done")]   public int PartsDone { get; init; }
     [JsonPropertyName("parts_total")]  public int PartsTotal { get; init; }
     [JsonPropertyName("part")]         public WorkItemRefDto? Part { get; init; }
+    /// Null from a server that predates it.
+    [JsonPropertyName("created_at")]   public DateTimeOffset? CreatedAt { get; init; }
 }

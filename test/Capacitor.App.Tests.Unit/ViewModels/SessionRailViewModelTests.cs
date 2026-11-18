@@ -1110,17 +1110,17 @@ public class SessionRailViewModelTests {
 
     // ── work items ─────────────────────────────────────────────────────────────────────────────
 
-    static RepoSessionDto Tracked(string id, string? workItem, DateTime lastActivity, string status = "ended") => new() {
+    static RepoSessionDto Tracked(string id, string? workItem, DateTime lastActivity, string status = "ended", DateTime? workItemCreated = null) => new() {
         SessionId = id, Status = status, AccessLevel = "full", Vendor = "claude", Title = id,
         Owner = new() { UserId = "me", DisplayName = "Alexey" },
         StartedAt = new DateTimeOffset(lastActivity.AddHours(-1)), LastActivityAt = new DateTimeOffset(lastActivity),
         EndedAt = status == "ended" ? new DateTimeOffset(lastActivity) : null,
         Repo = new() { Hash = "h", Owner = "kurrent-io", Name = "kcap-cli" },
-        WorkItem = workItem is null ? null : new() { WorkItemId = workItem, Title = workItem },
+        WorkItem = workItem is null ? null : new() { WorkItemId = workItem, Title = workItem, CreatedAt = workItemCreated is { } at ? new DateTimeOffset(at) : null },
     };
 
     static (FakeAgentDirectory Directory, FakeServerSessionsService Sessions, SessionRailViewModel Rail) BuildWithWorkItems(
-            Action<string, string>? fileSession = null, Action<string, string>? unfileSession = null) {
+            Func<string, string, Task<bool>>? fileSession = null, Func<string, string, Task<bool>>? unfileSession = null) {
         var directory = new FakeAgentDirectory();
         var sessions = new FakeServerSessionsService();
         var rail = new SessionRailViewModel(directory, _ => { }, _ => { },
@@ -1146,7 +1146,8 @@ public class SessionRailViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var calls = new List<string>();
             var (directory, sessions, rail) = BuildWithWorkItems(
-                (item, id) => calls.Add($"file {item} {id}"), (item, id) => calls.Add($"unfile {item} {id}"));
+                (item, id) => { calls.Add($"file {item} {id}"); return Task.FromResult(true); },
+                (item, id) => { calls.Add($"unfile {item} {id}"); return Task.FromResult(true); });
             using (directory) using (sessions) using (rail) {
                 List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1)), Tracked("b", "AI-2", Noon.AddHours(-2)),
                     Tracked("loose", null, Noon.AddHours(-3)));
@@ -1176,6 +1177,46 @@ public class SessionRailViewModelTests {
                 var workItems = rail.Groups.Where(g => g.IsWorkItem).Select(g => g.Label);
                 await Assert.That(workItems).IsEquivalentTo(new[] { "AI-1" });
                 await Assert.That(rail.Groups.Where(g => !g.IsWorkItem).SelectMany(Ids)).Contains("old");
+            }
+        });
+    }
+
+    /// A dropped row moves into its work item, opened, before the server answers, and moves back when the server refuses the drop.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_drop_shows_at_once_and_a_refused_one_moves_back() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var answer = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var (directory, sessions, rail) = BuildWithWorkItems((_, _) => answer.Task);
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1)), Tracked("loose", null, Noon.AddHours(-3)));
+                var loose = rail.Groups.SelectMany(g => g.Sessions).Single(s => s.Row.SessionId == "loose");
+
+                rail.DropOn([loose], "AI-1")!();
+                var shown = Ids(rail.Groups.Single(g => g.WorkItemId == "AI-1")).ToList();
+                var expanded = rail.Groups.Single(g => g.WorkItemId == "AI-1").IsExpanded;
+                answer.SetResult(false);
+
+                await Assert.That(shown).Contains("loose");
+                await Assert.That(expanded).IsTrue();
+                await WorkspaceFixtures.WaitUntilAsync(() => !Ids(rail.Groups.Single(g => g.WorkItemId == "AI-1")).Contains("loose"),
+                    what: "the refused drop moved back");
+            }
+        });
+    }
+
+    /// Work items sort newest created first, so a newer or live session filed under an older one doesn't move it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Work_items_keep_their_created_order_whatever_their_sessions_do() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, rail) = BuildWithWorkItems();
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1), status: "active", workItemCreated: Noon.AddDays(-2)),
+                    Tracked("b", "AI-2", Noon.AddHours(-2), workItemCreated: Noon.AddDays(-1)));
+
+                await Assert.That(rail.Groups.Where(g => g.IsWorkItem).Select(g => g.Label))
+                    .IsEquivalentTo(["AI-2", "AI-1"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
             }
         });
     }
