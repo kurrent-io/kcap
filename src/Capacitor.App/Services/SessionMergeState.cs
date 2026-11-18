@@ -122,7 +122,7 @@ internal sealed record SessionMergeState {
             LastActivityAt = fields.Activity == Listing ? listing.LastActivityAt.UtcDateTime : row.LastActivityAt,
             // A server that sends no session start leaves a remote row its registration time, which a
             // daemon reconnect moves past the session's start.
-            CreatedAt = row.Origin == AgentOrigin.Remote && listing.StartedAt.UtcDateTime < row.CreatedAt ? listing.StartedAt.UtcDateTime : row.CreatedAt,
+            CreatedAt = row.Origin == AgentOrigin.Remote && !row.CreatedAtIsSessionStart ? listing.StartedAt.UtcDateTime : row.CreatedAt,
             AccessLevel = fields.Access == Listing ? listing.AccessLevel : row.AccessLevel,
             ListedPullRequests = listing.PullRequests,
             Branch = branch,

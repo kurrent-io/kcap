@@ -605,6 +605,23 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("remote:r1").Value.CreatedAt).IsEqualTo(new DateTime(2026, 10, 20, 8, 0, 0, DateTimeKind.Utc));
     }
 
+    /// The listing's start stands in only for a missing registry start, never for an earlier one.
+    [Test]
+    public async Task A_remote_rows_registry_start_outranks_its_listings() {
+        var (_, remote, sessions, _, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        remote.Cache.AddOrUpdate(Remote("r1", daemon: "elsewhere", owner: "me", sessionId: "S") with {
+            RegisteredAt = new DateTime(2026, 11, 10, 9, 46, 0, DateTimeKind.Utc),
+            SessionStartedAt = new DateTimeOffset(2026, 11, 5, 8, 0, 0, TimeSpan.Zero),
+        });
+        var row = Listed("S", "active") with { StartedAt = new DateTimeOffset(2026, 11, 4, 8, 0, 0, TimeSpan.Zero) };
+        sessions.LiveCache.AddOrUpdate(row);
+        sessions.MineLiveCache.AddOrUpdate(row);
+
+        await Assert.That(dir.Rows.Lookup("remote:r1").Value.CreatedAt).IsEqualTo(new DateTime(2026, 11, 5, 8, 0, 0, DateTimeKind.Utc));
+    }
+
     /// The tone cache marks a hosted row from its listing, so the daemon row carries the listing's PR links.
     [Test]
     public async Task A_hosted_row_takes_its_listings_pull_requests() {

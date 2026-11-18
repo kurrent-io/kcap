@@ -427,7 +427,7 @@ public sealed partial class WorkContextViewModel {
         if (!(ContextPercent >= CompactThreshold) || _stats?.AwaitingContextReading == true) EndCompact();
         RaiseCompactState();
         Created = SessionFactText.Timestamp(summary?.StartedAt, _time.LocalTimeZone);
-        Updated = SessionFactText.Timestamp(summary?.LastEventAt ?? summary?.StartedAt, _time.LocalTimeZone);
+        Updated = SessionFactText.Timestamp(summary?.LastEventAt, _time.LocalTimeZone);
         SessionSharing = summary is null ? SessionFactText.Unknown : SessionFactText.SessionSharing(summary);
         AgentSharing = SessionFactText.AgentSharing(summary?.AgentVisibility);
         _storedBranch = FirstNonBlank(summary?.RepoBranch, summary?.Repositories.FirstOrDefault(r => r.IsPrimary)?.Branch);

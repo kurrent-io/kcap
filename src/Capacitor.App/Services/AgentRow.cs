@@ -56,7 +56,9 @@ public sealed record AgentRow(
         // Whether the hosted agent's terminal takes typed input from this viewer's hub.
         bool TerminalInput = false,
         // What the viewer may do to a hosted agent on another machine; null from a server with agent privileges off.
-        AgentViewerRightsDto? ViewerRights = null) {
+        AgentViewerRightsDto? ViewerRights = null,
+        // Whether CreatedAt is the registry's session start rather than its registration time.
+        bool CreatedAtIsSessionStart = false) {
 
     /// A terminal session a daemon steers rather than hosts, from either lane.
     public bool IsAttached => Kind == AgentActionService.AttachedKind;
@@ -106,7 +108,8 @@ public sealed record AgentRow(
                 : null,
             OwnerUserId: dto.OwnerUserId,
             AccountDirectory: dto.AccountDirectory, AccountId: dto.AccountId, AccountLabel: dto.AccountLabel,
-            TerminalInput: dto.TerminalInput, ViewerRights: dto.ViewerRights);
+            TerminalInput: dto.TerminalInput, ViewerRights: dto.ViewerRights,
+            CreatedAtIsSessionStart: dto.SessionStartedAt is not null);
     }
 
     /// A row from the server's listing. The status is the daemon vocabulary the rail already reads:
