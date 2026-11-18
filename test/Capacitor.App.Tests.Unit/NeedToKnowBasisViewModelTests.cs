@@ -11,7 +11,7 @@ public class NeedToKnowBasisViewModelTests {
     [Before(Test)]
     public void Reset() {
         Model.SetWorthKnowingCommand.Execute(NeedToKnowDisplay.Normal).Subscribe();
-        Model.SetOnlyIfCuriousCommand.Execute(NeedToKnowDisplay.Greyed).Subscribe();
+        Model.SetOnlyIfCuriousCommand.Execute(NeedToKnowDisplay.Faded).Subscribe();
     }
 
     [After(Test)]
@@ -22,7 +22,7 @@ public class NeedToKnowBasisViewModelTests {
         Model.SetWorthKnowingCommand.Execute(NeedToKnowDisplay.Collapsed).Subscribe();
 
         await Assert.That(NeedToKnowBasis.Current).IsEqualTo(new NeedToKnowBasis(NeedToKnowDisplay.Collapsed, NeedToKnowDisplay.Collapsed));
-        await Assert.That(Model.OnlyIfCuriousCanBeGreyed).IsFalse();
+        await Assert.That(Model.OnlyIfCuriousCanBeFaded).IsFalse();
         await Assert.That(Model.OnlyIfCuriousCanBeCollapsed).IsTrue();
     }
 

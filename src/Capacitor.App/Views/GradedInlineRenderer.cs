@@ -22,10 +22,10 @@ sealed class GradedInlineRenderer : AvaloniaObjectRenderer<GradedInline> {
                 renderer.WriteChildren(obj);
                 renderer.WriteInline(Glyph(new string(NeedToKnowMarks.Close, glyphs)));
                 return;
-            case NeedToKnowDisplay.Greyed:
+            case NeedToKnowDisplay.Faded:
                 var span = new Span();
-                span.Classes.Add(NeedToKnowHover.GreyedClass);
-                if (obj.Deep) span.Classes.Add("need-to-know-deep");
+                span.Classes.Add(NeedToKnowHover.FadedClass);
+                span.Classes.Add(obj.Level == NeedToKnowLevel.OnlyIfCurious ? "need-to-know-curious" : "need-to-know-worth");
                 renderer.Push(span.Inlines);
                 renderer.WriteChildren(obj);
                 renderer.Pop();

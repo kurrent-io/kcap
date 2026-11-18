@@ -44,9 +44,7 @@ public sealed class NeedToKnowMarks : IMarkdownExtension {
                 for (var j = i; j < end; j++) graded[j].Inline.Remove();
                 removed = true;
             } else if (display != NeedToKnowDisplay.Normal) {
-                var deep = level == NeedToKnowLevel.OnlyIfCurious && display == NeedToKnowDisplay.Greyed
-                           && basis.WorthKnowing == NeedToKnowDisplay.Greyed;
-                var wrapper = new GradedInline(level, display, deep);
+                var wrapper = new GradedInline(level, display);
                 graded[end - 1].Inline.InsertAfter(wrapper);
                 for (var j = i; j < end; j++) {
                     graded[j].Inline.Remove();

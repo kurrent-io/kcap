@@ -3,13 +3,13 @@ using Capacitor.Cli.Core.Config;
 
 namespace Capacitor.Cli;
 
-/// <summary>Teaches the agent the importance marks the desktop app greys or hides, while the profile has
+/// <summary>Teaches the agent the importance marks the desktop app fades or hides, while the profile has
 /// the need-to-know-basis experiment on. Off, the agent never sees the convention, because a reader
 /// without the app would see the corner brackets as noise.</summary>
 static class NeedToKnowMarksNudge {
     public const string Text =
         "## Need to know basis\n" +
-        "The person reading your replies can grey out or hide their less important parts. In chat replies to them, " +
+        "The person reading your replies can fade or hide their less important parts. In chat replies to them, " +
         "grade what you write by one test: how much do they need to know this?\n" +
         "- Leave must-know text unmarked. Every paragraph, bullet, heading and table cell starts at must know.\n" +
         "- Wrap worth-knowing text in ⌞ and ⌟, and only-if-curious text in ⌞⌞ and ⌟⌟. A curious span can sit inside a worth-knowing one.\n" +

@@ -5,7 +5,7 @@ namespace Capacitor.App.NeedToKnow;
 /// How each level below must-know is shown. Must-know is always shown normally, and only-if-curious is
 /// never more visible than worth-knowing.
 public sealed record NeedToKnowBasis(NeedToKnowDisplay WorthKnowing, NeedToKnowDisplay OnlyIfCurious) {
-    public static NeedToKnowBasis Default { get; } = new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Greyed);
+    public static NeedToKnowBasis Default { get; } = new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Faded);
 
     static readonly BehaviorSubject<NeedToKnowBasis> Subject = new(Default);
 

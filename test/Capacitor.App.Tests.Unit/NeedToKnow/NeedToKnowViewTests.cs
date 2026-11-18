@@ -33,9 +33,9 @@ public class NeedToKnowViewTests {
                 Dispatcher.UIThread.RunJobs();
                 await Assert.That(Reads(Paragraphs(root).Single())).IsEqualTo("Tests pass. ⌞7 ran.⌟ CI is green.");
 
-                NeedToKnowBasis.Set(NeedToKnowBasis.Default with { WorthKnowing = NeedToKnowDisplay.Greyed });
+                NeedToKnowBasis.Set(NeedToKnowBasis.Default with { WorthKnowing = NeedToKnowDisplay.Faded });
                 Dispatcher.UIThread.RunJobs();
-                var greyed = Spans<Span>(Paragraphs(root).Single().Inlines!).Where(s => s.Classes.Contains("need-to-know-greyed")).ToList();
+                var greyed = Spans<Span>(Paragraphs(root).Single().Inlines!).Where(s => s.Classes.Contains("need-to-know-faded")).ToList();
                 await Assert.That(greyed.Count).IsEqualTo(1);
                 await Assert.That(greyed[0].Inlines.Text).IsEqualTo("7 ran.");
             } finally {
@@ -45,21 +45,21 @@ public class NeedToKnowViewTests {
     }
 
     [Test]
-    public async Task The_pointer_lights_the_deep_grey_span_under_it() {
+    public async Task The_pointer_lights_the_faded_curious_span_under_it() {
         await RunOnUiAsync(async () => {
-            NeedToKnowBasis.Set(new(NeedToKnowDisplay.Greyed, NeedToKnowDisplay.Greyed));
+            NeedToKnowBasis.Set(new(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Faded));
             var (window, root, _) = Show("Tests pass. ⌞⌞The launcher suite takes forty seconds.⌟⌟");
             try {
                 var block = Paragraphs(root).Single();
-                var deep = Spans<Span>(block.Inlines!).Single(s => s.Classes.Contains("need-to-know-deep"));
+                var curious = Spans<Span>(block.Inlines!).Single(s => s.Classes.Contains("need-to-know-curious"));
 
                 window.MouseMove(At(block, 20, window));
                 Dispatcher.UIThread.RunJobs();
-                await Assert.That(deep.Classes.Contains("need-to-know-lit")).IsTrue();
+                await Assert.That(curious.Classes.Contains("need-to-know-lit")).IsTrue();
 
                 window.MouseMove(At(block, 3, window));
                 Dispatcher.UIThread.RunJobs();
-                await Assert.That(deep.Classes.Contains("need-to-know-lit")).IsFalse();
+                await Assert.That(curious.Classes.Contains("need-to-know-lit")).IsFalse();
             } finally {
                 window.Close();
             }
@@ -71,17 +71,35 @@ public class NeedToKnowViewTests {
     [Arguments("- **Bold lead:** text with `code` here. ⌞⌞Curious middle.⌟⌟ Plain tail.")]
     [Arguments("See [a link](https://example.com) first. ⌞⌞Curious middle.⌟⌟ Plain tail.")]
     [Arguments("Lead. ⌞Worth part ⌞⌞Curious middle.⌟⌟ more worth.⌟ Plain tail.")]
-    public async Task The_pointer_lights_a_deep_grey_span_inside_a_block(string markdown) {
+    public async Task The_pointer_lights_a_faded_curious_span_inside_a_block(string markdown) {
         await RunOnUiAsync(async () => {
-            NeedToKnowBasis.Set(new(NeedToKnowDisplay.Greyed, NeedToKnowDisplay.Greyed));
+            NeedToKnowBasis.Set(new(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Faded));
             var (window, root, _) = Show(markdown);
             try {
                 var block = Paragraphs(root).Single();
-                var deep = Spans<Span>(block.Inlines!).Single(s => s.Classes.Contains("need-to-know-deep"));
+                var curious = Spans<Span>(block.Inlines!).Single(s => s.Classes.Contains("need-to-know-curious"));
                 var index = Reads(block).IndexOf("Curious middle", StringComparison.Ordinal) + 4;
                 window.MouseMove(At(block, index, window));
                 Dispatcher.UIThread.RunJobs();
-                await Assert.That(deep.Classes.Contains("need-to-know-lit")).IsTrue();
+                await Assert.That(curious.Classes.Contains("need-to-know-lit")).IsTrue();
+            } finally {
+                window.Close();
+            }
+        });
+    }
+
+    [Test]
+    public async Task The_pointer_lights_a_faded_curious_span_on_a_wrapped_line() {
+        await RunOnUiAsync(async () => {
+            NeedToKnowBasis.Set(new(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Faded));
+            var (window, root, _) = Show("⌞⌞This curious paragraph is long enough to wrap across several lines in a narrow view, so the pointer can rest on its last line.⌟⌟", width: 200);
+            try {
+                var block = Paragraphs(root).Single();
+                var curious = Spans<Span>(block.Inlines!).Single(s => s.Classes.Contains("need-to-know-curious"));
+                await Assert.That(block.TextLayout.TextLines.Count).IsGreaterThan(2);
+                window.MouseMove(At(block, Reads(block).IndexOf("last line", StringComparison.Ordinal), window));
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(curious.Classes.Contains("need-to-know-lit")).IsTrue();
             } finally {
                 window.Close();
             }

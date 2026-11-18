@@ -21,7 +21,7 @@ Features:
                           turned on. Desktop app only, like in-app-pages
   need-to-know-basis      Ask agents to mark the worth-knowing and only-if-curious parts of their
                           replies, and choose in the desktop app's right bar whether each is shown,
-                          marked, greyed, collapsed or hidden. Applies to sessions started after it is
+                          marked, faded, collapsed or hidden. Applies to sessions started after it is
                           turned on. Desktop app only, like in-app-pages
 
 The profile in use is the one KCAP_PROFILE names, or else the active profile

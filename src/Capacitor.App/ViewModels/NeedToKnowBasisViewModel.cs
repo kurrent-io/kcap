@@ -22,23 +22,23 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
 
     public ReactiveCommand<NeedToKnowDisplay, Unit> SetWorthKnowingCommand { get; }
 
-    // Percent of the way from the canvas to the text colour; the defaults match the palette's greys.
-    double _worthGrey = 60;
-    double _curiousGrey = 40;
+    // Opacity percent of the text colour; the defaults match the brushes App.axaml starts with.
+    double _worthFade = 60;
+    double _curiousFade = 40;
 
-    public double WorthGrey {
-        get => _worthGrey;
+    public double WorthFade {
+        get => _worthFade;
         set {
-            this.RaiseAndSetIfChanged(ref _worthGrey, Math.Round(value));
-            NeedToKnowGreys.Set(NeedToKnowGreys.WorthKey, _worthGrey);
+            this.RaiseAndSetIfChanged(ref _worthFade, Math.Round(value));
+            NeedToKnowFades.Set(NeedToKnowFades.WorthKey, _worthFade);
         }
     }
 
-    public double CuriousGrey {
-        get => _curiousGrey;
+    public double CuriousFade {
+        get => _curiousFade;
         set {
-            this.RaiseAndSetIfChanged(ref _curiousGrey, Math.Round(value));
-            NeedToKnowGreys.Set(NeedToKnowGreys.CuriousKey, _curiousGrey);
+            this.RaiseAndSetIfChanged(ref _curiousFade, Math.Round(value));
+            NeedToKnowFades.Set(NeedToKnowFades.CuriousKey, _curiousFade);
         }
     }
 
@@ -46,29 +46,29 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
 
     public bool WorthKnowingNormal => _basis.WorthKnowing == NeedToKnowDisplay.Normal;
     public bool WorthKnowingMarked => _basis.WorthKnowing == NeedToKnowDisplay.Marked;
-    public bool WorthKnowingGreyed => _basis.WorthKnowing == NeedToKnowDisplay.Greyed;
+    public bool WorthKnowingFaded => _basis.WorthKnowing == NeedToKnowDisplay.Faded;
     public bool WorthKnowingCollapsed => _basis.WorthKnowing == NeedToKnowDisplay.Collapsed;
     public bool WorthKnowingHidden => _basis.WorthKnowing == NeedToKnowDisplay.Hidden;
     public bool OnlyIfCuriousNormal => _basis.OnlyIfCurious == NeedToKnowDisplay.Normal;
     public bool OnlyIfCuriousMarked => _basis.OnlyIfCurious == NeedToKnowDisplay.Marked;
-    public bool OnlyIfCuriousGreyed => _basis.OnlyIfCurious == NeedToKnowDisplay.Greyed;
+    public bool OnlyIfCuriousFaded => _basis.OnlyIfCurious == NeedToKnowDisplay.Faded;
     public bool OnlyIfCuriousCollapsed => _basis.OnlyIfCurious == NeedToKnowDisplay.Collapsed;
     public bool OnlyIfCuriousHidden => _basis.OnlyIfCurious == NeedToKnowDisplay.Hidden;
     public bool OnlyIfCuriousCanBeNormal => _basis.WorthKnowing <= NeedToKnowDisplay.Normal;
     public bool OnlyIfCuriousCanBeMarked => _basis.WorthKnowing <= NeedToKnowDisplay.Marked;
-    public bool OnlyIfCuriousCanBeGreyed => _basis.WorthKnowing <= NeedToKnowDisplay.Greyed;
+    public bool OnlyIfCuriousCanBeFaded => _basis.WorthKnowing <= NeedToKnowDisplay.Faded;
     public bool OnlyIfCuriousCanBeCollapsed => _basis.WorthKnowing <= NeedToKnowDisplay.Collapsed;
 
     void Apply(NeedToKnowBasis basis) {
         _basis = basis;
         NeedToKnowBasis.Set(basis);
         foreach (var name in new[] {
-                     nameof(WorthKnowingNormal), nameof(WorthKnowingMarked), nameof(WorthKnowingGreyed),
+                     nameof(WorthKnowingNormal), nameof(WorthKnowingMarked), nameof(WorthKnowingFaded),
                      nameof(WorthKnowingCollapsed), nameof(WorthKnowingHidden),
-                     nameof(OnlyIfCuriousNormal), nameof(OnlyIfCuriousMarked), nameof(OnlyIfCuriousGreyed),
+                     nameof(OnlyIfCuriousNormal), nameof(OnlyIfCuriousMarked), nameof(OnlyIfCuriousFaded),
                      nameof(OnlyIfCuriousCollapsed), nameof(OnlyIfCuriousHidden),
                      nameof(OnlyIfCuriousCanBeNormal), nameof(OnlyIfCuriousCanBeMarked),
-                     nameof(OnlyIfCuriousCanBeGreyed), nameof(OnlyIfCuriousCanBeCollapsed),
+                     nameof(OnlyIfCuriousCanBeFaded), nameof(OnlyIfCuriousCanBeCollapsed),
                  })
             this.RaisePropertyChanged(name);
     }

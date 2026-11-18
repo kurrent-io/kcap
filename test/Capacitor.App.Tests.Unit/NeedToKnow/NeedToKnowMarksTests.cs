@@ -10,11 +10,11 @@ namespace Capacitor.App.Tests.Unit.NeedToKnow;
 public class NeedToKnowMarksTests {
     static readonly MarkdownPipeline WithoutPass = new MarkdownPipelineBuilder().UseSupportedExtensions().Build();
 
-    static readonly NeedToKnowBasis AllGreyed = new(NeedToKnowDisplay.Greyed, NeedToKnowDisplay.Greyed);
+    static readonly NeedToKnowBasis AllFaded = new(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Faded);
     static readonly NeedToKnowBasis AllHidden = new(NeedToKnowDisplay.Hidden, NeedToKnowDisplay.Hidden);
     static readonly NeedToKnowBasis AllNormal = new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Normal);
 
-    /// One line per leaf block; a graded run shows as `{w:…}` or `{c:…}` when greyed, `[w:…]` when
+    /// One line per leaf block; a graded run shows as `{w:…}` or `{c:…}` when faded, `[w:…]` when
     /// marked and `&lt;w:…&gt;` when collapsed.
     static string Render(string markdown, NeedToKnowBasis basis) {
         var document = Markdown.Parse(markdown, WithoutPass);
@@ -39,7 +39,7 @@ public class NeedToKnowMarksTests {
 
     static string Graded(GradedInline graded) {
         var (open, close) = graded.Display switch {
-            NeedToKnowDisplay.Greyed => ("{", "}"),
+            NeedToKnowDisplay.Faded => ("{", "}"),
             NeedToKnowDisplay.Marked => ("[", "]"),
             _                        => ("<", ">"),
         };
@@ -51,11 +51,11 @@ public class NeedToKnowMarksTests {
 
     [Test]
     public async Task A_single_corner_pair_marks_worth_knowing() =>
-        await Assert.That(Render("Tests pass. ⌞7 ran.⌟ CI is green.", AllGreyed)).IsEqualTo("Tests pass. {w:7 ran.} CI is green.");
+        await Assert.That(Render("Tests pass. ⌞7 ran.⌟ CI is green.", AllFaded)).IsEqualTo("Tests pass. {w:7 ran.} CI is green.");
 
     [Test]
     public async Task A_doubled_corner_pair_marks_only_if_curious() =>
-        await Assert.That(Render("Tests pass. ⌞⌞7 ran.⌟⌟ CI is green.", AllGreyed)).IsEqualTo("Tests pass. {c:7 ran.} CI is green.");
+        await Assert.That(Render("Tests pass. ⌞⌞7 ran.⌟⌟ CI is green.", AllFaded)).IsEqualTo("Tests pass. {c:7 ran.} CI is green.");
 
     [Test]
     public async Task Normal_display_drops_the_marks_and_keeps_the_text() =>
@@ -74,19 +74,8 @@ public class NeedToKnowMarksTests {
         await Assert.That(Render("Tests pass. ⌞7 ran.⌟ CI is green.", AllHidden)).IsEqualTo("Tests pass. CI is green.");
 
     [Test]
-    public async Task Greyed_only_if_curious_greys_deeper_only_beside_greyed_worth_knowing() {
-        static bool Deep(NeedToKnowBasis basis) {
-            var document = Markdown.Parse("A. ⌞⌞B.⌟⌟", WithoutPass);
-            NeedToKnowMarks.Apply(document, basis);
-            return document.Descendants<GradedInline>().Single().Deep;
-        }
-        await Assert.That(Deep(new(NeedToKnowDisplay.Greyed, NeedToKnowDisplay.Greyed))).IsTrue();
-        await Assert.That(Deep(new(NeedToKnowDisplay.Marked, NeedToKnowDisplay.Greyed))).IsFalse();
-    }
-
-    [Test]
     public async Task Only_if_curious_is_never_shown_more_than_worth_knowing() =>
-        await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟", new(NeedToKnowDisplay.Greyed, NeedToKnowDisplay.Normal))).IsEqualTo("A. {w:B.} {c:C.}");
+        await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟", new(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Normal))).IsEqualTo("A. {w:B.} {c:C.}");
 
     [Test]
     public async Task A_marked_span_is_one_run_however_many_inlines_it_holds() =>
@@ -94,27 +83,27 @@ public class NeedToKnowMarksTests {
 
     [Test]
     public async Task A_curious_span_nests_inside_a_worth_span_and_returns_to_it() =>
-        await Assert.That(Render("A. ⌞B. ⌞⌞C.⌟⌟ D.⌟ E.", AllGreyed)).IsEqualTo("A. {w:B. }{c:C.}{w: D.} E.");
+        await Assert.That(Render("A. ⌞B. ⌞⌞C.⌟⌟ D.⌟ E.", AllFaded)).IsEqualTo("A. {w:B. }{c:C.}{w: D.} E.");
 
     [Test]
     public async Task One_run_of_closes_ends_a_curious_span_and_the_worth_span_around_it() =>
-        await Assert.That(Render("A. ⌞B. ⌞⌞C.⌟⌟⌟ D.", AllGreyed)).IsEqualTo("A. {w:B. }{c:C.} D.");
+        await Assert.That(Render("A. ⌞B. ⌞⌞C.⌟⌟⌟ D.", AllFaded)).IsEqualTo("A. {w:B. }{c:C.} D.");
 
     [Test]
     public async Task An_unclosed_span_ends_with_its_block() =>
-        await Assert.That(Render("A. ⌞B.\n\nC.", AllGreyed)).IsEqualTo("A. {w:B.}\nC.");
+        await Assert.That(Render("A. ⌞B.\n\nC.", AllFaded)).IsEqualTo("A. {w:B.}\nC.");
 
     [Test]
     public async Task A_stray_close_is_ignored() =>
-        await Assert.That(Render("A.⌟ B.", AllGreyed)).IsEqualTo("A. B.");
+        await Assert.That(Render("A.⌟ B.", AllFaded)).IsEqualTo("A. B.");
 
     [Test]
     public async Task Every_bullet_starts_at_must_know() =>
-        await Assert.That(Render("- ⌞A.\n- B.", AllGreyed)).IsEqualTo("{w:A.}\nB.");
+        await Assert.That(Render("- ⌞A.\n- B.", AllFaded)).IsEqualTo("{w:A.}\nB.");
 
     [Test]
     public async Task A_span_crosses_emphasis() =>
-        await Assert.That(Render("A. ⌞B *c* d.⌟ E.", AllGreyed)).IsEqualTo("A. {w:B }*{w:c}*{w: d.} E.");
+        await Assert.That(Render("A. ⌞B *c* d.⌟ E.", AllFaded)).IsEqualTo("A. {w:B }*{w:c}*{w: d.} E.");
 
     [Test]
     public async Task Marks_inside_code_are_the_code() =>
@@ -122,7 +111,7 @@ public class NeedToKnowMarksTests {
 
     [Test]
     public async Task Code_inside_a_span_is_graded_with_it() =>
-        await Assert.That(Render("A. ⌞Run `x`.⌟", AllGreyed)).IsEqualTo("A. {w:Run `x`.}");
+        await Assert.That(Render("A. ⌞Run `x`.⌟", AllFaded)).IsEqualTo("A. {w:Run `x`.}");
 
     [Test]
     public async Task A_paragraph_collapsed_entirely_keeps_its_place_as_a_mark() =>
