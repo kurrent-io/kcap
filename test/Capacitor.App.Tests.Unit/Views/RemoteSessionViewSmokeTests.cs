@@ -319,7 +319,7 @@ public class RemoteSessionViewSmokeTests {
             _directory.Rows.AddOrUpdate(row);
             _localServer = localServer?.Invoke(Lane);
             Vm = new RemoteSessionViewModel(row, _directory, _access, Permissions, NewActions(), Lane,
-                (_, _) => Task.FromResult(new SessionDetailFetch(detail ?? Detail())), new RecordingOpener(), Time, workSource ?? new FakeWorkContextSource(),
+                FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(detail ?? Detail()))), new RecordingOpener(), Time, workSource ?? new FakeWorkContextSource(),
                 () => realTerminal ? new XtermTerminalSurface(130, 54) : new FakeTerminalSurface(), planArtifacts,
                 remoteAgents: Remote, notifier: new RecordingNotifier(), handoff: handoff, retryConnection: retryConnection,
                 localServer: _localServer);

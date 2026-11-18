@@ -74,6 +74,9 @@ public static class ApiRoutes {
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/events?from={from}";
     public static string SubagentEvents(string sessionId, string agentId, long from) =>
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/agents/{Uri.EscapeDataString(agentId)}/events?from={from}";
+    /// The server caps limit at 1000.
+    public static string SessionEvents(string sessionId, long from, int limit) =>
+        $"{SessionEvents(sessionId, from)}&limit={limit}";
     public static string PermissionResponse(string sessionId, string requestId) =>
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/permission-response/{Uri.EscapeDataString(requestId)}";
     public static string HeldMessages(string agentId) =>

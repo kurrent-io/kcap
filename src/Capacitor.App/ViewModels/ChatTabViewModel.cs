@@ -85,6 +85,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     // AskUserQuestion's permission hook carries no tool-use id, so a finished ask is recognized
     // by question text. The latest overlapping ask is the one a card belongs to.
     readonly List<AskedQuestion> _questionAsks = [];
+    /// Results whose call lies before the oldest line a remote feed has delivered; an older page settles them.
+    readonly Dictionary<string, AcpEventEnvelope> _orphanResults = new(StringComparer.Ordinal);
     readonly HashSet<string> _withdrawing = new(StringComparer.Ordinal);
     readonly Dictionary<string, int> _withdrawFailures = new(StringComparer.Ordinal);
     readonly ConcurrentDictionary<string, byte> _loggedFailures = new(StringComparer.Ordinal);
@@ -1510,6 +1512,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _pendingTools.Clear();
         _settledTools.Clear();
         _questionAsks.Clear();
+        _orphanResults.Clear();
         _openGroup = null;
         _openShell = null;
         _marked.Clear();
@@ -1522,6 +1525,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _settleEpoch++;
         var previous = _lease;
         _lease = new FeedLease(open(key), Interlocked.Increment(ref _generation), SignalFeedRead);
+        _runs.KeepsHistory = _lease.Feed is RemoteTranscriptFeed;
         HasSeed = false;
         previous?.Dispose();
         RebaseQueuedMessages(CurrentOffset);
@@ -1865,7 +1869,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 ? lease.Feed.ReadAppended()
                 : await Task.Run(lease.Feed.ReadAppended).ConfigureAwait(false);
             if (read.Status != FeedStatus.Failed) Volatile.Write(ref _settledEpoch, settleEpoch);
-            if (canSkipEmpty && read.Status == FeedStatus.Ok && read.Lines.Count == 0 && read.Runs.Count == 0
+            if (canSkipEmpty && read.Status == FeedStatus.Ok && read.Lines.Count == 0 && read.Runs.Count == 0 && read.Older.Count == 0
                 && baselineVersion == Volatile.Read(ref _baselineVersion) && inputGeneration == Volatile.Read(ref _inputGeneration)) return;
             await Dispatcher.UIThread.InvokeAsync(() => ApplyAsync(lease.Generation, read));
         } catch (Exception ex) {
@@ -1883,6 +1887,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // cannot acquire dispatches from the history this read is already replaying.
         var candidates = CaptureReceiptCandidates();
         if (!Prepare(generation, read)) return;
+        if (read.Older.Count > 0) {
+            var history = new HashSet<(long Offset, string Text)>(_literalInputHistory);
+            var older = await Task.Run(() => ProjectLines(read with { Lines = read.Older }, LineCursor.Empty(), matchSends: false, history));
+            if (generation != Volatile.Read(ref _generation)) return;
+            InsertOlder(older, candidates);
+        }
         if (read.Lines.Count == 0) {
             Finish(read, cursor: null, candidates);
             return;
@@ -1937,6 +1947,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 _pendingTools.Clear();
                 _settledTools.Clear();
                 _questionAsks.Clear();
+                _orphanResults.Clear();
                 _openGroup = null;
                 _openShell = null;
                 _marked.Clear();
@@ -2060,20 +2071,49 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                         if (e.ToolCallId is not { } resultId) break;
                         cursor.Settled.Add(resultId);
                         NoteQuestionResult(cursor, resultId, e.TimestampIso);
-                        if (cursor.Pending.Remove(resultId, out var call)) {
-                            if (!e.ToolIsError && call.CardKind != ToolCardKind.None
-                                && ToolCards.Build(call.CardKind, call.InputJson, e.ToolResult) is { } card)
-                                call.SetCard(card, CardOpener(card));
-                            call.Result = e.ToolResult;
-                            call.Outcome = e.ToolIsError ? ToolOutcome.Error : ToolOutcome.Done;
-                            if (!e.ToolIsError && _origin == AgentOrigin.Local && call.Category == ToolCategory.Read)
-                                call.PreviewPath = ToolDetail.ResolvePreviewPath(ToolDetail.ImageFile(call.InputJson), _root);
-                        }
+                        if (cursor.Pending.Remove(resultId, out var call)) Settle(call, e);
+                        else cursor.Orphans[resultId] = e;
                         break;
                 }
             }
         }
         return cursor;
+    }
+
+    void Settle(ToolCallItem call, AcpEventEnvelope e) {
+        if (!e.ToolIsError && call.CardKind != ToolCardKind.None
+            && ToolCards.Build(call.CardKind, call.InputJson, e.ToolResult) is { } card)
+            call.SetCard(card, CardOpener(card));
+        call.Result = e.ToolResult;
+        call.Outcome = e.ToolIsError ? ToolOutcome.Error : ToolOutcome.Done;
+        if (!e.ToolIsError && _origin == AgentOrigin.Local && call.Category == ToolCategory.Read)
+            call.PreviewPath = ToolDetail.ResolvePreviewPath(ToolDetail.ImageFile(call.InputJson), _root);
+    }
+
+    /// Asks the feed for the lines before the oldest one shown; false when it has none or cannot page.
+    public bool RequestOlder() => _lease?.Feed is RemoteTranscriptFeed remote && remote.RequestOlder();
+
+    /// Older rows go above the ones on screen. A call they leave open is settled by a result already
+    /// shown, and the runs fold again from the start of what is loaded.
+    void InsertOlder(LineCursor older, ReceiptCandidates candidates) {
+        foreach (var (id, call) in older.Pending) {
+            if (_orphanResults.Remove(id, out var result)) {
+                Settle(call, result);
+                older.Settled.Add(id);
+            } else if (_pendingTools.TryAdd(id, call)) {
+                call.SessionOver = _ended;
+            }
+        }
+        if (_lease?.Feed is RemoteTranscriptFeed { HasOlder: false }) _orphanResults.Clear();
+        _settledTools.UnionWith(older.Settled);
+        _questionAsks.InsertRange(0, older.Questions);
+        _planActivity?.Apply(older.Restored);
+        _runs.Prepend(older.Restored);
+        if (older.Fresh.Count == 0) return;
+        foreach (var call in older.Fresh.OfType<ToolGroupItem>().SelectMany(static group => group.Calls))
+            call.SessionOver = _ended;
+        _items.InsertRange(0, older.Fresh);
+        _senders?.Track(SenderLabels(older.Fresh, candidates));
     }
 
     void Finish(FeedRead read, LineCursor? cursor, ReceiptCandidates candidates) {
@@ -2089,6 +2129,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             _settledTools.UnionWith(cursor.Settled);
             _questionAsks.Clear();
             _questionAsks.AddRange(cursor.Questions);
+            if (_lease?.Feed is RemoteTranscriptFeed { HasOlder: true })
+                foreach (var (id, result) in cursor.Orphans) _orphanResults[id] = result;
             _planActivity?.Apply(read.Lines.Select(line => line.Projection));
             _runs.ApplyAll(cursor.Restored);
             foreach (var projected in cursor.Restored)
@@ -2269,6 +2311,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         public Dictionary<string, ToolCallItem> Pending { get; }
         public HashSet<string> Settled { get; }
         public List<AskedQuestion> Questions { get; }
+        public Dictionary<string, AcpEventEnvelope> Orphans { get; } = new(StringComparer.Ordinal);
 
         LineCursor(ToolGroupItem? openGroup, ShellCommandItem? openShell,
             Dictionary<string, ToolCallItem> pending, HashSet<string> settled, List<AskedQuestion> questions) {
@@ -2285,6 +2328,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             new Dictionary<string, ToolCallItem>(tab._pendingTools, StringComparer.Ordinal),
             new HashSet<string>(tab._settledTools, StringComparer.Ordinal),
             new List<AskedQuestion>(tab._questionAsks));
+
+        public static LineCursor Empty() => new(null, null, new(StringComparer.Ordinal), new(StringComparer.Ordinal), []);
     }
 
     static DateTimeOffset? Timestamp(string? iso) =>

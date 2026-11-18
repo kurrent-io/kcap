@@ -26,6 +26,14 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     double _lastWidth = double.NaN;
     int _first = -1;
     int _last = -1;
+    /// After rows go in above the ones on screen: the row the reader was at, how far into it the viewport's
+    /// top was, and the offset's distance from the viewport's top. The offset follows that row once layout
+    /// has measured it, since rows measured around it move it from where the estimates put it.
+    (object Item, double Within, double Inset)? _insertAnchor;
+    bool _insertArranged;
+    /// How far the viewport moved for an insertion, until a viewport reflecting it arrives: one reported
+    /// from before would measure the inserted rows at the top and move every row below them.
+    double _shiftInFlight;
 
     internal bool MeasuredAtEstimatedEnd { get; private set; }
 
@@ -44,6 +52,10 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
 
     void OnViewportChanged(object? sender, EffectiveViewportChangedEventArgs e) {
         if (_viewport == e.EffectiveViewport) return;
+        if (_shiftInFlight != 0) {
+            if (Math.Abs(e.EffectiveViewport.Top + _shiftInFlight - _viewport.Top) < 1) return;
+            _shiftInFlight = 0;
+        }
         var old = _viewport;
         _viewport = e.EffectiveViewport;
         if (old.Size != _viewport.Size || _first < 0 || _last >= Items.Count
@@ -150,6 +162,22 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         || focused is not null && (ReferenceEquals(focused, row.Container) || row.Container.IsVisualAncestorOf(focused));
 
     protected override Size ArrangeOverride(Size finalSize) {
+        if (_insertAnchor is not null && !_insertArranged && this.FindAncestorOfType<ScrollViewer>() is { } scroll) {
+            _insertArranged = true;
+            // The presenter takes the grown extent only after this pass; an offset set now is clamped to the old one.
+            void Apply(object? sender, EventArgs e) {
+                scroll.LayoutUpdated -= Apply;
+                if (_insertAnchor is not var (item, within, inset)) return;
+                _insertAnchor = null;
+                _insertArranged = false;
+                var index = -1;
+                for (var i = 0; i < Items.Count && index < 0; i++)
+                    if (ReferenceEquals(Items[i], item)) index = i;
+                if (index < 0 || _starts.Length != Items.Count + 1) return;
+                scroll.Offset = new Vector(scroll.Offset.X, _starts[index] + within + inset);
+            }
+            scroll.LayoutUpdated += Apply;
+        }
         var anchors = this.FindAncestorOfType<IScrollAnchorProvider>();
         foreach (var entry in _realized) {
             var container = entry.Value.Container;
@@ -193,6 +221,10 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     }
 
     protected override void OnItemsChanged(IReadOnlyList<object?> items, NotifyCollectionChangedEventArgs e) {
+        var inserted = e is { Action: NotifyCollectionChangedAction.Add, NewStartingIndex: 0, NewItems.Count: var count }
+            && count < items.Count && _realized.Count > 0 ? count : 0;
+        var reading = inserted > 0 ? IndexAt(Math.Max(0, _viewport.Top)) : 0;
+        var within = inserted > 0 ? _viewport.Top - _starts[reading] : 0;
         if (e.Action != NotifyCollectionChangedAction.Add || e.NewStartingIndex != _starts.Length - 1) {
             if (e.Action == NotifyCollectionChangedAction.Reset) {
                 foreach (var index in _realized.Keys.ToArray()) Unrealize(index);
@@ -216,6 +248,16 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
             _first = _last = -1;
         }
         RebuildStarts();
+        // Rows inserted above the ones on screen move the viewport with them, so the reader keeps
+        // reading the same row rather than whatever now sits at the old offset.
+        if (inserted > 0 && reading + inserted < items.Count && this.FindAncestorOfType<ScrollViewer>() is { } scroll
+            && items[reading + inserted] is { } readingItem) {
+            var inset = _insertAnchor?.Inset ?? scroll.Offset.Y - _viewport.Top;
+            var top = _starts[reading + inserted] + within;
+            _shiftInFlight += top - _viewport.Top;
+            _viewport = new Rect(_viewport.X, top, _viewport.Width, _viewport.Height);
+            _insertAnchor = (readingItem, within, inset);
+        }
         InvalidateMeasure();
     }
 

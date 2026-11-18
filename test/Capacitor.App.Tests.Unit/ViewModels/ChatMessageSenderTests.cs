@@ -82,7 +82,7 @@ public class ChatMessageSenderTests {
         var receipts = new List<MessageSenderDto>();
         var senders = new FakeMessageSenderSource { Answer = _ => new(MessageSendersReadKind.Ready, receipts.ToArray()) };
         var feed = new RemoteTranscriptFeed("s1", "gemini", access,
-            (_, _) => Task.FromResult(new SessionDetailFetch(RemoteFixtures.Detail())), lane, time, _ => { });
+            FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(RemoteFixtures.Detail()))), lane, time, _ => { });
         var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, Observable.Return(Session("s1")), Observable.Return<string[]?>(null),
             input, new NoAttachmentUploader(), _ => feed, new RecordingOpener(), time,
             new FakePermissionService(), new SessionRuns(time), sessionId: Observable.Return<string?>("s1"),
@@ -127,7 +127,7 @@ public class ChatMessageSenderTests {
         var time = new FakeTimeProvider();
         var lane = new FakeServerLane();
         var feed = new RemoteTranscriptFeed("s1", "claude", access,
-            (_, _) => Task.FromResult(new SessionDetailFetch(RemoteFixtures.Detail())), lane, time, _ => { });
+            FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(RemoteFixtures.Detail()))), lane, time, _ => { });
         var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, Observable.Return(Session("s1")), Observable.Return<string[]?>(null),
             new AcceptingChatPromptInput("u1"), new NoAttachmentUploader(), _ => feed, new RecordingOpener(), time,
             new FakePermissionService(), new SessionRuns(time), sessionId: Observable.Return<string?>("s1"));
@@ -162,7 +162,7 @@ public class ChatMessageSenderTests {
             Answer = _ => new(MessageSendersReadKind.Ready, [new() { EventNumber = 6, DispatchId = dispatch, SentByCaller = true }]),
         };
         var feed = new RemoteTranscriptFeed("s1", "gemini", access,
-            (_, _) => Task.FromResult(new SessionDetailFetch(RemoteFixtures.Detail())), lane, time, _ => { });
+            FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(RemoteFixtures.Detail()))), lane, time, _ => { });
         var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, Observable.Return(Session("s1")), Observable.Return<string[]?>(null),
             new AcceptingChatPromptInput("u1"), new NoAttachmentUploader(), _ => feed, new RecordingOpener(), time,
             new FakePermissionService(), new SessionRuns(time), sessionId: Observable.Return<string?>("s1"),
@@ -399,8 +399,8 @@ public class ChatMessageSenderTests {
             ]),
         };
         var feed = new RemoteTranscriptFeed("s1", "gemini", access,
-            (_, _) => Task.FromResult(new SessionDetailFetch(RemoteFixtures.Detail(
-                RemoteFixtures.Event(4, CanonicalEventTypes.UserMessageReceived, RemoteFixtures.Hello)))), lane, time, _ => { });
+            FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(RemoteFixtures.Detail(
+                RemoteFixtures.Event(4, CanonicalEventTypes.UserMessageReceived, RemoteFixtures.Hello))))), lane, time, _ => { });
         var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, Observable.Return(Session("s1")), Observable.Return<string[]?>(null),
             new ReadOnlyChatInput(), new NoAttachmentUploader(), _ => feed, new RecordingOpener(), time,
             new FakePermissionService(), new SessionRuns(time), sessionId: Observable.Return<string?>("s1"), senders: senders);

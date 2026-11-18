@@ -31,6 +31,22 @@ public sealed class ScheduledPrompts {
 
     public bool IsEmpty => _wakeUps.Count == 0 && _loops.Count == 0 && _typedCompact is null;
 
+    /// Collects every text a wake-up or loop check turned down. A reader that meets a session's earlier
+    /// events after its later ones uses it to learn which lines those events would have reclassified.
+    public ISet<string>? Declined { get; init; }
+
+    /// The wake-up and loop prompts seen so far.
+    public IEnumerable<string> Prompts => _wakeUps.Concat(_loops);
+
+    /// A typed `/compact` is still waiting for its command-tag copy, which the events after these would carry.
+    public bool AwaitsCompactEcho => _typedCompact is not null;
+
+    /// Adds the prompts an earlier stretch of the same session scheduled.
+    public void Include(ScheduledPrompts earlier) {
+        _wakeUps.UnionWith(earlier._wakeUps);
+        _loops.UnionWith(earlier._loops);
+    }
+
     /// True for the command-tag copy of a `/compact` the person typed earlier in the stream. A tagged
     /// `/compact` with no typed prompt ahead of it is the only record of that command.
     public bool IsCompactEcho(string? text) =>
@@ -53,9 +69,16 @@ public sealed class ScheduledPrompts {
             : null;
     }
 
-    public bool IsWakeUp(string? text) => Key(text) is { Length: > 0 } key && _wakeUps.Contains(key);
+    public bool IsWakeUp(string? text) => Check(_wakeUps, text);
 
-    public bool IsLoopFiring(string? text) => Key(text) is { Length: > 0 } key && _loops.Contains(key);
+    public bool IsLoopFiring(string? text) => Check(_loops, text);
+
+    bool Check(HashSet<string> prompts, string? text) {
+        if (Key(text) is not { Length: > 0 } key) return false;
+        if (prompts.Contains(key)) return true;
+        Declined?.Add(key);
+        return false;
+    }
 
     // Only the person starts a loop: another session, a subagent or the harness quoting `/loop` does not.
     static bool IsPersons(UserMessageReceived message) =>

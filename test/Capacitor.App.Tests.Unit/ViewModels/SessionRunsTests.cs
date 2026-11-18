@@ -1218,4 +1218,28 @@ public class SessionRunsTests {
         await Assert.That(s.Rows[0].AgentId).IsEqualTo("a1");
         await Assert.That(s.Rows[1].AgentId).IsEqualTo("b");
     }
+
+    /// A run whose start is in an older page and whose end is already folded ends once the page lands; one
+    /// with no end in what is loaded runs.
+    [Test]
+    public async Task Prepended_lines_fold_ahead_of_the_kept_history() {
+        var runs = new SessionRuns(Clock()) { KeepsHistory = true };
+        runs.ApplyAll([Result("a1")]);
+        await Assert.That(runs.Rows).IsEmpty();
+
+        runs.Prepend([Signals(Started("a1")), Signals(Started("a2"))]);
+
+        await Assert.That(runs.Rows.Select(r => r.CallId)).IsEquivalentTo(new[] { "a1", "a2" });
+        await Assert.That(runs.Rows.Single(r => r.CallId == "a1").State).IsEqualTo(RunState.Done);
+        await Assert.That(runs.RunningCount).IsEqualTo(1);
+    }
+
+    /// Without kept history an older page has nothing to fold ahead of, so it changes nothing.
+    [Test]
+    public async Task Prepend_without_kept_history_changes_nothing() {
+        var runs = new SessionRuns(Clock());
+        runs.ApplyAll([Result("a1")]);
+        runs.Prepend([Signals(Started("a1"))]);
+        await Assert.That(runs.Rows).IsEmpty();
+    }
 }

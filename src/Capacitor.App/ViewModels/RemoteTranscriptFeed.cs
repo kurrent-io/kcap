@@ -7,21 +7,30 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace Capacitor.App.ViewModels;
 
-/// The chat rows of a session on another machine: a seed from the session detail route, then a
-/// live tail of the session's stream from the position the seed ended at. Every access
-/// establishment restarts the tail from the last position seen; the seed is fetched only until
-/// one lands, so a reconnect resumes rather than replays. Changes wake the pane to drain rows.
+/// The chat rows of a session on another machine: a seed of the session's last events, then a live
+/// tail of its stream from the position the seed ended at, with older events paged in on request.
+/// Every access establishment restarts the tail from the last position seen; the seed is fetched
+/// only until one lands, so a reconnect resumes rather than replays. Changes wake the pane to drain rows.
+/// Facts that span the whole session hold only for what is loaded: an older page that would reclassify a
+/// loaded line as a scheduled prompt re-reads everything loaded as a fresh seed.
 internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// Gaps between tails that ended while access still stood; each further one is the next entry.
     internal static readonly TimeSpan[] Retry = [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10)];
+    /// Events in the seed and in each older page.
+    internal const int Window = 300;
+    /// The server's cap on one page.
+    const int MaxPage = 1000;
 
     readonly string _sessionId;
+    /// Null seeds the whole session.
+    readonly int? _window;
     readonly IChatDisplayRules? _rules;
     /// A seed fills its own and it replaces this one only when the seed is taken, so a seed abandoned
     /// half way leaves nothing behind. Tails add to it in stream order, locked on the instance: a
-    /// superseded tail can still be projecting the event the next one starts from.
-    ScheduledPrompts _scheduled = new();
-    readonly SessionDetailReader _readDetail;
+    /// superseded tail can still be projecting the event the next one starts from. Its Declined set is
+    /// every loaded line's turned-down check, which an older page is tested against.
+    ScheduledPrompts _scheduled = NewScheduled();
+    readonly SessionEventsReader _readEvents;
     readonly IServerLane _lane;
     readonly TimeProvider _time;
     readonly Action<string> _log;
@@ -39,6 +48,11 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     bool _verdictRead;
     /// The last event number applied; null until the seed lands.
     long? _position;
+    /// How many events of the stream lie before the oldest one loaded, in the server's `from` count.
+    long? _earliest;
+    /// Older lines not yet drained, oldest first.
+    readonly List<ProjectedLine> _older = new();
+    Task? _olderRun;
     /// How many pending lines the seed committed, and the position it ended at. A live event that
     /// lands before the pane drains the seed follows it in the next read: folding it into the Reset
     /// would place it inside the replayed history, where it can no longer acknowledge a send.
@@ -50,17 +64,22 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     bool _disposed;
 
     internal event Action? Changed;
-    internal bool HasPendingChanges { get { lock (_lock) return _pending.Count > 0 || _pendingStatus == FeedStatus.Reset || _verdict is not null && !_verdictRead; } }
+    internal bool HasPendingChanges { get { lock (_lock) return _pending.Count > 0 || _older.Count > 0 || _pendingStatus == FeedStatus.Reset || _verdict is not null && !_verdictRead; } }
+
+    /// Whether events before the oldest loaded one remain on the server.
+    internal bool HasOlder { get { lock (_lock) return _earliest > 0; } }
 
     internal Task? PendingRunForTesting { get; private set; }
+    internal Task? PendingOlderForTesting { get; private set; }
     internal bool WaitingToRetryForTesting => _waitingToRetry;
 
     public RemoteTranscriptFeed(
-            string sessionId, string vendor, IObservable<SessionAccessState> access, SessionDetailReader readDetail,
-            IServerLane lane, TimeProvider time, Action<string> log) {
+            string sessionId, string vendor, IObservable<SessionAccessState> access, SessionEventsReader readEvents,
+            IServerLane lane, TimeProvider time, Action<string> log, int? window = Window) {
         _sessionId = sessionId;
+        _window = window;
         _rules = TranscriptChat.RulesFor(vendor);
-        _readDetail = readDetail;
+        _readEvents = readEvents;
         _lane = lane;
         _time = time;
         _log = log;
@@ -85,10 +104,12 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
                 _pendingStatus = FeedStatus.Ok;
                 return new(FeedStatus.Reset, seed, boundary);
             }
-            if (_pending.Count > 0) {
+            if (_pending.Count > 0 || _older.Count > 0) {
                 var lines = _pending.ToArray();
+                var older = _older.ToArray();
                 _pending.Clear();
-                return new(FeedStatus.Ok, lines);
+                _older.Clear();
+                return new(FeedStatus.Ok, lines) { Older = older };
             }
             if (_verdict is { } verdict) {
                 _verdictRead = true;
@@ -159,24 +180,32 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     /// True once a seed is in place. Both refusals stop the run and say so: a hidden session is
     /// Missing, an unauthorized read Failed — otherwise the pane shows an empty transcript with
-    /// nothing to explain it.
+    /// nothing to explain it. A one-event probe finds where the stream ends, because `from` counts
+    /// from the oldest event the stream still holds rather than from event number zero.
     async Task<bool> EnsureSeededAsync(int attempt, CancellationToken ct) {
         lock (_lock) if (_position is not null) return true;
-        var fetch = await _readDetail(_sessionId, ct).ConfigureAwait(false);
-        if (!IsCurrent(attempt)) return false;
-        if (fetch.NotFound) { Enqueue(attempt, FeedStatus.Missing); return false; }
-        if (fetch.Unauthorized) { Enqueue(attempt, FeedStatus.Failed, "not signed in"); return false; }
-        if (fetch.Detail is not { } detail) throw new InvalidOperationException("session detail unavailable");
-
         var lines = new List<ProjectedLine>();
-        var scheduled = new ScheduledPrompts();
-        foreach (var evt in detail.Events ?? [])
-            if (evt.Body is { } body && Project(evt.EventType, body.GetRawText(), evt.Vendors, null, evt.EventNumber, evt.Timestamp, scheduled) is { } line) lines.Add(line);
+        var scheduled = NewScheduled();
+        long from = 0;
+        StreamEventsFetch fetch;
+        if (_window is { } window) {
+            fetch = await _readEvents(_sessionId, 0, 1, ct).ConfigureAwait(false);
+            if (!Admit(attempt, fetch, out var probe)) return false;
+            if (probe.NextFrom is not null && probe.Events is [var oldest, ..])
+                from = Math.Max(0, probe.LastEventNumber - oldest.EventNumber + 1 - window);
+            if (from == 0 && probe.NextFrom is null) ProjectInto(probe, lines, scheduled);
+            else fetch = await ReadForwardAsync(from, lines, scheduled, ct).ConfigureAwait(false);
+        } else {
+            fetch = await ReadForwardAsync(0, lines, scheduled, ct).ConfigureAwait(false);
+        }
+        if (!Admit(attempt, fetch, out var page)) return false;
         lock (_lock) {
             if (_attempt != attempt) return false;
             _verdict = null;
             _scheduled = scheduled;
-            _position = detail.LastEventNumber;
+            _position = page.LastEventNumber;
+            _earliest = from;
+            _older.Clear();
             _pending.Clear();
             _pending.AddRange(lines);
             _pendingStatus = FeedStatus.Reset;
@@ -187,19 +216,127 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         return true;
     }
 
+    bool Admit(int attempt, StreamEventsFetch fetch, out StreamEventsPage page) {
+        page = fetch.Page!;
+        if (!IsCurrent(attempt)) return false;
+        if (fetch.NotFound) { Enqueue(attempt, FeedStatus.Missing); return false; }
+        if (fetch.Unauthorized) { Enqueue(attempt, FeedStatus.Failed, "not signed in"); return false; }
+        if (fetch.Page is null) throw new InvalidOperationException(fetch.Failure ?? "session events unavailable");
+        return true;
+    }
+
+    /// Pages forward from a count to the stream's end, returning the last fetch, or the first that failed.
+    async Task<StreamEventsFetch> ReadForwardAsync(long from, List<ProjectedLine> lines, ScheduledPrompts scheduled, CancellationToken ct) {
+        while (true) {
+            var fetch = await _readEvents(_sessionId, from, MaxPage, ct).ConfigureAwait(false);
+            if (fetch.Page is not { } page) return fetch;
+            ProjectInto(page, lines, scheduled);
+            if (page.NextFrom is not { } next || next <= from) return fetch;
+            from = next;
+        }
+    }
+
+    void ProjectInto(StreamEventsPage page, List<ProjectedLine> lines, ScheduledPrompts scheduled) {
+        foreach (var evt in page.Events ?? [])
+            if (evt.Body is { } body && Project(evt.EventType, body.GetRawText(), evt.Vendors, null, evt.EventNumber, evt.Timestamp, scheduled) is { } line)
+                lines.Add(line);
+    }
+
+    static ScheduledPrompts NewScheduled() => new() { Declined = new HashSet<string>(StringComparer.Ordinal) };
+
+    /// Starts reading the page before the oldest loaded event, unless one is already on its way or none
+    /// remains. Its lines arrive as the next read's Older.
+    internal bool RequestOlder() {
+        lock (_lock) {
+            if (_disposed || _olderRun is not null || _earliest is not (> 0 and var earliest)) return false;
+            var token = _lifetime.Token;
+            var run = Task.Run(() => LoadOlderAsync(earliest, token));
+            _olderRun = run;
+            PendingOlderForTesting = run.ContinueWith(_ => { lock (_lock) _olderRun = null; }, TaskScheduler.Default);
+        }
+        return true;
+    }
+
+    async Task LoadOlderAsync(long earliest, CancellationToken ct) {
+        try {
+            var from = Math.Max(0, earliest - (_window ?? MaxPage));
+            var fetch = await _readEvents(_sessionId, from, (int)(earliest - from), ct).ConfigureAwait(false);
+            if (fetch.Page is not { } page) {
+                LogOlder(fetch);
+                return;
+            }
+            var scheduled = NewScheduled();
+            var lines = new List<ProjectedLine>();
+            ProjectInto(page, lines, scheduled);
+            ScheduledPrompts current;
+            lock (_lock) current = _scheduled;
+            bool reclassifies;
+            lock (current) reclassifies = scheduled.AwaitsCompactEcho || scheduled.Prompts.Any(current.Declined!.Contains);
+            if (reclassifies) {
+                await RereadAsync(earliest, from, ct).ConfigureAwait(false);
+                return;
+            }
+            lock (current) {
+                current.Include(scheduled);
+                current.Declined!.UnionWith(scheduled.Declined!);
+            }
+            lock (_lock) {
+                if (_disposed || _earliest != earliest) return;
+                _earliest = from;
+                _older.InsertRange(0, lines);
+            }
+            Changed?.Invoke();
+        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+        } catch (Exception ex) {
+            _log($"remote transcript: older events: {ex.Message}");
+        }
+    }
+
+    void LogOlder(StreamEventsFetch fetch) =>
+        _log($"remote transcript: older events: {fetch.Failure ?? (fetch.NotFound ? "not found" : "not signed in")}");
+
+    /// Everything loaded, read again from the new oldest event under the prompts it schedules, and
+    /// delivered as a seed. Live lines past what the read reached still follow it.
+    async Task RereadAsync(long earliest, long from, CancellationToken ct) {
+        var scheduled = NewScheduled();
+        var lines = new List<ProjectedLine>();
+        var fetch = await ReadForwardAsync(from, lines, scheduled, ct).ConfigureAwait(false);
+        if (fetch.Page is not { } page) {
+            LogOlder(fetch);
+            return;
+        }
+        lock (_lock) {
+            if (_disposed || _earliest != earliest || _position is not { } position) return;
+            var reached = Math.Max(page.LastEventNumber, lines.Count > 0 ? lines[^1].Offset : -1);
+            var live = _pendingStatus == FeedStatus.Reset ? _pending.Skip(_resetCount) : _pending;
+            var after = live.Where(line => line.Offset > reached).ToList();
+            _scheduled = scheduled;
+            _earliest = from;
+            _position = Math.Max(position, reached);
+            _older.Clear();
+            _pending.Clear();
+            _pending.AddRange(lines);
+            _resetCount = lines.Count;
+            _seedBoundary = reached + 1;
+            _pending.AddRange(after);
+            _pendingStatus = FeedStatus.Reset;
+        }
+        Changed?.Invoke();
+    }
+
     /// True when the tail delivered at least one envelope, which is what resets the retry ladder;
     /// a tail that ends without ever yielding keeps the caller's failure count climbing.
     async Task<bool> TailAsync(int attempt, CancellationToken ct) {
         ulong? from;
-        ScheduledPrompts scheduled;
-        lock (_lock) {
-            from = _position is >= 0 ? (ulong)_position : null;
-            scheduled = _scheduled;
-        }
+        lock (_lock) from = _position is >= 0 ? (ulong)_position : null;
         var received = false;
         await foreach (var envelope in _lane.TailStreamAsync(StreamNames.AgentSession(_sessionId), from, ct).ConfigureAwait(false)) {
             // A re-tail after a reconnect can overlap a subscription the server still holds.
-            lock (_lock) if (_position is { } seen && (long)envelope.StreamPosition <= seen) continue;
+            ScheduledPrompts scheduled;
+            lock (_lock) {
+                if (_position is { } seen && (long)envelope.StreamPosition <= seen) continue;
+                scheduled = _scheduled;
+            }
             var line = Project(envelope.EventType, envelope.JsonPayload, null, envelope.JsonMetadata, (long)envelope.StreamPosition, envelope.Timestamp, scheduled);
             lock (_lock) {
                 if (_attempt != attempt) return received;

@@ -27,15 +27,15 @@ public class SessionInterruptLogTests {
             return this;
         }
 
-        public async Task<SubagentEventsFetch> Read(string sessionId, long from, CancellationToken ct) {
+        public async Task<StreamEventsFetch> Read(string sessionId, long from, int? limit, CancellationToken ct) {
             lock (Froms) Froms.Add(from);
             if (Hold is { } hold) await hold.Task.WaitAsync(ct);
-            if (Missing) return new SubagentEventsFetch(null, NotFound: true);
-            if (Failing) return new SubagentEventsFetch(null, Failure: "down");
+            if (Missing) return new StreamEventsFetch(null, NotFound: true);
+            if (Failing) return new StreamEventsFetch(null, Failure: "down");
             var raw = Enumerable.Range((int)from, Math.Max(0, Math.Min(PageSize, _events.Count - (int)from))).ToArray();
             var page = raw.Where(i => !Withheld.Contains(i)).Select(i => _events[i]).ToArray();
             int? next = from + raw.Length < _events.Count ? (int)from + raw.Length : null;
-            return new SubagentEventsFetch(new SubagentEventsDto { Events = page, NextFrom = next, LastEventNumber = _events.Count - 1 });
+            return new StreamEventsFetch(new StreamEventsPage { Events = page, NextFrom = next, LastEventNumber = _events.Count - 1 });
         }
 
         public Task<SummaryFetch> Summary(string sessionId, CancellationToken ct) {

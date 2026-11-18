@@ -1122,7 +1122,7 @@ public class WorkspaceViewModelTests {
             SessionRunMonitor? monitor = null;
             using var commands = new SessionRunActivity((key, report, ended, handoff) =>
                 monitor = new SessionRunMonitor(key, report, ended, daemon, directory, access,
-                    (_, _) => Task.FromResult(new SessionDetailFetch(null)), lane, time, handoff));
+                    FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(null))), lane, time, handoff));
             IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), time, commands: commands);
@@ -1179,7 +1179,7 @@ public class WorkspaceViewModelTests {
             SessionRunMonitor? monitor = null;
             using var runs = new SessionRunActivity((key, report, ended, handoff) =>
                 monitor = new SessionRunMonitor(key, report, ended, daemon, directory, access,
-                    (_, _) => Task.FromResult(new SessionDetailFetch(null)), lane, time, handoff));
+                    FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(null))), lane, time, handoff));
             IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = runs.Running.Subscribe(running => latest = running);
             var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), time, commands: runs);

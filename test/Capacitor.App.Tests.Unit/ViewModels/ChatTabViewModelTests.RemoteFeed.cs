@@ -21,7 +21,7 @@ public partial class ChatTabViewModelTests {
         var time = new FakeTimeProvider();
         var lane = new FakeServerLane();
         var remote = new RemoteTranscriptFeed("new", "gemini", access,
-            (_, _) => Task.FromResult(new SessionDetailFetch(new SessionDetailDto { LastEventNumber = 0 })), lane, time, _ => { });
+            FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(new SessionDetailDto { LastEventNumber = 0 }))), lane, time, _ => { });
         var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, session, Observable.Return<string[]?>(null),
             new AcceptingChatInput(), new NoAttachmentUploader(), key => key == "old" ? new HeldFeed(entered, release) : remote,
             new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time));
@@ -61,6 +61,43 @@ public partial class ChatTabViewModelTests {
         } finally { await chat.TeardownAsync(); }
     });
 
+    /// Older rows go above the ones shown, and a call they leave open is settled by the result the window
+    /// already held, rather than staying a running row forever.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Older_rows_go_above_and_a_call_in_them_takes_its_result_from_the_window() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var lane = new FakeServerLane();
+        var events = Enumerable.Range(0, 400).Select(i => i switch {
+            99  => RemoteFixtures.Event(i, CanonicalEventTypes.AssistantToolCallsGenerated, RemoteFixtures.LsCall),
+            100 => RemoteFixtures.Event(i, CanonicalEventTypes.ToolResultReceived, """{"call_id":"t1","result":"a.txt"}"""),
+            _   => RemoteFixtures.Event(i, CanonicalEventTypes.AssistantTextGenerated, $$"""{"content":"m{{i}}"}"""),
+        });
+        var server = new FakeSessionEvents([.. events]);
+        RemoteTranscriptFeed? feed = null;
+        var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, Observable.Return(Session("s1")), Observable.Return<string[]?>(null),
+            new AcceptingChatInput(), new NoAttachmentUploader(), key => feed = new RemoteTranscriptFeed(key, "gemini", access, server.Reader, lane, time, _ => { }),
+            new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time));
+        try {
+            await WaitUntilAsync(() => chat.Items.Count > 0, what: "the seed");
+            await Assert.That((chat.Items[0] as AssistantTextItem)?.Text).IsEqualTo("m101");
+
+            await Assert.That(chat.RequestOlder()).IsTrue();
+            await feed!.PendingOlderForTesting!;
+            await WaitUntilAsync(() => chat.Items.Count > 390, what: "the older page");
+
+            await Assert.That((chat.Items[0] as AssistantTextItem)?.Text).IsEqualTo("m0");
+            var group = chat.Items.OfType<ToolGroupItem>().Single();
+            await Assert.That(chat.Items[99]).IsSameReferenceAs(group);
+            await Assert.That((chat.Items[100] as AssistantTextItem)?.Text).IsEqualTo("m101");
+            var call = group.Calls.Single();
+            await Assert.That(call.Outcome).IsEqualTo(ToolOutcome.Done);
+            await Assert.That(call.Result).IsEqualTo("a.txt");
+            await Assert.That(chat.RequestOlder()).IsFalse();
+        } finally { await chat.TeardownAsync(); }
+    });
+
     sealed class HeldFeed(ManualResetEventSlim entered, ManualResetEventSlim release) : IChatTranscriptFeed {
         public long? CurrentOffset => 0;
         public FeedRead ReadAppended() {
@@ -79,7 +116,7 @@ public partial class ChatTabViewModelTests {
         var lane = new FakeServerLane { TailHandler = (_, _) => new Microsoft.AspNetCore.SignalR.HubException("not authorized") };
         var time = new FakeTimeProvider();
         var feed = new RemoteTranscriptFeed("s1", "gemini", access,
-            (_, _) => Task.FromResult(new SessionDetailFetch(new SessionDetailDto { LastEventNumber = 0 })), lane, time, _ => { });
+            FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(new SessionDetailDto { LastEventNumber = 0 }))), lane, time, _ => { });
         var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, session, Observable.Return<string[]?>(null),
             new AcceptingChatInput(), new NoAttachmentUploader(), _ => feed, new RecordingOpener(), time,
             new FakePermissionService(), new SessionRuns(time));

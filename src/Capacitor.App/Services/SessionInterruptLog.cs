@@ -57,7 +57,7 @@ public sealed class SessionInterruptLog : ISessionInterruptSource {
             return new(Ended);
         var folded = known ?? new Folded(0, new([], false));
         while (true) {
-            var page = await _readEvents(sessionId, folded.From, ct).ConfigureAwait(false);
+            var page = await _readEvents(sessionId, folded.From, null, ct).ConfigureAwait(false);
             if (page.NotFound) {
                 lock (_lock) if (generation == _generation) _folded.Remove(sessionId);
                 return new(null, NotFound: true);

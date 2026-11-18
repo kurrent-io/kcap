@@ -98,10 +98,10 @@ public class ServerSessionHttpTests {
         await using var _ = provider;
         var read = ServerSessionHttp.SessionEventsReader(http, profiles);
 
-        var page = (await read("s1", 3, CancellationToken.None)).Page!;
+        var page = (await read("s1", 3, null, CancellationToken.None)).Page!;
         await Assert.That(page.Events![0].EventNumber).IsEqualTo(3);
         await Assert.That(page.NextFrom).IsEqualTo(4);
         await Assert.That(page.LastEventNumber).IsEqualTo(9);
-        await Assert.That((await read("nope", 0, CancellationToken.None)).NotFound).IsTrue();
+        await Assert.That((await read("nope", 0, null, CancellationToken.None)).NotFound).IsTrue();
     }
 }

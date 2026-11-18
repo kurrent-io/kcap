@@ -25,7 +25,7 @@ public class SessionRunMonitorTests {
         public Rig() => Access = new SessionAccessService(Lane, Time);
 
         public SessionRunMonitor Monitor() => new("local:a1", work => Latest = work, () => Ended = true, Daemon, Directory, Access,
-            (_, _) => Task.FromResult(new SessionDetailFetch(null)), Lane, Time);
+            FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(null))), Lane, Time);
 
         public void Dispose() {
             Access.Dispose();

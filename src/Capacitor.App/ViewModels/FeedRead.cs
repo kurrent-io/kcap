@@ -8,4 +8,6 @@ namespace Capacitor.App.ViewModels;
 public sealed record FeedRead(FeedStatus Status, IReadOnlyList<ProjectedLine> Lines, long? SnapshotOffset = null, string? Failure = null) {
     /// Run signals the feed read outside its lines, applied after them.
     public IReadOnlyList<RunSignal> Runs { get; init; } = [];
+    /// Lines from before everything the feed delivered so far, oldest first; they go above the rows on screen.
+    public IReadOnlyList<ProjectedLine> Older { get; init; } = [];
 }
