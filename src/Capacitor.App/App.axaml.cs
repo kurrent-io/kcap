@@ -2511,7 +2511,7 @@ public partial class App : Application {
         };
         var window = adopt?.Window ?? new MainWindow();
         railOwner = window;
-        // The startup frame is already where the remembered placement put it, and may since have been moved.
+        // The startup frame is placed and tracked already, and may since have been moved.
         var placed = window.ShowsStartup;
         window.DataContext = vm;
         window.Closed += (_, _) => vm.Search?.Dispose();
@@ -2525,10 +2525,12 @@ public partial class App : Application {
         window.Onboarding = null;
         window.ShowsStartup = false;
         var savedState = adopt?.State ?? appState.LoadAsync().GetAwaiter().GetResult();
-        if (!placed) WindowSizeMemory.Apply(window, savedState);
-        WindowSizeMemory.Attach(window, appState);
-        if (!placed) PaneLayoutMemory.Apply(window.Panes, savedState);
-        PaneLayoutMemory.Attach(window.Panes, appState);
+        if (!placed) {
+            WindowSizeMemory.Apply(window, savedState);
+            WindowSizeMemory.Attach(window, appState);
+            PaneLayoutMemory.Apply(window.Panes, savedState);
+            PaneLayoutMemory.Attach(window.Panes, appState);
+        }
         if (show) window.Show();
         return window;
     }
@@ -2556,7 +2558,7 @@ public partial class App : Application {
         var state = await _appState.LoadAsync();
         if (_shutdownStarted || _shutdown.IsCancellationRequested) return false;
 
-        var window = ShowStartupWindow(state, _uiScale);
+        var window = ShowStartupWindow(state, _uiScale, _appState);
         _adoptableWindow = (window, state);
         window.Closed += (_, _) => {
             if (window.ShowsStartup) _startupWindowClosed = true;
@@ -2571,10 +2573,14 @@ public partial class App : Application {
         return true;
     }
 
-    internal static MainWindow ShowStartupWindow(AppState state, UiScaleSetting? uiScale) {
+    // Tracked before the first Show(): a window that opens maximized must seed its tracker with the
+    // normal frame, not the work area the platform resizes it to.
+    internal static MainWindow ShowStartupWindow(AppState state, UiScaleSetting? uiScale, IAppStateStore store) {
         var window = new MainWindow { ContentScale = uiScale, ShowsStartup = true };
         WindowSizeMemory.Apply(window, state);
+        WindowSizeMemory.Attach(window, store);
         PaneLayoutMemory.Apply(window.Panes, state);
+        PaneLayoutMemory.Attach(window.Panes, store);
         window.Show();
         return window;
     }

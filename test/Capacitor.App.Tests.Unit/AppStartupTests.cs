@@ -110,7 +110,7 @@ public class AppStartupTests {
         await appState.UpdateAsync(s => s with { WindowWidth = 1552, WindowHeight = 888 });
         var savedState = await appState.LoadAsync();
         var (before, after) = await AvaloniaSession.DispatchAsync(() => {
-            var startup = AppUnderTest.ShowStartupWindow(savedState, uiScale: null);
+            var startup = AppUnderTest.ShowStartupWindow(savedState, uiScale: null, appState);
             Dispatcher.UIThread.RunJobs();
             var shown = (Visible: startup.IsVisible, Startup: startup.StartupPane.IsVisible, Surface: startup.SessionsSurface.IsVisible, startup.Width);
             startup.Width = 1640;
@@ -137,6 +137,38 @@ public class AppStartupTests {
         await Assert.That(after.Surface).IsTrue();
         await Assert.That(after.HasVm).IsTrue();
         await Assert.That(after.Width).IsEqualTo(1640);
+    }
+
+    /// A startup frame that opens maximized still remembers the normal frame it was restored from:
+    /// the platform's maximize must not become the size saved on quit.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_maximized_startup_window_keeps_its_normal_frame_across_a_quit() {
+        var appState = AppState();
+        await appState.UpdateAsync(s => s with { WindowWidth = 1300, WindowHeight = 700, WindowX = 40, WindowY = 30, WindowMaximized = true });
+        var savedState = await appState.LoadAsync();
+        await AvaloniaSession.DispatchAsync(() => {
+            var startup = AppUnderTest.ShowStartupWindow(savedState, uiScale: null, appState);
+            Dispatcher.UIThread.RunJobs();
+            // The headless platform does not resize a maximized window; a real one sets the frame to the work area.
+            startup.Width = 1920;
+            startup.Height = 1080;
+            Dispatcher.UIThread.RunJobs();
+
+            var service = new FakeDaemonClientService();
+            var (actions, notifier) = NewActions(service);
+            var window = AppUnderTest.BuildAndShowMainWindow(
+                service, Config.Root, appState, actions, notifier, new FakeTicker(), CancellationToken.None,
+                TestActivity.New(), new NeverLaunchClient(), TimeProvider.System, adopt: (startup, savedState));
+            Dispatcher.UIThread.RunJobs();
+            window.Close();
+            return true;
+        });
+        var saved = await appState.LoadAsync();
+
+        await Assert.That(saved.WindowMaximized).IsTrue();
+        await Assert.That(saved.WindowWidth).IsEqualTo(1300);
+        await Assert.That(saved.WindowHeight).IsEqualTo(700);
     }
 
     [Test]
