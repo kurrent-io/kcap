@@ -47,7 +47,7 @@ public class CopilotMoveMarkerTests {
     }
 
     static string? Find(string storage, string[] transcript) =>
-        CopilotMovedChat.Read(transcript) is { } history ? CopilotMovedChat.FindLocalChat([storage], history) : null;
+        CopilotMovedChat.Read(transcript) is { } history ? CopilotMovedChat.FindLocalChat([storage], history).Found : null;
 
     [Test]
     public async Task A_moved_chats_history_names_its_first_prompt_and_the_resume_that_ends_it() {
@@ -209,5 +209,26 @@ public class CopilotMoveMarkerTests {
         await Assert.That(rewound).IsTrue();
         await Assert.That(state.LinesProcessed).IsEqualTo(2);
         await Assert.That((state.CopilotMoveMarkerSent, state.CopilotMoveLookups)).IsEqualTo((false, 0));
+    }
+
+    // A log still being written reads as nothing yet; it could be the match, or a second one, so nothing is named.
+    [Test]
+    public async Task A_candidate_log_that_cannot_be_read_yet_leaves_the_lookup_unresolved() {
+        var storage = Workspace("a", Cwd, LocalId);
+        Tmp.CreateFile(Path.Combine(_storage, "a", "chatSessions", "22222222-2222-4222-8222-222222222222.jsonl"), "{\"kind\":0,\"v\":{\"vers");
+
+        var lookup = CopilotMovedChat.FindLocalChat([storage], CopilotMovedChat.Read(Transcript())!);
+
+        await Assert.That(lookup).IsEqualTo(new CopilotMovedChat.LocalChatLookup(null, Unresolved: true));
+    }
+
+    // A path no file system takes, in another workspace's definition, rules that workspace out and no other.
+    [Test]
+    public async Task A_workspace_naming_an_impossible_folder_is_passed_over() {
+        var storage = Workspace("a", Cwd, LocalId);
+        var file    = Tmp.CreateFile(Path.Combine("defs", "bad.code-workspace"), "{\"folders\":[{\"path\":\"bad\\u0000path\"}]}");
+        Tmp.CreateFile(Path.Combine(_storage, "b", "workspace.json"), new JsonObject { ["workspace"] = new Uri(file).AbsoluteUri }.ToJsonString());
+
+        await Assert.That(Find(storage, Transcript())).IsEqualTo(LocalId);
     }
 }

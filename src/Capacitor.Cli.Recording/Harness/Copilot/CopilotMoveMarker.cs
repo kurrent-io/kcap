@@ -34,7 +34,7 @@ public static class CopilotMoveMarker {
                 return;
             }
 
-            if (CopilotMovedChat.FindLocalChat(workspaceStorageDirs, history) is not { } local) {
+            if (CopilotMovedChat.FindLocalChat(workspaceStorageDirs, history).Found is not { } local) {
                 if (!history.Matchable || ++state.CopilotMoveLookups >= MaxLookups) {
                     state.CopilotMoveMarkerSent = true;
                     log("Moved VS Code chat: no single Local chat matches its first prompt; storing it unlinked");

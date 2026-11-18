@@ -90,25 +90,32 @@ public static class CopilotMovedChat {
         return null;
     }
 
-    /// <summary>The Local chat whose request matches the history's first prompt, searched in the VS Code workspaces
-    /// open on the chat's folder; null when none matches, or when more than one does.</summary>
-    public static string? FindLocalChat(IReadOnlyList<string> workspaceStorageDirs, History history) {
-        if (!history.Matchable) return null;
+    /// <summary>What a search for a moved chat's Local chat found: the one chat whose request matches the history's first
+    /// prompt, or none. <paramref name="Unresolved"/>: some candidate log could not be read, so neither is known yet.</summary>
+    public sealed record LocalChatLookup(string? Found, bool Unresolved);
 
-        string? found = null;
+    /// <summary>Searches the chat logs of the VS Code workspaces open on the chat's folder. No chat is named when none
+    /// matches, when more than one does, or when a log that could be the one cannot be read yet.</summary>
+    public static LocalChatLookup FindLocalChat(IReadOnlyList<string> workspaceStorageDirs, History history) {
+        if (!history.Matchable) return new(null, false);
+
+        var matches    = new List<string>();
+        var unreadable = false;
 
         foreach (var chatLog in ChatLogsFor(workspaceStorageDirs, history.Cwd!)) {
             var id = Path.GetFileNameWithoutExtension(chatLog);
 
-            if (VsCodeChatSessionLog.Read(chatLog, id) is not { } session
-             || !session.Requests.Any(r => r.SentAtMs == history.FirstPromptAtMs && r.Text == history.FirstPrompt)) continue;
+            if (VsCodeChatSessionLog.Read(chatLog, id) is not { } session) {
+                unreadable = true;
+                continue;
+            }
 
-            if (found is not null) return null;
-
-            found = id;
+            if (session.Requests.Any(r => r.SentAtMs == history.FirstPromptAtMs && r.Text == history.FirstPrompt)) matches.Add(id);
         }
 
-        return found;
+        return matches.Count > 1 ? new(null, false)
+             : unreadable        ? new(null, true)
+             : new(matches.SingleOrDefault(), false);
     }
 
     /// <summary>The marker naming the Local chat. Its id comes from the two chats, so a re-sent marker dedupes.</summary>
@@ -137,8 +144,16 @@ public static class CopilotMovedChat {
     }
 
     // A single-folder workspace names its folder; a multi-root one names its .code-workspace file, whose first folder is
-    // the chat's cwd.
+    // the chat's cwd. A path the OS cannot take, in either, rules that workspace out.
     static bool OpenOn(string workspaceJson, string cwd) {
+        try {
+            return OpenOnPath(workspaceJson, cwd);
+        } catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException) {
+            return false;
+        }
+    }
+
+    static bool OpenOnPath(string workspaceJson, string cwd) {
         JsonObject? workspace;
         try { workspace = JsonNode.Parse(File.ReadAllText(workspaceJson)) as JsonObject; }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { return false; }
