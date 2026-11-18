@@ -60,6 +60,19 @@ public class NeedToKnowViewTests {
                 window.MouseMove(At(block, 3, window));
                 Dispatcher.UIThread.RunJobs();
                 await Assert.That(footnote.Classes.Contains("need-to-know-lit")).IsFalse();
+
+                window.MouseMove(At(block, 20, window));
+                Dispatcher.UIThread.RunJobs();
+                var end = At(block, Reads(block).Length - 1, window);
+                window.MouseMove(new Point(end.X + 15, end.Y));
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(footnote.Classes.Contains("need-to-know-lit")).IsFalse();
+
+                window.MouseMove(At(block, 20, window));
+                Dispatcher.UIThread.RunJobs();
+                window.MouseMove(new Point(window.Bounds.Width - 5, end.Y));
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(footnote.Classes.Contains("need-to-know-lit")).IsFalse();
             } finally {
                 window.Close();
             }
@@ -100,6 +113,16 @@ public class NeedToKnowViewTests {
                 window.MouseMove(At(block, Reads(block).IndexOf("last line", StringComparison.Ordinal), window));
                 Dispatcher.UIThread.RunJobs();
                 await Assert.That(footnote.Classes.Contains("need-to-know-lit")).IsTrue();
+
+                var lines = block.TextLayout.TextLines;
+                var (short_, top) = (lines[0], 0.0);
+                for (var i = 0; i < lines.Count - 1; i++) {
+                    if (lines[i].WidthIncludingTrailingWhitespace < short_.WidthIncludingTrailingWhitespace) (short_, top) = (lines[i], lines.Take(i).Sum(l => l.Height));
+                }
+                await Assert.That(block.Bounds.Width - short_.WidthIncludingTrailingWhitespace).IsGreaterThan(6);
+                window.MouseMove(block.TranslatePoint(new Point(short_.WidthIncludingTrailingWhitespace + 3, top + short_.Height / 2), window)!.Value);
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(footnote.Classes.Contains("need-to-know-lit")).IsFalse();
             } finally {
                 window.Close();
             }

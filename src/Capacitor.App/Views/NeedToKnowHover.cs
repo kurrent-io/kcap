@@ -24,13 +24,25 @@ sealed class NeedToKnowHover {
         if (block is { Inlines: { } inlines }) {
             var point = e.GetPosition(block) - new Point(block.Padding.Left, block.Padding.Top);
             // IsInside reads false on every wrapped line once the line height exceeds the glyphs',
-            // so the position is taken as found.
-            span = FadedAt(inlines, block.TextLayout.HitTestPoint(point).TextPosition);
+            // so only the horizontal extent of the line under the point is checked.
+            if (OnText(block.TextLayout, point))
+                span = FadedAt(inlines, block.TextLayout.HitTestPoint(point).TextPosition);
         }
         Light(span, span is null ? null : block);
     }
 
     public void Clear() => Light(null, null);
+
+    /// The hit test snaps to the nearest character, so a point past the end of a line would light it.
+    static bool OnText(Avalonia.Media.TextFormatting.TextLayout layout, Point point) {
+        var top = 0.0;
+        foreach (var line in layout.TextLines) {
+            if (point.Y < top + line.Height)
+                return point.Y >= top && point.X >= line.Start && point.X <= line.Start + line.WidthIncludingTrailingWhitespace;
+            top += line.Height;
+        }
+        return false;
+    }
 
     void Light(Span? span, TextBlock? block) {
         if (ReferenceEquals(span, _lit)) return;

@@ -120,7 +120,7 @@ public sealed class MarkdownView : ContentControl {
         // Bubble on the host runs after the viewer's own move, which has already chosen Hand or
         // the arrow. Prose takes the I-beam and a link the hand; a bare image stays on the arrow.
         AddHandler(PointerMovedEvent, OnPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
-        AddHandler(PointerExitedEvent, (_, _) => _hover.Clear(), RoutingStrategies.Bubble, handledEventsToo: true);
+        PointerExited += (_, _) => _hover.Clear();
         AddHandler(PointerPressedEvent, OnSelectionInput, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerMovedEvent, OnSelectionInput, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerReleasedEvent, OnSelectionInput, RoutingStrategies.Bubble, handledEventsToo: true);

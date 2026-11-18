@@ -1033,7 +1033,10 @@
                                                 <Grid ColumnDefinitions="Auto,160,Auto" ColumnSpacing="10" Margin="4,2">
                                                     <TextBlock Text="Opacity" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
                                                     <Slider Grid.Column="1" Minimum="5" Maximum="95" Value="{Binding DetailFade}" VerticalAlignment="Center" />
-                                                    <TextBlock Grid.Column="2" Text="{Binding DetailFade, StringFormat={}{0}%}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                                                    <Panel Grid.Column="2" VerticalAlignment="Center">
+                                                        <TextBlock Text="100%" FontSize="12" Opacity="0" />
+                                                        <TextBlock Text="{Binding DetailFade, StringFormat={}{0}%}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" HorizontalAlignment="Right" />
+                                                    </Panel>
                                                 </Grid>
                                             </Flyout>
                                         </Button.Flyout>
@@ -1058,7 +1061,10 @@
                                                 <Grid ColumnDefinitions="Auto,160,Auto" ColumnSpacing="10" Margin="4,2">
                                                     <TextBlock Text="Opacity" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
                                                     <Slider Grid.Column="1" Minimum="5" Maximum="95" Value="{Binding FootnoteFade}" VerticalAlignment="Center" />
-                                                    <TextBlock Grid.Column="2" Text="{Binding FootnoteFade, StringFormat={}{0}%}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                                                    <Panel Grid.Column="2" VerticalAlignment="Center">
+                                                        <TextBlock Text="100%" FontSize="12" Opacity="0" />
+                                                        <TextBlock Text="{Binding FootnoteFade, StringFormat={}{0}%}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" HorizontalAlignment="Right" />
+                                                    </Panel>
                                                 </Grid>
                                             </Flyout>
                                         </Button.Flyout>
