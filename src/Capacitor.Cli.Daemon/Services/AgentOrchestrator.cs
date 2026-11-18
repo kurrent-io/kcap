@@ -397,10 +397,14 @@ internal record AgentInstance(
     /// A refusal about the reporting connection answers nothing, so the answer waits for the next registration.</summary>
     public Task<bool> Registration => _registration.Task;
 
+    /// <summary>The reason the server gave for the first refusal of this agent's registration.</summary>
+    public string? RegistrationRefusal { get; private set; }
+
     public void AcceptRegistration() => _registration.TrySetResult(true);
 
-    public void RefuseRegistration() {
-        RegistrationRefused = true;
+    public void RefuseRegistration(string? reason) {
+        RegistrationRefusal ??= reason ?? "";
+        RegistrationRefused =   true;
         _registration.TrySetResult(false);
     }
 
@@ -3560,8 +3564,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             // A resume the server refused must not run under an id it holds no entry for; the resume
             // lane takes it from here, and the pending resume keeps the worktree and ledger entry.
-            if (!registration.Registered && !registration.RefusesConnection && resume is not null) {
-                resume.RefusedRegistration = registration.RefusedReason ?? "";
+            if (resume is not null && await ResumeRefusalAsync(agent, registration) is { } resumeRefusal) {
+                resume.RefusedRegistration = resumeRefusal;
 
                 // Read before cleanup, since a disposed runtime no longer knows its process, and checked again after it,
                 // since cleanup kills once more.
@@ -3704,11 +3708,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             } else if (!agent.IsServerSilent && string.Equals(cmd.Vendor, "codex", StringComparison.OrdinalIgnoreCase)) {
                 // updateLocal only on the PTY path: an app-server Codex (Transcript present) already
                 // registered its confirmed handshake model, which must not be overwritten locally.
-                _ = OnceRegisteredAsync(agent, () => {
-                    ReportResolvedModel(agentId, cmd.Vendor, model, agent.Account, updateLocal: start.Transcript is null);
-
-                    return Task.CompletedTask;
-                });
+                ReportResolvedModel(agent, cmd.Vendor, model, updateLocal: start.Transcript is null);
             }
 
             // The launch executed — the agent is registered.
@@ -3883,12 +3883,14 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// the launch's <c>config.toml</c> — we resolve the same value here. Never throws: a resolve/report
     /// failure must not break launch.
     /// </summary>
-    void ReportResolvedModel(string agentId, string vendor, string model, ResolvedAccount? account, bool updateLocal) {
+    void ReportResolvedModel(AgentInstance launched, string vendor, string model, bool updateLocal) {
+        var agentId = launched.Id;
+
         try {
             var isDefault = string.IsNullOrEmpty(model) || string.Equals(model, "default", StringComparison.OrdinalIgnoreCase);
 
             var resolved = isDefault && string.Equals(vendor, "codex", StringComparison.OrdinalIgnoreCase)
-                ? CodexResolvedModel(model, account)
+                ? CodexResolvedModel(model, launched.Account)
                 : model;
 
             if (string.IsNullOrEmpty(resolved)) return;
@@ -3902,7 +3904,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
              && _agents.TryGetValue(agentId, out var agent))
                 SetResolvedModel(agent, resolved);
 
-            _ = _server.ReportAgentResolvedModelAsync(agentId, resolved);
+            // Read at launch, since the config can change before the server holds the agent.
+            _ = OnceRegisteredAsync(launched, () => _server.ReportAgentResolvedModelAsync(agentId, resolved));
         } catch (Exception ex) {
             LogReportResolvedModelFailed(ex, agentId);
         }
@@ -5860,7 +5863,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         if (registration.Answered) agent.ResumeAnswered = true;
 
         if (!registration.Registered) {
-            agent.RefuseRegistration();
+            agent.RefuseRegistration(registration.RefusedReason);
             LogRegistrationRefused(agent.Id, registration.RefusedReason);
             return registration;
         }
@@ -5871,6 +5874,25 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         return registration;
     }
 
+    /// <summary>Why the server holds no entry for a resumed agent, or null when it holds one. After a refusal about
+    /// the reporting connection, the registration that follows the connection's recovery answers for it, if it comes
+    /// within <see cref="DaemonConfig.ResumeReadinessWindow"/>: the resume is judged once the launch returns, and must
+    /// not be judged before the server holds the agent.</summary>
+    async Task<string?> ResumeRefusalAsync(AgentInstance agent, AgentRegisteredResponse registration) {
+        if (registration.Registered) return null;
+        if (!registration.RefusesConnection) return registration.RefusedReason ?? "";
+
+        try {
+            if (await agent.Registration.WaitAsync(_config.ResumeReadinessWindow, _time, agent.ExitedCts.Token) && !agent.RegistrationRefused) return null;
+        } catch (Exception ex) when (ex is TimeoutException or OperationCanceledException) {
+            // Unanswered, it is refused like any other: the resume goes on under a new id.
+        }
+
+        agent.RefuseRegistration(registration.RefusedReason);
+
+        return agent.RegistrationRefusal;
+    }
+
     /// <summary>Runs work that needs the server to hold the agent, once it does: at once after an accepted launch
     /// registration, and after the next registration when the launch's was refused for its connection.
     /// <paramref name="refused"/> runs instead once the server refuses the agent. Contains its own faults.</summary>
@@ -5879,7 +5901,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         var lifetime = agent.ExitedCts.Token;
 
         try {
-            var accepted = await agent.Registration.WaitAsync(lifetime);
+            // A refusal can follow the acceptance before this resumes.
+            var accepted = await agent.Registration.WaitAsync(lifetime) && !agent.RegistrationRefused;
 
             await (accepted ? registered() : refused?.Invoke() ?? Task.CompletedTask);
         } catch (OperationCanceledException) when (lifetime.IsCancellationRequested) {
@@ -5897,6 +5920,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         } catch (Exception ex) {
             ReportDimsSendFailed(ex, agent.Id);
         }
+
+        // A run start would mark the run running again for an agent refused while the dimensions went out.
+        if (agent.RegistrationRefused) return;
 
         _ = _server.AppendAgentRunEventAsync(
             agent.Id,
@@ -6402,7 +6428,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     // and the agent is left out of later re-registrations too. A status sent for the refused id
                     // could clear the failure the server recorded for it.
                     if (!registration.Registered) {
-                        agent.RefuseRegistration();
+                        agent.RefuseRegistration(registration.RefusedReason);
                         LogRegistrationRefused(agent.Id, registration.RefusedReason);
 
                         // The forwarder would go on sending the transcript under the refused id.

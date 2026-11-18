@@ -195,21 +195,23 @@ public class AgentOrchestratorVendorTests {
             AgentId: "displaced-launch", Prompt: "hi", Model: "opus", Effort: null,
             RepoPath: repoPath, Tools: null, AttachmentIds: null, Vendor: "claude"));
 
-        bool RunStarted() {
-            lock (server.RunEvents) return server.RunEvents.Any(e => e is { AgentId: "displaced-launch", Event: AgentRunStarted });
+        int RunStarts() {
+            lock (server.RunEvents) return server.RunEvents.Count(e => e is { AgentId: "displaced-launch", Event: AgentRunStarted });
         }
 
-        var liveWhileRefused    = server.GetLiveAgentIds!();
-        var startedWhileRefused = RunStarted();
+        var liveWhileRefused   = server.GetLiveAgentIds!();
+        var startsWhileRefused = RunStarts();
 
         server.RegistrationResponse = null;
         await server.ReRegisterAgentsHook!();
-        await WaitHarness.PollUntilAsync(RunStarted);
+        await WaitHarness.PollUntilAsync(() => RunStarts() > 0);
+        await server.ReRegisterAgentsHook!();
 
         await Assert.That(liveWhileRefused).Contains("displaced-launch");
-        await Assert.That(startedWhileRefused).IsFalse();
+        await Assert.That(startsWhileRefused).IsEqualTo(0);
+        await Assert.That(RunStarts()).IsEqualTo(1);
         await Assert.That(orch.GetAgentForTest("displaced-launch")!.IsServerSilent).IsFalse();
-        await Assert.That(server.AgentRegisteredCallCount).IsEqualTo(2);
+        await Assert.That(server.AgentRegisteredCallCount).IsEqualTo(3);
         await Assert.That(server.StatusChangedCalls.Select(c => c.AgentId)).Contains("displaced-launch");
 
         await orch.HandleStopAgentForTest("displaced-launch");
