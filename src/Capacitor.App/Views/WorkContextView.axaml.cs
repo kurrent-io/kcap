@@ -18,6 +18,23 @@ public partial class WorkContextView : UserControl {
 
     ChatBookmark? _colouring;
 
+    // Both rows ask the session's agent, so they are offered only while it can take a message.
+    void OnBookmarkMenuOpening(object? sender, EventArgs e) {
+        _bookmarkMenu = sender as Flyout;
+        if (_bookmarkMenu?.Content is not Panel rows) return;
+        var can = DataContext is WorkContextViewModel { CanAskAgent: true };
+        foreach (var row in rows.Children) row.IsEnabled = can;
+    }
+
+    Flyout? _bookmarkMenu;
+
+    async void OnBookmarkAskClick(object? sender, RoutedEventArgs e) {
+        var bookmark = _bookmarkMenu?.Target?.DataContext as ChatBookmark;
+        _bookmarkMenu?.Hide();
+        if (sender is Button { Tag: ChatBookmarkAsk ask } && bookmark is not null && DataContext is WorkContextViewModel pane)
+            await pane.AskAboutAsync(bookmark, ask);
+    }
+
     void OnBookmarkColorsOpening(object? sender, EventArgs e) {
         _colours = sender as FlyoutBase;
         _colouring = _colours?.Target?.DataContext as ChatBookmark;

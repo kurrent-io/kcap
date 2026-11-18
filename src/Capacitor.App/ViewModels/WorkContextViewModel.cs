@@ -472,7 +472,22 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     }
 
     internal void AgentInputAvailabilityChanged() {
-        if (!_tornDown) RaiseCompactState();
+        if (_tornDown) return;
+        RaiseCompactState();
+        this.RaisePropertyChanged(nameof(CanAskAgent));
+    }
+
+    /// Whether the session's agent can take a request right now, such as one about a bookmark.
+    public bool CanAskAgent => _canSendToAgent();
+
+    /// Asks the session's agent to act on a bookmark; false means nothing was sent.
+    public async Task<bool> AskAboutAsync(ChatBookmark bookmark, ChatBookmarkAsk ask) {
+        if (_tornDown || !CanAskAgent) return false;
+        try { return await _sendToAgent(ask.For(bookmark)); }
+        catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: bookmark request failed: {ex.Message}");
+            return false;
+        }
     }
 
     void RaiseCompactState() {

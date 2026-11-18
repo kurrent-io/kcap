@@ -45,11 +45,14 @@ public class WorkContextViewSmokeTests {
         public FakePlanArtifactSource Artefacts { get; } = new();
         public WorkContextViewModel Vm { get; }
         public Window Window { get; }
+        public List<string> Sent { get; } = [];
+        public bool CanSend { get; set; } = true;
 
         public Host() {
             Runs = new SessionRuns(Time);
             Vm = new WorkContextViewModel(Presence, Source, Time, Opener, Runs, plans: Plans, planActivity: PlanActivity,
-                artefacts: new ArtefactsTabViewModel(Artefacts, PlanActivity, Time, opener: Opener));
+                artefacts: new ArtefactsTabViewModel(Artefacts, PlanActivity, Time, opener: Opener),
+                canSendToAgent: () => CanSend, sendToAgent: text => { Sent.Add(text); return Task.FromResult(true); });
             Window = new Window { Content = new WorkContextView { DataContext = Vm }, Width = 320, Height = 900 };
         }
 
@@ -1009,7 +1012,8 @@ public class WorkContextViewSmokeTests {
     }
 
     /// The section lists each topic with its bookmarks under it, the topic gone to in bold; a
-    /// bookmark is recoloured from the swatches under its dot and removed from its row.
+    /// bookmark is recoloured from the swatches under its icon, handed to the session's agent from its
+    /// right-click menu only while the agent can take a message, and removed from its row.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Topics_list_their_bookmarks_which_recolour_and_remove() {
@@ -1043,6 +1047,28 @@ public class WorkContextViewSmokeTests {
             var pink = host.Window.GetVisualDescendants().OfType<Button>().First(b => b.Classes.Contains("bookmarkSwatch") && b.Tag is ChatBookmarkColor.Pink);
             Press(pink);
             await Assert.That(bookmarks.All[0].Color).IsEqualTo(ChatBookmarkColor.Pink);
+
+            var row = (Control)All<Button>("bookmarkColor")[1].GetVisualParent()!;
+            Button Ask(ChatBookmarkAsk ask) {
+                var at = At(row, row.Bounds.Width / 2, row.Bounds.Height / 2);
+                host.Window.MouseMove(at);
+                host.Window.MouseDown(at, MouseButton.Right);
+                host.Window.MouseUp(at, MouseButton.Right);
+                Settle();
+                return host.Window.GetVisualDescendants().OfType<Button>().First(b => b.Classes.Contains("bookmarkAsk") && b.Tag is ChatBookmarkAsk t && t == ask);
+            }
+
+            Press(Ask(ChatBookmarkAsk.FileLooseEnd));
+            await Assert.That(host.Sent).Count().IsEqualTo(1);
+            await Assert.That(host.Sent[0]).Contains("declare_loose_end").And.Contains("> Retry jitter");
+
+            host.CanSend = false;
+            var start = Ask(ChatBookmarkAsk.StartSession);
+            await Assert.That(start.IsEnabled).IsFalse();
+            Press(start);
+            await Assert.That(host.Sent).Count().IsEqualTo(1);
+            row.ContextFlyout!.Hide();
+            Settle();
 
             var removes = All<Button>("markRemove");
             Press(removes[^1]);

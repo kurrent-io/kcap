@@ -298,6 +298,18 @@
         </DataTemplate>
         <DataTemplate x:Key="BookmarkRow" x:DataType="vm:ChatBookmark">
             <Grid Classes="markRow" ColumnDefinitions="Auto,*,Auto" Margin="-6,0,0,0">
+                <Grid.ContextFlyout>
+                    <Flyout FlyoutPresenterClasses="kcapPanel" Opening="OnBookmarkMenuOpening">
+                        <StackPanel Spacing="2" Margin="6" MinWidth="160">
+                            <Button Classes="kcapGhost bookmarkAsk" Tag="{x:Static vm:ChatBookmarkAsk.StartSession}" Click="OnBookmarkAskClick"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="13.5"
+                                    Content="Start a session for this" />
+                            <Button Classes="kcapGhost bookmarkAsk" Tag="{x:Static vm:ChatBookmarkAsk.FileLooseEnd}" Click="OnBookmarkAskClick"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="13.5"
+                                    Content="File as a loose end" />
+                        </StackPanel>
+                    </Flyout>
+                </Grid.ContextFlyout>
                 <Button Classes="kcapGhost bookmarkColor" VerticalAlignment="Top" Margin="0,3,0,0"
                         ToolTip.Tip="Change colour" AutomationProperties.Name="Change bookmark colour">
                     <views:AppIcon Kind="Bookmark" Size="14"

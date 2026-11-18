@@ -102,4 +102,14 @@ public class ChatBookmarksTests {
             await Assert.That(bookmarks.Sections[3].Bookmarks.Select(static b => b.Text)).IsEquivalentTo(["late"], CollectionOrdering.Matching);
         });
     }
+
+    /// The request quotes the bookmark line by line, and says when it stands for a whole message.
+    [Test]
+    public async Task A_request_quotes_its_bookmark_and_names_the_tool() {
+        var picked = ChatBookmarkAsk.FileLooseEnd.For(new ChatBookmark("Retry jitter", 1, "Retry\njitter"));
+        await Assert.That(picked).Contains("declare_loose_end").And.EndsWith("The bookmarked text:\n> Retry\n> jitter");
+
+        var whole = ChatBookmarkAsk.StartSession.For(new ChatBookmark("Three points", 1));
+        await Assert.That(whole).Contains("start_agent").And.EndsWith("The bookmark marks a whole message, which begins:\n> Three points");
+    }
 }
