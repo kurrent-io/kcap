@@ -56,6 +56,7 @@
         <Style Selector="Border.railGroup.workItem">
             <Setter Property="Margin" Value="0,6,0,0" />
             <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="3" />
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
@@ -108,13 +109,6 @@
             <Setter Property="FontSize" Value="12" />
             <Setter Property="FontWeight" Value="Medium" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-        </Style>
-        <Style Selector="Border.railSession">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="CornerRadius" Value="5" />
-        </Style>
-        <Style Selector="Border.railSession.selected">
-            <Setter Property="Background" Value="{StaticResource KcapRowActiveBrush}" />
         </Style>
         <!-- The open row reads as selected by its background alone. A heavier title reflows the row,
              and a left accent insets its content past its siblings. -->
@@ -690,7 +684,7 @@
                                         <ItemsControl ItemsSource="{Binding Sessions}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:RailSessionViewModel">
-                                                    <Border Classes="railSession" Classes.selected="{Binding IsSelected}" Margin="0,0,0,4"
+                                                    <Border Margin="0,0,0,4"
                                                             Opacity="{Binding IsStale, Converter={x:Static views:StaleOpacityConverter.Instance}}">
                                                         <Button Command="{Binding OpenCommand}" HorizontalAlignment="Stretch"
                                                                 HorizontalContentAlignment="Stretch" Padding="9,4"
