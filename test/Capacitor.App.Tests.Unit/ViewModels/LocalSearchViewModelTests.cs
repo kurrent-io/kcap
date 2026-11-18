@@ -3,7 +3,6 @@ using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
-using Capacitor.App.Services;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core;

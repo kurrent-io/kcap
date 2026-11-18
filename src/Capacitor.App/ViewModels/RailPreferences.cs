@@ -1,5 +1,3 @@
-using Capacitor.App.Services;
-
 namespace Capacitor.App.ViewModels;
 
 /// The rail's remembered shape for one user: the four controls plus the group keys they folded.

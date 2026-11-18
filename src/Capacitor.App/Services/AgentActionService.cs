@@ -81,7 +81,7 @@ public sealed class AgentActionService {
 
     /// A terminal session the daemon steers rather than hosts. Its stop only disconnects the steering, which strands
     /// no flow, so it confirms nothing.
-    public const string AttachedKind = "attached";
+    public const string AttachedKind = AgentKinds.Attached;
 
     /// Whether the user can type at this kind, mirroring the daemon's AcceptsTypedInput: a PR-review
     /// agent is a dialogue, a flow participant is not, and an unrecognised kind fails safe as read-only.

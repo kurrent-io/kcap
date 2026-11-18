@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "sessions/subscribe",
+  "params": {
+    "subscription_id": "sub-1",
+    "git_roots": [
+      "/home/dev/src/app",
+      "/home/dev/src/lib"
+    ]
+  }
+}

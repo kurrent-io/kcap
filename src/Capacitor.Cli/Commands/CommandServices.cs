@@ -132,6 +132,7 @@ public static class CommandServices {
                 ? s => FeedbackMail.Send(s, sp.GetRequiredService<IBrowserLauncher>(), Clipboard.TryCopy)
                 : null));
         services.AddTransient<HarnessCommand>();
+        services.AddTransient<IdeCommand>();
         services.AddTransient<IgnoreCommand>();
         services.AddTransient<AllowCommand>();
         services.AddTransient(_ => ImportConsole.FromProcess());

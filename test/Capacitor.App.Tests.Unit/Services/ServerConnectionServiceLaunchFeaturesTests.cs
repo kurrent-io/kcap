@@ -1,6 +1,5 @@
 using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
-using Capacitor.App.Services;
 using Capacitor.Remote.Models;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Time.Testing;

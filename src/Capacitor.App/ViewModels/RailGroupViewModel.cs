@@ -4,7 +4,6 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.PullRequests;
 using DynamicData;
 using DynamicData.Binding;
