@@ -943,7 +943,7 @@
                             </Grid>
                         </Button>
                         <Border Classes="sectionBody" IsVisible="{Binding SessionExpanded}">
-                            <Grid x:Name="SessionFacts" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                            <Grid x:Name="SessionFacts" ColumnDefinitions="128,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="8">
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="ID" Classes="factLabel" />
                                 <Panel Grid.Row="0" Grid.Column="1">
                                     <Button x:Name="SessionIdButton" Classes="copyValue" Click="OnSessionIdClick"
@@ -957,10 +957,14 @@
                                 </Panel>
                                 <TextBlock Grid.Row="1" Grid.Column="0" Text="HARNESS" Classes="factLabel" />
                                 <SelectableTextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Harness}" Classes="factValue" />
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="SESSION SHARING" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SessionSharing}" Classes="factValue" />
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="AGENT SHARING" Classes="factLabel" />
-                                <SelectableTextBlock Grid.Row="3" Grid.Column="1" Text="{Binding AgentSharing}" Classes="factValue" />
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="CREATED" Classes="factLabel" />
+                                <SelectableTextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Created}" Classes="factValue" />
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="UPDATED" Classes="factLabel" />
+                                <SelectableTextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Updated}" Classes="factValue" />
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="SESSION SHARING" Classes="factLabel" />
+                                <SelectableTextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SessionSharing}" Classes="factValue" />
+                                <TextBlock Grid.Row="5" Grid.Column="0" Text="AGENT SHARING" Classes="factLabel" />
+                                <SelectableTextBlock Grid.Row="5" Grid.Column="1" Text="{Binding AgentSharing}" Classes="factValue" />
                             </Grid>
                         </Border>
                     </StackPanel>

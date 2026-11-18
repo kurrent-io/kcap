@@ -1089,7 +1089,7 @@ public partial class App : Application {
         // Built here rather than with the other server clients below because a remote stop goes
         // over the hub: the lane must exist before the service that calls it. Start() still runs
         // down there, with the rest of the server graph.
-        var serverLane = new ServerConnectionService(profiles, ServerCredentials(profiles), _time, _localRoot);
+        var serverLane = new ServerConnectionService(profiles, ServerCredentials(profiles), _time, _localRoot, LifecycleLog.Write);
         var actions = new AgentActionService(
             ops, notifier, opener, service.Snapshots, _shutdown.Token, ConfirmForceStopAsync,
             fallbackServerUrl: profiles?.Resolution.ServerUrl, lane: serverLane);

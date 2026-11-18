@@ -1,8 +1,10 @@
+using System.Text.Json;
 using Capacitor.Cli.Recording;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Core.Transcripts;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -399,5 +401,117 @@ public class SessionImporterProgressTests : IDisposable {
         await Assert.That(flushes[0].LinesAdded).IsEqualTo(2);
         await Assert.That(flushes[1].LinesAdded).IsEqualTo(1);
         await Assert.That(flushes.All(f => f.AgentId == null)).IsTrue();
+    }
+
+    void ServeCanonical() {
+        _server.Given(Request.Create().WithPath("/api/ingest/capabilities").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody("""{"canonical_format":1}"""));
+        foreach (var path in new[] { "/hooks/transcript", CanonicalRoute.HttpPath, "/hooks/subagent-start", "/hooks/subagent-stop" })
+            _server.Given(Request.Create().WithPath(path).UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+    }
+
+    List<string> TranscriptPosts() =>
+        [.. _server.LogEntries.Select(e => e.RequestMessage.Path).Where(p => p is "/hooks/transcript" or CanonicalRoute.HttpPath)];
+
+    static string ClaudeLine(int n) =>
+        $$$"""{"type":"user","uuid":"10000000-0000-4000-8000-{{{n:D12}}}","timestamp":"2026-11-16T08:00:{{{n:D2}}}Z","message":{"role":"user","content":"line {{{n}}}"}}""";
+
+    [Test]
+    public async Task A_claude_import_sends_the_session_and_its_subagents_canonical() {
+        ServeCanonical();
+
+        using var tmp = new TempDir();
+        var sessionName = Guid.NewGuid().ToString("N");
+        var agentId     = Guid.NewGuid().ToString("N");
+        var sessionPath = tmp.PathTo($"{sessionName}.jsonl");
+        var agentPath   = tmp.CreateDir(sessionName, "subagents").PathTo($"agent-{agentId}.jsonl");
+
+        await File.WriteAllLinesAsync(sessionPath, [
+            ClaudeLine(0),
+            $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{agentId}}}"}}""",
+            ClaudeLine(2),
+        ]);
+        await File.WriteAllLinesAsync(agentPath, [ClaudeLine(10), ClaudeLine(11)]);
+
+        using var client = new HttpClient();
+        await SessionImporter.ImportSessionAsync(
+            client, _server.Url!, sessionPath, sessionId: "s1", new SessionMetadata { Cwd = "/x" }, encodedCwd: null,
+            TimeProvider.System, canonical: new IngestCapability(client, _server.Url!, TimeProvider.System));
+
+        await Assert.That(TranscriptPosts().Distinct()).IsEquivalentTo([CanonicalRoute.HttpPath]);
+
+        var agents = _server.LogEntries.Where(e => e.RequestMessage.Path == CanonicalRoute.HttpPath)
+            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.TryGetProperty("agent_id", out var a) ? a.GetString() : null);
+        await Assert.That(agents.Distinct()).IsEquivalentTo([null, agentId]);
+    }
+
+    static string ClaudeReply(int n) =>
+        $$$$"""{"type":"assistant","uuid":"10000000-0000-4000-8000-{{{{n:D12}}}}","parentUuid":"10000000-0000-4000-8000-{{{{n - 1:D12}}}}","timestamp":"2026-11-16T08:00:{{{{n:D2}}}}Z","message":{"model":"claude-x","content":[{"type":"text","text":"reply {{{{n}}}}"}],"usage":{"input_tokens":10,"output_tokens":5}}}""";
+
+    /// <summary>Line 3 repeats line 2's usage, so only an import that projected the lines it resumes after knows the
+    /// usage is not new.</summary>
+    [Test]
+    public async Task A_resumed_claude_import_sends_the_events_an_uninterrupted_one_sends() {
+        ServeCanonical();
+
+        string[] lines = [ClaudeLine(0), ClaudeReply(1), ClaudeReply(2), ClaudeReply(3)];
+        using var tmp = TempDir.WithPathTo("session.jsonl", out var path);
+        await File.WriteAllLinesAsync(path, lines);
+
+        using var client = new HttpClient();
+        await SessionImporter.SendTranscriptBatches(
+            client, _server.Url!, "s1", path, agentId: null, startLine: 3, TimeProvider.System,
+            canonical: new IngestCapability(client, _server.Url!, TimeProvider.System));
+
+        var uninterrupted = CanonicalRoute.For("claude", "s1", null, true)!;
+        uninterrupted.Encode(new() { SessionId = "s1", Lines = lines[..3], LineNumbers = [0, 1, 2] }, DateTimeOffset.UnixEpoch);
+        uninterrupted.Acknowledged();
+        var expected = uninterrupted.Encode(new() { SessionId = "s1", Lines = [lines[3]], LineNumbers = [3] }, DateTimeOffset.UnixEpoch);
+
+        await Assert.That(TranscriptPosts()).IsEquivalentTo([CanonicalRoute.HttpPath]);
+        var sent = JsonDocument.Parse(_server.LogEntries.Single(e => e.RequestMessage.Path == CanonicalRoute.HttpPath).RequestMessage.Body!);
+        await Assert.That(sent.RootElement.GetProperty("events").GetRawText())
+            .IsEqualTo(JsonSerializer.Serialize(expected.Events, CapacitorJsonContext.Default.CanonicalBatchEventArray));
+    }
+
+    /// <summary>A batch the server refused is not stored, so the route's projection has run past what the server holds:
+    /// the batches after it go raw.</summary>
+    [Test]
+    public async Task A_lenient_import_sends_raw_after_a_canonical_batch_the_server_refused() {
+        _server.Given(Request.Create().WithPath("/api/ingest/capabilities").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody("""{"canonical_format":1}"""));
+        _server.Given(Request.Create().WithPath(CanonicalRoute.HttpPath).UsingPost()).RespondWith(Response.Create().WithStatusCode(500));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+
+        using var tmp = TempDir.WithPathTo("session.jsonl", out var path);
+        await File.WriteAllLinesAsync(path, Enumerable.Range(0, 250).Select(n => ClaudeLine(n % 60)));
+
+        var events = new List<ImportProgress>();
+        using var client = new HttpClient();
+        await SessionImporter.SendTranscriptBatches(
+            client, _server.Url!, "s1", path, agentId: null, startLine: 0, TimeProvider.System,
+            progress: new SyncProgress<ImportProgress>(events.Add),
+            canonical: new IngestCapability(client, _server.Url!, TimeProvider.System));
+
+        await Assert.That(string.Join(" ", TranscriptPosts())).IsEqualTo($"{CanonicalRoute.HttpPath} /hooks/transcript /hooks/transcript");
+        await Assert.That(events.OfType<BatchDropped>().Count()).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_codex_import_sends_raw_lines_only() {
+        ServeCanonical();
+
+        using var tmp = TempDir.WithPathTo("rollout.jsonl", out var path);
+        await File.WriteAllLinesAsync(path, [
+            """{"timestamp":"2026-05-07T15:50:21.989Z","type":"session_meta","payload":{}}""",
+            """{"timestamp":"2026-05-07T15:50:22.989Z","type":"response_item","payload":{"type":"message","role":"user","content":[]}}""",
+        ]);
+
+        using var client = new HttpClient();
+        await SessionImporter.ImportSessionAsync(
+            client, _server.Url!, path, sessionId: "s1", new SessionMetadata { Cwd = "/x" }, encodedCwd: null,
+            TimeProvider.System, vendor: HarnessId.Codex, canonical: new IngestCapability(client, _server.Url!, TimeProvider.System));
+
+        await Assert.That(TranscriptPosts()).IsEquivalentTo(["/hooks/transcript"]);
     }
 }

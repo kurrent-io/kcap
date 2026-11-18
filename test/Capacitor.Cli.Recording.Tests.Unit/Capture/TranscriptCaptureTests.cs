@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Recording.Capture;
 using Microsoft.Extensions.Time.Testing;
 
@@ -48,6 +49,7 @@ public class TranscriptCaptureTests {
         using var parsed = JsonDocument.Parse(json);
         await Assert.That(parsed.RootElement.GetProperty("reason").GetString()).IsEqualTo(expected);
         await Assert.That(parsed.RootElement.GetProperty("type").GetString()).IsEqualTo("kcap_capture_loss");
+        await Assert.That(CaptureLossLine.Is(json)).IsTrue();
     }
 
     [Test]

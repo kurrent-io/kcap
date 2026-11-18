@@ -475,13 +475,13 @@ public class ArtefactsTabViewModelTests {
 
             await Assert.That(h.Vm.IsLoading).IsTrue();
             await Assert.That(h.Vm.HasAny).IsFalse();
-            await Assert.That(h.Vm.EmptyReaderNote).IsEqualTo("Loading documents…");
+            await Assert.That(h.Vm.EmptyReaderNote).IsEqualTo("Loading…");
 
             gate.SetResult(Ready());
             await h.SettledAsync();
 
             await Assert.That(h.Vm.IsLoading).IsFalse();
-            await Assert.That(h.Vm.EmptyReaderNote).IsEqualTo("No documents yet.");
+            await Assert.That(h.Vm.EmptyReaderNote).IsEqualTo("No pages or documents yet.");
             await h.Vm.TeardownAsync();
         });
     }
@@ -617,6 +617,7 @@ public class ArtefactsTabViewModelTests {
             await Assert.That(h.Vm.Documents.Count).IsEqualTo(1);
             await Assert.That(h.Vm.Pages.Select(p => p.Title)).IsEquivalentTo(new[] { "Findings", "Draft" }, CollectionOrdering.Matching);
             await Assert.That(h.Vm.Pages[0].UpdatedLabel).IsEqualTo("Updated 3h ago");
+            await Assert.That(h.Vm.Items).IsEquivalentTo(new object[] { h.Vm.Pages[0], h.Vm.Pages[1], h.Vm.Documents[0] }, CollectionOrdering.Matching);
 
             await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[1]);
             await Assert.That(h.Opener.Opened).IsEquivalentTo(new[] { "https://elsewhere.test/pages/old" });
@@ -648,23 +649,212 @@ public class ArtefactsTabViewModelTests {
         public void Open(string pageId, string url) => Opened.Add((pageId, url));
     }
 
-    /// Pages are listed in the work context pane, so a session with only pages has no tab until one
-    /// is opened in it.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_session_with_only_pages_has_a_tab_only_while_one_is_open() {
+    public async Task A_session_with_only_pages_has_a_tab_that_lists_them() {
         await RunOnUiAsync(async () => {
             var h = new Harness(webView: true);
             h.Source.EnqueuePages(Pages(Page("p", "Report", h.Time.GetUtcNow())));
             await h.SwitchAsync(SessionA);
 
-            await Assert.That(h.Vm.HasPages).IsTrue();
-            await Assert.That(h.Vm.HasAny).IsFalse();
-            await Assert.That(h.Vm.OpenDocument("docs/missing.md")).IsFalse();
-
-            await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[0]);
-            await h.PageLoadedAsync();
             await Assert.That(h.Vm.HasAny).IsTrue();
+            await Assert.That(h.Vm.Items).IsEquivalentTo(new object[] { h.Vm.Pages[0] });
+            await Assert.That(h.Vm.EmptyReaderNote).IsEqualTo("Select a page or document to read it.");
+            await Assert.That(h.Vm.OpenDocument("docs/missing.md")).IsFalse();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// The row of the page shown is marked, and only while it is shown.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_open_page_marks_its_row_until_a_document_replaces_it() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            var now = h.Time.GetUtcNow();
+            h.Source.Enqueue(Ready(Doc("1", "plan", "docs/p.md")), Ready(Doc("1", "plan", "docs/p.md")));
+            h.Source.EnqueuePages(Pages(Page("a", "Poll", now), Page("b", "Report", now)), Pages(Page("a", "Poll", now), Page("b", "Report", now)));
+            await h.SwitchAsync(SessionA);
+
+            await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[1]);
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.Pages.Select(p => p.IsSelected)).IsEquivalentTo(new[] { false, true }, CollectionOrdering.Matching);
+
+            h.Vm.Refresh();
+            await h.SettledAsync();
+            await Assert.That(h.Vm.Pages.Select(p => p.IsSelected)).IsEquivalentTo(new[] { false, true }, CollectionOrdering.Matching);
+
+            await h.Vm.SelectCommand.Execute(h.Vm.Documents[0]);
+            await Assert.That(h.Vm.Pages.Any(p => p.IsSelected)).IsFalse();
+            await Assert.That(h.Vm.Documents[0].IsSelected).IsTrue();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// Showing the tab with nothing open opens the newest page in-app, and only once both lists have
+    /// answered, so the row it picks does not depend on which read landed first.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Showing_the_tab_opens_the_newest_page_once_both_lists_have_answered() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            var now = h.Time.GetUtcNow();
+            h.Source.Enqueue(Ready(Doc("1", "plan", "docs/p.md")));
+            var pages = h.Source.GatePages();
+            h.Vm.SwitchSession(SessionA, "/repo");
+            await (h.Vm.PendingReadForTesting ?? Task.CompletedTask);
+            h.Vm.IsShown = true;
+
+            await Assert.That(h.Vm.Reader).IsNull();
+            await Assert.That(h.Vm.PageViewer).IsNull();
+
+            pages.SetResult(Pages(Page("new", "Findings", now), Page("old", "Draft", now - TimeSpan.FromDays(1))));
+            await h.SettledAsync();
+            await h.PageLoadedAsync();
+
+            await Assert.That(h.Vm.PageViewer!.ArtefactId).IsEqualTo("new");
+            await Assert.That(h.Vm.Pages[0].IsSelected).IsTrue();
+            await Assert.That(h.Opener.Opened).IsEmpty();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// A documents read that fails still counts as answered, so the pages listed before it open.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(SessionPlansReadKind.Unreachable)]
+    [Arguments(SessionPlansReadKind.SignedOut)]
+    public async Task A_documents_read_that_is_not_ready_still_lets_the_shown_tab_open_a_page(SessionPlansReadKind kind) {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            var documents = h.Source.Gate();
+            h.Source.EnqueuePages(Pages(Page("a", "Poll", h.Time.GetUtcNow())));
+            h.Vm.SwitchSession(SessionA, "/repo");
+            await (h.Vm.PendingPagesForTesting ?? Task.CompletedTask);
+            h.Vm.IsShown = true;
+            await Assert.That(h.Vm.PageViewer).IsNull();
+
+            documents.SetResult(PlanArtifactsRead.Of(kind));
+            await h.SettledAsync();
+            await h.PageLoadedAsync();
+
+            await Assert.That(h.Vm.PageViewer!.ArtefactId).IsEqualTo("a");
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// The tab is loading until both lists answer, so a pages-only session is not taken for empty
+    /// while its pages are still on the way.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_tab_is_loading_until_the_pages_answer_too() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            var pages = h.Source.GatePages();
+            h.Vm.SwitchSession(SessionA, "/repo");
+            await (h.Vm.PendingReadForTesting ?? Task.CompletedTask);
+
+            await Assert.That(h.Vm.IsLoading).IsTrue();
+
+            pages.SetResult(Pages(Page("a", "Poll", h.Time.GetUtcNow())));
+            await h.SettledAsync();
+            await Assert.That(h.Vm.IsLoading).IsFalse();
+            await Assert.That(h.Vm.HasAny).IsTrue();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// The workspace hides the tab when it is neither listing nor loading; a switch to a session where
+    /// either list is cached empty never passes through that state while the other is on the way.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_switch_to_a_cached_empty_list_never_reads_as_an_empty_settled_tab(bool documentsCached) {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            if (documentsCached) h.Source.Enqueue(Ready(Doc("1", "plan", "docs/p.md")));
+            else h.Source.EnqueuePages(Pages(Page("a", "Poll", h.Time.GetUtcNow())));
+            await h.SwitchAsync(SessionA);
+            if (documentsCached) {
+                h.Source.CachedReads[SessionB] = Ready();
+                h.Source.GatePages();
+            } else {
+                h.Source.CachedPageReads[SessionB] = Pages();
+                h.Source.Gate();
+            }
+            var hidden = false;
+            h.Vm.PropertyChanged += (_, _) => hidden |= !h.Vm.HasAny && !h.Vm.IsLoading;
+
+            h.Vm.SwitchSession(SessionB, "/repo");
+
+            await Assert.That(hidden).IsFalse();
+            await Assert.That(h.Vm.IsLoading).IsTrue();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// Cached documents for the next session land before its pages lease opens; the first row waits for
+    /// that session's pages rather than pairing its documents with the last session's.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_switch_to_cached_documents_waits_for_that_sessions_pages() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            await h.SwitchAsync(SessionA);
+            h.Vm.IsShown = true;
+            h.Source.CachedReads[SessionB] = Ready(Doc("1", "plan", "docs/p.md"));
+            var pages = h.Source.GatePages();
+
+            h.Vm.SwitchSession(SessionB, "/repo");
+            await Assert.That(h.Vm.Selected).IsNull();
+
+            pages.SetResult(Pages(Page("b", "Report", h.Time.GetUtcNow())));
+            await h.SettledAsync();
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.PageViewer!.ArtefactId).IsEqualTo("b");
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// Opening the tab never launches the browser: with pages shown there, the first document opens instead.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Showing_the_tab_without_the_in_app_viewer_opens_the_first_document_and_no_browser() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true) { InAppPages = false };
+            h.Source.Enqueue(Ready(Doc("1", "plan", "docs/p.md")));
+            h.Source.EnqueuePages(Pages(Page("a", "Poll", h.Time.GetUtcNow())));
+            await h.SwitchAsync(SessionA);
+
+            h.Vm.IsShown = true;
+
+            await Assert.That(h.Vm.Selected!.Path).IsEqualTo("docs/p.md");
+            await Assert.That(h.Vm.PageViewer).IsNull();
+            await Assert.That(h.Opener.Opened).IsEmpty();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// A document asked for before the first read lands wins over the first row.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_pending_open_wins_over_the_first_row() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            var gate = h.Source.Gate();
+            h.Source.EnqueuePages(Pages(Page("a", "Poll", h.Time.GetUtcNow())));
+            h.Vm.SwitchSession(SessionA, "/repo");
+            await (h.Vm.PendingPagesForTesting ?? Task.CompletedTask);
+            h.Vm.OpenDocument("docs/s.md");
+            h.Vm.IsShown = true;
+
+            gate.SetResult(Ready(Doc("1", "plan", "docs/p.md"), Doc("2", "spec", "docs/s.md", "# s")));
+            await h.SettledAsync();
+
+            await Assert.That(h.Vm.Selected!.Path).IsEqualTo("docs/s.md");
+            await Assert.That(h.Vm.PageViewer).IsNull();
+            await Assert.That(h.Content.ContentRequested).IsEmpty();
             await h.Vm.TeardownAsync();
         });
     }

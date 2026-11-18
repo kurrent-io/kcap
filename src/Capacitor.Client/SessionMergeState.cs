@@ -120,6 +120,9 @@ internal sealed record SessionMergeState {
             OwnerAvatarUrl = fields.Owner == Listing ? listing.Owner?.AvatarUrl : row.OwnerAvatarUrl,
             OwnerIsViewer = fields.Owner == Listing ? ownerIsViewer : row.OwnerIsViewer,
             LastActivityAt = fields.Activity == Listing ? listing.LastActivityAt.UtcDateTime : row.LastActivityAt,
+            // A server that sends no session start leaves a remote row its registration time, which a
+            // daemon reconnect moves past the session's start.
+            CreatedAt = row is { Origin: AgentOrigin.Remote, CreatedAtIsSessionStart: false } ? listing.StartedAt.UtcDateTime : row.CreatedAt,
             AccessLevel = fields.Access == Listing ? listing.AccessLevel : row.AccessLevel,
             ListedPullRequests = listing.PullRequests,
             Branch = branch,

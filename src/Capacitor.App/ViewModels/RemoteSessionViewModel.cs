@@ -114,7 +114,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     internal void OpenCard(ToolCard card) {
         if (card.DocumentPath is { } path) {
             if (Artefacts.OpenDocument(path)) return;
-            if (Artefacts.HasAny) { Artefacts.RequestOpen(); return; }
+            if (Artefacts.HasDocumentOrOpenPage) { Artefacts.RequestOpen(); return; }
         }
         if (card.Url is { } url) Artefacts.OpenLink(url);
     }

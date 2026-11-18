@@ -425,6 +425,35 @@ public class MainWindowViewModelTests {
             .IsEqualTo(expected);
     }
 
+    /// Launches go over the app's own lane, so the footer cannot say Connected while that lane is down,
+    /// however healthy the daemon's hub is.
+    [Test]
+    [Arguments(ServerLaneState.Connecting, MainWindowViewModel.ServerConnectingText)]
+    [Arguments(ServerLaneState.Retrying, MainWindowViewModel.ReconnectingText)]
+    public async Task AlertFor_reports_the_apps_own_lane_while_the_daemon_is_connected(ServerLaneState lane, string text) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        var alert = MainWindowViewModel.AlertFor(connected, "connected", appLane: new ServerLaneStatus(lane, "socket closed"));
+
+        await Assert.That(alert!.Text).IsEqualTo(text);
+        await Assert.That(MainWindowViewModel.ShowsConnectedFor(connected, "connected", alert)).IsFalse();
+    }
+
+    [Test]
+    public async Task AlertFor_carries_the_lanes_failure_as_its_detail() {
+        var alert = MainWindowViewModel.AlertFor(new AttachStatus(AttachState.Connected, null, null), "connected",
+            appLane: new ServerLaneStatus(ServerLaneState.Retrying, "socket closed"));
+        await Assert.That(alert!.Detail).IsEqualTo("socket closed");
+    }
+
+    /// A daemon left behind by an update is the actionable diagnosis, so the app lane's word gives way to it.
+    [Test]
+    public async Task AlertFor_keeps_a_daemon_left_behind_ahead_of_the_apps_lane() {
+        var copy = new DaemonOnOtherInstall("1.0.0", "/old/kcap", CopyFailure: "denied");
+        var alert = MainWindowViewModel.AlertFor(new AttachStatus(AttachState.Connected, null, null), "connected",
+            otherInstall: copy, appLane: new ServerLaneStatus(ServerLaneState.Retrying));
+        await Assert.That(alert!.Text).IsEqualTo(MainWindowViewModel.DaemonNotUpdatedText);
+    }
+
     /// Waiting on the daemon hub will not restore an expired sign-in, so it wins whatever the attach says.
     [Test]
     [Arguments(AttachState.Connected, null, "reconnecting")]

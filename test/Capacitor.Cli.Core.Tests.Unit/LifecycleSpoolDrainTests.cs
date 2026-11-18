@@ -1,5 +1,8 @@
 using System.Net;
+using System.Text.Json;
 using Capacitor.Cli.Core.Harness.Cursor;
+using Capacitor.Cli.Core.Transcripts;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
 
@@ -68,6 +71,207 @@ public class LifecycleSpoolDrainTests {
             var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
             return impl(request, body);
         }
+    }
+
+    const string Capabilities = "/api/ingest/capabilities";
+
+    static string ClaudeId(int n) => $"10000000-0000-4000-8000-{n:D12}";
+
+    static string ClaudeUser(int n) =>
+        $$$"""{"type":"user","uuid":"{{{ClaudeId(n)}}}","parentUuid":null,"timestamp":"2026-11-16T08:00:{{{n:D2}}}Z","message":{"role":"user","content":"line {{{n}}}"}}""";
+
+    static string ClaudeAssistant(int n) =>
+        $$$$"""{"type":"assistant","uuid":"{{{{ClaudeId(n)}}}}","parentUuid":"{{{{ClaudeId(n - 1)}}}}","timestamp":"2026-11-16T08:00:{{{{n:D2}}}}Z","message":{"model":"claude-x","content":[{"type":"text","text":"reply {{{{n}}}}"}],"usage":{"input_tokens":10,"output_tokens":5}}}""";
+
+    /// Drains the spool through the HTTP wrapper and returns every request, in order.
+    async Task<List<(string Path, string Body)>> DrainOverHttp(HookSpool life, TranscriptSpool tx, bool canonical) {
+        var requests = new List<(string, string)>();
+        using var handler = new StubHandler((req, body) => {
+            var path = req.RequestUri!.AbsolutePath;
+            requests.Add((path, body));
+
+            return path != Capabilities ? new HttpResponseMessage(HttpStatusCode.OK)
+                : canonical ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"canonical_format":1}""") }
+                : new HttpResponseMessage(HttpStatusCode.NotFound);
+        });
+        using var client = new HttpClient(handler);
+
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+
+        return requests;
+    }
+
+    /// <summary>An older CLI's spool names no transcript. Projected without the lines before it, a tail could count a
+    /// repeated usage the raw path knows is not new.</summary>
+    [Test]
+    public async Task A_spooled_claude_tail_past_line_zero_without_its_transcript_drains_raw_as_spooled() {
+        using var tmp = new TempDir();
+        var sid     = Guid.NewGuid().ToString("N");
+        var life    = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx      = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var spooled = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(5)], [5], null);
+        tx.Append(sid, spooled);
+
+        var requests = await DrainOverHttp(life, tx, canonical: true);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo(["/hooks/transcript"]);
+        await Assert.That(requests[0].Body).IsEqualTo(spooled);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    [Test]
+    public async Task A_spooled_claude_tail_from_line_zero_drains_canonical() {
+        using var tmp = new TempDir();
+        var sid  = Guid.NewGuid().ToString("N");
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(0)], [0], null));
+
+        var requests = await DrainOverHttp(life, tx, canonical: true);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, CanonicalRoute.HttpPath]);
+        using var sent = JsonDocument.Parse(requests[1].Body);
+        await Assert.That(sent.RootElement.GetProperty("events").GetArrayLength()).IsEqualTo(1);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    [Test]
+    public async Task With_the_capability_off_a_spooled_claude_tail_drains_raw_as_spooled() {
+        using var tmp = new TempDir();
+        var sid     = Guid.NewGuid().ToString("N");
+        var life    = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx      = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var spooled = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(5)], [5], null, transcriptPath: tmp.PathTo("t.jsonl"));
+        tx.Append(sid, spooled);
+
+        var requests = await DrainOverHttp(life, tx, canonical: false);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, "/hooks/transcript"]);
+        await Assert.That(requests[1].Body).IsEqualTo(spooled);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    /// Drains the spool through the HTTP wrapper, with the canonical route answering <paramref name="canonical"/>, and
+    /// returns every request, in order.
+    async Task<List<(string Path, string Body)>> DrainAnswering(HookSpool life, TranscriptSpool tx, HttpStatusCode canonical) {
+        var requests = new List<(string, string)>();
+        using var handler = new StubHandler((req, body) => {
+            var path = req.RequestUri!.AbsolutePath;
+            requests.Add((path, body));
+
+            return path == Capabilities ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"canonical_format":1}""") }
+                : path == CanonicalRoute.HttpPath ? new HttpResponseMessage(canonical)
+                : new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        using var client = new HttpClient(handler);
+
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+
+        return requests;
+    }
+
+    /// <summary>The refusal is the canonical encoding's, so the tail is the raw route's to store, as spooled; the route's
+    /// projection has run past what the server holds, so the stream's next batch goes raw too.</summary>
+    [Test]
+    [Arguments(HttpStatusCode.BadRequest)]
+    [Arguments(HttpStatusCode.RequestEntityTooLarge)]
+    public async Task A_spooled_claude_tail_refused_canonical_for_good_drains_raw_as_spooled(HttpStatusCode refusal) {
+        using var tmp = new TempDir();
+        var sid   = Guid.NewGuid().ToString("N");
+        var life  = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx    = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var first = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(0)], [0], null);
+        var next  = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeAssistant(1)], [1], null);
+        tx.Append(sid, first);
+        tx.Append(sid, next);
+
+        var requests = await DrainAnswering(life, tx, refusal);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, CanonicalRoute.HttpPath, "/hooks/transcript", "/hooks/transcript"], CollectionOrdering.Matching);
+        await Assert.That(requests.Where(r => r.Path == "/hooks/transcript").Select(r => r.Body)).IsEquivalentTo([first, next], CollectionOrdering.Matching);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    /// <summary>A pass runs under a cap of a few seconds, so a server slow to say whether it takes canonical batches gets
+    /// the tail raw, as spooled, while the pass still has room to post it.</summary>
+    [Test]
+    public async Task A_spooled_claude_tail_drains_raw_as_spooled_when_the_capability_probe_hangs() {
+        using var tmp = new TempDir();
+        var sid     = Guid.NewGuid().ToString("N");
+        var life    = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx      = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var spooled = TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(0)], [0], null);
+        tx.Append(sid, spooled);
+
+        using var handler = new HangingProbe(Capabilities);
+        using var client  = new HttpClient(handler);
+        // A pass's posts end with its budget.
+        using var cap     = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        await LifecycleSpoolDrain.RunAsync(Config.Root, Markers, client, "http://s", life, tx, currentSessionId: null,
+            budget: TimeSpan.FromSeconds(5), ct: cap.Token, time: TimeProvider.System);
+
+        await Assert.That(handler.Requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, "/hooks/transcript"], CollectionOrdering.Matching);
+        await Assert.That(handler.Requests[1].Body).IsEqualTo(spooled);
+        await Assert.That(tx.HasBacklog(sid)).IsFalse();
+    }
+
+    /// Answers every request but <c>probe</c>, which it holds until the caller gives up.
+    sealed class HangingProbe(string probe) : HttpMessageHandler {
+        public List<(string Path, string Body)> Requests { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            var path = request.RequestUri!.AbsolutePath;
+            Requests.Add((path, request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct)));
+
+            if (path == probe) await Task.Delay(Timeout.Infinite, ct);
+
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
+    /// <summary>A lapsed credential or a server fault on the canonical route says nothing of the lines: the tail waits in
+    /// the spool for a retry, as it does on the raw route.</summary>
+    [Test]
+    [Arguments(HttpStatusCode.Unauthorized)]
+    [Arguments(HttpStatusCode.ServiceUnavailable)]
+    public async Task A_spooled_claude_tail_answered_retryable_on_the_canonical_route_stays_spooled(HttpStatusCode answer) {
+        using var tmp = new TempDir();
+        var sid  = Guid.NewGuid().ToString("N");
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [ClaudeUser(0)], [0], null));
+
+        var requests = await DrainAnswering(life, tx, answer);
+
+        await Assert.That(requests.Select(r => r.Path)).IsEquivalentTo([Capabilities, CanonicalRoute.HttpPath]);
+        await Assert.That(tx.HasBacklog(sid)).IsTrue();
+    }
+
+    /// <summary>Line 3 repeats line 2's usage, so only a projection that has seen line 2 knows it is not new.</summary>
+    [Test]
+    public async Task A_spooled_claude_tail_projects_after_the_lines_before_it_in_its_transcript() {
+        using var tmp = new TempDir();
+        var sid   = Guid.NewGuid().ToString("N");
+        var life  = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx    = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        var lines = new[] { ClaudeUser(0), ClaudeAssistant(1), ClaudeAssistant(2), ClaudeAssistant(3) };
+        // Apart from the spools: a lifecycle spool adopts a stray .jsonl in its directory as one of its own.
+        var path  = tmp.CreateFile("claude/t.jsonl", lines);
+        tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [lines[3]], [3], null, transcriptPath: path));
+
+        var uninterrupted = CanonicalRoute.For("claude", sid, null, true)!;
+        uninterrupted.Encode(new() { SessionId = sid, Lines = lines[..3], LineNumbers = [0, 1, 2] }, DateTimeOffset.UnixEpoch);
+        uninterrupted.Acknowledged();
+        var expected = uninterrupted.Encode(new() { SessionId = sid, Lines = [lines[3]], LineNumbers = [3] }, DateTimeOffset.UnixEpoch);
+
+        var requests = await DrainOverHttp(life, tx, canonical: true);
+
+        using var sent = JsonDocument.Parse(requests.Single(r => r.Path == CanonicalRoute.HttpPath).Body);
+        await Assert.That(sent.RootElement.GetProperty("events").GetRawText())
+            .IsEqualTo(JsonSerializer.Serialize(expected.Events, CapacitorJsonContext.Default.CanonicalBatchEventArray));
     }
 
     /// <summary>A 401 is a lapsed credential, which <c>kcap login</c> repairs: the backlog must

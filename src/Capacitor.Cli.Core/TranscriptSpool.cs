@@ -25,7 +25,8 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     public TranscriptSpool(string dir, TimeProvider time, long capBytes = DefaultCapBytes)
         : this(SpoolPartition.Standalone(dir), time, capBytes) { }
 
-    /// <summary>One spool line: a batch as the drain replays it.</summary>
+    /// <summary>One spool line: a batch as the drain replays it. It stays a raw batch, so any build can drain it; the
+    /// <paramref name="transcriptPath"/> is what a canonical drain projects the lines before the batch from.</summary>
     public static string BuildTranscriptSpoolBatch(
             string                sessionId,
             string?               agentId,
@@ -33,7 +34,8 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
             IReadOnlyList<string> lines,
             IReadOnlyList<int>    lineNumbers,
             ObservedCommit[]?     observedCommits,
-            bool                  moreFollows = false
+            bool                  moreFollows    = false,
+            string?               transcriptPath = null
         ) => JsonSerializer.Serialize(
             new TranscriptBatch {
                 SessionId       = sessionId,
@@ -43,6 +45,7 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
                 Vendor          = vendor,
                 ObservedCommits = observedCommits,
                 MoreFollows     = moreFollows,
+                TranscriptPath  = transcriptPath,
             },
             CapacitorJsonContext.Default.TranscriptBatch);
 

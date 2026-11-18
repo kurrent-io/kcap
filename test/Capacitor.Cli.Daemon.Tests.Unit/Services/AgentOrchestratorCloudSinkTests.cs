@@ -164,6 +164,31 @@ public class AgentOrchestratorCloudSinkTests {
         await Assert.That(string.Concat(MirrorOf(server, "refused"))).DoesNotContain("after;");
     }
 
+    /// <summary>A reconnect refused for the reporting connection rather than the agent leaves the mirror running.</summary>
+    [Test]
+    public async Task A_reconnect_refused_for_its_connection_keeps_the_agents_mirror() {
+        var server = new CaptureServerConnection();
+
+        await using var orch = Build(server);
+
+        var pty   = new ScriptedPtyProcess();
+        var agent = orch.SeedAgentForTest("displaced", status: "Running", pty: pty);
+        var loop  = orch.ReadAgentOutputForTest(agent);
+
+        pty.Emit("before;");
+        await WaitHarness.PollUntilAsync(() => server.TerminalSends.Any(s => s.AgentId == "displaced"));
+
+        server.RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_a_daemon");
+        await server.ReRegisterAgentsHook!();
+
+        pty.Emit("after;");
+        await WaitHarness.PollUntilAsync(() => string.Concat(MirrorOf(server, "displaced")).Contains("after;", StringComparison.Ordinal));
+        pty.Exit();
+        await loop.WaitAsync(WaitHarness.Bounded);
+
+        await Assert.That(string.Concat(MirrorOf(server, "displaced"))).Contains("after;");
+    }
+
     [Test]
     public async Task No_terminal_send_starts_after_the_agent_unregisters() {
         // OnAgentUnregistered is init-only, so the callback reaches the connection and the agent

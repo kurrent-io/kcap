@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Tests.Unit.ViewModels;
@@ -155,5 +156,22 @@ public class ToolDetailTests {
         await Assert.That(ToolDetail.FirstString("""{"n":1,"team":"","title":"Add tests","body":"long"}""")).IsEqualTo("Add tests");
         await Assert.That(ToolDetail.FirstString("""{"n":1}""")).IsEqualTo("");
         await Assert.That(ToolDetail.FirstString(null)).IsEqualTo("");
+    }
+
+    [Test]
+    public async Task FilePath_names_the_one_file_a_row_shows_as_an_absolute_path() {
+        using var tmp = new TempDir();
+        var root = tmp.Path;
+        string Json(string key, string value) => $"{{{JsonSerializer.Serialize(key)}:{JsonSerializer.Serialize(value)}}}";
+        string Changes(params string[] paths) =>
+            $"{{\"changes\":[{string.Join(",", paths.Select(p => $"{{\"path\":{JsonSerializer.Serialize(p)}}}"))}]}}";
+
+        await Assert.That(ToolDetail.FilePath(Json("file_path", "src/a.cs"), null, ToolCategory.Read, root)).IsEqualTo(tmp.PathTo("src", "a.cs"));
+        await Assert.That(ToolDetail.FilePath(Json("file_path", tmp.PathTo("a.cs")), null, ToolCategory.Read, null)).IsEqualTo(tmp.PathTo("a.cs"));
+        await Assert.That(ToolDetail.FilePath(Json("path", tmp.PathTo("doc.md")), "path", ToolCategory.Other, null)).IsEqualTo(tmp.PathTo("doc.md"));
+        await Assert.That(ToolDetail.FilePath(Json("title", "x"), "title", ToolCategory.Other, root)).IsNull();
+        await Assert.That(ToolDetail.FilePath(Json("file_path", "src/a.cs"), null, ToolCategory.Read, null)).IsNull();
+        await Assert.That(ToolDetail.FilePath(Changes(tmp.PathTo("a.cs")), null, ToolCategory.Edit, null)).IsEqualTo(tmp.PathTo("a.cs"));
+        await Assert.That(ToolDetail.FilePath(Changes(tmp.PathTo("a.cs"), tmp.PathTo("b.cs")), null, ToolCategory.Edit, null)).IsNull();
     }
 }

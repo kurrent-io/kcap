@@ -10,6 +10,8 @@ using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Workspace;
 
+using Capacitor.Cli.Recording;
+using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Recording.Harness.Copilot;
 
 namespace Capacitor.Cli.Commands;
@@ -222,7 +224,7 @@ internal sealed class AgentHookPoster(
     /// still calls this itself, but from the BACKGROUND after its stdout contract. Also reused by
     /// the daemon's own periodic sweep (<c>SpoolDrainLoop</c>) for the equivalent Core primitives —
     /// the daemon can't reference this CLI-project method, so it composes
-    /// <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?,Func{string,string,DrainOutcome,bool}?,Func{string,string,bool}?)"/>
+    /// <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?,Func{string,string,DrainOutcome,bool}?,Func{string,string,bool}?,Capacitor.Cli.Core.Transcripts.LineCaptureDecider?)"/>
     /// directly instead.
     ///
     /// <para><b>Throttled.</b> Several vendors fire their lifecycle hook on
@@ -327,7 +329,9 @@ internal sealed class AgentHookPoster(
                         onLifecycleOutcome?.Invoke(route, body, stands ? outcome : DrainOutcome.TransientStop);
                         return stands;
                     },
-                    (route, body) => CopilotPendingEnd.HeldForWatcher(WatcherPaths.FromEnvironment(config), route, body, time));
+                    (route, body) => CopilotPendingEnd.HeldForWatcher(WatcherPaths.FromEnvironment(config), route, body, time),
+                    // The redaction a watcher spools its tail with.
+                    ReplayCapture.With(SecretRedactor.RedactLineWithOutcome));
 
             }
         } catch {

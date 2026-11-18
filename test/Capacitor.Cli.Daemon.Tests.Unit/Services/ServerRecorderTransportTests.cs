@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Recording;
 using Microsoft.Extensions.Time.Testing;
@@ -263,6 +264,57 @@ public class ServerRecorderTransportTests {
         // The hub notes a sign-in once its own connect handler runs, which can be after the client is up.
         await hub.WaitForAsync(h => h.Bearers.Count == 2, "the second sign-in to reach the server");
         await Assert.That(hub.Bearers).IsEquivalentTo(["Bearer first", "Bearer second"]);
+    }
+
+    /// <summary>Every source on the connection shares one answer, so a daemon recording many asks its server once. A new
+    /// connection can reach a server that answers otherwise, so it asks again.</summary>
+    [Test]
+    public async Task A_connection_asks_once_whether_its_server_takes_canonical_batches() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+        var             back      = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        transport.Reconnected += () => {
+            back.TrySetResult();
+
+            return Task.CompletedTask;
+        };
+        hub.CanonicalFormat = 1;
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+        await transport.ConnectAsync(B, CancellationToken.None).WithinDeadlineAsync("the second connect");
+
+        await Assert.That(await Task.WhenAll(transport.SupportsCanonicalAsync(CancellationToken.None), transport.SupportsCanonicalAsync(CancellationToken.None)))
+            .IsEquivalentTo([true, true]);
+        await Assert.That(await transport.SupportsCanonicalAsync(CancellationToken.None)).IsTrue();
+        await Assert.That(hub.Calls.Count(call => call == "capabilities")).IsEqualTo(1);
+
+        hub.CanonicalFormat = 0;
+        transport.Restart();
+        await back.Task.WithinDeadlineAsync("the connection to come back");
+
+        await Assert.That(await transport.SupportsCanonicalAsync(CancellationToken.None)).IsFalse();
+        await Assert.That(hub.Calls.Count(call => call == "capabilities")).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task A_canonical_batch_comes_back_with_the_servers_answer() {
+        await using var hub       = await RecordingHubHost.StartAsync();
+        await using var transport = Transport(hub);
+        var batch = CanonicalRoute.For("claude", SessionA, null, serverSupports: true)!.Encode(new TranscriptBatch {
+            SessionId   = SessionA,
+            Vendor      = "claude",
+            Lines       = ["""{"type":"user","uuid":"30000000-0000-4000-8000-000000000001","timestamp":"2026-11-16T08:00:00Z","message":{"role":"user","content":"hi"}}"""],
+            LineNumbers = [3],
+        }, DateTimeOffset.UtcNow);
+
+        await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
+
+        await Assert.That(await transport.SendCanonicalBatchAsync(batch, CancellationToken.None)).IsEqualTo(new CanonicalSendResult(4, Unsupported: false));
+
+        hub.RefusesCanonical = true;
+
+        await Assert.That((await transport.SendCanonicalBatchAsync(batch, CancellationToken.None)).Unsupported).IsTrue();
+        await Assert.That(hub.Calls.Count(call => call == "canonical 3")).IsEqualTo(2);
     }
 
     /// <summary>Signed out, a source stays with its recorder and nothing leaves. Signing in again picks it all up.</summary>

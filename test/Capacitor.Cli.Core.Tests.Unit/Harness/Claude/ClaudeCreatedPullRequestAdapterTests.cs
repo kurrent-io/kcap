@@ -49,6 +49,22 @@ public class ClaudeCreatedPullRequestAdapterTests {
         await Assert.That(ClaudeCreatedPullRequestAdapter.FromLine(line)).IsNull();
     }
 
+    // Claude Code annotates a create whenever the command mentions `gh pr create` and the output holds a PR URL
+    // anywhere, here a test-fixture line printed by grep.
+    [Test]
+    public async Task An_annotated_url_the_output_does_not_print_on_its_own_line_links_nothing() {
+        const string line = """{"type":"user","toolUseResult":{"stdout":"36:    [Arguments(\"printf '%s\\\\n' https://github.com/o/r/pull/1; bash -c 'gh pr create --repo o/r --fill' >/dev/null\")]\nBuild succeeded.","stderr":"","gitOperation":{"pr":{"number":1,"url":"https://github.com/o/r/pull/1","action":"created"}}}}""";
+
+        await Assert.That(ClaudeCreatedPullRequestAdapter.FromLine(line)).IsNull();
+    }
+
+    [Test]
+    public async Task An_annotated_url_gh_printed_among_other_lines_still_links() {
+        const string line = """{"type":"user","toolUseResult":{"stdout":"Warning: 2 uncommitted changes\nhttps://github.com/kurrent-io/kcap-cli/pull/1917\n","stderr":"","gitOperation":{"pr":{"number":1917,"url":"https://github.com/kurrent-io/kcap-cli/pull/1917","action":"created"}}}}""";
+
+        await Assert.That(ClaudeCreatedPullRequestAdapter.FromLine(line)).IsNotNull();
+    }
+
     [Test]
     public async Task A_malformed_line_links_nothing() {
         await Assert.That(ClaudeCreatedPullRequestAdapter.FromLine("""{"gitOperation": """)).IsNull();

@@ -27,19 +27,31 @@
         </Style>
     </UserControl.Styles>
     <Grid ColumnDefinitions="Auto,*">
-        <Border x:Name="DocumentListPane" Grid.Column="0" Width="240" IsVisible="{Binding HasDocuments}" Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,1,0">
+        <Border x:Name="DocumentListPane" Grid.Column="0" Width="240" IsVisible="{Binding HasItems}" Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,1,0">
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="10,14,10,14" Spacing="4">
-                    <TextBlock Text="DOCUMENTS" FontSize="11.5" FontWeight="Bold" LetterSpacing="1.2"
-                               Foreground="{StaticResource KcapMutedBrush}" Margin="10,0,0,6"
-                               IsVisible="{Binding HasDocuments}" />
-                    <ItemsControl x:Name="DocumentList" ItemsSource="{Binding Documents}">
+                    <TextBlock Text="PAGES" FontSize="11.5" FontWeight="Bold" LetterSpacing="1.2"
+                               Foreground="{StaticResource KcapMutedBrush}" Margin="10,0,0,6" />
+                    <ItemsControl x:Name="DocumentList" ItemsSource="{Binding Items}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Spacing="2" />
                             </ItemsPanelTemplate>
                         </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
+                        <ItemsControl.DataTemplates>
+                            <DataTemplate x:DataType="vm:PageRow">
+                                <Button Classes="artefactRow" Classes.selected="{Binding IsSelected}"
+                                        Command="{Binding $parent[ItemsControl].((vm:ArtefactsTabViewModel)DataContext).OpenPageCommand}"
+                                        CommandParameter="{Binding}" ToolTip.Tip="{Binding Title}" AutomationProperties.Name="{Binding Title}">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Text="{Binding Title}" FontSize="13" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="Page" FontSize="11" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding UpdatedLabel}" FontSize="11" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
                             <DataTemplate x:DataType="vm:DocumentRow">
                                 <Button Classes="artefactRow" Classes.selected="{Binding IsSelected}"
                                         Command="{Binding $parent[ItemsControl].((vm:ArtefactsTabViewModel)DataContext).SelectCommand}"
@@ -54,7 +66,7 @@
                                     </StackPanel>
                                 </Button>
                             </DataTemplate>
-                        </ItemsControl.ItemTemplate>
+                        </ItemsControl.DataTemplates>
                     </ItemsControl>
                 </StackPanel>
             </ScrollViewer>

@@ -22,12 +22,12 @@ namespace Capacitor.Cli.Commands;
 /// when they need them.</para>
 /// </summary>
 sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, TokenStore tokens, ICapacitorHttpClient http,
-        TelemetryStartup startup, TimeProvider time) {
+        TelemetryStartup startup, McpCaptureScope scope, TimeProvider time) {
     internal const string NotLoggedInMessage = AuthRejectionNotice.NotLoggedIn;
 
-    public Task<int> RunAsync() =>
-        McpServerHost.RunAsync(
-            new("kcap-pages", "pages", ServerInstructions, BuildToolsList()) { ConfigureClient = LiftClientTimeout },
+    public async Task<int> RunAsync() =>
+        await McpServerHost.RunAsync(
+            new("kcap-pages", "pages", InstructionsFor(await scope.IsOutOfScopeAsync()), BuildToolsList()) { ConfigureClient = LiftClientTimeout },
             new(config, profiles, tokens, http, startup, time),
             HandleToolCallAsync);
 
@@ -39,7 +39,18 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
         "a report, a comparison, anything a person would rather read as a page than as terminal output. " +
         "When the user asks for an artifact, a page, a dashboard or a report to look at or share, this is " +
         "how it is made: publish it with publish_page rather than with your harness's own artifact tool, " +
-        "unless they name that tool. Put the link in your reply every time; when your harness has a " +
+        "unless they name that tool. " + PublishingInstructions;
+
+    /// <summary>The user chose to keep a session outside the capture scope out of kcap, so its pages do not displace
+    /// the harness's own artifact tool.</summary>
+    internal const string OutOfScopeInstructions =
+        "This session is outside kcap's capture scope: publish a kcap page with publish_page only when the user " +
+        "asks for one, and otherwise use your harness's own artifact tool. " + PublishingInstructions;
+
+    internal static string InstructionsFor(bool outOfScope) => outOfScope ? OutOfScopeInstructions : ServerInstructions;
+
+    const string PublishingInstructions =
+        "Put the link in your reply every time; when your harness has a " +
         "browser tool, also open the link there, and never open a system browser for it. " +
         "The page is served under a sandbox that cannot reach the network: inline every style, script " +
         "and image as a data URI, because an external URL will silently render as nothing. A page " +

@@ -5,6 +5,8 @@ using Capacitor.Cli.Core.Harness.Cursor;
 using Capacitor.Cli.Core.Harness.Muse;
 using Microsoft.Extensions.Logging;
 
+using Capacitor.Cli.Recording;
+using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Recording.Harness.Copilot;
 
 namespace Capacitor.Cli.Daemon.Services;
@@ -107,7 +109,9 @@ internal sealed class SpoolDrainLoop {
                     cts.Token,
                     onWhatsDoneRequested: _onWhatsDoneRequested is null ? null : (sid, _) => _onWhatsDoneRequested(sid),
                     onLifecycleOutcome: (route, body, outcome) => CopilotSpanClose.NoteOutcome(WatcherPaths.FromEnvironment(_configRoot), route, body, outcome),
-                    holds: (route, body) => CopilotPendingEnd.HeldForWatcher(WatcherPaths.FromEnvironment(_configRoot), route, body, _time));
+                    holds: (route, body) => CopilotPendingEnd.HeldForWatcher(WatcherPaths.FromEnvironment(_configRoot), route, body, _time),
+                    // The redaction a recorder spools its tail with.
+                    decide: ReplayCapture.With(SecretRedactor.RedactLineWithOutcome));
 
                 // Second, so a closed span never takes the lifecycle backlog's budget. A hosted Codex app-server
                 // session has no watcher, so this is what posts its spans.

@@ -371,8 +371,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// The Sessions rail. Null means this window has no rail to keep in sync.
     /// </param>
     /// <param name="laneStatus">
-    /// The app's own server lane (IServerLane.Status): its sign-in state reaches the footer alert.
-    /// Null means it never shows.
+    /// The app's own server lane (IServerLane.Status): its sign-in state and its connection reach the
+    /// footer alert. Null means neither shows.
     /// </param>
     /// <param name="restartPending">
     /// DaemonRestartPendingWatcher.Wait. Null means the alert for it never shows.
@@ -563,8 +563,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             // Expired sign-in is a separate diagnosis from the daemon hub word: auto-reconnect
             // will not restore a session, so the footer must not say Reconnecting. The lane
             // covers ParkSignedOut; Home's stream also covers a 401 launch that has not parked.
-            var fromLane = (laneStatus ?? Observable.Return(new ServerLaneStatus(ServerLaneState.Dormant)))
-                .Select(s => s.State == ServerLaneState.SignedOut);
+            var laneStates = laneStatus ?? Observable.Return(new ServerLaneStatus(ServerLaneState.Dormant));
+            var fromLane = laneStates.Select(s => s.State == ServerLaneState.SignedOut);
             var fromHome = Home?.SignInExpired ?? Observable.Return(false);
             var signInExpired = fromLane.CombineLatest(fromHome, (lane, notice) => lane || notice)
                 .DistinctUntilChanged()
@@ -659,12 +659,22 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .CombineLatest(daemonSignIn, otherServerWhileConnected,
                     (app, daemon, otherServer) => app || (daemon.SignedOut && otherServer is null))
                 .DistinctUntilChanged();
+            // Launches go over the app's own lane, not the daemon's hub, so the footer cannot say
+            // Connected while it is down. Its ladder alternates Connecting and Retrying; a Connecting
+            // after a Retrying keeps the Retrying, so the footer does not flicker between the two.
+            var appLane = laneStates
+                .Scan((ServerLaneStatus?)null, (previous, next) =>
+                    next.State == ServerLaneState.Connecting && previous is { State: ServerLaneState.Retrying } ? previous : next)
+                .Select(s => s is { State: ServerLaneState.Connecting or ServerLaneState.Retrying } ? s with { Epoch = 0, Subject = null } : null)
+                .DistinctUntilChanged()
+                .ObserveOn(RxSchedulers.MainThreadScheduler)
+                .StartWith((ServerLaneStatus?)null);
             var alert = status
                 .CombineLatest(daemonConnection, alertSignedOut, failed, moving,
                     (st, connection, expired, broken, isMoving) => (st, connection, expired, broken, isMoving))
-                .CombineLatest(localAlert, otherInstallWhileConnected, pendingWhileConnected, otherServerWhileConnected,
-                    (d, local, other, pending, otherServer) => AlertFor(d.st, d.connection, d.expired, d.broken, d.isMoving,
-                        local, other, pending, otherServer))
+                .CombineLatest(localAlert, otherInstallWhileConnected, pendingWhileConnected, appLane, otherServerWhileConnected,
+                    (d, local, other, pending, app, otherServer) => AlertFor(d.st, d.connection, d.expired, d.broken, d.isMoving,
+                        local, other, pending, app, otherServer))
                 .DistinctUntilChanged();
             _alert = alert
                 .ToProperty(this, x => x.Alert, (RailAlert?)null)
@@ -1421,13 +1431,16 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// server that refused the app, or a daemon still down after a start that did not work.</param>
     /// <param name="moving">The daemon is moving to the Windows service, which brings it back itself.</param>
     /// <param name="local">The local server's own alert, from <see cref="LocalServerAlertFor"/>.</param>
+    /// <param name="appLane">The app's own server lane while it is connecting or retrying, null otherwise.</param>
     /// <param name="otherInstall">An app update left the daemon behind on a binary it did not replace. Only a restart waiting
     /// for turns outranks it, since that follows an update to that binary; any other brings back the same version. Nothing
     /// outranks the app's own copy it could not replace: every restart starts that copy again.</param>
     internal static RailAlert? AlertFor(
             AttachStatus status, string daemonConnection, bool signedOut = false, bool failed = false,
             bool moving = false, RailAlert? local = null, DaemonOnOtherInstall? otherInstall = null,
-            DaemonRestartWait restartPending = DaemonRestartWait.None, string? otherServerNotice = null) {
+            DaemonRestartWait restartPending = DaemonRestartWait.None,
+            ServerLaneStatus? appLane = null,
+            string? otherServerNotice = null) {
         var needsUser = failed ? StatusColors.Disrupted : StatusColors.InProgress;
         if (signedOut) return new(SignInRequiredText, needsUser);
         if (status.State == AttachState.Connecting) return new(DaemonConnectingText, StatusColors.Pending);
@@ -1454,6 +1467,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             _ when otherInstall is { } other => new(DaemonNotUpdatedText, StatusColors.InProgress, Detail: OtherInstallMessage(other)),
             _ when restartPending == DaemonRestartWait.Agents => new(RestartPendingText, StatusColors.InProgress, Detail: RestartWhenNoAgentsMessage),
             _ when restartPending == DaemonRestartWait.Unstated => new(RestartPendingText, StatusColors.InProgress, Detail: RestartUnstatedMessage),
+            _ when appLane is { State: ServerLaneState.Connecting } => new(ServerConnectingText, StatusColors.Pending),
+            _ when appLane is { State: ServerLaneState.Retrying } app => new(ReconnectingText, StatusColors.Pending, Detail: app.Detail),
             _ => null,
         };
     }
