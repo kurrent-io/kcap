@@ -140,7 +140,7 @@ public class ServerSessionsServiceTests {
         var time = new FakeTimeProvider();
         var service = new ServerSessionsService(
             lane, listing.Fetch, owners ?? (_ => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("me"))), time,
-            pushDebounce: pushDebounce ?? TimeSpan.Zero, reconcileEvery: reconcileEvery, pushScheduler: pushScheduler);
+            pushDebounce: pushDebounce ?? TimeSpan.Zero, reconcileEvery: reconcileEvery, pushScheduler: pushScheduler, pageSize: 20);
         return (lane, listing, time, service);
     }
 
@@ -802,7 +802,7 @@ public class ServerSessionsServiceTests {
         var lane = new FakeServerLane();
         var listing = new ScriptedListing();
         using var service = new ServerSessionsService(
-            lane, listing.Fetch, _ => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("me")), new FakeTimeProvider(), pushScheduler: scheduler);
+            lane, listing.Fetch, _ => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("me")), new FakeTimeProvider(), pushScheduler: scheduler, pageSize: 20);
         ScriptDefault(listing);
         Connect(lane);
         await Eventually(() => service.Ended.Count == 20, "first read");
@@ -1061,7 +1061,7 @@ public class ServerSessionsServiceTests {
         using var service = new ServerSessionsService(
             lane, listing.Fetch, _ => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("me")), new FakeTimeProvider(),
             onUnauthorized: parked.Add,
-            fetchHandoffContext: (_, _) => Task.FromResult(new HandoffContextFetch(ServerReadOutcome.Unauthorized, null)));
+            fetchHandoffContext: (_, _) => Task.FromResult(new HandoffContextFetch(ServerReadOutcome.Unauthorized, null)), pageSize: 20);
         ScriptDefault(listing);
         Connect(lane, epoch: 6);
 

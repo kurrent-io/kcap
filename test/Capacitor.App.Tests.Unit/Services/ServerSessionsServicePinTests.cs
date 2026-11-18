@@ -51,7 +51,7 @@ public class ServerSessionsServicePinTests {
         public Rig() {
             Service = new ServerSessionsService(
                 Lane, Listing.Fetch, _ => Task.FromResult<SessionOwnerOptionDto[]?>([new() { UserId = "me", IsMe = true, Ids = ["me"] }]),
-                Time, pushDebounce: TimeSpan.Zero, fetchSummary: Summaries.Fetch);
+                Time, pushDebounce: TimeSpan.Zero, fetchSummary: Summaries.Fetch, pageSize: 20);
             _subscription = Service.Snapshots.Subscribe(s => ImmutableInterlocked.Update(ref _snapshots, l => l.Add(s)));
         }
 

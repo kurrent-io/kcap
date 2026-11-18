@@ -20,7 +20,7 @@ namespace Capacitor.App.Services;
 /// a connect as another account clears everything first. A refused page holds every read until the
 /// server's retry time, and the pages a reconcile did read before it are kept.
 public sealed class ServerSessionsService : IServerSessionsService, IDisposable {
-    public const int PageSize = 20;
+    public const int PageSize = 40;
     public const int LivePageSize = 100;
     public const int OffsetCap = 500;
     /// Each Load more re-reads every ended page it shows, so they go out together rather than one round trip each.
@@ -64,6 +64,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
     string? _lastSubject;
     int _laneEpoch;
     bool _connected;
+    readonly int _pageSize;
     int _pages = 1;
     string? _project;
     bool _busy;
@@ -117,7 +118,8 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
             TimeSpan? pushDebounce = null, TimeSpan? reconcileEvery = null, Action<int>? onUnauthorized = null,
             Func<string, CancellationToken, Task<SummaryFetch>>? fetchSummary = null,
             IScheduler? pushScheduler = null,
-            Func<string, CancellationToken, Task<HandoffContextFetch>>? fetchHandoffContext = null) {
+            Func<string, CancellationToken, Task<HandoffContextFetch>>? fetchHandoffContext = null, int pageSize = PageSize) {
+        _pageSize = pageSize;
         _fetch = fetch;
         _fetchOwners = fetchOwners;
         _fetchSummary = fetchSummary;
@@ -451,7 +453,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
     /// Asks for one more page of ended sessions; refused silently at the offset cap.
     public Task ShowMoreAsync() {
         lock (_lock) {
-            if (_pages * PageSize >= OffsetCap) return Task.CompletedTask;
+            if (_pages * _pageSize >= OffsetCap) return Task.CompletedTask;
             _pages++;
         }
         return ReconcileAsync();
@@ -620,7 +622,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
                 if (ended.Length == 0) total = _paging.Value.Total;
             }
             _ended.EditDiff(rows, EqualityComparer<RepoSessionDto>.Default);
-            var atCap = pages * PageSize >= OffsetCap;
+            var atCap = pages * _pageSize >= OffsetCap;
             _paging.OnNext(new(rows.Count, total, pages, rows.Count < total && !atCap, atCap));
         }
         foreach (var id in _tombstones.Where(t => t.Value <= readSeq).Select(t => t.Key).ToList()) _tombstones.Remove(id);
@@ -642,13 +644,13 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         var ended = new List<RepoSessionDto>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var total = 0;
-        var count = Math.Min(pages, OffsetCap / PageSize + 1);
+        var count = Math.Min(pages, OffsetCap / _pageSize + 1);
         var inFlight = new Queue<Task<ServerSessionsFetch>>();
         using var abandon = new CancellationTokenSource();
         var next = 0;
         void Launch() {
             for (; inFlight.Count < EndedPagesInFlight && next < count; next++)
-                inFlight.Enqueue(_fetch(new ServerSessionsQuery("ended", owner, PageSize, next * PageSize, project), abandon.Token));
+                inFlight.Enqueue(_fetch(new ServerSessionsQuery("ended", owner, _pageSize, next * _pageSize, project), abandon.Token));
         }
         // Pages past a short or failed one are dropped unread, exactly as a one-by-one read would never ask.
         void Abandon() {
@@ -666,7 +668,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
                     return (new Snapshot(all.Rows, owner is null ? null : scoped.Rows, [.. ended], total, liveNotShown, EndedPartial: true), false, result.RetryAfter);
                 total = result.Total;
                 foreach (var row in result.Rows) if (seen.Add(row.SessionId)) ended.Add(row);
-                if (result.Rows.Length < PageSize) break;
+                if (result.Rows.Length < _pageSize) break;
                 Launch();
             }
         } finally {
