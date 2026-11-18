@@ -576,7 +576,8 @@
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
         <Style Selector="Button.kcapGhost:pointerover /template/ ContentPresenter#PART_ContentPresenter,
-                         Button.kcapGhost:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                         Button.kcapGhost:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.kcapGhost.menuOpen /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />

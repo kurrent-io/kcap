@@ -1,10 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
-using Avalonia.LogicalTree;
-using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
 
@@ -13,15 +10,12 @@ namespace Capacitor.App.Views.Rail;
 /// The session rail. DataContext is the window's own MainWindowViewModel, inherited — this view
 /// never builds or assigns one.
 public partial class SessionRailView : UserControl {
-    readonly Flyout _rowMenu;
     RailSessionViewModel? _pressRow;
     Point _pressAt;
     IReadOnlyList<RailSessionViewModel>? _dragRows;
     IPointer? _dragPointer;
     List<Button> _lifted = [];
     Control? _dropOver;
-    readonly ItemsControl _rowMenuItems;
-    Button? _rowMenuAnchor;
 
     public SessionRailView() {
         InitializeComponent();
@@ -29,58 +23,24 @@ public partial class SessionRailView : UserControl {
         foreach (var anchor in new[] { RailFilterButton, RailGroupButton, RailSortButton, RailScopeButton, RailStateButton })
             KeyboardDismissible(anchor, NavigationMethod.Pointer);
         RailGroups.AddHandler(PointerPressedEvent, OnRowsPointerPressed, RoutingStrategies.Tunnel);
-        RailGroups.AddHandler(ContextRequestedEvent, OnRowsContextRequested);
+        _ = new RowMenu(RailGroups, "railRow", row => row is RailSessionViewModel session && RailModel is { } rail ? rail.MenuFor(session) : []);
         AddHandler(PointerMovedEvent, OnDragPointerMoved, RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent, OnDragPointerReleased, RoutingStrategies.Tunnel);
         PointerCaptureLost += (_, _) => EndDrag();
-        _rowMenu = (Flyout)Resources["RailRowMenu"]!;
-        _rowMenuItems = (ItemsControl)_rowMenu.Content!;
-        // Pointer-opened: focus for Escape without the keyboard focus ring, once the items are realized.
-        _rowMenu.Opened += (_, _) => Dispatcher.UIThread.Post(() => FocusFirstItem(_rowMenuItems, NavigationMethod.Pointer), DispatcherPriority.Loaded);
-        _rowMenuItems.AddHandler(KeyDownEvent, (_, e) => DismissOnEscape(_rowMenu, (Control?)_rowMenuAnchor ?? RailGroups, e, NavigationMethod.Pointer), RoutingStrategies.Bubble);
         AddHandler(KeyDownEvent, OnRailKeyDown, RoutingStrategies.Bubble);
     }
 
-    // A pointer-opened flyout leaves focus on its button, outside the popup, where Escape never reaches it.
     static void KeyboardDismissible(Button anchor, NavigationMethod focus = NavigationMethod.Tab) {
         if (anchor.Flyout is not Flyout { Content: Control content } flyout) return;
 
-        flyout.Opened += (_, _) => FocusFirstItem(content, focus);
-        content.AddHandler(KeyDownEvent, (_, e) => DismissOnEscape(flyout, anchor, e, focus), RoutingStrategies.Bubble);
-    }
-
-    static void FocusFirstItem(Control content, NavigationMethod method) =>
-        content.GetLogicalDescendants().OfType<Button>()
-            .FirstOrDefault(b => b.IsEffectivelyVisible && b.IsEffectivelyEnabled)?.Focus(method);
-
-    static void DismissOnEscape(FlyoutBase flyout, Control anchor, KeyEventArgs e, NavigationMethod refocus) {
-        if (e.Key != Key.Escape || e.Handled) return;
-        e.Handled = true;
-        flyout.Hide();
-        anchor.Focus(refocus);
+        flyout.Opened += (_, _) => FlyoutKeyboard.FocusFirstItem(content, focus);
+        content.AddHandler(KeyDownEvent, (_, e) => FlyoutKeyboard.DismissOnEscape(flyout, anchor, e, focus), RoutingStrategies.Bubble);
     }
 
     SessionRailViewModel? RailModel => (DataContext as MainWindowViewModel)?.Rail;
 
     static Button? RowButtonOf(object? source) =>
         (source as Visual)?.GetSelfAndVisualAncestors().OfType<Button>().FirstOrDefault(b => b.Classes.Contains("railRow"));
-
-    void OnRowsContextRequested(object? sender, ContextRequestedEventArgs e) {
-        if (RailModel is not { } rail || RowButtonOf(e.Source) is not { DataContext: RailSessionViewModel row } button) return;
-        e.Handled = true;
-        var items = rail.MenuFor(row);
-        if (items.Count == 0) return;
-        _rowMenuAnchor = button;
-        _rowMenuItems.ItemsSource = items;
-        _rowMenu.ShowAt(RailGroups, showAtPointer: true);
-    }
-
-    void OnRowMenuItemClick(object? sender, RoutedEventArgs e) {
-        if (sender is not Button { DataContext: RailMenuItem item }) return;
-        _rowMenu.Hide();
-        item.Run();
-        e.Handled = true;
-    }
 
     // Ctrl/Cmd+click marks a row and Shift+click a range, for the row menu to act on together; a plain
     // click opens the row and drops the marks. Tunnelled so a marking click never reaches the row's Click.

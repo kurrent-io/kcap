@@ -94,7 +94,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="SessionRow" x:DataType="vm:WorkItemPageSession">
-            <Button Classes="kcapGhost rowButton"
+            <Button Classes="kcapGhost rowButton sessionRow"
                     Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).OpenSessionCommand}"
                     CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">

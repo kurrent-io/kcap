@@ -647,12 +647,12 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     }
 
     /// The menu for a row: over the marked rows when it is one of them, else over it alone.
-    public IReadOnlyList<RailMenuItem> MenuFor(RailSessionViewModel row) {
+    public IReadOnlyList<RowMenuItem> MenuFor(RailSessionViewModel row) {
         if (!_marked.Value.Contains(row.Key)) ClearMarks();
         IReadOnlyList<AgentRow> targets = HasMarks
             ? [.. ShownRows().Where(r => _marked.Value.Contains(r.Key)).Select(r => r.Row)]
             : [row.Row];
-        var items = new List<RailMenuItem>();
+        var items = new List<RowMenuItem>();
         foreach (var action in _actions) {
             if (action.SingleRow && targets.Count > 1) continue;
             IReadOnlyList<AgentRow> rows = [.. targets.Where(action.AppliesTo)];

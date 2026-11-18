@@ -9,28 +9,6 @@
              x:DataType="vm:MainWindowViewModel">
     <!-- DataContext is INHERITED from the window (never assigned here), so Rail is null on any
          window built without one — every Rail.* binding below carries a fallback for that. -->
-    <UserControl.Resources>
-        <!-- One menu for every row, anchored to the list rather than a row: a live re-sort recycles row
-             containers, which would close a menu owned by one. -->
-        <Flyout x:Key="RailRowMenu" Placement="Pointer" FlyoutPresenterClasses="kcapPanel">
-            <ItemsControl Margin="6" MinWidth="188">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate><StackPanel Spacing="2" /></ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:RailMenuItem">
-                        <Button Classes="kcapGhost" Click="OnRowMenuItemClick" AutomationProperties.Name="{Binding Label}"
-                                HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" FontSize="13.5">
-                            <StackPanel Orientation="Horizontal" Spacing="7">
-                                <views:AppIcon Kind="{Binding Icon}" Size="14" />
-                                <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Button>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </Flyout>
-    </UserControl.Resources>
     <UserControl.Styles>
         <!-- A row's resting Background and BorderThickness MUST come from this class style, never a
              local attribute on the Button: a local value outranks a style trigger, which would leave
@@ -213,12 +191,14 @@
             <Setter Property="IsVisible" Value="False" />
         </Style>
         <Style Selector="Button.railRow:pointerover /template/ ContentPresenter#PART_ContentPresenter,
-                         Button.railRow:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                         Button.railRow:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.railRow.menuOpen /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapRowHoverBrush}" />
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
         <Style Selector="Button.selected:pointerover /template/ ContentPresenter#PART_ContentPresenter,
-                         Button.selected:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                         Button.selected:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.selected.menuOpen /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapRowActiveBrush}" />
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
@@ -227,7 +207,8 @@
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
         </Style>
         <Style Selector="Button.railRow.marked:pointerover /template/ ContentPresenter#PART_ContentPresenter,
-                         Button.railRow.marked:pressed /template/ ContentPresenter#PART_ContentPresenter">
+                         Button.railRow.marked:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.railRow.marked.menuOpen /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
         </Style>
     </UserControl.Styles>

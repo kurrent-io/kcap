@@ -112,6 +112,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
             .DisposeWith(_disposables);
     }
 
+    public IReadOnlyList<RowMenuItem> MenuFor(WorkItemPageSession session) => [
+        new(LucideIconKind.X, "Remove from work item",
+            () => _ = ChangeAsync(ct => _api.RemoveSessionAsync(WorkItemId, session.SessionId, ct), "Couldn't remove that session")),
+    ];
+
     async Task<bool> ChangeAsync(Func<CancellationToken, Task<bool>> change, string failure) {
         Message = null;
         var recorded = await change(CancellationToken.None);
