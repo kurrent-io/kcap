@@ -8,6 +8,7 @@ using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Avalonia.Collections;
 using Avalonia.Threading;
+using Capacitor.App.NeedToKnow;
 using Capacitor.App.Services;
 using Capacitor.App.Views;
 using Capacitor.Cli.Core;
@@ -207,6 +208,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
 
     readonly ObservableAsPropertyHelper<bool> _hasPendingCards;
     public bool HasPendingCards => _hasPendingCards.Value;
+
+    /// Stays true once a graded reply is seen, so trimming early rows never hides the controls that grade it.
+    public bool HasNeedToKnowMarks {
+        get => _hasNeedToKnowMarks;
+        private set => this.RaiseAndSetIfChanged(ref _hasNeedToKnowMarks, value);
+    }
+    bool _hasNeedToKnowMarks;
 
     bool _hasSeed;
     /// Whether the current feed has delivered its first Reset. A remote send made before it has no
@@ -861,7 +869,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IAttachmentSink {
 
         // The note follows whether the chat is empty, which every path that adds or clears rows changes.
         var empty = true;
-        _items.CollectionChanged += (_, _) => {
+        _items.CollectionChanged += (_, e) => {
+            if (!HasNeedToKnowMarks && (e.NewItems ?? (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset ? _items : null)) is { } added
+                && added.OfType<AssistantTextItem>().Any(static item => NeedToKnowMarks.Grades(item.Text)))
+                HasNeedToKnowMarks = true;
             if (empty == (_items.Count == 0)) return;
             empty = _items.Count == 0;
             RaisePhaseNote();

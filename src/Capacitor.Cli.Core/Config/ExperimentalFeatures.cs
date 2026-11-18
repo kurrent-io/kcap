@@ -24,15 +24,7 @@ public static class ExperimentalFeatures {
         DesktopAppOnly: true,
         OnByDefault: false);
 
-    public static ExperimentalFeature NeedToKnowBasis { get; } = new(
-        "need-to-know-basis",
-        "Need to know basis",
-        "Ask agents to mark the detail and footnote parts of their replies, and choose in the desktop app's right bar whether each is shown, faded or hidden. Applies to sessions started after it is turned on.",
-        AppliesLive: true,
-        DesktopAppOnly: true,
-        OnByDefault: false);
-
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, NeedToKnowBasis];
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>

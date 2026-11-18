@@ -80,6 +80,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         }
     }
 
+    static IObservable<bool> NeedToKnowMarksOf(ChatTabViewModel? chat) =>
+        chat is null ? Observable.Return(false) : chat.WhenAnyValue(c => c.HasNeedToKnowMarks);
+
     public ChatTabViewModel? Chat {
         get => _chat;
         private set {
@@ -246,6 +249,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             actions.OpenWorkItemInWeb, plans, planActivity, artefacts: Artefacts, serverLane: serverLane,
             canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
             sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout);
+        Observable.Switch(this.WhenAnyValue(w => w.Chat).Select(NeedToKnowMarksOf))
+            .Subscribe(shows => WorkContext.ShowsNeedToKnow = shows)
+            .DisposeWith(_disposables);
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));
         // An open subagent belongs to the transcript it was opened from.

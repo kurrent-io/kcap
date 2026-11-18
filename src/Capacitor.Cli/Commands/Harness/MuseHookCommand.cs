@@ -182,7 +182,7 @@ sealed class MuseHookCommand(
 
         var fragment = await SessionStartMemoryHookSupport.AwaitBounded(memoryTask, budget);
         var nudge = HarnessNudgeEmitter.Combine(
-            SessionNudges.Resolve(HarnessId.Muse, sessionId, activeProfile, harnesses, PlanEntitlementStore.Get(Url, config, clock.Time.GetUtcNow()), audience, cwd, home, config: config, profileName: profiles.Name),
+            SessionNudges.Resolve(HarnessId.Muse, sessionId, activeProfile, harnesses, PlanEntitlementStore.Get(Url, config, clock.Time.GetUtcNow()), audience, cwd, home),
             HarnessNudgeEmitter.ResolveFragmentForHook(activeProfile?.DisableHarnessNudge is true || !audience.GetsOnboarding, config, harnesses, clock.Time),
             FirstRunNoticeEmitter.Resolve(activeProfile?.DisableFirstRunNotice is true || !audience.GetsOnboarding, config, HarnessId.Muse, harnesses));
         await WriteFragment(stdout, fragment, nudge);

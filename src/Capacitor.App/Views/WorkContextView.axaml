@@ -1003,7 +1003,8 @@
                 </StackPanel>
 
                 <StackPanel x:Name="NeedToKnowSection" Margin="0,18,0,0" x:DataType="vm:NeedToKnowBasisViewModel"
-                            DataContext="{x:Static vm:NeedToKnowBasisViewModel.Shared}">
+                            DataContext="{x:Static vm:NeedToKnowBasisViewModel.Shared}"
+                            IsVisible="{Binding $parent[UserControl].((vm:WorkContextViewModel)DataContext).ShowsNeedToKnow, FallbackValue=False}">
                     <Button x:Name="NeedToKnowHeader" Classes="sectionHeader" AutomationProperties.Name="Need to know basis">
                         <TextBlock Text="NEED TO KNOW BASIS" Classes="eyebrow" />
                     </Button>

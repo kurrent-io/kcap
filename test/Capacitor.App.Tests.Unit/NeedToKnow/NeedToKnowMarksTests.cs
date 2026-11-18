@@ -46,6 +46,15 @@ public class NeedToKnowMarksTests {
 
 
     [Test]
+    [Arguments("Plain text.", false)]
+    [Arguments("Use `⌞x⌟` here.", false)]
+    [Arguments("```\n⌞x⌟\n```", false)]
+    [Arguments("A. ⌞B.⌟", true)]
+    [Arguments("A. ⌞⌞B.", true)]
+    public async Task Only_a_mark_outside_code_grades_a_text(string markdown, bool grades) =>
+        await Assert.That(NeedToKnowMarks.Grades(markdown)).IsEqualTo(grades);
+
+    [Test]
     public async Task A_single_corner_pair_marks_detail() =>
         await Assert.That(Render("Tests pass. ⌞7 ran.⌟ CI is green.", AllFaded)).IsEqualTo("Tests pass. {w:7 ran.} CI is green.");
 

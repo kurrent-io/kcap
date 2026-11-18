@@ -97,6 +97,21 @@ public class WorkContextViewSmokeTests {
         });
     }
 
+    /// The section binds through the pane's own view model while its data context is the shared basis.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_need_to_know_section_shows_once_the_session_has_a_graded_reply() {
+        await RunOnUiAsync(async () => {
+            await using var host = new Host();
+            await host.ShowAsync(KeyOnlyRead());
+            await Assert.That(host.Find<Control>("NeedToKnowSection").IsEffectivelyVisible).IsFalse();
+
+            host.Vm.ShowsNeedToKnow = true;
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(host.Find<Control>("NeedToKnowSection").IsEffectivelyVisible).IsTrue();
+        });
+    }
+
     /// The session's pages are listed in the pane, hidden while it has none, and a row opens its page.
     [Test]
     [NotInParallel("AvaloniaSession")]

@@ -285,6 +285,13 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             this.RaisePropertyChanged(nameof(IsStale));
         }
     }
+    /// Whether the session has a graded reply, so the need-to-know controls have something to act on.
+    public bool ShowsNeedToKnow {
+        get => _showsNeedToKnow;
+        set => this.RaiseAndSetIfChanged(ref _showsNeedToKnow, value);
+    }
+    bool _showsNeedToKnow;
+
     bool _isReading;
     public bool IsReading {
         get => _isReading;

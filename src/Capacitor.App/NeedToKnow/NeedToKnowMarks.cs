@@ -3,6 +3,7 @@ using Markdig.Extensions.Tables;
 using Markdig.Renderers;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
+using MarkView.Avalonia;
 
 namespace Capacitor.App.NeedToKnow;
 
@@ -19,6 +20,12 @@ public sealed class NeedToKnowMarks : IMarkdownExtension {
     public void Setup(MarkdownPipeline pipeline, IMarkdownRenderer renderer) { }
 
     public static bool HasMarks(string? text) => text is not null && text.AsSpan().IndexOfAny(Open, Close) >= 0;
+
+    static readonly MarkdownPipeline Plain = new MarkdownPipelineBuilder().UseSupportedExtensions().Build();
+
+    /// Whether the text grades anything: a mark outside code, which only a parse can tell.
+    public static bool Grades(string? text) =>
+        HasMarks(text) && Markdown.Parse(text!, Plain).Descendants<LeafBlock>().Any(leaf => leaf.Inline is { } root && Contains(root));
 
     public static void Apply(MarkdownDocument document, NeedToKnowBasis basis) {
         foreach (var leaf in document.Descendants<LeafBlock>().ToArray())
