@@ -29,6 +29,7 @@ CPU from the guest.
 | Script | Measures |
 |---|---|
 | `coldstart.sh TAG RUNS SECONDS` | Quits and relaunches the app RUNS times. Per run: a screenshot loop, CPU seconds at 10 s, and the `app-lifecycle.jsonl` lines the launch wrote. `KCAP_PERF_FRAMES=0` drops the screenshot loop for a build that writes `window_shown` and `first_sessions_painted`, so the loop does not take CPU from the launch it times. |
+| `coldstart_ab.sh RUNS SECONDS TAG=BUNDLE ...` | Cold starts several builds in turn, one launch each per round, renaming each bundle into `/Applications` for its launch, so load from outside the guest falls on every build alike. |
 | `coldstart_report.py DIR` | Per run and as medians: when the window and the session rows first appeared on screen, as a range from the frame before to the frame that showed them, plus every lifecycle mark (`since_start_ms`) and the `startup_phases` durations. |
 | `view_load.sh TAG X Y SECONDS` | Clicks a rail row at (X, Y) in screen points and records a screenshot loop and the app's CPU over the run. |
 | `view_report.py DIR --transcript "re:turn 1499\D"` | When the transcript's last message appeared. A needle starting with `re:` is a regular expression; OCR misreads punctuation, so anchor on letters and digits, and pick text only the session under test shows. |

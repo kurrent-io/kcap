@@ -9,22 +9,7 @@ set -euo pipefail
 source "$(dirname "$0")/common.sh"
 tag=${1:?tag}; runs=${2:-6}; secs=${3:-22}
 out="$OUT_ROOT/coldstart/$tag"; rm -rf "$out"; mkdir -p "$out"
-
 for run in $(seq 1 "$runs"); do
-  quit_app; sleep 5
-  dir="$out/run$run"; mkdir -p "$dir"
-  lines_before=$( [ -f "$LIFECYCLE" ] && wc -l < "$LIFECYCLE" || echo 0)
-  t0=$(now); echo "$t0" > "$dir/t0"
-  launch_app
-  if [ "${KCAP_PERF_FRAMES:-1}" = 0 ]; then
-    sleep "$secs" & shooter=$!
-  else
-    shoot_loop "$dir/frames" "$secs" & shooter=$!
-  fi
-  python3 -c "import time; time.sleep(max(0, $t0 + 10 - time.time()))"
-  pid=$(app_pid || true); echo "${pid:-}" > "$dir/pid"
-  [ -n "$pid" ] && cpu_seconds "$pid" > "$dir/cpu10" || echo "" > "$dir/cpu10"
-  wait "$shooter"
-  [ -f "$LIFECYCLE" ] && tail -n +"$((lines_before + 1))" "$LIFECYCLE" > "$dir/lifecycle.jsonl" || true
+  one_launch "$out/run$run" "$secs"
   echo "run $run done"
 done
