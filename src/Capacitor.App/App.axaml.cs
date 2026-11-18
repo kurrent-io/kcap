@@ -82,6 +82,9 @@ public partial class App : Application {
     LifecycleLog? _lifecycleLogInstance;
     LifecycleLog LifecycleLog => _lifecycleLogInstance ??= new LifecycleLog(_config, _time, _userHome.Path,
         closed: () => _uninstalling || _uninstallMode is not null);
+    StartupMarks? _startupMarksInstance;
+    StartupMarks StartupMarks => _startupMarksInstance ??= new StartupMarks(LifecycleLog, _time, StartupMarks.CurrentProcessStart());
+    TimeSpan? _windowBuild;
 
     // The update this launch finishes, once StartAsync has taken its record; null on an ordinary launch.
     AppUpdateTransition? _postUpdate;
@@ -396,7 +399,7 @@ public partial class App : Application {
         try {
             if (guarded) {
                 _startedAt = _time.GetUtcNow();
-                LifecycleLog.Write("app_started", ("executable", Environment.ProcessPath),
+                StartupMarks.Mark("app_started", ("executable", Environment.ProcessPath),
                     ("update_relaunch", Program.Host.UpdateRelaunch ? "true" : null),
                     ("installed_handoff", desktop.Args?.Contains("--kcap-installed", StringComparer.Ordinal) == true ? "true" : null));
                 if (RunInstallLocationGuard(desktop)) return; // the guard window owns the rest of this run
@@ -421,14 +424,29 @@ public partial class App : Application {
             _lane = lane;
             _adoption = BuildCliAdoption(lane, laneRunner, laneProbe);
 
+            var gateStarted = _time.GetTimestamp();
             var (gate, profiles) = await ResolveAndEvaluateGateAsync(_config, _foreignHttp.GetRequiredService<TokenStore>(), _serverEnv, _localRoot, _time, _shutdown.Token);
+            var gateTook = _time.GetElapsedTime(gateStarted);
+            var showWizard = ShouldShowWizard(gate, desktop.Args);
+            TimeSpan? graphTook = null;
             await RunWizardThenBuildGraphAsync(
-                gate, profiles, ShouldShowWizard(gate, desktop.Args),
+                gate, profiles, showWizard,
                 (current, currentProfiles) => RunWizardModeAsync(desktop, lane, channel, laneRunner, laneProbe, currentProfiles,
                     alreadyAuthenticated: current is GateResult.Complete),
                 () => ResolveAndEvaluateGateAsync(_config, _foreignHttp.GetRequiredService<TokenStore>(), _serverEnv, _localRoot, _time, _shutdown.Token),
-                (current, currentProfiles, laneQuiesced) => BuildDaemonGraph(desktop, lane, channel, laneProbe, current, currentProfiles, laneQuiesced),
+                (current, currentProfiles, laneQuiesced) => {
+                    var graphStarted = _time.GetTimestamp();
+                    BuildDaemonGraph(desktop, lane, channel, laneProbe, current, currentProfiles, laneQuiesced);
+                    graphTook = _time.GetElapsedTime(graphStarted);
+                },
                 () => LocalSetupState.Pending(_localRoot), _shutdown.Token, () => LocalSetupCannotRetry(_localInstall));
+            if (graphTook is { } graphAndWindow) {
+                var window = _windowBuild ?? TimeSpan.Zero;
+                StartupMarks.Mark("startup_phases", ("gate_ms", StartupMarks.Milliseconds(gateTook)),
+                    ("graph_ms", StartupMarks.Milliseconds(graphAndWindow - window)),
+                    ("window_ms", _windowBuild is null ? null : StartupMarks.Milliseconds(window)),
+                    ("wizard", showWizard ? "true" : null));
+            }
 
             // After the wizard, so a service it installs is already the app's; off the UI thread.
             _adoption?.Start(_wizardPathLink);
@@ -1407,7 +1425,7 @@ public partial class App : Application {
                 notification => _notificationSink?.Show(notification, _ => _coordinator?.ShowMainWindow()))
             : null;
         _coordinator = new MainWindowCoordinator(
-            () => TrackNoticeWindow(notifier, TrackViewedAgent(BuildAndShowMainWindow(
+            () => TrackStartupMarks(() => TrackNoticeWindow(notifier, TrackViewedAgent(BuildAndShowMainWindow(
                 shownService, _config, _appState, actions, notifier, ticker,
                 _shutdown.Token, activity, launch, _time, lifecycle.StartActionAsync,
                 lifecycleStatus, _navigation, _workspaceTeardown.Track, BuildWorkspace,
@@ -1446,7 +1464,7 @@ public partial class App : Application {
                 openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers, sessionCli: lifecycleCli,
                 nextWorkEnabled: () => launcherNextWork.IsOn,
                 nextWorkSwitchMayChange: _experimentalSaved.Merge(
-                    Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default))))),
+                    Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default)))))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
             restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace(),
@@ -1577,7 +1595,7 @@ public partial class App : Application {
                 ? Observable.FromEvent<string?>(h => hint.TrayHintChanged += h, h => hint.TrayHintChanged -= h).StartWith(hint.TrayHint)
                 : null);
         _tray = new TrayIconManager(this, _trayVm);
-        LifecycleLog.Write("tray_created", ("executable", Environment.ProcessPath));
+        StartupMarks.Mark("tray_created", ("executable", Environment.ProcessPath));
     }
 
     async Task SetBetaUpdatesAsync(bool enabled) {
@@ -2500,6 +2518,30 @@ public partial class App : Application {
         PaneLayoutMemory.Apply(window.Panes, savedState);
         PaneLayoutMemory.Attach(window.Panes, appState);
         if (show) window.Show();
+        return window;
+    }
+
+    // Only the first main window: a later rebuild is not start-up.
+    MainWindow TrackStartupMarks(Func<MainWindow> build) {
+        var started = _time.GetTimestamp();
+        var window = build();
+        if (_windowBuild is not null) return window;
+        _windowBuild = _time.GetElapsedTime(started);
+
+        // Called on the render thread: the time is taken there, the write is not.
+        Action MarkNow(string evt) => () => {
+            var at = StartupMarks.Now;
+            _ = Task.Run(() => StartupMarks.Mark(evt, at));
+        };
+        if (window.IsVisible) RenderedFrame.After(window, MarkNow("window_shown"));
+        else {
+            void Opened(object? sender, EventArgs e) {
+                window.Opened -= Opened;
+                RenderedFrame.After(window, MarkNow("window_shown"));
+            }
+            window.Opened += Opened;
+        }
+        window.SessionRail.OnFirstSessionsPainted(MarkNow("first_sessions_painted"));
         return window;
     }
 

@@ -25,6 +25,19 @@ public partial class SessionRailView : UserControl {
         foreach (var anchor in new[] { RailHelpButton, RailGroupButton, RailSortButton }) KeyboardDismissible(anchor);
     }
 
+    /// Calls <paramref name="painted"/> once, on the render thread, when the first frame showing a
+    /// session row has been drawn: the first layout pass with a row in an expanded group of a visible
+    /// rail, then that frame's render. Data alone does not count, since a collapsed rail paints nothing.
+    public void OnFirstSessionsPainted(Action painted) {
+        void Check(object? sender, EventArgs e) {
+            if (!IsEffectivelyVisible || DataContext is not MainWindowViewModel { Rail: { } rail }
+             || !rail.Groups.Any(group => group.IsExpanded && group.Sessions.Count > 0)) return;
+            LayoutUpdated -= Check;
+            RenderedFrame.After(this, painted);
+        }
+        LayoutUpdated += Check;
+    }
+
     // A pointer-opened flyout leaves focus on its button, outside the popup, where Escape never reaches it.
     static void KeyboardDismissible(Button anchor) {
         if (anchor.Flyout is not Flyout { Content: Control content } flyout) return;
