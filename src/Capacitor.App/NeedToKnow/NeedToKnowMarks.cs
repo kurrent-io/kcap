@@ -32,8 +32,7 @@ public sealed class NeedToKnowMarks : IMarkdownExtension {
         var graded = new List<(Inline Inline, NeedToKnowLevel Level)>();
         Walk(root, [], graded);
 
-        // Neighbouring pieces at one level share a wrapper, so a marked span shows one pair of brackets
-        // and a collapsed one leaves one mark.
+        // Neighbouring pieces at one level share a wrapper, so a marked span shows one pair of brackets.
         var removed = false;
         for (var i = 0; i < graded.Count;) {
             var level = graded[i].Level;

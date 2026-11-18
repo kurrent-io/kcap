@@ -1041,8 +1041,6 @@
                                             </Flyout>
                                         </Button.Flyout>
                                     </Button>
-                                    <Button Content="Collapse" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding DetailCollapsed}"
-                                            Command="{Binding SetDetailCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Collapsed}" />
                                     <Button Content="Hide" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding DetailHidden}"
                                             Command="{Binding SetDetailCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Hidden}" />
                                 </StackPanel>
@@ -1069,8 +1067,6 @@
                                             </Flyout>
                                         </Button.Flyout>
                                     </Button>
-                                    <Button Content="Collapse" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding FootnoteCollapsed}" IsEnabled="{Binding FootnoteCanBeCollapsed}"
-                                            Command="{Binding SetFootnoteCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Collapsed}" />
                                     <Button Content="Hide" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding FootnoteHidden}"
                                             Command="{Binding SetFootnoteCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Hidden}" />
                                 </StackPanel>

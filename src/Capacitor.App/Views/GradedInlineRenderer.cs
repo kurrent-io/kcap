@@ -1,21 +1,12 @@
-using Avalonia.Controls;
 using Avalonia.Controls.Documents;
-using Avalonia.Layout;
 using Capacitor.App.NeedToKnow;
 using MarkView.Avalonia.Rendering;
 
 namespace Capacitor.App.Views;
 
-/// A collapsed run leaves a small mark whose tooltip holds its text, so the reader can tell something is there.
 sealed class GradedInlineRenderer : AvaloniaObjectRenderer<GradedInline> {
     protected override void Write(AvaloniaRenderer renderer, GradedInline obj) {
         switch (obj.Display) {
-            case NeedToKnowDisplay.Collapsed:
-                var mark = new TextBlock { Text = "⋯", VerticalAlignment = VerticalAlignment.Center };
-                mark.Classes.Add("need-to-know-collapsed");
-                ToolTip.SetTip(mark, new TextBlock { Text = KcapMarkdownExtension.Label(obj), TextWrapping = Avalonia.Media.TextWrapping.Wrap, MaxWidth = 420 });
-                renderer.WriteInline(new InlineUIContainer(mark));
-                return;
             case NeedToKnowDisplay.Marked:
                 var glyphs = obj.Level == NeedToKnowLevel.Footnote ? 2 : 1;
                 renderer.WriteInline(Glyph(new string(NeedToKnowMarks.Open, glyphs)));

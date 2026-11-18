@@ -47,28 +47,25 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
     public bool DetailNormal => _basis.Detail == NeedToKnowDisplay.Normal;
     public bool DetailMarked => _basis.Detail == NeedToKnowDisplay.Marked;
     public bool DetailFaded => _basis.Detail == NeedToKnowDisplay.Faded;
-    public bool DetailCollapsed => _basis.Detail == NeedToKnowDisplay.Collapsed;
     public bool DetailHidden => _basis.Detail == NeedToKnowDisplay.Hidden;
     public bool FootnoteNormal => _basis.Footnote == NeedToKnowDisplay.Normal;
     public bool FootnoteMarked => _basis.Footnote == NeedToKnowDisplay.Marked;
     public bool FootnoteFaded => _basis.Footnote == NeedToKnowDisplay.Faded;
-    public bool FootnoteCollapsed => _basis.Footnote == NeedToKnowDisplay.Collapsed;
     public bool FootnoteHidden => _basis.Footnote == NeedToKnowDisplay.Hidden;
     public bool FootnoteCanBeNormal => _basis.Detail <= NeedToKnowDisplay.Normal;
     public bool FootnoteCanBeMarked => _basis.Detail <= NeedToKnowDisplay.Marked;
     public bool FootnoteCanBeFaded => _basis.Detail <= NeedToKnowDisplay.Faded;
-    public bool FootnoteCanBeCollapsed => _basis.Detail <= NeedToKnowDisplay.Collapsed;
 
     void Apply(NeedToKnowBasis basis) {
         _basis = basis;
         NeedToKnowBasis.Set(basis);
         foreach (var name in new[] {
                      nameof(DetailNormal), nameof(DetailMarked), nameof(DetailFaded),
-                     nameof(DetailCollapsed), nameof(DetailHidden),
+                     nameof(DetailHidden),
                      nameof(FootnoteNormal), nameof(FootnoteMarked), nameof(FootnoteFaded),
-                     nameof(FootnoteCollapsed), nameof(FootnoteHidden),
+                     nameof(FootnoteHidden),
                      nameof(FootnoteCanBeNormal), nameof(FootnoteCanBeMarked),
-                     nameof(FootnoteCanBeFaded), nameof(FootnoteCanBeCollapsed),
+                     nameof(FootnoteCanBeFaded),
                  })
             this.RaisePropertyChanged(name);
     }

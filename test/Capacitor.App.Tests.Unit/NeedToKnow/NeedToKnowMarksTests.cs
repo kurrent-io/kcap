@@ -14,8 +14,7 @@ public class NeedToKnowMarksTests {
     static readonly NeedToKnowBasis AllHidden = new(NeedToKnowDisplay.Hidden, NeedToKnowDisplay.Hidden);
     static readonly NeedToKnowBasis AllNormal = new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Normal);
 
-    /// One line per leaf block; a graded run shows as `{w:…}` or `{c:…}` when faded, `[w:…]` when
-    /// marked and `&lt;w:…&gt;` when collapsed.
+    /// One line per leaf block; a graded run shows as `{w:…}` or `{c:…}` when faded and `[w:…]` when marked.
     static string Render(string markdown, NeedToKnowBasis basis) {
         var document = Markdown.Parse(markdown, WithoutPass);
         NeedToKnowMarks.Apply(document, basis);
@@ -40,14 +39,12 @@ public class NeedToKnowMarksTests {
     static string Graded(GradedInline graded) {
         var (open, close) = graded.Display switch {
             NeedToKnowDisplay.Faded => ("{", "}"),
-            NeedToKnowDisplay.Marked => ("[", "]"),
-            _                        => ("<", ">"),
+            _                        => ("[", "]"),
         };
         return open + (graded.Level == NeedToKnowLevel.Detail ? "w:" : "c:") + Text(graded) + close;
     }
 
     static readonly NeedToKnowBasis AllMarked = new(NeedToKnowDisplay.Marked, NeedToKnowDisplay.Marked);
-    static readonly NeedToKnowBasis AllCollapsed = new(NeedToKnowDisplay.Collapsed, NeedToKnowDisplay.Collapsed);
 
     [Test]
     public async Task A_single_corner_pair_marks_detail() =>
@@ -64,10 +61,6 @@ public class NeedToKnowMarksTests {
     [Test]
     public async Task Each_level_follows_its_own_display() =>
         await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟ D.", new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Hidden))).IsEqualTo("A. B. D.");
-
-    [Test]
-    public async Task A_collapsed_span_keeps_its_text_for_the_mark_it_leaves() =>
-        await Assert.That(Render("Tests pass. ⌞7 ran.⌟ CI is green.", AllCollapsed)).IsEqualTo("Tests pass. <w:7 ran.> CI is green.");
 
     [Test]
     public async Task A_hidden_span_leaves_one_space_between_its_neighbours() =>
@@ -112,10 +105,6 @@ public class NeedToKnowMarksTests {
     [Test]
     public async Task Code_inside_a_span_is_graded_with_it() =>
         await Assert.That(Render("A. ⌞Run `x`.⌟", AllFaded)).IsEqualTo("A. {w:Run `x`.}");
-
-    [Test]
-    public async Task A_paragraph_collapsed_entirely_keeps_its_place_as_a_mark() =>
-        await Assert.That(Render("A.\n\n⌞⌞B.⌟⌟\n\nC.", AllCollapsed)).IsEqualTo("A.\n<c:B.>\nC.");
 
     [Test]
     public async Task A_paragraph_hidden_entirely_is_removed() =>

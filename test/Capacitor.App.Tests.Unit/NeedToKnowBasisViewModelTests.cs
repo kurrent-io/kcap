@@ -19,11 +19,10 @@ public class NeedToKnowBasisViewModelTests {
 
     [Test]
     public async Task Raising_detail_past_footnote_carries_it_along() {
-        Model.SetDetailCommand.Execute(NeedToKnowDisplay.Collapsed).Subscribe();
+        Model.SetDetailCommand.Execute(NeedToKnowDisplay.Hidden).Subscribe();
 
-        await Assert.That(NeedToKnowBasis.Current).IsEqualTo(new NeedToKnowBasis(NeedToKnowDisplay.Collapsed, NeedToKnowDisplay.Collapsed));
+        await Assert.That(NeedToKnowBasis.Current).IsEqualTo(new NeedToKnowBasis(NeedToKnowDisplay.Hidden, NeedToKnowDisplay.Hidden));
         await Assert.That(Model.FootnoteCanBeFaded).IsFalse();
-        await Assert.That(Model.FootnoteCanBeCollapsed).IsTrue();
     }
 
     [Test]

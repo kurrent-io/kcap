@@ -249,13 +249,6 @@
     <Style Selector="mv|MarkdownViewer Run.need-to-know-glyph">
         <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
     </Style>
-    <Style Selector="mv|MarkdownViewer TextBlock.need-to-know-collapsed">
-        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
-        <Setter Property="FontSize" Value="13" />
-        <Setter Property="Margin" Value="2,0" />
-        <Setter Property="Cursor" Value="Help" />
-        <Setter Property="Background" Value="Transparent" />
-    </Style>
     <Style Selector="mv|MarkdownViewer Span.markdown-marked">
         <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
     </Style>
