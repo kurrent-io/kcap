@@ -15,6 +15,7 @@ namespace Capacitor.App.ViewModels;
 /// are the server's, the same for every viewer; sessions and "Needs you" cover only what this viewer can see.
 public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
     const string LinksKey = "links";
+    const string PagesKey = "pages";
     const string LooseEndsKey = "loose_ends";
     const string OnWorkItemKey = "on_work_item";
 
@@ -36,6 +37,8 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
     public string? Goal { get => _goal; private set => this.RaiseAndSetIfChanged(ref _goal, value); }
     WorkItemPageGroupViewModel? _linksGroup;
     public WorkItemPageGroupViewModel? LinksGroup { get => _linksGroup; private set => this.RaiseAndSetIfChanged(ref _linksGroup, value); }
+    WorkItemPageGroupViewModel? _pagesGroup;
+    public WorkItemPageGroupViewModel? PagesGroup { get => _pagesGroup; private set => this.RaiseAndSetIfChanged(ref _pagesGroup, value); }
     /// The done share of the progress ring, in degrees.
     double _progressSweep;
     public double ProgressSweep { get => _progressSweep; private set => this.RaiseAndSetIfChanged(ref _progressSweep, value); }
@@ -55,6 +58,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
 
     public ReactiveCommand<Unit, Unit> OpenInWebCommand { get; }
     public ReactiveCommand<WorkItemPageLink, Unit> OpenLinkCommand { get; }
+    public ReactiveCommand<WorkItemPublishedPage, Unit> OpenPageCommand { get; }
     public ReactiveCommand<WorkItemPageSession, Unit> OpenSessionCommand { get; }
     public ReactiveCommand<WorkItemPageLooseEnd, Unit> MakePartCommand { get; }
     public ReactiveCommand<Unit, Unit> AddPartCommand { get; }
@@ -75,6 +79,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
 
         OpenInWebCommand = ReactiveCommand.Create(() => openInWeb?.Invoke(), Observable.Return(openInWeb is not null)).DisposeWith(_disposables);
         OpenLinkCommand = ReactiveCommand.Create<WorkItemPageLink>(link => { if (link.Url is { } url) openUrl?.Invoke(url); }).DisposeWith(_disposables);
+        OpenPageCommand = ReactiveCommand.Create<WorkItemPublishedPage>(page => openUrl?.Invoke(page.Url)).DisposeWith(_disposables);
         OpenSessionCommand = ReactiveCommand.Create<WorkItemPageSession>(session => openSession?.Invoke(session.SessionId)).DisposeWith(_disposables);
         MakePartCommand = ReactiveCommand.CreateFromTask<WorkItemPageLooseEnd>(looseEnd =>
             ChangeAsync(ct => _api.MakePartAsync(WorkItemId, looseEnd.LooseEndId, ct), "Couldn't make a slice from that loose end")).DisposeWith(_disposables);
@@ -126,6 +131,9 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
         Goal = string.IsNullOrWhiteSpace(read.Goal) ? null : read.Goal.Trim();
         var links = LinksOf(read.Links);
         LinksGroup = links.Count == 0 ? null : Group(LinksKey, null, "Links", LucideIconKind.CircleDot, links: links);
+        var pages = read.Pages.Select(page => new WorkItemPublishedPage(
+            string.IsNullOrWhiteSpace(page.Title) ? "Untitled page" : page.Title, $"v{page.LatestVersion}", Ago(page.UpdatedAt), page.Url)).ToList();
+        PagesGroup = pages.Count == 0 ? null : Group(PagesKey, null, "Pages", LucideIconKind.FileText, pages: pages);
 
         var parts = read.Parts.Select(part => PartOf(part, rows)).ToList();
         var done = parts.Count(part => part.Status == WorkStatus.Done);
@@ -149,8 +157,8 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
     WorkItemPageGroupViewModel Group(string key, WorkStatus? status, string label, LucideIconKind icon,
             IReadOnlyList<WorkItemPageLink>? links = null, IReadOnlyList<WorkItemPagePart>? parts = null,
             IReadOnlyList<WorkItemPageSession>? sessions = null, IReadOnlyList<WorkItemPageLooseEnd>? looseEnds = null,
-            bool expandedByDefault = true) =>
-        new(key, status, label, icon, links ?? [], parts ?? [], sessions ?? [], looseEnds ?? [],
+            IReadOnlyList<WorkItemPublishedPage>? pages = null, bool expandedByDefault = true) =>
+        new(key, status, label, icon, links ?? [], parts ?? [], sessions ?? [], looseEnds ?? [], pages ?? [],
             expandedByDefault ^ _flippedGroups.Contains(key), expanded => {
             if (expanded == expandedByDefault) _flippedGroups.Remove(key);
             else _flippedGroups.Add(key);

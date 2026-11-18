@@ -207,6 +207,23 @@
                 </Button>
                 <StackPanel Classes="groupItems" IsVisible="{Binding IsExpanded}">
                     <ItemsControl ItemsSource="{Binding Links}" ItemTemplate="{StaticResource LinkButton}" />
+                    <ItemsControl ItemsSource="{Binding Pages}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:WorkItemPublishedPage">
+                                <Button Classes="kcapGhost rowButton" ToolTip.Tip="{Binding Url}" AutomationProperties.Name="{Binding Title}"
+                                        Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).OpenPageCommand}"
+                                        CommandParameter="{Binding}">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                                        <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Version}" FontSize="11" Foreground="{StaticResource KcapMutedBrush}"
+                                                   VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="{Binding Updated}" FontSize="11" Foreground="{StaticResource KcapFaintBrush}"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <ItemsControl ItemsSource="{Binding Parts}" ItemTemplate="{StaticResource Part}" />
                     <ItemsControl ItemsSource="{Binding LooseEnds}">
                         <ItemsControl.ItemTemplate>
@@ -270,6 +287,8 @@
                     </Grid>
                     <ContentControl x:Name="WorkItemLinks" Content="{Binding LinksGroup}" ContentTemplate="{StaticResource Group}"
                                     IsVisible="{Binding LinksGroup, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    <ContentControl x:Name="WorkItemPages" Content="{Binding PagesGroup}" ContentTemplate="{StaticResource Group}"
+                                    IsVisible="{Binding PagesGroup, Converter={x:Static ObjectConverters.IsNotNull}}" />
 
                     <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8" Margin="0,8,0,0">
                         <TextBlock Classes="bar" Text="Slices" />

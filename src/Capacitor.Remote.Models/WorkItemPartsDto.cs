@@ -14,4 +14,6 @@ public sealed record WorkItemPartsDto {
     [JsonPropertyName("loose_ends")]  public List<WorkItemLooseEndDto> LooseEnds { get; init; } = [];
     /// Titles for <see cref="SessionIds"/>; an older server sends none.
     [JsonPropertyName("sessions")]    public List<WorkItemPartSessionDto> Sessions { get; init; } = [];
+    /// Newest first; an older server sends none.
+    [JsonPropertyName("pages")]       public List<WorkItemPageDto> Pages { get; init; } = [];
 }

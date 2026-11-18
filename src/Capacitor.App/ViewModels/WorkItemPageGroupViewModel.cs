@@ -4,8 +4,8 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// A collapsible group of a work item page: the item's links, the parts of one status, the viewer's loose ends, or the
-/// sessions on no part. <see cref="Status"/> is null except on a status group.
+/// A collapsible group of a work item page: the item's links, its Pages, the parts of one status, the viewer's loose
+/// ends, or the sessions on no part. <see cref="Status"/> is null except on a status group.
 public sealed class WorkItemPageGroupViewModel : ReactiveObject {
     public string Key { get; }
     public WorkStatus? Status { get; }
@@ -16,6 +16,7 @@ public sealed class WorkItemPageGroupViewModel : ReactiveObject {
     public IReadOnlyList<WorkItemPagePart> Parts { get; }
     public IReadOnlyList<WorkItemPageSession> Sessions { get; }
     public IReadOnlyList<WorkItemPageLooseEnd> LooseEnds { get; }
+    public IReadOnlyList<WorkItemPublishedPage> Pages { get; }
     public ReactiveCommand<Unit, Unit> ToggleCommand { get; }
 
     bool _isExpanded;
@@ -23,7 +24,7 @@ public sealed class WorkItemPageGroupViewModel : ReactiveObject {
 
     public WorkItemPageGroupViewModel(string key, WorkStatus? status, string label, LucideIconKind icon,
             IReadOnlyList<WorkItemPageLink> links, IReadOnlyList<WorkItemPagePart> parts, IReadOnlyList<WorkItemPageSession> sessions,
-            IReadOnlyList<WorkItemPageLooseEnd> looseEnds, bool isExpanded, Action<bool> expandedChanged) {
+            IReadOnlyList<WorkItemPageLooseEnd> looseEnds, IReadOnlyList<WorkItemPublishedPage> pages, bool isExpanded, Action<bool> expandedChanged) {
         Key = key;
         Status = status;
         Label = label;
@@ -32,7 +33,8 @@ public sealed class WorkItemPageGroupViewModel : ReactiveObject {
         Parts = parts;
         Sessions = sessions;
         LooseEnds = looseEnds;
-        Count = links.Count + parts.Count + sessions.Count + looseEnds.Count;
+        Pages = pages;
+        Count = links.Count + parts.Count + sessions.Count + looseEnds.Count + pages.Count;
         _isExpanded = isExpanded;
         ToggleCommand = ReactiveCommand.Create(() => {
             IsExpanded = !IsExpanded;
