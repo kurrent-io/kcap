@@ -71,12 +71,13 @@
         <Style Selector="Border.userTurn:pointerover Button.topicHere, StackPanel.assistantTurn:pointerover Button.topicHere, Button.topicHere:focus-visible">
             <Setter Property="Opacity" Value="1" />
         </Style>
-        <!-- A marked message keeps its toggle shown, in the topic blue, so the mark can be read and undone. -->
+        <!-- A marked message keeps its toggle shown, as the icon alone in the topic blue, so the mark can be read and undone. -->
         <Style Selector="Button.topicHere.on">
             <Setter Property="Opacity" Value="1" />
+            <Setter Property="ToolTip.Tip" Value="A new topic starts here. Click to undo" />
         </Style>
         <Style Selector="Button.topicHere.on TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+            <Setter Property="IsVisible" Value="False" />
         </Style>
         <Style Selector="Button.topicHere.on views|AppIcon">
             <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
