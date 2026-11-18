@@ -14,11 +14,11 @@ public class RemoteTranscriptCacheTests {
         using var subject = new BehaviorSubject<string?>("u1");
         using var access = new Subject<(string, SessionAccessState)>();
         using var cache = new RemoteTranscriptCache(subject, access);
-        for (var i = 0; i < RemoteTranscriptCache.Capacity; i++) cache.Put($"s{i}", Snapshot(), cache.Generation);
+        for (var i = 0; i < RemoteTranscriptCache.Capacity; i++) cache.Put($"s{i}", Snapshot(), cache.Stamp($"s{i}"));
         // Opening s0 again makes it the most recent; s1 is then the oldest.
-        cache.Put("s0", cache.Take("s0")!, cache.Generation);
+        cache.Put("s0", cache.Take("s0")!, cache.Stamp("s0"));
 
-        cache.Put("s5", Snapshot(), cache.Generation);
+        cache.Put("s5", Snapshot(), cache.Stamp("s5"));
 
         await Assert.That(cache.Count).IsEqualTo(RemoteTranscriptCache.Capacity);
         await Assert.That(cache.Contains("s1")).IsFalse();
@@ -31,7 +31,7 @@ public class RemoteTranscriptCacheTests {
         using var subject = new BehaviorSubject<string?>("u1");
         using var access = new Subject<(string, SessionAccessState)>();
         using var cache = new RemoteTranscriptCache(subject, access);
-        cache.Put("s1", Snapshot(position: 42), cache.Generation);
+        cache.Put("s1", Snapshot(position: 42), cache.Stamp("s1"));
 
         await Assert.That(cache.Take("s1")!.Position).IsEqualTo(42);
         await Assert.That(cache.Take("s1")).IsNull();
@@ -42,8 +42,8 @@ public class RemoteTranscriptCacheTests {
         using var subject = new BehaviorSubject<string?>("u1");
         using var access = new Subject<(string, SessionAccessState)>();
         using var cache = new RemoteTranscriptCache(subject, access);
-        cache.Put("s1", Snapshot(), cache.Generation);
-        cache.Put("s2", Snapshot(), cache.Generation);
+        cache.Put("s1", Snapshot(), cache.Stamp("s1"));
+        cache.Put("s2", Snapshot(), cache.Stamp("s2"));
 
         access.OnNext(("s1", SessionAccessState.Unavailable));
         await Assert.That(cache.Contains("s1")).IsTrue();
@@ -58,7 +58,7 @@ public class RemoteTranscriptCacheTests {
         using var subject = new BehaviorSubject<string?>("u1");
         using var access = new Subject<(string, SessionAccessState)>();
         using var cache = new RemoteTranscriptCache(subject, access);
-        cache.Put("s1", Snapshot(), cache.Generation);
+        cache.Put("s1", Snapshot(), cache.Stamp("s1"));
 
         subject.OnNext(null);
 
@@ -71,11 +71,27 @@ public class RemoteTranscriptCacheTests {
         using var subject = new BehaviorSubject<string?>("u1");
         using var access = new Subject<(string, SessionAccessState)>();
         using var cache = new RemoteTranscriptCache(subject, access);
-        var before = cache.Generation;
+        var before = cache.Stamp("s1");
 
         subject.OnNext("u2");
         cache.Put("s1", Snapshot(), before);
 
         await Assert.That(cache.Contains("s1")).IsFalse();
+    }
+
+    /// A feed that loaded before its session was refused cannot keep its lines, though it closes after.
+    [Test]
+    public async Task A_snapshot_from_before_a_refusal_is_not_kept() {
+        using var subject = new BehaviorSubject<string?>("u1");
+        using var access = new Subject<(string, SessionAccessState)>();
+        using var cache = new RemoteTranscriptCache(subject, access);
+        var before = cache.Stamp("s1");
+
+        access.OnNext(("s1", SessionAccessState.Denied));
+        cache.Put("s1", Snapshot(), before);
+        cache.Put("s2", Snapshot(), cache.Stamp("s2"));
+
+        await Assert.That(cache.Contains("s1")).IsFalse();
+        await Assert.That(cache.Contains("s2")).IsTrue();
     }
 }

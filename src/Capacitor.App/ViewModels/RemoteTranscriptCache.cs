@@ -17,6 +17,8 @@ public sealed class RemoteTranscriptCache : IDisposable {
     readonly LinkedList<(string SessionId, RemoteTranscriptSnapshot Snapshot)> _entries = new();
     readonly IDisposable _subscriptions;
     int _generation;
+    /// How many times each session was refused; a feed loaded before the latest refusal cannot keep its lines.
+    readonly Dictionary<string, int> _refusals = new(StringComparer.Ordinal);
 
     public RemoteTranscriptCache(IObservable<string?> signedInSubject, IObservable<(string SessionId, SessionAccessState State)> access) {
         _subscriptions = new CompositeDisposable(
@@ -26,8 +28,11 @@ public sealed class RemoteTranscriptCache : IDisposable {
 
     internal int Count { get { lock (_lock) return _entries.Count; } }
 
-    /// Advances with every change of account: a snapshot read under an earlier one is never kept.
-    internal int Generation { get { lock (_lock) return _generation; } }
+    /// Taken when a feed starts loading and checked when it closes: a change of account or a refusal of the
+    /// session in between means its lines are never kept.
+    internal (int Generation, int Refusals) Stamp(string sessionId) {
+        lock (_lock) return (_generation, _refusals.GetValueOrDefault(sessionId));
+    }
 
     internal bool Contains(string sessionId) { lock (_lock) return Find(sessionId) is not null; }
 
@@ -40,9 +45,9 @@ public sealed class RemoteTranscriptCache : IDisposable {
         }
     }
 
-    internal void Put(string sessionId, RemoteTranscriptSnapshot snapshot, int generation) {
+    internal void Put(string sessionId, RemoteTranscriptSnapshot snapshot, (int Generation, int Refusals) stamp) {
         lock (_lock) {
-            if (generation != _generation) return;
+            if (stamp != (_generation, _refusals.GetValueOrDefault(sessionId))) return;
             if (Find(sessionId) is { } stale) _entries.Remove(stale);
             _entries.AddFirst((sessionId, snapshot));
             while (_entries.Count > Capacity) _entries.RemoveLast();
@@ -50,12 +55,16 @@ public sealed class RemoteTranscriptCache : IDisposable {
     }
 
     public void Drop(string sessionId) {
-        lock (_lock) if (Find(sessionId) is { } node) _entries.Remove(node);
+        lock (_lock) {
+            _refusals[sessionId] = _refusals.GetValueOrDefault(sessionId) + 1;
+            if (Find(sessionId) is { } node) _entries.Remove(node);
+        }
     }
 
     void Clear() {
         lock (_lock) {
             _entries.Clear();
+            _refusals.Clear();
             _generation++;
         }
     }

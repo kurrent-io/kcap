@@ -982,4 +982,76 @@ public class RemoteTranscriptFeedTests {
 
         await Assert.That(cache.Contains("s1")).IsTrue();
     }
+
+    /// A re-open after more than a page of new events reads every page of them.
+    [Test]
+    public async Task A_reopen_reads_every_page_recorded_while_closed() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 10).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = await CachedAsync(server, lane, access);
+        server.Events.AddRange(Enumerable.Range(10, 2500).Select(i => Text(i, $"m{i}")));
+
+        using var second = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the second tail");
+
+        await Assert.That(second.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 2510).Select(i => (long)i));
+    }
+
+    /// Events that aged out with nothing new after them still move the count: the kept lines go.
+    [Test]
+    public async Task A_reopen_after_events_aged_out_with_nothing_new_reads_a_fresh_seed() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 10).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = await CachedAsync(server, lane, access);
+        server.Events.RemoveRange(0, 3);
+
+        using var second = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the second tail");
+
+        await Assert.That(second.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(3, 7).Select(i => (long)i));
+    }
+
+    /// A change of account while the re-open read is out drops the kept lines for a fresh seed.
+    [Test]
+    public async Task A_change_of_account_during_a_reopen_reads_a_fresh_seed() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 10).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var subject = new BehaviorSubject<string?>("u1");
+        using var cache = new RemoteTranscriptCache(subject, new Subject<(string, SessionAccessState)>());
+        using (var first = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
+            await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the first tail");
+        }
+        server.Requests.Clear();
+        var calls = 0;
+        server.Gate = () => {
+            if (Interlocked.Increment(ref calls) == 1) subject.OnNext("u2");
+            return Task.CompletedTask;
+        };
+
+        using var second = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the second tail");
+
+        await Assert.That(server.Requests).Contains((0L, 1));
+    }
+
+    /// An older page the server refuses refuses the session, so its lines are not kept.
+    [Test]
+    public async Task A_refused_older_page_keeps_nothing() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = Cache();
+        using (var feed = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
+            await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+            feed.ReadAppended();
+            server.NotFound = true;
+            await Assert.That(feed.RequestOlder()).IsTrue();
+            await feed.PendingOlderForTesting!;
+        }
+
+        await Assert.That(cache.Contains("s1")).IsFalse();
+    }
 }
