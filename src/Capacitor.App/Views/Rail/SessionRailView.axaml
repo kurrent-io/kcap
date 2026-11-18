@@ -604,7 +604,7 @@
                 <StackPanel>
                     <TextBlock Text="No sessions" Foreground="{StaticResource KcapFaintBrush}" Margin="8,16"
                                IsVisible="{Binding ShowsNoSessions}" />
-                    <rail:RailList x:Name="RailGroups" ItemsSource="{Binding Rail.Groups, FallbackValue={x:Null}}">
+                    <ItemsControl x:Name="RailGroups" ItemsSource="{Binding Rail.Groups, FallbackValue={x:Null}}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:RailGroupViewModel">
                                 <Border Classes="railGroup" Classes.workItem="{Binding IsWorkItem}" Classes.expanded="{Binding IsExpanded}">
@@ -650,7 +650,7 @@
                                         </Button>
                                         <views:FoldPanel IsOpen="{Binding IsExpanded}" Animates="{Binding IsWorkItem}">
                                         <StackPanel>
-                                        <rail:RailList ItemsSource="{Binding Sessions}">
+                                        <ItemsControl ItemsSource="{Binding Sessions}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:RailSessionViewModel">
                                                     <Border Classes="railSession" Classes.selected="{Binding IsSelected}" Margin="0,0,0,4"
@@ -705,7 +705,7 @@
                                                     </Border>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
-                                        </rail:RailList>
+                                        </ItemsControl>
                                         <Button x:Name="RailWorkItemMore" Classes="kcapGhost kcapQuiet" HorizontalAlignment="Left" Padding="9,4" Margin="0,0,0,4"
                                                 IsVisible="{Binding MoreText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                                 Command="{Binding $parent[rail:SessionRailView].((vm:MainWindowViewModel)DataContext).OpenWorkItemCommand, FallbackValue={x:Null}}"
@@ -718,7 +718,7 @@
                                 </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
-                    </rail:RailList>
+                    </ItemsControl>
                     <StackPanel x:Name="RailPaging" DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
                                 Margin="0,4,0,6" Spacing="4" IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}">
                         <Button x:Name="RailViewAllButton" Classes="kcapGhost kcapQuiet" Content="View all sessions"

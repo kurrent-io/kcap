@@ -151,25 +151,6 @@ public class RailSessionViewModelTests {
         });
     }
 
-    /// A launch shares an identity with the local row that publishes it, and that row with the server's row under its token;
-    /// a remote agent with the local one's id shares none.
-    [Test]
-    public async Task A_session_keeps_an_identity_across_the_lanes_its_row_moves_through() {
-        const string agent = "a1b2c3d4000000000000000000000001";
-        var pending = AgentRow.FromPending(new PendingLaunchDto("A1B2C3D4-0000-0000-0000-000000000001", "claude", "/repo", "t", DateTime.UtcNow, "session_created"), Repo);
-        var local = AgentRow.FromLocal(new(agent, "agent", "claude", "/repo", "Running", null, null, null, DateTime.UtcNow, null, null, SessionId: "sess-1"), Repo);
-        var server = AgentRow.FromServer(new RepoSessionDto {
-            SessionId = Capacitor.Cli.Core.SessionIds.ServerToken("sess-1"), Status = "ended", AccessLevel = "full", Vendor = "claude",
-            StartedAt = DateTimeOffset.UtcNow, LastActivityAt = DateTimeOffset.UtcNow,
-        }, hostedPresentation: false);
-
-        static bool Share(AgentRow a, AgentRow b) =>
-            RailSessionViewModel.IdentitiesOf(a).Intersect(RailSessionViewModel.IdentitiesOf(b)).Any();
-        await Assert.That(Share(pending, local)).IsTrue();
-        await Assert.That(Share(local, server)).IsTrue();
-        await Assert.That(Share(local, RemoteRow(agent))).IsFalse();
-    }
-
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_pending_row_reads_its_launch_stage_and_opens_locally() {

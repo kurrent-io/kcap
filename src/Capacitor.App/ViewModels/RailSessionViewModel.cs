@@ -321,20 +321,5 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     /// Pending launches open a local workspace; publication must keep that row selected.
     internal static string SelectionKey(AgentRow row) => row.Origin == AgentOrigin.Pending ? $"local:{row.Id}" : row.Key;
 
-    /// What the session keeps when its row changes lane: a launch and its local row share the agent, a daemon row and
-    /// the server's share the session, in either of the server's spellings.
-    public IReadOnlyList<string> Identities => IdentitiesOf(_row.Value);
-
-    internal static IReadOnlyList<string> IdentitiesOf(AgentRow row) {
-        var identities = new List<string>(3);
-        if (row.Origin != AgentOrigin.Server && AgentIds.Normalize(row.Id) is { } agent)
-            identities.Add($"agent:{(row.Origin == AgentOrigin.Remote ? "remote" : "local")}:{agent}");
-        if (SessionIds.Canonical(row.SessionId) is { } session) {
-            identities.Add($"session:{session}");
-            identities.Add($"session:{SessionIds.ServerToken(session)}");
-        }
-        return identities;
-    }
-
     public void Dispose() => _disposables.Dispose();
 }
