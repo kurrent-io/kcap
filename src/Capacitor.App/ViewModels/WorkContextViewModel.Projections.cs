@@ -227,30 +227,24 @@ public sealed partial class WorkContextViewModel {
         get => _layout.SessionExpanded;
         private set => _layout.SessionExpanded = value;
     }
-    public bool TopicsExpanded {
-        get => _layout.TopicsExpanded;
-        private set => _layout.TopicsExpanded = value;
-    }
-
-    public bool BookmarksExpanded {
-        get => _layout.BookmarksExpanded;
-        private set => _layout.BookmarksExpanded = value;
+    public bool OutlineExpanded {
+        get => _layout.OutlineExpanded;
+        private set => _layout.OutlineExpanded = value;
     }
 
     ChatTopics? _topics;
-    /// The chat's topics, listed under the session's facts.
+    /// The chat's topics, listed with its bookmarks under the session's facts.
     public ChatTopics? Topics { get => _topics; set => this.RaiseAndSetIfChanged(ref _topics, value); }
 
     ChatBookmarks? _bookmarks;
-    /// The chat's bookmarks, listed under its topics.
+    /// The chat's bookmarks, which also lay out the topics and bookmarks section.
     public ChatBookmarks? Bookmarks { get => _bookmarks; set => this.RaiseAndSetIfChanged(ref _bookmarks, value); }
 
     /// A header button has no expand state of its own to announce, so its name carries it.
     public string UsageToggleName => FoldName("Usage", UsageExpanded);
     public string CheckoutToggleName => FoldName("Checkout", CheckoutExpanded);
     public string SessionToggleName => FoldName("Session", SessionExpanded);
-    public string TopicsToggleName => FoldName("Topics", TopicsExpanded);
-    public string BookmarksToggleName => FoldName("Bookmarks", BookmarksExpanded);
+    public string OutlineToggleName => FoldName("Topics and bookmarks", OutlineExpanded);
     static string FoldName(string section, bool expanded) => $"{section}, {(expanded ? "expanded" : "collapsed")}";
 
     void OnLayoutChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) {
@@ -267,13 +261,9 @@ public sealed partial class WorkContextViewModel {
                 this.RaisePropertyChanged(nameof(SessionExpanded));
                 this.RaisePropertyChanged(nameof(SessionToggleName));
                 break;
-            case nameof(WorkContextLayout.TopicsExpanded):
-                this.RaisePropertyChanged(nameof(TopicsExpanded));
-                this.RaisePropertyChanged(nameof(TopicsToggleName));
-                break;
-            case nameof(WorkContextLayout.BookmarksExpanded):
-                this.RaisePropertyChanged(nameof(BookmarksExpanded));
-                this.RaisePropertyChanged(nameof(BookmarksToggleName));
+            case nameof(WorkContextLayout.OutlineExpanded):
+                this.RaisePropertyChanged(nameof(OutlineExpanded));
+                this.RaisePropertyChanged(nameof(OutlineToggleName));
                 break;
         }
     }
@@ -287,8 +277,7 @@ public sealed partial class WorkContextViewModel {
     public ReactiveCommand<Unit, Unit> ToggleUsageCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleCheckoutCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleSessionCommand { get; private set; } = null!;
-    public ReactiveCommand<Unit, Unit> ToggleTopicsCommand { get; private set; } = null!;
-    public ReactiveCommand<Unit, Unit> ToggleBookmarksCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> ToggleOutlineCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleSubagentsCommand { get; private set; } = null!;
 
     void InitializeProjections() {
@@ -302,8 +291,7 @@ public sealed partial class WorkContextViewModel {
         ToggleUsageCommand    = Toggle(() => UsageExpanded = !UsageExpanded);
         ToggleCheckoutCommand = Toggle(() => CheckoutExpanded = !CheckoutExpanded);
         ToggleSessionCommand  = Toggle(() => SessionExpanded = !SessionExpanded);
-        ToggleTopicsCommand   = Toggle(() => TopicsExpanded = !TopicsExpanded);
-        ToggleBookmarksCommand = Toggle(() => BookmarksExpanded = !BookmarksExpanded);
+        ToggleOutlineCommand  = Toggle(() => OutlineExpanded = !OutlineExpanded);
         _layout.PropertyChanged += OnLayoutChanged;
         _disposables.Add(System.Reactive.Disposables.Disposable.Create(() => _layout.PropertyChanged -= OnLayoutChanged));
         ToggleSubagentsCommand = Toggle(() => SubagentsExpanded = !SubagentsExpanded);

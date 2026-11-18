@@ -19,7 +19,7 @@ public sealed class ChatMarks {
         else _topics[feed] = marks;
     }
 
-    /// The transcript's bookmarks, in the user's order; the chat edits this list in place.
+    /// The transcript's bookmarks, in the order they were taken; the chat edits this list in place.
     public AvaloniaList<ChatBookmark> Bookmarks(string feed) {
         if (!_bookmarks.TryGetValue(feed, out var list)) _bookmarks[feed] = list = [];
         return list;

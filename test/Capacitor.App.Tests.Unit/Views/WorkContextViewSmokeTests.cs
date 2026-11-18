@@ -1,7 +1,9 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Automation.Peers;
+using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
@@ -1006,51 +1008,45 @@ public class WorkContextViewSmokeTests {
         });
     }
 
-    /// A bookmark is reordered by dragging its grip past the middle of another row, recoloured from the
-    /// swatches under its dot, and removed from its row.
+    /// The section lists each topic with its bookmarks under it, the topic gone to in bold; a
+    /// bookmark is recoloured from the swatches under its dot and removed from its row.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Bookmarks_reorder_by_their_grip_recolour_remove_and_group_by_topic() {
+    public async Task Topics_list_their_bookmarks_which_recolour_and_remove() {
         await RunOnUiAsync(async () => {
             await using var host = new Host();
+            var ask   = new UserTurnItem("Locks");
             var reply = new AssistantTextItem("Three points");
-            var bookmarks = new ChatBookmarks(new ChatTopics([reply]));
-            bookmarks.Add(["Lock order", "Retry jitter", "Logging"], reply);
+            var items = new AvaloniaList<ChatItemViewModel> { ask, reply };
+            var topics = new ChatTopics(items);
+            topics.ToggleChange(ask);
+            var bookmarks = new ChatBookmarks(topics);
+            bookmarks.Add(["Lock order", "Retry jitter"], reply);
+            host.Vm.Topics = topics;
             host.Vm.Bookmarks = bookmarks;
             await host.ShowAsync(KeyOnlyRead());
-            var list = host.Find<ItemsControl>("BookmarkList");
-            list.BringIntoView();
+            var outline = host.Find<ItemsControl>("OutlineList");
+            outline.BringIntoView();
             Settle();
-            Control Row(int i) => list.ContainerFromIndex(i)!;
             Point At(Control control, double x, double y) => control.TranslatePoint(new Point(x, y), host.Window)!.Value;
-            T In<T>(Control row, string cls) where T : Control => row.GetVisualDescendants().OfType<T>().First(c => c.Classes.Contains(cls));
+            List<T> All<T>(string cls) where T : Control => outline.GetVisualDescendants().OfType<T>().Where(c => c.Classes.Contains(cls) && c.IsEffectivelyVisible).ToList();
 
-            var grip = In<Border>(Row(0), "bookmarkGrip");
-            var start = At(grip, grip.Bounds.Width / 2, grip.Bounds.Height / 2);
-            host.Window.MouseMove(start);
-            host.Window.MouseDown(start, MouseButton.Left);
-            host.Window.MouseMove(At(Row(2), 40, Row(2).Bounds.Height * 0.75));
-            host.Window.MouseUp(At(Row(2), 40, Row(2).Bounds.Height * 0.75), MouseButton.Left);
-            Settle();
-            await Assert.That(bookmarks.All.Select(b => b.Text)).IsEquivalentTo(["Retry jitter", "Logging", "Lock order"]);
+            var topicLinks = All<Button>("topicLink");
+            await Assert.That(topicLinks.Select(b => AutomationProperties.GetName(b)))
+                .IsEquivalentTo(new string?[] { "Go to topic Locks", "Go to bookmark Lock order", "Go to bookmark Retry jitter" }, CollectionOrdering.Matching);
+            await Assert.That(topicLinks[1].TranslatePoint(default, outline)!.Value.X).IsGreaterThan(topicLinks[0].TranslatePoint(default, outline)!.Value.X);
 
-            var dot = In<Button>(Row(0), "bookmarkColor");
-            Press(dot);
+            Press(topicLinks[0]);
+            await Assert.That(All<TextBlock>("topicName").Single().FontWeight).IsEqualTo(FontWeight.Bold);
+
+            Press(All<Button>("bookmarkColor")[0]);
             var pink = host.Window.GetVisualDescendants().OfType<Button>().First(b => b.Classes.Contains("bookmarkSwatch") && b.Tag is ChatBookmarkColor.Pink);
             Press(pink);
             await Assert.That(bookmarks.All[0].Color).IsEqualTo(ChatBookmarkColor.Pink);
 
-            Press(In<Button>(Row(1), "markRemove"));
-            await Assert.That(bookmarks.All.Select(b => b.Text)).IsEquivalentTo(["Retry jitter", "Lock order"]);
-
-            Press(host.Find<Button>("GroupBookmarksButton"));
-            await Assert.That(bookmarks.Grouped).IsTrue();
-            await Assert.That(list.IsVisible).IsFalse();
-            var groups = host.Find<ItemsControl>("BookmarkGroups");
-            await Assert.That(groups.IsVisible).IsTrue();
-            var grouped = groups.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("bookmarkGrip")).ToList();
-            await Assert.That(grouped.Count).IsEqualTo(2);
-            await Assert.That(grouped.Any(b => b.IsVisible)).IsFalse();
+            var removes = All<Button>("markRemove");
+            Press(removes[^1]);
+            await Assert.That(bookmarks.All.Select(b => b.Text)).IsEquivalentTo(["Lock order"]);
 
             void Settle() {
                 Dispatcher.UIThread.RunJobs();

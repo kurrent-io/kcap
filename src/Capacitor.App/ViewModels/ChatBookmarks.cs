@@ -4,8 +4,8 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// The chat's bookmarks: text the user picked out of it, in an order they choose. View state only,
-/// kept per transcript in <see cref="ChatMarks"/> so the list outlives the tab.
+/// The chat's bookmarks: text the user picked out of it. View state only, kept per transcript in
+/// <see cref="ChatMarks"/> so the list outlives the tab.
 public sealed class ChatBookmarks : ReactiveObject {
     const int TextLength = 400;
 
@@ -15,7 +15,7 @@ public sealed class ChatBookmarks : ReactiveObject {
     public ChatBookmarks(ChatTopics topics, ChatMarks? store = null) {
         _topics = topics;
         _store = store;
-        _topics.Laid += Regroup;
+        _topics.Laid += Outline;
         _all = [];
         _all.CollectionChanged += OnChanged;
         RemoveCommand = ReactiveCommand.Create<ChatBookmark>(bookmark => All.Remove(bookmark));
@@ -41,28 +41,26 @@ public sealed class ChatBookmarks : ReactiveObject {
     bool _any;
     public bool Any { get => _any; private set => this.RaiseAndSetIfChanged(ref _any, value); }
 
-    bool _grouped;
-    /// Whether the list shows its bookmarks under the topics they were taken from, in
-    /// <see cref="Groups"/>. Grouped, the order within each topic is still the user's.
-    public bool Grouped {
-        get => _grouped;
-        set {
-            this.RaiseAndSetIfChanged(ref _grouped, value);
-            Regroup();
+    IReadOnlyList<ChatBookmarkGroup> _sections = [];
+    /// The chat's outline: each topic with the bookmarks taken from its messages, and the bookmarks
+    /// taken from outside every topic where they fall between topics, all in chat order.
+    public IReadOnlyList<ChatBookmarkGroup> Sections {
+        get => _sections;
+        private set {
+            this.RaiseAndSetIfChanged(ref _sections, value);
+            HasSections = value.Count > 0;
         }
     }
 
-    IReadOnlyList<ChatBookmarkGroup> _groups = [];
-    /// The topics' groups in chat order, then the bookmarks taken from outside every topic. Empty
-    /// unless <see cref="Grouped"/>.
-    public IReadOnlyList<ChatBookmarkGroup> Groups { get => _groups; private set => this.RaiseAndSetIfChanged(ref _groups, value); }
+    bool _hasSections;
+    public bool HasSections { get => _hasSections; private set => this.RaiseAndSetIfChanged(ref _hasSections, value); }
 
     /// The chat now shows <paramref name="feed"/>: its bookmarks come back with it.
     public void Reset(string? feed) {
         if (feed == _feed) return;
         _feed = feed;
         All = feed is not null && _store is not null ? _store.Bookmarks(feed) : [];
-        Regroup();
+        Outline();
     }
 
     string? _feed;
@@ -79,32 +77,29 @@ public sealed class ChatBookmarks : ReactiveObject {
         if (Tidy(text) is { Length: > 0 } tidy) All.Add(new ChatBookmark(tidy, _topics.OrdinalOf(source)));
     }
 
-    public void Move(int from, int to) {
-        if (from == to || from < 0 || to < 0 || from >= All.Count || to >= All.Count) return;
-        All.Move(from, to);
-    }
-
     void Reveal(ChatBookmark bookmark) {
         if (bookmark.Message is { } ordinal && _topics.MessageAt(ordinal) is { } row) _topics.Reveal(row, bookmark.Quote, whole: bookmark.Quote is null);
     }
 
     void OnChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) {
         Any = _all.Count > 0;
-        Regroup();
+        Outline();
     }
 
-    void Regroup() {
-        if (!_grouped) {
-            if (_groups.Count > 0) Groups = [];
-            return;
+    // Bookmarks from one message keep the order they were taken in.
+    void Outline() {
+        var runs = _topics.Runs();
+        var placed = _all.Where(static b => b.Message is not null).OrderBy(static b => b.Message).ToList();
+        var sections = new List<ChatBookmarkGroup>();
+        var next = 0;
+        for (var i = 0; i < runs.Count; i++) {
+            var end = i + 1 < runs.Count ? runs[i + 1].First : int.MaxValue;
+            var start = next;
+            while (next < placed.Count && placed[next].Message < end) next++;
+            if (runs[i].Topic is not null || next > start) sections.Add(new ChatBookmarkGroup(runs[i].Topic, placed[start..next]));
         }
-        var topics = _topics.TopicsByMessage();
-        var order = _topics.All.Select(static (topic, index) => (topic, index)).ToDictionary(static p => p.topic, static p => p.index);
-        Groups = _all
-            .GroupBy(bookmark => bookmark.Message is { } m && topics.TryGetValue(m, out var topic) ? topic : null)
-            .OrderBy(group => group.Key is { } topic && order.TryGetValue(topic, out var index) ? index : int.MaxValue)
-            .Select(static group => new ChatBookmarkGroup(group.Key, group.ToList()))
-            .ToList();
+        if (_all.Where(static b => b.Message is null).ToList() is { Count: > 0 } loose) sections.Add(new ChatBookmarkGroup(null, loose));
+        Sections = sections;
     }
 
     static string Tidy(string text) =>

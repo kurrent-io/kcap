@@ -237,20 +237,17 @@ public sealed class ChatTopics : ReactiveObject {
         return null;
     }
 
-    /// The topic holding each message, by ordinal; a message outside every topic is left out.
-    public IReadOnlyDictionary<int, ChatTopicItem> TopicsByMessage() {
-        var topics = new Dictionary<int, ChatTopicItem>();
-        ChatTopicItem? current = null;
+    /// The chat as runs of messages in order, each starting at the ordinal of its first message: a
+    /// topic's, or one outside every topic. A topic with no messages yet still has its run.
+    public IReadOnlyList<(ChatTopicItem? Topic, int First)> Runs() {
+        var runs = new List<(ChatTopicItem?, int)> { (null, 0) };
         var ordinal = 0;
         foreach (var row in Everything()) {
-            if (row is ChatTopicItem topic) current = topic;
-            else if (row is ChatTopicEndItem) current = null;
-            else if (IsMessage(row)) {
-                if (current is not null) topics[ordinal] = current;
-                ordinal++;
-            }
+            if (row is ChatTopicItem topic) runs.Add((topic, ordinal));
+            else if (row is ChatTopicEndItem) runs.Add((null, ordinal));
+            else if (IsMessage(row)) ordinal++;
         }
-        return topics;
+        return runs;
     }
 
     public ChatItemViewModel? MessageAt(int ordinal) => Everything().Where(IsMessage).ElementAtOrDefault(ordinal);

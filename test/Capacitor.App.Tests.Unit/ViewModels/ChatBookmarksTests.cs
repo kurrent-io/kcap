@@ -23,16 +23,15 @@ public class ChatBookmarksTests {
             await Assert.That(first.All.Select(b => b.Text)).IsEquivalentTo(["Lock order", "Retry jitter", "Logging"]);
             await Assert.That(first.All.Select(b => b.Message)).IsEquivalentTo(new int?[] { 1, 1, 1 });
             await Assert.That(first.All.Select(b => b.Quote)).IsEquivalentTo(new string?[] { "Lock   order", "Retry\njitter", "Logging" });
-            first.Move(2, 0);
-            first.All[1].Color = ChatBookmarkColor.Pink;
-            first.RemoveCommand.Execute(first.All[2]).Subscribe();
+            first.All[0].Color = ChatBookmarkColor.Pink;
+            first.RemoveCommand.Execute(first.All[1]).Subscribe();
 
             var second = new ChatBookmarks(new ChatTopics([]), store);
             await Assert.That(second.Any).IsFalse();
             second.Reset("feed");
             await Assert.That(second.Any).IsTrue();
-            await Assert.That(second.All.Select(b => b.Text)).IsEquivalentTo(["Logging", "Lock order"]);
-            await Assert.That(second.All[1].Color).IsEqualTo(ChatBookmarkColor.Pink);
+            await Assert.That(second.All.Select(b => b.Text)).IsEquivalentTo(["Lock order", "Logging"]);
+            await Assert.That(second.All[0].Color).IsEqualTo(ChatBookmarkColor.Pink);
 
             second.Reset("other");
             await Assert.That(second.All).IsEmpty();
@@ -70,11 +69,11 @@ public class ChatBookmarksTests {
         });
     }
 
-    /// Grouped, bookmarks sit under the topics their messages are in, in chat order, with those from
-    /// outside every topic last; each group keeps the user's order.
+    /// The outline lists every topic, empty ones too, with the bookmarks from its messages in chat
+    /// order; bookmarks from outside every topic sit where they fall between topics.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Grouped_bookmarks_follow_the_topics_of_their_messages() {
+    public async Task Sections_follow_the_chat_with_each_bookmark_under_its_topic() {
         await RunOnUiAsync(async () => {
             var intro = new AssistantTextItem("Intro");
             var one   = new UserTurnItem("Point 1");
@@ -84,18 +83,23 @@ public class ChatBookmarksTests {
             var bookmarks = new ChatBookmarks(topics);
             topics.ToggleChange(one);
             topics.ToggleChange(two);
+            await Assert.That(bookmarks.Sections.Select(static s => s.Topic?.Label)).IsEquivalentTo(new string?[] { "Point 1", "Point 2" }, CollectionOrdering.Matching);
+
             bookmarks.Add(["b"], two);
             bookmarks.Add(["intro"], intro);
             bookmarks.Add(["a"], two);
-            bookmarks.Add(["one"], one);
-            await Assert.That(bookmarks.Groups).IsEmpty();
+            bookmarks.Add(["two"], two);
+            await Assert.That(bookmarks.Sections.Select(static s => s.Topic?.Label)).IsEquivalentTo(new string?[] { null, "Point 1", "Point 2" }, CollectionOrdering.Matching);
+            await Assert.That(bookmarks.Sections[0].Bookmarks.Select(static b => b.Text)).IsEquivalentTo(["intro"], CollectionOrdering.Matching);
+            await Assert.That(bookmarks.Sections[1].Bookmarks).IsEmpty();
+            await Assert.That(bookmarks.Sections[2].Bookmarks.Select(static b => b.Text)).IsEquivalentTo(["b", "a", "two"], CollectionOrdering.Matching);
 
-            bookmarks.Grouped = true;
-            await Assert.That(bookmarks.Groups.Select(static g => g.Title)).IsEquivalentTo(["Point 1", "Point 2", "No topic"], CollectionOrdering.Matching);
-            await Assert.That(bookmarks.Groups[1].Bookmarks.Select(static b => b.Text)).IsEquivalentTo(["b", "a"], CollectionOrdering.Matching);
-
-            topics.ToggleChange(two);
-            await Assert.That(bookmarks.Groups.Select(static g => g.Bookmarks.Count)).IsEquivalentTo([3, 1], CollectionOrdering.Matching);
+            topics.End();
+            var after = new AssistantTextItem("After");
+            items.Add(after);
+            bookmarks.Add(["late"], after);
+            await Assert.That(bookmarks.Sections.Select(static s => s.Topic?.Label)).IsEquivalentTo(new string?[] { null, "Point 1", "Point 2", null }, CollectionOrdering.Matching);
+            await Assert.That(bookmarks.Sections[3].Bookmarks.Select(static b => b.Text)).IsEquivalentTo(["late"], CollectionOrdering.Matching);
         });
     }
 }

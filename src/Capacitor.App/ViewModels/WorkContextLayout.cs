@@ -11,11 +11,8 @@ public sealed class WorkContextLayout : ReactiveObject {
     bool _checkoutExpanded;
     public bool CheckoutExpanded { get => _checkoutExpanded; set => this.RaiseAndSetIfChanged(ref _checkoutExpanded, value); }
 
-    bool _topicsExpanded = true;
-    public bool TopicsExpanded { get => _topicsExpanded; set => this.RaiseAndSetIfChanged(ref _topicsExpanded, value); }
-
-    bool _bookmarksExpanded = true;
-    public bool BookmarksExpanded { get => _bookmarksExpanded; set => this.RaiseAndSetIfChanged(ref _bookmarksExpanded, value); }
+    bool _outlineExpanded = true;
+    public bool OutlineExpanded { get => _outlineExpanded; set => this.RaiseAndSetIfChanged(ref _outlineExpanded, value); }
 
     bool _sessionExpanded;
     public bool SessionExpanded { get => _sessionExpanded; set => this.RaiseAndSetIfChanged(ref _sessionExpanded, value); }
