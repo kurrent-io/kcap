@@ -247,7 +247,8 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 };
                 hub.Reconnected += async _ => {
                     spans.Up();
-                    EndTails();
+                    // Tails ride the live hub, so a retired one coming back must leave its replacement's alone.
+                    if (ReferenceEquals(_hub, capturedHub)) EndTails();
                     var subject = await ReadSubjectAsync().ConfigureAwait(false);
                     PublishConnected(generation, capturedHub, subject);
                 };
