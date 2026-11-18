@@ -72,6 +72,8 @@ public sealed class MarkdownView : ContentControl {
     IDisposable? _titledWatch;
     readonly MarkdownLinkKeys _linkKeys;
     readonly FindHighlighter _find = new();
+    readonly NeedToKnowHover _hover = new();
+    bool _hasMarks;
     int _currentFind = -1;
     bool _nonLeftRelease;
     NeedToKnowBasis? _renderedBasis;
@@ -118,6 +120,7 @@ public sealed class MarkdownView : ContentControl {
         // Bubble on the host runs after the viewer's own move, which has already chosen Hand or
         // the arrow. Prose takes the I-beam and a link the hand; a bare image stays on the arrow.
         AddHandler(PointerMovedEvent, OnPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerExitedEvent, (_, _) => _hover.Clear(), RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerPressedEvent, OnSelectionInput, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerMovedEvent, OnSelectionInput, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerReleasedEvent, OnSelectionInput, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -183,6 +186,7 @@ public sealed class MarkdownView : ContentControl {
     void OnSelectionInput(object? sender, RoutedEventArgs e) => _selectionHost?.UpdateSelection(this);
 
     void OnPointerMoved(object? sender, PointerEventArgs e) {
+        if (_hasMarks) _hover.Move(e);
         var link = FindHyperlinkAt(_viewer, e.GetPosition(_viewer));
         var image = ImageUnder(e.Source as Visual);
         var tip = link?.NavigateUri?.ToString() ?? image?.Target;
@@ -255,6 +259,8 @@ public sealed class MarkdownView : ContentControl {
         _find.Forget();
         if (_viewer.Markdown == Text) _viewer.Markdown = null;
         _renderedBasis = NeedToKnowBasis.Current;
+        _hasMarks = Flavor == MarkdownFlavor.Chat && NeedToKnowMarks.HasMarks(Text);
+        _hover.Clear();
         try {
             _viewer.Markdown = Text;
             Content = _viewer;

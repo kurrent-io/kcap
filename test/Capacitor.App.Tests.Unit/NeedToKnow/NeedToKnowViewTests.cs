@@ -1,5 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia;
+using Avalonia.Headless;
 using Avalonia.Threading;
 using Capacitor.App.NeedToKnow;
 using static Capacitor.App.Tests.Unit.AvaloniaSession;
@@ -41,4 +43,29 @@ public class NeedToKnowViewTests {
             }
         });
     }
+
+    [Test]
+    public async Task The_pointer_lights_the_deep_grey_span_under_it() {
+        await RunOnUiAsync(async () => {
+            NeedToKnowBasis.Set(new(NeedToKnowDisplay.Greyed, NeedToKnowDisplay.Greyed));
+            var (window, root, _) = Show("Tests pass. ⌞⌞The launcher suite takes forty seconds.⌟⌟");
+            try {
+                var block = Paragraphs(root).Single();
+                var deep = Spans<Span>(block.Inlines!).Single(s => s.Classes.Contains("need-to-know-deep"));
+
+                window.MouseMove(At(block, 20, window));
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(deep.Classes.Contains("need-to-know-lit")).IsTrue();
+
+                window.MouseMove(At(block, 3, window));
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(deep.Classes.Contains("need-to-know-lit")).IsFalse();
+            } finally {
+                window.Close();
+            }
+        });
+    }
+
+    static Point At(TextBlock block, int index, Window window) =>
+        block.TranslatePoint(block.TextLayout.HitTestTextPosition(index).Center + new Point(block.Padding.Left, block.Padding.Top), window)!.Value;
 }

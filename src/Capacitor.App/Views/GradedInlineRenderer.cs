@@ -9,7 +9,6 @@ namespace Capacitor.App.Views;
 /// A collapsed run leaves a small mark whose tooltip holds its text, so the reader can tell something is there.
 sealed class GradedInlineRenderer : AvaloniaObjectRenderer<GradedInline> {
     protected override void Write(AvaloniaRenderer renderer, GradedInline obj) {
-        var level = obj.Level == NeedToKnowLevel.OnlyIfCurious ? "need-to-know-curious" : "need-to-know-worth";
         switch (obj.Display) {
             case NeedToKnowDisplay.Collapsed:
                 var mark = new TextBlock { Text = "⋯", VerticalAlignment = VerticalAlignment.Center };
@@ -25,8 +24,8 @@ sealed class GradedInlineRenderer : AvaloniaObjectRenderer<GradedInline> {
                 return;
             case NeedToKnowDisplay.Greyed:
                 var span = new Span();
-                span.Classes.Add("need-to-know-greyed");
-                span.Classes.Add(level);
+                span.Classes.Add(NeedToKnowHover.GreyedClass);
+                if (obj.Deep) span.Classes.Add("need-to-know-deep");
                 renderer.Push(span.Inlines);
                 renderer.WriteChildren(obj);
                 renderer.Pop();

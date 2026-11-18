@@ -74,6 +74,17 @@ public class NeedToKnowMarksTests {
         await Assert.That(Render("Tests pass. ⌞7 ran.⌟ CI is green.", AllHidden)).IsEqualTo("Tests pass. CI is green.");
 
     [Test]
+    public async Task Greyed_only_if_curious_greys_deeper_only_beside_greyed_worth_knowing() {
+        static bool Deep(NeedToKnowBasis basis) {
+            var document = Markdown.Parse("A. ⌞⌞B.⌟⌟", WithoutPass);
+            NeedToKnowMarks.Apply(document, basis);
+            return document.Descendants<GradedInline>().Single().Deep;
+        }
+        await Assert.That(Deep(new(NeedToKnowDisplay.Greyed, NeedToKnowDisplay.Greyed))).IsTrue();
+        await Assert.That(Deep(new(NeedToKnowDisplay.Marked, NeedToKnowDisplay.Greyed))).IsFalse();
+    }
+
+    [Test]
     public async Task Only_if_curious_is_never_shown_more_than_worth_knowing() =>
         await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟", new(NeedToKnowDisplay.Greyed, NeedToKnowDisplay.Normal))).IsEqualTo("A. {w:B.} {c:C.}");
 
