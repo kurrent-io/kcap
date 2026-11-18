@@ -41,7 +41,9 @@ time, by the `object_key` the publish result carries:
 1. `search_sharing_candidates` with the person's or team's name. Each match
    has a `key`, the `relations` it may take and a `default_relation`. When
    several match the name the user gave, ask which one they mean, naming each
-   with its `detail`; never pick one yourself.
+   by its `kind` and `detail`; never pick one yourself. If they still cannot
+   be told apart, ask the user for something more specific to search by, such
+   as an email address, and set no grant until it is clear who is meant.
 2. `set_sharing_grant` with that `key` as `audience_key` and the
    `default_relation`, unless the user asked for another. Call it again for
    each audience.

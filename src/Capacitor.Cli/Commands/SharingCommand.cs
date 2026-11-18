@@ -16,7 +16,7 @@ class SharingCommand(ISharingApi sharing) {
           kcap sharing remove <objectKey> <audienceKey>
 
         The object key comes from the thing's own listing, such as `kcap page list`. Audience keys and relations come
-        from `candidates` (the default relation starred) or `list`; --relation takes the id in parentheses.
+        from `candidates` (the default relation starred) or `list`; --relation takes the id in parentheses, or the relation as shown when it has none.
         """;
 
     public async Task<int> HandleAsync(string[] args) {
@@ -112,7 +112,7 @@ class SharingCommand(ISharingApi sharing) {
 
         foreach (var line in Table(["AUDIENCE", "KIND", "RELATIONS", "NAME"], rows)) yield return line;
 
-        yield return "* the default relation. Share with: kcap sharing set <objectKey> <audienceKey> --relation <id in parentheses>";
+        yield return "* the default relation. Share with: kcap sharing set <objectKey> <audienceKey> --relation <id in parentheses, or as shown without the *>";
     }
 
     async Task<int> SetAsync(string[] args) {

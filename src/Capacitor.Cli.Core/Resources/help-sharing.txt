@@ -17,7 +17,9 @@ KEYS
   The object key comes from the thing's own listing: `kcap page list`, `get`
   and `search` print a page's. Audience keys come from `candidates` or `list`.
   Both are the server's own; pass them as they are printed. A relation shows
-  as its label with its id in parentheses, and --relation takes the id.
+  as its label with its id in parentheses, and --relation takes the id; a
+  relation whose label is its id shows bare, and --relation takes it as shown,
+  without the default's *.
 
   A server too old to send an object key cannot share from kcap: share from
   the web app there.
