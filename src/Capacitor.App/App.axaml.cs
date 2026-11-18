@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Reactive;
 using System.Reactive.Disposables;
+using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.InteropServices;
@@ -2394,13 +2395,11 @@ public partial class App : Application {
         // Connecting is when the snapshot first becomes readable; the interval keeps an idle launcher current, as a
         // web Home tab is kept current by its live nudges. The switch is re-read when Settings saves and whenever a
         // window gains focus, which is how a `kcap experimental` run in a terminal shows up without a file watcher.
-        var switchReads = Observable.Defer(() => (nextWorkSwitchMayChange ?? Observable.Never<Unit>())
-            .Select(_ => enabled()).StartWith(enabled()));
         nextWorkBand?.WatchRefreshes(Observable.Merge(
                 (lane?.Status ?? Observable.Never<ServerLaneStatus>()).Select(s => s.State).DistinctUntilChanged()
                     .Where(s => s == ServerLaneState.Connected).Select(_ => Unit.Default),
                 Observable.Interval(TimeSpan.FromMinutes(2)).Select(_ => Unit.Default),
-                switchReads.DistinctUntilChanged().Skip(1).Select(_ => Unit.Default))
+                ExperimentalSwitch.Flips(enabled, nextWorkSwitchMayChange ?? Observable.Never<Unit>(), TaskPoolScheduler.Default))
             .ObserveOn(RxSchedulers.MainThreadScheduler));
         var home = new HomeViewModel(
             service, appState,

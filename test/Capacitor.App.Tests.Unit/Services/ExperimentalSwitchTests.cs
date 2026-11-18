@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Reactive.Concurrency;
+using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core.Config;
 
@@ -41,5 +44,34 @@ public class ExperimentalSwitchTests {
         await File.WriteAllTextAsync(store.Path, "{ not json");
 
         await Assert.That(new ExperimentalSwitch(store, "work", Feature).IsOn).IsFalse();
+    }
+
+    /// A focus or a Settings save re-reads the switch on the worker, never on the caller's thread,
+    /// and only a reading that differs from the last one signals.
+    [Test]
+    public async Task Flips_read_on_the_worker_and_signal_only_a_change() {
+        using var worker = new EventLoopScheduler(start => new Thread(start) { Name = "switch-worker", IsBackground = true });
+        var on = false;
+        var threads = new ConcurrentBag<string?>();
+        var mayChange = new Subject<System.Reactive.Unit>();
+        var flips = 0;
+        using var subscription = ExperimentalSwitch.Flips(() => {
+            threads.Add(Thread.CurrentThread.Name);
+            return Volatile.Read(ref on);
+        }, mayChange, worker).Subscribe(_ => Interlocked.Increment(ref flips));
+
+        mayChange.OnNext(System.Reactive.Unit.Default);
+        await WorkspaceFixtures.WaitUntilAsync(() => threads.Count == 2, what: "two unchanged reads");
+        Volatile.Write(ref on, true);
+        mayChange.OnNext(System.Reactive.Unit.Default);
+        mayChange.OnNext(System.Reactive.Unit.Default);
+        await WorkspaceFixtures.WaitUntilAsync(() => threads.Count == 4 && Volatile.Read(ref flips) > 0, what: "four reads and the flip");
+        // The last read is processed on the worker; a second flip would follow it there.
+        var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        worker.Schedule(drained.SetResult);
+        await drained.Task;
+
+        await Assert.That(Volatile.Read(ref flips)).IsEqualTo(1);
+        await Assert.That(threads.All(name => name == "switch-worker")).IsTrue();
     }
 }

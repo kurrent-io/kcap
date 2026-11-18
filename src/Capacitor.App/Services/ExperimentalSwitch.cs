@@ -1,3 +1,6 @@
+using System.Reactive;
+using System.Reactive.Concurrency;
+using System.Reactive.Linq;
 using Capacitor.Cli.Core.Config;
 
 namespace Capacitor.App.Services;
@@ -8,6 +11,17 @@ public sealed class ExperimentalSwitch(ExperimentalSettingsStore store, string? 
     readonly Lock _lock = new();
     (bool Exists, DateTime Written, long Length)? _fingerprint;
     bool _on;
+
+    /// Signals each time <paramref name="read"/> returns other than it last did, reading once on
+    /// subscribe and again on every <paramref name="mayChange"/>. Reads run on <paramref name="worker"/>:
+    /// a changed file is read and parsed, which must not hold up a window gaining focus.
+    public static IObservable<Unit> Flips(Func<bool> read, IObservable<Unit> mayChange, IScheduler worker) =>
+        Observable.Defer(() => Observable.Return(Unit.Default).Concat(mayChange))
+            .ObserveOn(worker)
+            .Select(_ => read())
+            .DistinctUntilChanged()
+            .Skip(1)
+            .Select(_ => Unit.Default);
 
     public bool IsOn {
         get {
