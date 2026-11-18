@@ -331,7 +331,7 @@ public class WorkspaceViewModelTests {
             var source = new FakePlanArtifactSource();
             source.Enqueue(Ready());
             source.EnqueuePages(new SessionPagesRead(SessionPlansReadKind.Ready,
-                [new ArtefactDto("p", "Report", "u1", "org", 1, DateTimeOffset.UnixEpoch, true, "https://kcap.test/pages/p")]));
+                [new ArtefactDto("p", "Report", "u1", "org", 1, DateTimeOffset.UnixEpoch, true, null, null, "https://kcap.test/pages/p")]));
             var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), new FakeTimeProvider(), planArtifacts: source);
             daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo/x", sessionId: Session));
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);

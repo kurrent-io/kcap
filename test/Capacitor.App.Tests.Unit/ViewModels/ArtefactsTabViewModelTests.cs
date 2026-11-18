@@ -61,7 +61,7 @@ public class ArtefactsTabViewModelTests {
     }
 
     static ArtefactDto Page(string id, string title, DateTimeOffset updatedAt, string? url = null) =>
-        new(id, title, "u1", "org", 1, updatedAt, true, url ?? $"https://kcap.test/pages/{id}");
+        new(id, title, "u1", "org", 1, updatedAt, true, null, null, url ?? $"https://kcap.test/pages/{id}");
 
     static SessionPagesRead Pages(params ArtefactDto[] pages) => new(SessionPlansReadKind.Ready, pages);
 

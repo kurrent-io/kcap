@@ -43,7 +43,7 @@ public static partial class CommandEvents {
         "curate", "cleanup", "uninstall", "disable", "hide", "import", "watch",
         "copilot-finalize", "set-title", "hook", "cursor", "cursor-verify-appendonly",
         "generate-whats-done", "generate-title", "permission-request", "feedback", "refresh-token",
-        "page", "artefact", "muse-assistant", "ide",
+        "page", "artefact", "sharing", "muse-assistant", "ide",
     };
 
     // Verbs whose args[1] is a known literal rather than user data. Verbs absent from this
@@ -58,6 +58,7 @@ public static partial class CommandEvents {
         ["agent"]   = new(StringComparer.Ordinal) { "start", "stop", "list", "status" },
         ["page"]      = new(StringComparer.Ordinal) { "publish", "list", "share", "delete" },
         ["artefact"]  = new(StringComparer.Ordinal) { "publish", "list", "share", "delete" },
+        ["sharing"]   = new(StringComparer.Ordinal) { "list", "candidates", "set", "remove" },
         ["local"]     = new(StringComparer.Ordinal) { "help", "status", "start", "stop", "restart", "logs", "open" },
     };
 

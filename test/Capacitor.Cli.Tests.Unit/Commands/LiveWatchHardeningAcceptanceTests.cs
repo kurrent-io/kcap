@@ -151,22 +151,21 @@ public class LiveWatchHardeningAcceptanceTests {
             await handshake;
     }
 
-    // ── 3+4. Global drain pass ordering + needs-import delivery, over a REAL HTTP round trip ──
+    // ── 3+4. Global drain pass ordering, over a REAL HTTP round trip ──
 
     /// <summary>
     /// A DIFFERENT vendor's next <c>kcap</c> invocation (<c>currentSessionId: null</c> — no
     /// session of its own, just running the global drain ahead of its own work) replays a prior
-    /// session's spooled start→(transcript, capped so it needs-import)→end in order, and the
-    /// needs-import marker is delivered as its own POST — all via REAL HTTP requests to a
-    /// WireMock server, not injected delegate functions.
+    /// session's spooled start→(transcript, capped so it needs-import)→end in order, with nothing
+    /// posted for the needs-import marker — all via REAL HTTP requests to a WireMock server, not
+    /// injected delegate functions.
     ///
     /// <para><c>LifecycleSpoolDrainTests.drains_start_then_transcript_then_end_for_a_session_with_no_further_hook</c>
-    /// and <c>...delivers_needs_import_marker_even_when_transcript_bytes_exceeded_cap</c> already
+    /// and <c>...reports_a_marked_session_locally_and_clears_its_markers_without_posting</c> already
     /// prove this exact ordering against injected poster delegates; this test proves the SAME
-    /// contract through <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?,Func{string,string,DrainOutcome,bool}?,Func{string,string,bool}?,Capacitor.Cli.Core.Transcripts.LineCaptureDecider?)"/>'s
-    /// production HTTP wrapper (route→POST mapping, status→<see cref="DrainOutcome"/> mapping,
-    /// the needs-import route literally hitting the wire) — the part the delegate-injected test
-    /// can't reach.</para>
+    /// contract through <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?,Func{string,string,DrainOutcome,bool}?,Func{string,string,bool}?,Capacitor.Cli.Core.Transcripts.LineCaptureDecider?,Action{string}?)"/>'s
+    /// production HTTP wrapper (route→POST mapping, status→<see cref="DrainOutcome"/> mapping)
+    /// — the part the delegate-injected test can't reach.</para>
     /// </summary>
     [Test]
     public async Task GlobalDrainPass_onADifferentVendorsInvocation_ReplaysPriorSessionInOrder_OverRealHttp() {
@@ -202,18 +201,14 @@ public class LiveWatchHardeningAcceptanceTests {
         var arrived = server.LogEntries.Select(e => e.RequestMessage.Path).ToList();
 
         await Assert.That(arrived).Contains("/hooks/session-start/kiro");
-        await Assert.That(arrived).Contains("/hooks/session-needs-import");
+        await Assert.That(arrived).DoesNotContain("/hooks/session-needs-import");
         await Assert.That(arrived).Contains("/hooks/session-end/kiro");
 
         var routeOrder = sends.Paths.ToList();
 
-        // Ordering: start, THEN the needs-import marker (delivered once the transcript is
-        // resolved — dropped past its cap counts as resolved), THEN end LAST.
-        var startIdx  = routeOrder.IndexOf("/hooks/session-start/kiro");
-        var importIdx = routeOrder.IndexOf("/hooks/session-needs-import");
-        var endIdx    = routeOrder.IndexOf("/hooks/session-end/kiro");
-        await Assert.That(startIdx).IsLessThan(importIdx);
-        await Assert.That(importIdx).IsLessThan(endIdx);
+        var startIdx = routeOrder.IndexOf("/hooks/session-start/kiro");
+        var endIdx   = routeOrder.IndexOf("/hooks/session-end/kiro");
+        await Assert.That(startIdx).IsLessThan(endIdx);
 
         await Assert.That(lifecycle.HasBacklog(sid)).IsFalse();
         await Assert.That(lifecycle.IsMarkedEnded(sid)).IsTrue();

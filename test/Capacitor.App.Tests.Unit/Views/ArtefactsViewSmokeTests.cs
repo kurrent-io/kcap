@@ -23,7 +23,7 @@ public class ArtefactsViewSmokeTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task An_opened_page_shows_the_viewer_in_the_right_pane() => RunOnUiAsync(async () => {
-        var page = new ArtefactDto("01ec", "Release checklist", "u1", "org", 3, DateTimeOffset.UtcNow, true, "https://kurrent.kcap.ai/pages/01ec");
+        var page = new ArtefactDto("01ec", "Release checklist", "u1", "org", 3, DateTimeOffset.UtcNow, true, null, null, "https://kurrent.kcap.ai/pages/01ec");
         var source = new FakePlanArtifactSource();
         source.EnqueuePages(new SessionPagesRead(SessionPlansReadKind.Ready, [page]));
         var vm = new ArtefactsTabViewModel(source, new PlanActivity(), TimeProvider.System, opener: new RecordingOpener(),

@@ -16,7 +16,7 @@ public class ServerPlanArtifactSourceTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
     const string Session = "0123456789abcdef0123456789abcdef";
-    static readonly Capacitor.Cli.Core.Http.ArtefactDto Page = new("a1", "Poll", "u1", "org", 1, DateTimeOffset.UtcNow, false, "https://srv.test/pages/a1");
+    static readonly Capacitor.Cli.Core.Http.ArtefactDto Page = new("a1", "Poll", "u1", "org", 1, DateTimeOffset.UtcNow, false, null, null, "https://srv.test/pages/a1");
 
     /// Answers each request with the next status, and the pages route with one listed page.
     sealed class SequencedHandler(Queue<HttpStatusCode> statuses) : HttpMessageHandler {

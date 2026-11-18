@@ -10,19 +10,12 @@ Subcommands:
                                    Words after `--` are searched as they are,
                                    so `search -- --force` finds that flag.
   get <id|url> [--version N]       Print a page's text; --html prints its HTML
-  share <id> --visibility V [--to] Change who may open a page
   delete <id>                      Remove a page
 
 Options for publish:
   --title <T>                      Name shown in listings and the browser tab.
                                    Defaults to the file's own name.
   --description <D>                One line saying what the page is for.
-  --visibility none|org|scoped     Who may open it. `none` (the default) is you
-                                   alone; `org` is anyone in the organization;
-                                   `scoped` is exactly the --to grants below.
-  --to <type>:<id>                 One audience member, repeatable. Type is
-                                   user, team or project. Only read under
-                                   `scoped`.
   --session <id>                   A session this page came out of,
                                    repeatable. Defaults to KCAP_SESSION_ID when
                                    set, so an agent's publish is attributed to
@@ -30,15 +23,15 @@ Options for publish:
   --update <pageId>                Publish a new version of an existing
                                    page. The URL does not change, so a link
                                    you already shared stays good. Content and
-                                   --session only — change the audience with
-                                   `share`; a title cannot be changed after
-                                   publishing.
+                                   --session only; a title cannot be changed
+                                   after publishing.
 
-Options for share:
-  --visibility none|org|scoped     Required.
-  --to <type>:<id>                 Repeatable. This REPLACES the whole
-                                   audience: a grant you leave out is one you
-                                   are taking away.
+SHARING
+
+  A page is private to you until you share it with `kcap sharing`, by the
+  object key `publish`, `list`, `get` and `search` print (`publish` and `get`
+  on stderr). `list` and `get` show every grant, yours included, as audience
+  and relation. See `kcap sharing --help`.
 
 THE PAGE
 
@@ -53,10 +46,8 @@ LIMITS
 
 EXAMPLES
 
-  kcap page publish plan.html --title "Migration plan" --visibility org
-  kcap page publish report.html --visibility scoped --to team:platform
+  kcap page publish plan.html --title "Migration plan"
   kcap page publish plan.html --update art_01J9...
   kcap page list --mine
   kcap page search retention numbers
   kcap page get https://kcap.example.com/pages/art_01J9... --html > page.html
-  kcap page share art_01J9... --visibility none

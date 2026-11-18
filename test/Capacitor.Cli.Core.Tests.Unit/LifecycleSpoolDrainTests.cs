@@ -361,49 +361,53 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(life.HasBacklog(Sid)).IsTrue(); // session-end still spooled
     }
 
-    /// <summary>An owner's marker an abandoned drain left behind is a loss like any other, and a session flagged
-    /// twice is still reported once.</summary>
+    /// <summary>A marked session is reported locally once its tail is settled and nothing is posted for it. Its markers
+    /// then go, except one whose owner is still running: that owner removes it itself once its own drain finishes.</summary>
     [Test]
     [Arguments(false)]
     [Arguments(true)]
-    public async Task delivers_one_needs_import_for_a_session_an_owners_marker_flags(bool alsoShared) {
+    public async Task reports_a_marked_session_locally_and_clears_its_markers_without_posting(bool ownerRunning) {
         using var tmp = new TempDir();
         var life = new HookSpool(tmp.Path, time: TimeProvider.System);
-        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
-        tx.MarkNeedsImport(Sid, "drain did not finish", owner: 4242);
-        if (alsoShared) tx.MarkNeedsImport(Sid, "shutdown tail: redaction of line 3 timed out");
-
-        var order = new List<string>();
-        await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
-            lifecyclePoster: (route, body) => { order.Add($"L:{route}:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
-            transcriptPoster: body => { order.Add($"T:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
-            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
-
-        await Assert.That(order).IsEquivalentTo([$"L:session-needs-import:{{\"session_id\":\"{Sid}\",\"needs_import\":true}}"]);
-    }
-
-    [Test]
-    public async Task delivers_needs_import_marker_even_when_transcript_bytes_exceeded_cap() {
-        using var tmp = new TempDir();
-        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
-        var tx   = new TranscriptSpool(tmp.PathTo("tx"), capBytes: 32, time: TimeProvider.System); // tiny cap
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), capBytes: 32, time: TimeProvider.System);
         life.Append(Sid, "session-start/kiro", """{"phase":"start"}""");
-        tx.Append(Sid, "{\"lines\":[\"" + new string('x', 100) + "\"]}"); // exceeds cap → needs-import marker
+        tx.Append(Sid, "{\"lines\":[\"" + new string('x', 100) + "\"]}"); // over the cap, so marked rather than spooled
+        tx.MarkNeedsImport(Sid, "drain did not finish", owner: ownerRunning ? Environment.ProcessId : int.MaxValue);
         life.Append(Sid, "session-end/kiro", """{"phase":"end"}""");
 
-        await Assert.That(tx.NeedsImport(Sid)).IsTrue();
-
         var order = new List<string>();
         await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
             lifecyclePoster: (route, body) => { order.Add($"L:{route}:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
             transcriptPoster: body => { order.Add($"T:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
-            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System,
+            reportNeedsImport: sid => order.Add($"R:{sid}"));
 
         await Assert.That(order).IsEquivalentTo([
             """L:session-start/kiro:{"phase":"start"}""",
-            $"L:session-needs-import:{{\"session_id\":\"{Sid}\",\"needs_import\":true}}",
+            $"R:{Sid}",
             """L:session-end/kiro:{"phase":"end"}""",
-        ]);
+        ], CollectionOrdering.Matching);
+        await Assert.That(tx.NeedsImport(Sid)).IsEqualTo(ownerRunning);
+    }
+
+    /// <summary>A loss a reader finds after the session's end was delivered is reported all the same.</summary>
+    [Test]
+    public async Task reports_a_marker_left_after_the_end_was_delivered() {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        life.MarkEnded(Sid);
+        tx.MarkNeedsImport(Sid, "final drain did not complete");
+
+        var order = new List<string>();
+        await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
+            lifecyclePoster: (route, body) => { order.Add($"L:{route}:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
+            transcriptPoster: body => { order.Add($"T:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System,
+            reportNeedsImport: sid => order.Add($"R:{sid}"));
+
+        await Assert.That(order).IsEquivalentTo([$"R:{Sid}"]);
+        await Assert.That(tx.NeedsImport(Sid)).IsFalse();
     }
 
     // Session-start/subagent-stop/session-end share one spool file in prod, so a subagent-stop that arrives (or is only discovered) AFTER session-end was

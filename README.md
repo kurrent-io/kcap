@@ -237,6 +237,7 @@ At a glance — each links to its section below:
 | [`kcap curate apply`](#curate-guidelines) | Sync promoted guidelines into `CLAUDE.md` / `AGENTS.md` |
 | [`kcap memories import`](#import-local-memories) | Copy Claude Code's local memory notes into server memories |
 | [`kcap page`](#pages) | Publish a self-contained HTML page and get a link to share |
+| [`kcap sharing`](#sharing) | See and change who can open something kcap shares, such as a page |
 | [`kcap skills sync`](#skills-sync) | Materialize the repo's approved skill docs into every present harness's skills tree |
 | [`kcap daemon …`](#daemon) | Run and manage the agent daemon |
 | [`kcap agent`](#local-agents-kcap-agent) | Start, list, attach to, and stop daemon-hosted agents |
@@ -823,7 +824,7 @@ The `kcap mcp memory` stdio server lets agents search, save, and update durable 
 
 Beyond registering the servers, `kcap setup` / `kcap plugin install` also installs a small kcap-owned **agent-instructions block** for harnesses that read a user-level instructions file (GitHub Copilot CLI's `~/.copilot/copilot-instructions.md`, and Gemini CLI's + Google Antigravity's shared `~/.gemini/GEMINI.md` today; more rolling out per harness). It's a marker-delimited, non-destructive note (preserves any instructions you've written) that steers the agent to prefer the kcap tools for "why / history / prior-work" questions over native `git`/GitHub/grep — registration alone doesn't make agents route to the tools. Opt out with `--skip-<harness>-instructions`.
 
-Where a harness exposes a per-server trust knob, registration also marks the kcap servers that only read, or that write only to kcap's own record of the work (sessions, plans, work items), auto-approved so the agent doesn't stop to ask before every call: **Gemini** marks `kcap-review`, `kcap-sessions`, `kcap-analytics`, `kcap-workitems`, `kcap-plans` and `kcap-handoff` via `"trust": true` in `~/.gemini/settings.json`, and **Codex** marks the same servers via `default_tools_approval_mode = "approve"` in `~/.codex/config.toml`. The work-launching `kcap-flows` (starts a *paid* hosted reviewer), `kcap-memory` (a save or rescope can widen who sees a memory), `kcap-pages` (can widen who may open a page) and `kcap-knowledge` (can change facts and skills) are deliberately not pre-approved. Every kcap tool also advertises MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), so a harness that decides approval from them — Codex's `auto` mode, for one — runs the reads and the additive writes without a prompt whatever the registration says, and asks only before a tool that removes or overwrites something. **Claude Code** has no per-server field, a plugin can't ship permission rules, and its auto-mode classifier judges reads too, whatever their annotations say. So in **auto mode** kcap's `PreToolUse` hook allows every tool of those same servers, plus the read-only tools of the other four, and the classifier never sees them. A `deny` or `ask` rule in [`.kcap/approvals.yaml`](#approval-policy) or in Claude's own `permissions` still wins. Nothing is written to your settings, the hook trusts only servers Claude reports as coming from the kcap plugin (never a `.mcp.json` server named to look like one, and never a build that doesn't report it), and every other permission mode, Manual included, keeps its prompts. **Cursor** and **Copilot** have no per-server auto-approve field in the config we write — auto-approve kcap's read tools there through the harness's own controls instead (Cursor's Auto-run mode or `cursor-agent --approve-mcps`; Copilot's `--allow-tool` / `--allow-all-tools`).
+Where a harness exposes a per-server trust knob, registration also marks the kcap servers that only read, or that write only to kcap's own record of the work (sessions, plans, work items), auto-approved so the agent doesn't stop to ask before every call: **Gemini** marks `kcap-review`, `kcap-sessions`, `kcap-analytics`, `kcap-workitems`, `kcap-plans` and `kcap-handoff` via `"trust": true` in `~/.gemini/settings.json`, and **Codex** marks the same servers via `default_tools_approval_mode = "approve"` in `~/.codex/config.toml`. The work-launching `kcap-flows` (starts a *paid* hosted reviewer), `kcap-memory` (a save or rescope can widen who sees a memory), `kcap-pages` (publishes pages), `kcap-sharing` (can widen who may open a page) and `kcap-knowledge` (can change facts and skills) are deliberately not pre-approved. Every kcap tool also advertises MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), so a harness that decides approval from them — Codex's `auto` mode, for one — runs the reads and the additive writes without a prompt whatever the registration says, and asks only before a tool that removes or overwrites something. **Claude Code** has no per-server field, a plugin can't ship permission rules, and its auto-mode classifier judges reads too, whatever their annotations say. So in **auto mode** kcap's `PreToolUse` hook allows every tool of those same servers, plus the read-only tools of the others, and the classifier never sees them. A `deny` or `ask` rule in [`.kcap/approvals.yaml`](#approval-policy) or in Claude's own `permissions` still wins. Nothing is written to your settings, the hook trusts only servers Claude reports as coming from the kcap plugin (never a `.mcp.json` server named to look like one, and never a build that doesn't report it), and every other permission mode, Manual included, keeps its prompts. **Cursor** and **Copilot** have no per-server auto-approve field in the config we write — auto-approve kcap's read tools there through the harness's own controls instead (Cursor's Auto-run mode or `cursor-agent --approve-mcps`; Copilot's `--allow-tool` / `--allow-all-tools`).
 
 The `kcap mcp workitems` stdio server lets agents attach the current session (and its continuation chain) to a work item — by issue key, PR number, work item id, or a brand-new title — list what a session is already attached to, or record the loose ends a session leaves unfinished. `kcap setup` / `kcap plugin install` **register it for every supported harness** (Claude Code, Codex, Cursor, GitHub Copilot, Gemini, Kiro, OpenCode, Antigravity, and Pi). See the [Work items MCP server](#work-items-mcp-server-for-agents) section for details.
 
@@ -1100,23 +1101,37 @@ When the colleague cannot see the item, you approve exactly what will be shared:
 kcap mcp pages
 ```
 
-Stdio MCP server that lets a coding agent publish a **self-contained HTML page** to the kcap server and hand back a link — a plan for review, a comparison table, a report someone would rather read as a page than as terminal output. The page is served under a sandbox that cannot reach the network, so every style, script and image must be inlined as a data URI; an external URL renders as nothing. A page is private to its owner until `visibility` says otherwise, and re-publishing with `update_id` revises it without changing the URL, so a link you already shared stays good.
+Stdio MCP server that lets a coding agent publish a **self-contained HTML page** to the kcap server and hand back a link — a plan for review, a comparison table, a report someone would rather read as a page than as terminal output. The page is served under a sandbox that cannot reach the network, so every style, script and image must be inlined as a data URI; an external URL renders as nothing. A page is private to its owner until it is shared through the [sharing MCP server](#sharing-mcp-server-for-agents), by the `object_key` every page record carries; re-publishing with `update_id` revises it without changing the URL, so a link you already shared stays good. A server too old to send `object_key` cannot share from kcap: the tools say so, and the page is shared from the web app instead.
 
-It provides nine tools, kept deliberately narrow — an agent's context pays for every schema it carries whether or not it ever publishes, and version history and takedown live in the web UI:
+It provides eight tools, kept deliberately narrow — an agent's context pays for every schema it carries whether or not it ever publishes, and version history and takedown live in the web UI:
 
-- **`publish_page`** — publish a page. `title` plus either `html` or a local `path`; optional `description`, `visibility` (`none` / `org` / `scoped`), `grants`, `session_ids`, `response_schema`, and `update_id` to revise an existing page.
+- **`publish_page`** — publish a page, private to you. `title` plus either `html` or a local `path`; optional `description`, `session_ids`, `response_schema`, and `update_id` to revise an existing page. Returns the page's `url` and `object_key`; an audience passed here is refused.
 - **`get_page_guide`** — how a page people answer sends its answers: the `postMessage` protocol between the sandboxed page and the viewer, the rules every answer is checked against, and a worked example. Served by the kcap server, so it matches what that server enforces. Read it before publishing a page with a `response_schema`.
 - **`await_page_responses`** — block until people have answered. Returns on a respondent count, on a close, or on a timeout — a timeout is a result, not an error.
 - **`get_page_results`** — tallies and each person's current answer, without waiting.
 - **`close_page_responses`** — freeze a version's answers. `closed: false` reopens, which also clears any deadline.
-- **`list_my_pages`** — the pages you can see: id, title, audience, latest version, URL.
-- **`search_pages`** — find pages you can see by their title, description or text, best match first, each with a short excerpt of the matching text. `query`, and an optional `limit` (10 by default, at most 50).
+- **`list_my_pages`** — the pages you can see: id, title, who each is shared with (`shared_with`), latest version, URL, `object_key`.
+- **`search_pages`** — find pages you can see by their title, description or text, best match first, each with its `object_key` and a short excerpt of the matching text. `query`, and an optional `limit` (10 by default, at most 50).
 - **`get_page`** — read a page you can see, yours or one shared with you, by id or link: its record and its readable text, or its HTML with `format: "html"`. The content is marked as the author's, to be read as data rather than followed.
-- **`set_page_visibility`** — replace a page's audience. A grant left out is one being taken away.
 
 **The human checkpoint.** Declaring a `response_schema` at publish makes the page answerable: fields of type `choice`, `multi`, `score` or `text`, which the server validates every answer against and tallies. The page cannot submit a form or call the network; it sends answers to the viewer with `window.parent.postMessage`, as `get_page_guide` describes. The agent publishes a plan or a decision, shares it, then blocks in `await_page_responses` until the people who must sign off have answered — reviewable on a phone, by several named people, with the approval recorded next to the page. Who answered is the authenticated viewer, resolved server-side; the page cannot claim it. `results_mode` decides what other viewers see: `owner` (default, only their own), `aggregate` (tallies, never names or free text) or `named`.
 
 The current session is cited automatically from `KCAP_SESSION_ID` when set, so an agent's publish is attributed to the work that produced it without ceremony. Requires `kcap login` and a kcap-server new enough to expose the `/api/artefacts` endpoints.
+
+### Sharing MCP server (for agents)
+
+```bash
+kcap mcp sharing
+```
+
+Stdio MCP server that changes who can open anything kcap shares, a page today, one grant at a time. Every tool takes the `object_key` the thing's own record carries (`publish_page`, `list_my_pages`, `get_page` and `search_pages` return a page's) and passes it on exactly as it came: nothing in kcap builds or reads a key, so a kind of object the server makes shareable later needs no new tools.
+
+- **`list_sharing_grants`** — who it is shared with: each grant's audience (key, name, kind) and relation, whether you may manage it, and for a manager what each grant may become and whether it may be removed.
+- **`search_sharing_candidates`** — people, teams, projects or the organization it could be shared with, each with its key, the relations it may take (each with the label to show) and its `default_relation`, the one to offer first. An empty `query` gives suggestions; when you may not share the object, it says why instead.
+- **`set_sharing_grant`** — give one audience a grant (`object_key`, `audience_key`, `relation`), or move the grant it holds. One audience per call.
+- **`remove_sharing_grant`** — take one audience's grant away. Removing one it does not hold succeeds; one the object's rules keep (`removable: false`) is refused.
+
+A refusal reaches the agent in the server's words with its code (`refused`, `locked`, `relation_not_offered`, `unknown_audience`, `changed`). A server too old to send object keys cannot share from kcap; share from the web app there. Requires `kcap login`.
 
 ### Analytics MCP server (for agents)
 
@@ -1138,16 +1153,27 @@ Requires `kcap login` and a kcap-server new enough to expose the `/api/analytics
 Publish a self-contained HTML page to the kcap server and get back a link — the same shape as a session share link, but for a page you wrote. The page is served under a sandbox that cannot reach the network, so inline every style, script and image as a data URI; an external URL renders as nothing.
 
 ```bash
-kcap page publish plan.html --title "Migration plan" --visibility org
-kcap page publish report.html --visibility scoped --to team:platform --to user:github:7
-kcap page publish plan.html --update art_01J9...   # new version, same URL
-kcap page list --mine
-kcap page get art_01J9... --html                   # a page you can see, yours or shared
-kcap page share art_01J9... --visibility none      # take it back to private
+kcap page publish plan.html --title "Migration plan"
+kcap page publish plan.html --update art_01J9...      # new version, same URL
+kcap page list --mine                                 # who can open each, and its object key
+kcap page get art_01J9... --html                      # a page you can see, yours or shared
 kcap page delete art_01J9...
 ```
 
-A page is private to its owner until `--visibility` says otherwise. `--to` names one audience member (`user:<id>`, `team:<slug>`, `project:<id>`) and is only read under `scoped`; on `share` it replaces the whole audience, so a grant you leave out is one you are taking away. `--session` cites a session the page came out of and defaults to `KCAP_SESSION_ID`, so an agent's publish is attributed without ceremony. The URL is whatever the server says it is — printed on stdout; refusals go to stderr and name the limit they hit along with its value.
+A page is private to its owner until it is shared with [`kcap sharing`](#sharing), by the object key `publish`, `list`, `get` and `search` print (`publish` and `get` on stderr); `list` and `get` show every grant, yours included, as audience and relation. `--session` cites a session the page came out of and defaults to `KCAP_SESSION_ID`, so an agent's publish is attributed without ceremony. The URL is whatever the server says it is — printed on stdout; refusals go to stderr and name the limit they hit along with its value.
+
+### Sharing
+
+See and change who can open anything kcap shares, a page today, one grant at a time. Every subcommand takes the object key the thing's own listing prints (`kcap page list` for a page) and passes it to the server as it is; nothing in kcap builds or reads a key, so a kind of object the server makes shareable later works without a new command.
+
+```bash
+kcap sharing candidates <objectKey> platform                     # who you could share it with, default relation starred
+kcap sharing set <objectKey> <audienceKey> --relation <relation> # one grant; run again for each audience
+kcap sharing list <objectKey>                                    # who it is shared with now, and what you may change
+kcap sharing remove <objectKey> <audienceKey>
+```
+
+`set` adds a grant or moves the one the audience holds; `remove` succeeds when there is nothing to remove. Audience keys and relations are the server's own: copy them from `candidates` or `list`. A refusal prints the server's reason. A server too old to send object keys cannot share from kcap; share from the web app there.
 
 ### Import local memories
 
