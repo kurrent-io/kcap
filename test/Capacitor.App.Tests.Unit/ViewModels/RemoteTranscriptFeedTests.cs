@@ -821,7 +821,7 @@ public class RemoteTranscriptFeedTests {
     static RemoteTranscriptCache Cache() =>
         new(new BehaviorSubject<string?>("u1"), new Subject<(string, SessionAccessState)>());
 
-    /// A re-opened session shows its kept lines at once and reads only the events after them.
+    /// A re-opened session shows its kept lines with the events after them, read from the last kept one on.
     [Test]
     public async Task A_reopened_session_shows_its_kept_lines_and_reads_only_what_followed() {
         var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => Text(i, $"m{i}"))]);
@@ -844,11 +844,10 @@ public class RemoteTranscriptFeedTests {
 
         var seed = second.ReadAppended();
         await Assert.That(seed.Status).IsEqualTo(FeedStatus.Reset);
-        await Assert.That(seed.Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(400, 301).Select(i => (long)i));
-        await Assert.That(seed.SnapshotOffset).IsEqualTo(701);
-        var delta = second.ReadAppended();
-        await Assert.That(delta.Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(701, 5).Select(i => (long)i));
-        await Assert.That(server.Requests).IsEquivalentTo(new[] { (701L, 1000) });
+        await Assert.That(seed.Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(400, 306).Select(i => (long)i));
+        await Assert.That(seed.SnapshotOffset).IsEqualTo(706);
+        await Assert.That(second.ReadAppended().Lines).IsEmpty();
+        await Assert.That(server.Requests).IsEquivalentTo(new[] { (700L, 1000) });
         await Assert.That(lane.Tails[1].From).IsEqualTo((ulong?)705);
         await Assert.That(second.HasOlder).IsTrue();
     }
@@ -887,5 +886,100 @@ public class RemoteTranscriptFeedTests {
         }
 
         await Assert.That(cache.Contains("s1")).IsFalse();
+    }
+
+    static async Task<RemoteTranscriptCache> CachedAsync(FakeSessionEvents server, FakeServerLane lane, BehaviorSubject<SessionAccessState> access) {
+        var cache = Cache();
+        using var first = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache);
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the first tail");
+        first.ReadAppended();
+        return cache;
+    }
+
+    /// A transcript open across a change of account is not kept under the next one.
+    [Test]
+    public async Task A_transcript_open_across_a_change_of_account_is_not_kept() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 10).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var subject = new BehaviorSubject<string?>("u1");
+        using var cache = new RemoteTranscriptCache(subject, new Subject<(string, SessionAccessState)>());
+        using (var feed = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
+            await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+            subject.OnNext("u2");
+        }
+
+        await Assert.That(cache.Contains("s1")).IsFalse();
+    }
+
+    /// Kept lines wait for the server's answer: a refused read shows none of them.
+    [Test]
+    public async Task A_refused_reopen_shows_none_of_the_kept_lines() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 10).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = await CachedAsync(server, lane, access);
+        server.Unauthorized = true;
+
+        using var second = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache);
+        await WaitUntilAsync(() => second.PendingRunForTesting is { IsCompleted: true }, what: "the run");
+
+        var read = second.ReadAppended();
+        await Assert.That(read.Status).IsEqualTo(FeedStatus.Failed);
+        await Assert.That(read.Lines).IsEmpty();
+    }
+
+    /// Events recorded while the transcript was closed are part of the replayed history, so a send made
+    /// after re-opening cannot be acknowledged by one of them.
+    [Test]
+    public async Task Events_recorded_while_closed_are_inside_the_reopened_seed() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 10).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = await CachedAsync(server, lane, access);
+        server.Events.AddRange(Enumerable.Range(10, 3).Select(i => Text(i, $"m{i}")));
+
+        using var second = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the second tail");
+
+        var seed = second.ReadAppended();
+        await Assert.That(seed.Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 13).Select(i => (long)i));
+        await Assert.That(seed.SnapshotOffset).IsEqualTo(13);
+        await Assert.That(second.ReadAppended().Lines).IsEmpty();
+    }
+
+    /// Events that aged out while the transcript was closed move the server's count: the kept lines are
+    /// dropped for a fresh seed rather than skipping what was recorded meanwhile.
+    [Test]
+    public async Task A_reopen_after_events_aged_out_reads_a_fresh_seed() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 10).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = await CachedAsync(server, lane, access);
+        server.Events.RemoveRange(0, 3);
+        server.Events.AddRange(Enumerable.Range(10, 3).Select(i => Text(i, $"m{i}")));
+
+        using var second = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the second tail");
+
+        var seed = second.ReadAppended();
+        await Assert.That(seed.Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(3, 10).Select(i => (long)i));
+    }
+
+    /// A session opened before its first event learns where its stream starts from the live tail, so it is
+    /// kept when it closes.
+    [Test]
+    public async Task A_session_whose_first_events_came_live_is_kept() {
+        var server = new FakeSessionEvents();
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = Cache();
+        using (var feed = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
+            await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+            lane.PushStreamEvent(Envelope("s1", 0, CanonicalEventTypes.AssistantTextGenerated, """{"content":"first"}"""));
+            await WaitUntilAsync(() => feed.CurrentOffset == 1, what: "the live event");
+        }
+
+        await Assert.That(cache.Contains("s1")).IsTrue();
     }
 }

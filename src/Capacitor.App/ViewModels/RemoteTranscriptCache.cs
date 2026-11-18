@@ -4,8 +4,8 @@ using Capacitor.App.Services;
 
 namespace Capacitor.App.ViewModels;
 
-/// The projected lines of the remote sessions opened most recently, so re-opening one shows it at once and
-/// reads only what followed. It holds data, never a view model, so a closed tab's rows are not kept alive. A
+/// The projected lines of the remote sessions opened most recently, so re-opening one reads only what
+/// followed and shows it with that one small read. It holds data, never a view model, so a closed tab's rows are not kept alive. A
 /// session whose access is refused is forgotten, and every session goes when the signed-in account changes.
 public sealed class RemoteTranscriptCache : IDisposable {
     public const int Capacity = 5;
@@ -16,6 +16,7 @@ public sealed class RemoteTranscriptCache : IDisposable {
     /// Most recently opened first.
     readonly LinkedList<(string SessionId, RemoteTranscriptSnapshot Snapshot)> _entries = new();
     readonly IDisposable _subscriptions;
+    int _generation;
 
     public RemoteTranscriptCache(IObservable<string?> signedInSubject, IObservable<(string SessionId, SessionAccessState State)> access) {
         _subscriptions = new CompositeDisposable(
@@ -24,6 +25,9 @@ public sealed class RemoteTranscriptCache : IDisposable {
     }
 
     internal int Count { get { lock (_lock) return _entries.Count; } }
+
+    /// Advances with every change of account: a snapshot read under an earlier one is never kept.
+    internal int Generation { get { lock (_lock) return _generation; } }
 
     internal bool Contains(string sessionId) { lock (_lock) return Find(sessionId) is not null; }
 
@@ -36,8 +40,9 @@ public sealed class RemoteTranscriptCache : IDisposable {
         }
     }
 
-    internal void Put(string sessionId, RemoteTranscriptSnapshot snapshot) {
+    internal void Put(string sessionId, RemoteTranscriptSnapshot snapshot, int generation) {
         lock (_lock) {
+            if (generation != _generation) return;
             if (Find(sessionId) is { } stale) _entries.Remove(stale);
             _entries.AddFirst((sessionId, snapshot));
             while (_entries.Count > Capacity) _entries.RemoveLast();
@@ -48,7 +53,12 @@ public sealed class RemoteTranscriptCache : IDisposable {
         lock (_lock) if (Find(sessionId) is { } node) _entries.Remove(node);
     }
 
-    void Clear() { lock (_lock) _entries.Clear(); }
+    void Clear() {
+        lock (_lock) {
+            _entries.Clear();
+            _generation++;
+        }
+    }
 
     LinkedListNode<(string SessionId, RemoteTranscriptSnapshot Snapshot)>? Find(string sessionId) {
         for (var node = _entries.First; node is not null; node = node.Next)

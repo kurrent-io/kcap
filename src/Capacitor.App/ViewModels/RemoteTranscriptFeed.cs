@@ -71,6 +71,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     readonly List<ProjectedLine>? _loaded;
     /// The session refused this reader, so what it loaded is not kept.
     bool _lost;
+    /// The cache's account generation when the loaded lines were read.
+    int _generation;
     /// How many pending lines the seed committed, and the position it ended at. A live event that
     /// lands before the pane drains the seed follows it in the next read: folding it into the Reset
     /// would place it inside the replayed history, where it can no longer acknowledge a send.
@@ -212,7 +214,9 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// oldest event the stream still holds, and no other route reports where it ends.
     async Task<bool> EnsureSeededAsync(int attempt, CancellationToken ct) {
         lock (_lock) if (_position is not null) return true;
-        if (_cache?.Take(_sessionId) is { } snapshot) return await ResumeAsync(attempt, snapshot, ct).ConfigureAwait(false);
+        var generation = _cache?.Generation ?? 0;
+        if (_cache?.Take(_sessionId) is { } snapshot
+            && await ResumeAsync(attempt, generation, snapshot, ct).ConfigureAwait(false) is { } resumed) return resumed;
         var lines = new List<ProjectedLine>();
         var scheduled = NewScheduled();
         long from = 0;
@@ -234,6 +238,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         lock (_lock) {
             if (_attempt != attempt) return false;
             _verdict = null;
+            _generation = generation;
             _scheduled = scheduled;
             _position = page.LastEventNumber;
             _earliest = from;
@@ -251,38 +256,39 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         return true;
     }
 
-    /// The cached lines go out at once as the seed; then only the events after them are read.
-    async Task<bool> ResumeAsync(int attempt, RemoteTranscriptSnapshot snapshot, CancellationToken ct) {
-        lock (_lock) {
-            if (_attempt != attempt) {
-                _cache!.Put(_sessionId, snapshot);
-                return false;
-            }
-            _verdict = null;
-            _scheduled = snapshot.Scheduled;
-            _position = snapshot.Position;
-            _earliest = snapshot.Earliest;
-            _base = snapshot.Base;
-            _loaded!.Clear();
-            _loaded.AddRange(snapshot.Lines);
-            _pending.Clear();
-            _pending.AddRange(snapshot.Lines);
-            _pendingStatus = FeedStatus.Reset;
-            _resetCount = snapshot.Lines.Count;
-            _seedBoundary = CurrentOffsetLocked();
-        }
-        Changed?.Invoke();
-        var lines = new List<ProjectedLine>();
-        var (fetch, _) = await ReadForwardAsync(snapshot.Position + 1 - snapshot.Base, lines, snapshot.Scheduled, ct).ConfigureAwait(false);
+    /// The kept lines and the events after them go out together as the seed, once the server has answered
+    /// for this reader: a refusal shows none of them, and a send made now cannot be acknowledged by an event
+    /// recorded while the transcript was closed. The read starts at the last kept event, which has to come
+    /// back first; anything else means the stream's oldest events aged out, and a fresh seed is read.
+    async Task<bool?> ResumeAsync(int attempt, int generation, RemoteTranscriptSnapshot snapshot, CancellationToken ct) {
+        var fetch = await _readEvents(_sessionId, snapshot.Position - snapshot.Base, MaxPage, ct).ConfigureAwait(false);
         if (!Admit(attempt, fetch, out var page)) return false;
+        var aligned = page.Events is [var first, ..] ? first.EventNumber == snapshot.Position : page.LastEventNumber == snapshot.Position;
+        if (!aligned) return null;
+        var lines = new List<ProjectedLine>(snapshot.Lines);
+        var scheduled = snapshot.Scheduled;
+        ProjectInto(page, lines, scheduled, above: snapshot.Position);
+        if (page.NextFrom is { } next) {
+            (fetch, _) = await ReadForwardAsync(next, lines, scheduled, ct).ConfigureAwait(false);
+            if (!Admit(attempt, fetch, out page)) return false;
+        }
         lock (_lock) {
             if (_attempt != attempt) return false;
-            foreach (var line in lines) {
-                if (line.Offset <= _position) continue;
-                _pending.Add(line);
-                _loaded!.Add(line);
-            }
-            _position = Math.Max(_position ?? -1, page.LastEventNumber);
+            _verdict = null;
+            _generation = generation;
+            _scheduled = scheduled;
+            _position = Math.Max(snapshot.Position, page.LastEventNumber);
+            _earliest = snapshot.Earliest;
+            _oldest = snapshot.Oldest;
+            _base = snapshot.Base;
+            _older.Clear();
+            _loaded!.Clear();
+            _loaded.AddRange(lines);
+            _pending.Clear();
+            _pending.AddRange(lines);
+            _pendingStatus = FeedStatus.Reset;
+            _resetCount = lines.Count;
+            _seedBoundary = CurrentOffsetLocked();
         }
         Changed?.Invoke();
         return true;
@@ -514,6 +520,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
                     // Once per outage: the stream delivering again ends it, however this tail later ends.
                     if (!received) _logged.Clear();
                     received = true;
+                    if (_base is null && _oldest is null) _base = _oldest = offset;
                     _position = offset;
                     if (line is { } l) {
                         _pending.Add(l);
@@ -557,12 +564,18 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     }
 
     /// The newest lines up to the cache's limit; the stream events before the oldest kept one count as unloaded.
+    /// A transcript whose turned-down prompt checks outgrow that limit is not kept: they hold message text.
     RemoteTranscriptSnapshot? SnapshotLocked() {
         if (_lost || _loaded is null || _position is not { } position || _base is not { } origin || _earliest is not { } earliest) return null;
+        lock (_scheduled) if (_scheduled.Declined!.Count > RemoteTranscriptCache.MaxLines) return null;
         var skip = Math.Max(0, _loaded.Count - RemoteTranscriptCache.MaxLines);
         var lines = _loaded.GetRange(skip, _loaded.Count - skip);
-        if (skip > 0) earliest = Math.Max(earliest, lines[0].Offset - origin);
-        return new(lines, position, earliest, origin, _scheduled);
+        var oldest = _oldest;
+        if (skip > 0) {
+            earliest = Math.Max(earliest, lines[0].Offset - origin);
+            oldest = lines[0].Offset;
+        }
+        return new(lines, position, earliest, oldest, origin, _scheduled);
     }
 
     /// A superseded attempt's failure would mark a reason the current attempt has not hit.
@@ -582,7 +595,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             _attempt++;
             snapshot = SnapshotLocked();
         }
-        if (snapshot is not null) _cache!.Put(_sessionId, snapshot);
+        if (snapshot is not null) _cache!.Put(_sessionId, snapshot, _generation);
         _access.Dispose();
         _lifetime.Cancel();
         _lifetime.Dispose();
