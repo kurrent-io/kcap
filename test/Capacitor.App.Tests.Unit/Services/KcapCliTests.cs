@@ -46,8 +46,23 @@ public class KcapCliTests {
         await cli.HideSessionAsync("abc", CancellationToken.None);
         await Assert.That(runner.SeenArgs).IsEquivalentTo(["hide", "abc", "--no-update-check"], CollectionOrdering.Matching);
 
+        await Assert.That(runner.SeenOptions!.EnvOverlay![KcapCli.ExpectServerUrlVar]).IsEqualTo(CanonicalServer);
+
         await cli.DisableSessionAsync("abc", CancellationToken.None);
         await Assert.That(runner.SeenArgs).IsEquivalentTo(["disable", "abc", "--no-update-check"], CollectionOrdering.Matching);
+        await Assert.That(runner.SeenOptions!.EnvOverlay![KcapCli.ExpectServerUrlVar]).IsEqualTo(CanonicalServer);
+    }
+
+    /// Without a server to name, the CLI could not refuse a repointed profile, so nothing is spawned.
+    [Test]
+    public async Task Session_changes_without_an_app_server_spawn_nothing() {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, "", "", false)) };
+        var cli = MakeCli(runner, canonicalServer: null);
+
+        var result = await cli.DisableSessionAsync("abc", CancellationToken.None);
+
+        await Assert.That(result.ExitCode).IsEqualTo(1);
+        await Assert.That(runner.SeenArgs).IsNull();
     }
 
     [Test]

@@ -722,6 +722,12 @@ switch (command) {
             return 1;
         }
 
+        if (ExpectedServer.Mismatch(Environment.GetEnvironmentVariable, sp.GetRequiredService<CapacitorServer>().Url) is { } elsewhere) {
+            Console.Error.WriteLine(elsewhere);
+
+            return 1;
+        }
+
         return await Run<DisableCommand>().Handle(sessionId, Api, Console.Out, Console.Error);
     }
     case "hide": {
@@ -740,6 +746,12 @@ switch (command) {
         if (!ArgParsing.TryNormalizeSessionGuid(resolved, out var sessionId)) {
             Console.Error.WriteLine($"Invalid session ID: '{resolved}'");
             Console.Error.WriteLine("  Session ID must be a UUID. Use `kcap recap --repo` to find recent session IDs.");
+
+            return 1;
+        }
+
+        if (ExpectedServer.Mismatch(Environment.GetEnvironmentVariable, sp.GetRequiredService<CapacitorServer>().Url) is { } elsewhere) {
+            Console.Error.WriteLine(elsewhere);
 
             return 1;
         }

@@ -3128,7 +3128,7 @@ public partial class App : Application {
                 Spacing = 16,
                 Children = {
                     new TextBlock {
-                        Text = $"Delete \u201c{label}\u201d from kcap? Recording stops and the session's data is removed from the server. This can't be undone.",
+                        Text = $"Delete \u201c{label}\u201d from kcap? kcap stops recording it on this machine and removes its data from the server. A running agent keeps sending its output until you stop it. This can't be undone.",
                         TextWrapping = TextWrapping.Wrap,
                     },
                     new StackPanel {

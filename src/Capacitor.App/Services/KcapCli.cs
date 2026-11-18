@@ -443,15 +443,19 @@ public sealed class KcapCli : IKcapCli {
     public async Task<ProcessResult> HideSessionAsync(string sessionId, CancellationToken ct) {
         if (CliPath is not { } cliPath) return await NoCliResult().ConfigureAwait(false);
 
+        if (await SessionEnvAsync(ct).ConfigureAwait(false) is not { } env) return NoServerResult();
+
         return await Run(cliPath, ["hide", sessionId, "--no-update-check"],
-            new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false), Timeout: SessionTimeout), ct).ConfigureAwait(false);
+            new RunOptions(EnvOverlay: env, Timeout: SessionTimeout), ct).ConfigureAwait(false);
     }
 
     public async Task<ProcessResult> DisableSessionAsync(string sessionId, CancellationToken ct) {
         if (CliPath is not { } cliPath) return await NoCliResult().ConfigureAwait(false);
 
+        if (await SessionEnvAsync(ct).ConfigureAwait(false) is not { } env) return NoServerResult();
+
         return await Run(cliPath, ["disable", sessionId, "--no-update-check"],
-            new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false), Timeout: MutationTimeout), ct).ConfigureAwait(false);
+            new RunOptions(EnvOverlay: env, Timeout: MutationTimeout), ct).ConfigureAwait(false);
     }
 
     public async Task<ProcessResult> LocalStartAsync(CancellationToken ct) {
@@ -526,6 +530,17 @@ public sealed class KcapCli : IKcapCli {
     // The login shell can resolve kcap to a shim whose interpreter sits outside a GUI app's PATH, so
     // every spawn carries the terminal's.
     Task<Dictionary<string, string>> SpawnEnvAsync(CancellationToken ct) => EnvWithTerminalPathAsync(Env(), ct);
+
+    // A session change carries the server the app shows, so the CLI refuses it when the profile has since moved;
+    // null when the app has no server to name.
+    async Task<Dictionary<string, string>?> SessionEnvAsync(CancellationToken ct) {
+        if (_canonicalServer is not { } server) return null;
+        var env = await SpawnEnvAsync(ct).ConfigureAwait(false);
+        env[ExpectServerUrlVar] = server;
+        return env;
+    }
+
+    static ProcessResult NoServerResult() => new(1, "", "No server is configured for this app", false);
 
     // Null canonicalServer here is a construction bug (mutations are action-scoped) — fail loudly, don't spawn.
     Dictionary<string, string> MutationEnv() {
