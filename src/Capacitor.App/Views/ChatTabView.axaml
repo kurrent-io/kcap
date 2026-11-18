@@ -111,6 +111,11 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
+        <!-- Fluent shrinks a pressed button, which on a row this wide pulls its edge several pixels
+             inward, so a click near the edge (a topic's chevron) is released outside it and never fires. -->
+        <Style Selector="Button.toolSummary:pressed">
+            <Setter Property="RenderTransform" Value="none" />
+        </Style>
         <Style Selector="Button.toolSummary /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />

@@ -1216,7 +1216,8 @@ public class ChatTabViewSmokeTests {
     }
 
     /// A marked message's own toggle steps aside for its header's icon, and that icon takes the
-    /// topic away without folding it first; a click just past the chevron still folds.
+    /// topic away without folding it first; a click just past the chevron, or at the header's very
+    /// edge, still folds.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_topic_header_icon_removes_the_topic() {
@@ -1237,6 +1238,17 @@ public class ChatTabViewSmokeTests {
                 var pastChevron = chevron.TranslatePoint(new Point(chevron.Bounds.Width + 3, chevron.Bounds.Height / 2), host.Window)!.Value;
                 host.Window.MouseDown(pastChevron, MouseButton.Left);
                 host.Window.MouseUp(pastChevron, MouseButton.Left);
+                host.Settle();
+                await Assert.That(topic.IsExpanded).IsFalse();
+                topic.ToggleCommand.Execute().Subscribe();
+                host.Settle();
+
+                var header = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TopicToggle");
+                var edge = header.TranslatePoint(new Point(2, header.Bounds.Height / 2), host.Window)!.Value;
+                host.Window.MouseMove(edge);
+                host.Window.MouseDown(edge, MouseButton.Left);
+                host.Settle();
+                host.Window.MouseUp(edge, MouseButton.Left);
                 host.Settle();
                 await Assert.That(topic.IsExpanded).IsFalse();
                 topic.ToggleCommand.Execute().Subscribe();
