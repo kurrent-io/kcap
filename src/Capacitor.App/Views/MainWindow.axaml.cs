@@ -120,7 +120,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     public event EventHandler? RailLeadingChanged;
 
     void ApplyRailClearance() {
-        var origin = RailClearance.ButtonOrigin(_scale);
+        var origin = RailClearance.ButtonOrigin(_scale, _captionTop);
         WindowControls.Margin = new Thickness(origin.X, origin.Y, 0, 0);
         LauncherHeader.Margin = new Thickness(Math.Max(0, RailLeading - LauncherPane.Margin.Left), 0, 0, 0);
         RailLeadingChanged?.Invoke(this, EventArgs.Empty);
@@ -479,6 +479,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             .Subscribe(margin => {
                 _captionTop = margin.Top - margin.Bottom;
                 ApplyCaptionInset();
+                ApplyRailClearance();
             });
     }
 

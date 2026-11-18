@@ -23,13 +23,14 @@ public static class RailClearance {
 
     static double ControlsWidth => 3 * ButtonSize + ToggleGap + Spacing;
 
-    /// The toggle's top-left in the content's units, which the UI zoom scales.
-    public static Point ButtonOrigin(double scale) => BesideWindowButtons
+    /// The toggle's top-left in the content's units, which the UI zoom scales. Elsewhere the caption
+    /// buttons are centred in a title bar of <paramref name="captionHeight"/> window units, unzoomed.
+    public static Point ButtonOrigin(double scale, double captionHeight) => BesideWindowButtons
         ? new(CentreBesideWindowButtons / scale - ButtonSize / 2, WindowButtonsMiddle / scale - ButtonSize / 2)
-        : new(12, 7);
+        : new(12, captionHeight > 0 ? Math.Max(0, captionHeight / 2 / scale - ButtonSize / 2) : 7);
 
     /// How far a header at the content's leading edge pads to clear the controls, in content units.
-    public static double Leading(double scale) => ButtonOrigin(scale).X + ControlsWidth + Gap;
+    public static double Leading(double scale) => ButtonOrigin(scale, 0).X + ControlsWidth + Gap;
 
     public static void Attach(Control view, Border header) {
         var own = header.Padding;
