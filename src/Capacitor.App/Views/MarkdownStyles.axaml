@@ -237,14 +237,14 @@
     </Style>
     <!-- An answer's worth-knowing and only-if-curious text, greyed by level so the two stay apart. -->
     <Style Selector="mv|MarkdownViewer Span.need-to-know-greyed, mv|MarkdownViewer Span.need-to-know-greyed Run.markdown-code-inline">
-        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource NeedToKnowWorthGreyBrush}" />
     </Style>
-    <!-- Below the faint token, which has no darker neighbour in the palette; the pointer lifts it back. -->
+    <!-- The pointer lifts the deeper grey to the worth-knowing grey. -->
     <Style Selector="mv|MarkdownViewer Span.need-to-know-greyed.need-to-know-deep, mv|MarkdownViewer Span.need-to-know-greyed.need-to-know-deep Run.markdown-code-inline">
-        <Setter Property="Foreground" Value="#666D7C" />
+        <Setter Property="Foreground" Value="{DynamicResource NeedToKnowCuriousGreyBrush}" />
     </Style>
     <Style Selector="mv|MarkdownViewer Span.need-to-know-greyed.need-to-know-deep.need-to-know-lit, mv|MarkdownViewer Span.need-to-know-greyed.need-to-know-deep.need-to-know-lit Run.markdown-code-inline">
-        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource NeedToKnowWorthGreyBrush}" />
     </Style>
     <Style Selector="mv|MarkdownViewer Run.need-to-know-glyph">
         <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />

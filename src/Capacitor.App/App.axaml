@@ -21,6 +21,9 @@
             <!-- Secondary / tertiary body text: both clear AA (≥4.5:1) on Canvas→Border. -->
             <SolidColorBrush x:Key="KcapMutedBrush" Color="#B0B7C6" />
             <SolidColorBrush x:Key="KcapFaintBrush" Color="#949BAA" />
+            <!-- Greyed need-to-know text; the right bar's sliders replace these while experimenting. -->
+            <SolidColorBrush x:Key="NeedToKnowWorthGreyBrush" Color="#949BAA" />
+            <SolidColorBrush x:Key="NeedToKnowCuriousGreyBrush" Color="#666D7C" />
             <!-- Primary CTAs stay on the light ramp. Hover lifts toward white and press steps
                  to a light off-white; a text grey as the fill drops the near-black label's contrast.
                  Green is status only; a selection uses info blue. -->

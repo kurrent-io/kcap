@@ -14,30 +14,31 @@ sealed class NeedToKnowHover {
     public const string LitClass = "need-to-know-lit";
 
     Span? _lit;
+    TextBlock? _litBlock;
 
-    public void Move(PointerEventArgs e) {
+    /// The block comes from the view's own visuals at the point rather than the event's source, which
+    /// can be an overlay above the text.
+    public void Move(Visual view, PointerEventArgs e) {
         Span? span = null;
-        if (BlockUnder(e.Source as Visual) is { Inlines: { } inlines } block) {
+        var block = view.GetVisualsAt(e.GetPosition(view)).OfType<TextBlock>().FirstOrDefault(b => b.Inlines is { Count: > 0 });
+        if (block is { Inlines: { } inlines }) {
             var point = e.GetPosition(block) - new Point(block.Padding.Left, block.Padding.Top);
             var hit = block.TextLayout.HitTestPoint(point);
             if (hit.IsInside) span = GreyedAt(inlines, hit.TextPosition);
         }
-        Light(span);
+        Light(span, span is null ? null : block);
     }
 
-    public void Clear() => Light(null);
+    public void Clear() => Light(null, null);
 
-    void Light(Span? span) {
+    void Light(Span? span, TextBlock? block) {
         if (ReferenceEquals(span, _lit)) return;
         _lit?.Classes.Remove(LitClass);
+        _litBlock?.InvalidateVisual();
         _lit = span;
+        _litBlock = block;
         _lit?.Classes.Add(LitClass);
-    }
-
-    static TextBlock? BlockUnder(Visual? visual) {
-        for (; visual is not null; visual = visual.GetVisualParent())
-            if (visual is TextBlock block) return block;
-        return null;
+        _litBlock?.InvalidateVisual();
     }
 
     static Span? GreyedAt(InlineCollection inlines, int index) {

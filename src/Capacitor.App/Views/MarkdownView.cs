@@ -186,7 +186,7 @@ public sealed class MarkdownView : ContentControl {
     void OnSelectionInput(object? sender, RoutedEventArgs e) => _selectionHost?.UpdateSelection(this);
 
     void OnPointerMoved(object? sender, PointerEventArgs e) {
-        if (_hasMarks) _hover.Move(e);
+        if (_hasMarks) _hover.Move(this, e);
         var link = FindHyperlinkAt(_viewer, e.GetPosition(_viewer));
         var image = ImageUnder(e.Source as Visual);
         var tip = link?.NavigateUri?.ToString() ?? image?.Target;

@@ -1,5 +1,6 @@
 using System.Reactive;
 using Capacitor.App.NeedToKnow;
+using Capacitor.App.Views;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
@@ -20,6 +21,26 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
     }
 
     public ReactiveCommand<NeedToKnowDisplay, Unit> SetWorthKnowingCommand { get; }
+
+    // Percent of the way from the canvas to the text colour; the defaults match the palette's greys.
+    double _worthGrey = 60;
+    double _curiousGrey = 40;
+
+    public double WorthGrey {
+        get => _worthGrey;
+        set {
+            this.RaiseAndSetIfChanged(ref _worthGrey, Math.Round(value));
+            NeedToKnowGreys.Set(NeedToKnowGreys.WorthKey, _worthGrey);
+        }
+    }
+
+    public double CuriousGrey {
+        get => _curiousGrey;
+        set {
+            this.RaiseAndSetIfChanged(ref _curiousGrey, Math.Round(value));
+            NeedToKnowGreys.Set(NeedToKnowGreys.CuriousKey, _curiousGrey);
+        }
+    }
 
     public ReactiveCommand<NeedToKnowDisplay, Unit> SetOnlyIfCuriousCommand { get; }
 

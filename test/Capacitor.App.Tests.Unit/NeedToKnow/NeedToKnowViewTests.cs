@@ -66,6 +66,28 @@ public class NeedToKnowViewTests {
         });
     }
 
+    [Test]
+    [Arguments("Plain lead. ⌞⌞Curious middle.⌟⌟ Plain tail.")]
+    [Arguments("- **Bold lead:** text with `code` here. ⌞⌞Curious middle.⌟⌟ Plain tail.")]
+    [Arguments("See [a link](https://example.com) first. ⌞⌞Curious middle.⌟⌟ Plain tail.")]
+    [Arguments("Lead. ⌞Worth part ⌞⌞Curious middle.⌟⌟ more worth.⌟ Plain tail.")]
+    public async Task The_pointer_lights_a_deep_grey_span_inside_a_block(string markdown) {
+        await RunOnUiAsync(async () => {
+            NeedToKnowBasis.Set(new(NeedToKnowDisplay.Greyed, NeedToKnowDisplay.Greyed));
+            var (window, root, _) = Show(markdown);
+            try {
+                var block = Paragraphs(root).Single();
+                var deep = Spans<Span>(block.Inlines!).Single(s => s.Classes.Contains("need-to-know-deep"));
+                var index = Reads(block).IndexOf("Curious middle", StringComparison.Ordinal) + 4;
+                window.MouseMove(At(block, index, window));
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(deep.Classes.Contains("need-to-know-lit")).IsTrue();
+            } finally {
+                window.Close();
+            }
+        });
+    }
+
     static Point At(TextBlock block, int index, Window window) =>
         block.TranslatePoint(block.TextLayout.HitTestTextPosition(index).Center + new Point(block.Padding.Left, block.Padding.Top), window)!.Value;
 }

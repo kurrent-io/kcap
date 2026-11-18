@@ -1049,6 +1049,14 @@
                                             Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Hidden}" />
                                 </StackPanel>
                             </Border>
+                            <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="10" Margin="0,10,0,0">
+                                <TextBlock Text="Worth grey" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                                <Slider Grid.Column="1" Minimum="5" Maximum="95" Value="{Binding WorthGrey}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="2" Text="{Binding WorthGrey, StringFormat={}{0}%}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="1" Text="Curious grey" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                                <Slider Grid.Row="1" Grid.Column="1" Minimum="5" Maximum="95" Value="{Binding CuriousGrey}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding CuriousGrey, StringFormat={}{0}%}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                            </Grid>
                         </StackPanel>
                     </Border>
                 </StackPanel>
