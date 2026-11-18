@@ -84,8 +84,12 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         SessionRail.Width = Panes.RailWidth;
         SessionRail.IsVisible = true;
         RailColumn.Width = GridLength.Auto;
+        // The animation drops its value when it ends, a frame before the rail is hidden: the end
+        // margin is set underneath it so that frame does not flash the open rail.
+        var to = new Thickness(collapsed ? -Panes.RailWidth : 0, 0, 0, 0);
+        SessionRail.Margin = to;
 
-        await Motion.Standard.RunAsync(SessionRail, slide.Token, (MarginProperty, from, new Thickness(collapsed ? -Panes.RailWidth : 0, 0, 0, 0)));
+        await Motion.Standard.RunAsync(SessionRail, slide.Token, (MarginProperty, from, to));
         if (slide.IsCancellationRequested) return;
 
         _railSlide = null;
