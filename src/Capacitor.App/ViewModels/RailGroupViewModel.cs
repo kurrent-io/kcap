@@ -32,8 +32,6 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public int PartsTotal { get => _partsTotal; private set => this.RaiseAndSetIfChanged(ref _partsTotal, value); }
     bool _isDone;
     public bool IsDone { get => _isDone; private set => this.RaiseAndSetIfChanged(ref _isDone, value); }
-    public string PartsText => $"{PartsDone}/{PartsTotal}";
-    public double PartsSweep => PartsTotal == 0 ? 0 : 360.0 * PartsDone / PartsTotal;
     public bool IsNoRepository { get; }
     /// Grouped by its folder rather than by a repository's remote, so the header must not read as one.
     public bool IsFolder => Kind == RailGrouping.Repository && !IsNoRepository && !Key.StartsWith("repo:", StringComparison.Ordinal);
@@ -156,8 +154,6 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         PartsDone = item.PartsDone;
         PartsTotal = item.PartsTotal;
         IsDone = item.Done;
-        this.RaisePropertyChanged(nameof(PartsText));
-        this.RaisePropertyChanged(nameof(PartsSweep));
         this.RaisePropertyChanged(nameof(Tooltip));
         _workItem.OnNext(item);
     }
