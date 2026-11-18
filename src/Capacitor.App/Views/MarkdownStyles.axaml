@@ -237,15 +237,16 @@
     </Style>
     <!-- An answer's worth-knowing and only-if-curious text, greyed by level so the two stay apart. -->
     <Style Selector="mv|MarkdownViewer Span.need-to-know-greyed.need-to-know-worth, mv|MarkdownViewer Span.need-to-know-greyed.need-to-know-worth Run.markdown-code-inline">
-        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-    </Style>
-    <Style Selector="mv|MarkdownViewer Span.need-to-know-greyed.need-to-know-curious, mv|MarkdownViewer Span.need-to-know-greyed.need-to-know-curious Run.markdown-code-inline">
         <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+    </Style>
+    <!-- One step darker than the faint token, which has no darker neighbour in the palette. -->
+    <Style Selector="mv|MarkdownViewer Span.need-to-know-greyed.need-to-know-curious, mv|MarkdownViewer Span.need-to-know-greyed.need-to-know-curious Run.markdown-code-inline">
+        <Setter Property="Foreground" Value="#787F8E" />
     </Style>
     <Style Selector="mv|MarkdownViewer Run.need-to-know-glyph">
         <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
     </Style>
-    <Style Selector="mv|MarkdownViewer TextBlock.need-to-know-hidden">
+    <Style Selector="mv|MarkdownViewer TextBlock.need-to-know-collapsed">
         <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Margin" Value="2,0" />

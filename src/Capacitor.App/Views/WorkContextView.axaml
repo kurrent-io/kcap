@@ -1009,29 +1009,43 @@
                     </Button>
                     <Border Classes="sectionBody">
                         <StackPanel Spacing="6">
+                            <StackPanel.Styles>
+                                <Style Selector="Button.kcapSegmentItem.needToKnow">
+                                    <Setter Property="Padding" Value="8,5" />
+                                    <Setter Property="FontSize" Value="12" />
+                                </Style>
+                                <Style Selector="Button.kcapSegmentItem.needToKnow:disabled /template/ ContentPresenter#PART_ContentPresenter">
+                                    <Setter Property="Background" Value="Transparent" />
+                                    <Setter Property="Foreground" Value="{StaticResource KcapBorderBrush}" />
+                                </Style>
+                            </StackPanel.Styles>
                             <TextBlock Text="Worth knowing" FontSize="13" Foreground="{StaticResource KcapMutedBrush}" />
                             <Border Classes="kcapSegment" HorizontalAlignment="Left">
                                 <StackPanel Orientation="Horizontal" Spacing="2">
-                                    <Button Content="Normal" Classes="kcapSegmentItem" Classes.active="{Binding WorthKnowingNormal}"
+                                    <Button Content="Normal" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding WorthKnowingNormal}"
                                             Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Normal}" />
-                                    <Button Content="Marks" Classes="kcapSegmentItem" Classes.active="{Binding WorthKnowingMarked}"
+                                    <Button Content="Marks" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding WorthKnowingMarked}"
                                             Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Marked}" />
-                                    <Button Content="Grey" Classes="kcapSegmentItem" Classes.active="{Binding WorthKnowingGreyed}"
+                                    <Button Content="Grey" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding WorthKnowingGreyed}"
                                             Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Greyed}" />
-                                    <Button Content="Hide" Classes="kcapSegmentItem" Classes.active="{Binding WorthKnowingHidden}"
+                                    <Button Content="Collapse" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding WorthKnowingCollapsed}"
+                                            Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Collapsed}" />
+                                    <Button Content="Hide" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding WorthKnowingHidden}"
                                             Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Hidden}" />
                                 </StackPanel>
                             </Border>
                             <TextBlock Text="Only if curious" FontSize="13" Foreground="{StaticResource KcapMutedBrush}" Margin="0,6,0,0" />
                             <Border Classes="kcapSegment" HorizontalAlignment="Left">
                                 <StackPanel Orientation="Horizontal" Spacing="2">
-                                    <Button Content="Normal" Classes="kcapSegmentItem" Classes.active="{Binding OnlyIfCuriousNormal}"
+                                    <Button Content="Normal" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding OnlyIfCuriousNormal}" IsEnabled="{Binding OnlyIfCuriousCanBeNormal}"
                                             Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Normal}" />
-                                    <Button Content="Marks" Classes="kcapSegmentItem" Classes.active="{Binding OnlyIfCuriousMarked}"
+                                    <Button Content="Marks" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding OnlyIfCuriousMarked}" IsEnabled="{Binding OnlyIfCuriousCanBeMarked}"
                                             Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Marked}" />
-                                    <Button Content="Grey" Classes="kcapSegmentItem" Classes.active="{Binding OnlyIfCuriousGreyed}"
+                                    <Button Content="Grey" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding OnlyIfCuriousGreyed}" IsEnabled="{Binding OnlyIfCuriousCanBeGreyed}"
                                             Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Greyed}" />
-                                    <Button Content="Hide" Classes="kcapSegmentItem" Classes.active="{Binding OnlyIfCuriousHidden}"
+                                    <Button Content="Collapse" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding OnlyIfCuriousCollapsed}" IsEnabled="{Binding OnlyIfCuriousCanBeCollapsed}"
+                                            Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Collapsed}" />
+                                    <Button Content="Hide" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding OnlyIfCuriousHidden}"
                                             Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Hidden}" />
                                 </StackPanel>
                             </Border>

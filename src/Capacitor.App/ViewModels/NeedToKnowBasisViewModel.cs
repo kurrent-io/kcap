@@ -5,14 +5,18 @@ using ReactiveUI.Reactive;
 namespace Capacitor.App.ViewModels;
 
 /// The right bar's need-to-know basis controls. One instance, because the basis is process-wide.
+/// Only-if-curious can never be set more visible than worth-knowing: raising worth-knowing past it
+/// carries it along, and the options above worth-knowing's are disabled.
 public sealed class NeedToKnowBasisViewModel : ReactiveObject {
     public static NeedToKnowBasisViewModel Shared { get; } = new();
 
     NeedToKnowBasis _basis = NeedToKnowBasis.Current;
 
     NeedToKnowBasisViewModel() {
-        SetWorthKnowingCommand = ReactiveCommand.Create<NeedToKnowDisplay>(display => Apply(_basis with { WorthKnowing = display }));
-        SetOnlyIfCuriousCommand = ReactiveCommand.Create<NeedToKnowDisplay>(display => Apply(_basis with { OnlyIfCurious = display }));
+        SetWorthKnowingCommand = ReactiveCommand.Create<NeedToKnowDisplay>(display =>
+            Apply(new(display, _basis.OnlyIfCurious < display ? display : _basis.OnlyIfCurious)));
+        SetOnlyIfCuriousCommand = ReactiveCommand.Create<NeedToKnowDisplay>(display =>
+            Apply(_basis with { OnlyIfCurious = display < _basis.WorthKnowing ? _basis.WorthKnowing : display }));
     }
 
     public ReactiveCommand<NeedToKnowDisplay, Unit> SetWorthKnowingCommand { get; }
@@ -22,18 +26,28 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
     public bool WorthKnowingNormal => _basis.WorthKnowing == NeedToKnowDisplay.Normal;
     public bool WorthKnowingMarked => _basis.WorthKnowing == NeedToKnowDisplay.Marked;
     public bool WorthKnowingGreyed => _basis.WorthKnowing == NeedToKnowDisplay.Greyed;
+    public bool WorthKnowingCollapsed => _basis.WorthKnowing == NeedToKnowDisplay.Collapsed;
     public bool WorthKnowingHidden => _basis.WorthKnowing == NeedToKnowDisplay.Hidden;
     public bool OnlyIfCuriousNormal => _basis.OnlyIfCurious == NeedToKnowDisplay.Normal;
     public bool OnlyIfCuriousMarked => _basis.OnlyIfCurious == NeedToKnowDisplay.Marked;
     public bool OnlyIfCuriousGreyed => _basis.OnlyIfCurious == NeedToKnowDisplay.Greyed;
+    public bool OnlyIfCuriousCollapsed => _basis.OnlyIfCurious == NeedToKnowDisplay.Collapsed;
     public bool OnlyIfCuriousHidden => _basis.OnlyIfCurious == NeedToKnowDisplay.Hidden;
+    public bool OnlyIfCuriousCanBeNormal => _basis.WorthKnowing <= NeedToKnowDisplay.Normal;
+    public bool OnlyIfCuriousCanBeMarked => _basis.WorthKnowing <= NeedToKnowDisplay.Marked;
+    public bool OnlyIfCuriousCanBeGreyed => _basis.WorthKnowing <= NeedToKnowDisplay.Greyed;
+    public bool OnlyIfCuriousCanBeCollapsed => _basis.WorthKnowing <= NeedToKnowDisplay.Collapsed;
 
     void Apply(NeedToKnowBasis basis) {
         _basis = basis;
         NeedToKnowBasis.Set(basis);
         foreach (var name in new[] {
-                     nameof(WorthKnowingNormal), nameof(WorthKnowingMarked), nameof(WorthKnowingGreyed), nameof(WorthKnowingHidden),
-                     nameof(OnlyIfCuriousNormal), nameof(OnlyIfCuriousMarked), nameof(OnlyIfCuriousGreyed), nameof(OnlyIfCuriousHidden),
+                     nameof(WorthKnowingNormal), nameof(WorthKnowingMarked), nameof(WorthKnowingGreyed),
+                     nameof(WorthKnowingCollapsed), nameof(WorthKnowingHidden),
+                     nameof(OnlyIfCuriousNormal), nameof(OnlyIfCuriousMarked), nameof(OnlyIfCuriousGreyed),
+                     nameof(OnlyIfCuriousCollapsed), nameof(OnlyIfCuriousHidden),
+                     nameof(OnlyIfCuriousCanBeNormal), nameof(OnlyIfCuriousCanBeMarked),
+                     nameof(OnlyIfCuriousCanBeGreyed), nameof(OnlyIfCuriousCanBeCollapsed),
                  })
             this.RaisePropertyChanged(name);
     }

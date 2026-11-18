@@ -21,7 +21,7 @@ public class NeedToKnowViewTests {
             try {
                 await Assert.That(Reads(Paragraphs(root).Single())).IsEqualTo("Tests pass. 7 ran. CI is green.");
 
-                NeedToKnowBasis.Set(NeedToKnowBasis.Default with { WorthKnowing = NeedToKnowDisplay.Hidden });
+                NeedToKnowBasis.Set(NeedToKnowBasis.Default with { WorthKnowing = NeedToKnowDisplay.Collapsed });
                 Dispatcher.UIThread.RunJobs();
                 var hidden = Spans<InlineUIContainer>(Paragraphs(root).Single().Inlines!).Single().Child as TextBlock;
                 await Assert.That(hidden!.Text).IsEqualTo("⋯");

@@ -15,7 +15,7 @@ public class NeedToKnowMarksTests {
     static readonly NeedToKnowBasis AllNormal = new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Normal);
 
     /// One line per leaf block; a graded run shows as `{w:…}` or `{c:…}` when greyed, `[w:…]` when
-    /// marked and `&lt;w:…&gt;` when hidden.
+    /// marked and `&lt;w:…&gt;` when collapsed.
     static string Render(string markdown, NeedToKnowBasis basis) {
         var document = Markdown.Parse(markdown, WithoutPass);
         NeedToKnowMarks.Apply(document, basis);
@@ -47,6 +47,7 @@ public class NeedToKnowMarksTests {
     }
 
     static readonly NeedToKnowBasis AllMarked = new(NeedToKnowDisplay.Marked, NeedToKnowDisplay.Marked);
+    static readonly NeedToKnowBasis AllCollapsed = new(NeedToKnowDisplay.Collapsed, NeedToKnowDisplay.Collapsed);
 
     [Test]
     public async Task A_single_corner_pair_marks_worth_knowing() =>
@@ -62,11 +63,19 @@ public class NeedToKnowMarksTests {
 
     [Test]
     public async Task Each_level_follows_its_own_display() =>
-        await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟ D.", new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Hidden))).IsEqualTo("A. B. <c:C.> D.");
+        await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟ D.", new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Hidden))).IsEqualTo("A. B. D.");
 
     [Test]
-    public async Task A_hidden_span_keeps_its_text_for_the_mark_it_leaves() =>
-        await Assert.That(Render("Tests pass. ⌞7 ran.⌟ CI is green.", AllHidden)).IsEqualTo("Tests pass. <w:7 ran.> CI is green.");
+    public async Task A_collapsed_span_keeps_its_text_for_the_mark_it_leaves() =>
+        await Assert.That(Render("Tests pass. ⌞7 ran.⌟ CI is green.", AllCollapsed)).IsEqualTo("Tests pass. <w:7 ran.> CI is green.");
+
+    [Test]
+    public async Task A_hidden_span_leaves_one_space_between_its_neighbours() =>
+        await Assert.That(Render("Tests pass. ⌞7 ran.⌟ CI is green.", AllHidden)).IsEqualTo("Tests pass. CI is green.");
+
+    [Test]
+    public async Task Only_if_curious_is_never_shown_more_than_worth_knowing() =>
+        await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟", new(NeedToKnowDisplay.Greyed, NeedToKnowDisplay.Normal))).IsEqualTo("A. {w:B.} {c:C.}");
 
     [Test]
     public async Task A_marked_span_is_one_run_however_many_inlines_it_holds() =>
@@ -105,8 +114,19 @@ public class NeedToKnowMarksTests {
         await Assert.That(Render("A. ⌞Run `x`.⌟", AllGreyed)).IsEqualTo("A. {w:Run `x`.}");
 
     [Test]
-    public async Task A_paragraph_hidden_entirely_keeps_its_place_as_a_mark() =>
-        await Assert.That(Render("A.\n\n⌞⌞B.⌟⌟\n\nC.", AllHidden)).IsEqualTo("A.\n<c:B.>\nC.");
+    public async Task A_paragraph_collapsed_entirely_keeps_its_place_as_a_mark() =>
+        await Assert.That(Render("A.\n\n⌞⌞B.⌟⌟\n\nC.", AllCollapsed)).IsEqualTo("A.\n<c:B.>\nC.");
+
+    [Test]
+    public async Task A_paragraph_hidden_entirely_is_removed() =>
+        await Assert.That(Render("A.\n\n⌞⌞B.⌟⌟\n\nC.", AllHidden)).IsEqualTo("A.\nC.");
+
+    [Test]
+    public async Task A_list_hidden_entirely_is_removed() {
+        var document = Markdown.Parse("A.\n\n- ⌞B.⌟\n- ⌞C.⌟", WithoutPass);
+        NeedToKnowMarks.Apply(document, AllHidden);
+        await Assert.That(document.Descendants<ListBlock>().Any()).IsFalse();
+    }
 
     [Test]
     public async Task Text_without_marks_is_untouched() =>
