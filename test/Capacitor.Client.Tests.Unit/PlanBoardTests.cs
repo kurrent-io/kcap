@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core.Plans;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Client.Tests.Unit;
 
@@ -30,7 +31,7 @@ public class PlanBoardTests {
     public async Task Tasks_come_in_ordinal_order() {
         var board = PlanBoard.From(Ready(new SessionPlanDto { Tasks = [Task(3, id: "c"), Task(1, id: "a"), Task(2, id: "b")] }));
 
-        await Assert.That(board!.Tasks.Select(t => t.TaskId).ToArray()).IsEquivalentTo(new[] { "a", "b", "c" });
+        await Assert.That(board!.Tasks.Select(t => t.TaskId).ToArray()).IsEquivalentTo(new[] { "a", "b", "c" }, CollectionOrdering.Matching);
     }
 
     [Test]
