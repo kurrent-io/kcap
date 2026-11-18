@@ -52,11 +52,6 @@
             <Setter Property="Margin" Value="0,8,0,0" />
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Transitions">
-                <Transitions>
-                    <BrushTransition Property="Background" Duration="0:0:0.15" />
-                </Transitions>
-            </Setter>
         </Style>
         <Style Selector="Border.railGroup.workItem">
             <Setter Property="Margin" Value="0,6,0,0" />
@@ -67,11 +62,6 @@
         </Style>
         <Style Selector="Border.railGroup.workItem Button#RailWorkItemHeader">
             <Setter Property="Margin" Value="0" />
-            <Setter Property="Transitions">
-                <Transitions>
-                    <ThicknessTransition Property="Margin" Duration="0:0:0.2" Easing="0.4,0,0.2,1" />
-                </Transitions>
-            </Setter>
         </Style>
         <Style Selector="Border.railGroup.workItem.expanded Button#RailWorkItemHeader">
             <Setter Property="Margin" Value="0,0,0,4" />
@@ -86,11 +76,6 @@
         </Style>
         <Style Selector="Panel.chevronTurn">
             <Setter Property="RenderTransform" Value="rotate(0deg)" />
-            <Setter Property="Transitions">
-                <Transitions>
-                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.2" Easing="0.4,0,0.2,1" />
-                </Transitions>
-            </Setter>
         </Style>
         <Style Selector="Border.railGroup.workItem.expanded Panel.chevronTurn">
             <Setter Property="RenderTransform" Value="rotate(90deg)" />
@@ -648,7 +633,7 @@
                                                 </StackPanel>
                                             </Grid>
                                         </Button>
-                                        <views:FoldPanel IsOpen="{Binding IsExpanded}" Animates="{Binding IsWorkItem}">
+                                        <Panel IsVisible="{Binding IsExpanded}">
                                         <StackPanel>
                                         <ItemsControl ItemsSource="{Binding Sessions}">
                                             <ItemsControl.ItemTemplate>
@@ -713,7 +698,7 @@
                                             <TextBlock Text="{Binding MoreText}" />
                                         </Button>
                                         </StackPanel>
-                                        </views:FoldPanel>
+                                        </Panel>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
