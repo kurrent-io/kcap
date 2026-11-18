@@ -158,9 +158,10 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
         List<string> markers;
 
         try {
-            markers = Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sessionId)}.p*.needs-import")
-                .Where(marker => OwnerOf(marker) is not { } owner || WatcherLiveness.IsGone(owner, ""))
-                .ToList();
+            markers = [
+                .. Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sessionId)}.p*.needs-import")
+                    .Where(marker => OwnerOf(marker) is not { } owner || WatcherLiveness.IsGone(owner, "")),
+            ];
         } catch {
             markers = [];
         }
