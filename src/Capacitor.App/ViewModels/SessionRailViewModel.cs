@@ -241,14 +241,6 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    bool _filtersOpen;
-    /// Starts collapsed on every launch; never persisted.
-    public bool FiltersOpen {
-        get => _filtersOpen;
-        private set => this.RaiseAndSetIfChanged(ref _filtersOpen, value);
-    }
-
-    public ReactiveCommand<Unit, Unit> ToggleFiltersCommand { get; }
     public ReactiveCommand<RailScope, Unit> SetScopeCommand { get; }
     public ReactiveCommand<RailState, Unit> SetStateCommand { get; }
     public ReactiveCommand<RailGrouping, Unit> SetGroupingCommand { get; }
@@ -341,7 +333,6 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             if (project is not null && Grouping == RailGrouping.Repository) Grouping = RailGrouping.WorkItem;
             Project = project;
         }).DisposeWith(_disposables);
-        ToggleFiltersCommand = ReactiveCommand.Create(() => { FiltersOpen = !FiltersOpen; }).DisposeWith(_disposables);
         RestoreRemovedCommand = ReactiveCommand.Create(() => SetRemoved([], persist: true)).DisposeWith(_disposables);
         OpenPreviousSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(-1); }).DisposeWith(_disposables);
         OpenNextSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(1); }).DisposeWith(_disposables);

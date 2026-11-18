@@ -797,7 +797,7 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Clicking_the_team_segment_changes_the_rails_scope_and_persists_it() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Picking_team_in_the_scope_menu_changes_the_rails_scope_and_persists_it() => AvaloniaSession.RunOnUiAsync(async () => {
         var service = new FakeDaemonClientService();
         service.StatusSubject.OnNext(new(AttachState.Connected, null, null));
         using var directory = new FakeAgentDirectory();
@@ -810,16 +810,23 @@ public class MainWindowSmokeTests {
         Dispatcher.UIThread.RunJobs();
         try {
             var view = window.FindDescendantOfType<SessionRailView>()!;
-            var mine = view.FindControl<Button>("RailScopeMineButton")!;
+            var filter = view.FindControl<Button>("RailFilterButton")!;
+            var scope = view.FindControl<Button>("RailScopeButton")!;
+            filter.Flyout!.ShowAt(filter);
+            Dispatcher.UIThread.RunJobs();
+            scope.Flyout!.ShowAt(scope);
+            Dispatcher.UIThread.RunJobs();
             var team = view.FindControl<Button>("RailScopeTeamButton")!;
-            await Assert.That(mine.Classes.Contains("active")).IsTrue();
+            static bool Checked(Button row) => row.GetVisualDescendants().OfType<AppIcon>().Single().IsVisible;
+            var mine = view.FindControl<Button>("RailScopeMineButton")!;
+            await Assert.That(Checked(mine)).IsTrue();
 
-            team.Command!.Execute(team.CommandParameter);
+            team.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             Dispatcher.UIThread.RunJobs();
 
             await Assert.That(rail.Scope).IsEqualTo(RailScope.Team);
-            await Assert.That(team.Classes.Contains("active")).IsTrue();
-            await Assert.That(mine.Classes.Contains("active")).IsFalse();
+            await Assert.That(scope.Flyout.IsOpen).IsFalse();
+            await Assert.That(filter.Flyout.IsOpen).IsTrue();
             await Assert.That(persisted.Select(p => p.Scope)).IsEquivalentTo(new[] { RailScope.Team });
         } finally {
             window.Close();
@@ -1845,18 +1852,17 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Rail_shows_search_field_and_hides_filters_until_toggled() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Rail_shows_search_field_and_opens_filters_in_a_flyout() => AvaloniaSession.RunOnUiAsync(async () => {
         using var host = new SearchWindowHost();
         var field = host.Named<Button>("RailSearchButton");
         var filter = host.Named<Button>("RailFilterButton");
-        var controls = host.Named<StackPanel>("RailControls");
         var placeholder = host.Named<TextBlock>("RailSearchText").Text;
         var shortcut = host.Named<TextBlock>("RailSearchShortcut");
-        var collapsed = controls.IsVisible;
+        var collapsed = filter.Flyout!.IsOpen;
 
         Click(host, filter);
-        var expanded = controls.IsVisible;
-        var active = filter.Classes.Contains("active");
+        var expanded = filter.Flyout.IsOpen;
+        var active = filter.Classes.Contains(":flyout-open");
         Click(host, filter);
 
         await Assert.That(field.IsEffectivelyVisible).IsTrue();
@@ -1867,8 +1873,8 @@ public class MainWindowSmokeTests {
         await Assert.That(collapsed).IsFalse();
         await Assert.That(expanded).IsTrue();
         await Assert.That(active).IsTrue();
-        await Assert.That(controls.IsVisible).IsFalse();
-        await Assert.That(filter.Classes.Contains("active")).IsFalse();
+        await Assert.That(filter.Flyout.IsOpen).IsFalse();
+        await Assert.That(filter.Classes.Contains(":flyout-open")).IsFalse();
     });
 
     [Test]
@@ -1887,7 +1893,7 @@ public class MainWindowSmokeTests {
         await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
         await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Default list settings");
         Click(host, filter);
-        await Assert.That(host.Rail.FiltersOpen).IsTrue();
+        await Assert.That(filter.Flyout!.IsOpen).IsTrue();
         await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
         var expandedBackground = presenter.Background;
         await Assert.That(expandedBackground).IsNotSameReferenceAs(collapsedBackground);
@@ -1902,7 +1908,7 @@ public class MainWindowSmokeTests {
         Click(host, filter);
         host.Window.MouseMove(new Point(0, 0));
         host.Settle();
-        await Assert.That(host.Rail.FiltersOpen).IsFalse();
+        await Assert.That(filter.Flyout.IsOpen).IsFalse();
         await Assert.That(icon.Foreground).IsSameReferenceAs(blue);
         await Assert.That(presenter.Background).IsSameReferenceAs(collapsedBackground);
 

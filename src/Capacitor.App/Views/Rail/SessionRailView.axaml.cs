@@ -19,7 +19,9 @@ public partial class SessionRailView : UserControl {
 
     public SessionRailView() {
         InitializeComponent();
-        foreach (var anchor in new[] { RailHelpButton, RailGroupButton, RailSortButton }) KeyboardDismissible(anchor);
+        KeyboardDismissible(RailHelpButton);
+        foreach (var anchor in new[] { RailFilterButton, RailGroupButton, RailSortButton, RailScopeButton, RailStateButton })
+            KeyboardDismissible(anchor, NavigationMethod.Pointer);
         RailGroups.AddHandler(PointerPressedEvent, OnRowsPointerPressed, RoutingStrategies.Tunnel);
         RailGroups.AddHandler(ContextRequestedEvent, OnRowsContextRequested);
         _rowMenu = (Flyout)Resources["RailRowMenu"]!;
@@ -31,11 +33,11 @@ public partial class SessionRailView : UserControl {
     }
 
     // A pointer-opened flyout leaves focus on its button, outside the popup, where Escape never reaches it.
-    static void KeyboardDismissible(Button anchor) {
+    static void KeyboardDismissible(Button anchor, NavigationMethod focus = NavigationMethod.Tab) {
         if (anchor.Flyout is not Flyout { Content: Control content } flyout) return;
 
-        flyout.Opened += (_, _) => FocusFirstItem(content, NavigationMethod.Tab);
-        content.AddHandler(KeyDownEvent, (_, e) => DismissOnEscape(flyout, anchor, e, NavigationMethod.Tab), RoutingStrategies.Bubble);
+        flyout.Opened += (_, _) => FocusFirstItem(content, focus);
+        content.AddHandler(KeyDownEvent, (_, e) => DismissOnEscape(flyout, anchor, e, focus), RoutingStrategies.Bubble);
     }
 
     static void FocusFirstItem(Control content, NavigationMethod method) =>
@@ -106,6 +108,10 @@ public partial class SessionRailView : UserControl {
     void OnGroupPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailGroupButton, sender, e);
 
     void OnSortPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailSortButton, sender, e);
+
+    void OnScopePickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailScopeButton, sender, e);
+
+    void OnStatePickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailStateButton, sender, e);
 
     void OnProjectPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailProjectButton, sender, e);
 

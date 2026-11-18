@@ -1,4 +1,3 @@
-using System.Reactive.Linq;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 
@@ -7,23 +6,6 @@ namespace Capacitor.App.Tests.Unit.ViewModels;
 public class SessionRailFilterTests {
     static SessionRailViewModel Build(FakeAgentDirectory directory, bool scopeLocked = false, RailPreferences? preferences = null) =>
         new(directory, _ => { }, _ => { }, TimeProvider.System, preferences: preferences, scopeLocked: scopeLocked);
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task Filters_start_closed_and_toggle() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            using var directory = new FakeAgentDirectory();
-            using var rail = Build(directory);
-            var raised = new List<string?>();
-            rail.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
-            await Assert.That(rail.FiltersOpen).IsFalse();
-            await rail.ToggleFiltersCommand.Execute();
-            await Assert.That(rail.FiltersOpen).IsTrue();
-            await rail.ToggleFiltersCommand.Execute();
-            await Assert.That(rail.FiltersOpen).IsFalse();
-            await Assert.That(raised.Count(n => n == nameof(SessionRailViewModel.FiltersOpen))).IsEqualTo(2);
-        });
-    }
 
     [Test]
     [NotInParallel("AvaloniaSession")]
