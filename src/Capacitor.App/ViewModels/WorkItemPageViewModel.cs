@@ -11,11 +11,9 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// A work item's page in the main area: its goal, links, progress and slices grouped by status. Statuses and progress
+/// A work item's page in the main area: its goal and slices grouped by status, with its links and Pages beside them. Statuses and progress
 /// are the server's, the same for every viewer; sessions and "Needs you" cover only what this viewer can see.
 public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
-    const string LinksKey = "links";
-    const string PagesKey = "pages";
     const string LooseEndsKey = "loose_ends";
     const string OnWorkItemKey = "on_work_item";
 
@@ -35,10 +33,10 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
     public string Title { get => _title; private set => this.RaiseAndSetIfChanged(ref _title, value); }
     string? _goal;
     public string? Goal { get => _goal; private set => this.RaiseAndSetIfChanged(ref _goal, value); }
-    WorkItemPageGroupViewModel? _linksGroup;
-    public WorkItemPageGroupViewModel? LinksGroup { get => _linksGroup; private set => this.RaiseAndSetIfChanged(ref _linksGroup, value); }
-    WorkItemPageGroupViewModel? _pagesGroup;
-    public WorkItemPageGroupViewModel? PagesGroup { get => _pagesGroup; private set => this.RaiseAndSetIfChanged(ref _pagesGroup, value); }
+    IReadOnlyList<WorkItemPageLink> _links = [];
+    public IReadOnlyList<WorkItemPageLink> Links { get => _links; private set => this.RaiseAndSetIfChanged(ref _links, value); }
+    IReadOnlyList<WorkItemPublishedPage> _pages = [];
+    public IReadOnlyList<WorkItemPublishedPage> Pages { get => _pages; private set => this.RaiseAndSetIfChanged(ref _pages, value); }
     /// The done share of the progress ring, in degrees.
     double _progressSweep;
     public double ProgressSweep { get => _progressSweep; private set => this.RaiseAndSetIfChanged(ref _progressSweep, value); }
@@ -134,11 +132,9 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
 
         Title = read.WorkItem.Title;
         Goal = string.IsNullOrWhiteSpace(read.Goal) ? null : read.Goal.Trim();
-        var links = LinksOf(read.Links);
-        LinksGroup = links.Count == 0 ? null : Group(LinksKey, null, "Links", LucideIconKind.CircleDot, links: links);
-        var pages = read.Pages.Select(page => new WorkItemPublishedPage(
-            string.IsNullOrWhiteSpace(page.Title) ? "Untitled page" : page.Title, $"v{page.LatestVersion}", Ago(page.UpdatedAt), page.Url)).ToList();
-        PagesGroup = pages.Count == 0 ? null : Group(PagesKey, null, "Pages", LucideIconKind.FileText, pages: pages);
+        Links = LinksOf(read.Links);
+        Pages = [.. read.Pages.Select(page => new WorkItemPublishedPage(
+            string.IsNullOrWhiteSpace(page.Title) ? "Untitled page" : page.Title, $"v{page.LatestVersion} · {Ago(page.UpdatedAt)}", page.Url))];
 
         var parts = read.Parts.Select(part => PartOf(part, rows)).ToList();
         var done = parts.Count(part => part.Status == WorkStatus.Done);
@@ -160,10 +156,9 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
     }
 
     WorkItemPageGroupViewModel Group(string key, WorkStatus? status, string label, LucideIconKind icon,
-            IReadOnlyList<WorkItemPageLink>? links = null, IReadOnlyList<WorkItemPagePart>? parts = null,
-            IReadOnlyList<WorkItemPageSession>? sessions = null, IReadOnlyList<WorkItemPageLooseEnd>? looseEnds = null,
-            IReadOnlyList<WorkItemPublishedPage>? pages = null, bool expandedByDefault = true) =>
-        new(key, status, label, icon, links ?? [], parts ?? [], sessions ?? [], looseEnds ?? [], pages ?? [],
+            IReadOnlyList<WorkItemPagePart>? parts = null, IReadOnlyList<WorkItemPageSession>? sessions = null,
+            IReadOnlyList<WorkItemPageLooseEnd>? looseEnds = null, bool expandedByDefault = true) =>
+        new(key, status, label, icon, parts ?? [], sessions ?? [], looseEnds ?? [],
             expandedByDefault ^ _flippedGroups.Contains(key), expanded => {
             if (expanded == expandedByDefault) _flippedGroups.Remove(key);
             else _flippedGroups.Add(key);

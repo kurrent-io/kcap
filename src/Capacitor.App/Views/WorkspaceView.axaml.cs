@@ -20,7 +20,7 @@ public partial class WorkspaceView : UserControl {
 
     public WorkspaceView() {
         InitializeComponent();
-        ContextPaneSizing.Attach(this, SplitGrid.ColumnDefinitions[1], WorkContextHost, WorkContextHost, ContextSplitter,
+        ContextPaneSizing.Attach(this, SplitGrid.ColumnDefinitions[1], WorkContextHost, WorkContextHost.HideButton, ContextSplitter,
             ContextShowButton);
         RailClearance.Attach(this, SessionHeader);
         TerminalClipboard.Attach(this, TerminalHost);

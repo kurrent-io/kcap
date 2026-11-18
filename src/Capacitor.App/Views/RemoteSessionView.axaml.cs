@@ -17,7 +17,7 @@ public partial class RemoteSessionView : UserControl {
 
     public RemoteSessionView() {
         InitializeComponent();
-        ContextPaneSizing.Attach(this, SplitGrid.ColumnDefinitions[1], ContextColumn, WorkContextHost, ContextSplitter,
+        ContextPaneSizing.Attach(this, SplitGrid.ColumnDefinitions[1], ContextColumn, WorkContextHost.HideButton, ContextSplitter,
             ContextShowButton);
         RailClearance.Attach(this, SessionHeader);
         TerminalClipboard.Attach(this, TerminalHost);

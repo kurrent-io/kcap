@@ -10,6 +10,7 @@ namespace Capacitor.App.Views;
 public partial class WorkItemPageView : UserControl {
     public WorkItemPageView() {
         InitializeComponent();
+        ContextPaneSizing.Attach(this, SplitGrid.ColumnDefinitions[1], DetailsPane, HideButton, ContextSplitter, ContextShowButton);
         _ = new RowMenu(this, "sessionRow", row =>
             row is WorkItemPageSession session && DataContext is WorkItemPageViewModel page ? page.MenuFor(session) : []);
     }

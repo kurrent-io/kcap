@@ -3,11 +3,11 @@ using Capacitor.App.Services;
 
 namespace Capacitor.App.Views;
 
-/// Sizes a session view's work-context column from its window's <see cref="PaneLayout"/>. Outside a
+/// Sizes a view's details column from its window's <see cref="PaneLayout"/>. Outside a
 /// <see cref="MainWindow"/> the column keeps its minimum width and neither button shows, since
 /// nothing could bring a hidden pane back.
 public static class ContextPaneSizing {
-    public static void Attach(Control view, ColumnDefinition column, Control pane, WorkContextView content,
+    public static void Attach(Control view, ColumnDefinition column, Control pane, Button hideButton,
             GridSplitter splitter, Button showButton) {
         PaneLayout? panes = null;
 
@@ -18,7 +18,7 @@ public static class ContextPaneSizing {
             pane.IsVisible = !collapsed;
             splitter.IsVisible = !collapsed;
             showButton.IsVisible = collapsed;
-            content.HideButton.IsVisible = panes is not null;
+            hideButton.IsVisible = panes is not null;
         }
 
         void OnChanged(object? sender, EventArgs e) => Apply();
@@ -46,7 +46,7 @@ public static class ContextPaneSizing {
             panes.ContextWidth = hides ? PaneLayout.ContextMinWidth : column.ActualWidth;
             if (hides) panes.ContextCollapsed = true;
         };
-        content.HideRequested += (_, _) => {
+        hideButton.Click += (_, _) => {
             if (panes is not null) panes.ContextCollapsed = true;
         };
         showButton.Click += (_, _) => {
