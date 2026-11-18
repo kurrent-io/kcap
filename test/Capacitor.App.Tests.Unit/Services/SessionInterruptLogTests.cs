@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Capacitor.App.Services;
 using Capacitor.Remote.Models;
+using static Capacitor.App.Tests.Unit.WorkspaceFixtures;
 
 namespace Capacitor.App.Tests.Unit.Services;
 
@@ -15,6 +16,10 @@ public class SessionInterruptLogTests {
         public bool Failing;
         public DateTimeOffset? EndedAt;
         public int Summaries;
+        /// Positions the server counts but withholds from this viewer, as it does a hidden continuation link.
+        public readonly HashSet<int> Withheld = [];
+        /// When set, every page waits on it.
+        public TaskCompletionSource? Hold;
 
         public Stream Append(params string[] events) {
             foreach (var json in events)
@@ -22,13 +27,15 @@ public class SessionInterruptLogTests {
             return this;
         }
 
-        public Task<SubagentEventsFetch> Read(string sessionId, long from, CancellationToken ct) {
+        public async Task<SubagentEventsFetch> Read(string sessionId, long from, CancellationToken ct) {
             lock (Froms) Froms.Add(from);
-            if (Missing) return Task.FromResult(new SubagentEventsFetch(null, NotFound: true));
-            if (Failing) return Task.FromResult(new SubagentEventsFetch(null, Failure: "down"));
-            var page = _events.Skip((int)from).Take(PageSize).ToArray();
-            int? next = from + page.Length < _events.Count ? (int)from + page.Length : null;
-            return Task.FromResult(new SubagentEventsFetch(new SubagentEventsDto { Events = page, NextFrom = next, LastEventNumber = _events.Count - 1 }));
+            if (Hold is { } hold) await hold.Task.WaitAsync(ct);
+            if (Missing) return new SubagentEventsFetch(null, NotFound: true);
+            if (Failing) return new SubagentEventsFetch(null, Failure: "down");
+            var raw = Enumerable.Range((int)from, Math.Max(0, Math.Min(PageSize, _events.Count - (int)from))).ToArray();
+            var page = raw.Where(i => !Withheld.Contains(i)).Select(i => _events[i]).ToArray();
+            int? next = from + raw.Length < _events.Count ? (int)from + raw.Length : null;
+            return new SubagentEventsFetch(new SubagentEventsDto { Events = page, NextFrom = next, LastEventNumber = _events.Count - 1 });
         }
 
         public Task<SummaryFetch> Summary(string sessionId, CancellationToken ct) {
@@ -49,6 +56,7 @@ public class SessionInterruptLogTests {
 
     internal const string Line = """{"event_type":"AssistantMessage","event_number":0,"payload":{"text":"working"}}""";
     internal const string Ended = """{"event_type":"SessionEnded","event_number":0,"payload":{}}""";
+    internal const string Resumed = """{"event_type":"SessionStarted","event_number":0,"payload":{}}""";
 
     static async Task<string[]> PendingIds(SessionInterruptLog log) =>
         [.. (await log.ReadAsync("s1", CancellationToken.None)).Interrupts!.Pending.Select(p => p.RequestId)];
@@ -81,31 +89,69 @@ public class SessionInterruptLogTests {
         await Assert.That(stream.Summaries).IsEqualTo(1);
     }
 
+    /// A summary's end is not kept: the session can resume under the same id.
     [Test]
-    public async Task An_ended_session_is_answered_by_its_summary_and_never_read_again() {
+    public async Task An_ended_session_is_answered_by_its_summary_without_reading_the_stream() {
         var stream = new Stream { EndedAt = DateTimeOffset.UnixEpoch }.Append(Issued("r1"));
         var log = stream.Log();
 
-        var first = await log.ReadAsync("s1", CancellationToken.None);
-        var second = await log.ReadAsync("s1", CancellationToken.None);
-
-        await Assert.That(first.Interrupts!.Ended).IsTrue();
-        await Assert.That(second.Interrupts!.Pending).IsEmpty();
+        await Assert.That((await log.ReadAsync("s1", CancellationToken.None)).Interrupts!.Ended).IsTrue();
         await Assert.That(stream.Froms).IsEmpty();
-        await Assert.That(stream.Summaries).IsEqualTo(1);
+
+        stream.EndedAt = null;
+        await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "r1" });
+        await Assert.That(stream.Summaries).IsEqualTo(2);
     }
 
     [Test]
-    public async Task An_end_in_the_stream_clears_everything_and_stops_further_reads() {
+    public async Task An_end_clears_what_was_pending_and_a_resume_under_the_same_id_opens_it_again() {
         var stream = new Stream().Append(Issued("r1"));
         var log = stream.Log();
         await PendingIds(log);
-        stream.Append(Ended);
 
-        await Assert.That(await PendingIds(log)).IsEmpty();
+        stream.Append(Ended);
+        var ended = await log.ReadAsync("s1", CancellationToken.None);
+        await Assert.That(ended.Interrupts!.Ended).IsTrue();
+        await Assert.That(ended.Interrupts.Pending).IsEmpty();
+
         stream.Froms.Clear();
+        stream.Append(Resumed, Issued("r2"));
+        await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "r2" });
+        await Assert.That(stream.Froms[0]).IsEqualTo(2);
+    }
+
+    /// A read that arrives during a first scan waits for it and then reads only what follows it,
+    /// rather than scanning the whole stream a second time beside it.
+    [Test]
+    public async Task A_read_during_a_first_scan_continues_from_where_the_scan_stopped() {
+        var stream = new Stream { Hold = new(TaskCreationOptions.RunContinuationsAsynchronously) }.Append(Issued("r1"), Line, Line, Line);
+        var log = stream.Log();
+        var first = log.ReadAsync("s1", CancellationToken.None);
+        await WaitUntilAsync(() => { lock (stream.Froms) return stream.Froms.Count == 1; }, what: "scan started");
+        var second = log.ReadAsync("s1", CancellationToken.None);
+        await Task.Delay(50);
+        lock (stream.Froms) stream.Froms.Add(-1);
+        stream.Hold.SetResult();
+
+        await Task.WhenAll(first, second);
+        await Assert.That((await second).Interrupts!.Pending.Select(p => p.RequestId)).IsEquivalentTo(new[] { "r1" });
+        await Assert.That(string.Join(",", stream.Froms)).IsEqualTo("0,-1,2,4");
+    }
+
+    /// The server counts events it withholds, so its cursor is followed even past a page that came back empty.
+    [Test]
+    public async Task The_servers_cursor_is_followed_past_withheld_events() {
+        var stream = new Stream().Append(Line, Line, Issued("r1"));
+        stream.Withheld.UnionWith([0, 1]);
+        var log = stream.Log();
+
+        await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "r1" });
+        await Assert.That(stream.Froms).IsEquivalentTo(new long[] { 0, 2 });
+
+        stream.Froms.Clear();
+        stream.Append(Resolved("r1"));
         await Assert.That(await PendingIds(log)).IsEmpty();
-        await Assert.That(stream.Froms).IsEmpty();
+        await Assert.That(stream.Froms[0]).IsEqualTo(3);
     }
 
     /// A failed page says nothing about the session, and a retry continues from what was folded.

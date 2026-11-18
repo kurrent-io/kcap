@@ -3,37 +3,39 @@ namespace Capacitor.App.Services;
 /// Folds each session's interrupts from its event stream, reading only the events after the ones
 /// already folded. A session read for the first time is folded from its first event: an interrupt
 /// issued anywhere in the stream and never resolved is still pending, so no tail window is enough.
-/// Only an ended session skips that, since an end clears every interrupt: on the listing's word
-/// when it lists the session, held for no longer than the answer, else on its summary's.
+/// A session the listing or its summary shows ended is answered without reading the stream, and
+/// that answer is not kept: a session resumes under the same id. Reads of one session run one at a
+/// time, so a read that queues behind a first scan continues from where the scan stopped.
 /// One log per reconciler: a read joined from elsewhere could predate the ping that asked for it.
 public sealed class SessionInterruptLog(
         SessionEventsReader readEvents, Func<string, CancellationToken, Task<SummaryFetch>> readSummary,
         Func<string, bool?>? listedEnded = null) : ISessionInterruptSource {
-    /// From is the count of events folded into Interrupts.
+    /// From is the server's cursor past the events folded into Interrupts.
     sealed record Folded(long From, InterruptReconciliation Interrupts);
 
-    static readonly Folded Empty = new(0, new([], false));
+    static readonly InterruptReconciliation Ended = new([], true);
 
     readonly Dictionary<string, Folded> _folded = new(StringComparer.Ordinal);
+    readonly SessionGates _gates = new();
     readonly Lock _lock = new();
     long _generation;
 
     public async Task<SessionInterruptsFetch> ReadAsync(string sessionId, CancellationToken ct) {
+        using var _ = await _gates.EnterAsync(sessionId).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
         Folded? known;
         long generation;
         lock (_lock) {
             known = _folded.GetValueOrDefault(sessionId);
             generation = _generation;
         }
-        if (known is { Interrupts.Ended: true }) return new(known.Interrupts);
-        var listed = known is null ? listedEnded?.Invoke(sessionId) : null;
-        if (listed is true) return new(new([], true));
-        if (known is null && listed is null && await readSummary(sessionId, ct).ConfigureAwait(false) is { Outcome: ServerReadOutcome.Ok, Session.EndedAt: not null }) {
-            var ended = new Folded(0, new([], true));
-            Commit(sessionId, ended, generation);
-            return new(ended.Interrupts);
+        if (known is null) {
+            var listed = listedEnded?.Invoke(sessionId);
+            if (listed is true) return new(Ended);
+            if (listed is null && await readSummary(sessionId, ct).ConfigureAwait(false) is { Outcome: ServerReadOutcome.Ok, Session.EndedAt: not null })
+                return new(Ended);
         }
-        var folded = known ?? Empty;
+        var folded = known ?? new Folded(0, new([], false));
         while (true) {
             var page = await readEvents(sessionId, folded.From, ct).ConfigureAwait(false);
             if (page.NotFound) {
@@ -41,13 +43,16 @@ public sealed class SessionInterruptLog(
                 return new(null, NotFound: true);
             }
             if (page.Page is not { } body) {
-                if (!ReferenceEquals(folded, known ?? Empty)) Commit(sessionId, folded, generation);
+                if (!ReferenceEquals(folded, known) && folded.From > 0) Commit(sessionId, folded, generation);
                 return new(null);
             }
             var events = body.Events ?? [];
-            var next = body.NextFrom is { } n && n > folded.From ? n : folded.From + events.Length;
+            // The server counts events it then withholds from this viewer, so its cursor is the one
+            // to follow, past an empty page too; at the tail, re-reading a withheld one folds nothing new.
+            var from = folded.From;
+            var next = body.NextFrom is { } n && n > from ? n : from + events.Length;
             folded = new(next, InterruptReconciliation.Fold(folded.Interrupts, events));
-            if (body.NextFrom is null || events.Length == 0 || folded.Interrupts.Ended) break;
+            if (body.NextFrom is null || next <= from) break;
         }
         Commit(sessionId, folded, generation);
         return new(folded.Interrupts);
@@ -60,13 +65,7 @@ public sealed class SessionInterruptLog(
         }
     }
 
-    /// Two reads of one session can overlap; the one that folded further holds everything the other saw.
     void Commit(string sessionId, Folded folded, long generation) {
-        lock (_lock) {
-            if (generation != _generation) return;
-            if (_folded.TryGetValue(sessionId, out var current)
-                && (current.Interrupts.Ended || !folded.Interrupts.Ended && current.From > folded.From)) return;
-            _folded[sessionId] = folded;
-        }
+        lock (_lock) if (generation == _generation) _folded[sessionId] = folded;
     }
 }
