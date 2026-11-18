@@ -95,6 +95,9 @@
         <Style Selector="WindowDrawnDecorations:has-border /template/ Border#PART_WindowBorder">
             <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
         </Style>
+        <Style Selector="WindowDrawnDecorations /template/ :is(Control)#PART_FullScreenButton">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
         <StyleInclude Source="avares://MarkView.Avalonia/Themes/MarkdownTheme.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/MarkdownStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/PullRequestStyles.axaml" />
