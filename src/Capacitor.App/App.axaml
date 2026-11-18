@@ -44,6 +44,10 @@
             <SolidColorBrush x:Key="KcapBookmarkCyanBrush" Color="#5CC8E0" />
             <SolidColorBrush x:Key="KcapBookmarkPinkBrush" Color="#F08CB8" />
             <SolidColorBrush x:Key="KcapBookmarkSlateBrush" Color="#9AA3B2" />
+            <SolidColorBrush x:Key="KcapBookmarkOrchidBrush" Color="#DD83D9" />
+            <SolidColorBrush x:Key="KcapBookmarkSandBrush" Color="#D6C49C" />
+            <SolidColorBrush x:Key="KcapBookmarkClayBrush" Color="#C0927C" />
+            <SolidColorBrush x:Key="KcapBookmarkPearlBrush" Color="#E4E7EE" />
             <Color x:Key="ScrollBarThumbBackgroundColor">#3A66B8</Color>
             <Color x:Key="ScrollBarPanningThumbBackgroundColor">#3A66B8</Color>
             <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#3A66B8" />
