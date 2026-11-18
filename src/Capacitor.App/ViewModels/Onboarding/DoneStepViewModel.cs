@@ -131,14 +131,15 @@ public sealed class DoneStepViewModel : ReactiveObject, IWizardStep {
     /// Hooks load at agent start, so an agent open since before setup stores nothing until it is launched again,
     /// and when setup changed PATH, a terminal open since before it cannot run the hooks either. VS Code is the
     /// exception: it runs new hooks at once, and only the kcap tools wait for it to start again.
-    public string? RestartLine => !CapturePromised ? null : string.Join(". ", RestartParts());
+    public string? RestartLine => RestartParts().ToList() is { Count: > 0 } parts ? string.Join(". ", parts) : null;
 
+    /// The tools reminder stands on its own: Copilot's tools can be installed while nothing records.
     IEnumerable<string> RestartParts() {
         var copilotOnly = _current is { CopilotRecording: true, Recording.Count: 1 };
-        if (!copilotOnly) yield return AgentRestart;
-        if (_current.CopilotRecording) yield return "Chats in VS Code are stored now";
+        if (CapturePromised && !copilotOnly) yield return AgentRestart;
+        if (CapturePromised && _current.CopilotRecording) yield return "Chats in VS Code are stored now";
         if (_current.CopilotTools) yield return "Quit and reopen VS Code to give Copilot kcap's tools";
-        if (copilotOnly)
+        if (CapturePromised && copilotOnly)
             yield return _current.PathAdded
                 ? "Launch any Copilot CLI session again from a new terminal"
                 : "Restart any Copilot CLI session running in a terminal";
