@@ -15,8 +15,17 @@ public sealed class CopilotContext : TranscriptContext {
     /// case every line is held back until the transcript's own <c>session.start</c> arrives, since nothing else tells a
     /// fork's copied lines from its own. The parent's spend is not recoverable, so a rebuilt fork reports no billing
     /// totals. A context never seeded holds nothing back.
-    public void Seed(bool isFork, DateTimeOffset? transcriptStart) {
+    /// <paramref name="movedFromLocal"/>: the transcript is a chat moved from Local. Its stored
+    /// <see cref="CopilotTranscriptEvents.MoveMarkerKey"/> link and the line of the resume that ended its copied history
+    /// say the history is over; without both, the lines up to its next resume are held back as the history's.
+    public void Seed(bool isFork, DateTimeOffset? transcriptStart, bool movedFromLocal = false, int? movedHistoryEndsAtLine = null) {
         if (isFork) IsFork = true;
+
+        if (movedFromLocal) {
+            MovedFromLocal           = true;
+            InMovedHistory           = movedHistoryEndsAtLine is null;
+            MovedHistoryEndsAtLine ??= movedHistoryEndsAtLine;
+        }
 
         if (transcriptStart is null) StartUnknown = true;
         else CopiedLinesBefore ??= transcriptStart;
@@ -36,6 +45,14 @@ public sealed class CopilotContext : TranscriptContext {
     internal DateTimeOffset? CopiedLinesBefore { get; set; }
 
     internal bool StartUnknown { get; set; }
+
+    internal bool MovedFromLocal { get; set; }
+
+    /// Inside the Local chat's history that a moved chat repeats, from its start to its first resume.
+    internal bool InMovedHistory { get; set; }
+
+    /// The line of the resume that ended a moved chat's history, so a line before it sent again is known for a copy.
+    internal int? MovedHistoryEndsAtLine { get; set; }
 
     /// A fork's cumulative totals include its parent's.
     internal bool IsFork { get; set; }

@@ -299,10 +299,9 @@ internal sealed class CopilotImportSource : IImportSource {
             return ImportOutcome.Failed;
         }
 
-        var usageOk = true;
-        if (classification.SourceMeta.GetValueOrDefault(ChatSessionLogKey) is string chatLog) {
-            usageOk = await PostVsCodeLocalAsync(ctx, classification.SessionId, transcriptPath, chatLog, ct);
-        }
+        var usageOk = classification.SourceMeta.GetValueOrDefault(ChatSessionLogKey) is string chatLog
+            ? await PostVsCodeLocalAsync(ctx, classification.SessionId, transcriptPath, chatLog, ct)
+            : await PostMovedFromAsync(ctx, classification.SessionId, transcriptPath, ct);
 
         // Best-effort: a title miss must not fail the import.
         if (classification.SourceMeta.GetValueOrDefault(WorkspaceYamlKey) is string workspaceYaml) {
@@ -354,6 +353,37 @@ internal sealed class CopilotImportSource : IImportSource {
         await ImportHarnessTitle.PostFromStoreAsync(new VsCodeChatTitle(cache), ctx.HttpClient, _time, ctx.BaseUrl, sessionId, ctx.Progress, ct);
 
         return delivered;
+    }
+
+    /// <summary>For a chat moved from Local, the marker naming the Local chat it came from, posted on every
+    /// classification as the usage lines are: it sits above the transcript watermark and dedupes by id. False only when
+    /// the server refused it; a transcript of any other chat, or a Local chat not found, posts nothing.</summary>
+    async Task<bool> PostMovedFromAsync(ImportContext ctx, string sessionId, string transcriptPath, CancellationToken ct) {
+        CopilotMovedChat.History? history;
+        try {
+            history = CopilotMovedChat.Read(File.ReadLinesShared(transcriptPath));
+        } catch (Exception ex) when (IsUnreadable(ex)) {
+            return true;
+        }
+
+        if (history is null || CopilotMovedChat.FindLocalChat(_vsCodeWorkspaceStorageDirs, history) is not { } local) return true;
+
+        var batch = new TranscriptBatch {
+            SessionId   = sessionId,
+            Lines       = [CopilotMovedChat.Marker(sessionId, local, history.ResumedAt)],
+            LineNumbers = [CopilotMovedChat.MarkerLineNumber],
+            Vendor      = HarnessId.Copilot.VendorId,
+            Strict      = false,
+        };
+
+        try {
+            using var content = new StringContent(JsonSerializer.Serialize(batch, CapacitorJsonContext.Default.TranscriptBatch), Encoding.UTF8, "application/json");
+            using var resp    = await ctx.HttpClient.PostWithRetryAsync($"{ctx.BaseUrl}/hooks/transcript", content, _time, ct: ct);
+
+            return resp.IsSuccessStatusCode;
+        } catch (Exception ex) when (ex is HttpRequestException or IOException) {
+            return false;
+        }
     }
 
     /// <summary>The repository as Copilot recorded it, the checkout filling what it left out. The branch is

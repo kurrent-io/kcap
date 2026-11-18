@@ -7,6 +7,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.Titles;
@@ -299,6 +300,8 @@ public sealed class RecorderHousekeeping(
         await LinkSecondaryPullRequestsAsync(state, sessionId,
             FinalSecondaryProbeDeadline - time.GetElapsedTime(shutdownStarted), ct, _beat);
     }
+
+    public IReadOnlyList<string> VsCodeWorkspaceStorageDirs => harnesses.Of<CopilotHarness>().Paths.VsCodeWorkspaceStorageDirs;
 
     public IReadOnlyList<(long Idx, string Line)> ReadAntigravityUsage(string dbPath, long afterIdx, string? createdAt) =>
         host.ReadAntigravityUsage(dbPath, afterIdx, createdAt);

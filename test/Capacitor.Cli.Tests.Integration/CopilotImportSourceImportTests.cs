@@ -128,6 +128,48 @@ public class CopilotImportSourceImportTests : IDisposable {
         }
     }
 
+    /// <summary>A chat VS Code moved from Local is imported with the marker naming the Local chat whose request has its
+    /// first copied prompt's time and text, so the server links the two as the live watcher's marker does.</summary>
+    [Test]
+    public async Task An_import_of_a_chat_moved_from_local_names_its_local_chat() {
+        const string localId = "fa0d6e8d-7c9d-446f-a93c-5a2a89e011b4";
+        var dir = Path.Combine(CopilotLayout.SessionStateDir, DashedSid);
+        Directory.CreateDirectory(dir);
+        await File.WriteAllLinesAsync(Path.Combine(dir, "events.jsonl"), new[] {
+            $$$"""{"type":"session.start","data":{"sessionId":"{{{DashedSid}}}","producer":"vscode-copilot-migration","context":{"cwd":"/work/a"}},"id":"e1","timestamp":"2026-11-18T17:51:27.398Z","parentId":null}""",
+            """{"type":"user.message","data":{"content":"Add multiply."},"id":"e2","timestamp":"2026-11-18T17:51:27.408Z","parentId":"e1"}""",
+            """{"type":"session.resume","data":{"context":{}},"id":"e3","timestamp":"2026-11-18T17:53:40.853Z","parentId":"e2"}""",
+            """{"type":"user.message","data":{"content":"Add divide."},"id":"e4","timestamp":"2026-11-18T17:53:46.468Z","parentId":"e3"}""",
+        });
+        await File.WriteAllTextAsync(Path.Combine(dir, "workspace.yaml"), "cwd: /work/a\n");
+
+        var storage   = Path.Combine(_tempDir, "workspaceStorage");
+        var workspace = Path.Combine(storage, "ws1");
+        Directory.CreateDirectory(Path.Combine(workspace, "chatSessions"));
+        await File.WriteAllTextAsync(Path.Combine(workspace, "workspace.json"), $$$"""{"folder":"{{{new Uri("/work/a").AbsoluteUri}}}"}""");
+        await File.WriteAllTextAsync(Path.Combine(workspace, "chatSessions", localId + ".jsonl"),
+            $$$"""{"kind":0,"v":{"version":3,"sessionId":"{{{localId}}}","requests":[{"requestId":"request_1","timestamp":1795024287408,"message":{"text":"Add multiply."}}]}}""" + "\n");
+
+        StubServerHoldingEveryLine();
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost()).RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
+
+        using var client = new HttpClient();
+        var source     = new CopilotImportSource(Config.Root, CopilotLayout, [storage], new GitProviderRouter(), TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, _server.Url!, MinLines: 0, Home: Home), CancellationToken.None);
+
+        await source.ImportSessionAsync(classified.Single(), new ImportContext(client, _server.Url!, ForcePrivate: false), CancellationToken.None);
+
+        var markers = _server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .Select(e => e.RequestMessage.Body ?? "")
+            .Where(b => b.Contains(CopilotMovedChat.MarkerType, StringComparison.Ordinal))
+            .ToList();
+
+        await Assert.That(markers.Count).IsEqualTo(1);
+        await Assert.That(markers[0]).Contains(localId);
+        await Assert.That(markers[0]).Contains(CopilotMovedChat.MarkerLineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     /// <summary>The import reads Copilot's name through the same store the live watcher polls, so a name that only
     /// repeats the first prompt is left for the server's own title.</summary>
     [Test]

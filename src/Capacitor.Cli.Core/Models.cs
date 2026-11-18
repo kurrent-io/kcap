@@ -287,6 +287,12 @@ public class WatchState {
     // Set on a VS Code Local session's first drain past the threshold that finds its chat log.
     public CopilotLocalUsageState? CopilotLocalUsage { get; set; }
 
+    // A chat moved from Local: the marker naming its Local chat rides the batch with the resume that ends its copied
+    // history, and is sent once that batch lands.
+    public bool CopilotMoveMarkerStaged { get; set; }
+
+    public bool CopilotMoveMarkerSent { get; set; }
+
     // Byte offset (end of the last batch the runtime rewrite guard
     // verified and the server acked) the Cursor watcher's guard checks resume from each poll.
     // Distinct from LinesProcessed (a LINE-number cursor set from the server's acked frontier,

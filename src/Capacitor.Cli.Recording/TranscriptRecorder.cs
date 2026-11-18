@@ -1112,6 +1112,11 @@ public sealed class TranscriptRecorder(
                 CopilotLocalUsage.Append(state, newLines, newLineNumbers, transcriptPath, sessionId, _copilotLocalWarnings.Write);
             }
 
+            if (vendor == "copilot" && agentId is null && state.ThresholdReached && !state.CopilotMoveMarkerSent
+             && !CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)) {
+                CopilotMoveMarker.Append(state, newLines, newLineNumbers, transcriptPath, sessionId, context.Housekeeping.VsCodeWorkspaceStorageDirs, log);
+            }
+
             // A session watcher below the threshold re-reads its buffered lines every poll; only lines past them are
             // activity, or a session that never takes a turn could never go idle.
             if (newLines.Count > 0 && (agentId is not null || state.ThresholdReached || linesRead > state.LinesReadAhead)) {
@@ -1469,6 +1474,8 @@ public sealed class TranscriptRecorder(
                     state.KiroUsageEmittedAnchors.Add(anchor);
 
                 state.CopilotLocalUsage?.Commit();
+
+                if (state.CopilotMoveMarkerStaged) (state.CopilotMoveMarkerSent, state.CopilotMoveMarkerStaged) = (true, false);
 
                 if (repoToSend is not null) {
                     state.LastSentRepository = repoToSend;
