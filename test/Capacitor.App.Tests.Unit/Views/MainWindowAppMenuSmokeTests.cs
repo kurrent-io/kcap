@@ -68,7 +68,7 @@ public class MainWindowAppMenuSmokeTests {
         var headers = host.Rows.Children.OfType<Button>().Select(b => AutomationProperties.GetName(b) ?? "").ToList();
         await Assert.That(headers).Contains("Settings…");
         await Assert.That(string.Join("|", headers.SkipWhile(h => h != "Refresh"))).IsEqualTo(
-            "Refresh|Search Sessions|Back|Forward|Toggle Full Screen|Launch approvals…|kcap Documentation|Changelog|Report a Bug…|Send Feedback…");
+            "Refresh|Search Sessions…|Back|Forward|Toggle Full Screen|Launch approvals…|kcap Documentation|Changelog|Report a Bug…|Send Feedback…");
         await Assert.That(host.Window.FindControl<TextBlock>("AppMenuVersionText")!.Text).StartsWith("Desktop app ");
         await Assert.That(host.Row("Back").IsEffectivelyEnabled).IsFalse();
 

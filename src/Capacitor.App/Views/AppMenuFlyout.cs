@@ -72,6 +72,8 @@ public static class AppMenuFlyout {
         AutomationProperties.SetName(row, item.Header);
         if (gesture is not null) AutomationProperties.SetAcceleratorKey(row, gesture);
         bindings.Add(row.Bind(InputElement.IsEnabledProperty, item.GetObservable(NativeMenuItem.IsEnabledProperty)));
+        // Hover moves focus, so the pointer and the arrow keys never highlight two rows at once.
+        row.PointerEntered += (_, _) => row.Focus(NavigationMethod.Directional);
         row.Click += (_, e) => {
             e.Handled = true;
             close();

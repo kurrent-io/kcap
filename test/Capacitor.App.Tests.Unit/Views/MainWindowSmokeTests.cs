@@ -2348,7 +2348,7 @@ public class MainWindowSmokeTests {
         var windowMenu = new AppMenuBar(new RecordingOpener(), () => [], () => null, inWindow: false).Build(host.Window)
             .Items.OfType<NativeMenuItem>().Single(i => i.Header == "Window").Menu!;
         var items = windowMenu.Items.OfType<NativeMenuItem>().ToList();
-        var search = items.Single(i => i.Header == "Search Sessions");
+        var search = items.Single(i => i.Header == "Search Sessions…");
 
         await Assert.That(search.Command).IsSameReferenceAs(host.Vm.OpenSearchCommand);
         await Assert.That(search.Gesture).IsEqualTo(new KeyGesture(Key.K, KeyModifiers.Meta));

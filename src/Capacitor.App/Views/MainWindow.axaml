@@ -119,6 +119,15 @@
                         <Button.Flyout>
                             <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
                                 <StackPanel Margin="6" MinWidth="260">
+                                    <!-- The keyboard row takes the hover fill, not Fluent's square focus outline. -->
+                                    <StackPanel.Styles>
+                                        <Style Selector="Button.kcapGhost">
+                                            <Setter Property="FocusAdorner" Value="{x:Null}" />
+                                        </Style>
+                                        <Style Selector="Button.kcapGhost:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+                                            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+                                        </Style>
+                                    </StackPanel.Styles>
                                     <StackPanel x:Name="AppMenuRows" Spacing="2" />
                                     <Border Height="1" Margin="8,4" Background="{StaticResource KcapBorderBrush}" />
                                     <TextBlock x:Name="AppMenuVersionText" Text="{Binding AppVersionLabel}"

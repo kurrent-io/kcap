@@ -95,7 +95,7 @@ public sealed class AppMenuBar(IUrlOpener opener, Func<IReadOnlyList<Window>> wi
 
     static void AddNavigation(NativeMenu menu, Window window, KeyGesture search) {
         if (RefreshItem(window) is { } refresh) menu.Add(refresh);
-        if (MainWindowItem(window, "Search Sessions", search, vm => vm.OpenSearchCommand) is { } found) menu.Add(found);
+        if (MainWindowItem(window, "Search Sessions…", search, vm => vm.OpenSearchCommand) is { } found) menu.Add(found);
         if (MainWindowItem(window, "Back", HistoryShortcuts.Back, vm => vm.GoBackCommand) is { } back) menu.Add(back);
         if (MainWindowItem(window, "Forward", HistoryShortcuts.Forward, vm => vm.GoForwardCommand) is { } forward) menu.Add(forward);
     }

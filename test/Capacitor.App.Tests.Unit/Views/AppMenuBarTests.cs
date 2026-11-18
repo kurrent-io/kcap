@@ -96,7 +96,7 @@ public class AppMenuBarTests {
             return (Layout(menu), refresh.Gesture, refresh.IsEnabled);
         });
 
-        await Assert.That(layout).IsEqualTo("Minimize|Zoom|Toggle Full Screen|Refresh|Search Sessions|Back|Forward|-|kcap|Launch approvals…|-|Bring All to Front");
+        await Assert.That(layout).IsEqualTo("Minimize|Zoom|Toggle Full Screen|Refresh|Search Sessions…|Back|Forward|-|kcap|Launch approvals…|-|Bring All to Front");
         await Assert.That(gesture).IsEqualTo(RefreshShortcut.Primary);
         await Assert.That(enabled).IsFalse();
     }
@@ -439,10 +439,10 @@ public class AppMenuBarTests {
             var vm = new MainWindowViewModel(
                 new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System);
             var menu = Submenu(NewBar(showMainWindow: () => { }, inWindow: true).Build(new MainWindow { DataContext = vm }), "Window");
-            return (Layout(menu), Item(menu, "Search Sessions").Gesture, Item(menu, "Toggle Full Screen").Gesture);
+            return (Layout(menu), Item(menu, "Search Sessions…").Gesture, Item(menu, "Toggle Full Screen").Gesture);
         });
 
-        await Assert.That(layout).IsEqualTo("Refresh|Search Sessions|Back|Forward|-|Toggle Full Screen|-|Launch approvals…");
+        await Assert.That(layout).IsEqualTo("Refresh|Search Sessions…|Back|Forward|-|Toggle Full Screen|-|Launch approvals…");
         await Assert.That(search).IsEqualTo(new KeyGesture(Key.K, KeyModifiers.Control));
         await Assert.That(fullScreen).IsEqualTo(OperatingSystem.IsWindows() ? new KeyGesture(Key.F11) : null);
     }
