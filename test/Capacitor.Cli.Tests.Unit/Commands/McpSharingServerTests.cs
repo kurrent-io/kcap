@@ -76,7 +76,24 @@ public class McpSharingServerTests {
 
         await CallAsync(Server(), stub.Url!, Args("""{"object_key":"page:a1","query":"Sam & co"}"""), "search_sharing_candidates");
 
-        await Assert.That(stub.LogEntries.Single().RequestMessage.Query!["query"].Single()).IsEqualTo("Sam & co");
+        await Assert.That(stub.LogEntries[0].RequestMessage.Query!["query"].Single()).IsEqualTo("Sam & co");
+    }
+
+    /// <summary>A server lists no candidates to someone who may not share, which alone would read as "nobody matched".</summary>
+    [Test]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    public async Task No_candidates_for_something_you_may_not_share_say_why(bool canManage, bool refused) {
+        using var stub = WireMockServer.Start();
+        stub.Given(Request.Create().WithPath("/api/sharing/page:a1/candidates").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"candidates":[]}"""));
+        stub.Given(Request.Create().WithPath("/api/sharing/page:a1").UsingGet()).RespondWith(Response.Create().WithStatusCode(200)
+            .WithBody($$"""{"can_manage":{{(canManage ? "true" : "false")}},"manage_refusal":"Only the owner shares this page.","grants":[]}"""));
+
+        var (isError, text) = await CallAsync(Server(), stub.Url!, Args("""{"object_key":"page:a1","query":"Sam"}"""), "search_sharing_candidates");
+
+        await Assert.That(isError).IsEqualTo(refused);
+        await Assert.That(text.Contains("Only the owner shares this page.")).IsEqualTo(refused);
     }
 
     /// <summary>The server's words, with its code, so an agent can tell a retry from a refusal; a 403 is the object's own rules

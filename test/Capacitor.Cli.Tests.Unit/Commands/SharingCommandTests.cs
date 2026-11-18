@@ -40,7 +40,7 @@ public class SharingCommandTests {
 
         await RunAsync(sharing, "candidates", "page:a1", "platform", "team");
 
-        await Assert.That(sharing.Calls).IsEquivalentTo(new[] { "candidates:page:a1:platform team" });
+        await Assert.That(sharing.Calls).IsEquivalentTo(new[] { "candidates:page:a1:platform team", "get:page:a1" });
     }
 
     [Test]
@@ -59,6 +59,26 @@ public class SharingCommandTests {
         await Assert.That(exit).IsEqualTo(1);
         await Assert.That(sharing.Calls).IsEmpty();
         await Assert.That(error).Contains("kcap sharing set");
+    }
+
+    /// <summary>A server lists no candidates to someone who may not share, which alone would read as "nobody matched".</summary>
+    [Test]
+    public async Task Candidates_for_something_you_may_not_share_say_why() {
+        var sharing = new RecordingSharingApi { Listing = new(false, "Only the owner shares this page.", []) };
+
+        var (exit, output, error) = await RunAsync(sharing, "candidates", "page:a1", "platform");
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(output).IsEmpty();
+        await Assert.That(error.Trim()).IsEqualTo("You cannot change who this is shared with: Only the owner shares this page.");
+    }
+
+    [Test]
+    public async Task No_match_for_something_you_may_share_says_nobody_matched() {
+        var (exit, output, _) = await RunAsync(new RecordingSharingApi(), "candidates", "page:a1", "platform");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(output.Trim()).IsEqualTo("No candidates match \"platform\".");
     }
 
     [Test]
@@ -90,8 +110,8 @@ public class SharingCommandTests {
         var lines = SharingCommand.GrantLines(new(false, "Only the owner shares this page.", [new(Ada, View, [], false)])).ToList();
 
         await Assert.That(lines).IsEquivalentTo(new[] {
-            "AUDIENCE  KIND  RELATION  CAN MOVE TO  REMOVABLE  NAME",
-            "user:7    user  viewer    -            -          Ada",
+            "AUDIENCE  KIND  RELATION           CAN MOVE TO  REMOVABLE  NAME",
+            "user:7    user  Can view (viewer)  -            -          Ada",
             "You cannot change who this is shared with: Only the owner shares this page."
         });
     }
@@ -101,8 +121,8 @@ public class SharingCommandTests {
         var lines = SharingCommand.GrantLines(new(true, null, [new(Ada, View, [View, new("editor", "Can edit")], true)])).ToList();
 
         await Assert.That(lines).IsEquivalentTo(new[] {
-            "AUDIENCE  KIND  RELATION  CAN MOVE TO    REMOVABLE  NAME",
-            "user:7    user  viewer    viewer,editor  yes        Ada"
+            "AUDIENCE  KIND  RELATION           CAN MOVE TO                           REMOVABLE  NAME",
+            "user:7    user  Can view (viewer)  Can view (viewer), Can edit (editor)  yes        Ada"
         });
     }
 
@@ -112,7 +132,7 @@ public class SharingCommandTests {
             new(new("group:x", "Ops", "guild", "12 members", null, true), [new("editor", "Can edit"), View], "viewer")
         ]).ToList();
 
-        await Assert.That(lines[1]).IsEqualTo("group:x   other  viewer*,editor  Ops (12 members) [inactive]");
+        await Assert.That(lines[1]).IsEqualTo("group:x   other  Can view (viewer)*, Can edit (editor)  Ops (12 members) [inactive]");
     }
 
     [Test]
@@ -129,9 +149,11 @@ public class SharingCommandTests {
 
         public SharingWriteResult WriteResult { get; init; } = new SharingWriteResult.Applied();
 
+        public SharingDto Listing { get; init; } = new(true, null, []);
+
         public Task<SharingRead<SharingDto>> GetAsync(string objectKey, CancellationToken ct = default) {
             Calls.Add($"get:{objectKey}");
-            return Task.FromResult<SharingRead<SharingDto>>(new SharingRead<SharingDto>.Found(new(true, null, [])));
+            return Task.FromResult<SharingRead<SharingDto>>(new SharingRead<SharingDto>.Found(Listing));
         }
 
         public Task<SharingRead<SharingCandidatesDto>> CandidatesAsync(string objectKey, string? query, CancellationToken ct = default) {

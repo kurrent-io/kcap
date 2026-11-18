@@ -28,8 +28,8 @@ sealed class McpSharingServer(ConfigRoot config, ProfileContext profiles, TokenS
       + "Each takes the object_key the thing's own record carries (publish_page, list_my_pages, get_page and search_pages "
       + "return one for a page); pass it exactly as it came and never build one. To share: search_sharing_candidates "
       + "for the person or team, then set_sharing_grant with the candidate's key and its default_relation unless the "
-      + "user asked for another. list_sharing_grants shows who it is shared with now, and remove_sharing_grant takes "
-      + "a grant away. A record without an object_key comes from a server kcap cannot share through: tell the user to "
+      + "user asked for another. Name a relation to the user by its label and pass its relation id back. "
+      + "list_sharing_grants shows who it is shared with now, and remove_sharing_grant takes a grant away. A record without an object_key comes from a server kcap cannot share through: tell the user to "
       + "share it from the web app.";
 
     /// <summary>The whole call's budget, HttpClient's own default timeout.</summary>
@@ -70,6 +70,10 @@ sealed class McpSharingServer(ConfigRoot config, ProfileContext profiles, TokenS
 
             if (await RefusalAsync(id, response, body, baseUrl) is { } refusal) return refusal;
 
+            if (toolName is "search_sharing_candidates" && NoCandidates(body)
+             && await CannotShareAsync(client, SharingApi.SharingUrl(baseUrl, objectKey), budget.Token) is { } cannot)
+                return McpResponses.ToolResult(id, cannot, isError: true);
+
             return toolName switch {
                 "set_sharing_grant"    => McpResponses.ToolResult(id, $"{audience} now holds '{relation}'. list_sharing_grants shows every grant."),
                 "remove_sharing_grant" => McpResponses.ToolResult(id, $"{audience} holds no grant now. list_sharing_grants shows every grant."),
@@ -101,6 +105,32 @@ sealed class McpSharingServer(ConfigRoot config, ProfileContext profiles, TokenS
             return result.ToJsonString();
         } catch (JsonException) {
             return body;
+        }
+    }
+
+    static bool NoCandidates(string body) {
+        try {
+            return JsonNode.Parse(body)?["candidates"] is JsonArray { Count: 0 };
+        } catch (JsonException) {
+            return false;
+        }
+    }
+
+    /// <summary>A server lists no candidates to someone who may not share, so an empty list alone reads as "nobody matched".</summary>
+    static async Task<string?> CannotShareAsync(HttpClient client, string sharingUrl, CancellationToken ct) {
+        using var response = await client.GetAsync(sharingUrl, ct);
+        if (!response.IsSuccessStatusCode) return null;
+
+        try {
+            if (JsonNode.Parse(await response.Content.ReadAsStringAsync(ct)) is not JsonObject listed
+             || listed["can_manage"] is not JsonValue manage || !manage.TryGetValue<bool>(out var canManage) || canManage)
+                return null;
+
+            return listed["manage_refusal"] is JsonValue refusal && refusal.TryGetValue<string>(out var why) && why.Length > 0
+                ? $"Error: you cannot share this: {why}"
+                : "Error: you cannot share this; list_sharing_grants shows who it is shared with.";
+        } catch (JsonException) {
+            return null;
         }
     }
 
@@ -143,8 +173,8 @@ sealed class McpSharingServer(ConfigRoot config, ProfileContext profiles, TokenS
 
         new("search_sharing_candidates",
             "Find people, teams, projects or the organization to share something with. Returns the matches that hold no "
-          + "grant yet, each with its key, the relations it may take and the default_relation a plain share gives. Empty "
-          + "for something you may not manage.",
+          + "grant yet, each with its key, the relations it may take and default_relation, the one to offer first. When "
+          + "you may not share it, an error says why.",
             new("object", new() {
                 ["object_key"] = new("string", ObjectKeyArgument),
                 ["query"]      = new("string", "A name or part of one. Omit it for the server's suggestions.")
@@ -161,8 +191,8 @@ sealed class McpSharingServer(ConfigRoot config, ProfileContext profiles, TokenS
             }, ["object_key", "audience_key", "relation"]), McpToolAnnotations.Destructive),
 
         new("remove_sharing_grant",
-            "Take one audience's grant away. Removing a grant the audience does not hold succeeds; an owner's own grant "
-          + "cannot be removed.",
+            "Take one audience's grant away. Removing a grant the audience does not hold succeeds; one the object's rules "
+          + "keep, removable false in list_sharing_grants, is refused.",
             new("object", new() {
                 ["object_key"]   = new("string", ObjectKeyArgument),
                 ["audience_key"] = new("string", "The audience's key, as list_sharing_grants gave it.")

@@ -27,6 +27,15 @@ public static partial class ToolCards {
         _        => "Private",
     };
 
+    /// Who may open a page, from the grants a sharing server lists. Such a server sends a fixed
+    /// placeholder as `visibility`, so that field names the audience only when `shared_with` is absent.
+    static string PageAudience(JsonElement page) {
+        if (page.Arr("shared_with") is not { } grants) return Audience(page.Str("visibility"));
+        var others = grants.EnumerateArray().Where(g => g.Obj("relation")?.Str("relation") != "owner").ToList();
+        if (others.Count == 0) return "Private";
+        return others.Exists(g => g.Obj("audience")?.Str("kind") == "org") ? "Org" : "Shared";
+    }
+
     /// The declaring machine's path, so the name is cut on either separator.
     public static string FileName(string path) => path[(path.LastIndexOfAny(['/', '\\']) + 1)..];
 
@@ -42,7 +51,7 @@ public static partial class ToolCards {
             if (string.IsNullOrEmpty(title) || string.IsNullOrEmpty(url)) return null;
             var version = page.Num("latest_version") ?? 1;
             return new ToolCard(ToolCardKind.Page, version > 1 ? "Updated page" : "Published page",
-                TextElision.End(title, NameCap), $"v{version} · {Audience(page.Str("visibility"))}", url, null);
+                TextElision.End(title, NameCap), $"v{version} · {PageAudience(page)}", url, null);
         } catch (JsonException) {
             return null;
         }

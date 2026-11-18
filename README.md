@@ -1127,9 +1127,9 @@ kcap mcp sharing
 Stdio MCP server that changes who can open anything kcap shares, a page today, one grant at a time. Every tool takes the `object_key` the thing's own record carries (`publish_page`, `list_my_pages`, `get_page` and `search_pages` return a page's) and passes it on exactly as it came: nothing in kcap builds or reads a key, so a kind of object the server makes shareable later needs no new tools.
 
 - **`list_sharing_grants`** — who it is shared with: each grant's audience (key, name, kind) and relation, whether you may manage it, and for a manager what each grant may become and whether it may be removed.
-- **`search_sharing_candidates`** — people, teams, projects or the organization it could be shared with, each with its key, the relations it may take and its `default_relation`. An empty `query` gives suggestions.
+- **`search_sharing_candidates`** — people, teams, projects or the organization it could be shared with, each with its key, the relations it may take (each with the label to show) and its `default_relation`, the one to offer first. An empty `query` gives suggestions; when you may not share the object, it says why instead.
 - **`set_sharing_grant`** — give one audience a grant (`object_key`, `audience_key`, `relation`), or move the grant it holds. One audience per call.
-- **`remove_sharing_grant`** — take one audience's grant away. Removing one it does not hold succeeds; an owner's own grant stays.
+- **`remove_sharing_grant`** — take one audience's grant away. Removing one it does not hold succeeds; one the object's rules keep (`removable: false`) is refused.
 
 A refusal reaches the agent in the server's words with its code (`refused`, `locked`, `relation_not_offered`, `unknown_audience`, `changed`). A server too old to send object keys cannot share from kcap; share from the web app there. Requires `kcap login`.
 
@@ -1168,7 +1168,7 @@ See and change who can open anything kcap shares, a page today, one grant at a t
 
 ```bash
 kcap sharing candidates <objectKey> platform                     # who you could share it with, default relation starred
-kcap sharing set <objectKey> <audienceKey> --relation viewer     # one grant; run again for each audience
+kcap sharing set <objectKey> <audienceKey> --relation <relation> # one grant; run again for each audience
 kcap sharing list <objectKey>                                    # who it is shared with now, and what you may change
 kcap sharing remove <objectKey> <audienceKey>
 ```

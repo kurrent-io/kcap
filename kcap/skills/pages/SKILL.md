@@ -44,6 +44,8 @@ time, by the `object_key` the publish result carries:
    `default_relation`, unless the user asked for another. Call it again for
    each audience.
 
+Name a relation to the user by its `label`; pass its `relation` id back.
+
 `list_sharing_grants` shows who it is shared with now, and
 `remove_sharing_grant` takes a grant away. A refusal carries the server's reason: pass it on. When a page
 record has no `object_key`, the server cannot share from kcap: tell the user to

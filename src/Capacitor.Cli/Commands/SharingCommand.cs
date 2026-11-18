@@ -16,7 +16,7 @@ class SharingCommand(ISharingApi sharing) {
           kcap sharing remove <objectKey> <audienceKey>
 
         The object key comes from the thing's own listing, such as `kcap page list`. Audience keys and relations come
-        from `candidates` (the default relation starred) or `list`.
+        from `candidates` (the default relation starred) or `list`; --relation takes the id in parentheses.
         """;
 
     public async Task<int> HandleAsync(string[] args) {
@@ -63,8 +63,8 @@ class SharingCommand(ISharingApi sharing) {
             yield return "Shared with nobody you can see.";
         } else {
             var rows = listed.Grants.Select(g => new[] {
-                Cell(g.Audience.Key), Kind(g.Audience.Kind), Cell(g.Relation.Relation),
-                listed.CanManage ? Join(g.Relations.Select(r => r.Relation)) : "-",
+                Cell(g.Audience.Key), Kind(g.Audience.Kind), Cell(Relation(g.Relation)),
+                listed.CanManage ? Join(g.Relations.Select(Relation)) : "-",
                 listed.CanManage ? (g.Removable ? "yes" : "no") : "-",
                 AudienceName(g.Audience)
             }).ToList();
@@ -72,11 +72,13 @@ class SharingCommand(ISharingApi sharing) {
             foreach (var line in Table(["AUDIENCE", "KIND", "RELATION", "CAN MOVE TO", "REMOVABLE", "NAME"], rows)) yield return line;
         }
 
-        if (!listed.CanManage)
-            yield return listed.ManageRefusal is { Length: > 0 } refusal
-                ? Cell($"You cannot change who this is shared with: {refusal}")
-                : "You can see who this is shared with, but not change it.";
+        if (!listed.CanManage) yield return CannotShare(listed.ManageRefusal);
     }
+
+    /// <summary>A server lists no candidates to someone who may not share, so an empty list alone reads as "nobody matched".</summary>
+    internal static string CannotShare(string? refusal) => refusal is { Length: > 0 }
+        ? Cell($"You cannot change who this is shared with: {refusal}")
+        : "You can see who this is shared with, but not change it.";
 
     async Task<int> CandidatesAsync(string[] args) {
         if (Parse(args) is not { } parsed) return 1;
@@ -86,8 +88,13 @@ class SharingCommand(ISharingApi sharing) {
 
         switch (await sharing.CandidatesAsync(parsed.Positionals[0], query)) {
             case SharingRead<SharingCandidatesDto>.Found({ Candidates.Count: 0 }):
+                if (await sharing.GetAsync(parsed.Positionals[0]) is SharingRead<SharingDto>.Found({ CanManage: false } listed)) {
+                    await Console.Error.WriteLineAsync(CannotShare(listed.ManageRefusal));
+                    return 1;
+                }
+
                 Console.WriteLine(query.Length == 0
-                    ? "No candidates to suggest. Name someone to look for; `kcap sharing list` says whether you may share this."
+                    ? "No candidates to suggest. Name someone to look for."
                     : Cell($"No candidates match \"{query}\"."));
                 return 0;
 
@@ -105,13 +112,14 @@ class SharingCommand(ISharingApi sharing) {
     internal static IEnumerable<string> CandidateLines(IReadOnlyList<SharingCandidateDto> candidates) {
         var rows = candidates.Select(c => new[] {
             Cell(c.Audience.Key), Kind(c.Audience.Kind),
-            Join(c.Relations.Select(r => r.Relation).OrderBy(r => r == c.DefaultRelation ? 0 : 1).Select(r => r == c.DefaultRelation ? r + "*" : r)),
+            Join(c.Relations.OrderBy(r => r.Relation == c.DefaultRelation ? 0 : 1)
+                            .Select(r => r.Relation == c.DefaultRelation ? Relation(r) + "*" : Relation(r))),
             AudienceName(c.Audience)
         }).ToList();
 
         foreach (var line in Table(["AUDIENCE", "KIND", "RELATIONS", "NAME"], rows)) yield return line;
 
-        yield return "* the default relation. Share with: kcap sharing set <objectKey> <audienceKey> --relation <relation>";
+        yield return "* the default relation. Share with: kcap sharing set <objectKey> <audienceKey> --relation <id in parentheses>";
     }
 
     async Task<int> SetAsync(string[] args) {
@@ -195,7 +203,11 @@ class SharingCommand(ISharingApi sharing) {
         return Cell(audience.Inactive ? name + " [inactive]" : name);
     }
 
-    static string Join(IEnumerable<string> values) => values.ToList() is { Count: > 0 } list ? Cell(string.Join(",", list)) : "-";
+    /// <summary>A relation by the label a person reads, with the id <c>--relation</c> takes.</summary>
+    static string Relation(SharingRelationDto relation) =>
+        relation.Label is { Length: > 0 } label && label != relation.Relation ? $"{label} ({relation.Relation})" : relation.Relation;
+
+    static string Join(IEnumerable<string> values) => values.ToList() is { Count: > 0 } list ? Cell(string.Join(", ", list)) : "-";
 
     /// <summary>Server text made inert and kept on one line.</summary>
     static string Cell(string text) => ArtefactCommand.ForTerminal(ArtefactCommand.OneLine(text));
