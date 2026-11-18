@@ -6,7 +6,7 @@
              x:DataType="vm:WorkItemPageViewModel">
     <UserControl.Styles>
         <Style Selector="TextBlock.bar">
-            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontSize" Value="15" />
             <Setter Property="FontWeight" Value="Medium" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
@@ -49,7 +49,7 @@
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="Padding" Value="10,6" />
-            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontSize" Value="15" />
         </Style>
         <Style Selector="Button.menuRow">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
@@ -82,7 +82,7 @@
                 <TextBlock Grid.Column="1" Text="{Binding ShortKey}" MinWidth="64" Foreground="{StaticResource KcapMutedBrush}"
                            VerticalAlignment="Center" />
                 <TextBlock Grid.Column="2" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="3" Text="{Binding StateLabel}" FontSize="11" Foreground="{StaticResource KcapMutedBrush}"
+                <TextBlock Grid.Column="3" Text="{Binding StateLabel}" FontSize="12.5" Foreground="{StaticResource KcapMutedBrush}"
                            VerticalAlignment="Center" />
             </Grid>
         </DataTemplate>
@@ -99,7 +99,7 @@
                     CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                     <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                    <TextBlock Grid.Column="1" Text="{Binding Meta}" FontSize="11" Foreground="{StaticResource KcapFaintBrush}"
+                    <TextBlock Grid.Column="1" Text="{Binding Meta}" FontSize="12.5" Foreground="{StaticResource KcapFaintBrush}"
                                VerticalAlignment="Center" />
                 </Grid>
             </Button>
@@ -162,11 +162,11 @@
                                 </Flyout>
                             </Button.Flyout>
                         </Button>
-                        <TextBlock Grid.Column="2" Text="{Binding Title}" FontSize="13" FontWeight="Medium" TextTrimming="CharacterEllipsis"
+                        <TextBlock Grid.Column="2" Text="{Binding Title}" FontSize="15" FontWeight="Medium" TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center" Margin="4,0,0,0" />
                         <Border Grid.Column="3" Background="{StaticResource KcapWarningDimBrush}" CornerRadius="9" Padding="7,1"
                                 VerticalAlignment="Center" IsVisible="{Binding NeedsYou}">
-                            <TextBlock Text="Needs you" FontSize="11" Foreground="{StaticResource KcapWarningBrush}" />
+                            <TextBlock Text="Needs you" FontSize="12.5" Foreground="{StaticResource KcapWarningBrush}" />
                         </Border>
                         <Button Grid.Column="4" Classes="kcapGhost linkSum" IsVisible="{Binding HasLinks}" ToolTip.Tip="{Binding LinkTip}"
                                 AutomationProperties.Name="{Binding LinkTip, StringFormat='Links: {0}'}">
@@ -201,8 +201,8 @@
                         </Panel>
                         <views:AppIcon Kind="{Binding Icon}" Size="14"
                                        Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
-                        <TextBlock Text="{Binding Label}" FontSize="13" FontWeight="Medium" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding Count}" FontSize="13" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Label}" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Count}" FontSize="15" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
                 <StackPanel Classes="groupItems" IsVisible="{Binding IsExpanded}">
@@ -215,9 +215,9 @@
                                         CommandParameter="{Binding}">
                                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                         <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1" Text="{Binding Version}" FontSize="11" Foreground="{StaticResource KcapMutedBrush}"
+                                        <TextBlock Grid.Column="1" Text="{Binding Version}" FontSize="12.5" Foreground="{StaticResource KcapMutedBrush}"
                                                    VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="2" Text="{Binding Updated}" FontSize="11" Foreground="{StaticResource KcapFaintBrush}"
+                                        <TextBlock Grid.Column="2" Text="{Binding Updated}" FontSize="12.5" Foreground="{StaticResource KcapFaintBrush}"
                                                    VerticalAlignment="Center" />
                                     </Grid>
                                 </Button>
@@ -230,7 +230,7 @@
                             <DataTemplate x:DataType="vm:WorkItemPageLooseEnd">
                                 <Border Classes="row" Padding="10,4,6,4">
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                        <TextBlock Text="{Binding Text}" FontSize="13" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding Text}" FontSize="15" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                         <Button Grid.Column="1" Classes="kcapChip makePart" Content="Make slice"
                                                 Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).MakePartCommand}"
                                                 CommandParameter="{Binding}" AutomationProperties.Name="{Binding Text, StringFormat='Make {0} a slice'}" />
@@ -246,89 +246,95 @@
     </UserControl.Resources>
 
     <Border Background="{StaticResource KcapCanvasBrush}">
-        <DockPanel Margin="24,20,24,0">
-            <Grid x:Name="WorkItemHeader" DockPanel.Dock="Top" MaxWidth="860" ColumnDefinitions="*,Auto" ColumnSpacing="10" Margin="0,0,0,16">
-                <StackPanel Spacing="4">
-                    <TextBlock x:Name="WorkItemTitle" Text="{Binding Title}" FontSize="18" FontWeight="SemiBold"
-                               TextTrimming="CharacterEllipsis" />
-                    <TextBlock x:Name="WorkItemGoal" Text="{Binding Goal}" TextWrapping="Wrap" FontSize="13"
-                               Foreground="{StaticResource KcapMutedBrush}"
-                               IsVisible="{Binding Goal, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                </StackPanel>
-                <Button x:Name="WorkItemOpenInWeb" Grid.Column="1" Classes="kcapGhost kcapIcon" Command="{Binding OpenInWebCommand}"
-                        VerticalAlignment="Top" ToolTip.Tip="Open in the web app" AutomationProperties.Name="Open in the web app">
-                    <views:AppIcon Kind="ExternalLink" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
-                </Button>
-            </Grid>
+        <DockPanel>
+            <Border x:Name="WorkItemHeader" DockPanel.Dock="Top" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
+                    Padding="20,16,16,16">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                    <StackPanel Spacing="6" VerticalAlignment="Center" Margin="0,0,8,0">
+                        <TextBlock x:Name="WorkItemTitle" Text="{Binding Title}" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis"
+                                   ToolTip.Tip="{Binding Title}" />
+                        <TextBlock x:Name="WorkItemGoal" Text="{Binding Goal}" FontSize="13" TextTrimming="CharacterEllipsis"
+                                   Foreground="{StaticResource KcapMutedBrush}" ToolTip.Tip="{Binding Goal}"
+                                   IsVisible="{Binding Goal, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+                    <Button x:Name="WorkItemOpenInWeb" Grid.Column="1" Classes="kcapGhost kcapIcon" Command="{Binding OpenInWebCommand}"
+                            VerticalAlignment="Center" ToolTip.Tip="Open in the web app" AutomationProperties.Name="Open in the web app">
+                        <views:AppIcon Kind="ExternalLink" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                    </Button>
+                </Grid>
+            </Border>
 
             <ScrollViewer>
-                <StackPanel MaxWidth="860" Spacing="8" Margin="0,0,0,24">
-                    <TextBlock x:Name="WorkItemMessage" Text="{Binding Message}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}"
-                               IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                <Grid ColumnDefinitions="*,6*,*" Margin="0,16,0,24">
+                    <StackPanel Grid.Column="1" Spacing="8">
+                        <TextBlock x:Name="WorkItemMessage" Text="{Binding Message}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}"
+                                   IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
-                    <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Classes="bar" Text="Resources" />
-                        <Button x:Name="AddLinkButton" Grid.Column="1" Classes="kcapGhost barAction" AutomationProperties.Name="Add link">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <views:AppIcon Kind="Plus" Size="12" />
-                                <TextBlock Text="Link" />
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Classes="bar" Text="Resources" />
+                            <Button x:Name="AddLinkButton" Grid.Column="1" Classes="kcapGhost barAction" AutomationProperties.Name="Add link">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <views:AppIcon Kind="Plus" Size="12" />
+                                    <TextBlock Text="Link" />
+                                </StackPanel>
+                                <Button.Flyout>
+                                    <Flyout Placement="BottomEdgeAlignedRight" FlyoutPresenterClasses="kcapPanel">
+                                        <StackPanel Spacing="8" Margin="8" Width="260">
+                                            <TextBox Classes="kcapField" Text="{Binding NewLinkReference}" PlaceholderText="Issue key or PR"
+                                                     AutomationProperties.Name="Issue key or PR" />
+                                            <Button Classes="kcapChip" Content="Add link" HorizontalAlignment="Right"
+                                                    Command="{Binding AddLinkCommand}" Click="OnFlyoutItemClick" />
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                        </Grid>
+                        <ContentControl x:Name="WorkItemLinks" Content="{Binding LinksGroup}" ContentTemplate="{StaticResource Group}"
+                                        IsVisible="{Binding LinksGroup, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <ContentControl x:Name="WorkItemPages" Content="{Binding PagesGroup}" ContentTemplate="{StaticResource Group}"
+                                        IsVisible="{Binding PagesGroup, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+                        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8" Margin="0,8,0,0">
+                            <TextBlock Classes="bar" Text="Slices" />
+                            <StackPanel x:Name="WorkItemProgress" Grid.Column="1" Orientation="Horizontal" Spacing="6"
+                                        IsVisible="{Binding ProgressText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                        ToolTip.Tip="{Binding ProgressText, StringFormat='{}{0} slices done'}">
+                                <Panel Width="16" Height="16" VerticalAlignment="Center">
+                                    <Ellipse Stroke="{StaticResource KcapBorderStrongBrush}" StrokeThickness="2.5" />
+                                    <Arc StartAngle="-90" SweepAngle="{Binding ProgressSweep}" Stroke="{StaticResource KcapSuccessBrush}"
+                                         StrokeThickness="2.5" StrokeLineCap="Round" />
+                                </Panel>
+                                <TextBlock Text="{Binding ProgressText}" FontSize="15" Foreground="{StaticResource KcapMutedBrush}"
+                                           VerticalAlignment="Center" />
                             </StackPanel>
-                            <Button.Flyout>
-                                <Flyout Placement="BottomEdgeAlignedRight" FlyoutPresenterClasses="kcapPanel">
-                                    <StackPanel Spacing="8" Margin="8" Width="260">
-                                        <TextBox Classes="kcapField" Text="{Binding NewLinkReference}" PlaceholderText="Issue key or PR"
-                                                 AutomationProperties.Name="Issue key or PR" />
-                                        <Button Classes="kcapChip" Content="Add link" HorizontalAlignment="Right"
-                                                Command="{Binding AddLinkCommand}" Click="OnFlyoutItemClick" />
-                                    </StackPanel>
-                                </Flyout>
-                            </Button.Flyout>
-                        </Button>
-                    </Grid>
-                    <ContentControl x:Name="WorkItemLinks" Content="{Binding LinksGroup}" ContentTemplate="{StaticResource Group}"
-                                    IsVisible="{Binding LinksGroup, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                    <ContentControl x:Name="WorkItemPages" Content="{Binding PagesGroup}" ContentTemplate="{StaticResource Group}"
-                                    IsVisible="{Binding PagesGroup, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                            <Button x:Name="AddPartButton" Grid.Column="3" Classes="kcapGhost barAction" AutomationProperties.Name="Add slice">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <views:AppIcon Kind="Plus" Size="12" />
+                                    <TextBlock Text="Slice" />
+                                </StackPanel>
+                                <Button.Flyout>
+                                    <Flyout Placement="BottomEdgeAlignedRight" FlyoutPresenterClasses="kcapPanel">
+                                        <StackPanel Spacing="8" Margin="8" Width="260">
+                                            <TextBox Classes="kcapField" Text="{Binding NewPartTitle}" PlaceholderText="Slice title"
+                                                     AutomationProperties.Name="Slice title" />
+                                            <Button Classes="kcapChip" Content="Add slice" HorizontalAlignment="Right"
+                                                    Command="{Binding AddPartCommand}" Click="OnFlyoutItemClick" />
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                        </Grid>
 
-                    <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8" Margin="0,8,0,0">
-                        <TextBlock Classes="bar" Text="Slices" />
-                        <StackPanel x:Name="WorkItemProgress" Grid.Column="1" Orientation="Horizontal" Spacing="6"
-                                    IsVisible="{Binding ProgressText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                    ToolTip.Tip="{Binding ProgressText, StringFormat='{}{0} slices done'}">
-                            <Panel Width="16" Height="16" VerticalAlignment="Center">
-                                <Ellipse Stroke="{StaticResource KcapBorderStrongBrush}" StrokeThickness="2.5" />
-                                <Arc StartAngle="-90" SweepAngle="{Binding ProgressSweep}" Stroke="{StaticResource KcapSuccessBrush}"
-                                     StrokeThickness="2.5" StrokeLineCap="Round" />
-                            </Panel>
-                            <TextBlock Text="{Binding ProgressText}" FontSize="13" Foreground="{StaticResource KcapMutedBrush}"
-                                       VerticalAlignment="Center" />
-                        </StackPanel>
-                        <Button x:Name="AddPartButton" Grid.Column="3" Classes="kcapGhost barAction" AutomationProperties.Name="Add slice">
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <views:AppIcon Kind="Plus" Size="12" />
-                                <TextBlock Text="Slice" />
-                            </StackPanel>
-                            <Button.Flyout>
-                                <Flyout Placement="BottomEdgeAlignedRight" FlyoutPresenterClasses="kcapPanel">
-                                    <StackPanel Spacing="8" Margin="8" Width="260">
-                                        <TextBox Classes="kcapField" Text="{Binding NewPartTitle}" PlaceholderText="Slice title"
-                                                 AutomationProperties.Name="Slice title" />
-                                        <Button Classes="kcapChip" Content="Add slice" HorizontalAlignment="Right"
-                                                Command="{Binding AddPartCommand}" Click="OnFlyoutItemClick" />
-                                    </StackPanel>
-                                </Flyout>
-                            </Button.Flyout>
-                        </Button>
-                    </Grid>
-
-                    <ItemsControl x:Name="WorkItemGroups" ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource Group}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Spacing="8" />
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                    </ItemsControl>
-                </StackPanel>
+                        <ItemsControl x:Name="WorkItemGroups" ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource Group}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Spacing="8" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </StackPanel>
+                </Grid>
             </ScrollViewer>
         </DockPanel>
     </Border>
