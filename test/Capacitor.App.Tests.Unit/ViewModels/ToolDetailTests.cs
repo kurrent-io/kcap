@@ -156,4 +156,15 @@ public class ToolDetailTests {
         await Assert.That(ToolDetail.FirstString("""{"n":1}""")).IsEqualTo("");
         await Assert.That(ToolDetail.FirstString(null)).IsEqualTo("");
     }
+
+    [Test]
+    public async Task FilePath_names_the_one_file_a_row_shows_as_an_absolute_path() {
+        await Assert.That(ToolDetail.FilePath("""{"file_path":"src/a.cs"}""", null, ToolCategory.Read, "/repo")).IsEqualTo("/repo/src/a.cs");
+        await Assert.That(ToolDetail.FilePath("""{"file_path":"/elsewhere/a.cs"}""", null, ToolCategory.Read, "/repo")).IsEqualTo("/elsewhere/a.cs");
+        await Assert.That(ToolDetail.FilePath("""{"path":"/repo/doc.md"}""", "path", ToolCategory.Other, null)).IsEqualTo("/repo/doc.md");
+        await Assert.That(ToolDetail.FilePath("""{"title":"x"}""", "title", ToolCategory.Other, "/repo")).IsNull();
+        await Assert.That(ToolDetail.FilePath("""{"file_path":"src/a.cs"}""", null, ToolCategory.Read, null)).IsNull();
+        await Assert.That(ToolDetail.FilePath("""{"changes":[{"path":"/repo/a.cs"}]}""", null, ToolCategory.Edit, null)).IsEqualTo("/repo/a.cs");
+        await Assert.That(ToolDetail.FilePath("""{"changes":[{"path":"/repo/a.cs"},{"path":"/repo/b.cs"}]}""", null, ToolCategory.Edit, null)).IsNull();
+    }
 }

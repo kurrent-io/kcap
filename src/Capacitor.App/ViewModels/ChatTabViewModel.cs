@@ -431,6 +431,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         catch (Exception ex) { Console.Error.WriteLine($"kcap: open attachment failed: {ex.Message}"); }
     }
 
+    // Shell-opening a file can launch it, so this is reached only through the row's warning.
+    void OpenFile(string path) {
+        try { _opener.Open(path); }
+        catch (Exception ex) { Console.Error.WriteLine($"kcap: open file failed: {ex.Message}"); }
+    }
+
     readonly ObservableAsPropertyHelper<string> _composerHint;
     public string ComposerHint => HasWorkspaceNotice && _input.Availability != SendAvailability.Ready ? "" : _composerHint.Value;
 
@@ -2003,6 +2009,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                         var label = entry?.Label ?? (isToolSearch ? "Looked up tools" : foreignLabel ?? ToolSummary.RowLabel(name, category, e.ToolInputJson));
                         var chip = foreignLabel is not null ? KcapToolCatalogue.ForeignServer(name) : null;
                         var item = new ToolCallItem(name, detail, category, label, entry?.Card ?? ToolCardKind.None, e.ToolInputJson, chip, detailIsPath) { SessionOver = _ended };
+                        if (detailIsPath && _origin == AgentOrigin.Local
+                            && ToolDetail.FilePath(e.ToolInputJson, entry?.DetailKey, category, _root) is { } file)
+                            item.EnableOpenFile(file, OpenFile);
                         if (e.ToolCallId is { } id) {
                             cursor.Pending[id] = item;
                             if (name == ClaudeElicitation.ToolName) NoteQuestionCall(cursor, id, e.ToolInputJson);
