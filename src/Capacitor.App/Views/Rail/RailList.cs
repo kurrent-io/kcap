@@ -15,7 +15,7 @@ public sealed class RailList : ItemsControl {
     static readonly AttachedProperty<double> OffsetProperty = AvaloniaProperty.RegisterAttached<RailList, Control, double>("Offset");
 
     // Kept by the outermost list and scoped by group: a re-sort rebuilds the nested lists with their view models.
-    readonly Dictionary<(object Scope, string Key), double> _tops = [];
+    readonly Dictionary<(object Scope, string Key), (double Top, IReadOnlyList<string> Identities)> _tops = [];
     readonly Dictionary<Control, CancellationTokenSource> _settling = [];
     RailList _root;
     bool _pending;
@@ -34,6 +34,8 @@ public sealed class RailList : ItemsControl {
         RailGroupViewModel group => group.Key,
         _ => null,
     };
+
+    static IReadOnlyList<string> IdentitiesOf(Control row) => (row.DataContext as RailSessionViewModel)?.Identities ?? [];
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e) {
         base.OnAttachedToVisualTree(e);
@@ -61,7 +63,7 @@ public sealed class RailList : ItemsControl {
     // Frozen while a change waits for layout: a reset clears every row before the new ones arrive.
     void OnRowPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e) {
         if (!_pending && e.Property == BoundsProperty && sender is Control row && KeyOf(row) is { } key)
-            _root._tops[(Scope, key)] = row.Bounds.Y;
+            _root._tops[(Scope, key)] = (row.Bounds.Y, _root._tops.GetValueOrDefault((Scope, key)).Identities ?? IdentitiesOf(row));
     }
 
     // A group gaining or losing rows moves the groups below it, so the outer list settles too.
@@ -80,16 +82,25 @@ public sealed class RailList : ItemsControl {
         var before = tops.Where(top => Equals(top.Key.Scope, scope)).ToDictionary(top => top.Key.Key, top => top.Value);
         foreach (var key in before.Keys) tops.Remove((scope, key));
         var animates = before.Count > 0 && IsEffectivelyVisible;
+        var rows = GetRealizedContainers().Select(row => (Row: row, Key: KeyOf(row)!)).Where(r => r.Key is not null).ToList();
+        // A session whose row changed lane leaves under one key and arrives under another; the newcomer takes the leaver's place.
+        var departed = before.Keys.Except(rows.Select(r => r.Key)).ToList();
 
         // Records the layout top, not where a slide starts: a rebuilt container (a Replace on update) would otherwise replay
         // the last slide. A change mid-slide adds the live offset back, so the row continues from where it is drawn.
-        foreach (var row in GetRealizedContainers()) {
-            if (KeyOf(row) is not { } key) continue;
+        foreach (var (row, key) in rows) {
+            var identities = IdentitiesOf(row);
             if (animates && row.IsVisible) {
-                if (!before.TryGetValue(key, out var top)) Enter(row, Rise);
-                else if (top + row.GetValue(OffsetProperty) - row.Bounds.Y is var offset && Math.Abs(offset) > 0.5) Move(row, offset);
+                var known = before.TryGetValue(key, out var was);
+                if (!known && departed.FirstOrDefault(leaver => before[leaver].Identities.Intersect(identities).Any()) is { } predecessor) {
+                    departed.Remove(predecessor);
+                    was = before[predecessor];
+                    known = true;
+                }
+                if (!known) Enter(row, Rise);
+                else if (was.Top + row.GetValue(OffsetProperty) - row.Bounds.Y is var offset && Math.Abs(offset) > 0.5) Move(row, offset);
             }
-            tops[(scope, key)] = row.Bounds.Y;
+            tops[(scope, key)] = (row.Bounds.Y, identities);
         }
 
         if (_root != this) return;
