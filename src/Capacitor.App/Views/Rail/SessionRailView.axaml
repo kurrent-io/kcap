@@ -302,17 +302,19 @@
                     </DockPanel>
                 </Button>
 
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="4" Margin="10,0,10,8">
-                    <Button x:Name="RailSearchButton" Classes="kcapField" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                            Command="{Binding OpenSearchCommand}" AutomationProperties.Name="Search sessions">
-                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
-                            <TextBlock x:Name="RailSearchText" Text="Search…" FontSize="13"
-                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                            <TextBlock x:Name="RailSearchShortcut" Grid.Column="1" Text="{x:Static views:ShortcutLabels.Search}" FontSize="11"
-                                       Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                            <views:AppIcon Grid.Column="2" Kind="Search" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                        </Grid>
-                    </Button>
+                <Button x:Name="RailSearchButton" Classes="kcapField" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Margin="10,0,10,8"
+                        Command="{Binding OpenSearchCommand}" AutomationProperties.Name="Search sessions">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                        <TextBlock x:Name="RailSearchText" Text="Search…" FontSize="13"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <TextBlock x:Name="RailSearchShortcut" Grid.Column="1" Text="{x:Static views:ShortcutLabels.Search}" FontSize="11"
+                                   Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                        <views:AppIcon Grid.Column="2" Kind="Search" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                    </Grid>
+                </Button>
+                <Grid ColumnDefinitions="*,Auto" Margin="16,4,10,2">
+                    <TextBlock x:Name="RailRecentHeading" Text="Recent sessions" FontSize="13" FontWeight="Medium"
+                               Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
                     <Button x:Name="RailFilterButton" Grid.Column="1" Classes="kcapGhost kcapIcon"
                             DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
                             Classes.custom="{Binding FiltersDiffer}"
@@ -320,7 +322,7 @@
                             AutomationProperties.Name="Session list settings">
                         <views:AppIcon Kind="ListFilter" Size="14" />
                         <Button.Flyout>
-                            <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
+                            <Flyout Placement="BottomEdgeAlignedRight" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
                                 <StackPanel x:Name="RailControls" Margin="6" Spacing="2" Width="260">
                                 <TextBlock Text="Properties" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" Margin="10,4,10,4" />
                                 <Button x:Name="RailSortButton" Classes="kcapGhost railMenuRow" AutomationProperties.Name="Sort">
