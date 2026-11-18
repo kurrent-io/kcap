@@ -1410,6 +1410,34 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    /// A burst of streamed events posts one wake to the UI thread, not one per event.
+    [Test]
+    public async Task A_remote_background_monitor_posts_one_wake_for_a_burst() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var row = Harness.ServerRow("s1", "active");
+            h.Directory.Rows.AddOrUpdate(row);
+            using var monitor = new SessionRunMonitor(row.Key, _ => { }, () => { }, new FakeDaemonClientService(),
+                h.Directory, h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time);
+            await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");
+            await WaitUntilAsync(() => monitor.PendingReadForTesting is { IsCompleted: true }, what: "the seed read");
+            await Task.Delay(100);
+            var before = monitor.WakesPostedForTesting;
+
+            // Pushed off the UI thread, which stays busy meanwhile: the first wake cannot run, so every
+            // later event finds it posted.
+            var pushing = Task.Run(() => {
+                for (var i = 0UL; i < 50; i++)
+                    h.Lane.PushStreamEvent(Envelope("s1", i, CanonicalEventTypes.UserMessageReceived, $$"""{"content":"m{{i}}"}"""));
+            });
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!pushing.IsCompleted && DateTime.UtcNow < deadline) Thread.Sleep(10);
+            await Assert.That(pushing.IsCompleted).IsTrue();
+
+            await Assert.That(monitor.WakesPostedForTesting - before).IsEqualTo(1);
+        });
+    }
+
     /// A row that moves to another session while a read of the first is in flight still has the
     /// replacement read, with no poll to fall back on.
     [Test]

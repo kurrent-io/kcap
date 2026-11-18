@@ -31,6 +31,8 @@ internal sealed class SessionRunMonitor : IDisposable {
     bool _reading;
     bool _seeded;
     bool _ticking;
+    int _wakePosted;
+    int _wakesPosted;
     bool _disposed;
 
     public SessionRunMonitor(string rowKey, Action<RunningWork> report, Action ended, IDaemonClientService daemon,
@@ -98,7 +100,7 @@ internal sealed class SessionRunMonitor : IDisposable {
             _accessLease.Disposable = new CompositeDisposable(denied, lease);
             var remote = new RemoteTranscriptFeed(_key, info.Vendor, lease.State, _readDetail, _lane, _time, Log);
             _feed = remote;
-            _feedChanged = () => Dispatcher.UIThread.Post(Read);
+            _feedChanged = SignalRead;
             remote.Changed += _feedChanged;
             // A replayed denial can dispose this monitor inside Subscribe.
             denied.Disposable = lease.State.ObserveOn(RxSchedulers.MainThreadScheduler)
@@ -109,6 +111,18 @@ internal sealed class SessionRunMonitor : IDisposable {
         }
         Read();
     }
+
+    /// A stream burst raises a change per event; one wake stands for all of them until it runs.
+    void SignalRead() {
+        if (Interlocked.Exchange(ref _wakePosted, 1) != 0) return;
+        Interlocked.Increment(ref _wakesPosted);
+        Dispatcher.UIThread.Post(() => {
+            Volatile.Write(ref _wakePosted, 0);
+            Read();
+        });
+    }
+
+    internal int WakesPostedForTesting => Volatile.Read(ref _wakesPosted);
 
     /// A remote feed says when it has lines, so only a local file is polled.
     void SetTicking(bool on) {
