@@ -1846,7 +1846,24 @@ public class CodingAgentsStepTests {
         await Assert.That(result.CopilotHooksInstalled).IsTrue();
         await Assert.That(calls.CopilotHooksArg).IsEqualTo("/fake/.copilot/hooks/kcap.json");
         await Assert.That(sink.Lines).Contains(l => l.Contains("Copilot hooks installed"));
-        await Assert.That(sink.Lines).Contains(l => l.Contains("restart any running copilot session, and quit and reopen VS Code"));
+    }
+
+    /// <summary>VS Code runs new hooks at once, so the note asks a restart only of a terminal Copilot session, and
+    /// of VS Code only for the kcap tools, which a run that skips Copilot's MCP servers does not install.</summary>
+    [Test]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    public async Task Copilot_hooks_note_asks_vs_code_to_restart_only_for_the_tools(bool skipMcp, bool namesVsCodeRestart) {
+        var sink     = new Sink();
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: false, NoPrompt: false,
+            SkipCopilotMcp: skipMcp);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: true);
+
+        await RunAsync(options, detected, TestPaths(), new InstallerCalls().AsInstallers(), prompt: _ => true, writeLine: sink.Write);
+
+        var note = sink.Lines.Single(l => l.Contains("Note: chats in VS Code are stored now"));
+        await Assert.That(note).Contains("Restart any copilot session running in a terminal");
+        await Assert.That(note.Contains("quit and reopen VS Code to give Copilot kcap's tools")).IsEqualTo(namesVsCodeRestart);
     }
 
     [Test]

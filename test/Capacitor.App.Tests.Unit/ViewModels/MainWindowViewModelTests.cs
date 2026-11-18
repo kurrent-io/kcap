@@ -157,6 +157,33 @@ public class MainWindowViewModelTests {
         });
     }
 
+    /// <summary>An import started after the window opened takes the banner, and the banner follows that run
+    /// rather than the one it showed before.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_import_started_after_the_window_opened_takes_the_banner() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var vm = new MainWindowViewModel(new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System);
+            using var activation = vm.Activator.Activate();
+            await Assert.That(vm.HistoryImportBanner).IsNull();
+
+            var gate = new TaskCompletionSource<StreamingResult>();
+            Action<StreamedLine>? emit = null;
+            var run = ImportRun(3, 1);
+            vm.ShowHistoryImport(run);
+            var shown = ProgressShown(vm);
+            run.Start(new FakeKcapCli { ImportBehavior = (_, onLine, _) => { emit = onLine; return gate.Task; } }, [Pass()]);
+            emit!(new StreamedLine(ProcessStreamKind.Stdout, "  Loading s0 (copilot)"));
+
+            await Assert.That(vm.HistoryImportBanner!.Status).IsEqualTo("Importing history · 1 of 3 sessions processed");
+            await Assert.That(shown.LastOrDefault()).IsEqualTo(100.0 / 3);
+
+            gate.SetResult(new StreamingResult(0, false, []));
+            await run.Completion;
+            await Assert.That(vm.HistoryImportBanner.Status).IsEqualTo("History imported · 1 session processed");
+        });
+    }
+
     /// Every value the window announced for its import bar, in order.
     static List<double> ProgressShown(MainWindowViewModel vm) {
         var shown = new List<double>();

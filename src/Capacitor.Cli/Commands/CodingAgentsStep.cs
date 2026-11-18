@@ -681,11 +681,17 @@ internal static class CodingAgentsStep {
             writeLine(AlreadyInstalledLine("Copilot hooks"));
         } else {
             writeLine($"  [green]✓[/] Copilot hooks installed ({Markup.Escape(paths.CopilotHooksPath)})");
-            writeLine("  [dim]  Note: Copilot loads hook config at startup — restart any running copilot session, and quit and reopen VS Code, to pick them up[/]");
+            writeLine(CopilotHooksNote(options.SkipCopilotMcp));
         }
 
         return true;
     }
+
+    /// VS Code runs new hooks without a restart; a Copilot CLI session in a terminal and VS Code's kcap tools load at startup.
+    internal static string CopilotHooksNote(bool skipMcp) => skipMcp
+        ? "  [dim]  Note: chats in VS Code are stored now. Restart any copilot session running in a terminal to pick up the hooks[/]"
+        : "  [dim]  Note: chats in VS Code are stored now. Restart any copilot session running in a terminal to pick up the hooks, "
+          + "and quit and reopen VS Code to give Copilot kcap's tools[/]";
 
     static bool HandleGeminiHooks(
             Options            options,

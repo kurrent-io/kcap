@@ -129,10 +129,15 @@ public sealed class DoneStepViewModel : ReactiveObject, IWizardStep {
         : $"Your history is still on {_current.MachineName}. Go back to History to retry, or run kcap import later";
 
     /// Hooks load at agent start, so an agent open since before setup stores nothing until it is launched again,
-    /// and when setup changed PATH, a terminal open since before it cannot run the hooks either.
+    /// and when setup changed PATH, a terminal open since before it cannot run the hooks either. VS Code is the
+    /// exception: it runs new hooks at once, and only the kcap tools wait for it to start again.
     public string? RestartLine => !CapturePromised ? null
-        : _current.CopilotRecording ? $"{AgentRestart}. Quit and reopen VS Code for its Copilot chats"
+        : _current.CopilotRecording ? $"{AgentRestart}. {VsCodeLine}"
         : AgentRestart;
+
+    string VsCodeLine => _current.CopilotTools
+        ? "Chats in VS Code are stored now. Quit and reopen VS Code to give Copilot kcap's tools"
+        : "Chats in VS Code are stored now";
 
     string AgentRestart => _current.PathAdded
         ? "Agents already open will start storing sessions once you launch them again, from a new terminal if they run in one"

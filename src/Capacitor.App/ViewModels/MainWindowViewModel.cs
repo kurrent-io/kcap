@@ -282,7 +282,15 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public ReactiveCommand<Unit, Unit> SignInCommand { get; }
     public ReactiveCommand<Unit, Unit> SetupCommand { get; }
     public bool CanOpenSetup { get; }
-    public HistoryImportBannerViewModel? HistoryImportBanner { get; }
+    HistoryImportBannerViewModel? _historyImportBanner;
+    readonly Action? _requestSetup;
+    public HistoryImportBannerViewModel? HistoryImportBanner {
+        get => _historyImportBanner;
+        private set => this.RaiseAndSetIfChanged(ref _historyImportBanner, value);
+    }
+
+    /// Puts an import started outside setup in the launcher's banner, in place of any earlier one.
+    public void ShowHistoryImport(HistoryImportRun run) => HistoryImportBanner = new HistoryImportBannerViewModel(run, _requestSetup);
 
     ObservableAsPropertyHelper<bool>? _signInVisible;
     /// True while the rail reads Signed out and a sign-in action exists — the help flyout
@@ -445,7 +453,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         SignInCommand       = ReactiveCommand.Create(() => { requestSignIn?.Invoke(); });
         CanOpenSetup = requestSetup is not null;
         SetupCommand = ReactiveCommand.Create(() => requestSetup?.Invoke());
-        HistoryImportBanner = historyImport is null ? null : new HistoryImportBannerViewModel(historyImport, requestSetup);
+        _requestSetup = requestSetup;
+        _historyImportBanner = historyImport is null ? null : new HistoryImportBannerViewModel(historyImport, requestSetup);
         var offersSignIn    = requestSignIn is not null;
 
         // ReactiveCommand's own CanExecute observable already ANDs the supplied canExecute with
@@ -498,7 +507,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             canStart.CombineLatest(canRetry, (startVisible, retryVisible) => startVisible || retryVisible)
                 .Subscribe(available => _localDaemonRecoveryAvailable = available)
                 .DisposeWith(disposables);
-            HistoryImportBanner?.Watch().DisposeWith(disposables);
+            var historyWatch = new SerialDisposable().DisposeWith(disposables);
+            this.WhenAnyValue(x => x.HistoryImportBanner)
+                .Subscribe(banner => historyWatch.Disposable = banner?.Watch())
+                .DisposeWith(disposables);
             var status    = service.Status.ObserveOn(RxSchedulers.MainThreadScheduler);
             var snapshots = service.Snapshots.ObserveOn(RxSchedulers.MainThreadScheduler);
 
