@@ -14,42 +14,42 @@ public static class ImageClipboard {
     static (Bitmap Bitmap, bool Owned)? _held;
     const double MaxEdge = 4096;
 
+    /// Copies a picture the app keeps for its own lifetime, such as a markdown image.
     public static async Task CopyAsync(Visual owner, IImage? image) {
         if (image is null || TopLevel.GetTopLevel(owner)?.Clipboard is not { } clipboard) return;
         try {
-            if (image is Bitmap bitmap) {
-                await SetAsync(clipboard, bitmap, owned: false);
-                return;
-            }
-            if (Rasterise(image) is { } rendered) await SetAsync(clipboard, rendered, owned: true);
+            if (image is Bitmap bitmap) await SetAsync(clipboard, bitmap, owned: false);
+            else if (Rasterise(image) is { } rendered) await SetAsync(clipboard, rendered, owned: true);
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: copy image failed: {ex.Message}");
         }
     }
 
-    /// Copies a local image file at full size rather than the downscaled preview of it; an SVG,
-    /// which has no pixels of its own, falls back to the preview's own image.
+    /// Copies a local image file at full size rather than the downscaled preview of it. The preview
+    /// stands in when the file cannot be read or decoded, drawn into a bitmap of this class's own:
+    /// the preview cache disposes its bitmaps on eviction.
     public static async Task CopyFileAsync(Visual owner, string path, IImage? preview) {
-        if (path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)) {
-            await CopyAsync(owner, preview);
-            return;
-        }
         if (TopLevel.GetTopLevel(owner)?.Clipboard is not { } clipboard) return;
+        var bitmap = path.EndsWith(".svg", StringComparison.OrdinalIgnoreCase) ? null : await DecodeAsync(path);
+        if (bitmap is null && preview is not null) bitmap = Rasterise(preview);
+        if (bitmap is null) return;
         try {
-            var bitmap = await Task.Run(() => {
-                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var buffer = ToolPreviewImages.ReadBounded(stream);
-                return buffer is null ? null : new Bitmap(buffer);
-            });
-            if (bitmap is null) {
-                await CopyAsync(owner, preview);
-                return;
-            }
             await SetAsync(clipboard, bitmap, owned: true);
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: copy image failed: {ex.Message}");
         }
     }
+
+    static Task<Bitmap?> DecodeAsync(string path) => Task.Run(() => {
+        try {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var buffer = ToolPreviewImages.ReadBounded(stream);
+            return buffer is null ? null : new Bitmap(buffer);
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: reading image for copy failed: {ex.Message}");
+            return null;
+        }
+    });
 
     internal static RenderTargetBitmap? Rasterise(IImage image) {
         var natural = image.Size;

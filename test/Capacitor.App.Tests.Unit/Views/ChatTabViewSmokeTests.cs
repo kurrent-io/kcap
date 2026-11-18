@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Collections.Specialized;
 using System.Globalization;
 using System.Reactive.Linq;
@@ -2235,7 +2236,7 @@ public class ChatTabViewSmokeTests {
         await RunOnUiAsync(async () => {
             var host = new Host();
             var target = Tmp.CreateFile("notes.md", "x");
-            await host.LoadAsync(Tmp.CreateFile("path.jsonl", [ReadCallLine.Replace("/repo/x/src/a.cs", target)]));
+            await host.LoadAsync(Tmp.CreateFile("path.jsonl", [ReadCallLine.Replace("\"/repo/x/src/a.cs\"", JsonSerializer.Serialize(target))]));
             var row = ToolRows(host.View).Single();
             var item = (ToolCallItem)row.DataContext!;
             var detail = row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowDetail");
@@ -2249,6 +2250,12 @@ public class ChatTabViewSmokeTests {
             Click(host, row.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToolOpenConfirm"));
             await Assert.That(item.IsConfirmingOpen).IsFalse();
             await Assert.That(host.Opener.Opened).IsEquivalentTo(new[] { target });
+
+            item.ToggleCommand.Execute().Subscribe();
+            host.Settle();
+            Click(host, row.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToolOpenFile"));
+            await Assert.That(item.IsConfirmingOpen).IsTrue();
+            await Assert.That(host.Opener.Opened).Count().IsEqualTo(1);
             await host.CloseAsync();
         });
     }

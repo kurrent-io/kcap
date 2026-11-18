@@ -532,21 +532,25 @@
                             </Border>
                             <views:ToolImagePreview Grid.Row="2" Classes="toolBody kcapGhost" Margin="0,6,0,2" Path="{Binding PreviewPath}" />
                             <Border x:Name="ToolInspection" Grid.Row="3" Classes="toolInspection" IsVisible="{Binding IsExpanded}">
-                                <ScrollViewer MaxHeight="320" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
-                                              AllowAutoHide="False" Focusable="True" AutomationProperties.Name="Tool details">
-                                    <ItemsControl ItemsSource="{Binding Inspection.Sections, FallbackValue={x:Null}}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="vm:ToolInspectionSection">
-                                                <StackPanel Spacing="2" Margin="0,4,0,2">
-                                                    <TextBlock Classes="toolInspectionHeading" Text="{Binding Heading}" />
-                                                    <SelectableTextBlock Classes="toolLine prose" Classes.missing="{Binding IsMissing}"
-                                                                         Text="{Binding Text}" />
-                                                    <TextBlock Classes="toolInspectionNote" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </ScrollViewer>
+                                <StackPanel Spacing="4">
+                                    <Button x:Name="ToolOpenFile" Classes="kcapGhost kcapQuiet" Content="Open file…" HorizontalAlignment="Left"
+                                            IsVisible="{Binding CanOpenFile}" Click="OnToolOpenFileClick" />
+                                    <ScrollViewer MaxHeight="320" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                                                  AllowAutoHide="False" Focusable="True" AutomationProperties.Name="Tool details">
+                                        <ItemsControl ItemsSource="{Binding Inspection.Sections, FallbackValue={x:Null}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:ToolInspectionSection">
+                                                    <StackPanel Spacing="2" Margin="0,4,0,2">
+                                                        <TextBlock Classes="toolInspectionHeading" Text="{Binding Heading}" />
+                                                        <SelectableTextBlock Classes="toolLine prose" Classes.missing="{Binding IsMissing}"
+                                                                             Text="{Binding Text}" />
+                                                        <TextBlock Classes="toolInspectionNote" Text="{Binding Note}" IsVisible="{Binding HasNote}" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </StackPanel>
                             </Border>
                         </Grid>
                         <Border x:Name="ToolCard" Classes="toolCard" IsVisible="{Binding HasCard}">

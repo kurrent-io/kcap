@@ -124,4 +124,31 @@ public class ToolImagePreviewTests {
             }
         });
     }
+
+    [Test]
+    public async Task A_raster_file_that_can_no_longer_be_read_copies_its_preview() {
+        using var tmp = new TempDir();
+        var svg = tmp.CreateFile("source.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"10\"><rect width=\"20\" height=\"10\" fill=\"blue\"/></svg>");
+        var png = tmp.PathTo("shot.png");
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            using (var source = await Task.Run(() => ToolPreviewImages.Acquire(svg)))
+            using (var rendered = ImageClipboard.Rasterise(source!.Image))
+                rendered!.Save(png, Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+            var preview = new ToolImagePreview { Path = png };
+            var window = new Window { Content = preview, Width = 300, Height = 250 };
+            window.Show();
+            try {
+                await preview.Loading;
+                await Assert.That(preview.CanCopyImage).IsTrue();
+                File.Delete(png);
+                await preview.CopyImageAsync();
+                using var copied = await window.Clipboard!.TryGetBitmapAsync();
+                // The preview is decoded to a fixed width, so only its proportions carry over.
+                await Assert.That(copied!.PixelSize.Width).IsEqualTo(copied.PixelSize.Height * 2);
+            } finally {
+                window.Close();
+                ToolPreviewImages.Clear();
+            }
+        });
+    }
 }

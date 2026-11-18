@@ -387,7 +387,26 @@ public partial class ChatTabView : UserControl {
         if (sender is not Control { DataContext: ToolCallItem { CanOpenFile: true } item } control
             || e.InitialPressMouseButton != MouseButton.Left) return;
         e.Handled = true;
-        if (control.Bounds.Contains(e.GetPosition(control.Parent as Visual ?? control))) item.RequestOpenFile();
+        if (!control.Bounds.Contains(e.GetPosition(control.Parent as Visual ?? control))) {
+            DropToggleAnchor();
+            return;
+        }
+        item.RequestOpenFile();
+        HoldRowForWarning(control);
+    }
+
+    void OnToolOpenFileClick(object? sender, RoutedEventArgs e) {
+        if (sender is not Control { DataContext: ToolCallItem item } control) return;
+        item.RequestOpenFile();
+        HoldRowForWarning(control);
+    }
+
+    // The warning grows the row the way a toggle does, so the reading position is held the same way.
+    void HoldRowForWarning(Control source) {
+        _followTail = false;
+        CancelSmoothScroll();
+        if (_anchorItem is null) CaptureToggleAnchor(source);
+        ArmToggleRestore();
     }
 
     void OnToolOpenConfirmClick(object? sender, RoutedEventArgs e) {
