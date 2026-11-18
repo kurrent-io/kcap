@@ -1025,6 +1025,49 @@ public class McpWorkItemsServerTests {
         await Assert.That(response).Contains("Create it under the work item instead");
     }
 
+    /// <summary>An agent that joins a work item is told how many Pages it has, read from the parts route.</summary>
+    [Test]
+    public async Task Joining_a_work_item_says_how_many_Pages_it_has() {
+        using var client = new HttpClient(new PartsHandler(System.Net.HttpStatusCode.OK,
+            """{"pages":[{"artefact_id":"a1","title":"Checkout design"},{"artefact_id":"a2","title":"Payment form plan"}]}"""));
+
+        var response = await DeclareAsync(client);
+
+        await Assert.That(response).Contains("This work item has 2 Pages");
+        await Assert.That(response).Contains("wi-1");
+    }
+
+    /// <summary>No Pages, an older server without the parts route, or a failed read: the declare answers as it did.</summary>
+    [Test]
+    [Arguments(System.Net.HttpStatusCode.OK, """{"pages":[]}""")]
+    [Arguments(System.Net.HttpStatusCode.OK, "{}")]
+    [Arguments(System.Net.HttpStatusCode.NotFound, "")]
+    [Arguments(System.Net.HttpStatusCode.OK, "not json")]
+    public async Task Joining_a_work_item_with_no_Pages_to_report_answers_the_declare_alone(System.Net.HttpStatusCode status, string parts) {
+        using var client = new HttpClient(new PartsHandler(status, parts));
+
+        var response = await DeclareAsync(client);
+
+        await Assert.That(response).DoesNotContain("Page");
+        await Assert.That(response).DoesNotContain("\"isError\":true");
+        await Assert.That(response).Contains("wi-1");
+    }
+
+    Task<string> DeclareAsync(HttpClient client) =>
+        Server().HandleToolCallAsync(JsonValue.Create(1)!, new JsonObject {
+            ["params"] = new JsonObject {
+                ["name"]      = "declare_work_item",
+                ["arguments"] = JsonNode.Parse("""{"session_id":"s1","work_item_id":"wi-1"}""")
+            }
+        }, client, "http://x", NoRepo);
+
+    sealed class PartsHandler(System.Net.HttpStatusCode partsStatus, string partsBody) : HttpMessageHandler {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(request.Method == HttpMethod.Get
+                ? new HttpResponseMessage(partsStatus) { Content = new StringContent(partsBody) }
+                : new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("""{"work_item_id":"wi-1","created":false,"members":[]}""") });
+    }
+
     sealed class FixedStatusHandler(System.Net.HttpStatusCode status, string body) : HttpMessageHandler {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
             Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body) });

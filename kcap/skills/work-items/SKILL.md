@@ -37,7 +37,9 @@ and this section replaces the breakdown, relation and merge guidance below:
 - `wait_on_part` (`part_id`, `waits_on_id`) says a part can't start until another part of
   the same work item is done; `stop_waiting_on_part` takes it back. Never in a loop.
 - `get_work_item_parts` reads a work item's links and parts, with each part's links and
-  what it waits on.
+  what it waits on, and its Pages: the designs and plans its sessions published. Read one
+  with the kcap-pages tool `get_page` and its `artefact_id`. `declare_work_item` says how
+  many Pages the work item has.
 - A refusal says why. Do not retry it another way.
 
 ## When to use these tools

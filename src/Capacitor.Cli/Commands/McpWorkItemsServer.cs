@@ -283,6 +283,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             }
 
             if (toolName == "declare_loose_end") return BuildToolResult(id, FormatDeclareLooseEndResult(body));
+            if (toolName == "declare_work_item") return BuildToolResult(id, await WithPagesNoteAsync(client, baseUrl, arguments, body));
             if (httpResponse.StatusCode == HttpStatusCode.NoContent) return BuildToolResult(id, "Done.");
 
             return BuildToolResult(id, body);
@@ -935,6 +936,35 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         return obj.ToJsonString();
     }
 
+    /// <summary>Tells an agent that just joined a work item how many Pages it has. The declare already succeeded,
+    /// so a server without the parts read, or a failed read, leaves its answer as it is.</summary>
+    static async Task<string> WithPagesNoteAsync(HttpClient client, string baseUrl, JsonObject? arguments, string body) {
+        if (WorkContextIds.ValidWorkItemId(McpToolArguments.OptionalString(arguments, "work_item_id")) is not { } workItemId) return body;
+
+        try {
+            using var parts = await client.GetAsync($"{baseUrl}/api/work-items/{Uri.EscapeDataString(workItemId)}/parts");
+
+            return parts.IsSuccessStatusCode ? FormatDeclareResult(body, await parts.Content.ReadAsStringAsync()) : body;
+        } catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) {
+            return body;
+        }
+    }
+
+    internal static string FormatDeclareResult(string body, string partsBody) {
+        try {
+            if (JsonNode.Parse(body) is not JsonObject declared
+             || JsonNode.Parse(partsBody) is not JsonObject parts
+             || parts["pages"] is not JsonArray { Count: > 0 } pages) return body;
+
+            declared["pages"] = $"This work item has {pages.Count} {(pages.Count == 1 ? "Page" : "Pages")}, such as a design or a plan. "
+                + "get_work_item_parts lists them; read one with the kcap-pages tool get_page and its artefact_id.";
+
+            return declared.ToJsonString();
+        } catch (JsonException) {
+            return body;
+        }
+    }
+
     static JsonObject BuildClaimOperationBody(JsonObject? args, string field) =>
         (JsonObject)JsonNode.Parse($"{{\"{field}\":\"{JsonEncodedText.Encode(McpToolArguments.RequireString(args, field))}\",\"session_id\":\"{JsonEncodedText.Encode(McpSessionId.Resolve(args))}\"}}")!;
 
@@ -1067,7 +1097,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         new("declare_work_item",
             "Add the CURRENT session (and its continuation chain) to a work item or part on the kcap server. Only a "
           + "person creates a work item, so attach to one that exists: ask the user for it, or find it with "
-          + "get_session_work_items or get_work_item_parts.",
+          + "get_session_work_items or get_work_item_parts. The answer says how many Pages the work item has.",
             new("object", new() {
                 ["work_item_id"] = new("string", "The work item or part to add the session to."),
                 ["session_id"]   = new("string", "Session id to add. Defaults to the session this server runs in when omitted.")
@@ -1165,8 +1195,9 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             }, ["part_id", "waits_on_id"]), McpToolAnnotations.Destructive),
 
         new("get_work_item_parts",
-            "Read a work item's links and its parts, each with its links and the parts it waits on. A part's id reads "
-          + "its work item. Scoped to what the caller can see.",
+            "Read a work item's links, its parts, each with its links and the parts it waits on, and its Pages: the "
+          + "designs and plans its sessions published, newest first. Read a Page with the kcap-pages tool get_page "
+          + "and its artefact_id. A part's id reads its work item. Scoped to what the caller can see.",
             new("object", new() {
                 ["work_item_id"] = new("string", "The work item, or one of its parts.")
             }, ["work_item_id"]), McpToolAnnotations.Read)
