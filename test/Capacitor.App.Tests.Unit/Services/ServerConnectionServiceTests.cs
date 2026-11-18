@@ -300,6 +300,33 @@ public class ServerConnectionServiceTests {
         await Assert.That((await lane.Status.Take(1).ToTask()).State).IsEqualTo(ServerLaneState.SignedOut);
     }
 
+    /// An attempt already in flight, a sign-in restart's say, is waited on rather than restarted.
+    [Test]
+    public async Task A_launch_waits_on_an_attempt_in_flight_instead_of_restarting_it() {
+        await using var host = await HubTestHost.StartAsync();
+        var gate = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        await using var lane = new ServerConnectionService(TimeProvider.System, host.Url, () => {
+            if (Interlocked.Increment(ref calls) > 1) return Task.FromResult<string?>(null);
+            entered.TrySetResult();
+            return gate.Task;
+        });
+        var dials = 0;
+        using var counting = lane.Status.Where(s => s.State == ServerLaneState.Connecting)
+            .Subscribe(_ => Interlocked.Increment(ref dials));
+        lane.Start();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var launch = ((ILaunchClient)lane).StartAsync(new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
+        await Task.Delay(300);
+        gate.SetResult(null);
+        var outcome = await launch.WaitAsync(TimeSpan.FromSeconds(15));
+
+        await Assert.That(outcome.Started).IsTrue();
+        await Assert.That(Volatile.Read(ref dials)).IsEqualTo(1);
+    }
+
     /// Launches arriving while one redial is still connecting share it rather than each restarting
     /// the lane, which would cancel the connection the others are waiting on.
     [Test]

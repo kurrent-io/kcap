@@ -178,11 +178,11 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     /// Retires the running loop and admits a new one under a fresh generation. A park landing while
     /// the old loop is still being awaited wins: the generation this restart reserved is no longer
     /// current, so no loop is admitted and the lane stays parked until the next restart.
-    public Task RestartAsync(CancellationToken ct = default) => RestartAsync(ifGeneration: null, ct);
+    public Task RestartAsync(CancellationToken ct = default) => RestartAsync(onlyIf: null, ct);
 
-    /// With `ifGeneration`, restarts only while the lane is still on that generation, so a restart
-    /// decided before a park cannot undo it.
-    async Task RestartAsync(int? ifGeneration, CancellationToken ct) {
+    /// With `onlyIf`, restarts only when it holds, read under the restart gate and the lifecycle lock:
+    /// after any restart already under way has admitted its loop, and atomically with a park.
+    async Task RestartAsync(Func<bool>? onlyIf, CancellationToken ct) {
         if (_serverUrl is null || _lifetime.IsCancellationRequested) return;
         await _restartGate.WaitAsync(ct).ConfigureAwait(false);
         try {
@@ -191,7 +191,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             int generation;
             lock (_lifecycleLock) {
                 if (_closed) return;
-                if (ifGeneration is { } expected && expected != _generation) return;
+                if (onlyIf is not null && !onlyIf()) return;
                 previous = _loopCts;
                 // Unreachable to a park from here, so disposing it below cannot race one.
                 _loopCts = null;
@@ -689,21 +689,23 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     }
 
     async Task RedialOnceAsync() {
-        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var watch = _status.Subscribe(s => {
-            if (s.State == ServerLaneState.SignedOut || _hub is { State: HubConnectionState.Connected }) ready.TrySetResult();
-        });
-        int generation;
-        lock (_lifecycleLock) {
-            if (_status.Value.State == ServerLaneState.SignedOut) return;
-            generation = _generation;
-        }
         Log("server_lane_redial", ("trigger", "launch"), ("state", _status.Value.State.ToString()));
         try {
-            await RestartAsync(generation, CancellationToken.None).ConfigureAwait(false);
+            await RestartAsync(NeedsRedial, CancellationToken.None).ConfigureAwait(false);
+            // Subscribed after the restart, so a Connected replayed from the hub it retired cannot answer for its successor.
+            var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var watch = _status.Subscribe(s => {
+                if (s.State == ServerLaneState.SignedOut || _hub is { State: HubConnectionState.Connected }) ready.TrySetResult();
+            });
             await ready.Task.WaitAsync(LaunchRedialWait, _time).ConfigureAwait(false);
         } catch (TimeoutException) { }
     }
+
+    /// Only a lane waiting out its ladder is redialled: a Connecting one has an attempt in flight
+    /// (a sign-in restart's, say) that a restart would cancel, and a parked one waits for sign-in.
+    bool NeedsRedial() =>
+        _hub is not { State: HubConnectionState.Connected }
+        && _status.Value.State is ServerLaneState.Retrying or ServerLaneState.Dormant;
 
     /// Walks the chain because SignalR surfaces the negotiate failure wrapped as often as bare.
     internal static bool IsUnauthorized(Exception ex) {
