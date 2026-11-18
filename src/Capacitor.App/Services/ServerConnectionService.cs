@@ -696,14 +696,19 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
 
     async Task RedialOnceAsync() {
         Log("server_lane_redial", ("trigger", "launch"), ("state", _status.Value.State.ToString()));
+        // One deadline across the restart and the wait for its connection; a restart still retiring
+        // a stuck loop past it carries on without the launch.
+        var started = _time.GetTimestamp();
         try {
-            await RestartAsync(NeedsRedial, CancellationToken.None).ConfigureAwait(false);
+            await RestartAsync(NeedsRedial, CancellationToken.None).WaitAsync(LaunchRedialWait, _time).ConfigureAwait(false);
+            var left = LaunchRedialWait - _time.GetElapsedTime(started);
+            if (left <= TimeSpan.Zero) return;
             // Subscribed after the restart, so a Connected replayed from the hub it retired cannot answer for its successor.
             var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             using var watch = _status.Subscribe(s => {
                 if (s.State == ServerLaneState.SignedOut || _hub is { State: HubConnectionState.Connected }) ready.TrySetResult();
             });
-            await ready.Task.WaitAsync(LaunchRedialWait, _time).ConfigureAwait(false);
+            await ready.Task.WaitAsync(left, _time).ConfigureAwait(false);
         } catch (TimeoutException) { }
     }
 
