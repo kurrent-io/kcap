@@ -66,8 +66,8 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     public bool HasAny => HasItems || PageViewer is not null;
     /// Where a document card that names no listed document still sends the reader: pages alone are not that.
     public bool HasDocumentOrOpenPage => HasDocuments || PageViewer is not null;
-    /// True while a session lease is open and has not yet applied a result — distinct from a settled empty list.
-    public bool IsLoading => _reads.IsLoading;
+    /// True while either list's lease is open and has not yet applied a result — distinct from a settled empty list.
+    public bool IsLoading => _reads.IsLoading || _pageReads.IsLoading;
     /// Right-pane prompt when nothing is open: loading, settled empty, or pick a row.
     public string EmptyReaderNote => IsLoading ? "Loading…"
         : HasItems ? "Select a page or document to read it."
@@ -166,6 +166,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             },
             ApplyPages,
             "artefacts tab pages",
+            onSettled: RaiseLoading,
             cached: sessionId => _source?.CachedPages(sessionId));
         _activity = activity;
         _time = time;
@@ -291,6 +292,8 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     void OpenFirst() {
         if (_tornDown || !IsShown || Reader is not null || PageViewer is not null || _pendingPath is not null) return;
         if (!_reads.IsCurrentSettled || _pagesKind is null) return;
+        // A switch applies cached documents before it moves the pages lease to the new session.
+        if (!_pageReads.HasCurrent || _pageReads.CurrentState != _reads.CurrentState.SessionId) return;
         if (_pages.Count > 0 && CurrentViewer() is InAppPageViewer) OpenPage(_pages[0].Id, _pages[0].Url);
         else if (_documents.Count > 0) Select(_documents[0]);
     }
@@ -491,6 +494,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
 
     /// A new pages lease is a different session, so the page open for the last one closes.
     void ResetPages() {
+        RaiseLoading();
         ClosePage();
         _pagesFailed = false;
         _pagesKind = null;

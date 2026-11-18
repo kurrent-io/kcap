@@ -743,6 +743,50 @@ public class ArtefactsTabViewModelTests {
         });
     }
 
+    /// The tab is loading until both lists answer, so a pages-only session is not taken for empty
+    /// while its pages are still on the way.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_tab_is_loading_until_the_pages_answer_too() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            var pages = h.Source.GatePages();
+            h.Vm.SwitchSession(SessionA, "/repo");
+            await (h.Vm.PendingReadForTesting ?? Task.CompletedTask);
+
+            await Assert.That(h.Vm.IsLoading).IsTrue();
+
+            pages.SetResult(Pages(Page("a", "Poll", h.Time.GetUtcNow())));
+            await h.SettledAsync();
+            await Assert.That(h.Vm.IsLoading).IsFalse();
+            await Assert.That(h.Vm.HasAny).IsTrue();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// Cached documents for the next session land before its pages lease opens; the first row waits for
+    /// that session's pages rather than pairing its documents with the last session's.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_switch_to_cached_documents_waits_for_that_sessions_pages() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            await h.SwitchAsync(SessionA);
+            h.Vm.IsShown = true;
+            h.Source.CachedReads[SessionB] = Ready(Doc("1", "plan", "docs/p.md"));
+            var pages = h.Source.GatePages();
+
+            h.Vm.SwitchSession(SessionB, "/repo");
+            await Assert.That(h.Vm.Selected).IsNull();
+
+            pages.SetResult(Pages(Page("b", "Report", h.Time.GetUtcNow())));
+            await h.SettledAsync();
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.PageViewer!.ArtefactId).IsEqualTo("b");
+            await h.Vm.TeardownAsync();
+        });
+    }
+
     /// Opening the tab never launches the browser: with pages shown there, the first document opens instead.
     [Test]
     [NotInParallel("AvaloniaSession")]
