@@ -124,16 +124,13 @@ class ArtefactCommand(IArtefactsApi artefacts) {
     /// <summary>A server too old to send a key shows a dash: there is nothing to share by.</summary>
     static string KeyCell(string? key) => key is { Length: > 0 } ? ForTerminal(OneLine(key)) : "-";
 
-    /// <summary>
-    /// Who a page is shared with, in one cell. The owner's grant cannot be removed, so on a page of yours a single grant
-    /// is yours alone. A server without <c>shared_with</c> still sends the audience as <c>visibility</c>.
-    /// </summary>
+    /// <summary>Every grant on a page, the owner's included, as audience and relation label in one cell. A server without
+    /// <c>shared_with</c> still sends the audience as <c>visibility</c>.</summary>
     internal static string SharedSummary(ArtefactDto page) {
         var summary = page.SharedWith switch {
-            null                            => page.Visibility,
-            { Count: 0 }                    => "-",
-            { Count: 1 } when page.IsOwner => "private",
-            var grants                      => string.Join(", ", grants.Select(g => g.Audience.Name))
+            null         => page.Visibility,
+            { Count: 0 } => "-",
+            var grants   => string.Join(", ", grants.Select(g => $"{g.Audience.Name} ({(g.Relation.Label is { Length: > 0 } label ? label : g.Relation.Relation)})"))
         };
 
         summary = ForTerminal(OneLine(summary));
@@ -275,6 +272,7 @@ class ArtefactCommand(IArtefactsApi artefacts) {
             case ArtefactWriteResult.Written(var detail):
                 Console.WriteLine($"{detail.Artefact.Title} {verb} (v{detail.Artefact.LatestVersion})");
                 Console.WriteLine(detail.Artefact.Url);
+                if (detail.Artefact.ObjectKey is { Length: > 0 } key) Console.Error.WriteLine(ForTerminal($"Object key: {key}"));
                 return 0;
 
             case ArtefactWriteResult.Gone:

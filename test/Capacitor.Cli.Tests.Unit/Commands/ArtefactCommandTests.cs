@@ -30,6 +30,8 @@ public class ArtefactCommandTests {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(api.Calls).IsEquivalentTo(new[] { "version:a1" });
+        await Assert.That(console.GetCapturedOutput().Trim().Split('\n')[^1]).IsEqualTo("https://kcap.test/artefacts/a1");
+        await Assert.That(console.GetCapturedError().Trim()).IsEqualTo("Object key: page:a1");
         await Assert.That(api.VersionSources).IsEquivalentTo(new[] { "0123456789abcdef0123456789abcdef" });
     }
 
@@ -74,10 +76,10 @@ public class ArtefactCommandTests {
             Listed("p3", mine: false, null, visibility: "org", key: null)
         ]).ToList();
 
-        await Assert.That(lines[0]).IsEqualTo("PAGE  VERSION UPDATED     SHARED WITH    OBJECT KEY  TITLE");
-        await Assert.That(lines[1]).IsEqualTo("p1    v1      2026-09-16  private        page:p1     Plan");
-        await Assert.That(lines[2]).IsEqualTo("p2    v1      2026-09-16  Ada, Platform  page:p2     Plan");
-        await Assert.That(lines[3]).IsEqualTo("p3    v1      2026-09-16  org            -           Plan");
+        await Assert.That(lines[0]).IsEqualTo("PAGE  VERSION UPDATED     SHARED WITH                          OBJECT KEY  TITLE");
+        await Assert.That(lines[1]).IsEqualTo("p1    v1      2026-09-16  Ada (Can view)                       page:p1     Plan");
+        await Assert.That(lines[2]).IsEqualTo("p2    v1      2026-09-16  Ada (Can view), Platform (Can view)  page:p2     Plan");
+        await Assert.That(lines[3]).IsEqualTo("p3    v1      2026-09-16  org                                  -           Plan");
     }
 
     [Test]
@@ -250,7 +252,7 @@ public class ArtefactCommandTests {
 
         static ArtefactWriteResult Written(string id) =>
             new ArtefactWriteResult.Written(new(
-                new(id, "Plan", "u1", "none", 1, DateTimeOffset.UnixEpoch, true, null, null, $"https://kcap.test/artefacts/{id}")));
+                new(id, "Plan", "u1", "none", 1, DateTimeOffset.UnixEpoch, true, "page:" + id, null, $"https://kcap.test/artefacts/{id}")));
 
         public Task<ArtefactWriteResult> PublishAsync(PublishArtefactBody body, CancellationToken ct = default) {
             Calls.Add("publish");

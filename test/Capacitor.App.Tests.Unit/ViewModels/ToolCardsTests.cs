@@ -46,30 +46,17 @@ public class ToolCardsTests {
         await Assert.That(ToolCards.Audience(null)).IsEqualTo("Private");
     }
 
-    const string Owner = """{"audience":{"key":"user:u1","name":"Ada","kind":"user"},"relation":{"relation":"owner","label":"Owner"}}""";
+    const string Owner = """{"audience":{"key":"user:u1","name":"Olive Owner","kind":"user"},"relation":{"relation":"owner","label":"Owner"}}""";
+    const string Member = """{"audience":{"key":"user:u2","name":"Max Member","kind":"user"},"relation":{"relation":"viewer","label":"Viewer"}}""";
 
     static string Shared(params string[] grants) =>
         PublishResult.Replace("\"visibility\":\"org\"", $"\"visibility\":\"see shared_with\",\"shared_with\":[{string.Join(",", grants)}]");
 
-    static string Viewer(string key, string kind) =>
-        $$$"""{"audience":{"key":"{{{key}}}","name":"x","kind":"{{{kind}}}"},"relation":{"relation":"viewer","label":"Viewer"}}""";
-
     /// A sharing server's `visibility` is a placeholder; read as a tier, it would call every page private.
     [Test]
-    [Arguments(new[] { Owner }, "Private")]
-    [Arguments(new[] { Owner, "ORG" }, "Org")]
-    [Arguments(new[] { Owner, "TEAM" }, "Shared")]
-    [Arguments(new[] { Owner, "TEAM", "ORG" }, "Org")]
-    public async Task A_page_from_a_sharing_server_is_named_by_its_grants(string[] grants, string audience) {
-        var json = grants.Select(g => g switch {
-            "ORG"  => Viewer("org:kurrent", "org"),
-            "TEAM" => Viewer("team:platform", "team"),
-            _      => g,
-        }).ToArray();
-
-        var card = ToolCards.Build(ToolCardKind.Page, "{}", Shared(json))!;
-
-        await Assert.That(card.Meta).IsEqualTo($"v1 · {audience}");
+    public async Task A_page_from_a_sharing_server_names_every_grant_with_its_relation() {
+        await Assert.That(ToolCards.Build(ToolCardKind.Page, "{}", Shared(Owner))!.Meta).IsEqualTo("v1 · Olive Owner (Owner)");
+        await Assert.That(ToolCards.Build(ToolCardKind.Page, "{}", Shared(Owner, Member))!.Meta).IsEqualTo("v1 · Olive Owner (Owner), Max Member (Viewer)");
     }
 
     /// The server's JSON is passed through verbatim and capped at 4096 characters; a cut body, an

@@ -27,13 +27,18 @@ public static partial class ToolCards {
         _        => "Private",
     };
 
-    /// Who may open a page, from the grants a sharing server lists. Such a server sends a fixed
-    /// placeholder as `visibility`, so that field names the audience only when `shared_with` is absent.
+    /// Every grant on a page, the owner's included, as audience and relation label. A sharing server sends a fixed placeholder as
+    /// `visibility`, so that field names the audience only when `shared_with` is absent.
     static string PageAudience(JsonElement page) {
         if (page.Arr("shared_with") is not { } grants) return Audience(page.Str("visibility"));
-        var others = grants.EnumerateArray().Where(g => g.Obj("relation")?.Str("relation") != "owner").ToList();
-        if (others.Count == 0) return "Private";
-        return others.Exists(g => g.Obj("audience")?.Str("kind") == "org") ? "Org" : "Shared";
+        var held = grants.EnumerateArray().Select(Grant).OfType<string>().ToList();
+        return held.Count == 0 ? "-" : TextElision.End(string.Join(", ", held), NameCap);
+    }
+
+    static string? Grant(JsonElement grant) {
+        if (grant.Obj("audience")?.Str("name") is not { Length: > 0 } name) return null;
+        var relation = grant.Obj("relation") is { } r ? r.Str("label") is { Length: > 0 } label ? label : r.Str("relation") : null;
+        return relation is null ? name : $"{name} ({relation})";
     }
 
     /// The declaring machine's path, so the name is cut on either separator.

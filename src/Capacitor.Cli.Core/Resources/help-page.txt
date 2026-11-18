@@ -29,7 +29,9 @@ Options for publish:
 SHARING
 
   A page is private to you until you share it with `kcap sharing`, by the
-  object key `list`, `get` and `search` print. See `kcap sharing --help`.
+  object key `publish`, `list`, `get` and `search` print (`publish` and `get`
+  on stderr). `list` and `get` show every grant, yours included, as audience
+  and relation. See `kcap sharing --help`.
 
 THE PAGE
 

@@ -1160,7 +1160,7 @@ kcap page get art_01J9... --html                      # a page you can see, your
 kcap page delete art_01J9...
 ```
 
-A page is private to its owner until it is shared with [`kcap sharing`](#sharing), by the object key `list`, `get` and `search` print. `--session` cites a session the page came out of and defaults to `KCAP_SESSION_ID`, so an agent's publish is attributed without ceremony. The URL is whatever the server says it is — printed on stdout; refusals go to stderr and name the limit they hit along with its value.
+A page is private to its owner until it is shared with [`kcap sharing`](#sharing), by the object key `publish`, `list`, `get` and `search` print (`publish` and `get` on stderr); `list` and `get` show every grant, yours included, as audience and relation. `--session` cites a session the page came out of and defaults to `KCAP_SESSION_ID`, so an agent's publish is attributed without ceremony. The URL is whatever the server says it is — printed on stdout; refusals go to stderr and name the limit they hit along with its value.
 
 ### Sharing
 
