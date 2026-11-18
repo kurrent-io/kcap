@@ -251,7 +251,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// A work item's page, drawn over the main area like the search page. Null while none is open.
     public WorkItemPageViewModel? WorkItemPage {
         get;
-        private set => this.RaiseAndSetIfChanged(ref field, value);
+        private set {
+            this.RaiseAndSetIfChanged(ref field, value);
+            if (Rail is not null) Rail.OpenWorkItemId = value?.WorkItemId;
+        }
     }
 
     public ReactiveCommand<string, Unit> OpenWorkItemCommand { get; }
@@ -849,7 +852,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     // in-flight launch from opening its workspace over the next draft.
     async Task NewSessionAsync() {
         var onLauncher = CurrentWorkspace is null && !IsSearchOpen;
-        var selected = !onLauncher && Rail?.SelectedSessionKey is { } key && _directory?.Rows.Lookup(key) is { HasValue: true } row
+        var selected = !onLauncher && Rail?.OpenSessionKey is { } key && _directory?.Rows.Lookup(key) is { HasValue: true } row
             ? row.Value : null;
         var from = Here();
         ClosePages();
@@ -1203,7 +1206,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         CurrentWorkspace = null;
         _rebind.Disposable = Disposable.Empty;
         _handoff.Disposable = Disposable.Empty;
-        if (Rail is not null) Rail.SelectedSessionKey = null;
+        if (Rail is not null) Rail.OpenSessionKey = null;
         _navigation.Latch();
         if (live is not null) _trackTeardown(live.TeardownAsync);
     }
@@ -1211,7 +1214,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     void SwapTo(ISessionWorkspace? next) {
         var outgoing = CurrentWorkspace;
         CurrentWorkspace = next;
-        if (Rail is not null) Rail.SelectedSessionKey = KeyOf(next);
+        if (Rail is not null) Rail.OpenSessionKey = KeyOf(next);
         _navigation.Bump();
         if (outgoing is not null) _trackTeardown(outgoing.TeardownAsync);
         _handoff.Disposable = Disposable.Empty;

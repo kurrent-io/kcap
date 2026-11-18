@@ -26,6 +26,8 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public bool ShowsHeader => Kind is not (RailGrouping.None or RailGrouping.WorkItem);
     public bool IsWorkItem => Kind == RailGrouping.WorkItem;
     public string? WorkItemId { get; }
+    readonly ObservableAsPropertyHelper<bool> _isSelected;
+    public bool IsSelected => _isSelected.Value;
     int _partsDone;
     public int PartsDone { get => _partsDone; private set => this.RaiseAndSetIfChanged(ref _partsDone, value); }
     int _partsTotal;
@@ -88,10 +90,15 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
             IObservable<IComparer<RailSessionViewModel>> rowComparer, IObservable<RailSort> sort,
             IObservable<bool>? endedListPartial = null, RailWorkItem? workItem = null,
             IObservable<IReadOnlySet<string>>? suggested = null,
-            IObservable<IReadOnlySet<string>>? marked = null) {
+            IObservable<IReadOnlySet<string>>? marked = null,
+            IObservable<string?>? selectedWorkItem = null, IObservable<string?>? openSessionKey = null) {
         Key = key;
         Kind = kind;
         WorkItemId = workItem?.Id;
+        _isSelected = (selectedWorkItem ?? Observable.Return<string?>(null))
+            .Select(id => id is not null && id == WorkItemId)
+            .ToProperty(this, x => x.IsSelected, initialValue: false)
+            .DisposeWith(_disposables);
         _label = label;
         IsNoRepository = kind == RailGrouping.Repository && label == "No repository";
         _rootDisplay = kind == RailGrouping.Repository ? DisplayFor(Key, label) : label;
@@ -139,7 +146,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
             this.RaisePropertyChanged(nameof(Tooltip));
         }).DisposeWith(_disposables);
 
-        var kept = query.CombineLatest(selectedSessionKey, (rows, selected) => (Keys: KeptOfWorkItem(rows.Items, selected), rows.Count))
+        var kept = query.CombineLatest(openSessionKey ?? selectedSessionKey, (rows, open) => (Keys: KeptOfWorkItem(rows.Items, open), rows.Count))
             .Replay(1).RefCount();
         _moreText = (workItem is null ? Observable.Return(0) : kept.Select(k => k.Count - k.Keys.Count))
             .Select(hidden => hidden > 0 ? $"{hidden} more" : null).DistinctUntilChanged()
@@ -218,12 +225,12 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
 
     static bool IsEnded(AgentRow row) => row.IsEndedSession || row is { Origin: AgentOrigin.Local, Status: "Completed" };
 
-    static HashSet<string> KeptOfWorkItem(IEnumerable<AgentRow> rows, string? selectedKey) {
+    static HashSet<string> KeptOfWorkItem(IEnumerable<AgentRow> rows, string? openKey) {
         var all = rows.ToList();
         var kept = all.OrderByDescending(row => row.LastActivityAt ?? row.CreatedAt).Take(WorkItemKeeps).Select(row => row.Key)
             .ToHashSet(StringComparer.Ordinal);
         foreach (var row in all)
-            if (!IsEnded(row) || RailSessionViewModel.SelectionKey(row) == selectedKey) kept.Add(row.Key);
+            if (!IsEnded(row) || RailSessionViewModel.SelectionKey(row) == openKey) kept.Add(row.Key);
         return kept;
     }
 

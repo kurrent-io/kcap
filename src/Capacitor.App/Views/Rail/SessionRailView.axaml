@@ -646,7 +646,7 @@
                             <DataTemplate x:DataType="vm:RailGroupViewModel">
                                 <Border Classes="railGroup" Classes.workItem="{Binding IsWorkItem}" Classes.expanded="{Binding IsExpanded}">
                                     <StackPanel>
-                                        <Button x:Name="RailWorkItemHeader" Classes="railRow" IsVisible="{Binding IsWorkItem}"
+                                        <Button x:Name="RailWorkItemHeader" Classes="railRow" Classes.selected="{Binding IsSelected}" IsVisible="{Binding IsWorkItem}"
                                                 Command="{Binding $parent[rail:SessionRailView].((vm:MainWindowViewModel)DataContext).OpenWorkItemCommand, FallbackValue={x:Null}}"
                                                 CommandParameter="{Binding WorkItemId}" Click="OnWorkItemHeaderClick"
                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"

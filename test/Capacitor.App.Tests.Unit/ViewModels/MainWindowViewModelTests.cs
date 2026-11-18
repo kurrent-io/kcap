@@ -1263,7 +1263,7 @@ public class MainWindowViewModelTests {
             // First shutdown request, UI teardown, then the confirmed shutdown request.
             vm.LatchShutdown();
             await Assert.That(vm.CurrentWorkspace).IsNull();
-            await Assert.That(rail.SelectedSessionKey).IsNull();
+            await Assert.That(rail.OpenSessionKey).IsNull();
             await Assert.That(tracked).IsEqualTo(1);
             await teardown!;
             rail.Dispose();
@@ -1382,7 +1382,7 @@ public class MainWindowViewModelTests {
             vm.OpenSessionIfCurrent(id, remote ? AgentOrigin.Remote : AgentOrigin.Local, vm.NavigationGeneration);
             await Assert.That(target.IsExpanded).IsTrue();
             await Assert.That(other.IsExpanded).IsFalse();
-            await Assert.That(rail.SelectedSessionKey).IsEqualTo($"{(remote ? "remote" : "local")}:{id}");
+            await Assert.That(rail.OpenSessionKey).IsEqualTo($"{(remote ? "remote" : "local")}:{id}");
             var workspace = vm.CurrentWorkspace;
             target.ToggleCommand.Execute().Subscribe();
             vm.OpenSession(id);
@@ -1425,11 +1425,11 @@ public class MainWindowViewModelTests {
             var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), rail: rail);
 
             vm.OpenSession("a1");
-            await Assert.That(rail.SelectedSessionKey).IsEqualTo("local:a1");
+            await Assert.That(rail.OpenSessionKey).IsEqualTo("local:a1");
             await Assert.That(rail.Groups[0].Sessions[0].IsSelected).IsTrue();
 
             vm.CloseWorkspace();
-            await Assert.That(rail.SelectedSessionKey).IsNull();
+            await Assert.That(rail.OpenSessionKey).IsNull();
         });
     }
 
@@ -1598,7 +1598,7 @@ public class MainWindowViewModelTests {
             await Assert.That(vm.CurrentWorkspace).IsTypeOf<WorkspaceViewModel>();
             await Assert.That(((WorkspaceViewModel)vm.CurrentWorkspace!).AgentId).IsEqualTo("r1");
             await Assert.That(((WorkspaceViewModel)vm.CurrentWorkspace!).IsTerminalActive).IsTrue();
-            await Assert.That(rail.SelectedSessionKey).IsEqualTo("local:r1");
+            await Assert.That(rail.OpenSessionKey).IsEqualTo("local:r1");
             await Assert.That(rail.Groups.SelectMany(repo => repo.Sessions).Single(row => row.IsSelected).Key).IsEqualTo("local:r1");
         });
     }
@@ -1673,7 +1673,7 @@ public class MainWindowViewModelTests {
 
             await Assert.That(vm.CurrentWorkspace).IsTypeOf<RemoteSessionViewModel>();
             await Assert.That(((RemoteSessionViewModel)vm.CurrentWorkspace!).IsTerminalActive).IsTrue();
-            await Assert.That(rail.SelectedSessionKey).IsEqualTo("remote:a1");
+            await Assert.That(rail.OpenSessionKey).IsEqualTo("remote:a1");
             await Assert.That(rail.Groups.SelectMany(repo => repo.Sessions).Single(row => row.IsSelected).Key).IsEqualTo("remote:a1");
         });
     }
@@ -2048,7 +2048,7 @@ public class MainWindowViewModelTests {
             await Assert.That(vm.OpenSession("S", AgentOrigin.Server)).IsTrue();
             await Assert.That(vm.CurrentWorkspace).IsSameReferenceAs(built);
             await Assert.That(built!.IsSessionOnly).IsTrue();
-            await Assert.That(rail.SelectedSessionKey).IsEqualTo("server:S");
+            await Assert.That(rail.OpenSessionKey).IsEqualTo("server:S");
 
             vm.OpenSession("S", AgentOrigin.Server);
             await Assert.That(vm.CurrentWorkspace).IsSameReferenceAs(built);
@@ -2082,7 +2082,7 @@ public class MainWindowViewModelTests {
 
             await WorkspaceFixtures.WaitUntilAsync(() => built is not null && ReferenceEquals(vm.CurrentWorkspace, built), what: "hand-off to the server row");
             await Assert.That(built!.IsSessionOnly).IsTrue();
-            await Assert.That(rail.SelectedSessionKey).IsEqualTo("server:S");
+            await Assert.That(rail.OpenSessionKey).IsEqualTo("server:S");
             vm.CloseWorkspace();
         });
     }
@@ -2337,7 +2337,7 @@ public class MainWindowViewModelTests {
             });
 
             await WorkspaceFixtures.WaitUntilAsync(() => built is not null && ReferenceEquals(vm.CurrentWorkspace, built), what: "hand-off to the server row");
-            await Assert.That(rail.SelectedSessionKey).IsEqualTo($"server:{filed}");
+            await Assert.That(rail.OpenSessionKey).IsEqualTo($"server:{filed}");
             vm.CloseWorkspace();
         });
     }
@@ -2396,7 +2396,7 @@ public class MainWindowViewModelTests {
             await WorkspaceFixtures.WaitUntilAsync(() => ((WorkspaceViewModel)local!).SessionEnded, what: "the agent's end reached the workspace");
             time.Advance(AgentDirectory.HandoverGrace + TimeSpan.FromSeconds(1));
             await Task.Delay(100);
-            await Assert.That(rail.SelectedSessionKey).IsEqualTo("local:a1");
+            await Assert.That(rail.OpenSessionKey).IsEqualTo("local:a1");
 
             host.Directory.Rows.Edit(rows => {
                 rows.RemoveKey("local:a1");
@@ -2404,7 +2404,7 @@ public class MainWindowViewModelTests {
             });
 
             await WorkspaceFixtures.WaitUntilAsync(() => built is not null && ReferenceEquals(vm.CurrentWorkspace, built), what: "hand-off after the grace");
-            await Assert.That(rail.SelectedSessionKey).IsEqualTo("server:S");
+            await Assert.That(rail.OpenSessionKey).IsEqualTo("server:S");
             vm.CloseWorkspace();
         });
     }
@@ -2519,7 +2519,7 @@ public class MainWindowViewModelTests {
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
                 workspaceFactory: id => NewWorkspace(service, id), rail: rail, directory: host.Directory, home: home);
             vm.OpenSession("a1");
-            await Assert.That(rail.SelectedSessionKey).IsEqualTo(row.Key);
+            await Assert.That(rail.OpenSessionKey).IsEqualTo(row.Key);
 
             await vm.NewSessionCommand.Execute().ToTask();
 
@@ -2553,7 +2553,7 @@ public class MainWindowViewModelTests {
                 vm.RestoreParkedWorkspace();
                 await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
                 await Assert.That(((WorkspaceViewModel)vm.CurrentWorkspace!).IsTerminalActive).IsTrue();
-                await Assert.That(rail.SelectedSessionKey).IsEqualTo("local:a1");
+                await Assert.That(rail.OpenSessionKey).IsEqualTo("local:a1");
             }
             vm.CloseWorkspace();
         });

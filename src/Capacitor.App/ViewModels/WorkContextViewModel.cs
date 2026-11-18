@@ -313,7 +313,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         private set { if (_isRefreshing != value) { this.RaiseAndSetIfChanged(ref _isRefreshing, value); this.RaisePropertyChanged(nameof(RefreshTip)); } }
     }
     bool _hasSession;
-    // Subject, not WhenAnyValue — same RxAppBuilder init trap as SessionRailViewModel.SelectedSessionKey.
+    // Subject, not WhenAnyValue — same RxAppBuilder init trap as SessionRailViewModel's selection.
     readonly BehaviorSubject<bool> _hasSessionChanges = new(false);
     public bool HasSession {
         get => _hasSession;

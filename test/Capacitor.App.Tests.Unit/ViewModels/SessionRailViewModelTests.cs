@@ -116,7 +116,7 @@ public class SessionRailViewModelTests {
             directory.Rows.AddOrUpdate(row);
             var session = rail.Groups.Single().Sessions.Single();
             var command = session.OpenCommand;
-            rail.SelectedSessionKey = "local:a";
+            rail.OpenSessionKey = "local:a";
             directory.Rows.AddOrUpdate(row with { Title = "Updated", Model = "new model", SessionId = "published", LiveSubagents = 2, AwaitingInput = false });
             await Assert.That(ReferenceEquals(session, rail.Groups.Single().Sessions.Single())).IsTrue();
             await Assert.That(ReferenceEquals(command, session.OpenCommand)).IsTrue();
@@ -145,7 +145,7 @@ public class SessionRailViewModelTests {
             directory.Rows.AddOrUpdate(AgentRow.FromRemote(RemoteDto("same", "owner", "repo")));
             using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
 
-            rail.SelectedSessionKey = "local:same";
+            rail.OpenSessionKey = "local:same";
             await Assert.That(rail.Groups.SelectMany(repo => repo.Sessions).Single(row => row.IsSelected).Key).IsEqualTo("pending:same");
 
             directory.Rows.Edit(rows => {
@@ -154,7 +154,7 @@ public class SessionRailViewModelTests {
             });
             await Assert.That(rail.Groups.SelectMany(repo => repo.Sessions).Single(row => row.IsSelected).Key).IsEqualTo("local:same");
 
-            rail.SelectedSessionKey = "remote:same";
+            rail.OpenSessionKey = "remote:same";
             await Assert.That(rail.Groups.SelectMany(repo => repo.Sessions).Single(row => row.IsSelected).Key).IsEqualTo("remote:same");
         });
     }
@@ -242,17 +242,17 @@ public class SessionRailViewModelTests {
             await Assert.That(opened).IsEquivalentTo(["a-new", "c-only"], CollectionOrdering.Matching);
 
             opened.Clear();
-            rail.SelectedSessionKey = "local:a-old";
+            rail.OpenSessionKey = "local:a-old";
             await rail.OpenNextSessionCommand.Execute();
-            rail.SelectedSessionKey = "local:c-only";
+            rail.OpenSessionKey = "local:c-only";
             await rail.OpenPreviousSessionCommand.Execute();
             await Assert.That(opened).IsEquivalentTo(["c-only", "a-old"], CollectionOrdering.Matching);
 
             opened.Clear();
             await Assert.That(rail.OpenAdjacent(1)).IsFalse();
-            rail.SelectedSessionKey = "local:b-only";
+            rail.OpenSessionKey = "local:b-only";
             await Assert.That(rail.OpenAdjacent(-1)).IsTrue();
-            rail.SelectedSessionKey = "local:a-new";
+            rail.OpenSessionKey = "local:a-new";
             await Assert.That(rail.OpenAdjacent(-1)).IsFalse();
             await Assert.That(opened).IsEquivalentTo(["a-old"], CollectionOrdering.Matching);
         });
@@ -400,7 +400,7 @@ public class SessionRailViewModelTests {
                 service.Agents.AddOrUpdate(Dto("a2", "/dev/alpha", created: DateTime.UtcNow.AddHours(-1)));
                 await Assert.That(rail.Groups[0].Sessions[0].Id).IsEqualTo("a2");
                 await Assert.That(rail.Groups[0].Sessions[1].Id).IsEqualTo("a1");
-                rail.SelectedSessionKey = "local:a1";
+                rail.OpenSessionKey = "local:a1";
                 await Assert.That(rail.Groups[0].Sessions[1].Id).IsEqualTo("a1");
                 await Assert.That(rail.Groups[0].Sessions[1].IsSelected).IsTrue();
                 await Assert.That(rail.Groups[0].Sessions[0].Id).IsEqualTo("a2");
@@ -421,7 +421,7 @@ public class SessionRailViewModelTests {
                 await Assert.That(alpha.IsExpanded).IsTrue();
                 alpha.ToggleCommand.Execute().Subscribe();
                 service.Agents.AddOrUpdate(Dto("a2", "/dev/alpha"));
-                rail.SelectedSessionKey = "local:a2";
+                rail.OpenSessionKey = "local:a2";
                 await Assert.That(alpha.IsExpanded).IsFalse();
                 await Assert.That(alpha.CountText).IsEqualTo("2 sessions");
                 await Assert.That(rail.Groups[1].IsExpanded).IsTrue();
@@ -457,10 +457,10 @@ public class SessionRailViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var (directory, sessions, _, _, rail) = BuildWithControls();
             using (directory) using (sessions) {
-                rail.SelectedSessionKey = "server:s1";
+                rail.OpenSessionKey = "server:s1";
                 rail.Dispose();
-                rail.SelectedSessionKey = null;
-                rail.SelectedSessionKey = "local:a1";
+                rail.OpenSessionKey = null;
+                rail.OpenSessionKey = "local:a1";
                 await Assert.That(sessions.Kept).IsEqualTo("s1");
             }
         });
@@ -568,11 +568,11 @@ public class SessionRailViewModelTests {
         SessionRailViewModel? rail = null;
         rail = new SessionRailViewModel(directory, id => {
             opened.Add(id);
-            if (id != refuse) rail!.SelectedSessionKey = $"local:{id}";
+            if (id != refuse) rail!.OpenSessionKey = $"local:{id}";
         }, _ => { }, TimeProvider.System, afterPaint: paints.Enqueue);
         foreach (var id in new[] { "open", "next", "refused" })
             directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto(id, "/repo"), new RepoIdentity("path:/repo", "repo")));
-        rail.SelectedSessionKey = "local:open";
+        rail.OpenSessionKey = "local:open";
         return (directory, rail);
     }
 
@@ -704,7 +704,7 @@ public class SessionRailViewModelTests {
             rail.State = RailState.Live;
             await Assert.That(current!(ended)).IsFalse();
 
-            rail.SelectedSessionKey = ended.Key;
+            rail.OpenSessionKey = ended.Key;
             await Assert.That(current!(ended)).IsTrue();
         });
     }
@@ -715,9 +715,9 @@ public class SessionRailViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var (directory, sessions, _, _, rail) = BuildWithControls();
             using (directory) using (sessions) using (rail) {
-                rail.SelectedSessionKey = "server:s1";
+                rail.OpenSessionKey = "server:s1";
                 await Assert.That(sessions.Kept).IsEqualTo("s1");
-                rail.SelectedSessionKey = "local:a1";
+                rail.OpenSessionKey = "local:a1";
                 await Assert.That(sessions.Kept).IsNull();
             }
         });
@@ -964,7 +964,7 @@ public class SessionRailViewModelTests {
 
                 rail.State = RailState.Live;
                 await Assert.That(Ids(rail.Groups.Single())).IsEquivalentTo(["a1"]);
-                rail.SelectedSessionKey = "server:e1";
+                rail.OpenSessionKey = "server:e1";
                 await Assert.That(Ids(rail.Groups.Single()).OrderBy(id => id, StringComparer.Ordinal)).IsEquivalentTo(["a1", "e1"], CollectionOrdering.Matching);
 
                 rail.State = RailState.Ended;
@@ -1185,11 +1185,35 @@ public class SessionRailViewModelTests {
                     .. Enumerable.Range(1, 8).Select(i => Tracked($"s{i}", "AI-1", Noon.AddHours(-i))),
                     Tracked("live", "AI-1", Noon.AddDays(-1), status: "active"),
                 ]);
-                rail.SelectedSessionKey = "server:s8";
+                rail.OpenSessionKey = "server:s8";
 
                 var group = rail.Groups.Single(g => g.IsWorkItem);
                 await Assert.That(Ids(group)).IsEquivalentTo(new[] { "s1", "s2", "s3", "s4", "s5", "live", "s8" });
                 await Assert.That(group.MoreText).IsEqualTo("2 more");
+            }
+        });
+    }
+
+    /// A work item's page over the open session selects the work item's row, and the session row
+    /// stays listed without reading selected until the page closes.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_open_work_item_page_selects_its_row_over_the_open_session() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, rail) = BuildWithWorkItems();
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, [.. Enumerable.Range(1, 8).Select(i => Tracked($"s{i}", "AI-1", Noon.AddHours(-i)))]);
+                rail.OpenSessionKey = "server:s8";
+                var group = rail.Groups.Single(g => g.IsWorkItem);
+                RailSessionViewModel Open() => group.Sessions.Single(s => s.Id == "s8");
+
+                rail.OpenWorkItemId = "AI-1";
+                await Assert.That(group.IsSelected).IsTrue();
+                await Assert.That(Open().IsSelected).IsFalse();
+
+                rail.OpenWorkItemId = null;
+                await Assert.That(group.IsSelected).IsFalse();
+                await Assert.That(Open().IsSelected).IsTrue();
             }
         });
     }

@@ -43,11 +43,13 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     string? _markAnchor;
     bool _applying;
 
-    // SelectedSessionKey is fed to the nested VMs via this subject, not this.WhenAnyValue: that
+    // The selection is fed to the nested VMs via subjects, not this.WhenAnyValue: that
     // call routes through ReactiveUI's ObservableForProperty/RxAppBuilder global init, which is
     // only reliably primed when some other test has already pumped the headless dispatcher
     // first — AvaloniaSession.cs documents the MainThreadScheduler initialization race.
     readonly BehaviorSubject<string?> _selectedSessionKeyChanges = new(null);
+    readonly BehaviorSubject<string?> _selectedWorkItemChanges = new(null);
+    readonly BehaviorSubject<string?> _openSessionKeyChanges = new(null);
     readonly BehaviorSubject<Func<AgentRow, bool>> _stateFilter;
     readonly Subject<Unit> _regroup = new();
     IReadOnlyDictionary<string, RunningWork> _work = FrozenDictionary<string, RunningWork>.Empty;
@@ -67,25 +69,38 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     bool _workItemsOffered;
     DateOnly _today;
 
-    string? _selectedSessionKey;
     string? _openSessionKey;
+    string? _openWorkItemId;
     int _opening;
     readonly Action<Action> _afterPaint;
 
-    public string? SelectedSessionKey {
-        get => _selectedSessionKey;
+    /// What the window has open; the rail selects the front one, a work item's page over a session.
+    public string? OpenSessionKey {
+        get => _openSessionKey;
         set {
             if (_disposables.IsDisposed) return;
-            _openSessionKey = value;
-            ShowSelected(value);
+            this.RaiseAndSetIfChanged(ref _openSessionKey, value);
+            _openSessionKeyChanges.OnNext(value);
+            ShowOpen();
             _stateFilter.OnNext(StateFilter());
             _sessions?.Keep(value is { } key && key.StartsWith("server:", StringComparison.Ordinal) ? key["server:".Length..] : null);
         }
     }
 
-    void ShowSelected(string? key) {
-        this.RaiseAndSetIfChanged(ref _selectedSessionKey, key, nameof(SelectedSessionKey));
-        _selectedSessionKeyChanges.OnNext(key);
+    public string? OpenWorkItemId {
+        get => _openWorkItemId;
+        set {
+            if (_disposables.IsDisposed) return;
+            this.RaiseAndSetIfChanged(ref _openWorkItemId, value);
+            ShowOpen();
+        }
+    }
+
+    void ShowOpen() => ShowSelected(_openWorkItemId is null ? _openSessionKey : null, _openWorkItemId);
+
+    void ShowSelected(string? sessionKey, string? workItemId) {
+        _selectedSessionKeyChanges.OnNext(sessionKey);
+        _selectedWorkItemChanges.OnNext(workItemId);
     }
 
     // A dispatcher priority is not enough: the frame is held back while the previous one is still drawing.
@@ -96,11 +111,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     Action<string> SelectingFirst(string keyPrefix, Action<string> open) => id => {
         if (_disposables.IsDisposed) return;
         var opening = ++_opening;
-        ShowSelected(keyPrefix + id);
+        ShowSelected(keyPrefix + id, null);
         _afterPaint(() => {
             if (opening != _opening || _disposables.IsDisposed) return;
             open(id);
-            ShowSelected(_openSessionKey);
+            ShowOpen();
         });
     };
 
@@ -503,7 +518,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                         if (expanded) _openWorkItems.Add(key);
                         else _openWorkItems.Remove(key);
                     }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial, item,
-                    marked: _marked);
+                    marked: _marked, selectedWorkItem: _selectedWorkItemChanges, openSessionKey: _openSessionKeyChanges);
             }, (group, item) => group.UpdateWorkItem(item))
             .DisposeMany()
             .FilterOnObservable(group => group.HasSessions);
@@ -598,7 +613,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public void ExtendMarks(RailSessionViewModel row) {
         var shown = ShownRows();
         var to = shown.IndexOf(row);
-        var from = shown.FindIndex(r => r.Key == (_markAnchor ?? _selectedSessionKey));
+        var from = shown.FindIndex(r => r.Key == (_markAnchor ?? _openSessionKey));
         if (to < 0) return;
         if (from < 0) from = to;
         var marked = new HashSet<string>(_marked.Value, StringComparer.Ordinal);
