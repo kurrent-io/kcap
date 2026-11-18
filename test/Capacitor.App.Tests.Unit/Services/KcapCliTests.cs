@@ -40,6 +40,18 @@ public class KcapCliTests {
         new(runner, "kcap", "daemon-a", "work", _ => Task.FromResult(terminalPath), canonicalServer);
 
     [Test]
+    public async Task Session_hide_and_disable_name_the_session_and_skip_the_update_check() {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, "", "", false)) };
+        var cli = MakeCli(runner);
+
+        await cli.HideSessionAsync("abc", CancellationToken.None);
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(["hide", "abc", "--no-update-check"], CollectionOrdering.Matching);
+
+        await cli.DisableSessionAsync("abc", CancellationToken.None);
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(["disable", "abc", "--no-update-check"], CollectionOrdering.Matching);
+    }
+
+    [Test]
     public async Task VersionAsync_builds_argv_and_parses_stdout() {
         var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, "kcap 9.9.9\n", "", false)) };
         var cli = MakeCli(runner);

@@ -1429,7 +1429,8 @@ public partial class App : Application {
                 harnessesSettingsAction: _openHarnessesSettings,
                 newHarnesses: NewHarnessesFeed.Poll(HarnessRegistry.FromEnvironment(_userHome), new HarnessOfferStore(_config, _time), _time),
                 nextWork: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new NextWorkApi(sessionHttp, profiles),
-                openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers, nextWorkEnabled: () => launcherNextWork.IsOn))),
+                openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers, sessionCli: lifecycleCli,
+                nextWorkEnabled: () => launcherNextWork.IsOn))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
             restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace(),
@@ -2331,6 +2332,7 @@ public partial class App : Application {
             string? profileName = null, Func<SearchRequest, CancellationToken, Task<SearchFetch>>? search = null,
             IObservable<Func<bool>?>? harnessesSettingsAction = null, IObservable<NewHarnesses?>? newHarnesses = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
             ComposerPickers? pickers = null,
+            IKcapCli? sessionCli = null,
             Func<bool>? nextWorkEnabled = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
@@ -2418,6 +2420,13 @@ public partial class App : Application {
             };
             persistRail = set => { if (railUser is { } userId) _ = prefs.SaveAsync(url, userId, set); };
         }
+        MainWindow? railOwner = null;
+        var railActions = sessionCli is null ? null : new RailSessionActions(
+            rename: (agentId, origin) => vm?.RenameSession(agentId, origin),
+            hide: sessionCli.HideSessionAsync, disable: sessionCli.DisableSessionAsync,
+            confirmDelete: label => Dispatcher.UIThread.InvokeAsync(() => ShowConfirmDeleteSessionAsync(railOwner, label)),
+            stop: (agentId, label, kind, origin) => actions.RequestStop(agentId, label, kind, origin),
+            notifier: notifier, refresh: sessions is null ? null : sessions.ReconcileAsync, shutdown: shutdownToken);
         var rail = new SessionRailViewModel(
             resolvedDirectory, openLocalSession: agentId => vm?.OpenSession(agentId, AgentOrigin.Local),
             openRemoteSession: agentId => vm?.OpenSession(agentId, AgentOrigin.Remote), time: time, agentsWithPending: agentsWithPending,
@@ -2425,7 +2434,8 @@ public partial class App : Application {
             pullRequests: pullRequestSummaries, openPullRequest: (agentId, origin, subject) => vm?.OpenSessionPullRequest(agentId, origin, subject),
             openServerSession: sessionId => vm?.OpenSession(sessionId, AgentOrigin.Server),
             sessions: sessions, preferences: initialRail, persistPreferences: persistRail,
-            scopeLocked: localServer?.IsLocalServer == true, shownRows: railShown, bindUserPreferences: bindRailUser);
+            scopeLocked: localServer?.IsLocalServer == true, shownRows: railShown, sessionActions: railActions,
+            bindUserPreferences: bindRailUser);
         // The page mutates on whatever thread its inputs arrive on, so every input lands on the UI thread.
         Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory =
             search is null || sessions is null ? null : open => new SessionSearchViewModel(
@@ -2452,6 +2462,7 @@ public partial class App : Application {
             Web = web,
         };
         var window = adopt?.Window ?? new MainWindow();
+        railOwner = window;
         window.DataContext = vm;
         window.Closed += (_, _) => vm.Search?.Dispose();
         // An adopted window still holds the labels over the directory it was built with.
@@ -3096,6 +3107,48 @@ public partial class App : Application {
         window.Closed += (_, _) => tcs.TrySetResult(false);
 
         return window;
+    }
+
+    // Runs on the UI thread. Deleting is destructive, so Enter does not press it; Esc or closing cancels.
+    static Task<bool> ShowConfirmDeleteSessionAsync(Window? owner, string label) {
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelButton = new Button { Content = "Cancel", IsCancel = true, Classes = { "kcapChip" } };
+        var deleteButton = new Button { Content = "Delete", Classes = { "kcapDangerFill" } };
+        var window = new Window {
+            Title = "Delete session from kcap?",
+            Icon = ProductIcon.WindowIcon,
+            Background = KcapBrush("KcapCanvasBrush"),
+            Foreground = KcapBrush("KcapTextBrush"),
+            Width = 420,
+            SizeToContent = SizeToContent.Height,
+            CanResize = false,
+            WindowStartupLocation = owner is null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
+            Content = new StackPanel {
+                Margin = new Thickness(20),
+                Spacing = 16,
+                Children = {
+                    new TextBlock {
+                        Text = $"Delete \u201c{label}\u201d from kcap? Recording stops and the session's data is removed from the server. This can't be undone.",
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    new StackPanel {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 8,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Children = { cancelButton, deleteButton },
+                    },
+                },
+            },
+        };
+        deleteButton.Click += (_, _) => { tcs.TrySetResult(true); window.Close(); };
+        cancelButton.Click += (_, _) => { tcs.TrySetResult(false); window.Close(); };
+        window.Closed += (_, _) => tcs.TrySetResult(false);
+        if (owner is { IsVisible: true }) window.Show(owner);
+        else {
+            window.Show();
+            window.Activate();
+        }
+        return tcs.Task;
     }
 
     // Async-safe shutdown: ShutdownRequested fires on the UI thread and can be cancelled, so the

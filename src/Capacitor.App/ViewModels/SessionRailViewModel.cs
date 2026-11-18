@@ -231,6 +231,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Action<RailPreferences>? persistPreferences = null,
             bool scopeLocked = false,
             IObserver<Func<AgentRow, bool>>? shownRows = null,
+            IRailSessionActions? sessionActions = null,
             Func<string, Task<RailPreferences>>? bindUserPreferences = null) {
         _directory = directory;
         _sessions = sessions;
@@ -341,7 +342,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                     if (expanded) _collapsed.Remove(g.Key);
                     else _collapsed.Add(g.Key);
                     Persist();
-                }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial))
+                }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, sessionActions, endedListPartial))
             .DisposeMany()
             .SortAndBind(_groupsSource, _groupComparer)
             .Subscribe()

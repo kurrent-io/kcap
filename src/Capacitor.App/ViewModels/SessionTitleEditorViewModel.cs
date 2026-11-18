@@ -71,6 +71,7 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
         canRename.DistinctUntilChanged().Subscribe(can => {
             CanRename = can;
             if (!can && IsEditing) Cancel();
+            if (can && _editRequested) BeginEdit();
         }).DisposeWith(_disposables);
 
         BeginEditCommand = ReactiveCommand.Create(BeginEdit, _canBegin).DisposeWith(_disposables);
@@ -85,13 +86,24 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
         _canFinish.OnNext(IsEditing && !IsSaving);
     }
 
+    bool _editRequested;
+
+    /// Begins the edit now, or as soon as the session turns out renamable: a workspace opened for
+    /// the rename reads its eligibility after it is built.
+    public void RequestEdit() {
+        _editRequested = !CanRename;
+        BeginEdit();
+    }
+
     void BeginEdit() {
         if (!CanRename || IsEditing) return;
+        _editRequested = false;
         Draft = Title;
         IsEditing = true;
     }
 
     void Cancel() {
+        _editRequested = false;
         Draft = Title;
         IsEditing = false;
     }

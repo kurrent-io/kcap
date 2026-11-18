@@ -28,6 +28,7 @@
         <Style Selector="Border.railSession">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="ContextFlyout" Value="{x:Static views:SessionRowMenu.Flyout}" />
         </Style>
         <Style Selector="Border.railSession.selected">
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />

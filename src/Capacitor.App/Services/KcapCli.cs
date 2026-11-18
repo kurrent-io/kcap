@@ -136,6 +136,13 @@ public interface IKcapCli {
     /// run failed or printed no report.
     Task<ImportDiscoveryReport?> ImportDiscoverAsync(IReadOnlyList<string> vendorFlags, CancellationToken ct);
 
+    /// <c>hide &lt;sessionId&gt;</c>: makes the session visible to its owner only.
+    Task<ProcessResult> HideSessionAsync(string sessionId, CancellationToken ct);
+
+    /// <c>disable &lt;sessionId&gt;</c>: stops recording the session and deletes its server data. Exit 1 is
+    /// something left unconfirmed, which the output names.
+    Task<ProcessResult> DisableSessionAsync(string sessionId, CancellationToken ct);
+
     /// <summary><c>local intelligence &lt;answer&gt; --json</c>: tells the local server who runs its background model
     /// calls. A provider's key goes in the child's environment, never its arguments, which any local user can read.
     /// <paramref name="importOutcomes"/> null leaves the server's choice as it is.</summary>
@@ -172,6 +179,8 @@ public sealed class KcapCli : IKcapCli {
     // Same tier as VersionTimeout — also a read-only query — so a hung `launchctl print` can
     // never block the per-mutation gate forever once the lifecycle controller polls this.
     static readonly TimeSpan StatusTimeout = TimeSpan.FromSeconds(10);
+    // One server write behind the CLI's own retries.
+    static readonly TimeSpan SessionTimeout = TimeSpan.FromSeconds(30);
     // Above MutationTimeout's 60s — bounds the wrapper without killing a still-forking detach (ProcessOnly).
     static readonly TimeSpan DetachedStartTimeout = TimeSpan.FromSeconds(75);
     // Sits above the CLI's ten-minute readiness budget so the CLI reports its own failure first.
@@ -430,6 +439,20 @@ public sealed class KcapCli : IKcapCli {
 
         return await _runner.RunStreamingAsync(cliPath, args,
             new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false)), onLine, CancellationToken.None).ConfigureAwait(false);
+    }
+
+    public async Task<ProcessResult> HideSessionAsync(string sessionId, CancellationToken ct) {
+        if (CliPath is not { } cliPath) return await NoCliResult().ConfigureAwait(false);
+
+        return await Run(cliPath, ["hide", sessionId, "--no-update-check"],
+            new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false), Timeout: SessionTimeout), ct).ConfigureAwait(false);
+    }
+
+    public async Task<ProcessResult> DisableSessionAsync(string sessionId, CancellationToken ct) {
+        if (CliPath is not { } cliPath) return await NoCliResult().ConfigureAwait(false);
+
+        return await Run(cliPath, ["disable", sessionId, "--no-update-check"],
+            new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false), Timeout: MutationTimeout), ct).ConfigureAwait(false);
     }
 
     public async Task<ProcessResult> LocalStartAsync(CancellationToken ct) {

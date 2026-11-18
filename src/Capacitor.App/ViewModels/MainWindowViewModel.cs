@@ -804,6 +804,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// running. True when the session is the open workspace afterwards.
     public bool OpenSession(string agentId, AgentOrigin? origin = null) => Navigate(agentId, origin, sessionId: null);
 
+    /// Opens the session and puts its header title into edit mode.
+    public void RenameSession(string agentId, AgentOrigin origin) {
+        if (!OpenSession(agentId, origin) || CurrentWorkspace is not { } open) return;
+        open.TitleEditor.RequestEdit();
+    }
+
     /// `sessionId` is the session the caller asked for; without one it is read off what opened.
     /// A step through the history passes `record: false`, since it moves along the history itself.
     bool Navigate(string agentId, AgentOrigin? origin, string? sessionId, bool record = true) {

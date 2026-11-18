@@ -31,6 +31,32 @@ public class SessionTitleEditorViewModelTests {
     }
 
     [Test]
+    public async Task A_requested_edit_waits_for_the_session_to_be_renamable() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.CanRename.OnNext(false);
+            h.Vm.RequestEdit();
+            await Assert.That(h.Vm.IsEditing).IsFalse();
+
+            h.CanRename.OnNext(true);
+            await Assert.That(h.Vm.IsEditing).IsTrue();
+            await Assert.That(h.Vm.Draft).IsEqualTo("Old name");
+        });
+    }
+
+    [Test]
+    public async Task A_cancelled_edit_does_not_reopen_on_a_later_eligibility_change() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Vm.RequestEdit();
+            await h.Vm.CancelCommand.Execute();
+            h.CanRename.OnNext(false);
+            h.CanRename.OnNext(true);
+            await Assert.That(h.Vm.IsEditing).IsFalse();
+        });
+    }
+
+    [Test]
     public async Task Enter_with_blank_text_cancels_without_a_call() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
