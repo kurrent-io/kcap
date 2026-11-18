@@ -281,15 +281,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         return Join(kind, borrowed, age, subagents);
     }
 
-    /// Exact to the minute under a day and to the hour under a week, so neighbouring rows a few
-    /// hours apart never print the same label. No seconds: the rail refreshes once a minute.
-    string Since(DateTime utc) {
-        var now = _time.GetUtcNow();
-        var at = new DateTimeOffset(utc);
-        var age = now - at;
-        if (age < TimeSpan.FromMinutes(1)) return "<1m ago";
-        return age < TimeSpan.FromDays(7) ? $"{UptimeFormat.Format(age)} ago" : RelativeTime.Ago(at, now, _time.LocalTimeZone);
-    }
+    string Since(DateTime utc) => RelativeTime.Ago(new DateTimeOffset(utc), _time.GetUtcNow(), _time.LocalTimeZone);
 
     /// A local stamp is converted rather than relabelled: relabelling shifts it by the UTC offset,
     /// enough to move an age across a day boundary.

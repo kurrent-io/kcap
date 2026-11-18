@@ -707,10 +707,29 @@
                                                                     </StackPanel>
                                                                 </StackPanel>
                                                             </ToolTip.Tip>
-                                                            <Grid ColumnDefinitions="*,Auto">
-                                                                <TextBlock Text="{Binding Primary}" FontSize="14" Classes="rowTitle"
-                                                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                            <Grid ColumnDefinitions="20,*,Auto">
+                                                                <Panel Height="20" VerticalAlignment="Top" HorizontalAlignment="Left">
+                                                                    <views:AgentStatusMark Classes="railRowStatus" DataContext="{Binding Status}" IsVisible="{Binding HasGlyph}"
+                                                                                           ToolTip.Tip="{x:Null}" VerticalAlignment="Center" />
+                                                                    <Ellipse Width="4" Height="4" Margin="4,0,0,0" Fill="{StaticResource KcapFaintBrush}" VerticalAlignment="Center"
+                                                                             IsVisible="{Binding !Status.HasGlyph}" />
+                                                                </Panel>
+                                                                <StackPanel Grid.Column="1" Spacing="1">
+                                                                    <TextBlock Text="{Binding Primary}" FontSize="14" Classes="rowTitle"
+                                                                               TextTrimming="CharacterEllipsis" />
+                                                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                                                        <Border Classes="vendorMark" Width="12" Height="12"
+                                                                                VerticalAlignment="Center" Background="Transparent" IsVisible="{Binding HasVendor}"
+                                                                                AutomationProperties.Name="{Binding Vendor, Converter={x:Static views:VendorLabelConverter.Instance}}"
+                                                                                AutomationProperties.AccessibilityView="Content">
+                                                                            <ContentControl HorizontalAlignment="Center" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw"
+                                                                                            Content="{Binding Vendor, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=12}" />
+                                                                        </Border>
+                                                                        <TextBlock Text="{Binding Meta}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}"
+                                                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                                    </StackPanel>
+                                                                </StackPanel>
+                                                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="8,2,0,0" VerticalAlignment="Top">
                                                                     <!-- Another user's row shows their picture, or their initials until it loads or when it never does. -->
                                                                     <Border Width="16" Height="16" CornerRadius="8" VerticalAlignment="Center" ClipToBounds="True"
                                                                             Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
@@ -721,15 +740,6 @@
                                                                                        Foreground="{StaticResource KcapMutedBrush}" AutomationProperties.AccessibilityView="Raw" />
                                                                             <views:RemoteAvatar Url="{Binding OwnerAvatarUrl}" AutomationProperties.AccessibilityView="Raw" />
                                                                         </Panel>
-                                                                    </Border>
-                                                                    <views:AgentStatusMark Classes="railRowStatus" DataContext="{Binding Status}" IsVisible="{Binding HasGlyph}"
-                                                                                           ToolTip.Tip="{x:Null}" VerticalAlignment="Center" />
-                                                                    <Border Classes="vendorMark" Width="16" Height="16"
-                                                                            VerticalAlignment="Center" Background="Transparent" IsVisible="{Binding HasVendor}"
-                                                                            AutomationProperties.Name="{Binding Vendor, Converter={x:Static views:VendorLabelConverter.Instance}}"
-                                                                            AutomationProperties.AccessibilityView="Content">
-                                                                        <ContentControl HorizontalAlignment="Center" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw"
-                                                                                        Content="{Binding Vendor, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=14}" />
                                                                     </Border>
                                                                 </StackPanel>
                                                             </Grid>
