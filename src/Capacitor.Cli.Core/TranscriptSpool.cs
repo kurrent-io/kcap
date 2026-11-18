@@ -159,7 +159,7 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
 
         try {
             markers = Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sessionId)}.p*.needs-import")
-                .Where(marker => OwnerOf(marker, sessionId) is not { } owner || WatcherLiveness.IsGone(owner, ""))
+                .Where(marker => OwnerOf(marker) is not { } owner || WatcherLiveness.IsGone(owner, ""))
                 .ToList();
         } catch {
             markers = [];
@@ -179,12 +179,17 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
         }
     }
 
-    static int? OwnerOf(string markerPath, string sessionId) {
-        var name   = Path.GetFileName(markerPath);
-        var prefix = $"{EncodeKey(sessionId)}.p";
+    // Read after the key's dot rather than against the key: a case-insensitive filesystem matches a legacy GUID key in
+    // another spelling.
+    static int? OwnerOf(string markerPath) {
+        const string suffix = ".needs-import";
 
-        return name.StartsWith(prefix, StringComparison.Ordinal) && name.EndsWith(".needs-import", StringComparison.Ordinal)
-            && int.TryParse(name.AsSpan(prefix.Length, name.Length - prefix.Length - ".needs-import".Length), out var pid)
+        var name   = Path.GetFileName(markerPath);
+        var dot    = name.IndexOf('.');
+        var length = name.Length - dot - 2 - suffix.Length;
+
+        return dot > 0 && length > 0 && name[dot + 1] == 'p' && name.EndsWith(suffix, StringComparison.Ordinal)
+            && int.TryParse(name.AsSpan(dot + 2, length), out var pid)
                 ? pid
                 : null;
     }

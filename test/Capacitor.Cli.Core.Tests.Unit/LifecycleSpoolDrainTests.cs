@@ -390,6 +390,26 @@ public class LifecycleSpoolDrainTests {
         await Assert.That(tx.NeedsImport(Sid)).IsEqualTo(ownerRunning);
     }
 
+    /// <summary>A loss a reader finds after the session's end was delivered is reported all the same.</summary>
+    [Test]
+    public async Task reports_a_marker_left_after_the_end_was_delivered() {
+        using var tmp = new TempDir();
+        var life = new HookSpool(tmp.Path, time: TimeProvider.System);
+        var tx   = new TranscriptSpool(tmp.PathTo("tx"), time: TimeProvider.System);
+        life.MarkEnded(Sid);
+        tx.MarkNeedsImport(Sid, "final drain did not complete");
+
+        var order = new List<string>();
+        await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
+            lifecyclePoster: (route, body) => { order.Add($"L:{route}:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
+            transcriptPoster: body => { order.Add($"T:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
+            budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System,
+            reportNeedsImport: sid => order.Add($"R:{sid}"));
+
+        await Assert.That(order).IsEquivalentTo([$"R:{Sid}"]);
+        await Assert.That(tx.NeedsImport(Sid)).IsFalse();
+    }
+
     // Session-start/subagent-stop/session-end share one spool file in prod, so a subagent-stop that arrives (or is only discovered) AFTER session-end was
     // already delivered is reachable. Same-pass, DrainRoutesAsync's phase-mismatch break already
     // withholds it correctly — but a bare re-run of RunAsync on a FRESH file containing only that

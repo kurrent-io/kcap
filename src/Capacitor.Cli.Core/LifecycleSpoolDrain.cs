@@ -54,7 +54,14 @@ public static class LifecycleSpoolDrain {
 
             // Nothing of a run whose end was delivered may follow that end, and an earlier run's end
             // must not follow a later run's start: both are settled before the phases run.
-            if (!await lifecycle.SettleEarlierRunsAsync(sid, PostLifecycle, Expired, ct) || lifecycle.IsMarkedEnded(sid)) continue;
+            if (!await lifecycle.SettleEarlierRunsAsync(sid, PostLifecycle, Expired, ct)) continue;
+
+            // A loss found after the end was delivered is still the user's to import.
+            if (lifecycle.IsMarkedEnded(sid)) {
+                if (reportNeedsImport is not null) transcript.ReportNeedsImport(sid, reportNeedsImport);
+
+                continue;
+            }
 
             // First: session-start (and any non-terminal lifecycle) BEFORE transcript tail.
             await lifecycle.DrainRoutesAsync(sid, isTerminal: false, PostLifecycle, Expired, ct);
