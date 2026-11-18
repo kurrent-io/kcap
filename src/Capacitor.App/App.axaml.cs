@@ -124,6 +124,9 @@ public partial class App : Application {
      || (OperatingSystem.IsWindows() && RuntimeInformation.OSArchitecture == Architecture.X64);
 
     public App() {
+        _appMenu = new AppMenu(OperatingSystem.IsMacOS() ? AppKitMenus.ShowAboutPanel
+            : OperatingSystem.IsWindows() ? () => _coordinator?.Window?.ShowAbout()
+            : null);
         // A live facade creates the device id and the spool under the config root being removed.
         _telemetry   = CliTelemetry.Start(
             DesktopTelemetry(_uninstallMode, _endpoints.SignupUrl,
@@ -298,7 +301,7 @@ public partial class App : Application {
     readonly BehaviorSubject<Func<bool>?> _openHarnessesSettings = new(null);
     FeedbackWindow? _feedbackWindow;
     internal FeedbackWindow? FeedbackWindowForTests => _feedbackWindow;
-    readonly AppMenu _appMenu = new(AppKitMenus.ShowAboutPanel);
+    readonly AppMenu _appMenu;
     // A field, not a local: the report items it retains are enabled only once the profile has
     // resolved, long after the bar is attached.
     AppMenuBar? _menuBar;
@@ -1414,8 +1417,7 @@ public partial class App : Application {
                 remoteWorkspaceFactory: BuildRemote, serverWorkspaceFactory: BuildServer,
                 sessions: sessions, railPreferences: railPreferences, profileName: profiles?.Name,
                 modelCatalog: modelCatalog.Catalog, uploader: uploader, appServerUrl: profiles?.Resolution.ServerUrl,
-                openFeedback: openFeedback, settingsAction: _appMenu.SettingsAction, checkForUpdatesAction: _appMenu.CheckForUpdatesAction,
-                uninstallAction: _appMenu.UninstallAction,
+                openFeedback: openFeedback, settingsAction: _appMenu.SettingsAction,
                 adopt: TakeAdoptableWindow(), show: !_holdingMainWindow,
                 requestSetup: () => _ = RestartForSetupAsync(desktop),
                 historyImport: _historyImport?.Run,
@@ -2316,8 +2318,7 @@ public partial class App : Application {
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? modelCatalog = null,
             IAttachmentUploader? uploader = null, string? appServerUrl = null,
             Action<FeedbackCategory>? openFeedback = null, IObservable<Action?>? settingsAction = null,
-            IObservable<Func<Task>?>? checkForUpdatesAction = null,
-            IObservable<Action?>? uninstallAction = null, (MainWindow Window, AppState State)? adopt = null, bool show = true,
+            (MainWindow Window, AppState State)? adopt = null, bool show = true,
             Action? requestSetup = null, HistoryImportRun? historyImport = null,
             IObservable<bool>? backgroundPriority = null, IObservable<ReloadState?>? reloadState = null,
             IObservable<bool>? isReloading = null, Func<CancellationToken, Task>? reloadDaemon = null,
@@ -2444,8 +2445,7 @@ public partial class App : Application {
             serverWorkspaceFactory: serverWorkspaceFactory, sessions: sessions,
             searchFactory: searchFactory, appServerUrl: appServerUrl,
             openFeedback: openFeedback, opener: new ShellUrlOpener(), requestSignIn: requestSignIn,
-            settingsAction: settingsAction, checkForUpdatesAction: checkForUpdatesAction,
-            uninstallAction: uninstallAction, requestSetup: requestSetup, historyImport: historyImport,
+            settingsAction: settingsAction, requestSetup: requestSetup, historyImport: historyImport,
             backgroundPriority: backgroundPriority, reloadState: reloadState, isReloading: isReloading, reloadDaemon: reloadDaemon, openLaunchApprovals: openLaunchApprovals,
             movingToWindowsService: movingToWindowsService) {
             LocalStack = localStack,

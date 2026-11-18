@@ -3,7 +3,7 @@ using Avalonia.Controls;
 
 namespace Capacitor.App.Views;
 
-/// <see cref="MainWindow"/> keeps its sidebar toggle, back and forward in one place at the window's
+/// <see cref="MainWindow"/> keeps its menu (off macOS), sidebar toggle, back and forward in one place at the window's
 /// top-left; while the rail is collapsed they float over the content's corner, and a header attached
 /// here pads its leading edge clear of them. Outside a MainWindow nothing floats there and the header
 /// keeps its own padding.
@@ -21,7 +21,10 @@ public static class RailClearance {
     public const double ToggleGap = 10;
     const double Gap = 10;
 
-    static double ControlsWidth => 3 * ButtonSize + ToggleGap + Spacing;
+    // The menu button shows wherever the native menu bar does not.
+    static readonly int Buttons = BesideWindowButtons ? 3 : 4;
+
+    static double ControlsWidth => Buttons * ButtonSize + ToggleGap + (Buttons - 2) * Spacing;
 
     /// The toggle's top-left in the content's units, which the UI zoom scales.
     public static Point ButtonOrigin(double scale) => BesideWindowButtons

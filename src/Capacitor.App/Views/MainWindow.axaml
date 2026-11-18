@@ -112,6 +112,21 @@
                      pads clear of them through RailClearance. -->
                 <StackPanel x:Name="WindowControls" Orientation="Horizontal"
                             HorizontalAlignment="Left" VerticalAlignment="Top">
+                    <!-- Off macOS, where no menu bar is drawn: the app's menus, opened by a tap of Alt too. -->
+                    <Button x:Name="AppMenuButton" Classes="kcapGhost kcapIcon" IsVisible="{Binding AppMenuInWindow}"
+                            ToolTip.Tip="Menu (Alt)" AutomationProperties.Name="Menu">
+                        <views:AppIcon Kind="Menu" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                        <Button.Flyout>
+                            <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
+                                <StackPanel Margin="6" MinWidth="260">
+                                    <StackPanel x:Name="AppMenuRows" Spacing="2" />
+                                    <Border Height="1" Margin="8,4" Background="{StaticResource KcapBorderBrush}" />
+                                    <TextBlock x:Name="AppMenuVersionText" Text="{Binding AppVersionLabel}"
+                                               Foreground="{StaticResource KcapFaintBrush}" FontSize="12" Margin="10,4" />
+                                </StackPanel>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
                     <Panel>
                         <Button x:Name="RailToggleButton" Classes="kcapGhost kcapIcon" Click="OnRailToggleClick">
                             <views:AppIcon x:Name="RailToggleIcon" Size="16" Foreground="{StaticResource KcapMutedBrush}" />

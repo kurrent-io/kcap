@@ -201,7 +201,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         InitializeComponent();
         WindowControls.Spacing = RailClearance.Spacing;
         RailToggleButton.Margin = new Thickness(0, 0, RailClearance.ToggleGap - RailClearance.Spacing, 0);
-        foreach (var button in new[] { RailToggleButton, BackButton, ForwardButton }) {
+        foreach (var button in new[] { AppMenuButton, RailToggleButton, BackButton, ForwardButton }) {
             button.MinWidth = button.MinHeight = RailClearance.ButtonSize;
             button.Padding = new Thickness((RailClearance.ButtonSize - 16) / 2);
         }
@@ -240,6 +240,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         KeepContentClearOfCaptionButtons();
         ShowInstanceTitle();
         BindFullScreenShortcut();
+        BindAppMenu();
         Closing += (_, e) => {
             if (CloseInterceptor?.Invoke() == true) e.Cancel = true;
         };
