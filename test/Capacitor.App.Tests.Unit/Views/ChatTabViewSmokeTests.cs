@@ -297,6 +297,11 @@ public class ChatTabViewSmokeTests {
             await PageAsync(700);
             await Assert.That(TextOf(chat.Items[0])).IsEqualTo("message 0");
             await Assert.That(feed!.HasOlder).IsFalse();
+
+            // A jump straight back to where the reader was before the insert realizes the rows there.
+            Scroll().Offset = new Vector(0, 0);
+            Settle();
+            await Assert.That(list.ContainerFromIndex(0)).IsNotNull();
         } finally {
             window.Close();
             Dispatcher.UIThread.RunJobs();

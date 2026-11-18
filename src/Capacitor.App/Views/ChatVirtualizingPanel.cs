@@ -51,11 +51,11 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     public ChatVirtualizingPanel() => EffectiveViewportChanged += OnViewportChanged;
 
     void OnViewportChanged(object? sender, EffectiveViewportChangedEventArgs e) {
-        if (_viewport == e.EffectiveViewport) return;
         if (_shiftInFlight != 0) {
             if (Math.Abs(e.EffectiveViewport.Top + _shiftInFlight - _viewport.Top) < 1) return;
             _shiftInFlight = 0;
         }
+        if (_viewport == e.EffectiveViewport) return;
         var old = _viewport;
         _viewport = e.EffectiveViewport;
         if (old.Size != _viewport.Size || _first < 0 || _last >= Items.Count

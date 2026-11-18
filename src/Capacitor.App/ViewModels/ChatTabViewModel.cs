@@ -2095,25 +2095,35 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     /// Older rows go above the ones on screen. A call they leave open is settled by a result already
     /// shown, and the runs fold again from the start of what is loaded.
+    /// A page that adds no rows asks for the next one at once: no scroll would ask for it.
     void InsertOlder(LineCursor older, ReceiptCandidates candidates) {
+        var matched = new List<AcpEventEnvelope>();
         foreach (var (id, call) in older.Pending) {
             if (_orphanResults.Remove(id, out var result)) {
                 Settle(call, result);
+                NoteQuestionResult(older, id, result.TimestampIso);
                 older.Settled.Add(id);
+                matched.Add(result);
             } else if (_pendingTools.TryAdd(id, call)) {
                 call.SessionOver = _ended;
             }
         }
-        if (_lease?.Feed is RemoteTranscriptFeed { HasOlder: false }) _orphanResults.Clear();
+        var hasOlder = _lease?.Feed is RemoteTranscriptFeed { HasOlder: true };
+        if (!hasOlder) _orphanResults.Clear();
+        else foreach (var (id, result) in older.Orphans) _orphanResults.TryAdd(id, result);
         _settledTools.UnionWith(older.Settled);
         _questionAsks.InsertRange(0, older.Questions);
-        _planActivity?.Apply(older.Restored);
+        _planActivity?.Apply(older.Restored.Append(new ChatProjectionResult(matched, [], [])));
         _runs.Prepend(older.Restored);
-        if (older.Fresh.Count == 0) return;
-        foreach (var call in older.Fresh.OfType<ToolGroupItem>().SelectMany(static group => group.Calls))
-            call.SessionOver = _ended;
-        _items.InsertRange(0, older.Fresh);
-        _senders?.Track(SenderLabels(older.Fresh, candidates));
+        _history.ObserveEarlier([.. older.Restored.SelectMany(static projected => projected.SubmittedInputs).Select(AttachmentTrailer.Strip)]);
+        if (older.Fresh.Count > 0) {
+            foreach (var call in older.Fresh.OfType<ToolGroupItem>().SelectMany(static group => group.Calls))
+                call.SessionOver = _ended;
+            _items.InsertRange(0, older.Fresh);
+            _senders?.Track(SenderLabels(older.Fresh, candidates));
+        }
+        Reconcile();
+        if (older.Fresh.Count == 0 && hasOlder) RequestOlder();
     }
 
     void Finish(FeedRead read, LineCursor? cursor, ReceiptCandidates candidates) {
@@ -2151,6 +2161,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             if (read.Status == FeedStatus.Reset) {
                 SyncPendingCardItems();
                 RefreshActivityNote();
+                RequestOlderWhileEmpty();
             }
             return;
         }
@@ -2158,6 +2169,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         Reconcile();
         SyncPendingCardItems();
         RefreshActivityNote();
+        if (read.Status == FeedStatus.Reset) RequestOlderWhileEmpty();
+    }
+
+    /// A seed whose events show no rows leaves nothing to scroll, so older pages are read until one does.
+    void RequestOlderWhileEmpty() {
+        if (_items.Count == 0) RequestOlder();
     }
 
     /// A remote feed's offset is the line's number in the session's root stream; a local one's is a file

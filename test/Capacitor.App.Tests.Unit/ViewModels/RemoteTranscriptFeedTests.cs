@@ -597,4 +597,51 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(older.Status).IsEqualTo(FeedStatus.Ok);
         await Assert.That(older.Older[0].Offset).IsEqualTo(0);
     }
+
+    /// Events that aged out of the stream after the seed move the server's count: the older page is read
+    /// again from the corrected count, so no loaded event comes back a second time.
+    [Test]
+    public async Task An_older_page_after_events_aged_out_neither_repeats_nor_skips_events() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = Open(server, lane, access);
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+        feed.ReadAppended();
+        server.Events.RemoveRange(0, 50);
+
+        var older = await OlderAsync(feed);
+        await Assert.That(older.Older.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(100, 300).Select(i => (long)i));
+        var oldest = await OlderAsync(feed);
+        await Assert.That(oldest.Older.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(50, 50).Select(i => (long)i));
+        await Assert.That(feed.HasOlder).IsFalse();
+    }
+
+    /// A re-read replays only what the pane has already drained; a live line it has not drained follows the
+    /// replay, where it can still acknowledge a send.
+    [Test]
+    public async Task A_reread_keeps_an_undrained_live_line_out_of_its_replayed_history() {
+        var events = new List<SessionEventDto> {
+            Event(0, CanonicalEventTypes.AssistantToolCallsGenerated,
+                """{"tool_calls":[{"call_id":"t1","tool_name":"ScheduleWakeup","arguments":{"prompt":"check CI"}}]}"""),
+        };
+        events.AddRange(Enumerable.Range(1, 398).Select(i => Text(i, $"m{i}")));
+        events.Add(Event(399, CanonicalEventTypes.UserMessageReceived, """{"content":"check CI"}"""));
+        var server = new FakeSessionEvents([.. events]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = Open(server, lane, access, vendor: "claude");
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+        feed.ReadAppended();
+        server.Events.Add(Event(400, CanonicalEventTypes.UserMessageReceived, """{"content":"sent while reading"}"""));
+        lane.PushStreamEvent(Envelope("s1", 400, CanonicalEventTypes.UserMessageReceived, """{"content":"sent while reading"}"""));
+        await WaitUntilAsync(() => feed.CurrentOffset == 401, what: "the live line");
+
+        var reread = await OlderAsync(feed);
+        await Assert.That(reread.Status).IsEqualTo(FeedStatus.Reset);
+        await Assert.That(reread.SnapshotOffset).IsEqualTo(400);
+        await Assert.That(reread.Lines[^1].Offset).IsEqualTo(399);
+        var live = feed.ReadAppended();
+        await Assert.That(live.Lines.Select(l => l.Offset)).IsEquivalentTo(new long[] { 400 });
+    }
 }

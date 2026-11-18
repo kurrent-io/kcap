@@ -98,6 +98,117 @@ public partial class ChatTabViewModelTests {
         } finally { await chat.TeardownAsync(); }
     });
 
+    static ChatTabViewModel RemoteChat(FakeSessionEvents server, Action<RemoteTranscriptFeed> opened, FakeTimeProvider time,
+            BehaviorSubject<SessionAccessState> access, PlanActivity? planActivity = null, FakePermissionService? permissions = null) =>
+        new("a1", AgentOrigin.Remote, Observable.Return(Session("s1")), Observable.Return<string[]?>(null),
+            new AcceptingChatInput(), new NoAttachmentUploader(), key => {
+                var feed = new RemoteTranscriptFeed(key, "gemini", access, server.Reader, new FakeServerLane(), time, _ => { });
+                opened(feed);
+                return feed;
+            },
+            new RecordingOpener(), time, permissions ?? new FakePermissionService(), new SessionRuns(time), planActivity: planActivity,
+            sessionId: Observable.Return<string?>("s1"));
+
+    static SessionEventDto TextEvent(int i) =>
+        RemoteFixtures.Event(i, CanonicalEventTypes.AssistantTextGenerated, $$"""{"content":"m{{i}}"}""");
+
+    static SessionEventDto ResultEvent(int i, string callId, string result = "ok") =>
+        RemoteFixtures.Event(i, CanonicalEventTypes.ToolResultReceived, $$"""{"call_id":"{{callId}}","result":{{System.Text.Json.JsonSerializer.Serialize(result)}}}""");
+
+    /// A window whose events show no rows still pages back until older events do.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_window_that_shows_no_rows_pages_back_to_rows_that_do() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => i < 100 ? TextEvent(i) : ResultEvent(i, $"x{i}"))]);
+        var chat = RemoteChat(server, _ => { }, time, access);
+        try {
+            await WaitUntilAsync(() => chat.Items.Count == 100, what: "rows from the oldest page");
+            await Assert.That((chat.Items[0] as AssistantTextItem)?.Text).IsEqualTo("m0");
+        } finally { await chat.TeardownAsync(); }
+    });
+
+    /// A result met on one older page settles its call when a still older page brings the call.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_result_on_one_older_page_settles_a_call_on_the_next() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => i switch {
+            50  => RemoteFixtures.Event(i, CanonicalEventTypes.AssistantToolCallsGenerated, RemoteFixtures.LsCall),
+            150 => ResultEvent(i, "t1", "a.txt"),
+            _   => TextEvent(i),
+        })]);
+        RemoteTranscriptFeed? feed = null;
+        var chat = RemoteChat(server, f => feed = f, time, access);
+        try {
+            await WaitUntilAsync(() => chat.Items.Count == 300, what: "the seed");
+            await Assert.That(chat.RequestOlder()).IsTrue();
+            await feed!.PendingOlderForTesting!;
+            await WaitUntilAsync(() => chat.Items.Count > 590, what: "the first older page");
+            await Assert.That(chat.RequestOlder()).IsTrue();
+            await feed.PendingOlderForTesting!;
+            await WaitUntilAsync(() => chat.Items.OfType<ToolGroupItem>().Any(), what: "the call");
+
+            var call = chat.Items.OfType<ToolGroupItem>().Single().Calls.Single();
+            await Assert.That(call.Outcome).IsEqualTo(ToolOutcome.Done);
+            await Assert.That(call.Result).IsEqualTo("a.txt");
+        } finally { await chat.TeardownAsync(); }
+    });
+
+    /// A page publish whose call is paged in after its result still names the page it published.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_publish_paged_in_after_its_result_still_names_its_page() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 400).Select(i => i switch {
+            99  => RemoteFixtures.Event(i, CanonicalEventTypes.AssistantToolCallsGenerated,
+                """{"tool_calls":[{"call_id":"p1","tool_name":"publish_page","arguments":{"title":"Notes"}}]}"""),
+            100 => ResultEvent(i, "p1", """{"page_id":"pg1"}"""),
+            _   => TextEvent(i),
+        })]);
+        RemoteTranscriptFeed? feed = null;
+        var activity = new PlanActivity();
+        var chat = RemoteChat(server, f => feed = f, time, access, planActivity: activity);
+        try {
+            await WaitUntilAsync(() => chat.Items.Count > 0, what: "the seed");
+            await Assert.That(activity.PublishedPageIds).IsEmpty();
+            await Assert.That(chat.RequestOlder()).IsTrue();
+            await feed!.PendingOlderForTesting!;
+            await WaitUntilAsync(() => chat.Items.Count > 390, what: "the older page");
+
+            await Assert.That(activity.PublishedPageIds).IsEquivalentTo(new[] { "pg1" });
+        } finally { await chat.TeardownAsync(); }
+    });
+
+    /// A question card is retired once the ask it answers is paged in, its result having been loaded first.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_question_paged_in_after_its_answer_retires_its_card() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var permissions = new FakePermissionService();
+        permissions.Add(PermissionEntries.ServerQuestion("srv-q1"));
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 400).Select(i => i switch {
+            99  => RemoteFixtures.Event(i, CanonicalEventTypes.AssistantToolCallsGenerated,
+                """{"tool_calls":[{"call_id":"q1","tool_name":"AskUserQuestion","arguments":{"questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]}]}}]}"""),
+            100 => ResultEvent(i, "q1", "A"),
+            _   => TextEvent(i),
+        })]);
+        RemoteTranscriptFeed? feed = null;
+        var chat = RemoteChat(server, f => feed = f, time, access, permissions: permissions);
+        try {
+            await WaitUntilAsync(() => chat.Items.OfType<AssistantTextItem>().Any(), what: "the seed");
+            await Assert.That(permissions.Withdrawn).IsEmpty();
+            await Assert.That(chat.RequestOlder()).IsTrue();
+            await feed!.PendingOlderForTesting!;
+
+            await WaitUntilAsync(() => permissions.Withdrawn.Count > 0, what: "the card withdrawn");
+        } finally { await chat.TeardownAsync(); }
+    });
+
     sealed class HeldFeed(ManualResetEventSlim entered, ManualResetEventSlim release) : IChatTranscriptFeed {
         public long? CurrentOffset => 0;
         public FeedRead ReadAppended() {
