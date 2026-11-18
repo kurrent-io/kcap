@@ -75,9 +75,13 @@ public sealed class SingleFlightReader<TState, TResult>(
     void StartRead(Lease lease) {
         lease.RefreshPending = false;
         lease.IsReading = true;
-        lease.Pending = RunReadAsync(lease);
+        lease.Pending = null;
         _outstanding.Add(lease);
         if (ReferenceEquals(lease, _current)) onReadingChanged?.Invoke(true);
+        // A read that answers at once settles inside this call when `post` runs inline, so the lease is
+        // listed and announced first, and a follow-up it started keeps its own pending read.
+        var read = RunReadAsync(lease);
+        lease.Pending ??= read;
     }
 
     async Task RunReadAsync(Lease lease) {

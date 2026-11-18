@@ -1,3 +1,5 @@
+using TUnit.Assertions.Enums;
+
 namespace Capacitor.Client.Tests.Unit;
 
 public class SingleFlightReaderTests {
@@ -42,6 +44,24 @@ public class SingleFlightReaderTests {
         await h.Reader.TeardownAsync();
     }
 
+    /// A read that answers before it returns settles inside the call that started it, when results are
+    /// posted inline. The reader must already count that read as outstanding, or it ends up reporting a
+    /// read in progress and keeping a settled lease it later cancels after disposing it.
+    [Test]
+    public async Task A_read_that_answers_at_once_leaves_nothing_reading() {
+        var reading = new List<bool>();
+        var applied = new List<string>();
+        var reader = new SingleFlightReader<string, string>(
+            (state, _) => Task.FromResult($"{state} result"), ex => ex.Message, applied.Add, "test", Inline, reading.Add);
+
+        reader.Switch("a");
+        reader.Switch("b");
+
+        await Assert.That(applied).IsEquivalentTo(["a result", "b result"], CollectionOrdering.Matching);
+        await Assert.That(reading).IsEquivalentTo([true, false, true, false], CollectionOrdering.Matching);
+        await reader.TeardownAsync();
+    }
+
     [Test]
     public async Task A_refresh_during_a_read_runs_one_follow_up() {
         var h = new Harness();
@@ -49,8 +69,10 @@ public class SingleFlightReaderTests {
         h.Reader.Switch("a");
         h.Reader.Refresh();
         h.Reader.Refresh();
+        // Captured first: settling starts the follow-up, which replaces the pending read
+        var first = h.Reader.PendingReadForTesting!;
         h.Reads[0].Result.SetResult("first");
-        await (h.Reader.PendingReadForTesting ?? Task.CompletedTask);
+        await first;
 
         await Assert.That(h.Reads.Count).IsEqualTo(2);
         h.Reads[1].Result.SetResult("second");
