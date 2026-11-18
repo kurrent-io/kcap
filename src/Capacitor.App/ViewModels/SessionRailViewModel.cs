@@ -60,6 +60,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     // Work item rows start folded; the ones opened stay open for the life of the app.
     readonly HashSet<string> _openWorkItems = new(StringComparer.Ordinal);
     IReadOnlyList<RailWorkItem> _lastWorkItems = [];
+    IReadOnlyList<string> _workItemOrder = [];
     ServerSessionsSnapshot _listed = ServerSessionsSnapshot.Empty;
     bool _workItemsOffered;
     DateOnly _today;
@@ -668,8 +669,13 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             foreach (var session in item.PartBySession.Keys) workItemOf.TryAdd(session, item.Id);
         _workItemOf.OnNext(workItemOf.ToFrozenDictionary(StringComparer.Ordinal));
         _workItems.EditDiff(items, (a, b) => a == b);
-        _groupComparer.OnNext(GroupComparer(effective, items.Select((item, at) => (Key: WorkItemKey(item.Id), At: at))
-            .ToFrozenDictionary(entry => entry.Key, entry => entry.At, StringComparer.Ordinal)));
+        // A new comparer clears and re-adds every group, so it goes out only when the order it encodes moved.
+        var order = items.Select(item => WorkItemKey(item.Id)).ToList();
+        if (moved || !order.SequenceEqual(_workItemOrder)) {
+            _workItemOrder = order;
+            _groupComparer.OnNext(GroupComparer(effective, order.Select((key, at) => (Key: key, At: at))
+                .ToFrozenDictionary(entry => entry.Key, entry => entry.At, StringComparer.Ordinal)));
+        }
         if (moved) {
             _groupingChanges.OnNext(effective);
             _regroup.OnNext(Unit.Default);

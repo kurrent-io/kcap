@@ -1090,6 +1090,27 @@ public class SessionRailViewModelTests {
         });
     }
 
+    /// A listing that changes a work item but not the order of work items leaves the groups in place rather than rebuilding them.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_work_item_change_that_keeps_their_order_does_not_rebuild_the_groups() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, rail) = BuildWithWorkItems();
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1)), Tracked("b", "AI-2", Noon.AddHours(-2)));
+                var resets = 0;
+                ((System.Collections.Specialized.INotifyCollectionChanged)rail.Groups).CollectionChanged += (_, e) => {
+                    if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) resets++;
+                };
+
+                List(directory, sessions, Tracked("c", "AI-2", Noon.AddHours(-3)));
+
+                await Assert.That(Ids(rail.Groups.Single(g => g.Label == "AI-2"))).Contains("c");
+                await Assert.That(resets).IsEqualTo(0);
+            }
+        });
+    }
+
     /// A work item shows its five most recent sessions plus any live or open one, and counts the rest for its page.
     [Test]
     [NotInParallel("AvaloniaSession")]
