@@ -21,8 +21,9 @@ namespace Capacitor.App.Services;
 public sealed class PullRequestToneCache : IDisposable {
     static readonly TimeSpan DefaultRefreshEvery = TimeSpan.FromMinutes(2);
     static readonly TimeSpan DefaultEndedRefreshEvery = TimeSpan.FromMinutes(10);
-    static readonly TimeSpan TickEvery = TimeSpan.FromSeconds(1);
     static readonly TimeSpan MinimumHold = TimeSpan.FromSeconds(1);
+    /// A deadline already past still waits this long, so rounding cannot spin the timer.
+    static readonly TimeSpan MinimumWake = TimeSpan.FromMilliseconds(10);
     /// Every listed session comes due at once after a connect or a scope switch, and the server
     /// refuses a fifth concurrent PR read from one user.
     const int MaxConcurrentReads = 4;
@@ -85,6 +86,8 @@ public sealed class PullRequestToneCache : IDisposable {
         _time = time;
         _refreshEvery = refreshEvery ?? DefaultRefreshEvery;
         _endedRefreshEvery = endedRefreshEvery ?? DefaultEndedRefreshEvery;
+        // Created before the subscription, whose first emission drains and arms it.
+        _timer = time.CreateTimer(_ => Tick(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         directory.Rows.Connect().ToCollection()
             .CombineLatest(directory.LocalDaemonOnAppServer, shown ?? Observable.Return<Func<AgentRow, bool>>(_ => true),
                 (rows, localOnAppServer, isShown) => (
@@ -111,7 +114,6 @@ public sealed class PullRequestToneCache : IDisposable {
                 Tick();
             })
             .DisposeWith(_subscriptions);
-        _timer = time.CreateTimer(_ => Tick(), null, TickEvery, TickEvery);
     }
 
     /// A teammate's session is never read here, whichever lane shows it: each read costs the server
@@ -200,7 +202,7 @@ public sealed class PullRequestToneCache : IDisposable {
             }
             foreach (var session in _sessions) EntryFor(session);
             foreach (var entry in _entries.Values.Where(e => e.Access is { } access
-                         && _time.GetElapsedTime(access.Started).TotalSeconds > access.Seconds - 5)) {
+                         && _time.GetElapsedTime(access.Started).TotalSeconds >= access.Seconds - 5)) {
                 entry.Access = null;
                 entry.Summary = entry.Summary is { } summary
                     ? new(summary.MenuItems.Select(item => item with { Title = null }).ToArray()) : null;
@@ -217,8 +219,31 @@ public sealed class PullRequestToneCache : IDisposable {
                 _inFlight.Add(session);
                 _entries[session].ReadAt = _time.GetTimestamp();
             }
+            ScheduleNext();
         }
         foreach (var (session, version) in due) _ = ReadAsync(session, version, ct);
+    }
+
+    /// Under the lock. Arms the timer for the earliest moment a drain could find work: a session's
+    /// next read, a summary's titles dropping, or the end of a hold. A session due now but held back
+    /// for a slot needs no wake: the read that frees the slot drains again.
+    void ScheduleNext() {
+        TimeSpan? next = null;
+        void Consider(TimeSpan at) { if (next is not { } current || at < current) next = at; }
+        foreach (var entry in _entries.Values)
+            if (entry.Access is { } access)
+                Consider(TimeSpan.FromSeconds(access.Seconds - 5) - _time.GetElapsedTime(access.Started));
+        var now = _time.GetUtcNow().UtcDateTime;
+        if (now < _heldUntil) Consider(_heldUntil - now);
+        else
+            foreach (var session in _sessions) {
+                var entry = _entries[session];
+                if (_inFlight.Contains(session) || entry.ReadAt is not { } at || entry.Settled && _endedSessions.Contains(session)) continue;
+                var remaining = CadenceFor(session) - _time.GetElapsedTime(at);
+                if (remaining > TimeSpan.Zero) Consider(remaining);
+            }
+        var wait = next is { } delay ? delay < MinimumWake ? MinimumWake : delay : Timeout.InfiniteTimeSpan;
+        _timer.Change(wait, Timeout.InfiniteTimeSpan);
     }
 
     /// Under the lock. The listing's record has no access window, so its mark stands until the row

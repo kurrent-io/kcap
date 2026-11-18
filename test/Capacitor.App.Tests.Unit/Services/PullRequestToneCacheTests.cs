@@ -772,5 +772,54 @@ public class PullRequestToneCacheTests {
         await Assert.That(source.Lists).IsEqualTo(2);
     }
 
+    /// The timer is armed once for the next due read rather than ticking, and once an ended
+    /// session's PRs have all settled and its titles have dropped, nothing is armed at all.
+    [Test]
+    public async Task The_timer_is_armed_for_the_next_due_moment_and_left_idle_when_nothing_can_change() {
+        using var directory = new FakeAgentDirectory();
+        var time = new RecordingTimeProvider();
+        var source = new FakePullRequestSource(time) { AccessSeconds = 300 };
+        using var cache = new PullRequestToneCache(directory, source, time);
+        directory.Rows.AddOrUpdate(Row("a1", "s1"));
+        await WaitUntilAsync(() => cache.CurrentSummaries.ContainsKey("s1"), "summary");
+        await WaitUntilAsync(() => time.LastDue == TimeSpan.FromMinutes(2), "armed for the cadence");
+        await Assert.That(time.LastPeriod).IsEqualTo(Timeout.InfiniteTimeSpan);
+
+        time.Advance(TimeSpan.FromMinutes(2) - TimeSpan.FromMilliseconds(1));
+        await Task.Delay(50);
+        await Assert.That(source.Lists).IsEqualTo(1);
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        await WaitUntilAsync(() => source.Lists == 2, "the read at its due time");
+
+        directory.Rows.Clear();
+        source.Lifecycles[1] = "merged";
+        source.Links = [FakePullRequestSource.Link(1)];
+        directory.Rows.AddOrUpdate(Ended("s2"));
+        await WaitUntilAsync(() => cache.CurrentSummaries.ContainsKey("s2"), "ended summary");
+        await WaitUntilAsync(() => time.LastDue == TimeSpan.FromSeconds(295), "armed only for the titles to drop");
+        time.Advance(TimeSpan.FromSeconds(295));
+        await WaitUntilAsync(() => cache.CurrentSummaries["s2"].MenuItems[0].Title is null, "titles dropped");
+        await WaitUntilAsync(() => time.LastDue == Timeout.InfiniteTimeSpan, "nothing armed");
+    }
+
+    sealed class RecordingTimeProvider : FakeTimeProvider {
+        long _lastDueTicks = -1;
+        public TimeSpan LastDue => TimeSpan.FromTicks(Interlocked.Read(ref _lastDueTicks));
+        public TimeSpan LastPeriod { get; private set; }
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            new Recorded(this, base.CreateTimer(callback, state, dueTime, period));
+
+        sealed class Recorded(RecordingTimeProvider owner, ITimer inner) : ITimer {
+            public bool Change(TimeSpan dueTime, TimeSpan period) {
+                owner.LastPeriod = period;
+                Interlocked.Exchange(ref owner._lastDueTicks, dueTime.Ticks);
+                return inner.Change(dueTime, period);
+            }
+            public void Dispose() => inner.Dispose();
+            public ValueTask DisposeAsync() => inner.DisposeAsync();
+        }
+    }
+
     static Task WaitUntilAsync(Func<bool> condition, string what) => WorkspaceFixtures.WaitUntilAsync(condition, what: what);
 }

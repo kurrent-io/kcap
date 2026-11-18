@@ -1386,6 +1386,30 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    /// A background monitor of a remote session never polls: the feed's own signal carries a
+    /// streamed event to the rail with the clock standing still.
+    [Test]
+    public async Task A_remote_background_monitor_reads_on_the_feeds_signal_without_a_poll() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Detail = new(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            var row = Harness.ServerRow("s1", "active");
+            h.Directory.Rows.AddOrUpdate(row);
+            var latest = default(RunningWork);
+            using var monitor = new SessionRunMonitor(row.Key, work => latest = work, () => { }, new FakeDaemonClientService(),
+                h.Directory, h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time);
+
+            await WaitUntilAsync(() => latest.Subagents == 1 && h.Lane.Tails.Count == 1, what: "the seeded subagent and the tail");
+            await Assert.That(monitor.IsTickingForTesting).IsFalse();
+
+            h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.UserMessageReceived, AgentNotification));
+            await WaitUntilAsync(() => latest.Subagents == 0, what: "the subagent's end, with no time advanced");
+            await Assert.That(monitor.IsTickingForTesting).IsFalse();
+        });
+    }
+
     /// The rail looks a session running in a terminal up by its server key, so its work is published
     /// under that key, and stays there once the workspace closes.
     [Test]

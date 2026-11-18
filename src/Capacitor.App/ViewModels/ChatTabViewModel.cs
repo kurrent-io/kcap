@@ -135,6 +135,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     volatile FeedLease? _lease;
     ITimer? _timer;
+    bool _ticking;
+    /// Bumped when the session ends or the feed switches: a local feed is polled on until a read
+    /// started after the bump lands, so the last lines written before the end still arrive.
+    int _settleEpoch;
+    int _settledEpoch;
     volatile Task? _pendingRead;
     readonly BehaviorSubject<string?> _rootSubject = new(null);
 
@@ -992,7 +997,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 .Subscribe(computed => SetAccountStrip(computed.State))
                 .DisposeWith(_disposables);
 
-        _timer = time.CreateTimer(_ => OnTick(), null, PollInterval, PollInterval);
+        _timer = time.CreateTimer(_ => OnTick(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        UpdateTicking();
 
         supportedVendors
             .ObserveOn(RxSchedulers.MainThreadScheduler)
@@ -1310,6 +1316,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _interruption = info.Interruption;
         if (_ended != info.Ended) {
             _ended = info.Ended;
+            if (_ended) _settleEpoch++;
             foreach (var call in _items.OfType<ToolGroupItem>().SelectMany(static group => group.Calls).Where(static call => !call.IsSettled))
                 call.SessionOver = _ended;
             RaisePhaseNote();
@@ -1339,7 +1346,22 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         ApplyTerminalMenu(info.UsageLimit, info.TerminalDialog);
         RefreshActivityNote();
         if (!switched) RefreshQueue();
+        UpdateTicking();
     }
+
+    /// The tick drives the elapsed-time note, the pickup check, the runs' clocks and a local feed's
+    /// tail, none of which can change once the session has ended. A remote feed signals its reads.
+    void UpdateTicking() {
+        if (_timer is not { } timer) return;
+        var wanted = !_ended
+            || _lease is { Feed: not RemoteTranscriptFeed } && Volatile.Read(ref _settledEpoch) != _settleEpoch;
+        if (wanted == _ticking) return;
+        _ticking = wanted;
+        var period = wanted ? PollInterval : Timeout.InfiniteTimeSpan;
+        timer.Change(period, period);
+    }
+
+    internal bool IsTickingForTesting => _ticking;
 
     void ApplyAccount(ChatSessionInfo info) {
         var directory = info.AccountDirectory;
@@ -1491,6 +1513,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _observedReceipts.Clear();
         _unboundReceipts.Clear();
         _feedKey = key;
+        _settleEpoch++;
         var previous = _lease;
         _lease = new FeedLease(open(key), Interlocked.Increment(ref _generation), SignalFeedRead);
         HasSeed = false;
@@ -1504,6 +1527,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (wasWaiting) RaisePhaseNote();
         SyncPendingCardItems();
         OnTick();
+        UpdateTicking();
     }
 
     void RebaseQueuedMessages(long? offset) {
@@ -1813,6 +1837,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             return;
         }
         if (_lifetimeToken.IsCancellationRequested) return;
+        UpdateTicking();
         RefreshActivityNote();
         CheckPickup();
         _runs.Tick();
@@ -1820,10 +1845,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (lease.Feed is RemoteTranscriptFeed && Volatile.Read(ref lease.Pending) == 0) return;
         if (Interlocked.CompareExchange(ref _readInFlight, 1, 0) != 0) return;
         Interlocked.Exchange(ref lease.Pending, 0);
-        _pendingRead = ReadAndApplyAsync(lease);
+        _pendingRead = ReadAndApplyAsync(lease, _settleEpoch);
     }
 
-    async Task ReadAndApplyAsync(FeedLease lease) {
+    async Task ReadAndApplyAsync(FeedLease lease, int settleEpoch) {
         var baselineVersion = Volatile.Read(ref _baselineVersion);
         var inputGeneration = _inputGeneration;
         var canSkipEmpty = Phase == ChatTabPhase.Reading && _failureNote is null
@@ -1832,6 +1857,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             var read = lease.Feed is RemoteTranscriptFeed
                 ? lease.Feed.ReadAppended()
                 : await Task.Run(lease.Feed.ReadAppended).ConfigureAwait(false);
+            if (read.Status != FeedStatus.Failed) Volatile.Write(ref _settledEpoch, settleEpoch);
             if (canSkipEmpty && read.Status == FeedStatus.Ok && read.Lines.Count == 0 && read.Runs.Count == 0
                 && baselineVersion == Volatile.Read(ref _baselineVersion) && inputGeneration == Volatile.Read(ref _inputGeneration)) return;
             await Dispatcher.UIThread.InvokeAsync(() => ApplyAsync(lease.Generation, read));

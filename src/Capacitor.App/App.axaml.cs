@@ -227,6 +227,7 @@ public partial class App : Application {
     DesktopWindowLifecycle? _windowLifecycle;
     DesktopNotificationCoordinator? _desktopNotifications;
     readonly Subject<string?> _viewedAgent = new();
+    readonly Subject<Unit> _experimentalSaved = new();
     /// Sessions with a workspace open in the main window; notification leases establish access
     /// to every session, so established access alone does not mean open.
     readonly BehaviorSubject<IReadOnlySet<string>> _openSessions = new(FrozenSet<string>.Empty);
@@ -1442,7 +1443,9 @@ public partial class App : Application {
                 newHarnesses: NewHarnessesFeed.Poll(HarnessRegistry.FromEnvironment(_userHome), new HarnessOfferStore(_config, _time), _time),
                 nextWork: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new NextWorkApi(sessionHttp, profiles),
                 openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers, sessionCli: lifecycleCli,
-                nextWorkEnabled: () => launcherNextWork.IsOn))),
+                nextWorkEnabled: () => launcherNextWork.IsOn,
+                nextWorkSwitchMayChange: Observable.Merge(_experimentalSaved,
+                    Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default))))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
             restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace(),
@@ -1778,7 +1781,8 @@ public partial class App : Application {
                 Appearance = new AppearanceSettingsViewModel(_uiScale),
                 Privacy    = new PrivacySettingsViewModel(_telemetry, _config, _usageNotice),
                 Search     = _localStack?.Search,
-                Experimental = new ExperimentalSettingsViewModel(new ExperimentalSettingsStore(_config), settings.ProfileName, service),
+                Experimental = new ExperimentalSettingsViewModel(new ExperimentalSettingsStore(_config), settings.ProfileName, service,
+                    saved: () => _experimentalSaved.OnNext(Unit.Default)),
                 About = new AboutSettingsViewModel(service, SettingsCli(settings, service.DaemonName).Cli.VersionAsync, _localStack,
                     _updates?.MenuItem, _updates is not null ? RunUpdateMenuActionAsync : null,
                     followsBetas: () => _updater.AllowsPrerelease, setBetaUpdates: SetBetaUpdatesAsync, appLifetime: _shutdown.Token),
@@ -2349,7 +2353,7 @@ public partial class App : Application {
             IObservable<Func<bool>?>? harnessesSettingsAction = null, IObservable<NewHarnesses?>? newHarnesses = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
             ComposerPickers? pickers = null,
             IKcapCli? sessionCli = null,
-            Func<bool>? nextWorkEnabled = null) {
+            Func<bool>? nextWorkEnabled = null, IObservable<Unit>? nextWorkSwitchMayChange = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
         // the VM's WhenActivated-scoped projections.
@@ -2388,13 +2392,15 @@ public partial class App : Application {
             fill: fill => homeRef?.FillFromNextWorkAsync(fill) ?? Task.CompletedTask,
             localCheckout: checkouts.FindAsync, preferredVendor: () => homeRef?.SelectedVendor);
         // Connecting is when the snapshot first becomes readable; the interval keeps an idle launcher current, as a
-        // web Home tab is kept current by its live nudges. The switch is read every few seconds, which costs a stat,
-        // so turning it on or off in Settings shows or hides the band without a restart.
+        // web Home tab is kept current by its live nudges. The switch is re-read when Settings saves and whenever a
+        // window gains focus, which is how a `kcap experimental` run in a terminal shows up without a file watcher.
+        var switchReads = Observable.Defer(() => (nextWorkSwitchMayChange ?? Observable.Never<Unit>())
+            .Select(_ => enabled()).StartWith(enabled()));
         nextWorkBand?.WatchRefreshes(Observable.Merge(
                 (lane?.Status ?? Observable.Never<ServerLaneStatus>()).Select(s => s.State).DistinctUntilChanged()
                     .Where(s => s == ServerLaneState.Connected).Select(_ => Unit.Default),
                 Observable.Interval(TimeSpan.FromMinutes(2)).Select(_ => Unit.Default),
-                Observable.Interval(TimeSpan.FromSeconds(3)).Select(_ => enabled()).DistinctUntilChanged().Skip(1).Select(_ => Unit.Default))
+                switchReads.DistinctUntilChanged().Skip(1).Select(_ => Unit.Default))
             .ObserveOn(RxSchedulers.MainThreadScheduler));
         var home = new HomeViewModel(
             service, appState,
