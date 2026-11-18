@@ -1,5 +1,6 @@
 using Avalonia.Collections;
 using Capacitor.App.ViewModels;
+using TUnit.Assertions.Enums;
 using static Capacitor.App.Tests.Unit.AvaloniaSession;
 
 namespace Capacitor.App.Tests.Unit.ViewModels;
@@ -66,6 +67,35 @@ public class ChatBookmarksTests {
 
             bookmarks.RevealCommand.Execute(bookmarks.All[1]).Subscribe();
             await Assert.That(topics.TakeReveal()).IsEqualTo(new ChatReveal(reply, null, Whole: true));
+        });
+    }
+
+    /// Grouped, bookmarks sit under the topics their messages are in, in chat order, with those from
+    /// outside every topic last; each group keeps the user's order.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Grouped_bookmarks_follow_the_topics_of_their_messages() {
+        await RunOnUiAsync(async () => {
+            var intro = new AssistantTextItem("Intro");
+            var one   = new UserTurnItem("Point 1");
+            var two   = new UserTurnItem("Point 2");
+            var items = new AvaloniaList<ChatItemViewModel> { intro, one, two };
+            var topics = new ChatTopics(items);
+            var bookmarks = new ChatBookmarks(topics);
+            topics.ToggleChange(one);
+            topics.ToggleChange(two);
+            bookmarks.Add(["b"], two);
+            bookmarks.Add(["intro"], intro);
+            bookmarks.Add(["a"], two);
+            bookmarks.Add(["one"], one);
+            await Assert.That(bookmarks.Groups).IsEmpty();
+
+            bookmarks.Grouped = true;
+            await Assert.That(bookmarks.Groups.Select(static g => g.Title)).IsEquivalentTo(["Point 1", "Point 2", "No topic"], CollectionOrdering.Matching);
+            await Assert.That(bookmarks.Groups[1].Bookmarks.Select(static b => b.Text)).IsEquivalentTo(["b", "a"], CollectionOrdering.Matching);
+
+            topics.ToggleChange(two);
+            await Assert.That(bookmarks.Groups.Select(static g => g.Bookmarks.Count)).IsEquivalentTo([3, 1], CollectionOrdering.Matching);
         });
     }
 }

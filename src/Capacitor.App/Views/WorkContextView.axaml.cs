@@ -55,6 +55,10 @@ public partial class WorkContextView : UserControl {
 
     static readonly Cursor DragCursor = new(StandardCursorType.Hand);
 
+    void OnGroupBookmarksClick(object? sender, RoutedEventArgs e) {
+        if (DataContext is WorkContextViewModel { Bookmarks: { } bookmarks }) bookmarks.Grouped = !bookmarks.Grouped;
+    }
+
     void OnBookmarkColorsOpening(object? sender, EventArgs e) {
         _colours = sender as FlyoutBase;
         _colouring = _colours?.Target?.DataContext as ChatBookmark;

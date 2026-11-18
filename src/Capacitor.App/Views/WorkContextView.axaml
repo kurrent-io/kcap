@@ -18,6 +18,16 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="Cursor" Value="Hand" />
         </Style>
+        <Style Selector="ItemsControl.grouped Border.bookmarkGrip">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="Button.groupBookmarks">
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.groupBookmarks.on">
+            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+        </Style>
         <Style Selector="Grid.markRow:pointerover Button.markRemove, Button.markRemove:focus-visible">
             <Setter Property="Opacity" Value="1" />
         </Style>
@@ -289,6 +299,60 @@
                     </StackPanel>
                 </Grid>
             </Button>
+        </DataTemplate>
+        <DataTemplate x:Key="BookmarkRow" x:DataType="vm:ChatBookmark">
+            <Grid Classes="markRow" ColumnDefinitions="Auto,Auto,*,Auto" Margin="-6,0,0,0">
+                <!-- Dragging the grip reorders the list; the list takes the pointer, since a
+                     moved row's container can be rebuilt under it. -->
+                <Border Classes="bookmarkGrip" Width="16" Background="Transparent" Cursor="Hand"
+                        PointerPressed="OnBookmarkGripPressed" ToolTip.Tip="Drag to reorder">
+                    <views:AppIcon Kind="GripVertical" Size="12" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                   Foreground="{StaticResource KcapFaintBrush}" />
+                </Border>
+                <Button Grid.Column="1" Classes="kcapGhost bookmarkColor" VerticalAlignment="Top" Margin="0,3,0,0"
+                        ToolTip.Tip="Change colour" AutomationProperties.Name="Change bookmark colour">
+                    <Ellipse Width="10" Height="10"
+                             Fill="{Binding Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}}" />
+                    <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedLeft" FlyoutPresenterClasses="kcapPanel" Opening="OnBookmarkColorsOpening">
+                            <StackPanel Orientation="Horizontal" Spacing="2" Margin="4">
+                                    <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Blue}" Click="OnBookmarkColorClick"
+                                            ToolTip.Tip="Blue" AutomationProperties.Name="Blue">
+                                        <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkBlueBrush}" />
+                                    </Button>
+                                    <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Cyan}" Click="OnBookmarkColorClick"
+                                            ToolTip.Tip="Cyan" AutomationProperties.Name="Cyan">
+                                        <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkCyanBrush}" />
+                                    </Button>
+                                    <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Pink}" Click="OnBookmarkColorClick"
+                                            ToolTip.Tip="Pink" AutomationProperties.Name="Pink">
+                                        <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkPinkBrush}" />
+                                    </Button>
+                                    <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Slate}" Click="OnBookmarkColorClick"
+                                            ToolTip.Tip="Slate" AutomationProperties.Name="Slate">
+                                        <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkSlateBrush}" />
+                                    </Button>
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+                <Button Grid.Column="2" Classes="kcapGhost topicLink" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        Padding="6,4" Cursor="Hand"
+                        Command="{Binding $parent[views:WorkContextView].((vm:WorkContextViewModel)DataContext).Bookmarks.RevealCommand, FallbackValue={x:Null}}"
+                        CommandParameter="{Binding}"
+                        ToolTip.Tip="{Binding Text}"
+                        AutomationProperties.Name="{Binding Text, StringFormat='Go to bookmark {0}'}">
+                    <TextBlock Text="{Binding Text}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                               Foreground="{StaticResource KcapTextBrush}" />
+                </Button>
+                <Button Grid.Column="3" Classes="kcapGhost markRemove"
+                        Command="{Binding $parent[views:WorkContextView].((vm:WorkContextViewModel)DataContext).Bookmarks.RemoveCommand, FallbackValue={x:Null}}"
+                        CommandParameter="{Binding}"
+                        ToolTip.Tip="Remove this bookmark"
+                        AutomationProperties.Name="{Binding Text, StringFormat='Remove bookmark {0}'}">
+                    <views:AppIcon Kind="X" Size="12" />
+                </Button>
+            </Grid>
         </DataTemplate>
     </UserControl.Resources>
 
@@ -1038,75 +1102,47 @@
                     </StackPanel>
 
                     <StackPanel x:Name="BookmarksSection" Margin="0,18,0,0" IsVisible="{Binding Bookmarks.Any, FallbackValue=False}">
-                        <Button x:Name="BookmarksToggle" Command="{Binding ToggleBookmarksCommand}" Classes="sectionHeader expandable"
-                                AutomationProperties.Name="{Binding BookmarksToggleName}">
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                <TextBlock Text="BOOKMARKS" Classes="eyebrow" />
-                                <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
-                                    <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding BookmarksExpanded}" />
-                                    <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !BookmarksExpanded}" />
-                                </Panel>
-                            </Grid>
-                        </Button>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <Button x:Name="BookmarksToggle" Command="{Binding ToggleBookmarksCommand}" Classes="sectionHeader expandable"
+                                    AutomationProperties.Name="{Binding BookmarksToggleName}">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                    <TextBlock Text="BOOKMARKS" Classes="eyebrow" />
+                                    <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
+                                        <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding BookmarksExpanded}" />
+                                        <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !BookmarksExpanded}" />
+                                    </Panel>
+                                </Grid>
+                            </Button>
+                            <Button x:Name="GroupBookmarksButton" Grid.Column="1" Classes="kcapGhost groupBookmarks"
+                                    Classes.on="{Binding Bookmarks.Grouped, FallbackValue=False}"
+                                    Click="OnGroupBookmarksClick" Padding="4" Margin="6,0,0,0" VerticalAlignment="Center"
+                                    ToolTip.Tip="Group by topic" AutomationProperties.Name="Group bookmarks by topic">
+                                <views:AppIcon Kind="ListTree" Size="12" />
+                            </Button>
+                        </Grid>
                         <Border Classes="sectionBody" IsVisible="{Binding BookmarksExpanded}">
-                            <ItemsControl x:Name="BookmarkList" ItemsSource="{Binding Bookmarks.All}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:ChatBookmark">
-                                        <Grid Classes="markRow" ColumnDefinitions="Auto,Auto,*,Auto" Margin="-6,0,0,0">
-                                            <!-- Dragging the grip reorders the list; the list takes the pointer, since a
-                                                 moved row's container can be rebuilt under it. -->
-                                            <Border Classes="bookmarkGrip" Width="16" Background="Transparent" Cursor="Hand"
-                                                    PointerPressed="OnBookmarkGripPressed" ToolTip.Tip="Drag to reorder">
-                                                <views:AppIcon Kind="GripVertical" Size="12" VerticalAlignment="Center" HorizontalAlignment="Center"
-                                                               Foreground="{StaticResource KcapFaintBrush}" />
-                                            </Border>
-                                            <Button Grid.Column="1" Classes="kcapGhost bookmarkColor" VerticalAlignment="Top" Margin="0,3,0,0"
-                                                    ToolTip.Tip="Change colour" AutomationProperties.Name="Change bookmark colour">
-                                                <Ellipse Width="10" Height="10"
-                                                         Fill="{Binding Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}}" />
-                                                <Button.Flyout>
-                                                    <Flyout Placement="BottomEdgeAlignedLeft" FlyoutPresenterClasses="kcapPanel" Opening="OnBookmarkColorsOpening">
-                                                        <StackPanel Orientation="Horizontal" Spacing="2" Margin="4">
-                                                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Blue}" Click="OnBookmarkColorClick"
-                                                                        ToolTip.Tip="Blue" AutomationProperties.Name="Blue">
-                                                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkBlueBrush}" />
-                                                                </Button>
-                                                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Cyan}" Click="OnBookmarkColorClick"
-                                                                        ToolTip.Tip="Cyan" AutomationProperties.Name="Cyan">
-                                                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkCyanBrush}" />
-                                                                </Button>
-                                                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Pink}" Click="OnBookmarkColorClick"
-                                                                        ToolTip.Tip="Pink" AutomationProperties.Name="Pink">
-                                                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkPinkBrush}" />
-                                                                </Button>
-                                                                <Button Classes="kcapGhost bookmarkSwatch" Tag="{x:Static vm:ChatBookmarkColor.Slate}" Click="OnBookmarkColorClick"
-                                                                        ToolTip.Tip="Slate" AutomationProperties.Name="Slate">
-                                                                    <Ellipse Width="12" Height="12" Fill="{StaticResource KcapBookmarkSlateBrush}" />
-                                                                </Button>
-                                                        </StackPanel>
-                                                    </Flyout>
-                                                </Button.Flyout>
-                                            </Button>
-                                            <Button Grid.Column="2" Classes="kcapGhost topicLink" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                                    Padding="6,4" Cursor="Hand"
-                                                    Command="{Binding $parent[ItemsControl].((vm:WorkContextViewModel)DataContext).Bookmarks.RevealCommand, FallbackValue={x:Null}}"
-                                                    CommandParameter="{Binding}"
-                                                    ToolTip.Tip="{Binding Text}"
-                                                    AutomationProperties.Name="{Binding Text, StringFormat='Go to bookmark {0}'}">
-                                                <TextBlock Text="{Binding Text}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
-                                                           Foreground="{StaticResource KcapTextBrush}" />
-                                            </Button>
-                                            <Button Grid.Column="3" Classes="kcapGhost markRemove"
-                                                    Command="{Binding $parent[ItemsControl].((vm:WorkContextViewModel)DataContext).Bookmarks.RemoveCommand, FallbackValue={x:Null}}"
-                                                    CommandParameter="{Binding}"
-                                                    ToolTip.Tip="Remove this bookmark"
-                                                    AutomationProperties.Name="{Binding Text, StringFormat='Remove bookmark {0}'}">
-                                                <views:AppIcon Kind="X" Size="12" />
-                                            </Button>
-                                        </Grid>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
+                            <Panel>
+                                <ItemsControl x:Name="BookmarkList" ItemsSource="{Binding Bookmarks.All}"
+                                              ItemTemplate="{StaticResource BookmarkRow}"
+                                              IsVisible="{Binding !Bookmarks.Grouped, FallbackValue=True}" />
+                                <!-- Grouped, a bookmark stays in its topic, so the list does not reorder by drag. -->
+                                <ItemsControl x:Name="BookmarkGroups" Classes="grouped" ItemsSource="{Binding Bookmarks.Groups}"
+                                              IsVisible="{Binding Bookmarks.Grouped, FallbackValue=False}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ChatBookmarkGroup">
+                                            <StackPanel Margin="0,0,0,6">
+                                                <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,2">
+                                                    <views:AppIcon Kind="Signpost" Size="12" Foreground="{StaticResource KcapInfoBrush}"
+                                                                   IsVisible="{Binding Topic, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                    <TextBlock Text="{Binding Title}" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                               Foreground="{StaticResource KcapMutedBrush}" />
+                                                </StackPanel>
+                                                <ItemsControl ItemsSource="{Binding Bookmarks}" ItemTemplate="{StaticResource BookmarkRow}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Panel>
                         </Border>
                     </StackPanel>
                 </StackPanel>

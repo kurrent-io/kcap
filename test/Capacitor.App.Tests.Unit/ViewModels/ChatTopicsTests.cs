@@ -220,4 +220,71 @@ public class ChatTopicsTests {
             await Assert.That(topics.All).IsEquivalentTo(new[] { first }, CollectionOrdering.Matching);
         });
     }
+
+    /// An end closes the topic before the next message: folding stops at it, the rows after it sit in no
+    /// topic, it comes back with the transcript, and it goes when the topic it ended does.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_end_closes_its_topic_and_goes_with_it() {
+        await RunOnUiAsync(async () => {
+            var store = new ChatMarks();
+            var one   = new UserTurnItem("Point 1");
+            var done  = new AssistantTextItem("Done");
+            var items = new AvaloniaList<ChatItemViewModel> { one, done };
+            var topics = new ChatTopics(items, store);
+            topics.Reset("feed");
+            await Assert.That(topics.End()).IsNull();
+
+            topics.ToggleChange(one);
+            await Assert.That(topics.CanEnd).IsTrue();
+            var end = topics.End()!;
+            var aside = new UserTurnItem("Unrelated");
+            items.Add(aside);
+            var topic = (ChatTopicItem)items[0];
+            await Assert.That(topics.CanEnd).IsFalse();
+            await Assert.That(done.Topic).IsSameReferenceAs(topic);
+            await Assert.That(end.Topic).IsSameReferenceAs(topic);
+            await Assert.That(aside.Topic).IsNull();
+
+            topic.ToggleCommand.Execute().Subscribe();
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { topic, end, aside }, CollectionOrdering.Matching);
+            await Assert.That(end.Topic).IsNull();
+
+            var replayed = new AvaloniaList<ChatItemViewModel>();
+            var again = new ChatTopics(replayed, store);
+            again.Reset("feed");
+            replayed.AddRange([new UserTurnItem("Point 1"), new AssistantTextItem("Done"), new UserTurnItem("Unrelated")]);
+            again.Restore();
+            await Assert.That(replayed.Select(static row => row.GetType().Name)).IsEquivalentTo(
+                ["ChatTopicItem", "ChatTopicEndItem", "UserTurnItem"], CollectionOrdering.Matching);
+
+            topics.Remove(topic);
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { one, done, aside }, CollectionOrdering.Matching);
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Removing_an_end_runs_its_topic_on_and_a_new_topic_replaces_a_waiting_end() {
+        await RunOnUiAsync(async () => {
+            var one   = new UserTurnItem("Point 1");
+            var items = new AvaloniaList<ChatItemViewModel> { one };
+            var topics = new ChatTopics(items);
+            topics.ToggleChange(one);
+            var topic = (ChatTopicItem)items[0];
+
+            var end = topics.End()!;
+            var started = topics.Start();
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { topic, one, started }, CollectionOrdering.Matching);
+            topics.Discard(started);
+
+            end = topics.End()!;
+            var aside = new UserTurnItem("Aside");
+            items.Add(aside);
+            topic.ToggleCommand.Execute().Subscribe();
+            topics.RemoveEndCommand.Execute(end).Subscribe();
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { topic, one, aside }, CollectionOrdering.Matching);
+            await Assert.That(aside.Topic).IsSameReferenceAs(topic);
+        });
+    }
 }

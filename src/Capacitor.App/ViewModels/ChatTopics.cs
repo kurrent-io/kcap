@@ -5,7 +5,8 @@ using ReactiveUI.Reactive;
 namespace Capacitor.App.ViewModels;
 
 /// Topics split the chat at the messages the user marks as a change of topic. Each runs from its marked
-/// message to the next one, or to the end of the chat, and folds into the header above that message.
+/// message to the next mark, an end the user put after it, or the end of the chat, and folds into the
+/// header above that message.
 /// View state only: nothing reaches the agent, and the marks outlive the tab only in <see cref="ChatMarks"/>.
 public sealed class ChatTopics : ReactiveObject {
     const int LabelLength = 72;
@@ -28,6 +29,7 @@ public sealed class ChatTopics : ReactiveObject {
         ToggleChangeCommand = ReactiveCommand.Create<ChatItemViewModel>(ToggleChange);
         RevealCommand = ReactiveCommand.Create<ChatTopicItem>(topic => Reveal(topic));
         RemoveCommand = ReactiveCommand.Create<ChatTopicItem>(Remove);
+        RemoveEndCommand = ReactiveCommand.Create<ChatTopicEndItem>(RemoveEnd);
         _items.CollectionChanged += (_, _) => {
             if (_used && !_editing) Lay();
         };
@@ -41,6 +43,9 @@ public sealed class ChatTopics : ReactiveObject {
     /// Takes a topic away, joining its rows to the topic before.
     public ReactiveCommand<ChatTopicItem, Unit> RemoveCommand { get; }
 
+    /// Takes an end away, joining the rows after it to the topic it ended.
+    public ReactiveCommand<ChatTopicEndItem, Unit> RemoveEndCommand { get; }
+
     /// Raised when a row is to be shown. The chat view is detached while another tab shows, so the
     /// request also waits in <see cref="TakeReveal"/> until a view takes it.
     public event Action? Revealing;
@@ -52,33 +57,55 @@ public sealed class ChatTopics : ReactiveObject {
         return reveal;
     }
 
+    /// Raised once topics have been laid out again after any change to the chat or its marks.
+    public event Action? Laid;
+
     /// Every topic's header, in chat order.
     public AvaloniaList<ChatTopicItem> All { get; } = [];
 
     bool _any;
     public bool Any { get => _any; private set => this.RaiseAndSetIfChanged(ref _any, value); }
 
+    bool _canEnd;
+    /// Whether a topic is open at the end of the chat, for <see cref="End"/> to close.
+    public bool CanEnd { get => _canEnd; private set => this.RaiseAndSetIfChanged(ref _canEnd, value); }
+
     /// Starts a topic at the end of the chat, for the message about to be sent.
     public ChatTopicItem Start() {
         var tail = TailStart();
         if (tail > 0 && _items[tail - 1] is ChatTopicItem waiting) return waiting;
         var topic = NewTopic();
-        Edit(() => _items.Insert(tail, topic));
+        Edit(() => {
+            if (tail > 0 && _items[tail - 1] is ChatTopicEndItem end) _items.Remove(end);
+            _items.Insert(TailStart(), topic);
+        });
         return topic;
     }
 
-    /// Takes back a topic started for a message that never went out, if nothing has landed in it since.
-    public void Discard(ChatTopicItem topic) => Edit(() => {
-        var index = _items.IndexOf(topic);
-        if (index >= 0 && index + 1 >= TailStart()) _items.RemoveAt(index);
+    /// Ends the open topic at the end of the chat, so the message about to be sent falls outside it.
+    /// Null when no topic is open there.
+    public ChatTopicEndItem? End() {
+        var tail = TailStart();
+        if (tail > 0 && _items[tail - 1] is ChatTopicEndItem waiting) return waiting;
+        if (!CanEnd) return null;
+        var end = new ChatTopicEndItem();
+        Edit(() => _items.Insert(tail, end));
+        return end;
+    }
+
+    /// Takes back a mark made for a message that never went out, if nothing has landed after it since.
+    public void Discard(ChatItemViewModel mark) => Edit(() => {
+        var index = _items.IndexOf(mark);
+        if (index >= 0 && index + 1 >= TailStart() && mark is ChatTopicItem or ChatTopicEndItem) _items.RemoveAt(index);
     });
 
     /// Marks <paramref name="row"/> as where a new topic starts, or unmarks it, which joins its topic to
     /// the one before.
     public void ToggleChange(ChatItemViewModel row) => Edit(() => {
         var index = _items.IndexOf(row);
-        if (index < 0 || index >= TailStart() || row is ChatTopicItem) return;
+        if (index < 0 || index >= TailStart() || row is ChatTopicItem or ChatTopicEndItem) return;
         if (index > 0 && _items[index - 1] is ChatTopicItem topic) Remove(topic);
+        else if (index > 0 && _items[index - 1] is ChatTopicEndItem end) _items[index - 1] = NewTopic();
         else _items.Insert(index, NewTopic());
     });
 
@@ -110,7 +137,12 @@ public sealed class ChatTopics : ReactiveObject {
         Edit(() => {
             foreach (var (row, mark) in found) {
                 var index = _items.IndexOf(row);
-                if (index > 0 && _items[index - 1] is ChatTopicItem) continue;
+                if (index > 0 && _items[index - 1] is ChatTopicItem or ChatTopicEndItem) continue;
+                if (mark.End) {
+                    _used = true;
+                    _items.Insert(index, new ChatTopicEndItem());
+                    continue;
+                }
                 var topic = NewTopic();
                 topic.CustomName = mark.Name;
                 _items.Insert(index, topic);
@@ -120,7 +152,7 @@ public sealed class ChatTopics : ReactiveObject {
                 var index = _items.IndexOf(topic);
                 if (index < 0 || !topic.IsExpanded) { _folding.Remove(topic); continue; }
                 var end = EndOf(index);
-                if (end >= _items.Count || _items[end] is not ChatTopicItem) continue;
+                if (end >= _items.Count || _items[end] is not (ChatTopicItem or ChatTopicEndItem)) continue;
                 _folding.Remove(topic);
                 Toggle(topic);
             }
@@ -154,6 +186,13 @@ public sealed class ChatTopics : ReactiveObject {
         Revealing?.Invoke();
     }
 
+    public void RemoveEnd(ChatTopicEndItem end) => Edit(() => {
+        var index = _items.IndexOf(end);
+        if (index < 0) return;
+        if (TopicBefore(index) is { IsExpanded: false } previous) Unfold(previous);
+        _items.Remove(end);
+    });
+
     public void Remove(ChatTopicItem topic) => Edit(() => {
         if (!_items.Contains(topic)) return;
         if (!topic.IsExpanded) Unfold(topic);
@@ -172,6 +211,22 @@ public sealed class ChatTopics : ReactiveObject {
             if (IsMessage(each)) ordinal++;
         }
         return null;
+    }
+
+    /// The topic holding each message, by ordinal; a message outside every topic is left out.
+    public IReadOnlyDictionary<int, ChatTopicItem> TopicsByMessage() {
+        var topics = new Dictionary<int, ChatTopicItem>();
+        ChatTopicItem? current = null;
+        var ordinal = 0;
+        foreach (var row in Everything()) {
+            if (row is ChatTopicItem topic) current = topic;
+            else if (row is ChatTopicEndItem) current = null;
+            else if (IsMessage(row)) {
+                if (current is not null) topics[ordinal] = current;
+                ordinal++;
+            }
+        }
+        return topics;
     }
 
     public ChatItemViewModel? MessageAt(int ordinal) => Everything().Where(IsMessage).ElementAtOrDefault(ordinal);
@@ -198,9 +253,23 @@ public sealed class ChatTopics : ReactiveObject {
     void Edit(Action edit) {
         if (_editing) { edit(); return; }
         _editing = true;
-        try { edit(); }
-        finally { _editing = false; }
+        try {
+            edit();
+            Prune();
+        } finally { _editing = false; }
         Lay();
+    }
+
+    // An end with no topic open before it ends nothing, as when the topic it ended is taken away.
+    void Prune() {
+        var open = false;
+        for (var i = 0; i < _items.Count; i++) {
+            if (_items[i] is ChatTopicItem) open = true;
+            else if (_items[i] is ChatTopicEndItem) {
+                if (open) open = false;
+                else _items.RemoveAt(i--);
+            }
+        }
     }
 
     void Lay() {
@@ -210,6 +279,12 @@ public sealed class ChatTopics : ReactiveObject {
         for (var i = 0; i < _items.Count; i++) {
             var row = _items[i];
             row.StartsTopic = i > 0 && _items[i - 1] is ChatTopicItem && row is not ChatTopicItem;
+            // An end sits on its topic's rail while the topic is open, as the rail's last row.
+            if (row is ChatTopicEndItem) {
+                row.Topic = current is { IsExpanded: true } ? current : null;
+                current = null;
+                continue;
+            }
             if (row is ChatTopicItem topic) {
                 row.Topic = null;
                 var rows = topic.IsExpanded ? _items.Skip(i + 1).Take(EndOf(i) - i - 1).ToList() : topic.Hidden;
@@ -226,22 +301,26 @@ public sealed class ChatTopics : ReactiveObject {
             All.AddRange(headers);
         }
         Any = headers.Count > 0;
+        CanEnd = current is not null;
         Save();
+        Laid?.Invoke();
     }
 
     void Save() {
         if (_store is null || _feed is null) return;
         var marks = new Dictionary<int, ChatTopicMark>(_restoring);
-        ChatTopicItem? header = null;
+        ChatItemViewModel? mark = null;
         var ordinal = 0;
         foreach (var row in Everything()) {
-            if (row is ChatTopicItem topic) { header = topic; continue; }
+            if (row is ChatTopicItem or ChatTopicEndItem) { mark = row; continue; }
             if (IsMessage(row)) {
-                if (header is not null)
+                if (mark is ChatTopicItem header)
                     marks[ordinal] = new(!header.IsExpanded || _folding.Contains(header), header.CustomName);
+                else if (mark is ChatTopicEndItem)
+                    marks[ordinal] = new(false, null, End: true);
                 ordinal++;
             }
-            header = null;
+            mark = null;
         }
         _store.SetTopics(_feed, marks);
     }
@@ -257,7 +336,7 @@ public sealed class ChatTopics : ReactiveObject {
     int EndOf(int header) {
         var tail = TailStart();
         for (var i = header + 1; i < tail; i++)
-            if (_items[i] is ChatTopicItem) return i;
+            if (_items[i] is ChatTopicItem or ChatTopicEndItem) return i;
         return Math.Max(header + 1, tail);
     }
 

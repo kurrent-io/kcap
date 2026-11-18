@@ -54,33 +54,30 @@
         <Style Selector="Button.topicHere">
             <Setter Property="Opacity" Value="0" />
             <Setter Property="Height" Value="18" />
-            <Setter Property="Padding" Value="5,0" />
+            <Setter Property="Padding" Value="4,0" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="ToolTip.Tip" Value="Start a new topic at this message" />
             <Setter Property="AutomationProperties.Name" Value="Change of topic" />
             <Setter Property="Content">
                 <Template>
-                    <StackPanel Orientation="Horizontal" Spacing="4">
-                        <views:AppIcon Kind="Signpost" Size="12" />
-                        <TextBlock Text="Change of topic" FontSize="11.5" VerticalAlignment="Center" />
-                    </StackPanel>
+                    <views:AppIcon Kind="Signpost" Size="12" />
                 </Template>
             </Setter>
+        </Style>
+        <Style Selector="Button.topicEndRemove">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Grid.topicEnd:pointerover Button.topicEndRemove, Button.topicEndRemove:focus-visible">
+            <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="Border.userTurn:pointerover Button.topicHere, StackPanel.assistantTurn:pointerover Button.topicHere, Button.topicHere:focus-visible">
             <Setter Property="Opacity" Value="1" />
         </Style>
-        <!-- A marked message keeps its toggle shown, as the icon alone in the topic blue, so the mark can be read and undone. -->
+        <!-- A marked message's header carries the same icon, and that one undoes the mark. -->
         <Style Selector="Button.topicHere.on">
-            <Setter Property="Opacity" Value="1" />
-            <Setter Property="ToolTip.Tip" Value="A new topic starts here. Click to undo" />
-        </Style>
-        <Style Selector="Button.topicHere.on TextBlock">
             <Setter Property="IsVisible" Value="False" />
-        </Style>
-        <Style Selector="Button.topicHere.on views|AppIcon">
-            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
         </Style>
         <!-- The caret reads as half of Send, so it greys out with it while staying usable. -->
         <Style Selector="Button.kcapPrimary.sendIdle /template/ ContentPresenter#PART_ContentPresenter">
@@ -629,7 +626,10 @@
                                     <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
                                                    Foreground="{StaticResource KcapInfoBrush}" />
                                 </Panel>
-                                <views:AppIcon Kind="Signpost" Size="14" Foreground="{StaticResource KcapInfoBrush}" />
+                                <Button Classes="kcapGhost topicUnmark" Click="OnTopicUnmarkClick" Padding="2" Margin="-2"
+                                        ToolTip.Tip="Remove this topic" AutomationProperties.Name="Remove topic">
+                                    <views:AppIcon Kind="Signpost" Size="14" Foreground="{StaticResource KcapInfoBrush}" />
+                                </Button>
                             </StackPanel>
                             <!-- The name is its own button inside the fold button, so a click on it renames. -->
                             <Panel Grid.Column="1" VerticalAlignment="Center">
@@ -651,6 +651,17 @@
                                        Fill="{StaticResource KcapInfoBrush}" />
                         </Grid>
                     </Button>
+                </DataTemplate>
+                <DataTemplate x:DataType="vm:ChatTopicEndItem">
+                    <Grid Classes="topicEnd" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="6" Margin="0,2,0,8" Background="Transparent">
+                        <TextBlock Text="End of topic" FontSize="11.5" VerticalAlignment="Center" Foreground="{StaticResource KcapMutedBrush}" />
+                        <Button Grid.Column="1" Classes="kcapGhost topicEndRemove" Padding="3" VerticalAlignment="Center"
+                                Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.RemoveEndCommand}"
+                                CommandParameter="{Binding}"
+                                ToolTip.Tip="Remove this end, so the topic runs on" AutomationProperties.Name="Remove end of topic">
+                            <views:AppIcon Kind="X" Size="11" />
+                        </Button>
+                    </Grid>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:PendingCardItem">
                     <views:ChatCardRow>
@@ -1049,7 +1060,7 @@
                                 <Button x:Name="SendModeButton" Classes="kcapPrimary" Classes.sendIdle="{Binding !#SendButton.IsEffectivelyEnabled}" Width="22" Height="24" Padding="0" CornerRadius="0,7,7,0"
                                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand"
                                         Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
-                                        ToolTip.Tip="Send, or send as a change of topic"
+                                        ToolTip.Tip="Send, or start or end a topic with this message"
                                         AutomationProperties.Name="Choose what Send does">
                                     <views:AppIcon Kind="ChevronDown" Size="12" />
                                     <Button.Flyout>
@@ -1057,9 +1068,13 @@
                                             <StackPanel Spacing="2" Margin="6" MinWidth="200">
                                                 <Button Classes="kcapGhost sendModeRow" Content="Send" Click="OnSendModeClick"
                                                         Tag="{x:Static vm:ChatSendMode.Send}" />
-                                                <Button Classes="kcapGhost sendModeRow" Content="Change topic" Click="OnSendModeClick"
+                                                <Button Classes="kcapGhost sendModeRow" Content="New topic" Click="OnSendModeClick"
                                                         ToolTip.Tip="Send this message as the start of a new topic"
-                                                        Tag="{x:Static vm:ChatSendMode.ChangeTopic}" />
+                                                        Tag="{x:Static vm:ChatSendMode.NewTopic}" />
+                                                <Button Classes="kcapGhost sendModeRow" Content="End topic" Click="OnSendModeClick"
+                                                        IsEnabled="{Binding Topics.CanEnd}" ToolTip.ShowOnDisabled="True"
+                                                        ToolTip.Tip="End the open topic at the previous message, so this one starts outside it"
+                                                        Tag="{x:Static vm:ChatSendMode.EndTopic}" />
                                             </StackPanel>
                                         </Flyout>
                                     </Button.Flyout>

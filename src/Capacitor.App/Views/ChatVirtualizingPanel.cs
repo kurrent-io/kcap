@@ -79,7 +79,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     }
 
     /// A user's turn spans the column to sit at its right edge; the agent's rows keep to the lane.
-    static bool SpansColumn(object item) => item is UserTurnItem or ShellCommandItem or ChatTopicItem;
+    static bool SpansColumn(object item) => item is UserTurnItem or ShellCommandItem or ChatTopicItem or ChatTopicEndItem;
 
     static double Indent(object item) => item is ChatItemViewModel { Topic: not null } ? RailWidth : 0;
 

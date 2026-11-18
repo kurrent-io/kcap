@@ -1010,7 +1010,7 @@ public class WorkContextViewSmokeTests {
     /// swatches under its dot, and removed from its row.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Bookmarks_reorder_by_dragging_their_grip_and_recolour_and_remove_from_their_row() {
+    public async Task Bookmarks_reorder_by_their_grip_recolour_remove_and_group_by_topic() {
         await RunOnUiAsync(async () => {
             await using var host = new Host();
             var reply = new AssistantTextItem("Three points");
@@ -1042,6 +1042,15 @@ public class WorkContextViewSmokeTests {
 
             Press(In<Button>(Row(1), "markRemove"));
             await Assert.That(bookmarks.All.Select(b => b.Text)).IsEquivalentTo(["Retry jitter", "Lock order"]);
+
+            Press(host.Find<Button>("GroupBookmarksButton"));
+            await Assert.That(bookmarks.Grouped).IsTrue();
+            await Assert.That(list.IsVisible).IsFalse();
+            var groups = host.Find<ItemsControl>("BookmarkGroups");
+            await Assert.That(groups.IsVisible).IsTrue();
+            var grouped = groups.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("bookmarkGrip")).ToList();
+            await Assert.That(grouped.Count).IsEqualTo(2);
+            await Assert.That(grouped.Any(b => b.IsVisible)).IsFalse();
 
             void Settle() {
                 Dispatcher.UIThread.RunJobs();

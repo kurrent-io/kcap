@@ -417,6 +417,12 @@ public partial class ChatTabView : UserControl {
         ArmToggleRestore();
     }
 
+    // Inside the fold button, so the click is kept from folding the topic too.
+    void OnTopicUnmarkClick(object? sender, RoutedEventArgs e) {
+        e.Handled = true;
+        if (sender is Button { DataContext: ChatTopicItem topic } && DataContext is ChatTabViewModel chat) chat.Topics.Remove(topic);
+    }
+
     void OnTopicNameClick(object? sender, RoutedEventArgs e) {
         e.Handled = true;
         if (sender is Button { DataContext: ChatTopicItem topic }) topic.IsRenaming = true;

@@ -15,6 +15,7 @@ public sealed class ChatBookmarks : ReactiveObject {
     public ChatBookmarks(ChatTopics topics, ChatMarks? store = null) {
         _topics = topics;
         _store = store;
+        _topics.Laid += Regroup;
         _all = [];
         _all.CollectionChanged += OnChanged;
         RemoveCommand = ReactiveCommand.Create<ChatBookmark>(bookmark => All.Remove(bookmark));
@@ -40,11 +41,28 @@ public sealed class ChatBookmarks : ReactiveObject {
     bool _any;
     public bool Any { get => _any; private set => this.RaiseAndSetIfChanged(ref _any, value); }
 
+    bool _grouped;
+    /// Whether the list shows its bookmarks under the topics they were taken from, in
+    /// <see cref="Groups"/>. Grouped, the order within each topic is still the user's.
+    public bool Grouped {
+        get => _grouped;
+        set {
+            this.RaiseAndSetIfChanged(ref _grouped, value);
+            Regroup();
+        }
+    }
+
+    IReadOnlyList<ChatBookmarkGroup> _groups = [];
+    /// The topics' groups in chat order, then the bookmarks taken from outside every topic. Empty
+    /// unless <see cref="Grouped"/>.
+    public IReadOnlyList<ChatBookmarkGroup> Groups { get => _groups; private set => this.RaiseAndSetIfChanged(ref _groups, value); }
+
     /// The chat now shows <paramref name="feed"/>: its bookmarks come back with it.
     public void Reset(string? feed) {
         if (feed == _feed) return;
         _feed = feed;
         All = feed is not null && _store is not null ? _store.Bookmarks(feed) : [];
+        Regroup();
     }
 
     string? _feed;
@@ -70,7 +88,24 @@ public sealed class ChatBookmarks : ReactiveObject {
         if (bookmark.Message is { } ordinal && _topics.MessageAt(ordinal) is { } row) _topics.Reveal(row, bookmark.Quote, whole: bookmark.Quote is null);
     }
 
-    void OnChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) => Any = _all.Count > 0;
+    void OnChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) {
+        Any = _all.Count > 0;
+        Regroup();
+    }
+
+    void Regroup() {
+        if (!_grouped) {
+            if (_groups.Count > 0) Groups = [];
+            return;
+        }
+        var topics = _topics.TopicsByMessage();
+        var order = _topics.All.Select(static (topic, index) => (topic, index)).ToDictionary(static p => p.topic, static p => p.index);
+        Groups = _all
+            .GroupBy(bookmark => bookmark.Message is { } m && topics.TryGetValue(m, out var topic) ? topic : null)
+            .OrderBy(group => group.Key is { } topic && order.TryGetValue(topic, out var index) ? index : int.MaxValue)
+            .Select(static group => new ChatBookmarkGroup(group.Key, group.ToList()))
+            .ToList();
+    }
 
     static string Tidy(string text) =>
         TextElision.End(string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)), TextLength);

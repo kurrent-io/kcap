@@ -146,7 +146,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     public ChatBookmarks Bookmarks { get; }
 
     ChatSendMode _sendMode;
-    /// Whether Send also changes topic; back to a plain send once a message goes out.
+    /// Whether Send also starts or ends a topic; back to a plain send once a message goes out.
     public ChatSendMode SendMode {
         get => _sendMode;
         set {
@@ -155,7 +155,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         }
     }
 
-    public string SendLabel => _sendMode == ChatSendMode.ChangeTopic ? "Change topic" : "Send";
+    public string SendLabel => _sendMode switch {
+        ChatSendMode.NewTopic => "New topic",
+        ChatSendMode.EndTopic => "End topic",
+        _ => "Send",
+    };
 
     public ChatFindViewModel Find => _find ??= CreateFind();
 
@@ -1124,8 +1128,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // edit count is what the text alone cannot say — an edit that lands back on the sent text
         // is still the user's own draft, not the snapshot.
         SendCommand = ReactiveCommand.CreateFromTask(async () => {
-            // The topic starts before the message goes out, so the message's echo lands under its header.
-            var opened = SendMode == ChatSendMode.ChangeTopic ? Topics.Start() : null;
+            // The mark goes in before the message goes out, so the message's echo lands after it.
+            ChatItemViewModel? opened = SendMode switch {
+                ChatSendMode.NewTopic => Topics.Start(),
+                ChatSendMode.EndTopic => Topics.End(),
+                _ => null,
+            };
             var outcome = await SendComposerAsync(ComposerText, includeTray: true, bypassRecall: false);
             if (outcome is ChatSendOutcome.Accepted or ChatSendOutcome.Unconfirmed) SendMode = ChatSendMode.Send;
             else if (opened is not null) Topics.Discard(opened);

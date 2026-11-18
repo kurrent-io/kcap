@@ -1206,10 +1206,36 @@ public class ChatTabViewSmokeTests {
                 var menu = (StackPanel)((Flyout)caret.Flyout!).Content!;
 
                 Click(host, caret);
-                Invoke(menu.Children.OfType<Button>().Single(b => (string?)b.Content == "Change topic"));
+                await Assert.That(menu.Children.OfType<Button>().Single(b => (string?)b.Content == "End topic").IsEnabled).IsFalse();
+                Invoke(menu.Children.OfType<Button>().Single(b => (string?)b.Content == "New topic"));
                 host.Settle();
-                await Assert.That(host.Chat.SendMode).IsEqualTo(ChatSendMode.ChangeTopic);
+                await Assert.That(host.Chat.SendMode).IsEqualTo(ChatSendMode.NewTopic);
                 await Assert.That(caret.Flyout!.IsOpen).IsFalse();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    /// A marked message's own toggle steps aside for its header's icon, and that icon takes the
+    /// topic away without folding it first.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_topic_header_icon_removes_the_topic() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("topic-unmark.jsonl", Enumerable.Repeat(UserLine, 3).ToArray());
+                await host.AttachAsync(path);
+                var turn = host.Chat.Items.OfType<UserTurnItem>().Last();
+                host.Chat.Topics.ToggleChange(turn);
+                host.Settle();
+                var toggles = host.View.GetVisualDescendants().OfType<Button>().Where(b => b.Classes.Contains("topicHere")).ToList();
+                await Assert.That(toggles.Count(b => b.IsVisible)).IsEqualTo(2);
+
+                var unmark = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("topicUnmark"));
+                Click(host, unmark);
+                host.Settle();
+                await Assert.That(host.Chat.Items.OfType<ChatTopicItem>()).IsEmpty();
+                await Assert.That(turn.StartsTopic).IsFalse();
             } finally { await host.CloseAsync(); }
         });
     }
