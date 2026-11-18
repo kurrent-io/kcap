@@ -317,8 +317,24 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             : new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, toggle) });
     }
 
-    /// Where a transparent view can join the tree at the width a workspace gets.
-    internal Panel WarmupHost => ContentPane;
+    Control? _warmup;
+
+    /// Lays a transparent view in the workspace's place, at its width. Pointer, Tab and find all
+    /// pass it by, so focus never lands inside and is never lost when it goes.
+    internal void HostWarmup(Control view) {
+        view.Opacity = 0;
+        view.IsHitTestVisible = false;
+        view.Focusable = false;
+        view.ZIndex = -1;
+        KeyboardNavigation.SetTabNavigation(view, KeyboardNavigationMode.None);
+        _warmup = view;
+        ContentPane.Children.Add(view);
+    }
+
+    internal void ReleaseWarmup(Control view) {
+        ContentPane.Children.Remove(view);
+        if (ReferenceEquals(_warmup, view)) _warmup = null;
+    }
 
     // ⌘F and ⌘G on macOS. Off macOS Ctrl+F and F3 yield to a focused terminal, where they are shell
     // and TUI keys.
@@ -340,9 +356,12 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     /// The chat holding focus, else the first one showing: a subagent pane opens beside its parent's.
     ChatTabView? FindTarget() {
         var focused = FocusManager?.GetFocusedElement() as Visual;
-        return focused?.GetSelfAndVisualAncestors().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible)
-            ?? this.GetVisualDescendants().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible);
+        return focused?.GetSelfAndVisualAncestors().OfType<ChatTabView>().FirstOrDefault(Findable)
+            ?? this.GetVisualDescendants().OfType<ChatTabView>().FirstOrDefault(Findable);
     }
+
+    bool Findable(ChatTabView view) =>
+        view.IsEffectivelyVisible && (_warmup is not { } warmup || !view.GetSelfAndVisualAncestors().Contains(warmup));
 
     // ⌘K everywhere on macOS. Off macOS Ctrl+K is a terminal key, so it yields to a focused terminal.
     void BindSearchShortcuts() {

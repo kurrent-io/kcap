@@ -3,8 +3,9 @@ using Capacitor.Models.Transcripts.UserMessages;
 
 namespace Capacitor.App.ViewModels;
 
-/// A made-up transcript with one of each common row, read through the same parse and projection a
-/// stored session takes, so a chat built from it exercises the code a real first open runs.
+/// A made-up transcript with one of each common row, a lone tool call and a group among them,
+/// read through the same parse and projection a stored session takes, so a chat built from it
+/// exercises the code a real first open runs.
 internal sealed class WarmupTranscriptFeed : IChatTranscriptFeed {
     const string Vendor = "claude";
 
@@ -14,6 +15,7 @@ internal sealed class WarmupTranscriptFeed : IChatTranscriptFeed {
         (CanonicalEventTypes.AssistantToolCallsGenerated,
             """{"tool_calls":[{"call_id":"w1","tool_name":"Bash","arguments":{"command":"git status --short","description":"Show changes"}}]}"""),
         (CanonicalEventTypes.ToolResultReceived, """{"call_id":"w1","result":" M build.sh\n?? out/"}"""),
+        (CanonicalEventTypes.AssistantTextGenerated, """{"content":"The script is modified."}"""),
         (CanonicalEventTypes.AssistantToolCallsGenerated,
             """{"tool_calls":[{"call_id":"w2","tool_name":"Read","arguments":{"file_path":"/repo/build.sh"}},{"call_id":"w3","tool_name":"Edit","arguments":{"file_path":"/repo/build.sh","old_string":"set -e","new_string":"set -euo pipefail"}}]}"""),
         (CanonicalEventTypes.ToolResultReceived, """{"call_id":"w2","result":"1\t#!/bin/sh\n2\tset -e"}"""),

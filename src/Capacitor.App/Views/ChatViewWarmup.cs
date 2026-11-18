@@ -7,9 +7,9 @@ using Capacitor.App.ViewModels;
 namespace Capacitor.App.Views;
 
 /// Builds one chat a second after the main window is first shown, so the first session opened does
-/// not pay for the chat view's first construction: its XAML, row templates, markdown and the
-/// transcript projection. The view sits in the window transparent and out of hit testing for one
-/// frame, over a made-up transcript, and reaches no network, rail or saved state.
+/// not pay for the session view's first construction: its XAML, row templates, markdown and the
+/// transcript projection. The view sits in the window for one frame, transparent and out of input's
+/// way, over a made-up transcript, and reaches no network, rail or saved state.
 /// `KCAP_APP_NO_PREWARM=1` turns it off, for timing the cold path.
 internal sealed class ChatViewWarmup(IPermissionService permissions, IUrlOpener opener, TimeProvider time) {
     const string AgentId = "kcap-chat-warmup";
@@ -62,19 +62,31 @@ internal sealed class ChatViewWarmup(IPermissionService permissions, IUrlOpener 
             new ReadOnlyChatInput(), new NoAttachmentUploader(), _ => new WarmupTranscriptFeed(), opener, time, permissions,
             new SessionRuns(time));
 
+    /// Opened groups and calls build the row and body templates a folded group leaves unrealized.
+    static void Expand(ChatTabViewModel chat) {
+        foreach (var group in chat.Items.OfType<ToolGroupItem>()) {
+            if (!group.IsExpanded) group.ToggleCommand.Execute().Subscribe();
+            foreach (var call in group.VisibleCalls)
+                if (!call.IsExpanded) call.ToggleCommand.Execute().Subscribe();
+        }
+    }
+
+    /// Inside the workspace a session opens into, with a null context of its own so its bindings
+    /// read nothing from the window's.
     async Task LayOutOnceAsync(MainWindow window, ChatTabViewModel chat) {
         if (!Wanted(window)) return;
-        var view = new ChatTabView { DataContext = chat, Opacity = 0, IsHitTestVisible = false, Focusable = false, ZIndex = -1 };
-        var host = window.WarmupHost;
-        host.Children.Add(view);
+        Expand(chat);
+        var view = new RemoteSessionView { DataContext = null };
+        view.ChatHost.DataContext = chat;
+        window.HostWarmup(view);
         try {
             view.UpdateLayout();
             var frame = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             window.RequestAnimationFrame(_ => frame.TrySetResult());
             await Task.WhenAny(frame.Task, Task.Delay(FrameLimit, time));
         } finally {
-            host.Children.Remove(view);
-            view.DataContext = null;
+            window.ReleaseWarmup(view);
+            view.ChatHost.DataContext = null;
         }
     }
 }
