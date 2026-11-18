@@ -443,7 +443,7 @@
                 </StackPanel>
             </Border>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="10,0,10,4">
+            <ScrollViewer x:Name="RailScroll" VerticalScrollBarVisibility="Auto" Margin="10,0,10,4">
                 <StackPanel>
                     <TextBlock Text="No sessions" Foreground="{StaticResource KcapFaintBrush}" Margin="8,16"
                                IsVisible="{Binding ShowsNoSessions}" />

@@ -10,6 +10,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
@@ -26,16 +27,28 @@ public partial class SessionRailView : UserControl {
     }
 
     /// Calls <paramref name="painted"/> once, on the render thread, when the first frame showing a
-    /// session row has been drawn: the first layout pass with a row in an expanded group of a visible
-    /// rail, then that frame's render. Data alone does not count, since a collapsed rail paints nothing.
+    /// session row has been drawn: the first layout pass with a row inside the scrolled viewport of a
+    /// visible rail, then that frame's render. Data alone does not count: a collapsed rail paints
+    /// nothing, and folded groups can fill the viewport with every expanded row below it.
     public void OnFirstSessionsPainted(Action painted) {
         void Check(object? sender, EventArgs e) {
-            if (!IsEffectivelyVisible || DataContext is not MainWindowViewModel { Rail: { } rail }
-             || !rail.Groups.Any(group => group.IsExpanded && group.Sessions.Count > 0)) return;
+            if (!IsEffectivelyVisible || !ShowsSessionRow()) return;
             LayoutUpdated -= Check;
             RenderedFrame.After(this, painted);
         }
         LayoutUpdated += Check;
+    }
+
+    bool ShowsSessionRow() {
+        if (DataContext is not MainWindowViewModel { Rail: { } rail }) return false;
+        var viewport = new Rect(RailScroll.Bounds.Size);
+        for (var i = 0; i < rail.Groups.Count; i++) {
+            if (rail.Groups[i] is not { IsExpanded: true, Sessions.Count: > 0 }) continue;
+            if (RailGroups.ContainerFromIndex(i)?.FindDescendantOfType<ItemsControl>() is not { } rows
+             || rows.ContainerFromIndex(0) is null || rows.TranslatePoint(default, RailScroll) is not { } at) continue;
+            if (new Rect(at, rows.Bounds.Size).Intersects(viewport)) return true;
+        }
+        return false;
     }
 
     // A pointer-opened flyout leaves focus on its button, outside the popup, where Escape never reaches it.

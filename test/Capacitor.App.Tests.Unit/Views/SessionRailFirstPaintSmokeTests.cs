@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using Avalonia.Headless;
 using DynamicData;
 using Avalonia.Threading;
@@ -52,6 +53,41 @@ public class SessionRailFirstPaintSmokeTests {
             Dispatcher.UIThread.RunJobs();
             AvaloniaHeadlessPlatform.ForceRenderTimerTick();
             await Assert.That(calls).IsEqualTo(1);
+        } finally { window.Close(); }
+        return true;
+    });
+
+    /// Folded groups that fill the viewport leave the one expanded group's row out of sight: nothing
+    /// is painted until a row is inside the viewport.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_expanded_group_below_the_viewport_is_not_painted() => AvaloniaSession.DispatchAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
+        service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        using var directory = new FakeAgentDirectory();
+        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System) { State = RailState.All };
+        var now = DateTime.UtcNow;
+        directory.Rows.AddOrUpdate(Enumerable.Range(0, 40).Select(i => AgentRow.FromLocal(
+            new AgentStatusDto($"a{i}", "agent", "claude", $"/repo{i}", "Running", null, null, null, now.AddMinutes(-i), null, null),
+            new RepoIdentity($"repo{i}", $"repo{i}"))));
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, rail: rail);
+        var window = new MainWindow { DataContext = vm, Height = 600 };
+        window.Panes.RailCollapsed = true;
+        var painted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        window.SessionRail.OnFirstSessionsPainted(() => painted.TrySetResult());
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(rail.Groups.Count).IsEqualTo(40);
+            foreach (var group in rail.Groups.Take(rail.Groups.Count - 1)) await group.ToggleCommand.Execute();
+            Dispatcher.UIThread.RunJobs();
+
+            window.Panes.RailCollapsed = false;
+            await Assert.That(await RenderAsync(painted)).IsFalse();
+
+            await rail.Groups[0].ToggleCommand.Execute();
+            await Assert.That(await RenderAsync(painted)).IsTrue();
         } finally { window.Close(); }
         return true;
     });

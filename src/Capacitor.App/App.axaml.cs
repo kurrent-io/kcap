@@ -2533,14 +2533,8 @@ public partial class App : Application {
             var at = StartupMarks.Now;
             _ = Task.Run(() => StartupMarks.Mark(evt, at));
         };
-        if (window.IsVisible) RenderedFrame.After(window, MarkNow("window_shown"));
-        else {
-            void Opened(object? sender, EventArgs e) {
-                window.Opened -= Opened;
-                RenderedFrame.After(window, MarkNow("window_shown"));
-            }
-            window.Opened += Opened;
-        }
+        // A window held behind an update's progress is hidden again before it renders; its mark waits for the real show.
+        RenderedFrame.FirstShownFrame(window, _time, at => _ = Task.Run(() => StartupMarks.Mark("window_shown", at)));
         window.SessionRail.OnFirstSessionsPainted(MarkNow("first_sessions_painted"));
         return window;
     }
