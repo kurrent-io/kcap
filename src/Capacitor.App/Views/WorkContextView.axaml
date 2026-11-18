@@ -311,7 +311,7 @@
                     </Flyout>
                 </Grid.ContextFlyout>
                 <Button Classes="kcapGhost bookmarkColor" VerticalAlignment="Top" Margin="0,3,0,0"
-                        ToolTip.Tip="Change colour" AutomationProperties.Name="Change bookmark colour">
+                        AutomationProperties.Name="Change bookmark colour">
                     <views:AppIcon Kind="Bookmark" Size="14" Filled="True"
                                    Foreground="{Binding Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}}" />
                     <Button.Flyout>
@@ -357,7 +357,6 @@
                         Padding="6,4" Cursor="Hand"
                         Command="{Binding $parent[views:WorkContextView].((vm:WorkContextViewModel)DataContext).Bookmarks.RevealCommand, FallbackValue={x:Null}}"
                         CommandParameter="{Binding}"
-                        ToolTip.Tip="{Binding Text}"
                         AutomationProperties.Name="{Binding Text, StringFormat='Go to bookmark {0}'}">
                     <TextBlock Text="{Binding Text}" TextTrimming="CharacterEllipsis"
                                Foreground="{StaticResource KcapTextBrush}" />
@@ -365,7 +364,6 @@
                 <Button Grid.Column="2" Classes="kcapGhost markRemove"
                         Command="{Binding $parent[views:WorkContextView].((vm:WorkContextViewModel)DataContext).Bookmarks.RemoveCommand, FallbackValue={x:Null}}"
                         CommandParameter="{Binding}"
-                        ToolTip.Tip="Remove this bookmark"
                         AutomationProperties.Name="{Binding Text, StringFormat='Remove bookmark {0}'}">
                     <views:AppIcon Kind="X" Size="12" />
                 </Button>
