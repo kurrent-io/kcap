@@ -1,3 +1,4 @@
+#pragma warning disable AVALONIA_X11_CSD
 using Avalonia;
 using Capacitor.App.Services.Notifications;
 using Capacitor.App.Services.Update;
@@ -19,6 +20,7 @@ public sealed class LinuxDesktopHost(
 
     public override AppBuilder ConfigureAvalonia(AppBuilder builder) =>
         builder.With(new X11PlatformOptions {
+            EnableDrawnDecorations = true,
             RenderingMode = LinuxRenderingOrder.Resolve(Environment.GetEnvironmentVariable(LinuxRenderingOrder.EnvVar)),
         });
 
