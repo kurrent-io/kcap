@@ -223,7 +223,7 @@ public class RemoteTerminalViewModelTests {
 
             h.Ended.OnNext(true);
             await Assert.That(h.Vm.Phase).IsEqualTo(RemoteTerminalPhase.Ended);
-            await Assert.That(h.Vm.PhaseNote).IsEqualTo("This session has ended.");
+            await Assert.That(h.Vm.Notice!.Title).IsEqualTo("This session has ended.");
             h.Access.OnNext(SessionAccessState.Established);
             await Assert.That(h.Lane.TerminalSubscribes.Count).IsEqualTo(1);
             await h.Vm.TeardownAsync();
@@ -345,18 +345,14 @@ public class RemoteTerminalViewModelTests {
         });
     }
 
-    /// <summary>The server says when it refuses the terminal, so the pane says so too, rather than reading
-    /// as a connection that dropped; a failed subscribe stays offline.</summary>
     [Test]
-    [Arguments(true)]
-    [Arguments(false)]
-    public async Task A_denied_subscribe_says_the_terminal_was_refused(bool denied) {
+    public async Task A_denied_subscribe_explains_the_refusal_without_offering_retry() {
         await RunOnUiAsync(async () => {
-            var h = new Harness(subscribe: _ => Task.FromResult(denied ? HubCallOutcome.Denied("no") : HubCallOutcome.Failed("boom")));
-            var expected = denied ? RemoteTerminalPhase.Refused : RemoteTerminalPhase.Offline;
-            await WaitUntilAsync(() => h.Vm.Phase == expected, what: expected.ToString());
+            var h = new Harness(subscribe: _ => Task.FromResult(HubCallOutcome.Denied(WireTokens.SessionNotVisible)));
+            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Refused, what: "refused");
 
-            await Assert.That(h.Vm.PhaseNote).IsEqualTo(denied ? RemoteTerminalViewModel.RefusedNote : "Not connected to the session");
+            await Assert.That(h.Vm.Notice!.Title).IsEqualTo("Terminal access denied");
+            await Assert.That(h.Vm.Notice.HasAction).IsFalse();
             await h.Vm.TeardownAsync();
         });
     }
@@ -498,7 +494,7 @@ public class RemoteTerminalViewModelTests {
         await RunOnUiAsync(async () => {
             var fail = true;
             var h = new Harness(subscribe: _ => Task.FromResult(fail ? HubCallOutcome.Failed("retry") : HubCallOutcome.Ok));
-            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Offline, what: "offline");
+            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Failed, what: "failed");
 
             h.Time.Advance(TimeSpan.FromSeconds(1));
             await Task.Delay(50);

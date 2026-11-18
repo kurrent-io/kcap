@@ -25,7 +25,8 @@ public partial class RemoteSessionView : UserControl {
             if (DataContext is RemoteSessionViewModel model) model.Terminal?.SetViewport(cols, rows);
         };
         TerminalHost.PropertyChanged += (_, e) => {
-            if (e.Property == SvcSystems.UI.Terminal.TerminalControl.ModelProperty && TerminalHost.Model is not null
+            if ((e.Property == SvcSystems.UI.Terminal.TerminalControl.ModelProperty || e.Property == IsEnabledProperty)
+                && TerminalHost.IsEnabled && TerminalHost.Model is not null
                 && DataContext is RemoteSessionViewModel { IsTerminalActive: true })
                 TerminalHost.Focus();
         };

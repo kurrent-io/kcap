@@ -100,8 +100,9 @@ public class MainWindowSmokeTests {
 
     /// A real WorkspaceViewModel over the fake service and scripted attach/surface fakes — same
     /// pieces MainWindowViewModelTests wires, over the actions this file's NewActions built.
-    static WorkspaceViewModel NewWorkspace(FakeDaemonClientService service, AgentActionService actions, string agentId, IPullRequestSource? pullRequests = null) =>
-        new(agentId, service, actions, new FakeTerminalAttachClientFactory().Factory,
+    static WorkspaceViewModel NewWorkspace(FakeDaemonClientService service, AgentActionService actions, string agentId,
+            IPullRequestSource? pullRequests = null, FakeTerminalAttachClientFactory? attach = null) =>
+        new(agentId, service, actions, (attach ?? new FakeTerminalAttachClientFactory()).Factory,
             () => new FakeTerminalSurface(), new FakeTimeProvider(), new RecordingOpener(), new FakePermissionService(),
             new FakeWorkContextSource(), new ScriptedLocalControlOps(), new NoAttachmentUploader(), pullRequests: pullRequests);
 
@@ -1504,11 +1505,12 @@ public class MainWindowSmokeTests {
             var service = new FakeDaemonClientService();
             var (actions, _) = NewActions(service);
             var source = new FakeWorkContextSource();
+            var attach = new FakeTerminalAttachClientFactory();
             var time = new FakeTimeProvider();
             var vm = new MainWindowViewModel(
                 service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
                 workspaceFactory: agentId => new WorkspaceViewModel(
-                    agentId, service, actions, new FakeTerminalAttachClientFactory().Factory,
+                    agentId, service, actions, attach.Factory,
                     () => new FakeTerminalSurface(), time, new RecordingOpener(), new FakePermissionService(),
                     source, new ScriptedLocalControlOps(), new NoAttachmentUploader()));
             var window = new MainWindow { DataContext = vm };
@@ -1555,6 +1557,8 @@ public class MainWindowSmokeTests {
 
                 await Assert.That(yield.CanExecute(null)).IsTrue();
                 var workspace = (WorkspaceViewModel)vm.CurrentWorkspace!;
+                await (workspace.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+                await attach.Created.Single().TriggerAttached([]);
                 workspace.ShowTerminalCommand.Execute().Subscribe();
                 Dispatcher.UIThread.RunJobs();
                 var terminal = window.GetVisualDescendants().OfType<TerminalControl>().Single();
@@ -2400,7 +2404,8 @@ public class MainWindowSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public Task Ctrl_k_yields_to_a_focused_terminal_off_mac() => AvaloniaSession.RunOnUiAsync(async () => {
         FakeDaemonClientService? service = null;
-        using var host = new SearchWindowHost(workspaceFactory: id => NewWorkspace(service!, NewActions(service!).Actions, id));
+        var attach = new FakeTerminalAttachClientFactory();
+        using var host = new SearchWindowHost(workspaceFactory: id => NewWorkspace(service!, NewActions(service!).Actions, id, attach: attach));
         service = host.Service;
         var bindings = host.Window.KeyBindings.Where(k => k.Gesture is { Key: Key.K }).ToArray();
         var yield = new UnlessTerminalFocused(host.Window, m => m.OpenSearchCommand);
@@ -2417,6 +2422,8 @@ public class MainWindowSmokeTests {
         host.Settle();
         var workspace = (WorkspaceViewModel)host.Vm.CurrentWorkspace!;
         await Assert.That(yield.CanExecute(null)).IsTrue();
+        await (workspace.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+        await attach.Created.Single().TriggerAttached([]);
         workspace.ShowTerminalCommand.Execute().Subscribe();
         host.Settle();
         var terminal = host.Window.GetVisualDescendants().OfType<TerminalControl>().Single();
@@ -2435,8 +2442,9 @@ public class MainWindowSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public Task Ctrl_page_keys_step_through_the_rail_from_a_focused_terminal() => AvaloniaSession.RunOnUiAsync(async () => {
         FakeDaemonClientService? service = null;
+        var attach = new FakeTerminalAttachClientFactory();
         var opened = new List<string>();
-        using var host = new SearchWindowHost(workspaceFactory: id => NewWorkspace(service!, NewActions(service!).Actions, id), openLocal: opened.Add);
+        using var host = new SearchWindowHost(workspaceFactory: id => NewWorkspace(service!, NewActions(service!).Actions, id, attach: attach), openLocal: opened.Add);
         service = host.Service;
         const string id = "0123456789abcdef0123456789abcdef";
         var now = DateTime.UtcNow;
@@ -2448,7 +2456,10 @@ public class MainWindowSmokeTests {
         host.Vm.OpenSession(id);
         service.Agents.AddOrUpdate(WorkspaceFixtures.Agent(id, "claude", true, "/repo/myproj", sessionId: id));
         host.Settle();
-        ((WorkspaceViewModel)host.Vm.CurrentWorkspace!).ShowTerminalCommand.Execute().Subscribe();
+        var workspace = (WorkspaceViewModel)host.Vm.CurrentWorkspace!;
+        await (workspace.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+        await attach.Created.Single().TriggerAttached([]);
+        workspace.ShowTerminalCommand.Execute().Subscribe();
         host.Settle();
         await Assert.That(host.Window.GetVisualDescendants().OfType<TerminalControl>().Single().Focus()).IsTrue();
 

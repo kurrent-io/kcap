@@ -13,6 +13,7 @@ public sealed record SessionConnectionPresentation(string Title, string Detail, 
     public bool ShowsAlert => !IsBusy && !IsPlain;
     public static SessionConnectionPresentation Starting(string detail, ICommand? terminal = null) =>
         new("Starting session…", detail, true, "Open Terminal", terminal);
+    public static readonly SessionConnectionPresentation ConnectingToTerminal = new("Connecting to the terminal…", "", true);
     public static SessionConnectionPresentation Connecting() =>
         new("Connecting to session…", "Loading your chat and work details.", true);
     public static SessionConnectionPresentation Reconnecting(string detail = "Retrying automatically. Your chat and work details are kept.") =>

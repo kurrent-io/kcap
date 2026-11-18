@@ -953,7 +953,7 @@ public class RemoteSessionViewModelTests {
             await vm.ShowTerminalCommand.Execute();
             await WaitUntilAsync(() => vm.Terminal!.Phase == RemoteTerminalPhase.Refused, what: "refused");
             await Assert.That(vm.ShowsTerminalPane).IsTrue();
-            await Assert.That(vm.Terminal!.PhaseNote).IsEqualTo(RemoteTerminalViewModel.RefusedNote);
+            await Assert.That(vm.Terminal!.Notice!.Detail).IsEqualTo("You don't have access to this session's terminal.");
             await vm.TeardownAsync();
         });
     }

@@ -268,6 +268,48 @@ public class WorkspaceViewSmokeTests {
         });
     }
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Resolving_and_attaching_use_the_same_notice_then_an_attach_failure_offers_reattach() {
+        await RunOnUiAsync(async () => {
+            var (view, vm, daemon, attach) = Build();
+            var window = new Window { Content = view, Width = 900, Height = 600 };
+            try {
+                window.Show();
+                await vm.ShowTerminalCommand.Execute();
+                Dispatcher.UIThread.RunJobs();
+
+                var notice = Find<SessionConnectionNotice>(window, "TerminalNotice")!;
+                var title = notice.FindControl<TextBlock>("SessionNoticeTitle")!;
+                await Assert.That(vm.Terminal.State.Phase).IsEqualTo(TerminalSessionPhase.Resolving);
+                await Assert.That(notice.IsEffectivelyVisible).IsTrue();
+                await Assert.That(title.Text).IsEqualTo("Connecting to the terminal…");
+
+                daemon.Agents.AddOrUpdate(Agent(AgentId, hasTerminal: true));
+                await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+                Dispatcher.UIThread.RunJobs();
+
+                await Assert.That(vm.Terminal.State.Phase).IsEqualTo(TerminalSessionPhase.Connecting);
+                await Assert.That(title.Text).IsEqualTo("Connecting to the terminal…");
+                var terminal = Find<Control>(window, "TerminalHost")!;
+                await Assert.That(terminal.Opacity).IsEqualTo(0.0);
+                await Assert.That(terminal.IsEnabled).IsFalse();
+
+                attach.Created[^1].Result.SetResult(new AttachOutcome.Failed("The daemon couldn’t open the terminal."));
+                await vm.Terminal.CurrentRunForTesting!;
+                Dispatcher.UIThread.RunJobs();
+
+                await Assert.That(notice.IsEffectivelyVisible).IsTrue();
+                await Assert.That(title.Text).IsEqualTo("Terminal connection failed");
+                await Assert.That(vm.TerminalPaneNotice!.Detail).IsEqualTo("The daemon couldn’t open the terminal.");
+                await Assert.That(vm.TerminalPaneNotice.Action).IsSameReferenceAs(vm.Terminal.ReattachCommand);
+            } finally {
+                window.Close();
+                await vm.TeardownAsync();
+            }
+        });
+    }
+
     /// Pins that a normal read-write attach shows NO banner — one would overlay the terminal
     /// content. Read-only keeps its banner because it is the only explanation for dead
     /// keystrokes.
@@ -275,7 +317,7 @@ public class WorkspaceViewSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public async Task Read_write_attached_state_shows_no_banner() {
         await RunOnUiAsync(async () => {
-            var (view, vm, daemon, attach) = Build();
+            var (view, vm, daemon, attach) = Build(surface: () => new XtermTerminalSurface(80, 24));
             var window = new Window { Content = view };
             window.Show();
             Dispatcher.UIThread.RunJobs();
@@ -292,6 +334,10 @@ public class WorkspaceViewSmokeTests {
             await Assert.That(vm.Terminal.State.Phase).IsEqualTo(TerminalSessionPhase.Attached);
             await Assert.That(vm.Terminal.State.ReadOnly).IsFalse();
             await Assert.That(Banner(window).IsEffectivelyVisible).IsFalse();
+            await Assert.That(Find<SessionConnectionNotice>(window, "TerminalNotice")!.IsEffectivelyVisible).IsFalse();
+            var terminal = Find<TerminalControl>(window, "TerminalHost")!;
+            await Assert.That(terminal.Opacity).IsEqualTo(1.0);
+            await Assert.That(terminal.IsFocused).IsTrue();
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -338,7 +384,8 @@ public class WorkspaceViewSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public async Task Chat_opens_first_and_the_tabs_swap_the_surfaces_while_the_terminal_stays_in_the_tree() {
         await RunOnUiAsync(async () => {
-            var (window, vm, _, _) = await ShowPtyAsync();
+            var (window, vm, _, attach) = await ShowPtyAsync();
+            await attach.Created[^1].TriggerAttached([], reason: null);
             var chatHost = Find<Control>(window, "ChatHost")!;
             var banners = Banner(window);
             var terminalHost = Find<Control>(window, "TerminalHost")!;
@@ -475,13 +522,12 @@ public class WorkspaceViewSmokeTests {
     }
 
     /// Pins that focus follows the active tab, and that a terminal going live under the Chat tab
-    /// does not steal the composer's focus. A Model assignment is that "went live" moment, so the
-    /// test performs one rather than waiting for a reattach to produce it.
+    /// does not steal the composer's focus when either the surface or the acknowledgement arrives.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Focus_follows_the_tab_and_survives_a_late_model_assignment() {
         await RunOnUiAsync(async () => {
-            var (window, vm, _, _) = await ShowPtyAsync();
+            var (window, vm, _, attach) = await ShowPtyAsync();
             var composer = Find<TextBox>(window, "ComposerInput")!;
             var terminalHost = Find<TerminalControl>(window, "TerminalHost")!;
             await Assert.That(composer.IsFocused).IsTrue();
@@ -489,6 +535,10 @@ public class WorkspaceViewSmokeTests {
             terminalHost.Model = new XtermTerminalSurface(80, 24).Model;
             Dispatcher.UIThread.RunJobs();
             await Assert.That(terminalHost.IsFocused).IsFalse();
+            await Assert.That(composer.IsFocused).IsTrue();
+
+            await attach.Created.Single().TriggerAttached([]);
+            Dispatcher.UIThread.RunJobs();
             await Assert.That(composer.IsFocused).IsTrue();
 
             await vm.ShowTerminalCommand.Execute();

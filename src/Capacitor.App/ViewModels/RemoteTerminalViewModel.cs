@@ -10,7 +10,7 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-public enum RemoteTerminalPhase { Waiting, Connecting, Live, Offline, Ended, Refused }
+public enum RemoteTerminalPhase { Waiting, Connecting, Live, Offline, Ended, Refused, Failed }
 
 /// Each subscribe replays onto a fresh surface. Buffer dimensions follow the source;
 /// the measured viewport is reported separately while visible, since the server clamps
@@ -74,23 +74,24 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
         get => _phase;
         private set {
             this.RaiseAndSetIfChanged(ref _phase, value);
-            this.RaisePropertyChanged(nameof(PhaseNote));
-            this.RaisePropertyChanged(nameof(ShowsBanner));
+            this.RaisePropertyChanged(nameof(Notice));
+            this.RaisePropertyChanged(nameof(IsLive));
             _phases.OnNext(value);
         }
     }
 
-    public string PhaseNote => Phase switch {
-        RemoteTerminalPhase.Waiting    => "Waiting for the session…",
-        RemoteTerminalPhase.Connecting => "Connecting…",
-        RemoteTerminalPhase.Offline    => "Not connected to the session",
-        RemoteTerminalPhase.Ended      => "This session has ended.",
-        RemoteTerminalPhase.Refused    => RefusedNote,
-        _                              => "",
+    public bool IsLive => Phase == RemoteTerminalPhase.Live;
+    public SessionConnectionPresentation? Notice => Phase switch {
+        RemoteTerminalPhase.Waiting or RemoteTerminalPhase.Connecting => SessionConnectionPresentation.ConnectingToTerminal,
+        RemoteTerminalPhase.Offline => new("Not connected to the server", "The terminal reconnects when the server is available.", false),
+        RemoteTerminalPhase.Ended => new("This session has ended.", "", false, IsPlain: true),
+        RemoteTerminalPhase.Refused => new("Terminal access denied", "You don't have access to this session's terminal.", false),
+        RemoteTerminalPhase.Failed => new("Couldn’t connect to the terminal", _failureDetail, false, "Retry", RetryCommand),
+        _ => null,
     };
-    internal const string RefusedNote = "You don't have access to this session's terminal.";
 
-    public bool ShowsBanner => Phase != RemoteTerminalPhase.Live;
+    string _failureDetail = "";
+    public ReactiveCommand<Unit, Unit> RetryCommand { get; }
 
     string? _controlRefusal;
     /// Why the viewer may watch but not press keys or size the terminal; null while they may.
@@ -136,6 +137,8 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
         SendKeyCommand = ReactiveCommand.CreateFromTask<string>(
             key => Enqueue(key, null), _phases.CombineLatest(_controls, (phase, controls) => phase == RemoteTerminalPhase.Live && controls));
         _disposables.Add(SendKeyCommand);
+        RetryCommand = ReactiveCommand.Create(Ask, _phases.Select(phase => phase == RemoteTerminalPhase.Failed));
+        _disposables.Add(RetryCommand);
         typing?.DistinctUntilChanged().ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(on => AcceptsTyping = on).DisposeWith(_disposables);
         viewer?.Select(v => v.CanPressKeys ? null : v.ControlRefusal).DistinctUntilChanged()
@@ -232,7 +235,7 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
         HubCallOutcome outcome;
         try {
             outcome = await _lane.SubscribeToTerminalAsync(_agentId, _token);
-        } catch (OperationCanceledException) {
+        } catch (OperationCanceledException) when (_token.IsCancellationRequested) {
             // Teardown cancelled _token while the hub may already have taken the subscribe —
             // ReleaseAsync's own calls carry CancellationToken.None.
             Dispatcher.UIThread.Post(() => { if (!_receiving) _ = ReleaseAsync(); });
@@ -252,7 +255,17 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
             // A refused subscribe must not render frames meant for another viewer on the connection.
             if (outcome.Result != HubCallResult.Ok) {
                 _receiving = false;
-                Phase = outcome.Result == HubCallResult.Denied ? RemoteTerminalPhase.Refused : RemoteTerminalPhase.Offline;
+                if (outcome.Result == HubCallResult.Failed) {
+                    Console.Error.WriteLine($"kcap: remote terminal subscribe: {outcome.Reason}");
+                    _failureDetail = outcome.Reason?.Contains(WireTokens.SessionAccessRecheckFailed, StringComparison.Ordinal) == true
+                        ? "The server couldn’t verify access to this terminal. Retrying automatically."
+                        : "Retrying automatically.";
+                }
+                Phase = outcome.Result switch {
+                    HubCallResult.Denied => RemoteTerminalPhase.Refused,
+                    HubCallResult.Failed => RemoteTerminalPhase.Failed,
+                    _ => RemoteTerminalPhase.Offline,
+                };
                 if (_strayMembership) {
                     _strayMembership = false;
                     _ = ReleaseAsync();
@@ -274,7 +287,7 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
     void ScheduleRetry(int generation) {
         var delay = Retry[Math.Min(_failures++, Retry.Length - 1)];
         _retry = _time.CreateTimer(_ => Dispatcher.UIThread.Post(() => {
-            if (generation == _generation && Phase == RemoteTerminalPhase.Offline) Ask();
+            if (generation == _generation && Phase == RemoteTerminalPhase.Failed) Ask();
         }), null, delay, Timeout.InfiniteTimeSpan);
     }
 

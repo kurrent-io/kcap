@@ -183,6 +183,39 @@ public class RemoteSessionViewSmokeTests {
         });
     }
 
+    [Test]
+    public async Task A_slow_terminal_subscribe_shows_loading_then_a_retry_can_open_a_quiet_terminal() {
+        await AvaloniaSession.DispatchAsync(async () => {
+            using var host = new Host(realTerminal: true);
+            try {
+                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "ready");
+                var subscribe = new TaskCompletionSource<HubCallOutcome>();
+                host.Lane.TerminalSubscribeHandler = _ => subscribe.Task;
+                await host.Vm.ShowTerminalCommand.Execute();
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.Phase == RemoteTerminalPhase.Connecting, "connecting");
+
+                var notice = Named<SessionConnectionNotice>(host.View, "TerminalNotice");
+                var title = Named<TextBlock>(notice, "SessionNoticeTitle");
+                var viewport = Named<RemoteTerminalViewport>(host.View, "TerminalViewport");
+                await Assert.That(notice.IsEffectivelyVisible).IsTrue();
+                await Assert.That(title.Text).IsEqualTo("Connecting to the terminal…");
+                await Assert.That(viewport.Opacity).IsEqualTo(0.0);
+
+                subscribe.SetResult(HubCallOutcome.Failed(WireTokens.SessionAccessRecheckFailed));
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.Phase == RemoteTerminalPhase.Failed, "subscribe failed");
+                await Assert.That(title.Text).IsEqualTo("Couldn’t connect to the terminal");
+                await Assert.That(host.Vm.Terminal!.Notice!.Detail).Contains("couldn’t verify access");
+
+                host.Lane.TerminalSubscribeHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+                Click(host, notice.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Retry")));
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.IsLive, "live without output");
+                await Assert.That(notice.IsEffectivelyVisible).IsFalse();
+                await Assert.That(viewport.Opacity).IsEqualTo(1.0);
+            } finally { await host.Vm.TeardownAsync(); }
+            return true;
+        });
+    }
+
     static void CaptureLoading(Host host, string name) {
         if (Environment.GetEnvironmentVariable("KCAP_SHOTS_OUT") is not { } dir) return;
         host.Window.SetRenderScaling(2);
