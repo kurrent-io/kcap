@@ -62,6 +62,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         if (_viewport == e.EffectiveViewport) return;
         var old = _viewport;
         _viewport = e.EffectiveViewport;
+        ReportTop();
         if (old.Size != _viewport.Size || _first < 0 || _last >= Items.Count
             || Math.Max(0, _viewport.Top) < _starts[_first]
             || Math.Min(_starts[^1], _viewport.Bottom) > _starts[_last + 1]) InvalidateMeasure();
@@ -179,7 +180,16 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         }
         _rails?.Arrange(new Rect(finalSize));
         _rails?.InvalidateVisual();
+        ReportTop();
         return finalSize;
+    }
+
+    // A row whose top has just scrolled out of view is still the one being read.
+    const double TopRowDepth = 24;
+
+    void ReportTop() {
+        if (Items.Count == 0 || _starts.Length != Items.Count + 1) return;
+        this.FindAncestorOfType<ChatTabView>()?.ShowingAtTop(Items[IndexAt(Math.Max(0, _viewport.Top + TopRowDepth))] as ChatItemViewModel);
     }
 
     internal void DrawRails(DrawingContext context, ChatTopicItem? hovered) {

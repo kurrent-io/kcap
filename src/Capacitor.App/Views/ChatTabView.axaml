@@ -616,7 +616,7 @@
                     <Button x:Name="TopicToggle" Classes="toolSummary topicHeader" Classes.folded="{Binding !IsExpanded}"
                             Padding="6,5" Margin="-6,6"
                             Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
-                            ToolTip.Tip="{Binding ToggleAccessibleName}"
+                            ToolTip.Tip="{Binding ToggleTip}"
                             AutomationProperties.Name="{Binding ToggleAccessibleName}">
                         <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="8">
                             <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">

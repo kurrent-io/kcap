@@ -417,6 +417,8 @@ public partial class ChatTabView : UserControl {
         ArmToggleRestore();
     }
 
+    internal void ShowingAtTop(ChatItemViewModel? row) => (DataContext as ChatTabViewModel)?.Topics.ShowingAtTop(row);
+
     // Inside the fold button, so the click is kept from folding the topic too.
     void OnTopicUnmarkClick(object? sender, RoutedEventArgs e) {
         e.Handled = true;

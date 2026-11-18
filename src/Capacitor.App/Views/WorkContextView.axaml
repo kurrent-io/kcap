@@ -18,6 +18,9 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="Cursor" Value="Hand" />
         </Style>
+        <Style Selector="TextBlock.topicName.current">
+            <Setter Property="FontWeight" Value="Bold" />
+        </Style>
         <Style Selector="ItemsControl.grouped Border.bookmarkGrip">
             <Setter Property="IsVisible" Value="False" />
         </Style>
@@ -1081,7 +1084,8 @@
                                                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                                     <views:AppIcon Kind="Signpost" Size="12" VerticalAlignment="Center"
                                                                    Foreground="{StaticResource KcapInfoBrush}" />
-                                                    <TextBlock Grid.Column="1" Text="{Binding Label}" TextTrimming="CharacterEllipsis"
+                                                    <TextBlock Grid.Column="1" Classes="topicName" Classes.current="{Binding IsCurrent}"
+                                                               Text="{Binding Label}" TextTrimming="CharacterEllipsis"
                                                                VerticalAlignment="Center" Foreground="{StaticResource KcapTextBrush}" />
                                                     <TextBlock Grid.Column="2" Text="{Binding Summary}" FontSize="12" VerticalAlignment="Center"
                                                                IsVisible="{Binding !IsExpanded}" Foreground="{StaticResource KcapMutedBrush}" />

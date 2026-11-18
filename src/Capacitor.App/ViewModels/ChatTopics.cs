@@ -152,11 +152,21 @@ public sealed class ChatTopics : ReactiveObject {
                 var index = _items.IndexOf(topic);
                 if (index < 0 || !topic.IsExpanded) { _folding.Remove(topic); continue; }
                 var end = EndOf(index);
-                if (end >= _items.Count || _items[end] is not (ChatTopicItem or ChatTopicEndItem)) continue;
+                if (!(end < _items.Count && _items[end] is ChatTopicItem || _items[end - 1] is ChatTopicEndItem)) continue;
                 _folding.Remove(topic);
                 Toggle(topic);
             }
         });
+    }
+
+    ChatTopicItem? _current;
+    /// The chat now shows <paramref name="row"/> at its top: the topic holding it becomes the current one.
+    public void ShowingAtTop(ChatItemViewModel? row) {
+        var topic = row as ChatTopicItem ?? row?.Topic;
+        if (ReferenceEquals(topic, _current)) return;
+        _current?.IsCurrent = false;
+        _current = topic;
+        _current?.IsCurrent = true;
     }
 
     /// Every row, those inside folded topics included.
@@ -264,7 +274,7 @@ public sealed class ChatTopics : ReactiveObject {
     void Prune() {
         var open = false;
         for (var i = 0; i < _items.Count; i++) {
-            if (_items[i] is ChatTopicItem) open = true;
+            if (_items[i] is ChatTopicItem topic) open = !Ended(topic);
             else if (_items[i] is ChatTopicEndItem) {
                 if (open) open = false;
                 else _items.RemoveAt(i--);
@@ -290,7 +300,7 @@ public sealed class ChatTopics : ReactiveObject {
                 var rows = topic.IsExpanded ? _items.Skip(i + 1).Take(EndOf(i) - i - 1).ToList() : topic.Hidden;
                 number++;
                 topic.Name(topic.CustomName ?? LabelOf(rows) ?? $"Topic {number}");
-                current = topic;
+                current = Ended(topic) ? null : topic;
                 continue;
             }
             row.Topic = i < tail ? current : null;
@@ -333,10 +343,16 @@ public sealed class ChatTopics : ReactiveObject {
         return null;
     }
 
+    // A folded topic holds its end, if it has one.
+    static bool Ended(ChatTopicItem topic) => !topic.IsExpanded && topic.Hidden is [.., ChatTopicEndItem];
+
+    // The end of a topic's rows, an end of its own included, so folding takes the end in too.
     int EndOf(int header) {
         var tail = TailStart();
-        for (var i = header + 1; i < tail; i++)
-            if (_items[i] is ChatTopicItem or ChatTopicEndItem) return i;
+        for (var i = header + 1; i < tail; i++) {
+            if (_items[i] is ChatTopicItem) return i;
+            if (_items[i] is ChatTopicEndItem) return i + 1;
+        }
         return Math.Max(header + 1, tail);
     }
 

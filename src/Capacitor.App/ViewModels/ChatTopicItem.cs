@@ -61,10 +61,17 @@ public sealed class ChatTopicItem : ChatItemViewModel {
             _isExpanded = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(ToggleAccessibleName));
+            this.RaisePropertyChanged(nameof(ToggleTip));
         }
     }
 
-    public string ToggleAccessibleName => $"{(_isExpanded ? "Fold" : "Unfold")} {Label}";
+    public string ToggleAccessibleName => $"{ToggleTip} {Label}";
+
+    public string ToggleTip => _isExpanded ? "Collapse" : "Expand";
+
+    bool _isCurrent;
+    /// Whether this is the topic the chat is scrolled to.
+    public bool IsCurrent { get => _isCurrent; internal set => this.RaiseAndSetIfChanged(ref _isCurrent, value); }
 
     /// The rows a folded topic holds.
     public IReadOnlyList<ChatItemViewModel> Hidden => _hidden;

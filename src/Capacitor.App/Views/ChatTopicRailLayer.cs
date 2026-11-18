@@ -38,7 +38,7 @@ public sealed class ChatTopicRailLayer(ChatVirtualizingPanel panel) : Control, I
         if (ReferenceEquals(topic, _hovered)) return;
         _hovered = topic;
         Cursor = topic is null ? null : new Cursor(StandardCursorType.Hand);
-        ToolTip.SetTip(this, topic is null ? null : $"Fold {topic.Label}");
+        ToolTip.SetTip(this, topic is null ? null : topic.ToggleTip);
         InvalidateVisual();
     }
 }
