@@ -40,7 +40,7 @@
             <SolidColorBrush x:Key="KcapInfoDimBrush" Color="#1B2740" />
             <SolidColorBrush x:Key="KcapSelectionBrush" Color="#1E2E52" />
             <SolidColorBrush x:Key="KcapRowHoverBrush" Color="#1A868A99" />
-            <SolidColorBrush x:Key="KcapRowActiveBrush" Color="#339FA8D0" />
+            <SolidColorBrush x:Key="KcapRowActiveBrush" Color="#24FFFFFF" />
             <Color x:Key="ScrollBarThumbBackgroundColor">#3A66B8</Color>
             <Color x:Key="ScrollBarPanningThumbBackgroundColor">#3A66B8</Color>
             <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#3A66B8" />
