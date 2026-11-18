@@ -90,8 +90,10 @@ public sealed class SessionRuns(TimeProvider time) {
     /// kept history, in stream order. Without KeepsHistory there is nothing to fold them ahead of.
     public void Prepend(IEnumerable<ChatProjectionResult> earlier) {
         if (_history is not { } history) return;
-        var log = earlier.Select(Reduce).OfType<ChatProjectionResult>().Concat(history).ToList();
-        Clear();
+        var reduced = earlier.Select(Reduce).OfType<ChatProjectionResult>().ToList();
+        if (reduced.Count == 0) return;
+        var log = reduced.Concat(history).ToList();
+        Reset();
         foreach (var projection in log) Fold(projection);
         _history = log;
         Refresh();
@@ -176,6 +178,12 @@ public sealed class SessionRuns(TimeProvider time) {
 
     public void Clear() {
         _history?.Clear();
+        Reset();
+        Refresh();
+    }
+
+    /// Forgets every row without publishing the empty state, for a caller that folds again at once.
+    void Reset() {
         _rows.Clear();
         _byCall.Clear();
         _byAgent.Clear();
@@ -185,7 +193,6 @@ public sealed class SessionRuns(TimeProvider time) {
         _earlyUnpaired.Clear();
         _restartedAt = null;
         _reopenedAt = null;
-        Refresh();
     }
 
     /// Re-reads the clock for the running rows' elapsed time.

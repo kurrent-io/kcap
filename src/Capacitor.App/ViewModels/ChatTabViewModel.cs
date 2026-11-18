@@ -2095,7 +2095,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     /// Older rows go above the ones on screen. A call they leave open is settled by a result already
     /// shown, and the runs fold again from the start of what is loaded.
-    /// A page that adds no rows asks for the next one at once: no scroll would ask for it.
+    /// A page that adds no rows asks for the next one at once: no scroll would ask for it. A live session
+    /// pages all the way back, so a run started before the window still shows as running.
     void InsertOlder(LineCursor older, ReceiptCandidates candidates) {
         var matched = new List<AcpEventEnvelope>();
         foreach (var (id, call) in older.Pending) {
@@ -2116,6 +2117,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _planActivity?.Apply(older.Restored.Append(new ChatProjectionResult(matched, [], [])));
         _runs.Prepend(older.Restored);
         _history.ObserveEarlier([.. older.Restored.SelectMany(static projected => projected.SubmittedInputs).Select(AttachmentTrailer.Strip)]);
+        // A shell command at the page's end owns the output row that opens the rows already shown.
+        if (older.OpenShell is { HasOutput: false } shell && _items.Count > 0 && _items[0] is ShellCommandItem { HasCommand: false } output) {
+            shell.Output = output.Output;
+            _items.RemoveAt(0);
+        }
         if (older.Fresh.Count > 0) {
             foreach (var call in older.Fresh.OfType<ToolGroupItem>().SelectMany(static group => group.Calls))
                 call.SessionOver = _ended;
@@ -2123,7 +2129,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             _senders?.Track(SenderLabels(older.Fresh, candidates));
         }
         Reconcile();
-        if (older.Fresh.Count == 0 && hasOlder) RequestOlder();
+        if (hasOlder && (older.Fresh.Count == 0 || !_ended)) RequestOlder();
     }
 
     void Finish(FeedRead read, LineCursor? cursor, ReceiptCandidates candidates) {
@@ -2172,9 +2178,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (read.Status == FeedStatus.Reset) RequestOlderWhileEmpty();
     }
 
-    /// A seed whose events show no rows leaves nothing to scroll, so older pages are read until one does.
+    /// A seed whose events show no rows leaves nothing to scroll, so older pages are read until one does;
+    /// a live session's are read regardless, for the runs they start.
     void RequestOlderWhileEmpty() {
-        if (_items.Count == 0) RequestOlder();
+        if (_items.Count == 0 || !_ended) RequestOlder();
     }
 
     /// A remote feed's offset is the line's number in the session's root stream; a local one's is a file

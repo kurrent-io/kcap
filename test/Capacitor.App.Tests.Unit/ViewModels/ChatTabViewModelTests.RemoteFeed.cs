@@ -76,7 +76,7 @@ public partial class ChatTabViewModelTests {
         });
         var server = new FakeSessionEvents([.. events]);
         RemoteTranscriptFeed? feed = null;
-        var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, Observable.Return(Session("s1")), Observable.Return<string[]?>(null),
+        var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, Observable.Return(Ended("s1")), Observable.Return<string[]?>(null),
             new AcceptingChatInput(), new NoAttachmentUploader(), key => feed = new RemoteTranscriptFeed(key, "gemini", access, server.Reader, lane, time, _ => { }),
             new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time));
         try {
@@ -98,11 +98,15 @@ public partial class ChatTabViewModelTests {
         } finally { await chat.TeardownAsync(); }
     });
 
+    static ChatSessionInfo Ended(string feedKey) => new("Ended", "Ended", "gemini", null, null, null, true, "", feedKey);
+
+    /// An ended session pages back only when asked, which is what these tests drive.
     static ChatTabViewModel RemoteChat(FakeSessionEvents server, Action<RemoteTranscriptFeed> opened, FakeTimeProvider time,
-            BehaviorSubject<SessionAccessState> access, PlanActivity? planActivity = null, FakePermissionService? permissions = null) =>
-        new("a1", AgentOrigin.Remote, Observable.Return(Session("s1")), Observable.Return<string[]?>(null),
+            BehaviorSubject<SessionAccessState> access, PlanActivity? planActivity = null, FakePermissionService? permissions = null, bool live = false,
+            string vendor = "gemini") =>
+        new("a1", AgentOrigin.Remote, Observable.Return(live ? Session("s1") : Ended("s1")), Observable.Return<string[]?>(null),
             new AcceptingChatInput(), new NoAttachmentUploader(), key => {
-                var feed = new RemoteTranscriptFeed(key, "gemini", access, server.Reader, new FakeServerLane(), time, _ => { });
+                var feed = new RemoteTranscriptFeed(key, vendor, access, server.Reader, new FakeServerLane(), time, _ => { });
                 opened(feed);
                 return feed;
             },
@@ -206,6 +210,50 @@ public partial class ChatTabViewModelTests {
             await feed!.PendingOlderForTesting!;
 
             await WaitUntilAsync(() => permissions.Withdrawn.Count > 0, what: "the card withdrawn");
+        } finally { await chat.TeardownAsync(); }
+    });
+
+    /// A live session pages back to its start by itself, so a subagent started before the window and still
+    /// running shows as running without the reader scrolling.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_live_session_pages_back_to_a_run_started_before_the_window() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => i == 10
+            ? RemoteFixtures.Event(i, CanonicalEventTypes.AssistantToolCallsGenerated,
+                """{"tool_calls":[{"call_id":"bg1","tool_name":"Bash","arguments":{"command":"sleep 999","run_in_background":true}}]}""")
+            : TextEvent(i))]);
+        var chat = RemoteChat(server, _ => { }, time, access, live: true);
+        try {
+            await WaitUntilAsync(() => chat.Items.OfType<AssistantTextItem>().Any(item => item.Text == "m0"), what: "the session's start");
+            await Assert.That(chat.Items.OfType<AssistantTextItem>().Count()).IsEqualTo(699);
+        } finally { await chat.TeardownAsync(); }
+    });
+
+    /// A `!` command at the end of an older page takes the output row that opened the rows already shown.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_shell_command_paged_in_takes_its_output_row() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 400).Select(i => i switch {
+            99  => RemoteFixtures.Event(i, CanonicalEventTypes.UserMessageReceived, """{"content":"<bash-input>ls</bash-input>"}"""),
+            100 => RemoteFixtures.Event(i, CanonicalEventTypes.UserMessageReceived, """{"content":"<bash-stdout>a.txt</bash-stdout><bash-stderr></bash-stderr>"}"""),
+            _   => TextEvent(i),
+        })]);
+        RemoteTranscriptFeed? feed = null;
+        var chat = RemoteChat(server, f => feed = f, time, access, vendor: "claude");
+        try {
+            await WaitUntilAsync(() => chat.Items.OfType<AssistantTextItem>().Any(), what: "the seed");
+            await Assert.That(chat.Items[0] is ShellCommandItem { HasCommand: false }).IsTrue();
+            await Assert.That(chat.RequestOlder()).IsTrue();
+            await feed!.PendingOlderForTesting!;
+            await WaitUntilAsync(() => chat.Items.Count > 390, what: "the older page");
+
+            var shell = chat.Items.OfType<ShellCommandItem>().Single();
+            await Assert.That(shell.Command).Contains("ls");
+            await Assert.That(shell.Output).Contains("a.txt");
         } finally { await chat.TeardownAsync(); }
     });
 

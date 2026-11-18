@@ -1242,4 +1242,18 @@ public class SessionRunsTests {
         runs.Prepend([Signals(Started("a1"))]);
         await Assert.That(runs.Rows).IsEmpty();
     }
+
+    /// A page with nothing for the runs leaves them, and publishes nothing.
+    [Test]
+    public async Task Prepending_lines_without_run_signals_publishes_nothing() {
+        var runs = new SessionRuns(Clock()) { KeepsHistory = true };
+        runs.ApplyAll([Signals(Started("a1"))]);
+        var changes = 0;
+        runs.Changed += () => changes++;
+
+        runs.Prepend([new ChatProjectionResult([new AcpEventEnvelope(Kind: AcpEventKind.AssistantText, Text: "hi")], [], [])]);
+
+        await Assert.That(changes).IsEqualTo(0);
+        await Assert.That(runs.RunningCount).IsEqualTo(1);
+    }
 }

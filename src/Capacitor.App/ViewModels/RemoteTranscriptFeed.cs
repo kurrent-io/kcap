@@ -55,6 +55,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     long? _oldest;
     /// The newest line handed to the pane; a re-read keeps everything after it out of its replayed history.
     long _delivered = -1;
+    /// Live lines committed while a re-read is in flight, drained or not: its reply can end before them.
+    List<ProjectedLine>? _liveDuringReread;
     /// Older lines not yet drained, oldest first.
     readonly List<ProjectedLine> _older = new();
     Task? _olderRun;
@@ -241,7 +243,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         while (true) {
             var fetch = await _readEvents(_sessionId, from, MaxPage, ct).ConfigureAwait(false);
             if (fetch.Page is not { } page) return (fetch, first);
-            first ??= ProjectInto(page, lines, scheduled);
+            var number = ProjectInto(page, lines, scheduled);
+            first ??= number;
             if (page.NextFrom is not { } next || next <= from) return (fetch, first);
             from = next;
         }
@@ -279,53 +282,60 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// was counted: the count is worked out again from the reply and the page read once more.
     async Task LoadOlderAsync(long earliest, long? oldest, CancellationToken ct) {
         try {
-            var count = earliest;
-            var window = _window ?? MaxPage;
-            for (var tries = 0; ; tries++) {
-                var from = Math.Max(0, count - window);
-                var fetch = await _readEvents(_sessionId, from, (int)(count - from), ct).ConfigureAwait(false);
-                if (fetch.Page is not { } page) {
-                    LogOlder(fetch);
-                    return;
-                }
-                if (tries == 0 && oldest is { } known && page.Events is [var first, ..] && page.Events.Any(e => e.EventNumber >= known)) {
-                    count = Math.Max(0, known - (first.EventNumber - from));
-                    if (count > 0) continue;
-                    Commit(earliest, 0, oldest, []);
-                    return;
-                }
-                var scheduled = NewScheduled();
-                var lines = new List<ProjectedLine>();
-                var firstNumber = ProjectInto(page, lines, scheduled, below: oldest ?? long.MaxValue);
-                ScheduledPrompts current;
-                lock (_lock) current = _scheduled;
-                bool reclassifies;
-                lock (current) reclassifies = scheduled.AwaitsCompactEcho || scheduled.Prompts.Any(current.Declined!.Contains);
-                if (reclassifies) {
-                    await RereadAsync(earliest, from, ct).ConfigureAwait(false);
-                    return;
-                }
-                lock (current) {
-                    current.Include(scheduled);
-                    current.Declined!.UnionWith(scheduled.Declined!);
-                }
-                Commit(earliest, from, firstNumber ?? oldest, lines);
-                return;
-            }
+            // A page that projects nothing leaves the pane nothing to scroll for, so the next one follows.
+            while (await LoadOlderPageAsync(earliest, oldest, ct).ConfigureAwait(false) is { } next) (earliest, oldest) = next;
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
         } catch (Exception ex) {
             _log($"remote transcript: older events: {ex.Message}");
         }
     }
 
-    void Commit(long earliest, long from, long? oldest, List<ProjectedLine> lines) {
+    /// The count and oldest event to continue from when the page committed no lines and older events remain.
+    async Task<(long Earliest, long? Oldest)?> LoadOlderPageAsync(long earliest, long? oldest, CancellationToken ct) {
+        var count = earliest;
+        var window = _window ?? MaxPage;
+        for (var tries = 0; ; tries++) {
+            var from = Math.Max(0, count - window);
+            var fetch = await _readEvents(_sessionId, from, (int)(count - from), ct).ConfigureAwait(false);
+            if (fetch.Page is not { } page) {
+                LogOlder(fetch);
+                return null;
+            }
+            if (tries == 0 && oldest is { } known && page.Events is [var first, ..] && page.Events.Any(e => e.EventNumber >= known)) {
+                count = Math.Max(0, known - (first.EventNumber - from));
+                if (count > 0) continue;
+                Commit(earliest, 0, oldest, []);
+                return null;
+            }
+            var scheduled = NewScheduled();
+            var lines = new List<ProjectedLine>();
+            var firstNumber = ProjectInto(page, lines, scheduled, below: oldest ?? long.MaxValue);
+            ScheduledPrompts current;
+            lock (_lock) current = _scheduled;
+            bool reclassifies;
+            lock (current) reclassifies = scheduled.AwaitsCompactEcho || scheduled.Prompts.Any(current.Declined!.Contains);
+            if (reclassifies) {
+                await RereadAsync(earliest, from, ct).ConfigureAwait(false);
+                return null;
+            }
+            lock (current) {
+                current.Include(scheduled);
+                current.Declined!.UnionWith(scheduled.Declined!);
+            }
+            if (!Commit(earliest, from, firstNumber ?? oldest, lines) || lines.Count > 0 || from == 0) return null;
+            return (from, firstNumber ?? oldest);
+        }
+    }
+
+    bool Commit(long earliest, long from, long? oldest, List<ProjectedLine> lines) {
         lock (_lock) {
-            if (_disposed || _earliest != earliest) return;
+            if (_disposed || _earliest != earliest) return false;
             _earliest = from;
             _oldest = oldest;
             _older.InsertRange(0, lines);
         }
-        Changed?.Invoke();
+        if (lines.Count > 0 || from == 0) Changed?.Invoke();
+        return true;
     }
 
     void LogOlder(StreamEventsFetch fetch) =>
@@ -337,16 +347,29 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     async Task RereadAsync(long earliest, long from, CancellationToken ct) {
         var scheduled = NewScheduled();
         var lines = new List<ProjectedLine>();
-        var (fetch, oldest) = await ReadForwardAsync(from, lines, scheduled, ct).ConfigureAwait(false);
+        lock (_lock) _liveDuringReread = [];
+        StreamEventsFetch fetch;
+        long? oldest;
+        try {
+            (fetch, oldest) = await ReadForwardAsync(from, lines, scheduled, ct).ConfigureAwait(false);
+        } catch {
+            lock (_lock) _liveDuringReread = null;
+            throw;
+        }
         if (fetch.Page is not { } page) {
+            lock (_lock) _liveDuringReread = null;
             LogOlder(fetch);
             return;
         }
         lock (_lock) {
+            var live = _liveDuringReread ?? [];
+            _liveDuringReread = null;
             if (_disposed || _earliest != earliest || _position is not { } position) return;
             var reached = Math.Max(page.LastEventNumber, lines.Count > 0 ? lines[^1].Offset : -1);
-            var live = _pendingStatus == FeedStatus.Reset ? _pending.Skip(_resetCount) : _pending;
-            var later = live.Where(line => line.Offset > reached).ToList();
+            lines.AddRange(live.Where(line => line.Offset > reached));
+            var undrained = _pendingStatus == FeedStatus.Reset ? _pending.Skip(_resetCount) : _pending;
+            reached = Math.Max(reached, lines.Count > 0 ? lines[^1].Offset : -1);
+            var later = undrained.Where(line => line.Offset > reached).ToList();
             var boundary = _delivered;
             var history = lines.Where(line => line.Offset <= boundary).ToList();
             _scheduled = scheduled;
@@ -390,7 +413,10 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
                     if (!received) _logged.Clear();
                     received = true;
                     _position = offset;
-                    if (line is { } l) _pending.Add(l);
+                    if (line is { } l) {
+                        _pending.Add(l);
+                        _liveDuringReread?.Add(l);
+                    }
                 }
                 Changed?.Invoke();
                 break;

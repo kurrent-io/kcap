@@ -644,4 +644,72 @@ public class RemoteTranscriptFeedTests {
         var live = feed.ReadAppended();
         await Assert.That(live.Lines.Select(l => l.Offset)).IsEquivalentTo(new long[] { 400 });
     }
+
+    /// A whole-session seed longer than one page projects every page it reads.
+    [Test]
+    public async Task A_whole_session_seed_projects_every_page() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 2500).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, window: null);
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+
+        await Assert.That(feed.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 2500).Select(i => (long)i));
+    }
+
+    /// An older page whose events project nothing is passed over for the one behind it in the same read.
+    [Test]
+    public async Task An_older_page_that_projects_nothing_is_passed_over() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => i is >= 100 and < 400
+            ? Event(i, "x-unknown-event", "{}") : Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = Open(server, lane, access);
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+        feed.ReadAppended();
+
+        await Assert.That(feed.RequestOlder()).IsTrue();
+        await feed.PendingOlderForTesting!;
+        await WaitUntilAsync(() => feed.HasPendingChanges, what: "the page behind the empty one");
+
+        await Assert.That(feed.ReadAppended().Older.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 100).Select(i => (long)i));
+    }
+
+    /// A live line the pane drained while a re-read was in flight stays in the re-read's history.
+    [Test]
+    public async Task A_live_line_drained_during_a_reread_stays_in_its_history() {
+        var events = new List<SessionEventDto> {
+            Event(0, CanonicalEventTypes.AssistantToolCallsGenerated,
+                """{"tool_calls":[{"call_id":"t1","tool_name":"ScheduleWakeup","arguments":{"prompt":"check CI"}}]}"""),
+        };
+        events.AddRange(Enumerable.Range(1, 398).Select(i => Text(i, $"m{i}")));
+        events.Add(Event(399, CanonicalEventTypes.UserMessageReceived, """{"content":"check CI"}"""));
+        var server = new FakeSessionEvents([.. events]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = Open(server, lane, access, vendor: "claude");
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+        feed.ReadAppended();
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        server.Gate = () => {
+            if (Interlocked.Increment(ref calls) < 2) return Task.CompletedTask;
+            entered.TrySetResult();
+            return held.Task;
+        };
+
+        await Assert.That(feed.RequestOlder()).IsTrue();
+        await entered.Task;
+        lane.PushStreamEvent(Envelope("s1", 400, CanonicalEventTypes.AssistantTextGenerated, """{"content":"live"}"""));
+        await WaitUntilAsync(() => feed.CurrentOffset == 401, what: "the live line");
+        await Assert.That(feed.ReadAppended().Lines.Single().Offset).IsEqualTo(400);
+        held.SetResult();
+        await feed.PendingOlderForTesting!;
+
+        var reread = feed.ReadAppended();
+        await Assert.That(reread.Status).IsEqualTo(FeedStatus.Reset);
+        await Assert.That(reread.Lines[^1].Offset).IsEqualTo(400);
+        await Assert.That(reread.SnapshotOffset).IsEqualTo(401);
+    }
 }
