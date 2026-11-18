@@ -764,17 +764,25 @@ public class ArtefactsTabViewModelTests {
         });
     }
 
-    /// The workspace hides the tab when it is neither listing nor loading; a switch to a session whose
-    /// cached documents are empty never passes through that state while its pages are on the way.
+    /// The workspace hides the tab when it is neither listing nor loading; a switch to a session where
+    /// either list is cached empty never passes through that state while the other is on the way.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_switch_to_cached_empty_documents_never_reads_as_an_empty_settled_tab() {
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_switch_to_a_cached_empty_list_never_reads_as_an_empty_settled_tab(bool documentsCached) {
         await RunOnUiAsync(async () => {
             var h = new Harness(webView: true);
-            h.Source.Enqueue(Ready(Doc("1", "plan", "docs/p.md")));
+            if (documentsCached) h.Source.Enqueue(Ready(Doc("1", "plan", "docs/p.md")));
+            else h.Source.EnqueuePages(Pages(Page("a", "Poll", h.Time.GetUtcNow())));
             await h.SwitchAsync(SessionA);
-            h.Source.CachedReads[SessionB] = Ready();
-            h.Source.GatePages();
+            if (documentsCached) {
+                h.Source.CachedReads[SessionB] = Ready();
+                h.Source.GatePages();
+            } else {
+                h.Source.CachedPageReads[SessionB] = Pages();
+                h.Source.Gate();
+            }
             var hidden = false;
             h.Vm.PropertyChanged += (_, _) => hidden |= !h.Vm.HasAny && !h.Vm.IsLoading;
 

@@ -67,7 +67,10 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     /// Where a document card that names no listed document still sends the reader: pages alone are not that.
     public bool HasDocumentOrOpenPage => HasDocuments || PageViewer is not null;
     /// True while either list's lease is open and has not yet applied a result — distinct from a settled empty list.
-    public bool IsLoading => _reads.IsLoading || _pageReads.IsLoading;
+    public bool IsLoading => _switching || _reads.IsLoading || _pageReads.IsLoading;
+    /// Held across a whole switch: either lease can apply a cached empty answer inside it, which must not
+    /// read as a settled, empty tab while the other lease is still the last session's.
+    bool _switching;
     /// Right-pane prompt when nothing is open: loading, settled empty, or pick a row.
     public string EmptyReaderNote => IsLoading ? "Loading…"
         : HasItems ? "Select a page or document to read it."
@@ -203,14 +206,19 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             });
             _pageReads.ClearCurrent(ResetPages);
         } else {
-            // Pages do not depend on the checkout, so a new root for the same session keeps them. Their lease
-            // opens first: cached documents apply inside the switch, and an empty answer then must not read
-            // as a settled, empty tab.
-            if (!_pageReads.HasCurrent || _pageReads.CurrentState != sessionId) _pageReads.Switch(sessionId, ResetPages);
-            _reads.Switch((sessionId, root), () => {
-                RaiseLoading();
-                Clear();
-            });
+            _switching = true;
+            try {
+                _reads.Switch((sessionId, root), () => {
+                    RaiseLoading();
+                    Clear();
+                });
+                // Pages do not depend on the checkout, so a new root for the same session keeps them.
+                if (!_pageReads.HasCurrent || _pageReads.CurrentState != sessionId) _pageReads.Switch(sessionId, ResetPages);
+            } finally {
+                _switching = false;
+            }
+            RaiseLoading();
+            OpenFirst();
         }
     }
 

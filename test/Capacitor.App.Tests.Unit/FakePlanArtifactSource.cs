@@ -47,7 +47,9 @@ sealed class FakePlanArtifactSource : IPlanArtifactSource {
 
     public PlanArtifactsRead? Cached(string sessionId) => CachedReads.GetValueOrDefault(sessionId);
 
-    public SessionPagesRead? CachedPages(string sessionId) => null;
+    public Dictionary<string, SessionPagesRead> CachedPageReads { get; } = new(StringComparer.Ordinal);
+
+    public SessionPagesRead? CachedPages(string sessionId) => CachedPageReads.GetValueOrDefault(sessionId);
 
     public async Task<PlanArtifactsRead> ReadAsync(string sessionId, CancellationToken ct) {
         Requested.Add(sessionId);
