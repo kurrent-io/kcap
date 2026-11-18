@@ -111,7 +111,9 @@ internal sealed class SpoolDrainLoop {
                     onLifecycleOutcome: (route, body, outcome) => CopilotSpanClose.NoteOutcome(WatcherPaths.FromEnvironment(_configRoot), route, body, outcome),
                     holds: (route, body) => CopilotPendingEnd.HeldForWatcher(WatcherPaths.FromEnvironment(_configRoot), route, body, _time),
                     // The redaction a recorder spools its tail with.
-                    decide: ReplayCapture.With(SecretRedactor.RedactLineWithOutcome));
+                    decide: ReplayCapture.With(SecretRedactor.RedactLineWithOutcome),
+                    reportNeedsImport: sid => _logger.LogWarning(
+                        "Part of a session's transcript was not sent; to send it, run: kcap import --session {SessionId}", sid));
 
                 // Second, so a closed span never takes the lifecycle backlog's budget. A hosted Codex app-server
                 // session has no watcher, so this is what posts its spans.

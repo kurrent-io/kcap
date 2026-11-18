@@ -148,6 +148,47 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
         }
     }
 
+    /// <summary>
+    /// Hands the session to <paramref name="report"/> when a marker is down, then removes the markers it covered. A
+    /// marker whose owner is still running is left out: that owner removes it once its drain finishes.
+    /// </summary>
+    public void ReportNeedsImport(string sessionId, Action<string> report) {
+        if (MarkerPathFor(sessionId) is not { } shared) return;
+
+        List<string> markers;
+
+        try {
+            markers = Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sessionId)}.p*.needs-import")
+                .Where(marker => OwnerOf(marker, sessionId) is not { } owner || WatcherLiveness.IsGone(owner, ""))
+                .ToList();
+        } catch {
+            markers = [];
+        }
+
+        if (File.Exists(shared)) markers.Add(shared);
+        if (markers.Count == 0) return;
+
+        report(sessionId);
+
+        foreach (var marker in markers) {
+            try {
+                File.Delete(marker);
+            } catch {
+                // Ignore: the next pass reports it again
+            }
+        }
+    }
+
+    static int? OwnerOf(string markerPath, string sessionId) {
+        var name   = Path.GetFileName(markerPath);
+        var prefix = $"{EncodeKey(sessionId)}.p";
+
+        return name.StartsWith(prefix, StringComparison.Ordinal) && name.EndsWith(".needs-import", StringComparison.Ordinal)
+            && int.TryParse(name.AsSpan(prefix.Length, name.Length - prefix.Length - ".needs-import".Length), out var pid)
+                ? pid
+                : null;
+    }
+
     // ---- filename key encoding -------------------------------------------------------------
     //
     // Session ids are case-SENSITIVE and are preserved byte-for-byte (OpenCode's are base62 --
@@ -298,8 +339,8 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     }
 
     // Filename-safe superset of the old dashless-GUID form. The filename IS the session id --
-    // LifecycleSpoolDrain posts it verbatim as session_id for session-needs-import -- so the key may
-    // be widened but never transformed (hashing would fabricate an id on the wire). Excludes '.', '/'
+    // LifecycleSpoolDrain reads it back and names it in what it sends and reports -- so the key may
+    // be widened but never transformed (hashing would fabricate an id). Excludes '.', '/'
     // and '\\', preserving both the path-traversal property and the parse-before-first-dot split.
     // Vendors such as OpenCode use ids like "ses_7f3a9c21b8", which the old form silently dropped.
     /// <summary>The pre-upgrade key space: a dashless GUID, case-insensitively one id.</summary>
