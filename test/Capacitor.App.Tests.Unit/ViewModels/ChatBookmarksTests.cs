@@ -65,7 +65,7 @@ public class ChatBookmarksTests {
             await Assert.That(topics.TakeReveal()).IsEqualTo(new ChatReveal(reply, "Done"));
 
             bookmarks.RevealCommand.Execute(bookmarks.All[1]).Subscribe();
-            await Assert.That(topics.TakeReveal()).IsEqualTo(new ChatReveal(reply, null));
+            await Assert.That(topics.TakeReveal()).IsEqualTo(new ChatReveal(reply, null, Whole: true));
         });
     }
 }

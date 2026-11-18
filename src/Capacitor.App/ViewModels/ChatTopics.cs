@@ -144,13 +144,13 @@ public sealed class ChatTopics : ReactiveObject {
     void Rename(ChatTopicItem topic, string? name) => Edit(() => topic.CustomName = name);
 
     /// Asks the chat to bring <paramref name="row"/> into view, unfolding the topic that holds it, and
-    /// to pick out <paramref name="quote"/> in it.
-    public void Reveal(ChatItemViewModel row, string? quote = null) {
+    /// to pick out <paramref name="quote"/> in it, or all its text when <paramref name="whole"/>.
+    public void Reveal(ChatItemViewModel row, string? quote = null, bool whole = false) {
         if (!_items.Contains(row)) {
             if (_items.OfType<ChatTopicItem>().FirstOrDefault(topic => topic.Hidden.Contains(row)) is not { } folded) return;
             Toggle(folded);
         }
-        _reveal = new ChatReveal(row, quote);
+        _reveal = new ChatReveal(row, quote, whole);
         Revealing?.Invoke();
     }
 

@@ -23,7 +23,7 @@ public sealed class ChatBookmarks : ReactiveObject {
 
     public ReactiveCommand<ChatBookmark, Unit> RemoveCommand { get; }
 
-    /// Brings the message a bookmark came from into view, with the bookmarked text picked out in it.
+    /// Brings the message a bookmark came from into view, with the bookmarked text, or all of it, picked out.
     public ReactiveCommand<ChatBookmark, Unit> RevealCommand { get; }
 
     AvaloniaList<ChatBookmark> _all;
@@ -67,7 +67,7 @@ public sealed class ChatBookmarks : ReactiveObject {
     }
 
     void Reveal(ChatBookmark bookmark) {
-        if (bookmark.Message is { } ordinal && _topics.MessageAt(ordinal) is { } row) _topics.Reveal(row, bookmark.Quote);
+        if (bookmark.Message is { } ordinal && _topics.MessageAt(ordinal) is { } row) _topics.Reveal(row, bookmark.Quote, whole: bookmark.Quote is null);
     }
 
     void OnChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) => Any = _all.Count > 0;

@@ -1336,8 +1336,8 @@ public class ChatTabViewSmokeTests {
         });
     }
 
-    /// A bookmark of a whole message leads back to it and selects nothing; one of text in it selects
-    /// that text again, whatever else was selected.
+    /// A bookmark leads back to its message and selects what it was taken from: the text picked, or
+    /// the whole message, in place of whatever else was selected.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Revealing_a_bookmark_selects_its_text_in_the_message() {
@@ -1371,7 +1371,7 @@ public class ChatTabViewSmokeTests {
                 reply.ClearSelection();
                 host.Chat.Bookmarks.RevealCommand.Execute(message).Subscribe();
                 host.Settle();
-                await Assert.That(reply.HasSelection).IsFalse();
+                await Assert.That(MarkViewSelection.SelectedText(viewer)).IsEqualTo(MarkViewSelection.AllText(viewer));
             } finally { await host.CloseAsync(); }
         });
     }
