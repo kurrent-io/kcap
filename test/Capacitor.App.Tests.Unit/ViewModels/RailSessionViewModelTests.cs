@@ -516,12 +516,12 @@ public class RailSessionViewModelTests {
     static readonly DateTime Started = new(2026, 10, 22, 13, 4, 24, DateTimeKind.Utc);
     static readonly DateTime Ended = new(2026, 10, 22, 16, 56, 41, DateTimeKind.Utc);
 
-    static AgentRow ServerRow(string status = "ended", string ownerName = "Tony Young", bool stale = false, string? repoName = "kcap-cli", bool hosted = false) =>
+    static AgentRow ServerRow(string status = "ended", string ownerName = "Tony Young", string? repoName = "kcap-cli", bool hosted = false) =>
         AgentRow.FromServer(new RepoSessionDto {
             SessionId = "s1", Status = status, AccessLevel = "full", Vendor = "claude", Title = "Desktop app RAM growth",
             Owner = new() { UserId = "u2", DisplayName = ownerName, AvatarUrl = "https://avatars.example/u2" },
             StartedAt = new DateTimeOffset(Started), LastActivityAt = new DateTimeOffset(status == "ended" ? Ended : Started),
-            EndedAt = status == "ended" ? new DateTimeOffset(Ended) : null, Stale = stale,
+            EndedAt = status == "ended" ? new DateTimeOffset(Ended) : null,
             Repo = repoName is null ? null : new() { Hash = "h", Owner = "kurrent-io", Name = repoName },
         }, hostedPresentation: hosted);
 
@@ -705,21 +705,16 @@ public class RailSessionViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_stale_server_row_greys_out_and_reads_stale() {
+    public async Task A_server_row_greys_out_only_while_the_lane_is_stale() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var laneStale = new BehaviorSubject<bool>(false);
-            using var fresh = new RailSessionViewModel(ServerRow(status: "active"), new BehaviorSubject<string?>(null), NoPending, laneStale,
-                _ => { }, _ => { }, At(Started));
-            using var idle = new RailSessionViewModel(ServerRow(status: "active", stale: true), new BehaviorSubject<string?>(null), NoPending, laneStale,
+            using var row = new RailSessionViewModel(ServerRow(status: "active"), new BehaviorSubject<string?>(null), NoPending, laneStale,
                 _ => { }, _ => { }, At(Started));
 
-            await Assert.That(fresh.IsStale).IsFalse();
-            await Assert.That(idle.IsStale).IsTrue();
-            await Assert.That(fresh.Status.Label).IsEqualTo("Running");
-            await Assert.That(idle.Status.Label).IsEqualTo("Stale");
+            await Assert.That(row.IsStale).IsFalse();
             laneStale.OnNext(true);
-            await Assert.That(fresh.IsStale).IsTrue();
-            await Assert.That(fresh.Status.Label).IsEqualTo("Running");
+            await Assert.That(row.IsStale).IsTrue();
+            await Assert.That(row.Status.Label).IsEqualTo("Running");
         });
     }
 }

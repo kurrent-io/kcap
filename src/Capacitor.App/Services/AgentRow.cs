@@ -35,8 +35,6 @@ public sealed record AgentRow(
         bool? OwnerIsViewer = null,
         DateTime? LastActivityAt = null,
         DateTime? EndedAt = null,
-        // The server's stale flag on a live session: no activity for over an hour.
-        bool IsStale = false,
         // A live server row no daemon hosts, past the hand-over grace: started in a terminal.
         bool IsTerminalSession = false,
         // The listing's access level for the viewer; below "full" the server grants no chat.
@@ -128,7 +126,7 @@ public sealed record AgentRow(
             OwnerUserId: dto.Owner?.UserId, OwnerName: dto.Owner?.DisplayName ?? dto.Owner?.Username,
             OwnerAvatarUrl: dto.Owner?.AvatarUrl,
             LastActivityAt: dto.LastActivityAt.UtcDateTime, EndedAt: dto.EndedAt?.UtcDateTime,
-            IsStale: dto.Stale, IsTerminalSession: active && !hostedPresentation, AccessLevel: dto.AccessLevel,
+            IsTerminalSession: active && !hostedPresentation, AccessLevel: dto.AccessLevel,
             ListedPullRequests: dto.PullRequests, Branch: dto.Branch, Recording: dto.Recording,
             RepoHash: dto.Repo?.Hash ?? dto.PrimaryRepoHash);
     }

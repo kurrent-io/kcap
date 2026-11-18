@@ -6,13 +6,13 @@ namespace Capacitor.App.Tests.Unit.Services;
 public class AgentRowTests {
     static RepoSessionDto Listed(
             string id = "s1", string status = "ended", string? repoOwner = "kurrent-io", string? repoName = "kcap-cli",
-            string? cwd = "/Users/alexey/dev/kcap-cli", bool stale = false) => new() {
+            string? cwd = "/Users/alexey/dev/kcap-cli") => new() {
         SessionId = id, Status = status, AccessLevel = "full", Vendor = "claude", Title = "Desktop app RAM growth",
         Owner = new() { UserId = "user_01", Username = "alexey", DisplayName = "Alexey Zimarev", AvatarUrl = "https://avatars.example/user_01" },
         StartedAt = new DateTimeOffset(2026, 10, 22, 13, 4, 24, TimeSpan.Zero),
         EndedAt = status == "ended" ? new DateTimeOffset(2026, 10, 22, 16, 56, 41, TimeSpan.Zero) : null,
         LastActivityAt = new DateTimeOffset(2026, 10, 22, 16, 56, 41, TimeSpan.Zero),
-        Cwd = cwd, Stale = stale,
+        Cwd = cwd,
         Repo = repoOwner is null ? null : new() { Hash = "830e1690b97dd8c0", Owner = repoOwner, Name = repoName },
     };
 
@@ -124,12 +124,11 @@ public class AgentRowTests {
 
     [Test]
     public async Task Live_server_row_is_a_terminal_session_unless_hosted() {
-        var terminal = AgentRow.FromServer(Listed(status: "active", stale: true), hostedPresentation: false);
+        var terminal = AgentRow.FromServer(Listed(status: "active"), hostedPresentation: false);
         var hosted = AgentRow.FromServer(Listed(status: "active"), hostedPresentation: true);
 
         await Assert.That(terminal.Status).IsEqualTo("Running");
         await Assert.That(terminal.IsTerminalSession).IsTrue();
-        await Assert.That(terminal.IsStale).IsTrue();
         await Assert.That(terminal.IsEndedSession).IsFalse();
         await Assert.That(terminal.EndedAt).IsNull();
         await Assert.That(hosted.IsTerminalSession).IsFalse();

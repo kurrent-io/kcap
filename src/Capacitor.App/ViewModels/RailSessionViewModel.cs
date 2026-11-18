@@ -110,8 +110,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public AgentStatusPresentation Status => _status.Value;
 
     readonly ObservableAsPropertyHelper<bool> _isStale;
-    /// A remote or server row greys out while the lane is stale, a server row also on the server's
-    /// own idle flag; a local row is never stale.
+    /// A remote or server row greys out while its lane is stale; a local row never does.
     public bool IsStale => _isStale.Value;
 
     readonly CompositeDisposable _disposables = new();
@@ -184,7 +183,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             .DisposeWith(_disposables);
 
         _isStale = _row.CombineLatest(remoteStale, (current, laneStale) =>
-                current.Origin is AgentOrigin.Remote or AgentOrigin.Server && (laneStale || current.IsStale))
+                current.Origin is AgentOrigin.Remote or AgentOrigin.Server && laneStale)
             .ToProperty(this, x => x.IsStale, initialValue: false)
             .DisposeWith(_disposables);
 
