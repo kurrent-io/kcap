@@ -285,183 +285,6 @@
                         </Flyout>
                     </Button.Flyout>
                 </Button>
-
-                <!-- Deselects the workspace (the pane's empty state IS the launcher), or nudges the launcher already showing. -->
-                <Button x:Name="RailNewSessionButton" Classes="kcapChip" HorizontalAlignment="Stretch" Margin="10,0,10,10"
-                        Command="{Binding NewSessionCommand}"
-                        Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
-                        BorderThickness="1" CornerRadius="7" Padding="11,7" AutomationProperties.Name="New session">
-                    <DockPanel>
-                        <TextBlock x:Name="RailNewSessionShortcut" DockPanel.Dock="Right" Text="{x:Static views:ShortcutLabels.NewSession}" FontSize="11"
-                                   Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <views:AppIcon Kind="Plus" Size="14" Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
-                            <TextBlock Text="New session" FontSize="13" FontWeight="SemiBold"
-                                       Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </DockPanel>
-                </Button>
-
-                <Button x:Name="RailSearchButton" Classes="kcapChip" HorizontalAlignment="Stretch" Margin="10,0,10,8"
-                        Command="{Binding OpenSearchCommand}"
-                        Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
-                        BorderThickness="1" CornerRadius="7" Padding="11,7" AutomationProperties.Name="Search sessions">
-                    <DockPanel>
-                        <TextBlock x:Name="RailSearchShortcut" DockPanel.Dock="Right" Text="{x:Static views:ShortcutLabels.Search}" FontSize="11"
-                                   Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <views:AppIcon Kind="Search" Size="14" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
-                            <TextBlock x:Name="RailSearchText" Text="Search…" FontSize="13"
-                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </DockPanel>
-                </Button>
-                <Grid ColumnDefinitions="*,Auto" Margin="16,4,10,2">
-                    <TextBlock x:Name="RailRecentHeading" Text="Recent sessions" FontSize="13" FontWeight="Medium"
-                               Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
-                    <Button x:Name="RailFilterButton" Grid.Column="1" Classes="kcapGhost kcapIcon"
-                            DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
-                            Classes.custom="{Binding FiltersDiffer}"
-                            IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}"
-                            AutomationProperties.Name="Session list settings">
-                        <views:AppIcon Kind="ListFilter" Size="14" />
-                        <Button.Flyout>
-                            <Flyout Placement="BottomEdgeAlignedRight" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
-                                <StackPanel x:Name="RailControls" Margin="6" Spacing="2" Width="260">
-                                <TextBlock Text="Properties" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" Margin="10,4,10,4" />
-                                <Button x:Name="RailSortButton" Classes="kcapGhost railMenuRow" AutomationProperties.Name="Sort">
-                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
-                                        <views:AppIcon Kind="ArrowUpDown" Size="14" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1" Text="Sort" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="2" Classes="railMenuValue" Text="{Binding SortLabel}" />
-                                        <views:AppIcon Grid.Column="3" Kind="ChevronRight" Size="14" VerticalAlignment="Center" />
-                                    </Grid>
-                                    <Button.Flyout>
-                                        <Flyout Placement="RightEdgeAlignedTop" HorizontalOffset="6" FlyoutPresenterClasses="kcapPanel">
-                                            <StackPanel Spacing="2" Margin="6" MinWidth="160">
-                                                <Button Classes="kcapGhost railPickerRow" Click="OnSortPickerItemClick"
-                                                        Command="{Binding SetSortCommand}" CommandParameter="{x:Static vm:RailSort.LastUpdated}" Content="Last updated" />
-                                                <Button Classes="kcapGhost railPickerRow" Click="OnSortPickerItemClick"
-                                                        Command="{Binding SetSortCommand}" CommandParameter="{x:Static vm:RailSort.Created}" Content="Created" />
-                                                <Button Classes="kcapGhost railPickerRow" Click="OnSortPickerItemClick"
-                                                        Command="{Binding SetSortCommand}" CommandParameter="{x:Static vm:RailSort.Title}" Content="Title" />
-                                            </StackPanel>
-                                        </Flyout>
-                                    </Button.Flyout>
-                                </Button>
-                                <Button x:Name="RailDirectionButton" Classes="kcapGhost railMenuRow" AutomationProperties.Name="Order" Command="{Binding ToggleDirectionCommand}">
-                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
-                                        <Panel>
-                                            <views:AppIcon Kind="ArrowDownWideNarrow" Size="14" IsVisible="{Binding Descending}" />
-                                            <views:AppIcon Kind="ArrowUpNarrowWide" Size="14" IsVisible="{Binding !Descending}" />
-                                        </Panel>
-                                        <TextBlock Grid.Column="1" Text="Order" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="2" Classes="railMenuValue" Text="{Binding DirectionLabel}" />
-                                    </Grid>
-                                </Button>
-                                <Button x:Name="RailGroupButton" Classes="kcapGhost railMenuRow" AutomationProperties.Name="Group">
-                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
-                                        <views:AppIcon Kind="LayoutGrid" Size="14" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1" Text="Group" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="2" Classes="railMenuValue" Text="{Binding GroupingLabel}" />
-                                        <views:AppIcon Grid.Column="3" Kind="ChevronRight" Size="14" VerticalAlignment="Center" />
-                                    </Grid>
-                                    <Button.Flyout>
-                                        <Flyout Placement="RightEdgeAlignedTop" HorizontalOffset="6" FlyoutPresenterClasses="kcapPanel">
-                                            <StackPanel Spacing="2" Margin="6" MinWidth="160">
-                                                <Button x:Name="RailGroupWorkItemButton" Classes="kcapGhost railPickerRow" Click="OnGroupPickerItemClick" IsVisible="{Binding OffersWorkItem}"
-                                                        Command="{Binding SetGroupingCommand}" CommandParameter="{x:Static vm:RailGrouping.WorkItem}" Content="Work item" />
-                                                <Button Classes="kcapGhost railPickerRow" Click="OnGroupPickerItemClick"
-                                                        Command="{Binding SetGroupingCommand}" CommandParameter="{x:Static vm:RailGrouping.None}" Content="No grouping" />
-                                                <Button Classes="kcapGhost railPickerRow" Click="OnGroupPickerItemClick"
-                                                        Command="{Binding SetGroupingCommand}" CommandParameter="{x:Static vm:RailGrouping.Repository}" Content="Repository" />
-                                                <Button Classes="kcapGhost railPickerRow" Click="OnGroupPickerItemClick"
-                                                        Command="{Binding SetGroupingCommand}" CommandParameter="{x:Static vm:RailGrouping.Date}" Content="Date" />
-                                                <Button Classes="kcapGhost railPickerRow" Click="OnGroupPickerItemClick"
-                                                        Command="{Binding SetGroupingCommand}" CommandParameter="{x:Static vm:RailGrouping.Status}" Content="Status" />
-                                            </StackPanel>
-                                        </Flyout>
-                                    </Button.Flyout>
-                                </Button>
-                                <Button x:Name="RailScopeButton" Classes="kcapGhost railMenuRow" AutomationProperties.Name="Sessions" IsEnabled="{Binding CanChangeScope}" ToolTip.Tip="{Binding ScopeTip}" ToolTip.ShowOnDisabled="True">
-                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
-                                        <views:AppIcon Kind="Users" Size="14" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1" Text="Sessions" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="2" Classes="railMenuValue" Text="{Binding Scope}" />
-                                        <views:AppIcon Grid.Column="3" Kind="ChevronRight" Size="14" VerticalAlignment="Center" />
-                                    </Grid>
-                                    <Button.Flyout>
-                                        <Flyout Placement="RightEdgeAlignedTop" HorizontalOffset="6" FlyoutPresenterClasses="kcapPanel">
-                                            <StackPanel Spacing="2" Margin="6" MinWidth="160">
-                                                <Button x:Name="RailScopeMineButton" Classes="kcapGhost railPickerRow" HorizontalContentAlignment="Stretch" Click="OnScopePickerItemClick"
-                                                        Command="{Binding SetScopeCommand}" CommandParameter="{x:Static svc:RailScope.Mine}">
-                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                                        <TextBlock Text="Mine" />
-                                                        <views:AppIcon Grid.Column="1" Kind="Check" Size="14" IsVisible="{Binding IsMine}" />
-                                                    </Grid>
-                                                </Button>
-                                                <Button x:Name="RailScopeTeamButton" Classes="kcapGhost railPickerRow" HorizontalContentAlignment="Stretch" Click="OnScopePickerItemClick"
-                                                        Command="{Binding SetScopeCommand}" CommandParameter="{x:Static svc:RailScope.Team}">
-                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                                        <TextBlock Text="Team" />
-                                                        <views:AppIcon Grid.Column="1" Kind="Check" Size="14" IsVisible="{Binding IsTeam}" />
-                                                    </Grid>
-                                                </Button>
-                                            </StackPanel>
-                                        </Flyout>
-                                    </Button.Flyout>
-                                </Button>
-                                <Button x:Name="RailStateButton" Classes="kcapGhost railMenuRow" AutomationProperties.Name="Status">
-                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
-                                        <views:AppIcon Kind="CircleDot" Size="14" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="1" Text="Status" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="2" Classes="railMenuValue" Text="{Binding State}" />
-                                        <views:AppIcon Grid.Column="3" Kind="ChevronRight" Size="14" VerticalAlignment="Center" />
-                                    </Grid>
-                                    <Button.Flyout>
-                                        <Flyout Placement="RightEdgeAlignedTop" HorizontalOffset="6" FlyoutPresenterClasses="kcapPanel">
-                                            <StackPanel Spacing="2" Margin="6" MinWidth="160">
-                                                <Button x:Name="RailStateAllButton" Classes="kcapGhost railPickerRow" HorizontalContentAlignment="Stretch" Click="OnStatePickerItemClick"
-                                                        Command="{Binding SetStateCommand}" CommandParameter="{x:Static vm:RailState.All}">
-                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                                        <TextBlock Text="All" />
-                                                        <views:AppIcon Grid.Column="1" Kind="Check" Size="14" IsVisible="{Binding IsAll}" />
-                                                    </Grid>
-                                                </Button>
-                                                <Button x:Name="RailStateLiveButton" Classes="kcapGhost railPickerRow" HorizontalContentAlignment="Stretch" Click="OnStatePickerItemClick"
-                                                        Command="{Binding SetStateCommand}" CommandParameter="{x:Static vm:RailState.Live}">
-                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                                        <TextBlock Text="Live" />
-                                                        <views:AppIcon Grid.Column="1" Kind="Check" Size="14" IsVisible="{Binding IsLive}" />
-                                                    </Grid>
-                                                </Button>
-                                                <Button x:Name="RailStateEndedButton" Classes="kcapGhost railPickerRow" HorizontalContentAlignment="Stretch" Click="OnStatePickerItemClick"
-                                                        Command="{Binding SetStateCommand}" CommandParameter="{x:Static vm:RailState.Ended}">
-                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                                                        <TextBlock Text="Ended" />
-                                                        <views:AppIcon Grid.Column="1" Kind="Check" Size="14" IsVisible="{Binding IsEnded}" />
-                                                    </Grid>
-                                                </Button>
-                                            </StackPanel>
-                                        </Flyout>
-                                    </Button.Flyout>
-                                </Button>
-                                <Separator Margin="4,4" IsVisible="{Binding HasRemoved}" />
-                                <Button x:Name="RailRestoreRemovedButton" Classes="kcapGhost railMenuRow"
-                                        Command="{Binding RestoreRemovedCommand}" IsVisible="{Binding HasRemoved}">
-                                    <StackPanel Orientation="Horizontal" Spacing="10">
-                                        <views:AppIcon Kind="Eye" Size="14" VerticalAlignment="Center" />
-                                        <TextBlock Text="{Binding RestoreRemovedText}" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </Button>
-                                </StackPanel>
-                            </Flyout>
-                        </Button.Flyout>
-                    </Button>
-                </Grid>
-
-                <TextBlock Text="Loading sessions…" FontSize="12" Foreground="{StaticResource KcapFaintBrush}"
-                           Margin="16,0,16,8" IsVisible="{Binding LoadingSessions}" />
             </StackPanel>
 
             <!-- The footer always states the connection: Connected while healthy, the alert otherwise.
@@ -638,8 +461,184 @@
                 </StackPanel>
             </Border>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="5,4,5,8">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="5,0,5,8">
                 <StackPanel>
+                    <!-- Deselects the workspace (the pane's empty state IS the launcher), or nudges the launcher already showing. -->
+                    <Button x:Name="RailNewSessionButton" Classes="kcapChip" HorizontalAlignment="Stretch" Margin="5,0,5,10"
+                            Command="{Binding NewSessionCommand}"
+                            Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                            BorderThickness="1" CornerRadius="7" Padding="11,7" AutomationProperties.Name="New session">
+                        <DockPanel>
+                            <TextBlock x:Name="RailNewSessionShortcut" DockPanel.Dock="Right" Text="{x:Static views:ShortcutLabels.NewSession}" FontSize="11"
+                                       Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <views:AppIcon Kind="Plus" Size="14" Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
+                                <TextBlock Text="New session" FontSize="13" FontWeight="SemiBold"
+                                           Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Button>
+
+                    <Button x:Name="RailSearchButton" Classes="kcapChip" HorizontalAlignment="Stretch" Margin="5,0,5,8"
+                            Command="{Binding OpenSearchCommand}"
+                            Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                            BorderThickness="1" CornerRadius="7" Padding="11,7" AutomationProperties.Name="Search sessions">
+                        <DockPanel>
+                            <TextBlock x:Name="RailSearchShortcut" DockPanel.Dock="Right" Text="{x:Static views:ShortcutLabels.Search}" FontSize="11"
+                                       Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <views:AppIcon Kind="Search" Size="14" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                                <TextBlock x:Name="RailSearchText" Text="Search…" FontSize="13"
+                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Button>
+                    <Grid ColumnDefinitions="*,Auto" Margin="11,4,5,2">
+                        <TextBlock x:Name="RailRecentHeading" Text="Recent sessions" FontSize="13" FontWeight="Medium"
+                                   Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                        <Button x:Name="RailFilterButton" Grid.Column="1" Classes="kcapGhost kcapIcon"
+                                DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
+                                Classes.custom="{Binding FiltersDiffer}"
+                                IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}"
+                                AutomationProperties.Name="Session list settings">
+                            <views:AppIcon Kind="ListFilter" Size="14" />
+                            <Button.Flyout>
+                                <Flyout Placement="BottomEdgeAlignedRight" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
+                                    <StackPanel x:Name="RailControls" Margin="6" Spacing="2" Width="260">
+                                    <TextBlock Text="Properties" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" Margin="10,4,10,4" />
+                                    <Button x:Name="RailSortButton" Classes="kcapGhost railMenuRow" AutomationProperties.Name="Sort">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                            <views:AppIcon Kind="ArrowUpDown" Size="14" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="Sort" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="2" Classes="railMenuValue" Text="{Binding SortLabel}" />
+                                            <views:AppIcon Grid.Column="3" Kind="ChevronRight" Size="14" VerticalAlignment="Center" />
+                                        </Grid>
+                                        <Button.Flyout>
+                                            <Flyout Placement="RightEdgeAlignedTop" HorizontalOffset="6" FlyoutPresenterClasses="kcapPanel">
+                                                <StackPanel Spacing="2" Margin="6" MinWidth="160">
+                                                    <Button Classes="kcapGhost railPickerRow" Click="OnSortPickerItemClick"
+                                                            Command="{Binding SetSortCommand}" CommandParameter="{x:Static vm:RailSort.LastUpdated}" Content="Last updated" />
+                                                    <Button Classes="kcapGhost railPickerRow" Click="OnSortPickerItemClick"
+                                                            Command="{Binding SetSortCommand}" CommandParameter="{x:Static vm:RailSort.Created}" Content="Created" />
+                                                    <Button Classes="kcapGhost railPickerRow" Click="OnSortPickerItemClick"
+                                                            Command="{Binding SetSortCommand}" CommandParameter="{x:Static vm:RailSort.Title}" Content="Title" />
+                                                </StackPanel>
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Button x:Name="RailDirectionButton" Classes="kcapGhost railMenuRow" AutomationProperties.Name="Order" Command="{Binding ToggleDirectionCommand}">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                            <Panel>
+                                                <views:AppIcon Kind="ArrowDownWideNarrow" Size="14" IsVisible="{Binding Descending}" />
+                                                <views:AppIcon Kind="ArrowUpNarrowWide" Size="14" IsVisible="{Binding !Descending}" />
+                                            </Panel>
+                                            <TextBlock Grid.Column="1" Text="Order" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="2" Classes="railMenuValue" Text="{Binding DirectionLabel}" />
+                                        </Grid>
+                                    </Button>
+                                    <Button x:Name="RailGroupButton" Classes="kcapGhost railMenuRow" AutomationProperties.Name="Group">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                            <views:AppIcon Kind="LayoutGrid" Size="14" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="Group" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="2" Classes="railMenuValue" Text="{Binding GroupingLabel}" />
+                                            <views:AppIcon Grid.Column="3" Kind="ChevronRight" Size="14" VerticalAlignment="Center" />
+                                        </Grid>
+                                        <Button.Flyout>
+                                            <Flyout Placement="RightEdgeAlignedTop" HorizontalOffset="6" FlyoutPresenterClasses="kcapPanel">
+                                                <StackPanel Spacing="2" Margin="6" MinWidth="160">
+                                                    <Button x:Name="RailGroupWorkItemButton" Classes="kcapGhost railPickerRow" Click="OnGroupPickerItemClick" IsVisible="{Binding OffersWorkItem}"
+                                                            Command="{Binding SetGroupingCommand}" CommandParameter="{x:Static vm:RailGrouping.WorkItem}" Content="Work item" />
+                                                    <Button Classes="kcapGhost railPickerRow" Click="OnGroupPickerItemClick"
+                                                            Command="{Binding SetGroupingCommand}" CommandParameter="{x:Static vm:RailGrouping.None}" Content="No grouping" />
+                                                    <Button Classes="kcapGhost railPickerRow" Click="OnGroupPickerItemClick"
+                                                            Command="{Binding SetGroupingCommand}" CommandParameter="{x:Static vm:RailGrouping.Repository}" Content="Repository" />
+                                                    <Button Classes="kcapGhost railPickerRow" Click="OnGroupPickerItemClick"
+                                                            Command="{Binding SetGroupingCommand}" CommandParameter="{x:Static vm:RailGrouping.Date}" Content="Date" />
+                                                    <Button Classes="kcapGhost railPickerRow" Click="OnGroupPickerItemClick"
+                                                            Command="{Binding SetGroupingCommand}" CommandParameter="{x:Static vm:RailGrouping.Status}" Content="Status" />
+                                                </StackPanel>
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Button x:Name="RailScopeButton" Classes="kcapGhost railMenuRow" AutomationProperties.Name="Sessions" IsEnabled="{Binding CanChangeScope}" ToolTip.Tip="{Binding ScopeTip}" ToolTip.ShowOnDisabled="True">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                            <views:AppIcon Kind="Users" Size="14" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="Sessions" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="2" Classes="railMenuValue" Text="{Binding Scope}" />
+                                            <views:AppIcon Grid.Column="3" Kind="ChevronRight" Size="14" VerticalAlignment="Center" />
+                                        </Grid>
+                                        <Button.Flyout>
+                                            <Flyout Placement="RightEdgeAlignedTop" HorizontalOffset="6" FlyoutPresenterClasses="kcapPanel">
+                                                <StackPanel Spacing="2" Margin="6" MinWidth="160">
+                                                    <Button x:Name="RailScopeMineButton" Classes="kcapGhost railPickerRow" HorizontalContentAlignment="Stretch" Click="OnScopePickerItemClick"
+                                                            Command="{Binding SetScopeCommand}" CommandParameter="{x:Static svc:RailScope.Mine}">
+                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                                            <TextBlock Text="Mine" />
+                                                            <views:AppIcon Grid.Column="1" Kind="Check" Size="14" IsVisible="{Binding IsMine}" />
+                                                        </Grid>
+                                                    </Button>
+                                                    <Button x:Name="RailScopeTeamButton" Classes="kcapGhost railPickerRow" HorizontalContentAlignment="Stretch" Click="OnScopePickerItemClick"
+                                                            Command="{Binding SetScopeCommand}" CommandParameter="{x:Static svc:RailScope.Team}">
+                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                                            <TextBlock Text="Team" />
+                                                            <views:AppIcon Grid.Column="1" Kind="Check" Size="14" IsVisible="{Binding IsTeam}" />
+                                                        </Grid>
+                                                    </Button>
+                                                </StackPanel>
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Button x:Name="RailStateButton" Classes="kcapGhost railMenuRow" AutomationProperties.Name="Status">
+                                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10">
+                                            <views:AppIcon Kind="CircleDot" Size="14" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="Status" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="2" Classes="railMenuValue" Text="{Binding State}" />
+                                            <views:AppIcon Grid.Column="3" Kind="ChevronRight" Size="14" VerticalAlignment="Center" />
+                                        </Grid>
+                                        <Button.Flyout>
+                                            <Flyout Placement="RightEdgeAlignedTop" HorizontalOffset="6" FlyoutPresenterClasses="kcapPanel">
+                                                <StackPanel Spacing="2" Margin="6" MinWidth="160">
+                                                    <Button x:Name="RailStateAllButton" Classes="kcapGhost railPickerRow" HorizontalContentAlignment="Stretch" Click="OnStatePickerItemClick"
+                                                            Command="{Binding SetStateCommand}" CommandParameter="{x:Static vm:RailState.All}">
+                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                                            <TextBlock Text="All" />
+                                                            <views:AppIcon Grid.Column="1" Kind="Check" Size="14" IsVisible="{Binding IsAll}" />
+                                                        </Grid>
+                                                    </Button>
+                                                    <Button x:Name="RailStateLiveButton" Classes="kcapGhost railPickerRow" HorizontalContentAlignment="Stretch" Click="OnStatePickerItemClick"
+                                                            Command="{Binding SetStateCommand}" CommandParameter="{x:Static vm:RailState.Live}">
+                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                                            <TextBlock Text="Live" />
+                                                            <views:AppIcon Grid.Column="1" Kind="Check" Size="14" IsVisible="{Binding IsLive}" />
+                                                        </Grid>
+                                                    </Button>
+                                                    <Button x:Name="RailStateEndedButton" Classes="kcapGhost railPickerRow" HorizontalContentAlignment="Stretch" Click="OnStatePickerItemClick"
+                                                            Command="{Binding SetStateCommand}" CommandParameter="{x:Static vm:RailState.Ended}">
+                                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                                            <TextBlock Text="Ended" />
+                                                            <views:AppIcon Grid.Column="1" Kind="Check" Size="14" IsVisible="{Binding IsEnded}" />
+                                                        </Grid>
+                                                    </Button>
+                                                </StackPanel>
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Separator Margin="4,4" IsVisible="{Binding HasRemoved}" />
+                                    <Button x:Name="RailRestoreRemovedButton" Classes="kcapGhost railMenuRow"
+                                            Command="{Binding RestoreRemovedCommand}" IsVisible="{Binding HasRemoved}">
+                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <views:AppIcon Kind="Eye" Size="14" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding RestoreRemovedText}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                    </Grid>
+
+                    <TextBlock Text="Loading sessions…" FontSize="12" Foreground="{StaticResource KcapFaintBrush}"
+                               Margin="11,0,11,8" IsVisible="{Binding LoadingSessions}" />
                     <TextBlock Text="No sessions" Foreground="{StaticResource KcapFaintBrush}" Margin="8,16"
                                IsVisible="{Binding ShowsNoSessions}" />
                     <ItemsControl x:Name="RailGroups" ItemsSource="{Binding Rail.Groups, FallbackValue={x:Null}}">
