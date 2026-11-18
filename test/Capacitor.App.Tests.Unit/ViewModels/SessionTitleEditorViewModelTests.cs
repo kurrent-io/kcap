@@ -84,6 +84,20 @@ public class SessionTitleEditorViewModelTests {
         });
     }
 
+    /// A torn-down workspace's request must not send its notice over whatever session is open next.
+    [Test]
+    public async Task Disposal_retires_a_pending_request() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            var time = new FakeTimeProvider();
+            h.CanRename.OnNext(false);
+            h.Vm.RequestEdit(time, TimeSpan.FromSeconds(5));
+            h.Dispose();
+            time.Advance(TimeSpan.FromSeconds(5));
+            await Assert.That(h.Notifier.Notified).IsEmpty();
+        });
+    }
+
     [Test]
     public async Task A_cancelled_edit_does_not_reopen_on_a_later_eligibility_change() {
         await RunOnUiAsync(async () => {

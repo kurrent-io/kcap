@@ -166,6 +166,7 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
     };
 
     public void Dispose() {
+        DropRequest();
         _requestExpiry.Dispose();
         _disposed.Cancel();
         _disposables.Dispose();
