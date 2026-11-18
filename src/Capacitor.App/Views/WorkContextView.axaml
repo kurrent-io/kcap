@@ -297,7 +297,7 @@
             </Button>
         </DataTemplate>
         <DataTemplate x:Key="BookmarkRow" x:DataType="vm:ChatBookmark">
-            <Grid Classes="markRow" ColumnDefinitions="Auto,*,Auto" Margin="-6,0,0,0">
+            <Grid Classes="markRow" ColumnDefinitions="Auto,*,Auto">
                 <Grid.ContextFlyout>
                     <Flyout FlyoutPresenterClasses="kcapPanel" Opening="OnBookmarkMenuOpening">
                         <StackPanel Spacing="2" Margin="6" MinWidth="160">
