@@ -1,7 +1,6 @@
 using System.Text;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
-using Capacitor.Cli.Core.Harness.Gemini;
 using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Http;
 
@@ -33,7 +32,7 @@ sealed class GrokSubagentTeardown(ProfileContext profiles, ICapacitorHttpClient 
         await SafeAsync(() => watchers.InlineDrainAsync(sessionId, transcript, agentId, vendor: "grok"));
 
         int status;
-        try { status = await PostStopAsync(sessionId, agentId, agentType ?? "subagent", transcript); } catch { return false; }
+        try { status = await SubagentLifecycleHooks.PostStopAsync(profiles, http, time, sessionId, agentId, agentType ?? "subagent", transcript); } catch { return false; }
 
         return status is >= 200 and < 300 || !HookSpool.IsRetryable(status);
     }
@@ -58,21 +57,13 @@ sealed class GrokSubagentTeardown(ProfileContext profiles, ICapacitorHttpClient 
     async Task<bool> StartAsync(string sessionId, string agentId, string agentType, string transcript) {
         try {
             using var client  = await http.ForBackgroundAsync();
-            var       payload = GeminiSubagentDiscovery.BuildStartPayload(sessionId, agentId, agentType, transcript);
+            var       payload = SubagentHookPayloads.Start(sessionId, agentId, agentType, transcript);
             using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
             using var resp    = await client.PostWithRetryAsync($"{profiles.Resolution.ServerUrl}/hooks/subagent-start", content, time);
             return resp.IsSuccessStatusCode;
         } catch {
             return false;
         }
-    }
-
-    async Task<int> PostStopAsync(string sessionId, string agentId, string agentType, string transcript) {
-        using var client  = await http.ForBackgroundAsync();
-        var       payload = GeminiSubagentDiscovery.BuildStopPayload(sessionId, agentId, agentType, transcript);
-        using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-        using var resp    = await client.PostWithRetryAsync($"{profiles.Resolution.ServerUrl}/hooks/subagent-stop", content, time);
-        return (int)resp.StatusCode;
     }
 
     static async Task SafeAsync(Func<Task> op) {

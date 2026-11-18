@@ -195,6 +195,8 @@ kcap/
   .codex-mcp.json        — Codex plugin MCP servers (also camelCase mcpServers shape)
   hooks/
     hooks.json           — Hook definitions for all Claude lifecycle events
+    hooks.windows.json   — The same hooks naming kcap.exe and its args, so Claude starts kcap without a shell;
+                           Windows bundles ship it as hooks.json
   skills/
     recap/
       SKILL.md           — /kcap:recap skill (Claude)

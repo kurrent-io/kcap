@@ -68,6 +68,8 @@ public static class SessionStatusDots {
             bool turnAttested = false, bool stale = false) {
         var kind =
             status == "Failed" ? AgentStatusKind.Failed
+            // Nothing else the row says can be acted on while no daemon runs it.
+            : status == AgentRow.DaemonDownStatus ? AgentStatusKind.DaemonDown
             : answerExpected ? AgentStatusKind.Answer
             : pending || usageLimitSummary is not null || terminalDialog ? AgentStatusKind.NeedsYou
             : status == "Interrupted" ? AgentStatusKind.Interrupted
@@ -80,6 +82,7 @@ public static class SessionStatusDots {
             : AgentStatusKind.Other;
         var label = kind switch {
             AgentStatusKind.Failed      => "Failed",
+            AgentStatusKind.DaemonDown  => "Daemon not running",
             AgentStatusKind.Answer      => "Answer",
             AgentStatusKind.NeedsYou    => "Needs you",
             AgentStatusKind.Interrupted => "Interrupted",
@@ -98,6 +101,7 @@ public static class SessionStatusDots {
         var sentence =
             kind == AgentStatusKind.Working && !string.IsNullOrEmpty(elapsed) ? elapsed
             : kind == AgentStatusKind.Starting && launchStage is { } stage && stage.StartsWith("Starting", StringComparison.Ordinal) ? stage
+            : kind == AgentStatusKind.DaemonDown ? "Its daemon is not running"
             : kind == AgentStatusKind.Answer ? "An answer is expected"
             : kind == AgentStatusKind.Resuming ? "Resuming after a daemon restart"
             : kind == AgentStatusKind.Interrupted ? "Not resumed after a daemon restart"
@@ -177,6 +181,7 @@ public static class SessionStatusDots {
         var sessions = count == 1 ? "session" : "sessions";
         var state = kind switch {
             AgentStatusKind.Failed      => "failed",
+            AgentStatusKind.DaemonDown  => count == 1 ? "has no daemon running" : "have no daemon running",
             AgentStatusKind.Answer      => count == 1 ? "needs an answer" : "need an answer",
             AgentStatusKind.NeedsYou    => count == 1 ? "needs you" : "need you",
             AgentStatusKind.Interrupted => "interrupted",

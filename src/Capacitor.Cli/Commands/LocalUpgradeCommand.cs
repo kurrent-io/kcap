@@ -8,7 +8,7 @@ namespace Capacitor.Cli.Commands;
 /// <summary><c>kcap local upgrade</c>: moves the stack forward to this kcap's version. <c>kcap update</c> runs it with
 /// the new binary, and the desktop app runs it with <c>--json</c> after its own update; a hook never does.</summary>
 sealed class LocalUpgradeCommand(ILocalStackFactory stacks) {
-    /// <summary>The stack runs this kcap's version.</summary>
+    /// <summary>The stack runs this kcap's version or a newer one, whether or not this run changed it.</summary>
     public const int Upgraded = 0;
 
     /// <summary>Nothing was switched: the old version is still selected, and running again if it was.</summary>
@@ -17,8 +17,8 @@ sealed class LocalUpgradeCommand(ILocalStackFactory stacks) {
     /// <summary>The new version is selected and left stopped, or its switch is journaled for the next command.</summary>
     public const int FailedAfterSwitch = 2;
 
-    /// <summary>Already at this version, newer than it, or not installed.</summary>
-    public const int NothingToDo = 3;
+    /// <summary>There is no installation to upgrade.</summary>
+    public const int NotInstalled = 3;
 
     /// <summary>No bundle is published for this version yet, so nothing changed. A CLI release can reach its channel
     /// before its bundle does; <c>kcap update</c> treats this as a note, not a failure.</summary>
@@ -68,7 +68,7 @@ sealed class LocalUpgradeCommand(ILocalStackFactory stacks) {
         } catch (LocalInstallFailure unsupported) when (unsupported.Code == LocalInstallFailureCode.UnsupportedPlatform) {
             // No installation can exist on a platform the local edition does not run on.
             Emit(new LocalInstallEvent.NothingToDo(UpgradeSkip.NotInstalled, Version, null));
-            return NothingToDo;
+            return NotInstalled;
         } catch (LocalInstallFailure failure) {
             return Fail(failure.Code, failure.Message);
         }
@@ -81,7 +81,7 @@ sealed class LocalUpgradeCommand(ILocalStackFactory stacks) {
         try {
             var result = await upgrade.RunAsync(stacks.Stager, Version, deferral.Token);
 
-            return result is LocalInstallEvent.Upgraded ? Upgraded : NothingToDo;
+            return result is LocalInstallEvent.NothingToDo { Reason: UpgradeSkip.NotInstalled } ? NotInstalled : Upgraded;
         } catch (LocalUpgradeFailure failure) {
             return Fail(failure.Code, failure.Message, failure.Switched);
         } catch (LocalLifecycleException ex) when (ex.InnerException is IOException) {

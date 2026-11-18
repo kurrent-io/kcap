@@ -14,7 +14,7 @@ namespace Capacitor.Cli.Commands;
 /// A machine credential that does not work is a failure, not a reason to fall back to a person: the operator who set
 /// it meant this machine to have no one at it, and a device code would wait for a sign-in nobody will make.
 /// </remarks>
-sealed class UnattendedCredential(ChosenServerHttp http) {
+sealed class UnattendedCredential(ChosenServerHttp http, TimeSpan? probeTimeout = null) {
     internal abstract record Outcome {
         public sealed record Machine : Outcome;
 
@@ -44,7 +44,7 @@ sealed class UnattendedCredential(ChosenServerHttp http) {
 
             try {
                 using var response = await client.GetOnceAsync(
-                    $"{AppConfig.NormalizeUrl(serverUrl)}{WhoamiCommand.ProbePath}", time, ProbeTimeout, ct);
+                    $"{AppConfig.NormalizeUrl(serverUrl)}{WhoamiCommand.ProbePath}", time, probeTimeout ?? ProbeTimeout, ct);
 
                 answer = response.StatusCode;
             } catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException) {

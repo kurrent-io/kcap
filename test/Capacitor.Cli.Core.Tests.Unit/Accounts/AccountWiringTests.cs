@@ -117,6 +117,30 @@ public class AccountWiringTests {
         await Assert.That(File.Exists(Home.PathTo(".codex-b", "mcp-ownership-v1.json"))).IsFalse();
     }
 
+    /// <summary>Unwiring takes out the hook trust kcap had Codex record for that home, and the trust it did not.</summary>
+    [Test]
+    public async Task Unwire_removes_the_hook_trust_kcap_added_and_keeps_the_users() {
+        var b      = Account(HarnessId.Codex, ".codex-b");
+        var config = Home.PathTo(".codex-b", "config.toml");
+        Wire(b);
+        File.AppendAllText(config, """
+
+            [hooks.state."mine:stop:0:0"]
+            trusted_hash = "sha256:theirs"
+            """);
+        await CodexConfigToml.TrustHooksAsync(config, new HashSet<string> { "kcap:stop:0:1" }, new HashSet<string> { "kcap:stop:0:1" }, () => {
+            File.AppendAllText(config, "\n[hooks.state.\"kcap:stop:0:1\"]\ntrusted_hash = \"sha256:kcap\"\n");
+            return Task.CompletedTask;
+        });
+
+        var steps = Unwire(b);
+
+        await Assert.That(AccountWiring.Succeeded(steps)).IsTrue();
+        var text = File.ReadAllText(config);
+        await Assert.That(text).DoesNotContain("sha256:kcap");
+        await Assert.That(text).Contains("sha256:theirs");
+    }
+
     /// <summary>A setting kcap cannot undo is a warning that names it, never a fatal unwire.</summary>
     [Test]
     public async Task Unwire_reports_a_sandbox_network_setting_it_keeps() {

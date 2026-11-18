@@ -9,7 +9,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Acp;
 /// <summary>
 /// Reusable, scriptable in-process stand-in for a real <c>cursor-agent acp</c> child process.
 /// Plays the "agent side" of the ACP stdio JSON-RPC wire protocol against a real
-/// <see cref="Capacitor.Cli.Daemon.Acp.AcpConnection"/> under test, so higher-level code (Task 9's
+/// <see cref="Capacitor.Cli.Daemon.Acp.AcpConnection"/> under test, so higher-level code (e.g.
 /// <c>AcpHostedAgentRuntime</c>) can be exercised end-to-end without spawning the real binary.
 ///
 /// Topology (mirrors the <c>Harness</c> in <c>AcpConnectionTests.cs</c>, generalized): two
@@ -86,17 +86,15 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     public JsonElement? LastServerRequestError => _serverRequestReply?.Error;
 
     /// <summary>
-    /// Qodo daemon-review Q3: the FIRST exception thrown by a fire-and-forget
+    /// The FIRST exception thrown by a fire-and-forget
     /// <c>DispatchLineAsync</c> dispatch (see <see cref="RunAsync"/>'s remarks on why dispatch must
     /// stay untracked-by-the-loop rather than awaited in-line), or <see langword="null"/> if none has
-    /// faulted yet. PRE-FIX, a dispatch fault was only <c>Debug.WriteLine</c>'d — invisible to a test
-    /// assertion — so a faulted dispatch manifested as a hang/timeout on whatever the test was
-    /// awaiting from the connection, rather than a clear failure. Captured via
+    /// faulted yet. Without it a faulted dispatch shows up only as a hang/timeout on whatever the
+    /// test was awaiting from the connection, rather than a clear failure. Captured via
     /// <see cref="ExceptionDispatchInfo"/> (not the bare <see cref="Exception"/>) so
     /// <see cref="DisposeAsync"/> can rethrow it with its ORIGINAL stack trace preserved. Only the
-    /// first fault is kept — later ones are logged the same way the pre-fix code always did, since a
-    /// second fault on an already-faulted fake is rarely independently interesting and keeping "the
-    /// first thing that went wrong" is the more useful diagnostic.
+    /// first fault is kept — later ones only go to <c>Debug.WriteLine</c>, since "the first thing
+    /// that went wrong" is the useful diagnostic.
     /// </summary>
     public Exception? DispatchFault => Volatile.Read(ref _dispatchFault)?.SourceException;
 
@@ -106,11 +104,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// Arranges the fake to send a real <c>session/request_permission</c> server→client request
     /// (built via <see cref="BuildRequestPermissionFrame"/>) as part of the NEXT
     /// <c>session/prompt</c> turn's response, awaiting and recording the connection's reply before
-    /// answering the prompt itself with the default <c>end_turn</c> result. This finally wires the
-    /// builder helpers <see cref="BuildRequestPermissionFrame"/>/<see cref="PermissionOutcomeSelected"/>/
-    /// <see cref="PermissionOutcomeCancelled"/> into the fake's active dispatch loop — Task 8
-    /// built them but deliberately left them unwired (see this file's original remarks), since the
-    /// permission bridge itself was Task 9's job.
+    /// answering the prompt itself with the default <c>end_turn</c> result.
     /// </summary>
     public void EnqueuePermissionRequestDuringNextPrompt(string toolCallJson, string optionsJson) {
         _pendingServerRequestToolCallJson = toolCallJson;
@@ -221,7 +215,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     (int Code, string Message)? _failSessionLoad;
 
     /// <summary>When set, one conversation update is written AFTER the <c>session/load</c>
-    /// response — the deliberately barrier-violating variant (reconnect spec §11.13): the ACP spec
+    /// response — the deliberately barrier-violating variant: the ACP spec
     /// says the response comes only after all replayed entries, so this models a vendor breaking
     /// that MUST.</summary>
     public bool EmitConversationUpdateAfterLoadResponse { get; set; }
@@ -233,7 +227,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
 
     /// <summary>When set, the <c>session/new</c> RESPONSE is held until the gate completes (the
     /// request is still recorded immediately) — mirrors <see cref="HoldInitializeResponse"/> exactly.
-    /// Added for Task 13's per-stage ACP launch handshake cap: lets a test wedge or slow-but-complete
+    /// Lets a per-stage launch handshake cap test wedge or slow-but-complete
     /// the "session_created" stage independently of "initialized"/"model_set".</summary>
     public TaskCompletionSource? HoldSessionNewResponse { get; set; }
 
@@ -340,10 +334,9 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// When set, every <c>session/prompt</c> request's RESPONSE (not the queued updates, if any) is
     /// held back until <c>gate</c> completes — the fake still records the call
     /// immediately (so <see cref="ReceivedCalls"/> observes it right away), it just doesn't answer.
-    /// Models a real agent mid-turn: used by Fix E tests to prove
+    /// Models a real agent mid-turn: proves
     /// <c>AcpHostedAgentRuntime.StartAsync</c>/<c>SendUserInputAsync</c> return promptly WITHOUT
-    /// waiting for the turn's <c>stopReason</c> response, instead of the pre-fix behavior where
-    /// both awaited the full round trip. Set to <see langword="null"/> (the default) to answer
+    /// waiting for the turn's <c>stopReason</c> response. Set to <see langword="null"/> (the default) to answer
     /// immediately as usual.
     /// </summary>
     public TaskCompletionSource? HoldPromptResponses { get; set; }
@@ -407,7 +400,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
 
                     System.Diagnostics.Debug.WriteLine($"FakeAcpAgent: DispatchLineAsync faulted: {t.Exception}");
 
-                    // Qodo daemon-review Q3: capture the FIRST fault (thread-safe — multiple
+                    // Capture the FIRST fault (thread-safe — multiple
                     // dispatches can be in flight at once, see this method's own remarks above) so
                     // it surfaces via DispatchFault / DisposeAsync instead of being visible only in
                     // Debug output. t.Exception is an AggregateException; unwrap to the single inner
@@ -791,7 +784,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// Spec-derived, NOT yet verified against cursor-agent (the probe account was plan-gated before
     /// any tool-call turn completed) — re-verify against docs/acp-probe-findings.md "Recommended
     /// follow-up" once available. Shape: <c>{"sessionUpdate":"tool_call","toolCallId":"...","title":"...","kind":"...","status":"...","rawInput":{...}}</c>
-    /// (<c>rawInput</c> only when <paramref name="rawInputJson"/> is non-null — task 1's
+    /// (<c>rawInput</c> only when <paramref name="rawInputJson"/> is non-null — the
     /// <c>AcpSessionUpdate.Reduce()</c> extraction target for <c>ToolInputJson</c>).
     /// <paramref name="status"/> is one of <c>pending</c> / <c>in_progress</c> / <c>completed</c> / <c>failed</c>.
     /// </summary>
@@ -820,7 +813,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// any tool-call turn completed) — re-verify against docs/acp-probe-findings.md "Recommended
     /// follow-up" once available. Shape: <c>{"sessionUpdate":"tool_call_update","toolCallId":"...","status":"...","content":[{"type":"content","content":{"type":"text","text":"..."}}],"rawOutput":{...}}</c>
     /// — <c>content</c>/<c>rawOutput</c> are included only when <paramref name="resultText"/>/
-    /// <paramref name="rawOutputJson"/> are non-null (task 1's
+    /// <paramref name="rawOutputJson"/> are non-null (the
     /// <c>AcpSessionUpdate.Reduce()</c> extraction targets for <c>ToolResultText</c>: the ACP-spec
     /// <c>ToolCallContent</c> text-block shape, falling back to <c>rawOutput</c> verbatim).
     /// </summary>
@@ -884,8 +877,6 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// <c>{"sessionId":"...","toolCall":{...},"options":[{"optionId":"...","name":"...","kind":"..."}]}</c>.
     /// <paramref name="toolCallJson"/> and <paramref name="optionsJson"/> are raw JSON text for the
     /// nested objects, left as caller-supplied strings since their exact shape is unconfirmed.
-    /// Task 8 does not wire this into <see cref="RunAsync"/>'s dispatch loop — a documented builder
-    /// is sufficient for this fixture's scope; Task 9 wires the actual permission bridge.
     /// The two possible client response shapes are documented on
     /// <see cref="PermissionOutcomeSelected"/> / <see cref="PermissionOutcomeCancelled"/>.
     /// </summary>
@@ -959,7 +950,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     }
 
     /// <summary>
-    /// Qodo daemon-review Q3: disposes the fixture's streams as before, then — if a fire-and-forget
+    /// Disposes the fixture's streams, then — if a fire-and-forget
     /// <c>DispatchLineAsync</c> dispatch ever faulted (see <see cref="DispatchFault"/>) — rethrows
     /// that FIRST captured fault with its original stack trace, so a test that tore this fixture
     /// down via <c>await using</c> without explicitly checking <see cref="DispatchFault"/> still

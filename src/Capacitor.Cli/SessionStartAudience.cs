@@ -7,8 +7,9 @@ namespace Capacitor.Cli;
 /// Which SessionStart fragments a session is composed for. A flow participant is not driving the
 /// work, so it gets none of the driver guidance (work items, plans, memory index, next work, the
 /// completion block). No hosted session is a person's first session after setup, so none gets the
-/// onboarding fragments (harness nudge, first-run notice, update nudge). Repo guidelines and
-/// coordination notices go to every session.
+/// onboarding fragments (harness nudge, first-run notice, update nudge). A headless run's answer is
+/// its output, so it gets no next work to present. Repo guidelines and coordination notices go to
+/// every session.
 /// </summary>
 sealed record SessionStartAudience(bool IsHosted, bool IsFlowParticipant) {
     public static readonly SessionStartAudience Interactive = new(false, false);
@@ -24,13 +25,18 @@ sealed record SessionStartAudience(bool IsHosted, bool IsFlowParticipant) {
             : HostedSessionKind.None;
 
         return kind switch {
-            HostedSessionKind.FlowParticipant => new(true, true),
+            HostedSessionKind.FlowParticipant => this with { IsHosted = true, IsFlowParticipant = true },
             HostedSessionKind.HostedAgent     => this with { IsHosted = true },
             _                                 => this
         };
     }
 
+    /// <summary>A one-shot, non-interactive run, such as <c>claude -p</c>.</summary>
+    public bool IsHeadless { get; init; }
+
     public bool GetsDriverGuidance => !IsFlowParticipant;
+
+    public bool GetsNextWork => GetsDriverGuidance && !IsHeadless;
 
     public bool GetsOnboarding => !IsHosted;
 }

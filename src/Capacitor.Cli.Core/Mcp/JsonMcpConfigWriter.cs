@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Core.Mcp;
@@ -11,7 +10,6 @@ namespace Capacitor.Cli.Core.Mcp;
 /// </summary>
 public static class JsonMcpConfigWriter {
     static readonly Lock _writeLock = new();
-    static readonly JsonSerializerOptions WriteOpts = new() { WriteIndented = true };
 
     public enum Change { Unchanged, Updated, Failed }
 
@@ -176,10 +174,11 @@ public static class JsonMcpConfigWriter {
     static Change Update(string configPath, Func<JsonObject, bool> mutate) {
         lock (_writeLock) {
             JsonObject root;
+            var        style = JsonFileStyle.New;
 
             if (File.Exists(configPath)) {
                 try {
-                    var text = File.ReadAllText(configPath);
+                    (var text, style) = JsonFileStyle.Read(configPath);
                     // An empty or whitespace-only file has nothing to preserve, so treat it as an
                     // empty config rather than fail-closed malformed JSON — some harnesses (e.g.
                     // Antigravity) ship a 0-byte mcp_config.json on first run.
@@ -206,7 +205,7 @@ public static class JsonMcpConfigWriter {
             try {
                 var dir = Path.GetDirectoryName(configPath);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                WriteAtomic(configPath, root);
+                WriteAtomic(configPath, style.Serialize(root));
                 return Change.Updated;
             } catch { return Change.Failed; }
         }
@@ -222,9 +221,9 @@ public static class JsonMcpConfigWriter {
         return created;
     }
 
-    static void WriteAtomic(string path, JsonNode root) {
+    static void WriteAtomic(string path, byte[] content) {
         var tmp = path + ".tmp-" + Environment.ProcessId + "-" + Guid.NewGuid().ToString("N");
-        File.WriteAllText(tmp, root.ToJsonString(WriteOpts));
+        File.WriteAllBytes(tmp, content);
         try { File.Move(tmp, path, overwrite: true); }
         catch { try { File.Delete(tmp); } catch { /* best-effort */ } throw; }
     }

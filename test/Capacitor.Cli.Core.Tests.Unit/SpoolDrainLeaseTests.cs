@@ -53,11 +53,12 @@ public class SpoolDrainLeaseTests {
 
     [Test]
     public async Task Two_overlapping_ordered_drains_never_post_the_same_entry() {
+        using var nothingDisabled = new TempConfigRoot();
         var spool      = Spool();
         var transcript = new TranscriptSpool(Tmp.PathTo("transcripts"), TimeProvider.System);
 
         var posts = await TwoDrainsAsync(poster => LifecycleSpoolDrain.RunAsync(
-            spool, transcript, null, poster, _ => Task.FromResult(DrainOutcome.Delivered), TimeSpan.FromSeconds(30), TimeProvider.System, CancellationToken.None));
+            nothingDisabled.Root, spool, transcript, null, poster, _ => Task.FromResult(DrainOutcome.Delivered), TimeSpan.FromSeconds(30), TimeProvider.System, CancellationToken.None));
 
         await Assert.That(posts.Count).IsEqualTo(posts.Distinct().Count());
     }

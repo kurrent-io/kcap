@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Option B task 3: covers <see cref="ServerConnection"/>'s two new gated ACP hub-invoke
+/// Covers <see cref="ServerConnection"/>'s two gated ACP hub-invoke
 /// methods (<see cref="ServerConnection.AcpSessionStartedAsync"/>/<see cref="ServerConnection.SendAcpEventsAsync"/>)
 /// and the reconnect re-bind mechanism (<see cref="ServerConnection.RegisterAcpBinding"/>/
 /// <see cref="ServerConnection.UnregisterAcpBinding"/>/<see cref="ServerConnection.ReBindAcpSessionsAsync"/>).
@@ -41,7 +41,7 @@ public class AcpServerConnectionTests {
         /// observe ordering/gating state at the exact moment the (re-)bind call happens.</summary>
         public Action? OnRawSessionStartedInvoked { get; set; }
 
-        /// <summary> reliability fix (Codex P1 #1): how many MORE times the raw
+        /// <summary>How many MORE times the raw
         /// AcpSessionStarted invoke should throw for a given agentId before it starts succeeding —
         /// drives <c>ReBindAcpSessionsAsyncBoundedRetryTests</c>'s bounded-retry-then-give-up
         /// and transient-failure-then-recover cases. Absent/zero entries always succeed.</summary>
@@ -192,13 +192,13 @@ public class AcpServerConnectionTests {
         await Assert.That(conn.SessionStartedCalls).IsEmpty();
     }
 
-    // ── Bounded re-bind retry (Codex P1 #1: a re-bind-miss must not stall the transcript forever) ─
+    // ── Bounded re-bind retry (a re-bind-miss must not stall the transcript forever) ──────────────
 
     /// <summary>
     /// A binding whose re-bind NEVER succeeds must not be retried forever — <see cref="ServerConnection.ReBindAcpSessionsAsync"/>
     /// bounds the attempts (<see cref="ServerConnection.AcpRebindMaxAttempts"/>) and then unregisters
-    /// the binding so it isn't replayed on the NEXT reconnect either (the permanent-failure half of
-    /// the fix — otherwise <c>IsReady</c> flips true regardless and the forwarder retries the same
+    /// the binding so it isn't replayed on the NEXT reconnect either (the permanent-failure half —
+    /// otherwise <c>IsReady</c> flips true regardless and the forwarder retries the same
     /// batch against a binding the server never got, forever).
     /// </summary>
     [Test]
@@ -343,7 +343,7 @@ public class AcpServerConnectionTests {
 #pragma warning restore TUnitAssertions0005
     }
 
-    // ── Reconnect re-bind ordering (design spec §2.3) ────────────────────────────────────────────
+    // ── Reconnect re-bind ordering ───────────────────────────────────────────────────────────────
 
     [Test]
     public async Task ReRegisterAgentsAndAcpBindingsAsync_runs_the_agent_hook_before_the_ACP_rebind() {
@@ -373,7 +373,7 @@ public class AcpServerConnectionTests {
     }
 
     /// <summary>
-    /// The critical anti-deadlock/ordering assertion (design spec §2.3 "Enforcement"): the ACP
+    /// The critical anti-deadlock/ordering assertion: the ACP
     /// rebind step must run — and complete — WHILE the (real) <see cref="RegistrationGate"/> still
     /// reports not-ready, and only once it returns does the gate flip ready. This is exactly the
     /// bracket <c>ServerConnection.RegisterDaemon</c> wires

@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Capacitor.Cli.Core.PullRequests;
 using ReactiveUI.Reactive;
 
@@ -6,6 +7,7 @@ namespace Capacitor.App.ViewModels;
 public sealed partial class PullRequestContextViewModel {
     bool _refreshDiscovery;
     bool _refreshPage;
+    PullRequestSubjectDto? _restoredPick;
     string? _headRestartSection;
     PullRequestSectionState? CurrentSection => _sections.GetValueOrDefault(SectionKey);
 
@@ -88,7 +90,8 @@ public sealed partial class PullRequestContextViewModel {
                 _sessionItems.Clear();
                 _sessionItems.AddRange(links.Data.Items);
                 _hasListed = true;
-                _snapshots?.Set(session, new([.. links.Data.Items], _snapshots.Get(session)?.Overview), cacheGeneration);
+                ConfirmRestoredPick();
+                _snapshots?.Set(session, SnapshotOf([.. links.Data.Items], _snapshots.Get(session)?.Overview), cacheGeneration);
                 ApplyChoices(listed: true);
                 if (linksChanged) _linksChanged?.Invoke(session);
             };
@@ -109,9 +112,10 @@ public sealed partial class PullRequestContextViewModel {
                     var headChanged = _overview?.HeadSha is { } old && old != read.Data.HeadSha;
                     var rollupMoved = _overview?.Checks?.Rollup != read.Data.Checks?.Rollup;
                     _overview = read.Data; _overviewRead = read;
-                    _snapshots?.Set(session, new([.. _sessionItems], read), cacheGeneration);
+                    var learned = Learn(choice.Subject, read.Data.Lifecycle);
+                    _snapshots?.Set(session, SnapshotOf([.. _sessionItems], read), cacheGeneration);
                     _notice = "";
-                    if (Learn(choice.Subject, read.Data.Lifecycle) && ReconsiderDefault()) return;
+                    if (learned && ReconsiderDefault()) return;
                     // Check rows are a snapshot while the summary tracks the overview: reload them while
                     // any is still running, or the summary goes green beside rows that still say pending.
                     var checksLive = _section == "checks" && CurrentSection is { } checks
@@ -228,7 +232,10 @@ public sealed partial class PullRequestContextViewModel {
     /// A session reopened shows its last list at once, and its overview only while that read's
     /// access still stands; the refresh that follows replaces both.
     void Seed(PullRequestSnapshot snapshot) {
+        foreach (var subject in snapshot.Merged) _lifecycles[subject] = "merged";
         _sessionItems.AddRange(snapshot.Links);
+        if (_requestedSubject is null && snapshot.Picked is { } picked && snapshot.Links.Any(link => PullRequestWire.Subject(link) == picked))
+            _requestedSubject = _restoredPick = picked;
         _hasListed = true;
         ApplyChoices(listed: true);
         ShowLastOverview();
@@ -237,6 +244,29 @@ public sealed partial class PullRequestContextViewModel {
         if (_session is not { } session || _snapshots?.Get(session)?.Overview is not { Data: { } overview } read || !AcceptAccess(read)) return;
         _overview = overview; _overviewRead = read;
         Notify();
+    }
+    /// A session switch rebuilds the pane, so the pick and the merges it learned live here: without
+    /// them a return re-picks the newest PR and walks off a merged one again. Closed is left out
+    /// because a closed PR can reopen while the session is away.
+    PullRequestSnapshot SnapshotOf(IReadOnlyList<PullRequestLinkDto> links, PullRequestRead<PullRequestOverviewDto>? overview) {
+        var merged = _lifecycles.Where(pair => pair.Value == "merged").Select(pair => pair.Key).ToArray();
+        return new(links, _explicitSelection ? _selected?.Subject : null,
+            merged.Length == 0 ? FrozenSet<PullRequestSubjectDto>.Empty : merged.ToFrozenSet(), overview);
+    }
+    /// The snapshot's links predate the return, so a restored pick answers to the first fresh list:
+    /// unlinked since, it gives way to the default rather than staying as unavailable the way a pick
+    /// made in this pane does.
+    void ConfirmRestoredPick() {
+        if (_restoredPick is not { } restored) return;
+        _restoredPick = null;
+        if ((_selected?.Subject ?? _requestedSubject) != restored || _sessionItems.Any(link => PullRequestWire.Subject(link) == restored)) return;
+        _explicitSelection = false;
+        _requestedSubject = null;
+    }
+    void RememberPick() {
+        if (_session is not { } session || _snapshots is null) return;
+        var generation = _snapshots.Generation;
+        if (_snapshots.Get(session) is { } snapshot) _snapshots.Set(session, SnapshotOf(snapshot.Links, snapshot.Overview), generation);
     }
     void ForgetOverview() {
         if (_session is { } session && _snapshots?.Get(session) is { Overview: not null } snapshot)

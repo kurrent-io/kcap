@@ -1,7 +1,5 @@
-using System.Text;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
-using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.Gemini;
 
@@ -51,16 +49,8 @@ sealed class GeminiSubagentTeardown(ProfileContext profiles, ICapacitorHttpClien
             // always attempted even if the kill or drain hiccups; re-import recovers the rest.
             await SafeAsync(() => watchers.KillWatcher($"{sessionId}-{agentId}"));
             await SafeAsync(() => watchers.InlineDrainAsync(sessionId, subFile, agentId, vendor: "gemini"));
-            await SafeAsync(() => PostStopAsync(sessionId, agentId, agentType, subFile));
+            await SafeAsync(() => SubagentLifecycleHooks.PostStopAsync(profiles, http, time, sessionId, agentId, agentType, subFile));
         }
-    }
-
-    async Task PostStopAsync(string sessionId, string agentId, string agentType, string subFile) {
-        var       baseUrl = profiles.Resolution.ServerUrl!;
-        using var client  = await http.ForBackgroundAsync();
-        var       payload = GeminiSubagentDiscovery.BuildStopPayload(sessionId, agentId, agentType, subFile);
-        using var content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-        await client.PostWithRetryAsync($"{baseUrl}/hooks/subagent-stop", content, time);
     }
 
     static async Task SafeAsync(Func<Task> op) {

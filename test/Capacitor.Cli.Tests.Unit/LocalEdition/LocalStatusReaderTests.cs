@@ -283,12 +283,29 @@ public class LocalStatusReaderTests {
 
         await Assert.That(report.Headline).Contains("no fake unit is installed");
         await Assert.That(Text(report)).Contains("kcap local start installs and starts it");
+        await Assert.That(report.Fields.Select(f => f.Key)).DoesNotContain("Service");
+    }
+
+    /// <summary>A quick uninstall removes <c>bin/current</c> first, and a server still exiting can keep the version it
+    /// ran; that root is uninstalled, not a stopped one missing its files.</summary>
+    [Test]
+    public async Task An_uninstall_that_left_a_version_behind_reads_uninstalled_and_names_the_leftovers() {
+        Publish(withBinary: false);
+        Tmp.CreateFile(["r", "bin", "1.2.3", "kcap-server"]);
+
+        var report = await Read();
+
+        await Assert.That(report.Headline).StartsWith("Uninstalled:");
+        await Assert.That(report.Reading.Condition).IsEqualTo(LocalServerCondition.Uninstalled);
+        await Assert.That(report.Fields.Select(f => f.Key)).DoesNotContain("Service");
+        await Assert.That(Text(report)).Contains($"held files in {Path.Combine(Root.Directory, "bin")}");
+        await Assert.That(Text(report)).DoesNotContain("files are missing").And.DoesNotContain("Not running");
     }
 
     [Test]
     public async Task Missing_server_files_send_the_user_to_setup() {
         Publish(withBinary: false);
-        Tmp.CreateDir("r/bin");
+        Tmp.CreateDir("r/bin/current");
 
         await Assert.That(Text(await Read())).Contains("files are missing").And.Contains("kcap setup --local");
     }

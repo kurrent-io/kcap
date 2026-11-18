@@ -3,7 +3,7 @@ using Capacitor.Cli.Daemon.Services;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// The generation counter behind DaemonStatus pushes (spec §4.2): version check and source
+/// The generation counter behind DaemonStatus pushes: version check and source
 /// capture are atomic, Pulse is a broadcast, and a stale cursor returns synchronously —
 /// a missed pulse can never strand a subscriber.
 /// </summary>

@@ -41,6 +41,9 @@ public sealed class LocalDestinationHandler(LocalRoot? root, string? serverUrl, 
                 throw;
             }
 
+            // A caller that withdrew its request while this response was on its way gets the response, not the hop.
+            if (hop.Options.TryGetValue(HttpClientExtensions.MayResend, out var mayResend) && !mayResend()) break;
+
             var next = NextHop(hop, target, ForcesGet(response.StatusCode, hop.Method));
 
             response.Dispose();

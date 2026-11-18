@@ -7,9 +7,10 @@ namespace Capacitor.Cli.Core.Tests.Unit.Config;
 /// A hand-written, truncated, or older-version config.json omits keys that a
 /// kcap-written one always contains. STJ source-gen builds these init-only
 /// records through an object initializer that assigns <c>default(T)</c> for every
-/// absent property, discarding the record's member initializers — so every such
-/// key used to deserialize to null/false/0 and crash the first command that
-/// touched it. These pin the declared defaults to the load boundary.
+/// absent property, discarding the record's member initializers — so without
+/// defaults applied at load, every such key deserializes to null/false/0 and
+/// crashes the first command that touches it. These pin the declared defaults
+/// to the load boundary.
 /// </summary>
 public class ConfigDefaultsTests {
     static ProfileConfig Load(string json) => ConfigMigration.MigrateIfNeeded(json).Config;
@@ -63,8 +64,8 @@ public class ConfigDefaultsTests {
         await Assert.That(profile.UpdateChannel).IsEqualTo("latest");
     }
 
-    // update_check and daemon.max_agents declare defaults that differ from
-    // default(T), so only the raw JSON can tell "absent" from an explicit false/0.
+    // update_check declares a default that differs from default(T), so only the raw
+    // JSON can tell "absent" from an explicit false.
 
     [Test]
     public async Task Absent_update_check_defaults_to_true() {
@@ -84,15 +85,63 @@ public class ConfigDefaultsTests {
     }
 
     [Test]
-    public async Task Absent_max_agents_defaults_to_five() {
+    public async Task Absent_max_agents_is_unset() {
         var config = Load("""
             {
-                "version": 2,
+                "version": 3,
                 "profiles": { "test": { "daemon": { "name": "dev" } } }
             }
             """);
 
+        await Assert.That(config.Profiles["test"].Daemon!.MaxAgents).IsNull();
+    }
+
+    /// Version 2 wrote the old default of 5 for everyone with a daemon section, chosen or not.
+    [Test]
+    [Arguments(1)]
+    [Arguments(2)]
+    public async Task Max_agents_of_five_before_version_3_reads_as_unset(int version) {
+        var json = version == 1
+            ? """{ "server_url": "https://example.test", "daemon": { "name": "dev", "max_agents": 5 } }"""
+            : """{ "version": 2, "profiles": { "default": { "daemon": { "name": "dev", "max_agents": 5 } } } }""";
+
+        var daemon = Load(json).Profiles["default"].Daemon!;
+
+        await Assert.That(daemon.MaxAgents).IsNull();
+        await Assert.That(daemon.Name).IsEqualTo("dev");
+    }
+
+    [Test]
+    public async Task Max_agents_of_five_from_version_3_is_kept() {
+        var config = Load("""
+            {
+                "version": 3,
+                "profiles": { "test": { "daemon": { "max_agents": 5 } } }
+            }
+            """);
+
         await Assert.That(config.Profiles["test"].Daemon!.MaxAgents).IsEqualTo(5);
+    }
+
+    /// The stamp is what stops a 5 the user sets after upgrading being dropped on the next load.
+    [Test]
+    public async Task A_version_2_file_saves_as_version_3_without_max_agents() {
+        var config = Load("""
+            {
+                "version": 2,
+                "profiles": { "test": { "daemon": { "name": "dev", "max_agents": 5 } } }
+            }
+            """);
+
+        var saved = JsonSerializer.Serialize(config, ProfileConfigJsonContext.Default.ProfileConfig);
+
+        await Assert.That(config.Version).IsEqualTo(3);
+        await Assert.That(saved).DoesNotContain("max_agents");
+    }
+
+    [Test]
+    public async Task A_newer_version_is_not_lowered() {
+        await Assert.That(Load("""{ "version": 9 }""").Version).IsEqualTo(9);
     }
 
     [Test]

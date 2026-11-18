@@ -150,17 +150,21 @@ jobs:
             cd -
           done
 
-      - name: Update plugin version
+      # Both plugins: Claude Code reads a plugin's payload as new only when its version moves.
+      - name: Update plugin versions
         run: |
           node -e "
-            const pkg = require('./kcap/.claude-plugin/plugin.json');
-            pkg.version = '$VERSION';
-            require('fs').writeFileSync('./kcap/.claude-plugin/plugin.json', JSON.stringify(pkg, null, 2) + '\n');
+            for (const path of ['./kcap/.claude-plugin/plugin.json', './kcap/steering/.claude-plugin/plugin.json']) {
+              const pkg = require(path);
+              pkg.version = '$VERSION';
+              require('fs').writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+            }
           "
 
       - name: Copy plugin and license into wrapper package
         run: |
           cp -r kcap/ npm/kcap/kcap/
+          source scripts/lib/plugin-dev-files.sh && strip_plugin_dev_files npm/kcap/kcap
           cp LICENSE.md npm/kcap/LICENSE.md
 
       # A wrapper installable before its platform packages installs without them, silently: npm
@@ -375,8 +379,9 @@ jobs:
   # The local-edition bundle is built unsigned by kcap-server's local-bundle workflow on the same tag
   # and attached to that tag's kcap-server release. A tarball cannot be stapled: the signed tree is
   # notarized as a zip, so each Mach-O's ticket is found online, and the manifest signature plus its
-  # SHA-256 are what the CLI checks before it extracts anything. The win-x64 archive is published with
-  # the bytes kcap-server smoke-started; its binaries carry no Authenticode signature until #1391.
+  # SHA-256 are what the CLI checks before it extracts anything. The win-x64 archive is the one
+  # kcap-server smoke-started, with an Authenticode signature added to every PE file that had none
+  # once vars.ARTIFACT_SIGNING_PROFILE is set.
   # Every rid the app offers the local edition on needs a leg in both matrices: kcap installs only a
   # bundle whose manifest is published here.
   # No job that holds a signing credential runs code from that release: signing only reads the
@@ -407,10 +412,13 @@ jobs:
           - rid: win-x64
             runner: ubuntu-latest
             notarize: false
+            authenticode: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    environment: ${{ matrix.authenticode && vars.ARTIFACT_SIGNING_PROFILE != '' && 'windows-signing' || '' }}
     env:
       RID: ${{ matrix.rid }}
+      AUTHENTICODE: ${{ matrix.authenticode && vars.ARTIFACT_SIGNING_PROFILE != '' }}
     steps:
       - uses: actions/checkout@v7
 
@@ -518,8 +526,32 @@ jobs:
           done
           exit 1
 
+      - name: Set up Authenticode signing
+        id: authenticode
+        if: env.AUTHENTICODE == 'true'
+        uses: ./.github/actions/artifact-signing
+        with:
+          tenant-id: ${{ vars.ARTIFACT_SIGNING_TENANT_ID }}
+          client-id: ${{ vars.ARTIFACT_SIGNING_CLIENT_ID }}
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          account: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          profile: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+
+      - name: Authenticode-sign every unsigned PE file and re-archive
+        if: env.AUTHENTICODE == 'true'
+        shell: bash
+        env:
+          KCAP_SIGN_TOKEN: ${{ steps.authenticode.outputs.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p tree out
+          tar -xzf "${{ steps.download.outputs.ARCHIVE }}" -C tree
+          bash scripts/sign-windows-bundle.sh tree
+          # Same root-level layout as the server's archive.
+          tar -czf "out/${{ steps.download.outputs.NAME }}.tar.gz" -C tree .
+
       - name: Take the archive as built
-        if: ${{ !matrix.notarize }}
+        if: ${{ !matrix.notarize && env.AUTHENTICODE != 'true' }}
         shell: bash
         run: |
           set -euo pipefail

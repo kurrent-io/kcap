@@ -78,10 +78,12 @@ static partial class NextWorkEmitter {
         "with declare_loose_end " +
         "(one call per item, never \"none\"), call get_next_work and tell the user, in a few lines, what to " +
         "consider working on next and why. Never present after a step inside work that is still open, or " +
-        "right after declaring loose ends you will continue yourself in this session. If get_next_work says this session's " +
-        "attached work is still open, do not present unless the user asked for next work or said they are " +
-        "done with or parking that work. So: a lookup answered or a PR merged as asked, present; draft PRs " +
-        "you were asked to fix up, wait until they merge or the user parks them, however many requests that takes.";
+        "right after declaring loose ends you will continue yourself in this session. While this session's work " +
+        "is open, \"what's next?\" means its next step: answer from its plan, parts or PR, not get_next_work. " +
+        "If get_next_work says the attached work is still open, do not present unless the user asked " +
+        "for work outside it or said they are " +
+        "done with or parking that work. So: a lookup answered or a PR merged, present; " +
+        "a draft PR still being fixed up, wait until it merges or the user parks it.";
 
     /// <summary>What a start gets when the ack carries no list: the guidance otherwise rides only on the
     /// list, so a feed that missed its budget would cost the session the instruction as well.</summary>
@@ -90,10 +92,17 @@ static partial class NextWorkEmitter {
 
     /// <summary><see cref="BuildFragment"/>, falling back to <see cref="InstructionOnly"/> when the ack has
     /// no rows to show. Null only when disabled.</summary>
-    public static string? BuildFragmentOrInstruction(JsonNode? responseNode, bool disabled) =>
-        disabled ? null : BuildFragment(responseNode, disabled: false) ?? WithOffer(InstructionOnly, responseNode);
+    public static string? BuildFragmentOrInstruction(JsonNode? responseNode, bool disabled, string? serverUrl = null) =>
+        disabled ? null : BuildFragment(responseNode, disabled: false, serverUrl) ?? WithOffer(InstructionOnly, responseNode);
 
-    public static string? BuildFragment(JsonNode? responseNode, bool disabled) {
+    /// <summary>A server-relative href joined to the server's base URL, so it opens from a terminal. Any
+    /// other href is returned as is; <c>//host/…</c> names its own host and is not server-relative.</summary>
+    internal static string? AbsoluteHref(string? href, string? serverUrl) =>
+        href is ['/', ..] && !href.StartsWith("//", StringComparison.Ordinal) && !string.IsNullOrEmpty(serverUrl)
+            ? serverUrl.TrimEnd('/') + href
+            : href;
+
+    public static string? BuildFragment(JsonNode? responseNode, bool disabled, string? serverUrl = null) {
         if (disabled) return null;
         if (responseNode is not JsonObject obj) return null;
         if (obj["next_work"] is not JsonObject nextWork) return null;
@@ -108,7 +117,7 @@ static partial class NextWorkEmitter {
             if (label.Length == 0) continue;
 
             var because = NextWorkUntrustedText.Render(ReadString(row, "because"), FieldCap);
-            var href    = NextWorkUntrustedText.Render(ReadString(row, "href"), FieldCap);
+            var href    = NextWorkUntrustedText.Render(AbsoluteHref(ReadString(row, "href"), serverUrl), FieldCap);
 
             var line = new StringBuilder($"{lines.Count + 1}. {label}");
             if (because.Length > 0) line.Append($" — {because}");

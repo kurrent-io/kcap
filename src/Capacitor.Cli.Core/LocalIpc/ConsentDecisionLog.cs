@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace Capacitor.Cli.Core.LocalIpc;
 
-/// The consent decision log's single write/read shape (spec §4.4): the daemon appends one of
+/// The consent decision log's single write/read shape: the daemon appends one of
 /// these per decision to consent-decisions.jsonl; the CLI `log` verb prints raw lines; the app
 /// parses them for the Activity feed. Field names are the pre-existing on-disk names verbatim —
 /// existing log files remain readable. Outcome: "allowed"|"denied". Source: "owner"|"rule[i]"|
@@ -19,7 +19,7 @@ public partial class ConsentDecisionJsonContext : JsonSerializerContext;
 
 /// Complete=false means at least one file existed but could not be read (I/O failure) — the
 /// records list may be partial and the consumer must not mistake it for a genuinely shorter
-/// log. Clean absence (file not found) is Complete=true (spec §4.4).
+/// log. Clean absence (file not found) is Complete=true.
 public sealed record ConsentLogReadResult(IReadOnlyList<ConsentDecisionRecord> Records, bool Complete);
 
 public static class ConsentDecisionLogReader {

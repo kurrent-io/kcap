@@ -3,8 +3,11 @@ using System.Text.Json.Serialization;
 namespace Capacitor.Cli.Core.Config;
 
 public record ProfileConfig {
+    /// <summary>Version 2 files wrote <c>daemon.max_agents</c> whether or not anyone chose it.</summary>
+    public const int CurrentVersion = 3;
+
     [JsonPropertyName("version")]
-    public int Version { get; init; } = 2;
+    public int Version { get; init; } = CurrentVersion;
 
     /// <summary>The profile every fallback lands on. Also the name <see cref="ActiveProfile"/>
     /// defaults to, so the two can never disagree.</summary>

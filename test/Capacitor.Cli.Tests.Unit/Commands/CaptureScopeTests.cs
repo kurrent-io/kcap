@@ -56,6 +56,16 @@ public class CaptureScopeTests {
         await Assert.That(result[0].OutsideAllowlist).IsFalse();
     }
 
+    /// <summary>A folder entry names a repository with no remote, as it does for the live hooks and discovery.</summary>
+    [Test]
+    public async Task A_folder_entry_excludes_a_local_repository() {
+        var result = await Scope(excludedRepos: [LocalRepository.FolderEntryPrefix + "notes"],
+                repoDetector: Detects(LocalRepository.OwnerPrefix + "abc123", "notes"))
+            .ApplyAsync([Session("s1", "/tmp/anywhere")], NoResolved);
+
+        await Assert.That(result[0].ExcludedRepoKeys).IsEquivalentTo([LocalRepository.OwnerPrefix + "abc123/notes"]);
+    }
+
     /// <summary>An import places a session under the repository its harness recorded, so scope judges that one even
     /// when its folder now resolves elsewhere.</summary>
     [Test]
@@ -256,6 +266,31 @@ public class CaptureScopeTests {
         await Assert.That(calls).IsEqualTo(0);
     }
 
+    [Test]
+    public async Task Concurrent_pre_probe_checks_share_one_repository_detection_per_cwd() {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        var scope = Scope(excludedRepos: ["acme/secret"], repoDetector: async _ => {
+            Interlocked.Increment(ref calls);
+            entered.TrySetResult();
+            await release.Task;
+            return new RepositoryPayload { Owner = "acme", RepoName = "secret" };
+        });
+
+        var checks = Enumerable.Range(0, 12)
+            .Select(i => scope.ExcludeBeforeProbeAsync(Session($"s{i}", "/tmp/shared"), NoResolved)).ToArray();
+        try {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        } finally {
+            release.TrySetResult();
+        }
+        var results = await Task.WhenAll(checks);
+
+        await Assert.That(calls).IsEqualTo(1);
+        await Assert.That(results.All(c => c?.Status == ImportCommand.ClassificationStatus.Excluded)).IsTrue();
+    }
+
     // A deleted worktree's recorded cwd resolves to no repo. The scope reaches the repo through
     // cwd_remap or the dot-worktree strip, and the repo lists have to judge that same cwd.
     [Test]
@@ -263,9 +298,9 @@ public class CaptureScopeTests {
         var (repo, cwd, resolved) = await ResolveDeletedWorktree("worktrees", "ai-1");
 
         var result = await Scope(allowedRepos: ["acme/widgets"], repoDetector: DetectsAt(repo))
-            .ApplyAsync([Session("s1", cwd)], resolved);
+            .ExcludeBeforeProbeAsync(Session("s1", cwd), resolved);
 
-        await Assert.That(result[0].OutsideAllowlist).IsFalse();
+        await Assert.That(result).IsNull();
     }
 
     [Test]
@@ -273,9 +308,10 @@ public class CaptureScopeTests {
         var (repo, cwd, resolved) = await ResolveDeletedWorktree("worktrees", "ai-1");
 
         var result = await Scope(excludedRepos: ["acme/widgets"], repoDetector: DetectsAt(repo))
-            .ApplyAsync([Session("s1", cwd)], resolved);
+            .ExcludeBeforeProbeAsync(Session("s1", cwd), resolved);
 
-        await Assert.That(result[0].ExcludedRepoKeys).IsEquivalentTo(["acme/widgets"]);
+        await Assert.That(result!.Status).IsEqualTo(ImportCommand.ClassificationStatus.Excluded);
+        await Assert.That(result.ExcludedRepoKeys).IsEquivalentTo(["acme/widgets"]);
     }
 
     [Test]
@@ -283,9 +319,9 @@ public class CaptureScopeTests {
         var (repo, cwd, resolved) = await ResolveDeletedWorktree(".capacitor", "worktrees", "agent-1");
 
         var result = await Scope(allowedRepos: ["acme/widgets"], repoDetector: DetectsAt(repo))
-            .ApplyAsync([Session("s1", cwd)], resolved);
+            .ExcludeBeforeProbeAsync(Session("s1", cwd), resolved);
 
-        await Assert.That(result[0].OutsideAllowlist).IsFalse();
+        await Assert.That(result).IsNull();
     }
 
     [Test]
@@ -293,9 +329,10 @@ public class CaptureScopeTests {
         var (repo, cwd, resolved) = await ResolveDeletedWorktree(".capacitor", "worktrees", "agent-1");
 
         var result = await Scope(excludedRepos: ["acme/widgets"], repoDetector: DetectsAt(repo))
-            .ApplyAsync([Session("s1", cwd)], resolved);
+            .ExcludeBeforeProbeAsync(Session("s1", cwd), resolved);
 
-        await Assert.That(result[0].ExcludedRepoKeys).IsEquivalentTo(["acme/widgets"]);
+        await Assert.That(result!.Status).IsEqualTo(ImportCommand.ClassificationStatus.Excluded);
+        await Assert.That(result.ExcludedRepoKeys).IsEquivalentTo(["acme/widgets"]);
     }
 
     // The transcript still carries the recorded path, so a remap that lands outside an excluded
@@ -306,9 +343,10 @@ public class CaptureScopeTests {
         var excluded              = Path.Combine(repo, "worktrees");
 
         var result = await Scope(excludedPaths: [excluded])
-            .ApplyAsync([Session("s1", cwd)], resolved);
+            .ExcludeBeforeProbeAsync(Session("s1", cwd), resolved);
 
-        await Assert.That(result[0].ExcludedPathKey).IsEqualTo(PathExclusion.Normalize(excluded, Home));
+        await Assert.That(result!.Status).IsEqualTo(ImportCommand.ClassificationStatus.Excluded);
+        await Assert.That(result.ExcludedPathKey).IsEqualTo(PathExclusion.Normalize(excluded, Home));
     }
 
     // A remap applies whether or not its source still exists, so a checkout of an excluded repo can
@@ -378,9 +416,7 @@ public class CaptureScopeTests {
     }
 
     [Test]
-    public async Task ClassifyContext_carries_no_scope_so_a_source_cannot_filter_on_its_own() {
-        // The guard that makes the central gate hold: an import source has nothing to consult, so
-        // it cannot quietly skip the scope.
+    public async Task ClassifyContext_leaves_scope_rules_with_the_central_gate() {
         var names = typeof(ClassifyContext).GetProperties().Select(p => p.Name).ToArray();
 
         await Assert.That(names).DoesNotContain("ExcludedPaths");

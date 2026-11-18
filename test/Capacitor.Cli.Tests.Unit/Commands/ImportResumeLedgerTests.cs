@@ -77,6 +77,43 @@ public class ImportResumeLedgerTests : IDisposable {
         }
     }
 
+    /// <summary>The server hides the session from <c>last-line</c> for the read right after session-end, as its
+    /// projection does under a burst of imports; the hidden read must have been the import's own, or this proves nothing.</summary>
+    [Test]
+    public async Task a_watermark_hidden_right_after_the_import_is_still_recorded() {
+        WriteTranscript(CompletedSession);
+        _server.HiddenReadsAfterEnd = 1;
+
+        await Import();
+        await Assert.That(_server.HiddenReadsAfterEnd).IsEqualTo(0);
+        _server.ClearPosted();
+
+        var again = await Import();
+
+        await Assert.That(again).Contains("0 imported · 1 skipped");
+        await Assert.That(again).DoesNotContain("resuming");
+        await Assert.That(_server.Posted).IsEmpty();
+    }
+
+    /// <summary>Three hidden reads across two sessions: both first reads, then one session's first retry, so that
+    /// session sees two 404s in a row and is settled only by the round after the other one caught up.</summary>
+    [Test]
+    public async Task a_watermark_hidden_twice_is_recorded_once_another_session_catches_up() {
+        WriteTranscript(CompletedSession);
+        Tmp.CreateDir("projects", "-tmp-proj").CreateFile("b1b2c3d4e5f60718293a4b5c6d7e8f90.jsonl", CompletedSession);
+        _server.HiddenReadsAfterEnd = 3;
+
+        await Import();
+        await Assert.That(_server.HiddenReadsAfterEnd).IsEqualTo(0);
+        _server.ClearPosted();
+
+        var again = await Import();
+
+        await Assert.That(again).Contains("0 imported · 2 skipped");
+        await Assert.That(again).DoesNotContain("resuming");
+        await Assert.That(_server.Posted).IsEmpty();
+    }
+
     [Test]
     public async Task appended_lines_resume_from_the_first_line_never_sent() {
         var path = WriteTranscript(CompletedSession);

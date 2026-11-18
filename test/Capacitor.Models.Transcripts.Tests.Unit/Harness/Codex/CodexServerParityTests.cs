@@ -145,10 +145,10 @@ public class CodexServerParityTests {
         await Assert.That(change.Fields["kind"].StringValue).IsEqualTo("add");
     }
 
-    /// The stashes and the emitted-result index mean nothing once the batch they were built in is
-    /// written; telemetry across a boundary is lost, as on the server.
+    /// A result returned in an earlier batch is already written, so no telemetry amends it; an exec
+    /// end waiting across a boundary is lost too, as on the server.
     [Test]
-    public async Task A_batch_boundary_forgets_telemetry_waiting_on_either_side() {
+    public async Task A_batch_boundary_forgets_emitted_results_and_waiting_exec_telemetry() {
         var ctx = Ctx();
         P(Output("c1"), ctx);
         ctx.BeginBatch();
@@ -157,6 +157,47 @@ public class CodexServerParityTests {
         ctx.BeginBatch();
         var output = P(Output("c1"), ctx).Events[0];
         await Assert.That(SchemaExtensions.Slug(output.Payload, CodexExtension.Slug)).IsNull();
+
+        P(Output("p1"), ctx);
+        ctx.BeginBatch();
+        await Assert.That(P(Msg("""{"type":"patch_apply_end","call_id":"p1","success":true,"changes":{}}"""), ctx).Amendments).IsEmpty();
+    }
+
+    /// A batch can close between a patch end and its output; the end still lands on that output,
+    /// once, however many batches apart.
+    [Test]
+    public async Task A_patch_end_waits_across_batches_for_its_output() {
+        var ctx = Ctx();
+        P(Msg("""{"type":"patch_apply_end","call_id":"p1","success":true,"changes":{"/w/a.rs":{"type":"update","unified_diff":"@@"}}}"""), ctx);
+        ctx.BeginBatch();
+        ctx.BeginBatch();
+
+        var line   = Item("""{"type":"custom_tool_call_output","call_id":"p1","output":"Success."}""");
+        var result = P(line, ctx);
+        await Assert.That(result.Amendments).IsEmpty();
+        var output = result.Events.Single();
+        await Assert.That(output.EventId).IsEqualTo(TranscriptIds.CodexRecord(line));
+        var patch = Codex(output.Payload).Fields[CodexExtension.Patch].StructValue;
+        await Assert.That(patch.Fields["success"].BoolValue).IsTrue();
+        await Assert.That(patch.Fields["changes"].ListValue.Values[0].StructValue.Fields["file_path"].StringValue).IsEqualTo("/w/a.rs");
+
+        ctx.BeginBatch();
+        await Assert.That(SchemaExtensions.Slug(P(line, ctx).Events.Single().Payload, CodexExtension.Slug)).IsNull();
+    }
+
+    /// Only a crashed run leaves ends without outputs; past 64 waiting, the oldest is dropped first.
+    [Test]
+    public async Task Waiting_patch_ends_are_bounded_and_the_oldest_goes_first() {
+        var ctx = Ctx();
+        for (var i = 0; i <= 64; i++) {
+            P(Msg($$$"""{"type":"patch_apply_end","call_id":"p{{{i}}}","success":true,"changes":{}}"""), ctx);
+            ctx.BeginBatch();
+        }
+
+        static string PatchOutput(string id) => Item($$"""{"type":"custom_tool_call_output","call_id":"{{id}}","output":"Success."}""");
+        await Assert.That(SchemaExtensions.Slug(P(PatchOutput("p0"), ctx).Events.Single().Payload, CodexExtension.Slug)).IsNull();
+        await Assert.That(Codex(P(PatchOutput("p1"), ctx).Events.Single().Payload).Fields.ContainsKey(CodexExtension.Patch)).IsTrue();
+        await Assert.That(Codex(P(PatchOutput("p64"), ctx).Events.Single().Payload).Fields.ContainsKey(CodexExtension.Patch)).IsTrue();
     }
 
     [Test]

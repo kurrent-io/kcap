@@ -69,7 +69,7 @@ public class GeminiSubagentDiscoveryTests {
         await Assert.That(GeminiSubagentDiscovery.CanonicalAgentId(input)).IsEqualTo(expected);
     }
 
-    // ── EnumerateDescendantFiles (D3: recursive grandchild discovery) ──────────────
+    // ── EnumerateDescendantFiles (recursive grandchild discovery) ──────────────────
 
     const string DashedGrandsub = "8c1a2222-3333-4444-5555-666677778888";
 
@@ -185,10 +185,9 @@ public class GeminiSubagentDiscoveryTests {
         await Assert.That(result.CountTruncated).IsFalse();
     }
 
-    // the walker used to stop AT the boundary child (depth 9) and
-    // never look below it, so a chain continuing to depth 10 was still counted as ONE omitted
-    // descendant. The walk must now continue (never importing) below the cap to count the
-    // WHOLE omitted subtree.
+    // The walk continues (never importing) below the cap to count the WHOLE omitted subtree:
+    // stopping AT the boundary child (depth 9) would count a chain continuing to depth 10 as ONE
+    // omitted descendant.
     [Test]
     public async Task EnumerateDescendantFiles_depth_9_and_10_chain_reports_omitted_two_not_one() {
         using var tmp = new TempDir();
@@ -218,14 +217,14 @@ public class GeminiSubagentDiscoveryTests {
         await Assert.That(result.CountTruncated).IsFalse();
     }
 
-    // ── MaxCountingNodes scope (D3 review fix #4) ───────────────────────────────────
+    // ── Counting ceiling ──────────────────────────────────────────────────────────
     //
-    // The counting ceiling used to gate the WHOLE unified traversal via the shared visited-id
-    // set's total size, so a root with a wide IN-CAP fan-out (well within MaxDescendantDepth)
-    // could itself get silently truncated once 10,000 total ids had been discovered — corrupting
-    // the import set, not merely the below-cap counting walk. It must now apply ONLY to
-    // descendants already beyond the import cap.
+    // The ceiling bounds only the walk below the import cap. These tests pass a small one in place of
+    // MaxCountingNodes, so reaching it takes tens of files rather than ten thousand.
 
+    const int Cap = 20;
+
+    /// <summary>The ceiling never truncates the import set: an in-cap fan-out wider than it is found whole.</summary>
     [Test]
     public async Task EnumerateDescendantFiles_wide_in_cap_fanout_beyond_the_counting_ceiling_finds_every_child() {
         using var tmp = new TempDir();
@@ -235,19 +234,14 @@ public class GeminiSubagentDiscoveryTests {
         var root   = chats.PathTo("session-root.jsonl");
         File.WriteAllText(root, $$"""{"sessionId":"{{rootId}}","kind":"main"}""" + "\n");
 
-        // MaxCountingNodes + 50 direct (depth-1, well within MaxDescendantDepth=8) subagent
-        // files — before the fix, the old `visited.Count >= MaxCountingNodes` ceiling (which
-        // counted the root + every discovered id, in-cap or not) would silently stop
-        // discovery after ~10,000 total visited ids, dropping the tail of this real, in-cap
-        // import set.
-        var childCount = GeminiSubagentDiscovery.MaxCountingNodes + 50;
+        var childCount = Cap + 50;
         var rootChatsDir = chats.CreateDir(rootId);
         for (var i = 0; i < childCount; i++) {
             var id = $"11111111-{i / 100000000:D4}-4000-8000-{i:D12}";
             rootChatsDir.CreateFile(id + ".jsonl", $$"""{"sessionId":"{{id}}","kind":"subagent"}""" + "\n");
         }
 
-        var result = GeminiSubagentDiscovery.EnumerateDescendantFiles(root);
+        var result = GeminiSubagentDiscovery.EnumerateDescendantFiles(root, null, maxCountingNodes: Cap);
 
         await Assert.That(result.Files.Count).IsEqualTo(childCount);
         await Assert.That(result.Files.All(f => f.Depth == 1)).IsTrue();
@@ -264,11 +258,8 @@ public class GeminiSubagentDiscoveryTests {
         var root   = chats.PathTo("session-root.jsonl");
         File.WriteAllText(root, $$"""{"sessionId":"{{rootId}}","kind":"main"}""" + "\n");
 
-        // A depth 1..8 chain (in-cap, discovered), then MaxCountingNodes + 50 direct
-        // children of the depth-8 node — ALL at depth 9, entirely below the import cap.
-        // This pushes the below-cap counting walk past MaxCountingNodes, which must set
-        // CountTruncated and stop growing the below-cap subtree WITHOUT touching the in-cap
-        // files gathered above.
+        // A depth 1..8 chain, then Cap + 50 depth-9 children of the depth-8 node: the counting walk
+        // passes the ceiling, which must truncate it without touching the in-cap files.
         var prevId = rootId;
         for (var depth = 1; depth <= 8; depth++) {
             var id  = $"00000000-0000-4000-8000-{depth:D12}";
@@ -276,33 +267,27 @@ public class GeminiSubagentDiscoveryTests {
             prevId = id;
         }
 
-        var belowCapCount = GeminiSubagentDiscovery.MaxCountingNodes + 50;
+        var belowCapCount = Cap + 50;
         var depth8Dir     = chats.CreateDir(prevId); // prevId is now the depth-8 node's own id
         for (var i = 0; i < belowCapCount; i++) {
             var id = $"22222222-{i / 100000000:D4}-4000-8000-{i:D12}";
             depth8Dir.CreateFile(id + ".jsonl", $$"""{"sessionId":"{{id}}","kind":"subagent"}""" + "\n");
         }
 
-        var result = GeminiSubagentDiscovery.EnumerateDescendantFiles(root);
+        var result = GeminiSubagentDiscovery.EnumerateDescendantFiles(root, null, maxCountingNodes: Cap);
 
         // The in-cap import set (depths 1..8) is complete and uncorrupted.
         await Assert.That(result.Files.Count).IsEqualTo(8);
         await Assert.That(result.Files.Max(f => f.Depth)).IsEqualTo(8);
 
-        // The below-cap counting walk hit the ceiling: truncated, and the omitted count/ids
-        // are a lower bound (exactly MaxCountingNodes, not the true belowCapCount), never
-        // silently reported as an exact/complete count.
+        // Truncated, and the omitted count is a lower bound (the ceiling, not belowCapCount).
         await Assert.That(result.CountTruncated).IsTrue();
-        await Assert.That(result.DescendantsOmitted).IsEqualTo(GeminiSubagentDiscovery.MaxCountingNodes);
-        await Assert.That(result.OmittedDescendantIds.Count).IsEqualTo(GeminiSubagentDiscovery.MaxCountingNodes);
+        await Assert.That(result.DescendantsOmitted).IsEqualTo(Cap);
+        await Assert.That(result.OmittedDescendantIds.Count).IsEqualTo(Cap);
     }
 
-    // the ceiling used to bound the RETURNED omitted count/ids, but
-    // not the actual WORK — every below-cap node already enqueued before the ceiling was hit
-    // (up to MaxCountingNodes of them) still got individually dequeued and directory-enumerated
-    // afterward. Once truncation is established, the below-cap frontier must be abandoned
-    // outright rather than drained node-by-node, so the walk never probes any of those
-    // below-cap nodes' own subdirectories.
+    /// <summary>Once truncation is established the below-cap frontier is abandoned, not drained: none of
+    /// the already-queued below-cap nodes has its own directory read.</summary>
     [Test]
     public async Task EnumerateDescendantFiles_below_cap_truncation_stops_expanding_already_queued_below_cap_nodes() {
         using var tmp = new TempDir();
@@ -312,11 +297,8 @@ public class GeminiSubagentDiscoveryTests {
         var root   = chats.PathTo("session-root.jsonl");
         File.WriteAllText(root, $$"""{"sessionId":"{{rootId}}","kind":"main"}""" + "\n");
 
-        // A depth 1..8 chain (in-cap), then MaxCountingNodes + 50 direct subagent files
-        // under the depth-8 node's own dir — ALL at depth 9 (below cap). A SINGLE directory
-        // enumeration of that dir returns this entire cap+50 list, so truncation is
-        // established while still inside the IN-CAP walk's processing of the depth-8 node —
-        // before the below-cap frontier is ever drained.
+        // A depth 1..8 chain, then Cap + 50 depth-9 files in one directory: truncation is established
+        // while the in-cap walk reads the depth-8 node, before the below-cap frontier is touched.
         var prevId = rootId;
         for (var depth = 1; depth <= 8; depth++) {
             var id  = $"00000000-0000-4000-8000-{depth:D12}";
@@ -324,7 +306,7 @@ public class GeminiSubagentDiscoveryTests {
             prevId = id;
         }
 
-        var belowCapCount = GeminiSubagentDiscovery.MaxCountingNodes + 50;
+        var belowCapCount = Cap + 50;
         var depth8Dir     = chats.CreateDir(prevId); // prevId is now the depth-8 node's own id
         for (var i = 0; i < belowCapCount; i++) {
             var id = $"22222222-{i / 100000000:D4}-4000-8000-{i:D12}";
@@ -332,24 +314,16 @@ public class GeminiSubagentDiscoveryTests {
         }
 
         var dequeuedBelowCapCount = 0;
-        var result = GeminiSubagentDiscovery.EnumerateDescendantFiles(root, () => dequeuedBelowCapCount++);
+        var result = GeminiSubagentDiscovery.EnumerateDescendantFiles(root, () => dequeuedBelowCapCount++, maxCountingNodes: Cap);
 
-        // Sanity: same correctness guarantees as the sibling test above.
         await Assert.That(result.Files.Count).IsEqualTo(8);
         await Assert.That(result.CountTruncated).IsTrue();
-        await Assert.That(result.DescendantsOmitted).IsEqualTo(GeminiSubagentDiscovery.MaxCountingNodes);
-
-        // The actual WORK is bounded too: truncation is already established from the single
-        // directory enumeration of the depth-8 node's dir (an IN-CAP node), so the below-cap
-        // frontier — which would hold up to ~10,000 depth-9 nodes — is never drained at all.
+        await Assert.That(result.DescendantsOmitted).IsEqualTo(Cap);
         await Assert.That(dequeuedBelowCapCount).IsEqualTo(0);
     }
 
-    // a below-cap parent's single directory read used to always
-    // enumerate (and OrderBy-sort) the WHOLE directory before CountTruncated could even be
-    // detected — a depth-8 node with (say) a million depth-9 subagent files would list and sort
-    // all million entries in one call. The per-parent read must instead be capped to (remaining
-    // counting capacity + 1 sentinel), regardless of how many files the directory truly holds.
+    /// <summary>A below-cap parent's directory read pulls at most the remaining counting capacity plus one
+    /// sentinel entry, however many files the directory holds.</summary>
     [Test]
     public async Task EnumerateDescendantFiles_below_cap_parent_never_touches_more_than_the_counting_cap_in_a_single_read() {
         using var tmp = new TempDir();
@@ -368,7 +342,7 @@ public class GeminiSubagentDiscoveryTests {
             prevId = id;
         }
 
-        var hugeChildCount = GeminiSubagentDiscovery.MaxCountingNodes + 2;
+        var hugeChildCount = Cap + 2;
         var depth8Dir      = chats.CreateDir(prevId); // prevId is now the depth-8 node's own id
         for (var i = 0; i < hugeChildCount; i++) {
             var id = $"22222222-{i / 100000000:D4}-4000-8000-{i:D12}";
@@ -378,30 +352,16 @@ public class GeminiSubagentDiscoveryTests {
         var maxTouched = 0;
         var result = GeminiSubagentDiscovery.EnumerateDescendantFiles(
             root, onDequeueBelowCapNode: null,
-            onBelowCapDirectoryRead: touched => maxTouched = Math.Max(maxTouched, touched));
+            onBelowCapDirectoryRead: touched => maxTouched = Math.Max(maxTouched, touched),
+            maxCountingNodes: Cap);
 
         await Assert.That(result.CountTruncated).IsTrue();
-        await Assert.That(result.DescendantsOmitted).IsEqualTo(GeminiSubagentDiscovery.MaxCountingNodes);
-
-        // The crux of the fix: no single below-cap directory read ever pulled more than
-        // (MaxCountingNodes + 1) raw entries from the OS enumeration — proving the read is
-        // capped by Take() rather than listing/sorting the entire directory before
-        // truncating.
-        await Assert.That(maxTouched).IsLessThanOrEqualTo(GeminiSubagentDiscovery.MaxCountingNodes + 1);
+        await Assert.That(result.DescendantsOmitted).IsEqualTo(Cap);
+        await Assert.That(maxTouched).IsLessThanOrEqualTo(Cap + 1);
     }
 
-    // a below-cap parent's bounded directory read caps RAW files
-    // via Take(), but non-GUID filtering happens AFTER that — so a junk (non-GUID) *.jsonl file
-    // landing inside the sentinel window used to silently consume the sole sentinel slot, filling
-    // omittedIds to exactly MaxCountingNodes valid ids while CountTruncated stayed false: a false
-    // "complete" report, even though the true descendant count could be larger. The bounded
-    // enumerator must now report HitLimit from the RAW touched count (regardless of how many
-    // entries turned out to be well-formed <GUID>.jsonl files), so this case is always caught.
-    // Qodo review (PR #326, finding #3): an unreadable descendant directory (permissions, I/O
-    // error) used to be swallowed by a bare `catch { return null; }`, silently dropping that
-    // whole subtree with no counter and no diagnostic. It must now be counted in
-    // UnreadableDescendantDirs so the omission is observable, while the walk still completes
-    // for every other (readable) branch.
+    /// <summary>An unreadable descendant directory is counted in UnreadableDescendantDirs rather than dropped
+    /// silently, and the walk still completes every readable branch.</summary>
     [Test]
     public async Task EnumerateDescendantFiles_unreadable_in_cap_directory_is_counted_not_silent() {
         if (OperatingSystem.IsWindows()) return; // chmod-based unreadable dir is Unix-only
@@ -469,6 +429,8 @@ public class GeminiSubagentDiscoveryTests {
         }
     }
 
+    /// <summary>Truncation follows the raw entry count, not the valid one: a junk file inside the sentinel window
+    /// must not let a count that reached the limit read as complete.</summary>
     [Test]
     public async Task EnumerateDescendantFiles_below_cap_boundary_plus_junk_entry_is_never_falsely_reported_complete() {
         using var tmp = new TempDir();
@@ -487,40 +449,31 @@ public class GeminiSubagentDiscoveryTests {
 
         var depth8Dir = chats.CreateDir(prevId); // prevId is now the depth-8 node's own id
 
-        // MaxCountingNodes - 1 valid (GUID-named) below-cap descendant files, plus ONE
-        // non-GUID junk *.jsonl file — MaxCountingNodes raw directory entries total, strictly
-        // BELOW the bounded fetch's limit (MaxCountingNodes + 1). A definite raw EOF: the
-        // whole directory is seen, so this is (correctly) NOT truncated.
-        for (var i = 0; i < GeminiSubagentDiscovery.MaxCountingNodes - 1; i++) {
+        // Cap - 1 valid below-cap files plus one non-GUID junk file: Cap raw entries, below the bounded
+        // fetch's limit of Cap + 1, so the whole directory is seen and the count is not truncated.
+        for (var i = 0; i < Cap - 1; i++) {
             var id = $"22222222-{i / 100000000:D4}-4000-8000-{i:D12}";
             depth8Dir.CreateFile(id + ".jsonl", $$"""{"sessionId":"{{id}}","kind":"subagent"}""" + "\n");
         }
         depth8Dir.CreateFile("not-a-guid.jsonl", """{"sessionId":"junk","kind":"subagent"}""" + "\n");
 
-        var before = GeminiSubagentDiscovery.EnumerateDescendantFiles(root);
+        var before = GeminiSubagentDiscovery.EnumerateDescendantFiles(root, null, maxCountingNodes: Cap);
         await Assert.That(before.CountTruncated).IsFalse();
-        await Assert.That(before.DescendantsOmitted).IsEqualTo(GeminiSubagentDiscovery.MaxCountingNodes - 1);
+        await Assert.That(before.DescendantsOmitted).IsEqualTo(Cap - 1);
 
-        // Add ONE more genuinely-new valid descendant file under the SAME dir, pushing its
-        // raw entry count to exactly MaxCountingNodes + 1 (MaxCountingNodes valid + 1 junk) —
-        // precisely the bounded fetch's sentinel-inflated limit, so the junk file now lands
-        // inside the sentinel window.
+        // One more valid file makes Cap + 1 raw entries, exactly the fetch's limit, so the junk file
+        // now sits inside the sentinel window.
         var extraId = "33333333-0000-4000-8000-000000000000";
         depth8Dir.CreateFile(extraId + ".jsonl", $$"""{"sessionId":"{{extraId}}","kind":"subagent"}""" + "\n");
 
-        var after = GeminiSubagentDiscovery.EnumerateDescendantFiles(root);
+        var after = GeminiSubagentDiscovery.EnumerateDescendantFiles(root, null, maxCountingNodes: Cap);
 
-        // The in-cap import set (depths 1..8) is unaffected either way.
         await Assert.That(after.Files.Count).IsEqualTo(8);
 
-        // Before the fix: the junk entry silently consumed the sole sentinel slot, so exactly
-        // MaxCountingNodes valid ids filled omittedIds and CountTruncated stayed false — the
-        // genuinely-new descendant added above must change the reported signature:
-        // DescendantsOmitted grows from MaxCountingNodes - 1 to MaxCountingNodes AND
-        // CountTruncated flips to true (a safe over-report — the raw fetch exhausted its
-        // limit, so we can no longer prove there isn't yet another descendant beyond it).
+        // The raw read reached its limit, so a further descendant cannot be ruled out: truncated, even
+        // though the junk entry took the sentinel slot.
         await Assert.That(after.CountTruncated).IsTrue();
-        await Assert.That(after.DescendantsOmitted).IsEqualTo(GeminiSubagentDiscovery.MaxCountingNodes);
-        await Assert.That(after.OmittedDescendantIds.Count).IsEqualTo(GeminiSubagentDiscovery.MaxCountingNodes);
+        await Assert.That(after.DescendantsOmitted).IsEqualTo(Cap);
+        await Assert.That(after.OmittedDescendantIds.Count).IsEqualTo(Cap);
     }
 }

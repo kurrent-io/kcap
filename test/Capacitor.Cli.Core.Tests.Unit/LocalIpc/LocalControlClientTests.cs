@@ -8,7 +8,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.LocalIpc;
 
 /// <summary>
 /// LocalControlClient state machine over a REAL Unix socket driven by a scripted server
-/// (spec §4.4). All tests drive the internal seams with small REAL timeouts/backoff delays
+/// All tests drive the internal seams with small REAL timeouts/backoff delays
 /// (deterministic enough: the scripted peer answers or stalls instantly, so waits are bounded
 /// by generous polling deadlines rather than tight tolerances — see
 /// <see cref="Backoff_delay_advances_across_failures_and_resets_after_connected"/> for why a
@@ -81,7 +81,7 @@ public class LocalControlClientTests {
         await FrameCodec.ReadAsync(s, ct); await Task.Delay(Timeout.Infinite, ct);           // accept, never reply
     };
     /// Replies to Hello with a frame that decodes fine but isn't HelloReply — the "Error frame
-    /// or any unexpected frame type answering Hello" branch of §4.2.
+    /// or any unexpected frame type answering Hello" branch of the handshake.
     static ConnScript HelloWrongFrameType() => async (s, ct) => {
         var f = await FrameCodec.ReadAsync(s, ct);
         if (f?.Type == FrameType.Hello)
@@ -128,7 +128,7 @@ public class LocalControlClientTests {
         await FrameCodec.ReadAsync(s, ct); await Task.Delay(Timeout.Infinite, ct);
     };
     /// Answers StatusSubscribe with a decodable but semantically wrong frame type — the
-    /// "or arriving on the subscribe connection" half of the same §4.2 branch as
+    /// "or arriving on the subscribe connection" half of the same branch as
     /// <see cref="HelloWrongFrameType"/>.
     static ConnScript SubscribeWrongFrameType() => async (s, ct) => {
         var f = await FrameCodec.ReadAsync(s, ct);
@@ -204,6 +204,34 @@ public class LocalControlClientTests {
         await Assert.That(status.Snapshot.Agents.Count).IsEqualTo(2);
     }
 
+    static string StartingHello() => JsonSerializer.Serialize(
+        new HelloReplyDto(1, "1.0", "m", [], Starting: true), HelloIpcJsonContext.Default.HelloReplyDto);
+
+    /// <summary>A daemon still probing its vendors is up, so it is neither an outage nor an incompatible daemon: the
+    /// client stays connecting, asks again without stepping down its backoff, and connects once the daemon is ready.
+    /// It offers to hear a starting daemon, without which that daemon would hold its hello.</summary>
+    [Test]
+    public async Task A_starting_daemon_keeps_the_client_connecting_until_it_is_ready() {
+        string? sent = null;
+        ConnScript starting = async (s, ct) => {
+            var f = await FrameCodec.ReadAsync(s, ct);
+            sent ??= f?.Text;
+            await FrameCodec.WriteAsync(s, LocalFrame.HelloJson(FrameType.HelloReply, StartingHello()), ct);
+        };
+
+        var events = await RunClientAsync(
+            [starting, starting, starting, HelloThen(GoodHello("status/1")), SubscribePush(ValidStatusJson())],
+            evs => evs.OfType<LocalControlEvent.Connected>().Any() || evs.OfType<LocalControlEvent.Unreachable>().Any(),
+            client => {
+                client.RetryDelays        = [TimeSpan.FromMinutes(5)];
+                client.StartingRetryDelay = TimeSpan.FromMilliseconds(10);
+            });
+
+        await Assert.That(events.Select(e => e.GetType())).IsEquivalentTo(
+            [typeof(LocalControlEvent.Connecting), typeof(LocalControlEvent.Connected)], CollectionOrdering.Matching);
+        await Assert.That(JsonSerializer.Deserialize(sent!, HelloIpcJsonContext.Default.ClientHelloDto)!.AcceptsStarting == true).IsTrue();
+    }
+
     [Test]
     public async Task Capability_missing_and_hello_eof_classify_as_incompatible() {
         var noCap = await RunClientAsync(
@@ -237,7 +265,7 @@ public class LocalControlClientTests {
     // to daemon_unreachable via the same catch-all), so Missing_socket_classifies_as_unreachable
     // above already exercises that code path.
 
-    [Test] // "Error frame or any unexpected frame type answering Hello" (§4.2), both flavors
+    [Test] // "Error frame or any unexpected frame type answering Hello", both flavors
     public async Task Unexpected_and_undecodable_hello_replies_classify_as_incompatible() {
         var wrongType = await RunClientAsync(
             [HelloWrongFrameType()],
@@ -250,7 +278,7 @@ public class LocalControlClientTests {
         await Assert.That(((LocalControlEvent.Unreachable)undecodable[^1]).Reason).IsEqualTo("daemon_incompatible");
     }
 
-    [Test] // same §4.2 branch, but "arriving on the subscribe connection" instead of answering Hello
+    [Test] // same branch, but "arriving on the subscribe connection" instead of answering Hello
     public async Task Unexpected_frame_type_on_subscribe_connection_classifies_as_incompatible() {
         var events = await RunClientAsync(
             [HelloThen(GoodHello("status/1")), SubscribeWrongFrameType()],
@@ -259,7 +287,7 @@ public class LocalControlClientTests {
         await Assert.That(((LocalControlEvent.Unreachable)events[^1]).Reason).IsEqualTo("daemon_incompatible");
     }
 
-    [Test] // silent peers classify via deadlines instead of hanging (spec §4.1)
+    [Test] // silent peers classify via deadlines instead of hanging
     public async Task Silent_peers_classify_as_unreachable_via_phase_deadlines() {
         var helloStall = await RunClientAsync([HelloStall()],
             evs => evs.OfType<LocalControlEvent.Unreachable>().Any());
@@ -383,13 +411,12 @@ public class LocalControlClientTests {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 
         await foreach (var e in client.RunAsync(cts.Token)) {
-            // A bare `break` — never cancels `cts` — is exactly the disposal path the fix
-            // targets: `await foreach` calls the enumerator's DisposeAsync() while it's
+            // A bare `break` — never cancels `cts` — is exactly the disposal path under test: `await foreach` calls the enumerator's DisposeAsync() while it's
             // suspended at this very `yield return Connected`.
             if (e is LocalControlEvent.Connected) break;
         }
 
-        // Without the fix this never completes (the server's read stays parked on a socket
+        // If disposal does not close the socket this never completes (the server's read stays parked on a socket
         // nobody ever closed) and the test fails on this timeout — a deterministic signal,
         // not a flaky one: the WaitAsync bound only needs to be "generous enough", never
         // "tight enough".
@@ -408,8 +435,7 @@ public class LocalControlClientTests {
         var client = new LocalControlClient(daemons.Store, name, TimeProvider.System) { RetryDelays = [TimeSpan.FromMilliseconds(1)] };
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         // Fires after RunCycleAsync has already returned success (the first valid snapshot
-        // was read) but before RunAsync's ct checkpoint/yield — exactly the race the fix
-        // closes.
+        // was read) but before RunAsync's ct checkpoint/yield — exactly the race this pins.
         client.OnCycleSucceededForTest = cts.Cancel;
 
         var events = new List<LocalControlEvent>();

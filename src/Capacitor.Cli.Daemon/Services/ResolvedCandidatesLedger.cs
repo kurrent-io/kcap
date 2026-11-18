@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// Phase B2-b (sequenced-settlement design §4.2.4): the durable outbox of positive per-id death
+/// The durable outbox of positive per-id death
 /// evidence. Persisted atomically (temp+rename) in the daemon state dir; the monotonic
 /// <c>Generation</c> counter persists WITH it (spans epochs + restarts). Upsert is idempotent on the
 /// source-stable <c>(AgentId, OldEpoch)</c> key — the same key never mints a second entry, so a
@@ -34,7 +34,7 @@ internal sealed partial class ResolvedCandidatesLedger {
             if (_entries.TryGetValue(key, out var existing)) return existing; // idempotent — no new generation
             var entry = new ResolvedStartupCandidate(_nextGeneration, agentId, oldEpoch, flowRunId, flowRole);
             _entries[key] = entry;
-            // Phase B2-b (sequenced-settlement design §5.5): persist the PROSPECTIVE state (with the
+            // Persist the PROSPECTIVE state (with the
             // post-increment high-water) BEFORE committing the counter in memory, and roll back the
             // in-memory entry if the durable write throws — so memory never leads disk. A leftover
             // in-memory-only entry would otherwise satisfy the next sweep's idempotent short-circuit above
@@ -51,7 +51,7 @@ internal sealed partial class ResolvedCandidatesLedger {
         lock (_lock) return [.. _entries.Values.OrderBy(e => e.Generation)];
     }
 
-    /// <summary>Phase B2-b (sequenced-settlement design §5.5): the daemon-lifetime monotonic high-water
+    /// <summary>The daemon-lifetime monotonic high-water
     /// of minted generations — 0 before any mint, N after N distinct Upserts. Persists across prunes and
     /// restarts (<see cref="_nextGeneration"/> is never decremented and Load restores it), so once sparse
     /// acks prune entries the server still learns the generation frontier.</summary>

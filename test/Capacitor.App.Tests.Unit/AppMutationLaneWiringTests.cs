@@ -1,5 +1,6 @@
 using Capacitor.App.Services;
 using Capacitor.App.Services.Mutation;
+using Capacitor.App.Tests.Unit.Services;
 using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.Cli.Core;
 using AppUnderTest = Capacitor.App.App;
@@ -10,7 +11,7 @@ namespace Capacitor.App.Tests.Unit;
 /// presentation routing, pinned-CLI resolution, and shutdown quiesce composition.
 /// Plain TUnit, no Avalonia session needed — pure/async functions over interfaces and fakes
 /// (FakeLifecycleSurface/FakeKcapCli/FakeLoginShellProbe are shared from
-/// DaemonLifecycleControllerTests.cs, same namespace).
+/// DaemonLifecycleControllerTests.cs).
 public class AppMutationLaneWiringTests {
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
 
@@ -178,6 +179,20 @@ public class AppMutationLaneWiringTests {
         await Assert.That(surface.AttentionMessages.Count).IsEqualTo(1);
         await Assert.That(surface.Prompts).IsEmpty();
         await Assert.That(surface.StatusMessages).IsEmpty();
+    }
+
+    /// A daemon that attaches later settles the doubt, so the line goes to the lane that can take it back then.
+    [Test]
+    public async Task UnconfirmedNoAttach_goes_to_the_until_attached_lane_when_one_is_given() {
+        var surface = new FakeLifecycleSurface();
+        var untilAttached = new List<string>();
+
+        await AppUnderTest.PresentOutcomeAsync(
+            surface, Envelope(new MutationOutcome.UnconfirmedNoAttach()), NeverRunMutation, FixedTerminalPath("/usr/bin"), () => null,
+            CancellationToken.None, attentionUntilAttached: untilAttached.Add);
+
+        await Assert.That(untilAttached).IsEquivalentTo([DaemonEnabler.UnconfirmedStatus(MutationVerb.StartVerified)]);
+        await Assert.That(surface.AttentionMessages).IsEmpty();
     }
 
     /// The Done page shows the setup's own status beside this attention line and drops the second only when the two

@@ -33,14 +33,16 @@ public abstract record ImportWarning(string SessionId, string? AgentId) : Import
 }
 
 /// <summary>A line that alone exceeds the batch byte budget; it cannot be split, so it is not sent.</summary>
+/// <param name="LineNumber">The 0-based wire index; the message prints it 1-based, as an editor counts.</param>
 public sealed record LineSkipped(string SessionId, string? AgentId, int LineNumber, int Bytes)
     : ImportWarning(SessionId, AgentId) {
     public override string Message =>
-        $"{Scope}line {LineNumber} skipped: {Bytes} bytes exceeds the {TranscriptBatchBuffer.MaxBytes >> 20} MiB per-line limit";
+        $"{Scope}line {LineNumber + 1} skipped: {Bytes} bytes exceeds the {TranscriptBatchBuffer.MaxBytes >> 20} MiB per-line limit";
 }
 
 /// <summary>A batch the server refused, or that never reached it, on a path that keeps going past the loss.</summary>
+/// <param name="FirstLineNumber">The 0-based wire index of the first line, as LastLineNumber is of the last; the message prints both 1-based.</param>
 public sealed record BatchDropped(string SessionId, string? AgentId, int FirstLineNumber, int LastLineNumber, string Reason)
     : ImportWarning(SessionId, AgentId) {
-    public override string Message => $"{Scope}lines {FirstLineNumber}-{LastLineNumber} dropped: {Reason}";
+    public override string Message => $"{Scope}lines {FirstLineNumber + 1}-{LastLineNumber + 1} dropped: {Reason}";
 }

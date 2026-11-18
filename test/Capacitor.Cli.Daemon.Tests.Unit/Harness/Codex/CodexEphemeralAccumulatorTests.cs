@@ -2,7 +2,7 @@ using Capacitor.Cli.Daemon.Harness.Codex;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Codex;
 
-/// <summary>The per-item ephemeral accumulator (§2.4): deltas fold into cumulative content-so-far,
+/// <summary>The per-item ephemeral accumulator: deltas fold into cumulative content-so-far,
 /// items are independent, and completion drops an item's transient state.</summary>
 public class CodexEphemeralAccumulatorTests {
     [Test]

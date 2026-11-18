@@ -1,5 +1,7 @@
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core;
+using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Core.Mcp;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -259,6 +261,19 @@ public class McpArtefactsServerTests {
     }
 
     [Test]
+    public async Task Out_of_scope_instructions_leave_the_harness_artifact_tool_in_charge_but_keep_publishing_rules() {
+        var instructions = McpArtefactsServer.InstructionsFor(outOfScope: true);
+
+        await Assert.That(instructions).IsEqualTo(McpArtefactsServer.OutOfScopeInstructions);
+        await Assert.That(instructions).DoesNotContain("rather than with your harness's own artifact tool");
+        await Assert.That(instructions).Contains("only when the user asks for one");
+        await Assert.That(instructions).Contains("data URI");
+        await Assert.That(instructions).Contains("get_page_guide");
+        await Assert.That(McpArtefactsServer.InstructionsFor(outOfScope: false)).IsEqualTo(McpArtefactsServer.ServerInstructions);
+        await Assert.That(McpArtefactsServer.ServerInstructions).Contains("rather than with your harness's own artifact tool");
+    }
+
+    [Test]
     public async Task Server_instructions_point_at_search_pages() =>
         await Assert.That(McpArtefactsServer.ServerInstructions).Contains("search_pages");
 
@@ -266,7 +281,7 @@ public class McpArtefactsServerTests {
 
     McpArtefactsServer Server() =>
         new(Config.Root, Resolutions.None(Config.Root), AuthFixtures.NewTokenStore(Config.Root),
-            new FixedCapacitorHttpClient(), NoTelemetry.Startup, TimeProvider.System);
+            new FixedCapacitorHttpClient(), NoTelemetry.Startup, new McpCaptureScope(Config.Root, Resolutions.None(Config.Root), new GitProviderRouter(), new UserHome(AppContext.BaseDirectory), new WorkingDirectory(AppContext.BaseDirectory), TimeProvider.System), TimeProvider.System);
 
     static async Task<(bool IsError, string Text)> CallAsync(McpArtefactsServer server, string baseUrl, JsonObject arguments,
                                                              string tool = "get_page") {

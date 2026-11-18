@@ -3,8 +3,10 @@ namespace Capacitor.App.Services.Notifications;
 public interface IDesktopNotificationAccess {
     Task<DesktopNotificationAccess> GetAsync();
 
-    /// Shows the operating system's permission prompt when access is undetermined. An ignored
-    /// prompt settles as denied, so call this only while the user is looking at the app.
+    async Task<bool> NeedsRequestAsync() => await GetAsync() == DesktopNotificationAccess.NotDetermined;
+
+    /// Requests the platform's notification interactions, including additional supported types.
+    /// An undetermined request can prompt, so call this while the user is looking at the app.
     Task<DesktopNotificationAccess> RequestAsync();
 
     void OpenSystemSettings();

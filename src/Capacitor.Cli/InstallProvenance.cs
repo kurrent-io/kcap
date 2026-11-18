@@ -79,10 +79,12 @@ public static class InstallProvenance {
         return fileExists(Path.Combine(contents, "Info.plist"));
     }
 
-    /// <summary>The Windows desktop app's Velopack install: the CLI sits beside <c>kcap-desktop.exe</c> in
-    /// <c>current</c>, under the root that holds Velopack's <c>Update.exe</c>.</summary>
+    /// <summary>The Windows desktop app's Velopack install: the CLI sits in <c>current\bin</c> (or directly in
+    /// <c>current</c>) beside <c>kcap-desktop.exe</c>, under the root that holds Velopack's <c>Update.exe</c>.</summary>
     internal static bool IsWindowsAppInstall(string? processPath, Func<string, bool> fileExists) {
         var current = Path.GetDirectoryName(processPath);
+        if (!string.IsNullOrEmpty(current) && string.Equals(Path.GetFileName(current), "bin", StringComparison.OrdinalIgnoreCase))
+            current = Path.GetDirectoryName(current);
         if (string.IsNullOrEmpty(current) || !string.Equals(Path.GetFileName(current), "current", StringComparison.OrdinalIgnoreCase))
             return false;
 

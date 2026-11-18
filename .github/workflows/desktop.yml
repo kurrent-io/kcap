@@ -12,9 +12,9 @@ on:
         type: string
       release:
         description: >-
-          Sign and notarize on macOS, Authenticode-sign on Windows when a certificate is configured,
-          diff against the published feed and refuse a version already in the bucket. Needs the
-          Apple, Windows and R2 secrets.
+          Sign and notarize on macOS, Authenticode-sign on Windows once vars.ARTIFACT_SIGNING_PROFILE
+          is set, diff against the published feed and refuse a version already in the bucket. Needs
+          the Apple and R2 secrets.
         type: boolean
         default: false
 
@@ -23,12 +23,14 @@ jobs:
     name: Build
     runs-on: ${{ startsWith(inputs.rid, 'osx-') && 'macos-latest' || startsWith(inputs.rid, 'win-') && 'windows-latest' || 'ubuntu-latest' }}
     timeout-minutes: ${{ startsWith(inputs.rid, 'osx-') && 90 || 60 }}
+    environment: ${{ inputs.release && startsWith(inputs.rid, 'win-') && vars.ARTIFACT_SIGNING_PROFILE != '' && 'windows-signing' || '' }}
     env:
       # vpk is a framework-dependent global tool built for an older runtime than the pinned SDK.
       DOTNET_ROLL_FORWARD: Major
       VERSION: ${{ inputs.version }}
       RID: ${{ inputs.rid }}
       EXE: ${{ startsWith(inputs.rid, 'win-') && '.exe' || '' }}
+      AUTHENTICODE: ${{ inputs.release && startsWith(inputs.rid, 'win-') && vars.ARTIFACT_SIGNING_PROFILE != '' }}
     defaults:
       run:
         shell: bash
@@ -135,14 +137,26 @@ jobs:
             || echo "no previous release to diff against"
           bash scripts/desktop-baseline.sh releases "$VERSION"
 
-      # Windows signs only once a certificate is configured: an unsigned build still installs and
-      # updates, but SmartScreen warns on the first download.
+      - name: Set up Authenticode signing
+        id: authenticode
+        if: env.AUTHENTICODE == 'true'
+        uses: ./.github/actions/artifact-signing
+        with:
+          tenant-id: ${{ vars.ARTIFACT_SIGNING_TENANT_ID }}
+          client-id: ${{ vars.ARTIFACT_SIGNING_CLIENT_ID }}
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          account: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          profile: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+
+      # Windows signs only once Artifact Signing is configured: an unsigned build still installs and
+      # updates, but SmartScreen warns on the first download. Velopack skips a file that is already
+      # signed, but signs one whose check fails, so the CLI trio is excluded outright: it must keep
+      # the bytes the daemon digest covers.
       - name: Pack
         env:
           RELEASE: ${{ inputs.release }}
           APPLE_SIGNING_IDENTITY: ${{ startsWith(inputs.rid, 'osx-') && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          WINDOWS_CERTIFICATE_PFX: ${{ startsWith(inputs.rid, 'win-') && secrets.WINDOWS_CERTIFICATE_PFX || '' }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ startsWith(inputs.rid, 'win-') && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+          KCAP_SIGN_TOKEN: ${{ steps.authenticode.outputs.token }}
         run: |
           set -euo pipefail
           case "$RUNNER_OS" in
@@ -157,16 +171,15 @@ jobs:
                    --signDisableDeep --notaryProfile kcap-notary --keychain "$KEYCHAIN")
           fi
           if [ "$RELEASE" = true ] && [ "$RUNNER_OS" = Windows ]; then
-            if [ -n "${WINDOWS_CERTIFICATE_PFX:-}" ]; then
-              printf '%s' "$WINDOWS_CERTIFICATE_PFX" | base64 -d > "$RUNNER_TEMP/kcap-sign.pfx"
-              args+=(--signParams "/fd sha256 /td sha256 /tr http://timestamp.digicert.com /f \"$RUNNER_TEMP/kcap-sign.pfx\" /p \"$WINDOWS_CERTIFICATE_PASSWORD\"")
+            if [ "$AUTHENTICODE" = true ]; then
+              args+=(--signTemplate "$(bash scripts/sign-windows.sh --vpk-template)" --signParallel 25
+                     --signExclude '[\\/]bin[\\/]kcap(-daemon|-service)?\.exe$')
             else
-              echo "::warning::WINDOWS_CERTIFICATE_PFX is not configured; the Windows app ships unsigned"
+              echo "::warning::vars.ARTIFACT_SIGNING_PROFILE is not set; the Windows app ships unsigned"
             fi
           fi
           vpk pack --packId kcap --packVersion "$VERSION" --packTitle "kcap" --packAuthors Kurrent \
             --channel "$RID" --outputDir releases "${args[@]}"
-          rm -f "$RUNNER_TEMP/kcap-sign.pfx"
 
       - name: Assert and smoke the packed bundle
         if: runner.os == 'macOS'
@@ -217,6 +230,19 @@ jobs:
           bash scripts/assert-bundle-digest.sh "$install" trio/bin/daemon.sha256
           "$install/current/bin/kcap-daemon.exe" --version
           "$install/current/bin/kcap-service.exe" --version
+
+      - name: Check the Authenticode signatures
+        if: env.AUTHENTICODE == 'true'
+        shell: pwsh
+        run: |
+          $install = Join-Path $env:LOCALAPPDATA 'kcap'
+          $files = @('releases/kcap-win-x64-Setup.exe', "$install/Update.exe", "$install/current/kcap-desktop.exe",
+                     "$install/current/bin/kcap.exe", "$install/current/bin/kcap-daemon.exe", "$install/current/bin/kcap-service.exe")
+          foreach ($f in $files) {
+            $s = Get-AuthenticodeSignature $f
+            if ($s.Status -ne 'Valid') { Write-Error "${f}: $($s.Status) $($s.StatusMessage)"; exit 1 }
+            "${f}: $($s.SignerCertificate.Subject)"
+          }
 
       # A missing native library or a platform-only call on the startup path ends the process
       # within seconds.

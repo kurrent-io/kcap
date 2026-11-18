@@ -219,11 +219,9 @@ public sealed class ConPtyProcess : IPtyProcess {
         // OWNERSHIP / CLEANUP SCOPE: hPC (the pseudoconsole) and the two parent-side pipe ends
         // (ptyInputWrite, ptyOutputRead) belong to THIS method until the success path transfers
         // them into the returned ConPtyProcess — hPC into the object, and the pipe ends into its
-        // stdio FileStreams (via SafeFileHandles). Every fail-closed exit AFTER CreatePseudoConsole
-        // used to leak all three: each throw path disposed the JOB handle but never released the
-        // pseudoconsole or the pipe ends. Because a CreateProcessW failure is a NORMAL fail-closed
-        // outcome (bad path / blocked nesting / the fail-closed UI-restricted-job case exercised by
-        // the W5 test), repeated failed launches leaked one pseudoconsole + two kernel handles each.
+        // stdio FileStreams (via SafeFileHandles). A CreateProcessW failure is a NORMAL fail-closed
+        // outcome (bad path / blocked nesting / a UI-restricted job), so a throw path that disposed
+        // only the JOB handle would leak one pseudoconsole + two kernel handles per failed launch.
         // The outer catch below releases them on ANY failure; `committed` flips true only once
         // ownership has been handed to the returned object, so the success path never double-closes
         // a now-owned handle. The raw pipe locals are additionally zeroed the instant their
@@ -232,7 +230,7 @@ public sealed class ConPtyProcess : IPtyProcess {
         var committed = false;
 
         try {
-            // §4.1: bind the child to a KILL_ON_JOB_CLOSE job at creation time (via the
+            // Bind the child to a KILL_ON_JOB_CLOSE job at creation time (via the
             // PROC_THREAD_ATTRIBUTE_JOB_LIST attribute below), not by AssignProcessToJobObject
             // after the fact — there is no window where the child exists uncontained.
             var hJob = CreateJobObjectW(IntPtr.Zero, null);
@@ -433,8 +431,13 @@ public sealed class ConPtyProcess : IPtyProcess {
         using var linked     = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
         var       buf        = new byte[4096];
         var       emptyPolls = 0;
+        var       exit       = new PtyExitWatch(() => {
+                CheckExited();
 
-        while (!linked.Token.IsCancellationRequested) {
+                return HasExited;
+            }, _time);
+
+        while (!linked.Token.IsCancellationRequested && !exit.DrainOver) {
             if (!PeekNamedPipe(_hOutputPipe, IntPtr.Zero, 0, IntPtr.Zero, out var avail, IntPtr.Zero)) {
                 CheckExited();
 
@@ -443,6 +446,7 @@ public sealed class ConPtyProcess : IPtyProcess {
 
             if (avail > 0) {
                 emptyPolls = 0;
+                exit.CheckIfDue();
                 var toRead = (uint)Math.Min(avail, buf.Length);
 
                 if (!ReadFile(_hOutputPipe, buf, toRead, out var read, IntPtr.Zero) || read == 0) {
@@ -454,32 +458,54 @@ public sealed class ConPtyProcess : IPtyProcess {
                 var data = new byte[read];
                 Array.Copy(buf, data, (int)read);
 
+                exit.Handing();
                 yield return data;
+                exit.Reading();
             } else {
-                CheckExited();
+                exit.Check();
 
-                if (HasExited) {
-                    emptyPolls++;
-
-                    if (emptyPolls > 5) {
-                        if (Interlocked.Exchange(ref _pcClosed, 1) == 0) {
-                            ClosePseudoConsole(_hPC);
-                        }
-
-                        if (PeekNamedPipe(_hOutputPipe, IntPtr.Zero, 0, IntPtr.Zero, out var finalAvail, IntPtr.Zero) && finalAvail > 0) {
-                            if (ReadFile(_hOutputPipe, buf, (uint)Math.Min(finalAvail, buf.Length), out var finalRead, IntPtr.Zero) && finalRead > 0) {
-                                var finalData = new byte[finalRead];
-                                Array.Copy(buf, finalData, (int)finalRead);
-
-                                yield return finalData;
-                            }
-                        }
-
-                        break;
-                    }
-                }
+                if (exit.ChildGone && ++emptyPolls > 5) break;
 
                 try { await Task.Delay(ReadPollGap, _time, linked.Token); } catch (OperationCanceledException) { yield break; }
+            }
+        }
+
+        if (!exit.ChildGone || linked.Token.IsCancellationRequested) yield break;
+
+        // Off this thread, which goes on draining: before Windows 11 24H2 the close waits for the output pipe to be
+        // read, so a close here with output pending would wait for good.
+        var closing = Interlocked.Exchange(ref _pcClosed, 1) == 0
+            ? Task.Run(() => ClosePseudoConsole(_hPC), CancellationToken.None)
+            : Task.CompletedTask;
+        var closed = new PtyExitWatch(static () => true, _time);
+        closed.Check();
+
+        try {
+            while (!closed.DrainOver) {
+                if (!PeekNamedPipe(_hOutputPipe, IntPtr.Zero, 0, IntPtr.Zero, out var finalAvail, IntPtr.Zero)) yield break;
+
+                if (finalAvail == 0) {
+                    if (closing.IsCompleted) yield break;
+
+                    try { await Task.Delay(ReadPollGap, _time, linked.Token); } catch (OperationCanceledException) { yield break; }
+
+                    continue;
+                }
+
+                if (!ReadFile(_hOutputPipe, buf, (uint)Math.Min(finalAvail, buf.Length), out var finalRead, IntPtr.Zero) || finalRead == 0) yield break;
+
+                var finalData = new byte[finalRead];
+                Array.Copy(buf, finalData, (int)finalRead);
+
+                closed.Handing();
+                yield return finalData;
+                closed.Reading();
+            }
+        } finally {
+            // A close still waiting on unread output returns only once the pipe is gone, and disposal may be far off.
+            if (!closing.IsCompleted) {
+                // Best effort: a pipe torn down under the close fails here, and DisposeAsync releases it again.
+                try { _outputStream.Dispose(); } catch (IOException) { }
             }
         }
     }
@@ -547,12 +573,11 @@ public sealed class ConPtyProcess : IPtyProcess {
         var started = _time.GetTimestamp();
         var limit   = timeout ?? TimeSpan.FromSeconds(5);
 
-        while (!HasExited && _time.GetElapsedTime(started) < limit) {
-            CheckExited();
+        CheckExited();
 
-            if (!HasExited) {
-                await Task.Delay(ExitConfirmGap, _time);
-            }
+        while (!HasExited && _time.GetElapsedTime(started) < limit) {
+            await Task.Delay(ExitConfirmGap, _time);
+            CheckExited();
         }
     }
 

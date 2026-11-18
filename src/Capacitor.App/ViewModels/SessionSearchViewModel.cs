@@ -21,7 +21,7 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
     string? _viewerUserId;
     readonly TimeProvider _time;
     readonly IScheduler _scheduler;
-    readonly ObservableCollection<SearchHitViewModel> _hits = [];
+    readonly ResettableCollection<SearchHitViewModel> _hits = [];
     /// Sessions an open found gone; kept out of every result until the page resets.
     readonly HashSet<string> _unavailable = new(StringComparer.Ordinal);
     readonly CompositeDisposable _disposables = new();
@@ -291,8 +291,7 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
         var rows = request.Mode == SearchMode.Sessions
             ? (fetch.Response?.Sessions ?? []).Select(h => SearchHitViewModel.ForSession(h, now))
             : (fetch.Response?.Transcripts ?? []).Select(h => SearchHitViewModel.ForTranscript(h, now));
-        _hits.Clear();
-        foreach (var row in rows.Where(r => !_unavailable.Contains(r.SessionId))) _hits.Add(row);
+        _hits.ReplaceAll(rows.Where(r => !_unavailable.Contains(r.SessionId)));
         HighlightIndex = 0;
 
         if (_hits.Count > 0) SetState(SearchListState.Results);
@@ -303,10 +302,8 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
         CancelInFlight();
         var query = Trimmed;
         var now = _time.GetLocalNow();
-        _hits.Clear();
-        foreach (var row in _sidebar()) {
-            if (SearchHitViewModel.ForSidebar(row, query, now, _viewerUserId) is { } hit) _hits.Add(hit);
-        }
+        var viewer = _viewerUserId;
+        _hits.ReplaceAll(_sidebar().Select(row => SearchHitViewModel.ForSidebar(row, query, now, viewer)).OfType<SearchHitViewModel>());
         HighlightIndex = 0;
         if (_hits.Count > 0) SetState(SearchListState.Results);
         else SetState(SearchListState.NoResults, query.Length == 0 ? "No sessions in the sidebar" : "No matching sessions in the sidebar");

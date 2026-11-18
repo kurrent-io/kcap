@@ -15,7 +15,7 @@ public class McpWorkItemsServerTests {
     // Resolutions.None: these tests exercise routing, not profile selection.
     McpWorkItemsServer Server() =>
         new(Config.Root, Resolutions.None(Config.Root), AuthFixtures.NewTokenStore(Config.Root), new FixedCapacitorHttpClient(), NoTelemetry.Startup,
-            new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory), TimeProvider.System);
+            new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory), new McpCaptureScope(Config.Root, Resolutions.None(Config.Root), new GitProviderRouter(), new UserHome(AppContext.BaseDirectory), new WorkingDirectory(AppContext.BaseDirectory), TimeProvider.System), TimeProvider.System);
 
     static ValueTask<string?> NoRepo() => ValueTask.FromResult<string?>(null);
 
@@ -84,7 +84,7 @@ public class McpWorkItemsServerTests {
         await Assert.That(url).IsEqualTo("http://x/api/work-items/session/sess%20a%2Fb");
     }
 
-    // ── flow-review round 2 findings ─────────────────────────────────────────
+    // ── argument shapes and request bodies ───────────────────────────────────
 
     [Test]
     public async Task Decode_method_returns_null_for_wrong_shaped_method_instead_of_throwing() {
@@ -442,6 +442,37 @@ public class McpWorkItemsServerTests {
     public async Task Server_instructions_lead_with_the_completion_rule() =>
         await Assert.That(McpWorkItemsServer.ServerInstructions).StartsWith(NextWorkEmitter.CompletionInstruction);
 
+    [Test]
+    public async Task A_headless_run_is_not_told_to_present_next_work_but_keeps_the_rest() {
+        var headless = McpWorkItemsServer.InstructionsFor(headless: true);
+
+        await Assert.That(headless).DoesNotContain(NextWorkEmitter.CompletionInstruction);
+        await Assert.That(headless).Contains("declare_work_item");
+        await Assert.That(McpWorkItemsServer.ServerInstructions).EndsWith(headless);
+        await Assert.That(McpWorkItemsServer.InstructionsFor(headless: false)).IsEqualTo(McpWorkItemsServer.ServerInstructions);
+    }
+
+    [Test]
+    public async Task Disabling_the_next_work_nudge_drops_the_completion_rule_but_keeps_asked_for_next_work() {
+        var instructions = McpWorkItemsServer.InstructionsFor(headless: false, nextWorkNudgeDisabled: true);
+
+        await Assert.That(instructions).DoesNotContain(NextWorkEmitter.CompletionInstruction);
+        await Assert.That(instructions).Contains("call get_next_work first");
+        await Assert.That(McpWorkItemsServer.InstructionsFor(headless: false, nextWorkNudgeDisabled: false))
+            .IsEqualTo(McpWorkItemsServer.ServerInstructions);
+    }
+
+    [Test]
+    public async Task Out_of_scope_instructions_keep_asked_for_next_work_and_drop_every_declaration() {
+        var instructions = McpWorkItemsServer.OutOfScopeInstructions;
+
+        await Assert.That(instructions).Contains("call get_next_work first");
+        await Assert.That(instructions).DoesNotContain(NextWorkEmitter.CompletionInstruction);
+
+        foreach (var write in new[] { "declare_work_item", "declare_work_breakdown", "declare_work_relation", "declare_loose_end", "claim_loose_end" })
+            await Assert.That(instructions).DoesNotContain(write);
+    }
+
     // ── declared breakdown + relations ───────────────────────────────────────
 
     [Test]
@@ -599,8 +630,7 @@ public class McpWorkItemsServerTests {
 
     [Test]
     public async Task Breakdown_body_rejects_an_explicit_null_part_ids() {
-        // A PRESENT null is a wrong shape, not absence. An earlier revision's `is { } node` form read
-        // it as absence and silently omitted the field (review finding).
+        // A PRESENT null is a wrong shape, not absence: reading it as absence silently omits the field.
         var ex = Assert.Throws<ArgumentException>(
             () => McpWorkItemsServer.BuildBreakdownBody(Args("""{"parent_id":"p1","part_ids":null}""")));
 
@@ -647,9 +677,8 @@ public class McpWorkItemsServerTests {
             await Assert.That(ex!.Message).Contains("parent_id").Because($"id {id} must be rejected");
         }
 
-        // And ONLY those two (review correction — an earlier revision rejected any all-dot id, and
-        // this test pinned that over-broad behaviour). "..." is an ordinary path segment, not a dot
-        // segment, so refusing it would reject an id the server might accept.
+        // And ONLY those two: "..." is an ordinary path segment, not a dot segment, so refusing it
+        // would reject an id the server might accept.
         var threeDots = McpWorkItemsServer.ItemUrl("http://x", Args("""{"parent_id":"..."}"""), "parent_id", "breakdown");
         await Assert.That(threeDots).IsEqualTo("http://x/api/work-items/.../breakdown");
 
@@ -671,7 +700,7 @@ public class McpWorkItemsServerTests {
     // ── dispatch: the route/method/body pairing itself ────────────────────────
 
     /// <summary>
-    /// Review finding: the helper tests above verify URL and body construction INDEPENDENTLY, so none
+    /// The helper tests above verify URL and body construction INDEPENDENTLY, so none
     /// of them would catch a switch entry that used GET instead of POST, picked the wrong suffix, or
     /// paired a route with the wrong body builder. These drive the real dispatch through a fake
     /// transport and assert what would actually go on the wire.
@@ -1170,13 +1199,12 @@ public class McpWorkItemsServerTests {
 
     // ── telemetry: a real dispatch failure must read back as ok=false ─────────────────────────
     //
-    // Regression coverage for the systematic MCP telemetry bug: every server's TimedDispatchToolCallAsync
-    // used to set ok=true merely because DispatchToolCallAsync returned a string, even when that
-    // string was a JSON-RPC result carrying isError:true (HandleToolCallAsync catches its own
-    // exceptions and returns such a result rather than throwing). This drives a REAL failure
+    // TimedDispatchToolCallAsync must not set ok=true merely because DispatchToolCallAsync returned a
+    // string: that string can be a JSON-RPC result carrying isError:true (HandleToolCallAsync catches
+    // its own exceptions and returns such a result rather than throwing). This drives a REAL failure
     // through the actual dispatch method — an unrecognized tool name, which never reaches the
     // network — and feeds its actual output into McpTelemetry.ResponseOk, the same function the
-    // wrapper now calls, so a reversion of either half would fail this test.
+    // wrapper calls.
     [Test]
     public async Task ResponseOk_reads_false_from_an_unknown_tool_dispatch_error() {
         using var client = new HttpClient(new CapturingHandler());

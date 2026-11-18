@@ -58,7 +58,7 @@ public class CodexImportTests {
 
     [Test]
     public async Task ExtractCodexSessionMetadata_ignores_turn_context_before_session_meta() {
-        // Qodo regression (#52): the docstring resolves the model from the first
+        // The docstring resolves the model from the first
         // turn_context AFTER session_meta. If the rollout header is truncated or
         // corrupt and a turn_context appears without a session_meta, its model
         // should NOT be picked up — meta.Model stays null so callers treat the
@@ -201,7 +201,7 @@ public class CodexImportTests {
     }
 
     // Wire-shape: vendor field is omitted when null and serialized as "vendor":"codex" otherwise.
-    // The server's INormalizerSelector keys off this exact field — see Kurrent.Capacitor#576.
+    // The server's INormalizerSelector keys off this exact field.
 
     [Test]
     public async Task TranscriptBatch_omits_vendor_field_when_null() {

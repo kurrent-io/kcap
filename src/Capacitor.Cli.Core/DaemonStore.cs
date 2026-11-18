@@ -64,6 +64,7 @@ public sealed partial class DaemonStore(string directory) {
     const string StartExtension = "start";
     const string RestartPendingExtension = "restart-pending";
     const string VersionExtension = "version";
+    const string RecordingExtension = "recording";
     const string SocketExtension = "sock";
     const string ServiceLockExtension = "service-lock";
     const string ServiceLockHolderExtension = "service-lock-holder";
@@ -97,9 +98,20 @@ public sealed partial class DaemonStore(string directory) {
     /// </summary>
     public string VersionPath(string daemonName) => File(daemonName, VersionExtension);
 
+    /// <summary>Present while the daemon of that name runs with recording on. Read by a hook before it opens the socket.</summary>
+    public string RecordingMarkerPath(string daemonName) => File(daemonName, RecordingExtension);
+
     /// <summary>Local control socket, colocated with the lock/pid files. macOS caps the whole path at
     /// 103 chars, and a long temp directory plus a long name silently stops binding.</summary>
     public string SocketPath(string daemonName) => File(daemonName, SocketExtension);
+
+    /// <summary>The steering socket a Claude Code mod speaks HTTP to. It sits in the owner-only state directory because
+    /// its mode and that directory's are the only authentication it has. Nine characters longer than
+    /// <see cref="SocketPath"/>, out of the same 103.</summary>
+    public string SteeringSocketPath(string daemonName) => Path.Combine(StateDirectory(daemonName), "steering.sock");
+
+    /// <summary>The terminal sessions the daemon steers, and the reports about their input it owes the server.</summary>
+    public string SteeringAttachmentsPath(string daemonName) => Path.Combine(StateDirectory(daemonName), "steering-attachments.json");
 
     /// <summary>The cross-process lock around one service transaction (install/replace/start).</summary>
     public string ServiceLockPath(string daemonName) => File(daemonName, ServiceLockExtension);

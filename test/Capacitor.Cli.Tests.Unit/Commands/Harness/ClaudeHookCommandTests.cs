@@ -50,6 +50,15 @@ public class ClaudeHookCommandTests {
         return clock;
     }
 
+    /// <summary>A hook clock <paramref name="elapsed"/> into its ceiling that keeps running in real time, so a
+    /// wait bounded by what is left of its budget comes due without sitting out the whole ceiling.</summary>
+    static HookClock Late(TimeSpan elapsed) {
+        var time  = new HeadStartTimeProvider();
+        var clock = new HookClock(time);
+        time.Skip(elapsed);
+        return clock;
+    }
+
     // The harness nudge fires unless an on-disk stamp throttles it, and a private root starts with
     // none — these tests assert on the memory fragment alone. Claim the window explicitly instead of
     // relying on whichever sibling test happened to claim it in the shared config dir first.
@@ -88,6 +97,55 @@ public class ClaudeHookCommandTests {
         await Assert.That(fx.ServerRequestCount).IsEqualTo(0);
         // Any spelling of the id: the hook spools under the dashless one.
         await Assert.That(fx.Spool.SessionIdsWithBacklog()).IsEmpty();
+    }
+
+    static string Lifecycle(string eventName, string sessionId, string cwd) =>
+        new JsonObject { ["hook_event_name"] = eventName, ["session_id"] = sessionId, ["cwd"] = cwd }.ToJsonString();
+
+    /// <summary>A session out of the profile's scope at its start stays quiet until it ends, even once its cwd moves
+    /// into scope. The title prompt reads only the exclusion marker, so without one the first prompt asks for a
+    /// title nobody records.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task a_session_started_out_of_scope_stays_quiet_until_it_ends(bool clientUnavailable) {
+        var allowed  = Tmp.CreateDir("allowed");
+        var outside  = Tmp.PathTo("outside");
+        var sid      = Guid.NewGuid().ToString();
+        using var fx = new Fixture(Config.Root, profile: new Profile { AllowedPaths = [allowed] });
+
+        await fx.EnterAsync(Lifecycle("SessionStart", sid, outside), clientUnavailable);
+
+        using var title = new StringWriter();
+        var prompt = new JsonObject {
+            ["hook_event_name"] = "UserPromptSubmit", ["session_id"] = sid, ["prompt"] = "hi", ["permission_mode"] = "bypassPermissions",
+        }.ToJsonString();
+        ClaudeTitlePrompt.Handle(prompt, Config.Root, new WatcherPaths(Tmp.PathTo("watchers")), bashTool: true, title, TextWriter.Null);
+        await Assert.That(title.ToString()).IsEqualTo("");
+
+        await fx.EnterAsync(Lifecycle("Stop", sid, allowed.PathTo("missing")), clientUnavailable);
+        await Assert.That(fx.RouteOrder).IsEmpty();
+        await Assert.That(fx.Spool.SessionIdsWithBacklog()).IsEmpty();
+
+        await fx.EnterAsync(Lifecycle("SessionEnd", sid, outside), clientUnavailable);
+        await Assert.That(DisabledSessions.IsDisabled(sid.Replace("-", ""), Config.Root)).IsFalse();
+    }
+
+    /// <summary>The exclusion marker keeps the run quiet but not its permission prompts, which still reach the
+    /// handler (ungoverned, no watcher) as they do when a later probe finds the session out of scope.</summary>
+    [Test]
+    public async Task a_permission_request_in_a_run_excluded_at_its_start_still_reaches_the_handler() {
+        var allowed  = Tmp.CreateDir("allowed");
+        var sid      = Guid.NewGuid().ToString();
+        using var fx = new Fixture(Config.Root, profile: new Profile { AllowedPaths = [allowed] });
+        await fx.EnterAsync(Lifecycle("SessionStart", sid, Tmp.PathTo("outside")));
+
+        await fx.HandleAsync(new JsonObject {
+            ["hook_event_name"] = "PermissionRequest", ["session_id"] = sid, ["cwd"] = allowed.PathTo("missing"),
+            ["tool_name"] = "Bash", ["tool_input"] = new JsonObject { ["command"] = "ls" },
+        }.ToJsonString());
+
+        await Assert.That(fx.RequestCount("/hooks/permission-record")).IsEqualTo(1);
     }
 
     /// <summary>Pins the seam's position: <c>PreToolUse</c> is decided before a client is ever built,
@@ -211,6 +269,38 @@ public class ClaudeHookCommandTests {
             .Contains("approval policy degraded");
     }
 
+    /// <summary>The degraded arm runs late, with little of the session-start budget left before Claude kills the hook. A
+    /// daemon that takes the hand-over and never answers must not spend what the watcher's start needs: on a clock nothing
+    /// moves, any wait on the daemon here would never end.</summary>
+    [Test, ExcludeOn(TUnit.Core.Enums.OS.Windows)] // Unix-domain socket path
+    public async Task A_late_degraded_session_start_starts_its_watcher_without_waiting_on_a_hung_daemon() {
+        using var fx      = new Fixture(Config.Root);
+        using var daemons = new TempDaemonStore();
+        var time     = new FakeTimeProvider();
+        var clock    = new HookClock(time);
+        var profiles = Resolutions.At("http://127.0.0.1:1", Config.Root);
+        var paths    = new WatcherPaths(Tmp.CreateDir("watchers"));
+        var spawner  = new FakeWatcherSpawner();
+        time.Advance(ClaudeHookCommand.SessionStartCeiling - HookBudget.Safety - TimeSpan.FromMilliseconds(300));
+
+        DaemonRecordingMarker.Sync(daemons.Store, "daemon-a", recording: true);
+        await using var daemon = new FakeRecordingDaemon(daemons.Store.SocketPath("daemon-a"), Core.LocalIpc.RecordingIpc.TerminalCapability);
+        var watchers = new WatcherManager(
+            Config.Root, profiles, new FixedCapacitorHttpClient(), SystemProcessStarter.Instance, paths, spawner, time,
+            new LocalDaemonRecording(daemons.Store, HostedAgent.Terminal, daemonName: null,
+                new TerminalHandOff("daemon-a", "default", "http://127.0.0.1:1", Config.Root.Directory, paths.Directory, _ => Home.Path, _ => new ProcessIncarnation(4242, "test:claude")), time),
+            HostedAgent.Terminal);
+        using var input = new StringReader($$"""{"hook_event_name":"SessionStart","session_id":"{{Sid}}","transcript_path":"/t/{{Sid}}.jsonl","cwd":"/tmp"}""");
+
+        var exit = await new ClaudeHookCommand(Config.Root, profiles, clock, Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), watchers, FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+            .HandleWithDeps(fx.Spool, input, () => Task.FromException<AuthAttempt>(new HttpRequestException("auth is down")))
+            .WithinDeadlineAsync("the degraded arm");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(spawner.Keys).IsEquivalentTo([Sid]);
+        await Assert.That(daemon.Received).IsEmpty();
+    }
+
     /// <summary>The degraded arm spools the end without reaching the stamp the posted path applies, and its replay
     /// may land after a resume, so it carries the run identity too.</summary>
     [Test]
@@ -314,6 +404,87 @@ public class ClaudeHookCommandTests {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+    }
+
+    static readonly ProcessIncarnation Claude = new(4242, "mac:1:2");
+
+    /// <summary>The daemon posted the end of this process's run when it exited with no hook in time, so the hook's own
+    /// would be a second one.</summary>
+    [Test]
+    public async Task A_session_end_the_daemon_posted_for_this_process_is_not_posted_again() {
+        using var fx = new Fixture(Config.Root) { EndingProcess = Claude };
+        SessionEndRecord.TryClaim(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
+        SessionEndRecord.MarkPosted(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
+
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsFalse();
+    }
+
+    /// <summary>A claim nobody marked posted for longer than any hook takes lost its claimer, so this hook takes it over,
+    /// posts, and marks it posted so nobody posts it after.</summary>
+    [Test]
+    public async Task A_hook_takes_over_a_stale_unposted_claim_and_marks_it_posted() {
+        using var fx = new Fixture(Config.Root) { EndingProcess = Claude };
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(1));
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow)).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    /// <summary>The server refusing the end it claimed is as final as taking it, so the daemon does not take the claim over
+    /// to post an end of its own. The claim is stale already, so only a settled record stops that take-over.</summary>
+    [Test]
+    public async Task A_session_end_the_server_refused_settles_its_claim() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.BadRequest) { EndingProcess = Claude };
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow - TimeSpan.FromMinutes(1));
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(SessionEndRecord.TryClaim(paths, Sid, Claude, DateTimeOffset.UtcNow)).IsEqualTo(SessionEndTurn.Done);
+    }
+
+    [Test]
+    public async Task A_session_end_the_server_refused_with_no_claim_leaves_no_record() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.BadRequest) { EndingProcess = Claude };
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(SessionEndRecord.Exists(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude)).IsFalse();
+    }
+
+    /// <summary>A resumed run in another process owes its own end, however soon after the first it comes.</summary>
+    [Test]
+    public async Task An_end_the_daemon_posted_for_another_process_does_not_hold_back_this_one() {
+        using var fx = new Fixture(Config.Root) { EndingProcess = Claude };
+        SessionEndRecord.TryClaim(WatcherPaths.FromEnvironment(Config.Root), Sid, new ProcessIncarnation(4343, "mac:1:2"), DateTimeOffset.UtcNow);
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        await Assert.That(fx.Sent.Any(s => s.StartsWith("/hooks/session-end|", StringComparison.Ordinal))).IsTrue();
+    }
+
+    /// <summary>The degraded arm spools the end it would post, and a spooled second end is a second end all the same.</summary>
+    [Test]
+    public async Task A_session_end_the_daemon_posted_for_this_process_is_not_spooled_on_the_degraded_arm() {
+        using var fx = new Fixture(Config.Root);
+        SessionEndRecord.TryClaim(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
+        SessionEndRecord.MarkPosted(WatcherPaths.FromEnvironment(Config.Root), Sid, Claude, DateTimeOffset.UtcNow);
+        using var input = new StringReader($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","cwd":"/tmp"}""");
+
+        var exit = await new ClaudeHookCommand(Config.Root, Resolutions.At("not-a-url", Config.Root), new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At("not-a-url", Config.Root), new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => Claude)
+            .HandleWithDeps(fx.Spool, input, () => throw new InvalidOperationException("no client is buildable for an unusable URL"));
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.SpoolFiles).IsEmpty();
     }
 
     /// <summary>Session-end is the only eviction the policy directories get, so what it leaves
@@ -750,6 +921,31 @@ public class ClaudeHookCommandTests {
         await Assert.That(fx.MemoryIndexRequestCount).IsEqualTo(1); // NOT re-fetched
     }
 
+    /// <summary>A failed SessionStart POST answers without waiting for the memory lane, and the lane failing
+    /// afterwards writes nothing: a late line would land in whatever else shares the process's stderr.
+    /// Redirects the process-global Console.Error, so it runs alone.</summary>
+    [Test, NotInParallel]
+    public async Task memory_lane_failing_after_the_hook_answered_writes_nothing_to_stderr() {
+        using var absent = new TempDir();
+        // A malformed index fails the lane, and holding it lets the hook answer first.
+        using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError) {
+            MemoryIndexBody = "[", MemoryIndexDelay = TimeSpan.FromMilliseconds(500)
+        };
+        using var capture = ConsoleOutput.StartErrorCapture("\n");
+
+        var sid = Guid.NewGuid().ToString("N");
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionStart","session_id":"{{sid}}","cwd":"{{AbsentCwd(absent)}}","source":"startup"}""");
+        var answered = capture.GetCapturedError();
+        // A server logs a request once it has answered it.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!fx.MemoryIndexRequested && DateTime.UtcNow < deadline) await Task.Delay(20);
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        await Assert.That(fx.MemoryIndexRequested).IsTrue();
+        await Assert.That(answered).DoesNotContain("lane skipped");
+        await Assert.That(capture.GetCapturedError()).IsEqualTo(answered);
+    }
+
     [Test, NotInParallel]
     public async Task memory_index_get_timing_out_does_not_suppress_lessons_or_nudge() {
         // The memory-index GET runs in parallel with the POST and is joined ONLY within the
@@ -758,19 +954,22 @@ public class ClaudeHookCommandTests {
         // already carries.
         using var absent = new TempDir();
         using var fx = new Fixture(Config.Root);
-        // Past the ceiling, so only the budget can end the wait; teardown waits out this server delay.
-        fx.MemoryIndexDelay = ClaudeHookCommand.SessionStartCeiling + TimeSpan.FromSeconds(3);
+        // Enough left for the session-start POST that carries the lessons on a loaded runner.
+        var left = TimeSpan.FromSeconds(1.5);
+        // Past what is left of the budget, so only the budget can end the wait; teardown waits out this server delay.
+        fx.MemoryIndexDelay = left + TimeSpan.FromSeconds(1);
         fx.RespondJson = """{"top_clusters":[{"text":"seal secrets","category":"safety"}]}""";
 
         var sid = Guid.NewGuid().ToString("N");
         var sw  = System.Diagnostics.Stopwatch.StartNew();
         var (exit, stdout) = await RunCapturingStdoutAsync(() =>
             fx.HandleAsync(
-                $$"""{"hook_event_name":"SessionStart","session_id":"{{sid}}","cwd":"{{AbsentCwd(absent)}}","source":"startup"}"""));
+                $$"""{"hook_event_name":"SessionStart","session_id":"{{sid}}","cwd":"{{AbsentCwd(absent)}}","source":"startup"}""",
+                clock: Late(ClaudeHookCommand.SessionStartCeiling - HookBudget.Safety - left)));
         sw.Stop();
 
         await Assert.That(exit).IsEqualTo(0);
-        await Assert.That(sw.Elapsed).IsLessThan(ClaudeHookCommand.SessionStartCeiling);
+        await Assert.That(sw.Elapsed).IsLessThan(fx.MemoryIndexDelay);
         await Assert.That(stdout).Contains("## Known patterns"); // lessons fragment still injected
         await Assert.That(stdout).DoesNotContain("Team memory"); // memory fragment never joined in time
     }
@@ -1372,6 +1571,54 @@ public class ClaudeHookCommandTests {
         await Assert.That(stdout).DoesNotContain("Review PR #42");
     }
 
+    const string GuidelinesAndNextWorkAck =
+        """{"top_clusters":[{"text":"Run the fast suite first","category":"pattern"}],"next_work":{"rows":[{"label":"Review PR #42","because":"Priya is waiting","href":"/repo/fa1efc1b2ecbbde9/evals","tier":1}],"as_of":"t","arms_not_current":[]}}""";
+
+    async Task<(JsonNode PostedBody, string Context)> StartWithEntrypointAsync(Fixture fx, string? entrypoint) {
+        fx.RegisterClaudeMcpServer("kcap-workitems");
+        fx.Env = key => key == "CLAUDE_CODE_ENTRYPOINT" ? entrypoint : null;
+        var sid = Guid.NewGuid().ToString("N");
+
+        var (exit, stdout) = await RunCapturingStdoutAsync(() =>
+            fx.HandleAsync($$"""{"hook_event_name":"SessionStart","session_id":"{{sid}}","cwd":"{{AbsentCwd(Tmp)}}","source":"startup"}"""));
+        await Assert.That(exit).IsEqualTo(0);
+
+        var posted = fx.Sent.Single(s => s.StartsWith("/hooks/session-start|", StringComparison.Ordinal));
+        return (JsonNode.Parse(posted[(posted.IndexOf('|') + 1)..])!,
+                JsonNode.Parse(stdout)!["hookSpecificOutput"]!["additionalContext"]!.GetValue<string>());
+    }
+
+    /// <summary><c>claude -p</c> prints its answer as the run's output, so a next-work presentation would land
+    /// in it: neither the list, its instruction-only fallback nor the capability is sent, and the guidelines are.</summary>
+    [Test, NotInParallel]
+    public async Task a_headless_claude_run_gets_no_next_work_and_keeps_the_guidelines() {
+        using var fx = new Fixture(Config.Root) { RespondJson = GuidelinesAndNextWorkAck };
+
+        var (body, ctx) = await StartWithEntrypointAsync(fx, "sdk-cli");
+
+        await Assert.That(body["next_work"]).IsNull();
+        await Assert.That(body["next_work_budget_ms"]).IsNull();
+        await Assert.That(ctx).Contains("Run the fast suite first");
+        await Assert.That(ctx).DoesNotContain("next-work-data");
+        await Assert.That(ctx).DoesNotContain("Review PR #42");
+        await Assert.That(ctx).DoesNotContain(NextWorkEmitter.CompletionInstruction);
+    }
+
+    /// <summary>Only <c>sdk-cli</c> is headless: an interactive session and an SDK host still get the list,
+    /// its server-relative link joined to the server URL.</summary>
+    [Test, NotInParallel]
+    [Arguments("cli")]
+    [Arguments("sdk-ts")]
+    [Arguments(null)]
+    public async Task a_claude_run_that_is_not_headless_still_gets_next_work(string? entrypoint) {
+        using var fx = new Fixture(Config.Root) { RespondJson = GuidelinesAndNextWorkAck };
+
+        var (body, ctx) = await StartWithEntrypointAsync(fx, entrypoint);
+
+        await Assert.That(body["next_work"]?.GetValue<string>()).IsEqualTo("v1");
+        await Assert.That(ctx).Contains($"1. Review PR #42 — Priya is waiting  {fx.MemoryServerUrl.TrimEnd('/')}/repo/fa1efc1b2ecbbde9/evals");
+    }
+
     // ── SessionStart coordination-notices lane: capability advertise + response render ───────
 
     [Test, NotInParallel]
@@ -1784,14 +2031,14 @@ public class ClaudeHookCommandTests {
         fx.HoldOnPost = TimeSpan.FromSeconds(30); // server hangs past the bounded attempt
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var exit = await fx.HandleAsync(
-            $$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+            $$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""",
+            clock: Late(TimeSpan.FromSeconds(15) - HookBudget.Safety - TimeSpan.FromMilliseconds(400)));
         sw.Stop();
         await Assert.That(exit).IsEqualTo(0);
-        // Bounded well clear of the hook's own 15s budget rather than at it: the claim is that the
-        // attempt gave up instead of waiting the server's 30s hold, and a bound equal to the budget
-        // it is measuring has no headroom for a loaded runner (16.2s on a Windows leg, 14.2s alone
-        // on an idle machine).
-        await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(20));
+        // 400ms of budget is left. The bound is short of the full 13.5s a fresh budget allows, so an
+        // attempt timed from the hook rather than from process entry fails too, and far short of the
+        // server's 30s hold.
+        await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(8));
         await Assert.That(fx.SpoolFiles.Any()).IsTrue();
     }
 
@@ -1913,7 +2160,106 @@ public class ClaudeHookCommandTests {
             stdout: stdout);
 
         await Assert.That(accepting.RouteOrder).Contains("session-end");
-        await Assert.That(rejecting.Spool.HasBacklog(Sid)).IsFalse();
+        await Assert.That(string.Concat(rejecting.SpoolFiles.Select(File.ReadAllText))).DoesNotContain("\"route\":\"session-end\"");
+    }
+
+    /// <summary>The host kills a Stop hook at its manifest timeout, so a post that outlives the hook's own
+    /// ceiling loses the turn's end and holds the agent for nothing; one bounded attempt spools it instead.</summary>
+    [Test]
+    public async Task stop_against_a_server_that_never_answers_returns_inside_its_ceiling_and_spools() {
+        using var fx = new Fixture(Config.Root) { HoldOnPost = TimeSpan.FromSeconds(60) };
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(started.Elapsed).IsLessThan(TimeSpan.FromSeconds(5));
+        await Assert.That(string.Concat(fx.SpoolFiles.Select(File.ReadAllText))).Contains("\"route\":\"stop\"");
+    }
+
+    [Test]
+    [Arguments(HttpStatusCode.ServiceUnavailable)]
+    [Arguments(HttpStatusCode.Unauthorized)]
+    public async Task stop_refused_with_a_retryable_status_is_spooled(HttpStatusCode status) {
+        using var fx = new Fixture(Config.Root, status);
+
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsTrue();
+    }
+
+    /// <summary>A notification fires per permission prompt and means nothing once its moment has passed, so
+    /// a failed one is dropped rather than replayed into a later turn.</summary>
+    [Test, NotInParallel]
+    public async Task notification_refused_with_a_retryable_status_is_dropped_with_one_line() {
+        using var fx      = new Fixture(Config.Root, HttpStatusCode.ServiceUnavailable);
+        using var capture = ConsoleOutput.StartErrorCapture("\n");
+
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"Notification","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsFalse();
+        await Assert.That(capture.GetCapturedError()).Contains("notification dropped (HTTP 503)");
+    }
+
+    /// <summary>A stop posted live while the session still has an undelivered start would reach the server
+    /// first, for a session it does not know yet.</summary>
+    [Test]
+    public async Task stop_behind_an_undrained_backlog_is_spooled_after_it() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.ServiceUnavailable);
+        fx.Spool.Append(Sid, "session-start", $$"""{"session_id":"{{Sid}}"}""");
+
+        await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+
+        await Assert.That(fx.RouteOrder).DoesNotContain("stop");
+
+        List<string> drained = [];
+        await fx.Spool.DrainAllAsync(null, (route, _) => {
+            drained.Add(route);
+            return Task.FromResult(DrainOutcome.Delivered);
+        }, TimeSpan.FromSeconds(10), CancellationToken.None);
+
+        await Assert.That(drained).IsEquivalentTo(["session-start", "stop"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    /// <summary>A restarting server can stall the hook before it has a client at all; the turn's end is spooled on that
+    /// arm too, so it reaches the server once it is back.</summary>
+    [Test]
+    public async Task stop_whose_client_cannot_be_built_is_spooled() {
+        using var fx = new Fixture(Config.Root);
+
+        var exit = await fx.EnterAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""", clientUnavailable: true);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(string.Concat(fx.SpoolFiles.Select(File.ReadAllText))).Contains("\"route\":\"stop\"");
+    }
+
+    /// <summary>A replay posts the event and nothing else, so a stop spooled for want of a client still ends the turn's
+    /// pending asks here.</summary>
+    [Test]
+    public async Task stop_whose_client_cannot_be_built_still_clears_the_turns_asks() {
+        using var fx = new Fixture(Config.Root);
+        var dashless = Guid.NewGuid().ToString("N");
+        new PolicyDecisionJournal(Config.Root).RecordAsk(dashless, "toolu_1", "hash");
+
+        // Claude sends the id dashed; the journal is keyed by the dashless form.
+        await fx.EnterAsync($$"""{"hook_event_name":"Stop","session_id":"{{Guid.ParseExact(dashless, "N")}}","transcript_path":"/none","cwd":"/tmp"}""", clientUnavailable: true);
+
+        await Assert.That(new PolicyDecisionJournal(Config.Root).Consume(dashless, "toolu_1", "hash").PendingAsk).IsFalse();
+    }
+
+    /// <summary>A replay posts the event and nothing else, so a subagent start spooled behind a backlog still starts the
+    /// child's recorder here, or the child would have no live transcript.</summary>
+    [Test]
+    public async Task subagent_start_spooled_behind_a_backlog_still_starts_its_recorder() {
+        using var fx = new Fixture(Config.Root, HttpStatusCode.ServiceUnavailable) { Spawner = new FakeWatcherSpawner() };
+        fx.Spool.Append(Sid, "session-start", $$"""{"session_id":"{{Sid}}"}""");
+
+        await fx.HandleAsync($$"""{"hook_event_name":"SubagentStart","session_id":"{{Sid}}","agent_id":"a1","transcript_path":"/tmp/t.jsonl","cwd":"/tmp"}""");
+
+        await Assert.That(fx.RouteOrder).DoesNotContain("subagent-start");
+        await Assert.That(fx.Spawner!.Keys).Contains($"{Sid}-a1");
     }
 
     [Test]
@@ -2142,12 +2488,11 @@ public class ClaudeHookCommandTests {
         await Assert.That(all).Contains("\"route\":\"subagent-stop\"");
     }
 
-    // Task 12 / BLOCKER-1+3 regression: the centralized ordered drain (now running on every
-    // non-Codex hook, incl. --claude) can WITHHOLD a spooled session-end in the ".ordered-*" temp
-    // namespace pending the transcript tail. ClaudeHookCommand.CurrentSessionHasBacklog must see that
-    // withheld terminal (it now delegates to HookSpool.HasBacklog, which covers ".ordered-*") so a
-    // later Claude subagent-stop for the SAME session spools BEHIND it rather than POSTing ahead of
-    // the still-withheld session-end — the exact cross-spool ordering violation the blockers prevent.
+    // The centralized ordered drain (running on every non-Codex hook, incl. --claude) can WITHHOLD a
+    // spooled session-end in the ".ordered-*" temp namespace pending the transcript tail.
+    // ClaudeHookCommand.CurrentSessionHasBacklog must see that withheld terminal (it delegates to
+    // HookSpool.HasBacklog, which covers ".ordered-*") so a later Claude subagent-stop for the SAME
+    // session spools BEHIND it rather than POSTing ahead of the still-withheld session-end.
     [Test]
     public async Task subagent_stop_spools_behind_a_session_end_withheld_in_the_ordered_namespace() {
         using var fx = new Fixture(Config.Root, HttpStatusCode.OK); // server up — only the ordering guard can hold the post back
@@ -2271,6 +2616,17 @@ public class ClaudeHookCommandTests {
         await Assert.That(stdout.ToString()).IsEmpty();
     }
 
+    [Test]
+    public async Task stop_writes_nothing_for_a_headless_claude_run() {
+        using var fx = new Fixture(Config.Root) { RespondJson = """{"completion_nudge":true}""", Env = key => key == "CLAUDE_CODE_ENTRYPOINT" ? "sdk-cli" : null };
+        fx.RegisterClaudeMcpServer("kcap-workitems");
+        var stdout = new StringWriter();
+
+        await fx.HandleAsync(StopWith(WrapUpMessage), stdout: stdout);
+
+        await Assert.That(stdout.ToString()).IsEmpty();
+    }
+
     /// <summary>The ack and the message both ask for the block, so only the missing tools stop it.</summary>
     [Test]
     public async Task stop_writes_nothing_when_the_workitems_tools_are_not_registered() {
@@ -2330,10 +2686,10 @@ public class ClaudeHookCommandTests {
         await Assert.That(stdout.ToString()).IsEmpty();
     }
 
-    /// <summary>Regression guard on the arm this change must NOT touch: a real server fault keeps
-    /// its bare-status stderr line and its non-zero exit, so a 500 still reads as a failure.</summary>
+    /// <summary>A server fault is retryable: the stop waits in the spool for the server to recover, so the
+    /// hook exits cleanly rather than painting Claude's hook-error banner on every turn of an outage.</summary>
     [Test]
-    public async Task stop_on_500_still_exits_non_zero_without_a_notice() {
+    public async Task stop_on_500_spools_and_exits_zero_without_a_notice() {
         using var fx = new Fixture(Config.Root, HttpStatusCode.InternalServerError);
         var stdout = new StringWriter { NewLine = "\n" };
 
@@ -2342,7 +2698,8 @@ public class ClaudeHookCommandTests {
                 $$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","cwd":"/tmp"}"""),
             stdout: stdout);
 
-        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(fx.Spool.HasBacklog(Sid)).IsTrue();
         await Assert.That(stdout.ToString()).IsEmpty();
     }
 
@@ -2393,10 +2750,22 @@ public class ClaudeHookCommandTests {
 
         /// <summary>What the daemon exported into the session, as the hook reads it.</summary>
         public HostedAgent Hosted { get; set; } = HostedAgent.Terminal;
+
+        /// <summary>Watches watcher spawns instead of launching them, when a test sets it.</summary>
+        public FakeWatcherSpawner? Spawner { get; set; }
+
+        /// <summary>The Claude process a SessionEnd reports; none unless a test names one.</summary>
+        public ProcessIncarnation? EndingProcess { get; set; }
+
+        /// <summary>The environment Claude Code ran the hook in. Empty by default, so the test host's own
+        /// <c>CLAUDE_CODE_ENTRYPOINT</c> never reaches the hook.</summary>
+        public Func<string, string?> Env { get; set; } = _ => null;
         public int FlowDefinitionsRequestCount => _memoryServer.LogEntries.Count(e => e.RequestMessage.Path == "/api/flows/definitions");
 
         /// <summary>Every request the stub server saw, for a test asserting that none arrived.</summary>
         public int ServerRequestCount => _memoryServer.LogEntries.Count;
+
+        public int RequestCount(string path) => _memoryServer.LogEntries.Count(e => e.RequestMessage.Path == path);
 
         public bool MemoryIndexRequested    => MemoryIndexRequestCount > 0;
         public int  MemoryIndexRequestCount => _memoryServer.LogEntries
@@ -2447,7 +2816,11 @@ public class ClaudeHookCommandTests {
             clock ??= elapsed == TimeSpan.Zero ? new HookClock(TimeProvider.System) : Aged(elapsed);
             _clock = clock;
 
-            return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None).HandleCore(
+            var watchers = Spawner is { } spawner
+                ? TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient(), spawner)
+                : TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient());
+
+            return new ClaudeHookCommand(Config, Profiles, clock, _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), watchers, FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => EndingProcess) { Env = Env }.HandleCore(
                 Client, AuthStatus.Ok, Spool, new StringReader(stdin), stdout, PassNoticesCapable);
         }
 
@@ -2455,7 +2828,7 @@ public class ClaudeHookCommandTests {
         /// <param name="clientUnavailable">Client creation fails, which sends the hook down the arm that never reaches HandleCore.</param>
         public Task<int> EnterAsync(string stdin, bool clientUnavailable = false) {
             StubMemoryServer();
-            return new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None)
+            return new ClaudeHookCommand(Config, Profiles, new HookClock(TimeProvider.System), _home, TestHarnesses.Under(_home), Hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config, Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None, endingProcess: () => EndingProcess) { Env = Env }
                 .HandleWithDeps(Spool, new StringReader(stdin), () => clientUnavailable
                     ? Task.FromException<AuthAttempt>(new HttpRequestException("unreachable"))
                     : Task.FromResult(new AuthAttempt(Client, AuthStatus.Ok)));
@@ -2574,6 +2947,17 @@ public class ClaudeHookCommandTests {
         }
     }
 
+    /// <summary>The real clock, read later by whatever <see cref="Skip"/> added, so its timers still fire in real time.</summary>
+    sealed class HeadStartTimeProvider : TimeProvider {
+        long _skipped;
+
+        public void Skip(TimeSpan by) => _skipped += (long) (by.TotalSeconds * TimestampFrequency);
+
+        public override long GetTimestamp() => base.GetTimestamp() + _skipped;
+
+        public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + TimeSpan.FromSeconds((double) _skipped / TimestampFrequency);
+    }
+
     sealed class StubHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> impl) : HttpMessageHandler {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage r, CancellationToken ct) => impl(r, ct);
     }
@@ -2588,6 +2972,17 @@ public class ClaudeHookCommandTests {
         await Assert.That(TimeSpan.FromSeconds(timeout)).IsEqualTo(ClaudeHookCommand.SessionStartCeiling);
     }
 
+    /// <summary>Claude gives up on the hook at the manifest's timeout and leaves its own prompt open, so a timeout that
+    /// ends with the server's expiry loses the server's answer.</summary>
+    [Test]
+    public async Task The_permission_hook_outlives_the_servers_expiry() {
+        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "kcap", "hooks", "hooks.json")))!;
+        var timeout  = TimeSpan.FromSeconds(manifest["hooks"]!["PermissionRequest"]![0]!["hooks"]![0]!["timeout"]!.GetValue<int>());
+
+        await Assert.That(timeout).IsGreaterThan(PermissionRequestHook.ServerExpiry);
+        await Assert.That(timeout).IsEqualTo(PermissionRequestHook.Timeout);
+    }
+
     /// <summary>Claude cancels a synchronous plugin SessionEnd hook after 1.5s whatever its timeout, which a
     /// slow shell start alone can exceed; an async one is started and left running past Claude's exit.</summary>
     [Test]
@@ -2596,6 +2991,19 @@ public class ClaudeHookCommandTests {
         var hook     = manifest["hooks"]!["SessionEnd"]![0]!["hooks"]![0]!;
 
         await Assert.That(hook["async"]?.GetValue<bool>()).IsTrue();
+    }
+
+    /// <summary>The hook log is what explains a session with no end, so a run's end held back says what its record said:
+    /// one claimed and being posted, or one posted already or owed by nobody, never that the daemon posted it.</summary>
+    [Test]
+    public async Task A_held_back_session_end_says_what_its_record_said() {
+        var pending = ClaudeHookCommand.SessionEndLeftAlone(Sid, SessionEndTurn.Pending, "not posted");
+        var done    = ClaudeHookCommand.SessionEndLeftAlone(Sid, SessionEndTurn.Done, "not posted");
+
+        await Assert.That(pending).Contains("claimed moments ago");
+        await Assert.That(done).Contains("went on in another process");
+        await Assert.That(pending).DoesNotContain("daemon");
+        await Assert.That(done).DoesNotContain("daemon");
     }
 
     /// <summary>Only a synchronous hook's context reaches the agent, and nothing else asks for the notices. The
@@ -2611,6 +3019,47 @@ public class ClaudeHookCommandTests {
         await Assert.That(hook["async"]?.GetValue<bool>() ?? false).IsFalse();
         await Assert.That(start.Split(' ')).Contains(ClaudePassNotices.CapableFlag);
     }
+
+    /// <summary>On Windows without Git Bash, Claude blocks the tool call when a synchronous hook that leaves
+    /// <c>onFailure</c> unset fails or times out; kcap must never stand between the user and their tools.</summary>
+    [Test]
+    [Arguments("hooks.json")]
+    [Arguments("hooks.windows.json")]
+    public async Task Every_synchronous_hook_lets_the_action_go_ahead_when_it_fails(string file) {
+        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(RepoRoot(), "kcap", "hooks", file)))!;
+        var hooks    = ManifestHooks(manifest).Where(h => h["async"]?.GetValue<bool>() != true).ToList();
+
+        await Assert.That(hooks).IsNotEmpty();
+        foreach (var hook in hooks)
+            await Assert.That(hook["onFailure"]?.GetValue<string>()).IsEqualTo("continue");
+    }
+
+    /// <summary>Windows bundles ship <c>hooks.windows.json</c> in place of <c>hooks.json</c>: it must be the same
+    /// hooks, each naming <c>kcap.exe</c> with its arguments so Claude starts it with no shell.</summary>
+    [Test]
+    public async Task The_windows_manifest_is_the_same_hooks_started_without_a_shell() {
+        var dir     = Path.Combine(RepoRoot(), "kcap", "hooks");
+        var shell   = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "hooks.json")))!;
+        var windows = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "hooks.windows.json")))!;
+
+        foreach (var hook in ManifestHooks(windows)) {
+            await Assert.That(hook["command"]?.GetValue<string>()).IsEqualTo("kcap.exe");
+            await Assert.That(hook["args"]).IsTypeOf<JsonArray>();
+
+            var args = hook["args"]!.AsArray().Select(a => a!.GetValue<string>());
+            hook["command"] = "kcap " + string.Join(' ', args);
+            hook.Remove("args");
+        }
+
+        await Assert.That(JsonNode.DeepEquals(windows, shell)).IsTrue();
+    }
+
+    static IEnumerable<JsonObject> ManifestHooks(JsonNode manifest) =>
+        manifest["hooks"]!.AsObject()
+            .SelectMany(e => e.Value!.AsArray())
+            .SelectMany(g => g!["hooks"]!.AsArray())
+            .Select(h => h!.AsObject())
+            .ToList();
 
     static string RepoRoot([CallerFilePath] string here = "") {
         var dir = Path.GetDirectoryName(here);

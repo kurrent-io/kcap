@@ -400,7 +400,7 @@ sealed class CodexHookCommand(
                                                   activeProfile?.AllowedRepos, activeProfile?.ExcludedRepos, clock.Time)) {
             var excludedSessionId = TryGetString(node, "session_id");
 
-            if (excludedSessionId is not null) DisabledSessions.Mark(excludedSessionId, config);
+            if (excludedSessionId is not null) DisabledSessions.Exclude(excludedSessionId, config);
 
             WriteSessionScopedOutput(env.Stdout);
             return 0;

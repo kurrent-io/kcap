@@ -299,11 +299,13 @@ Keyed on the envelope `type`, then `payload.type`; `RecordTimestamp` from the en
   sticky map from call event id to assigned call id, all across batches.
 - `tool_search_call` → `AssistantToolCallsGenerated` (`tool_search`), no synthesized result.
 - `function_call_output`, `custom_tool_call_output`, `tool_search_output` → `ToolResultReceived`
-  (`call_id`, `result`). Exec and patch telemetry stashed earlier in the batch merges into
-  `extensions.codex.exec` and `extensions.codex.patch` before the event is returned.
+  (`call_id`, `result`). Exec telemetry stashed earlier in the batch, and patch telemetry stashed
+  earlier in any batch, merges into `extensions.codex.exec` and `extensions.codex.patch` before
+  the event is returned.
 - `event_msg.exec_command_end` and `patch_apply_end` → an `EventAmendment` (`codex` slug, the
   `exec` or `patch` field) for the result already emitted in this batch, else a stash for the
-  output still to come. `BeginBatch()` clears the stash and the batch's emitted-result index.
+  output still to come. `BeginBatch()` clears the exec stash and the batch's emitted-result
+  index; the patch stash survives it, bounded at 64 ends with the oldest dropped first.
 - `event_msg.task_complete` → an `EventAmendment` (`codex` slug, the `task` field: `duration_ms`,
   `time_to_first_token_ms`) for the current cluster's first event. When that event was emitted in
   an earlier batch the caller drops the amendment; the server loses the same timing today, because
@@ -328,9 +330,9 @@ Keyed on the envelope `type`, then `payload.type`; `RecordTimestamp` from the en
   its queue effect.
 
 State that survives batches, all of it as the server keeps it today: the last turn-context model,
-the usage cluster and its finalized flag, the web-search queue, ever-enqueued set and sticky map.
-State cleared by `BeginBatch()`: the exec and patch stashes and the index of results emitted this
-batch. The Claude context keeps only the previous usage, across batches.
+the usage cluster and its finalized flag, the web-search queue, ever-enqueued set and sticky map,
+and the patch stash. State cleared by `BeginBatch()`: the exec stash and the index of results
+emitted this batch. The Claude context keeps only the previous usage, across batches.
 
 ## 5. The server adapter
 

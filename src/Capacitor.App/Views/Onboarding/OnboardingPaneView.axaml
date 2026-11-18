@@ -24,9 +24,9 @@
                                 <app:AppIcon Kind="Laptop" Size="20" />
                                 <TextBlock Grid.Column="1" Classes="onboardingLabel" VerticalAlignment="Center"
                                            Text="{x:Static vm:EditionStepViewModel.LocalTitle}" />
-                                <Border Grid.Column="2" x:Name="LocalRecommendedTag" Classes="onboardingRecommended" VerticalAlignment="Center"
+                                <Border Grid.Column="2" Classes="onboardingRecommended" VerticalAlignment="Center"
                                         IsVisible="{Binding LocalPreselected}">
-                                    <TextBlock Text="Recommended" />
+                                    <TextBlock x:Name="LocalRecommendedTag" AutomationProperties.AutomationId="LocalRecommendedTag" Text="Recommended" />
                                 </Border>
                                 <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Classes="onboardingDetail" Text="{x:Static vm:EditionStepViewModel.LocalDetail}" />
                             </Grid>

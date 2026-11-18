@@ -37,6 +37,10 @@ public readonly record struct HarnessSignals {
     /// <summary>Whether kcap's hook or extension is registered with the vendor.</summary>
     public Func<bool>? Wired { get; init; }
 
+    /// <summary>Whether wiring this vendor runs its CLI, so a vendor found only by its data or its app cannot be
+    /// wired until the CLI is on PATH.</summary>
+    public Func<bool>? WiringNeedsCli { get; init; }
+
     /// <summary>Asks the launch question now. A vendor that cannot answer reads as not launchable.</summary>
     public bool CanLaunch(BinaryProbe binaries) => LaunchSignal?.Invoke(binaries) ?? false;
 
@@ -54,4 +58,7 @@ public readonly record struct HarnessSignals {
 
     /// <summary>Asks the wiring question now. A vendor that cannot answer reads as not wired.</summary>
     public bool IsWired => Wired?.Invoke() ?? false;
+
+    /// <summary>Asks now whether wiring would run the vendor's CLI. A vendor that cannot answer needs none.</summary>
+    public bool NeedsCliToWire => WiringNeedsCli?.Invoke() ?? false;
 }

@@ -9,9 +9,8 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
 /// <summary>
-/// Covers the optional `wait: true` argument on get_review_flow_status/get_flow_status (§6 of the
-/// review-flows liveness-supervision design): absent or false must be byte-for-byte today's
-/// single-GET behavior — the whole backwards-compat contract for every existing caller that never
+/// Covers the optional `wait: true` argument on get_review_flow_status/get_flow_status: absent or
+/// false must be byte-for-byte the single-GET behavior — the whole backwards-compat contract for every existing caller that never
 /// sends the argument — while `wait: true` polls the SAME endpoint until the round is terminal or
 /// the shared PollCap elapses, sharing the round-submission poll lane's per-attempt
 /// timeout, poll cadence, and transient-failure budget (mirrored here as local constants —

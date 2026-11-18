@@ -57,7 +57,8 @@ public static class AuthFixtures {
                 telemetry ?? CliTelemetry.Disabled(clock), AuthEndpoints.Defaults, clock, beforeCommit) {
             WorkOSOrglessLogin = workosLogin,
             WorkOSBrowser      = workosBrowser,
-            ProbeWorkspace     = probe
+            ProbeWorkspace     = probe,
+            DevicePollDelay    = new RecordingDelay().DelayAsync
         };
     }
 

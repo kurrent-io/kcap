@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <IsPackable>false</IsPackable>
+        <!-- Kept apart from Helpers so only suites that spawn kcap depend on the CLI: test selection
+             follows project references. -->
+        <RootNamespace>Capacitor.Tests.Helpers</RootNamespace>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Capacitor.Cli.Core\Capacitor.Cli.Core.csproj" />
+        <!-- Build ordering and a path, not code: ReferenceOutputAssembly="false" builds the CLI for
+             KcapProcess to spawn while leaving it unreferenceable in C#. The binary is spawned from
+             its OWN output directory, the only place its whole dependency closure sits. -->
+        <ProjectReference Include="..\..\src\Capacitor.Cli\Capacitor.Cli.csproj"
+                          ReferenceOutputAssembly="false"
+                          OutputItemType="KcapCliBuildOutput" />
+    </ItemGroup>
+    <!-- MSBuild already resolved where the CLI builds; stamping it beats rediscovering it at
+         runtime from a [CallerFilePath] walk and a guess at the build configuration. -->
+    <Target Name="StampKcapBinaryDir" AfterTargets="ResolveProjectReferences" BeforeTargets="CoreCompile">
+        <ItemGroup>
+            <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+                <_Parameter1>KcapBinaryDir</_Parameter1>
+                <_Parameter2>@(KcapCliBuildOutput->'%(RootDir)%(Directory)')</_Parameter2>
+            </AssemblyAttribute>
+        </ItemGroup>
+    </Target>
+</Project>

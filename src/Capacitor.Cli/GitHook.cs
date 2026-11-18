@@ -10,39 +10,18 @@ namespace Capacitor.Cli;
 /// under the session of the coding agent above it.
 /// </summary>
 static class GitHook {
-    public const string Name = "kcap";
-
     static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(3);
-
-    /// <summary>
-    /// Whether <c>git hook list</c> output names kcap's hook, enabled.
-    /// </summary>
-    public static bool ListedIn(string? hookList) =>
-        hookList?.Split('\n').Any(hook => hook.Trim() == Name) == true;
 
     /// <summary>
     /// The <see cref="CommitObservation"/> a watcher starts with.
     /// </summary>
-    public static async Task<CommitObservation> ObservationAsync(ConfigRoot config, string sessionId, string? agentId, string? cwd, TimeProvider time) {
-        if (!await CoversAsync(config, sessionId, cwd, time)) return new CommitObservation.Uncovered();
+    public static Task<CommitObservation> ObservationAsync(ConfigRoot config, string sessionId, string? agentId, string? cwd, TimeProvider time) =>
+        GitHookProbe.ObservationAsync(config, sessionId, agentId, cwd, AgentSessions.OnThisMachine(config).IsClaimed, HookCommand(), time);
 
-        return agentId is null ? new CommitObservation.Covered(SessionCommits.Of(config, SessionId.Parse(sessionId)!)) : new CommitObservation.Subagent();
-    }
+    public static Task<bool> CoversAsync(ConfigRoot config, string sessionId, string? cwd, TimeProvider time) =>
+        GitHookProbe.CoversAsync(sessionId, cwd, AgentSessions.OnThisMachine(config).IsClaimed, HookCommand(), time);
 
-    public static async Task<bool> CoversAsync(ConfigRoot config, string sessionId, string? cwd, TimeProvider time) =>
-        SessionId.Parse(sessionId) is { } session
-     && AgentSessions.OnThisMachine(config).IsClaimed(session)
-     && await RunsInAsync(cwd ?? "", time);
-
-    // Listed means git runs config hooks and the entry is enabled. The command must also be this
-    // binary's: an entry left by a moved or removed kcap is listed, runs nothing, and would still
-    // stop the server reading commits from the transcript.
-    static async Task<bool> RunsInAsync(string dir, TimeProvider time) {
-        var run = RepositoryDetection.DefaultRunner(time);
-
-        return ListedIn(await run("git", "hook list post-commit", dir, GitTimeout))
-            && await run("git", $"config --get hook.{Name}.command", dir, GitTimeout) == GitHookInstaller.CommandFor(KcapBinaryCommand.Resolve());
-    }
+    static string HookCommand() => GitHookProbe.CommandFor(KcapBinaryCommand.Resolve());
 
     /// <summary>
     /// Always 0 and silent: the commit has already landed.

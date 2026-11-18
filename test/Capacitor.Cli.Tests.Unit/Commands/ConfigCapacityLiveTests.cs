@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
@@ -20,6 +21,7 @@ public class ConfigCapacityLiveTests {
         public Task<HandoffProbeReplyDto?> ProbeHandoffAsync(HandoffProbeRequestDto request, CancellationToken ct) => throw new NotSupportedException();
         public Task<HandoffOutcomeDto?> ReadHandoffOutcomeAsync(string sessionId, CancellationToken ct)          => throw new NotSupportedException();
         public Task<ResumeProbeReplyDto?> ProbeResumeAsync(ResumeProbeRequestDto request, CancellationToken ct)    => throw new NotSupportedException();
+        public Task<IReadOnlyList<HostedAgentCommand>> ListCommandsAsync(string agentId, CancellationToken ct)    => throw new NotSupportedException();
     }
 
     /// <summary>Pins that the new capacity is handed to the running daemon, and that each answer —

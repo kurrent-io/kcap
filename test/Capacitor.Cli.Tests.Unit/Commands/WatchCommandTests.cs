@@ -96,23 +96,6 @@ public class WatchCommandTests {
         await Assert.That(unnamed["session_id"]?.GetValue<string>()).IsEqualTo("s1");
     }
 
-    /// <summary>A hosted watcher's own end names the agent and daemon epoch it runs under, so a spooled copy replayed
-    /// after the session resumes reads as the predecessor's; an unhosted watcher's end names neither.</summary>
-    [Test]
-    public async Task The_watchers_own_end_names_the_hosted_agent_and_daemon_epoch_it_runs_under() {
-        var at     = new DateTimeOffset(2026, 11, 2, 18, 26, 34, TimeSpan.Zero);
-        var hosted = WatchCommand.ParentExitEndBody("s1", "/t/x.jsonl", "/repo", "parent_exited", at,
-            new HostedAgent("agent-1", false, DaemonBridge.None) { DaemonEpoch = "epoch-1" });
-        var plain  = WatchCommand.ParentExitEndBody("s1", "/t/x.jsonl", "/repo", "parent_exited", at, HostedAgent.Terminal);
-
-        await Assert.That(hosted["agent_host_id"]?.GetValue<string>()).IsEqualTo("agent-1");
-        await Assert.That(hosted["daemon_epoch"]?.GetValue<string>()).IsEqualTo("epoch-1");
-        await Assert.That(hosted["reason"]?.GetValue<string>()).IsEqualTo("parent_exited");
-        await Assert.That(hosted["ended_at"]?.GetValue<string>()).IsEqualTo(at.ToString("O"));
-        await Assert.That(plain.ContainsKey("agent_host_id")).IsFalse();
-        await Assert.That(plain.ContainsKey("daemon_epoch")).IsFalse();
-    }
-
     [Test]
     public async Task RunWatch_signature_accepts_vendor_arg() {
         // We can't run a real watcher in a unit test (it'd open SignalR). The
@@ -208,6 +191,6 @@ public class WatchCommandTests {
 // real subagent transcript: tool_use carries `id`, tool_result carries `tool_use_id`, both inside
 // message.content[].
 // Loss markers carry no correlation IDs, so local trackers must use raw source lines.
-// PR #162: Pi emits type:"message" with message.role (not Claude's
+// Pi emits type:"message" with message.role (not Claude's
 // top-level user/assistant), so the watcher title helpers need a Pi branch —
 // otherwise live Pi sessions never get the initial/LLM title.

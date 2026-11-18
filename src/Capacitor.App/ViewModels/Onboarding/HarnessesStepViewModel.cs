@@ -3,6 +3,7 @@ using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.Setup;
 using ReactiveUI.Reactive;
 
@@ -98,6 +99,8 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
     public string MachineName { get; }
 
+    public string FoundOnHeader => $"FOUND ON {MachineName.ToUpper(System.Globalization.CultureInfo.CurrentCulture)}";
+
     public IReadOnlyList<HarnessRowViewModel> Rows { get; private set; } = [];
 
     /// "Not found: …" under the rows, or null when every harness was found.
@@ -158,7 +161,8 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
         ? " By default kcap leaves them out when it runs Claude or Codex for titles and summaries, so your subscription is used. Keep them if you pay per use."
         : " By default kcap leaves them out when it runs Claude or Codex for titles and summaries, so your subscription is used. Keep them if you pay per use.";
 
-    /// A local server shares every session with its one user, so there is no audience to choose or store.
+    /// A local server has one user, so there is no audience to choose: the profile keeps a value someone chose and
+    /// otherwise gets <see cref="LocalVisibility.Default"/>.
     public bool VisibilityVisible => !Local;
 
     bool HasVisibilityChoice => Visibility is { } value && AppConfig.ValidVisibilities.Contains(value);
@@ -339,7 +343,8 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
     async Task<bool> PersistAsync(CancellationToken ct) {
         if (!VisibilityAnswered) return false;
-        var visibility = Local ? null : Visibility;
+        var local      = Local;
+        var visibility = local ? null : Visibility;
         try {
             await ConfigMutator.MutateAsync(_config, c => {
                 var resolvedName = _resolveProfileName?.Invoke();
@@ -349,7 +354,7 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
                 var profile = c.Profiles.GetValueOrDefault(activeName) ?? new Profile();
 
                 profile = profile with {
-                    DefaultVisibility = visibility ?? profile.DefaultVisibility,
+                    DefaultVisibility = visibility ?? (local ? LocalVisibility.For(profile.DefaultVisibility) : profile.DefaultVisibility),
                     // Only a question that was asked is answered: no key in the terminal leaves any
                     // earlier opt-in alone.
                     UseProviderApiKey = ProviderKeyNotice is null ? profile.UseProviderApiKey : UseProviderApiKey,

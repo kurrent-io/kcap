@@ -16,12 +16,12 @@ namespace Capacitor.Cli.Core.Auth;
 ///
 /// <para>With an <see cref="ILoopbackJoin"/> the closing page additionally navigates the browser
 /// out through kcap-web and back to <c>/joined</c> on THIS SAME listener — which means the listener
-/// must OUTLIVE <see cref="InvokeAsync"/>. That removes the <c>using var</c> safety net this class
-/// used to rely on, so ownership becomes explicit: exactly one owner stops and disposes, exactly
+/// must OUTLIVE <see cref="InvokeAsync"/>. A <c>using var</c> cannot cover that, so ownership is
+/// explicit: exactly one owner stops and disposes, exactly
 /// once, decided by an <see cref="Interlocked"/> flip of <see cref="_tornDown"/>. Handoff happens at
 /// exactly ONE point — after a successful callback whose closing-page redirect was written cleanly.
 /// Every other exit (timeout, caller cancel, an auth-error callback, an injected <c>openBrowser</c>
-/// that throws, a closing-page write that throws) keeps ownership and disposes, exactly as before.</para>
+/// that throws, a closing-page write that throws) keeps ownership and disposes.</para>
 ///
 /// <para>The redirect needs TWO things: the callback carried no <c>error=</c>, and it echoed the
 /// authorize URL's <c>state</c>. The second is a security control, not a success signal — this port
@@ -119,8 +119,8 @@ public sealed class LoopbackBrowser(
 
             // Gated on the callback echoing the authorize URL's CSRF state, because this port is
             // reachable by ANY local process and the closing page would otherwise HAND OUT the join
-            // key: a bare `/callback?code=junk` used to be answered with the first-hop URL, key
-            // included. A local process could read it from the HTML and spend it on
+            // key: answering a bare `/callback?code=junk` with the first-hop URL would include the
+            // key. A local process could read it from the HTML and spend it on
             // `/joined?j=<stolen>&w1=<its own id>` before the real browser arrived, consuming the
             // one-shot and merging values it chose. The downstream CSRF check cannot undo either —
             // it only makes authentication fail, after the disclosure.

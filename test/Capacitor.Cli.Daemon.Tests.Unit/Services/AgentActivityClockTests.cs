@@ -14,7 +14,7 @@ using TUnit.Assertions.Enums;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Liveness-supervision spec §0/§1: <see cref="AgentActivityClock"/>'s own semantics (this class),
+/// <see cref="AgentActivityClock"/>'s own semantics (this class),
 /// plus proof that each of the four daemon-local sources — PTY output chunk, ACP transcript envelope,
 /// ACP turn transition, and <see cref="LocalPermissionBridge"/> reviewer tool-call hit — independently
 /// advances a launch's clock (the <see cref="AgentActivityClockOrchestratorTests"/> below,
@@ -51,7 +51,7 @@ public class AgentActivityClockTests {
     }
 
     /// <summary>
-    /// The §0 invariant the whole feature leans on: <see cref="AgentActivityClock.IdleForMs"/> is
+    /// The invariant the whole feature leans on: <see cref="AgentActivityClock.IdleForMs"/> is
     /// read from the MONOTONIC clock only, never wall-clock. <see cref="FakeTimeProvider"/> ties its
     /// monotonic timestamp and its <c>UtcNow</c> to the same simulated instant, so it cannot exercise
     /// this — <see cref="DecoupledTimeProvider"/> deliberately keeps the two axes independent. Mutate
@@ -390,7 +390,7 @@ public class AgentActivityClockTests {
     /// <summary>
     /// A minimal <see cref="TimeProvider"/> whose monotonic timestamp and wall clock are deliberately
     /// independent axes — every real implementation (including <see cref="FakeTimeProvider"/>) ties
-    /// the two to one simulated instant, which would make it structurally impossible to prove the §0
+    /// the two to one simulated instant, which would make it structurally impossible to prove the
     /// isolation <see cref="AgentActivityClock.IdleForMs"/> depends on.
     /// </summary>
     sealed class DecoupledTimeProvider : TimeProvider {
@@ -406,7 +406,7 @@ public class AgentActivityClockTests {
 }
 
 /// <summary>
-/// PTY-source wiring (liveness-supervision spec §1): uses <see cref="AgentOrchestratorHarness"/>
+/// PTY-source wiring: uses <see cref="AgentOrchestratorHarness"/>
 /// for its <c>BuildOrchestrator</c>/<c>SeedAgentForTest</c>/<c>ReadAgentOutputForTest</c> harness —
 /// same pattern as <c>AgentOrchestratorConsentDialogTests</c>/<c>AgentOrchestratorBracketedPasteTests</c>.
 /// </summary>
@@ -452,7 +452,7 @@ public class AgentActivityClockOrchestratorTests {
 }
 
 /// <summary>
-/// ACP-source wiring (liveness-supervision spec §1): envelope ingest and turn start/end, exercised
+/// ACP-source wiring: envelope ingest and turn start/end, exercised
 /// against a real <see cref="AcpHostedAgentRuntime"/> and <see cref="FakeAcpAgent"/> — same harness
 /// shape as <c>AcpTranscriptAggregationTests</c>, built fresh here so each test can independently
 /// control whether a turn ever runs at all.
@@ -491,7 +491,7 @@ public class ActivityClockTurnAndEnvelopeWiringTests {
             Conn    = new AcpConnection(Fake.ClientWriteStream, Fake.ClientReadStream, NullLogger.Instance);
             Process = new FakeAcpProcess();
             Runtime = new AcpHostedAgentRuntime(Conn, Process, NullLogger.Instance, TimeProvider.System) {
-                // Liveness-supervision spec §1: production wires this from AgentOrchestrator right
+                // Production wires this from AgentOrchestrator right
                 // after the runtime is obtained; a bare test construction (like this one) must do the
                 // same assignment itself.
                 ActivityClock = new AgentActivityClock(TimeProvider.System)
@@ -586,7 +586,7 @@ public class ActivityClockTurnAndEnvelopeWiringTests {
 }
 
 /// <summary>
-/// LocalPermissionBridge-source wiring (liveness-supervision spec §1): a reviewer tool-call POST must
+/// LocalPermissionBridge-source wiring: a reviewer tool-call POST must
 /// advance the bound clock. Isolated by construction — nothing else in this test touches a PTY,
 /// an ACP runtime, or a turn, so the clock can only have moved from the bridge's own handler.
 /// </summary>

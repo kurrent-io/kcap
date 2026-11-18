@@ -45,8 +45,7 @@ public class WindowsTaskUnitRepresentabilityTests {
     }
 
     /// <summary>The KEY is interpolated into the same `set "K=V"` line, so it is exactly as dangerous as
-    /// the value. The first version checked only the value — review caught that the stated rationale
-    /// (callers add entries after Build, so the sink must validate) applies to both sides equally.</summary>
+    /// the value: callers add entries after Build, so the sink must validate both sides.</summary>
     [Test]
     [Arguments("BAD\"KEY")]
     [Arguments("BAD\r\nset FOO=bar")]

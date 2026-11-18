@@ -419,9 +419,9 @@ public class OpenCodeReviewerLaunchTests {
     /// than a wider surface.
     ///
     /// <para>The arguments deliberately range past the obvious <c>* ? [ ]</c> into extglob, brace, pipe
-    /// and backslash syntax: an earlier revision enumerated metacharacters and review pointed out the
-    /// list could not be exhaustive for an engine we do not control. The implementation is now a
-    /// character ALLOWLIST, which is total by construction, and these cases pin that.</para>
+    /// and backslash syntax: a list of metacharacters cannot be exhaustive for an engine we do not
+    /// control, so the implementation is a character ALLOWLIST, total by construction, and these cases
+    /// pin that.</para>
     /// </summary>
     [Test]
     [Arguments("kcap-*")]

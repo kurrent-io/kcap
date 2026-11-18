@@ -158,7 +158,6 @@ internal static partial class MemoryIndexLiveCertHarness {
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start `kcap mcp memory`.");
-        OnProcessStarted?.Invoke(process.Id);
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
 
@@ -343,13 +342,11 @@ internal static partial class MemoryIndexLiveCertHarness {
     ///
     /// <para>The parameter is <c>id</c>, NOT <c>memory_id</c> — <c>save_memory</c> RETURNS
     /// <c>memory_id</c> and <c>archive_memory</c> ACCEPTS <c>id</c>, and sending the save's name back
-    /// silently archived nothing. 13 cert memories leaked into the live index before that was caught,
-    /// because the failure was swallowed here.</para>
+    /// silently archives nothing.</para>
     ///
     /// <para>Failures are therefore reported loudly AND verified: the tool's own <c>ok</c> is checked
     /// rather than assuming a returned frame means success. Still non-throwing — a cert must not fail
-    /// on cleanup and mask its real verdict — but it can no longer fail in silence, and it now also
-    /// marks the run so that no LATER case starts against an index that may hold this nonce. A stderr
+    /// on cleanup and mask its real verdict — but it cannot fail in silence, and it also marks the run so that no LATER case starts against an index that may hold this nonce. A stderr
     /// line the operator may not read is not a sufficient response to the failure mode this exists to
     /// prevent.</para>
     /// </summary>
@@ -465,9 +462,7 @@ internal static partial class MemoryIndexLiveCertHarness {
     ///
     /// <para>Discarding this exit code is not a cosmetic gap. A failed <c>true</c> makes the negative
     /// control vacuous (it observes no injection because injection was never disabled, and passes for
-    /// the wrong reason); a failed restore leaves a developer's machine with memory injection off. The
-    /// pre-existing Claude cert asserts this exit code, and an earlier draft of this shared harness
-    /// dropped that guard.</para>
+    /// the wrong reason); a failed restore leaves a developer's machine with memory injection off.</para>
     /// </summary>
     public static async Task SetDisableMemoryIndexAsync(bool value) {
         var (exitCode, _, stderr) = await RunProcessAsync(
@@ -564,12 +559,11 @@ internal static partial class MemoryIndexLiveCertHarness {
 
         // Unresolved: THROW rather than hand the bare name back.
         //
-        // An earlier version returned the name with the comment "so Process.Start produces its own,
-        // clearer error" — which is wrong for the one command that matters. `Process.Start` consults the
-        // WORKING DIRECTORY before PATH, and this assembly's working directory is its own output folder,
+        // Returning the bare name does not produce a clearer error for the one command that matters:
+        // `Process.Start` consults the WORKING DIRECTORY before PATH, and this assembly's working directory is its own output folder,
         // which holds a `kcap` copied there by the project reference. So the fallback does not produce
-        // an error at all: it silently runs the test build, which is the exact wrong-binary failure this
-        // resolver exists to prevent, reintroduced on the unresolved path.
+        // an error at all: it silently runs the test build, the exact wrong-binary failure this resolver
+        // exists to prevent.
         throw new FileNotFoundException(
             $"'{fileName}' is not on PATH. Refusing to fall back to the bare name: Process.Start would "
           + $"resolve it against the working directory, and this assembly's output folder contains a "
@@ -589,10 +583,9 @@ internal static partial class MemoryIndexLiveCertHarness {
     /// disagree with the <c>which kcap</c> line recorded beside it, which is the exact disagreement the
     /// resolver exists to remove.
     ///
-    /// <para><b>The question is EFFECTIVE executability, so ask the kernel.</b> An earlier version tested
-    /// "any of the three execute bits is set", justified by "over-accepting can only fall back to the
-    /// platform's own error" — which is wrong, and review caught it: this resolver returns an ABSOLUTE
-    /// path, so there is no fallback to a later PATH entry. A file that is owner-executable but owned by
+    /// <para><b>The question is EFFECTIVE executability, so ask the kernel.</b> "Any execute bit is set"
+    /// over-accepts, and this resolver returns an ABSOLUTE path, so there is no fallback to a later PATH
+    /// entry. A file that is owner-executable but owned by
     /// someone else, or sits on a <c>noexec</c> mount, would be selected here and would simply fail to
     /// launch, while a shell would have kept walking. <c>access(path, X_OK)</c> answers for the current
     /// identity, which is the same question <c>execvp</c> asks.</para>
@@ -620,10 +613,6 @@ internal static partial class MemoryIndexLiveCertHarness {
             }
         }
     }
-
-    /// <summary>Test-only seam: notified with the PID of every spawned process, so the cleanup test
-    /// can confirm a timed-out child is actually gone. Never set by production code.</summary>
-    internal static Action<int>? OnProcessStarted;
 
     /// <summary>
     /// Runs a child process with its output captured and a hard timeout, killing the whole tree on
@@ -658,7 +647,6 @@ internal static partial class MemoryIndexLiveCertHarness {
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException($"Failed to start '{fileName}'.");
-        OnProcessStarted?.Invoke(process.Id);
 
         using var timeoutCts = new CancellationTokenSource(timeout ?? ProcessTimeout);
         try {

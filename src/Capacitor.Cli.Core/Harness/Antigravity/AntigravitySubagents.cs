@@ -7,11 +7,10 @@ namespace Capacitor.Cli.Core.Harness.Antigravity;
 /// subagent is a SEPARATE conversation; the linkage is derived from the
 /// parent transcript's <c>INVOKE_SUBAGENT</c> steps (the spawn-time signal — same source the
 /// live watcher now uses, see <see cref="ChildConversationIdsFromLine"/>), which is available
-/// even for a child that never reports back. This replaces the
-/// child-reports-back scan of <c>brain/&lt;parent&gt;/.system_generated/messages/*.json</c>,
-/// which silently dropped errored/never-reporting children (see d9956b89) and had the
-/// sender/recipient direction inverted in some captures (see 7f8d9d93 → a1204f98). Roots are
-/// conversations that never appear as an invoked child.
+/// even for a child that never reports back. The child-reports-back messages under
+/// <c>brain/&lt;parent&gt;/.system_generated/messages/*.json</c> are not used: they miss
+/// errored/never-reporting children and invert the sender/recipient direction in some captures.
+/// Roots are conversations that never appear as an invoked child.
 /// </summary>
 public static class AntigravitySubagents {
     /// <summary>

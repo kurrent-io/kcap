@@ -80,6 +80,8 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
 
     public string MachineName { get; }
 
+    public string FoundOnHeader => $"FOUND ON {MachineName.ToUpper(CultureInfo.CurrentCulture)}";
+
     public bool Satisfied => _run is { State: ImportRunState.Finished };
 
     public HistoryState State {
@@ -283,8 +285,8 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
 
             var sessions = counts.Sum(c => c!.Value);
 
-            return model.DaysFor(sessions) is { } days and > 0
-                ? $"The server works through {SessionCount(sessions)} at up to {model.BacklogSessionTouchesPerDay.ToString("N0", CultureInfo.CurrentCulture)} a day: about {days} day{(days == 1 ? "" : "s")}"
+            return model.DurationFor(sessions) is { } duration
+                ? $"The server works through {SessionCount(sessions)} at up to {model.BacklogSessionTouchesPerDay.ToString("N0", CultureInfo.CurrentCulture)} a day: {duration}"
                 : null;
         }
     }

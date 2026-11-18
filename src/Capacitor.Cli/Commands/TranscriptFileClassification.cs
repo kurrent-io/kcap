@@ -23,14 +23,15 @@ internal static class TranscriptFileClassification {
             int                                                          minLines,
             CancellationToken                                            ct,
             HarnessId                                                    vendor        = HarnessId.Claude,
-            Action?                                                      onProbed      = null
+            Action?                                                      onProbed      = null,
+            Func<ImportCommand.SessionClassification, Task<ImportCommand.SessionClassification?>>? excludeBeforeProbeAsync = null
         ) {
         using var probeGate = new SemaphoreSlim(8);
         var       tasks     = new List<Task<ImportCommand.SessionClassification>>(transcripts.Count);
         var       ledger    = TranscriptImportLedger.Load(config);
 
         foreach (var (sessionId, filePath, encodedCwd) in transcripts) {
-            tasks.Add(ClassifyOneAsync(router, config, home, httpClient, time, baseUrl, sessionId, filePath, encodedCwd, minLines, probeGate, vendor, ledger, onProbed, ct));
+            tasks.Add(ClassifyOneAsync(router, config, home, httpClient, time, baseUrl, sessionId, filePath, encodedCwd, minLines, probeGate, vendor, ledger, onProbed, excludeBeforeProbeAsync, ct));
         }
 
         var results = await Task.WhenAll(tasks);
@@ -53,10 +54,11 @@ internal static class TranscriptFileClassification {
             HarnessId              vendor,
             TranscriptImportLedger ledger,
             Action?                onProbed,
+            Func<ImportCommand.SessionClassification, Task<ImportCommand.SessionClassification?>>? excludeBeforeProbeAsync,
             CancellationToken      ct
         ) {
         try {
-            return await ClassifyOneCoreAsync(router, config, home, httpClient, time, baseUrl, sessionId, filePath, encodedCwd, minLines, probeGate, vendor, ledger, ct);
+            return await ClassifyOneCoreAsync(router, config, home, httpClient, time, baseUrl, sessionId, filePath, encodedCwd, minLines, probeGate, vendor, ledger, excludeBeforeProbeAsync, ct);
         } finally {
             onProbed?.Invoke();
         }
@@ -76,6 +78,7 @@ internal static class TranscriptFileClassification {
             SemaphoreSlim          probeGate,
             HarnessId              vendor,
             TranscriptImportLedger ledger,
+            Func<ImportCommand.SessionClassification, Task<ImportCommand.SessionClassification?>>? excludeBeforeProbeAsync,
             CancellationToken      ct
         ) {
         var isCodex = vendor is HarnessId.Codex;
@@ -111,8 +114,21 @@ internal static class TranscriptFileClassification {
                 };
         }
 
-        // Probe the server BEFORE scanning the file. On re-runs the probe returns
-        // 204 (AlreadyLoaded) quickly and we never need to read the transcript.
+        if (excludeBeforeProbeAsync is { } exclude
+         && await exclude(new() {
+                SessionId = sessionId, FilePath = filePath, EncodedCwd = encodedCwd,
+                Meta = meta, Status = ImportCommand.ClassificationStatus.New, Vendor = vendor,
+            }) is { } excluded) {
+            var observedLines = minLines > 0 ? CountLinesUpTo(filePath, minLines) : 0;
+            return minLines > 0 && observedLines < minLines
+                ? excluded with {
+                    Status = ImportCommand.ClassificationStatus.TooShort, TotalLines = observedLines,
+                    ExcludedRepoKeys = [], ExcludedPathKey = null, OutsideAllowlist = false,
+                }
+                : excluded;
+        }
+
+        // The watermark bounds how far an included transcript needs scanning.
         ImportCommand.ClassificationStatus status;
         var                                resumeFromLine   = 0;
         string?                            probeErrorReason = null;

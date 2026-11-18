@@ -163,7 +163,7 @@ public class CodexSubagentTurnTrackerTests {
         await Assert.That(Eligible(state.CodexSubagentTurn, pending: state.PendingCodexToolCalls.Count)).IsFalse();
     }
 
-    // The gap this fixes (#532): a session watcher resuming mid-tool came up with an empty set.
+    // A session watcher resuming mid-tool must recover the call left open before its cursor.
     [Test]
     public async Task Backfill_RecoversACallLeftOpenBeforeTheCursor_ForASessionWatcher() {
         using var tmp = new TempDir();

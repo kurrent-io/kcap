@@ -928,7 +928,7 @@ public sealed class TerminalTabViewModel : ReactiveObject {
                 return;
             }
 
-            var end = entry is null ? TerminalSessionState.Failed("This session did not come back after the daemon restarted; see `kcap agent ls`.")
+            var end = entry is null ? TerminalSessionState.Failed("This session didn’t come back after the daemon restarted.")
                     : entry.State == ResumeState.Interrupted ? TerminalSessionState.Interrupted(entry.LastError)
                     : expired ? TerminalSessionState.Failed(LostConnection)
                     : null;

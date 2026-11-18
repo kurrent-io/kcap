@@ -58,8 +58,9 @@ function localRegistryPath(env, home) {
   return path.join(root, "install.json");
 }
 
-// Exit codes of `kcap local upgrade`: 0 upgraded, 3 nothing to do, 4 no bundle published for this version
-// yet (a CLI release can reach npm first); 1 and 2 are failures it has reported.
+// Exit codes of `kcap local upgrade`: 0 upgraded or already current, 3 not installed (an older CLI also gives 3 when
+// already current), 4 no bundle published for this version yet (a CLI release can reach npm first); 1 and 2 are
+// failures it has reported.
 function localUpgradeSucceeded(status) {
   return status === 0 || status === 3 || status === 4;
 }

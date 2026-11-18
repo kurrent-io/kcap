@@ -47,7 +47,7 @@
             </TabItem>
             <views:SettingsSectionHeader Classes="settingsNavHeader" Header="This profile" />
 
-            <TabItem x:Name="CaptureTab" Classes="settingsNav" AutomationProperties.Name="Privacy">
+            <TabItem x:Name="PrivacyTab" Classes="settingsNav" AutomationProperties.Name="Privacy">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <views:AppIcon Kind="Shield" Size="16" />
@@ -80,15 +80,11 @@
                                         <TextBlock Classes="scopeName" Text="{Binding ProfileName}" />
                                     </StackPanel>
                                 </Border>
-                                <Border x:Name="StatusChip" Classes="settingsContextChip"
+                                <Border x:Name="StatusChip" Classes="kcapBadge" Margin="0,6,0,0"
                                         ToolTip.Tip="{Binding StatusTip}">
-                                    <StackPanel Orientation="Horizontal" Spacing="8">
-                                        <TextBlock x:Name="StatusCaptionText" Text="Agents" FontSize="11" FontWeight="Medium"
-                                                   Foreground="{StaticResource KcapMutedBrush}"
-                                                   VerticalAlignment="Center" IsVisible="{Binding StatusShowsAgents}" />
-                                        <TextBlock x:Name="StatusText" Text="{Binding StatusLabel}" FontSize="12" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource KcapTextBrush}"
-                                                   VerticalAlignment="Center" />
+                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                        <TextBlock x:Name="StatusCaptionText" Classes="kcapStatusWord" Text="Agents" IsVisible="{Binding StatusShowsAgents}" />
+                                        <TextBlock x:Name="StatusText" Classes="kcapStatusWord" Text="{Binding StatusLabel}" />
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
@@ -439,7 +435,7 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem x:Name="PrivacyTab" Classes="settingsNav" AutomationProperties.Name="Usage data"
+            <TabItem x:Name="UsageDataTab" Classes="settingsNav" AutomationProperties.Name="Usage data"
                      IsVisible="{Binding Privacy, Converter={x:Static ObjectConverters.IsNotNull}}">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -472,6 +468,16 @@
                                               AutomationProperties.Name="Send usage data"
                                               IsEnabled="{Binding Privacy.CanChange, FallbackValue=False}"
                                               IsChecked="{Binding Privacy.SendUsageData, FallbackValue=False}" />
+                            </Grid>
+                        </Border>
+
+                        <Border Classes="settingsCard">
+                            <Grid Classes="settingsRow">
+                                <StackPanel Classes="settingsRowText">
+                                    <TextBlock Classes="kcapLabel" Text="Local server downloads" />
+                                    <TextBlock x:Name="LocalBundleDisclosure" Classes="kcapHint" TextWrapping="Wrap"
+                                               Text="Setting up or upgrading a local server, or opening its Search settings, downloads the local server's signed release manifest from kurrent.io. Nothing is fetched when the app starts. The request carries no device id and is not usage data, so the switch above and DO_NOT_TRACK do not stop it." />
+                                </StackPanel>
                             </Grid>
                         </Border>
                     </views:SettingsPage>

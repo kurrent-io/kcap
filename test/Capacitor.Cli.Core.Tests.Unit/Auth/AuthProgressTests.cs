@@ -41,7 +41,8 @@ public class AuthProgressTests {
         using var capture = ConsoleOutput.StartCapture();
 
         var token = await OAuthLoginFlow.RunDeviceFlowAsync(
-            github, "client_id", new RecordingBrowser(), TimeProvider.System, progress: progress);
+            github, "client_id", new RecordingBrowser(), TimeProvider.System, progress: progress,
+            pollDelay: new RecordingDelay().DelayAsync);
 
         await Assert.That(token).IsEqualTo("tok");
         await Assert.That(progress.DeviceCodes).Count().IsEqualTo(1);

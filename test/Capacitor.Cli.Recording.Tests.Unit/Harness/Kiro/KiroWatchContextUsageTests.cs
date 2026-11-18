@@ -66,7 +66,7 @@ public class KiroWatchContextUsageTests {
 
     [Test]
     public async Task Preserves_batch_order_and_count_when_flushing_a_buffer() {
-        // Simulates enriching a flushed buffer (finding 2): a mixed batch keeps order + count,
+        // Simulates enriching a flushed buffer: a mixed batch keeps order + count,
         // with only the anchor assistant line enriched.
         using var tmp = new TempDir();
         var transcriptPath = SeedSibling(tmp, Meta);

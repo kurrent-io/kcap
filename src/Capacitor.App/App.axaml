@@ -67,6 +67,7 @@
         <StyleInclude Source="avares://kcap-desktop/Views/PullRequestStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/ChatBubbleStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/Onboarding/OnboardingStyles.axaml" />
+        <StyleInclude Source="avares://kcap-desktop/Views/StatusStyles.axaml" />
         <!-- Fluent's notification template cuts a long message off after a few lines, which can drop the instruction it
              ends with. -->
         <Style Selector="NotificationCard">

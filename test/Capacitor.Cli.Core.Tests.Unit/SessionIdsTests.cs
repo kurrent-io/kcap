@@ -21,6 +21,13 @@ public class SessionIdsTests {
         await Assert.That(SessionIds.SameSession(reported, sent)).IsEqualTo(same);
 
     [Test]
+    [Arguments("5eed0001000040008000000000000001", "5eed0001-0000-4000-8000-000000000001")]
+    [Arguments("ses_3f2a1b", "ses_3f2a1b")]
+    [Arguments("senc1vptdh45epitvqf2ovpurmdnpg3c", "senc1vptdh45epitvqf2ovpurmdnpg3c")]
+    public async Task A_canonical_guid_is_shown_dashed_and_an_opaque_id_as_is(string id, string shown) =>
+        await Assert.That(SessionIds.Display(id)).IsEqualTo(shown);
+
+    [Test]
     public async Task Null_and_blank_are_null() {
         await Assert.That(SessionIds.Canonical(null)).IsNull();
         await Assert.That(SessionIds.Canonical("   ")).IsNull();

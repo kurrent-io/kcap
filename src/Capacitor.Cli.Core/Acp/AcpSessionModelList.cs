@@ -9,10 +9,9 @@ namespace Capacitor.Cli.Core.Acp;
 /// <para><b>Why two shapes.</b> Cursor, Copilot and Kiro answer with a <c>models</c> object
 /// (<see cref="SessionModelsInfo"/>). OpenCode answers with a <c>configOptions</c> array
 /// (<see cref="SessionConfigOptionDto"/>) and NO <c>models</c> object — measured against
-/// <c>opencode acp</c> 1.18.9, <c>docs/probes/2026-08-07-opencode-acp/</c>. Before this existed the
-/// resolver looked only at <c>models</c>, so OpenCode resolution returned null on every request and
-/// a caller-requested model was silently discarded — a hosted OpenCode agent always ran the vendor
-/// default no matter what the launch asked for, with nothing in the logs naming the reason.</para>
+/// <c>opencode acp</c> 1.18.9, <c>docs/probes/2026-08-07-opencode-acp/</c>. A resolver that read only
+/// <c>models</c> would silently discard a caller-requested model for OpenCode, running the vendor
+/// default with nothing in the logs naming the reason.</para>
 ///
 /// <para><b>Precedence is <c>models</c> first, deliberately.</b> It is the standardized shape, and a
 /// vendor that grew a <c>configOptions</c> mirror of the same fact must not have the mirror

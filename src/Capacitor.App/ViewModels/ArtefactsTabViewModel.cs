@@ -10,9 +10,9 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// The Artefacts tab: the documents a session declared or wrote, read from plan-artifacts with
-/// their bodies, the published pages citing the session (listed in the work context pane), and the
-/// one document or page that is open. The session id is
+/// The Pages tab: one list of the published pages citing the session (also listed in the work
+/// context pane) and the documents it declared or wrote, read from plan-artifacts with their bodies,
+/// and the one page or document that is open. The session id is
 /// each read's identity; a lease owns one id, its cancellation and its pending read, a result applies
 /// only for the current lease, and every lease transition happens on the UI thread.
 public sealed class ArtefactsTabViewModel : ReactiveObject {
@@ -37,6 +37,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     readonly Func<string, Stream?> _openWorkingCopy;
     readonly AvaloniaList<DocumentRow> _documents = [];
     readonly AvaloniaList<PageRow> _pages = [];
+    readonly AvaloniaList<object> _items = [];
     readonly ITimer _settle;
     bool _tornDown;
     string? _pendingPath;
@@ -53,19 +54,27 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
 
     public IAvaloniaReadOnlyList<DocumentRow> Documents => _documents;
     public IAvaloniaReadOnlyList<PageRow> Pages => _pages;
+    /// The tab's list: the pages, newest first as the server lists them, then the documents.
+    public IAvaloniaReadOnlyList<object> Items => _items;
     /// The last applied read of either list could not reach the server, so the pane's poll retries it
     /// even with the tab hidden.
     internal bool LastReadFailed => _documentsFailed || _pagesFailed;
     public bool HasDocuments => _documents.Count > 0;
     public bool HasPages => _pages.Count > 0;
-    /// Pages are listed in the work context pane, so they alone do not make a tab; an open one does.
-    public bool HasAny => HasDocuments || PageViewer is not null;
-    /// True while a session lease is open and has not yet applied a result — distinct from a settled empty list.
-    public bool IsLoading => _reads.IsLoading;
+    public bool HasItems => HasDocuments || HasPages;
+    /// A page opened from a link is shown though the session does not list it.
+    public bool HasAny => HasItems || PageViewer is not null;
+    /// Where a document card that names no listed document still sends the reader: pages alone are not that.
+    public bool HasDocumentOrOpenPage => HasDocuments || PageViewer is not null;
+    /// True while either list's lease is open and has not yet applied a result — distinct from a settled empty list.
+    public bool IsLoading => _switching || _reads.IsLoading || _pageReads.IsLoading;
+    /// Held across a whole switch: either lease can apply a cached empty answer inside it, which must not
+    /// read as a settled, empty tab while the other lease is still the last session's.
+    bool _switching;
     /// Right-pane prompt when nothing is open: loading, settled empty, or pick a row.
-    public string EmptyReaderNote => IsLoading ? "Loading documents…"
-        : HasDocuments ? "Select a document to read it."
-        : "No documents yet.";
+    public string EmptyReaderNote => IsLoading ? "Loading…"
+        : HasItems ? "Select a page or document to read it."
+        : "No pages or documents yet.";
 
     /// Page rows shown before the list folds behind its header.
     internal const int VisiblePagesCap = 3;
@@ -112,7 +121,14 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
 
     bool _isShown;
     /// Set by the workspace while the tab is the active one; the pane's poll re-reads documents only then.
-    public bool IsShown { get => _isShown; set => this.RaiseAndSetIfChanged(ref _isShown, value); }
+    /// A tab shown with nothing open opens the first row it can.
+    public bool IsShown {
+        get => _isShown;
+        set {
+            this.RaiseAndSetIfChanged(ref _isShown, value);
+            OpenFirst();
+        }
+    }
 
     public ReactiveCommand<DocumentRow, Unit> SelectCommand { get; }
     public ReactiveCommand<string, Unit> OpenLinkCommand { get; }
@@ -153,6 +169,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             },
             ApplyPages,
             "artefacts tab pages",
+            onSettled: RaiseLoading,
             cached: sessionId => _source?.CachedPages(sessionId));
         _activity = activity;
         _time = time;
@@ -189,12 +206,19 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             });
             _pageReads.ClearCurrent(ResetPages);
         } else {
-            _reads.Switch((sessionId, root), () => {
-                RaiseLoading();
-                Clear();
-            });
-            // Pages do not depend on the checkout, so a new root for the same session keeps them.
-            if (!_pageReads.HasCurrent || _pageReads.CurrentState != sessionId) _pageReads.Switch(sessionId, ResetPages);
+            _switching = true;
+            try {
+                _reads.Switch((sessionId, root), () => {
+                    RaiseLoading();
+                    Clear();
+                });
+                // Pages do not depend on the checkout, so a new root for the same session keeps them.
+                if (!_pageReads.HasCurrent || _pageReads.CurrentState != sessionId) _pageReads.Switch(sessionId, ResetPages);
+            } finally {
+                _switching = false;
+            }
+            RaiseLoading();
+            OpenFirst();
         }
     }
 
@@ -238,6 +262,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             ClosePage();
             ClearSelection();
             foreach (var document in _documents) document.IsSelected = false;
+            MarkOpenPage(pageId);
             _viewerLifetime = new CancellationTokenSource();
             _viewerListedVersion = row?.LatestVersion ?? 0;
             PageViewer = new PageViewerViewModel(_pageContent, pageId, row?.Url ?? browserUrl, _opener, _time, webViewAvailable: true);
@@ -265,6 +290,22 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         _viewerLifetime = null;
         viewer.Close();
         PageViewer = null;
+        MarkOpenPage(null);
+    }
+
+    void MarkOpenPage(string? pageId) {
+        foreach (var page in _pages) page.IsSelected = page.Id == pageId;
+    }
+
+    /// Only once both lists have answered, so which row opens does not depend on which read landed
+    /// first, and a page only in-app: opening the tab must never launch the browser.
+    void OpenFirst() {
+        if (_tornDown || !IsShown || Reader is not null || PageViewer is not null || _pendingPath is not null) return;
+        if (!_reads.IsCurrentSettled || _pagesKind is null) return;
+        // A switch applies cached documents before it moves the pages lease to the new session.
+        if (!_pageReads.HasCurrent || _pageReads.CurrentState != _reads.CurrentState.SessionId) return;
+        if (_pages.Count > 0 && CurrentViewer() is InAppPageViewer) OpenPage(_pages[0].Id, _pages[0].Url);
+        else if (_documents.Count > 0) Select(_documents[0]);
     }
 
     /// Selects the row whose path matches, an exact path before a suffix, and asks for the tab.
@@ -340,13 +381,14 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         switch (read.Kind) {
             case SessionPlansReadKind.Ready:
                 Show(read.Body?.Artifacts ?? []);
-                return;
+                break;
             case SessionPlansReadKind.Unreachable:
-                return;
+                break;
             default:
                 Clear();
-                return;
+                break;
         }
+        OpenFirst();
     }
 
     static int KindRank(string kind) => kind switch { "plan" => 0, "spec" => 1, "design" => 2, _ => 3 };
@@ -410,7 +452,10 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             : [];
         if (read.Kind == SessionPlansReadKind.SignedOut) PageViewer?.SignedOut();
         if (read.Kind == SessionPlansReadKind.Ready) CiteUnlisted(rows);
-        if (rows.Count == 0 && _pages.Count == 0) return;
+        if (rows.Count == 0 && _pages.Count == 0) {
+            OpenFirst();
+            return;
+        }
         _pages.Clear();
         _pages.AddRange(rows);
         if (!PagesOverflow) PagesExpanded = false;
@@ -420,7 +465,9 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             var shown = Math.Max(_viewerListedVersion, viewer.Version);
             _viewerListedVersion = Math.Max(shown, open.LatestVersion);
             if (shown > 0 && open.LatestVersion > shown) LoadPage();
+            open.IsSelected = true;
         }
+        OpenFirst();
     }
 
     /// A page this transcript published that the server does not list for the session was published
@@ -457,6 +504,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
 
     /// A new pages lease is a different session, so the page open for the last one closes.
     void ResetPages() {
+        RaiseLoading();
         ClosePage();
         _pagesFailed = false;
         _pagesKind = null;
@@ -468,6 +516,10 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     }
 
     void RaiseShape() {
+        _items.Clear();
+        _items.AddRange(_pages);
+        _items.AddRange(_documents);
+        this.RaisePropertyChanged(nameof(HasItems));
         this.RaisePropertyChanged(nameof(HasDocuments));
         this.RaisePropertyChanged(nameof(HasPages));
         this.RaisePropertyChanged(nameof(HasAny));

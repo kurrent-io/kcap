@@ -3,8 +3,8 @@ using System.Text.Json;
 namespace Capacitor.Models.Transcripts;
 
 /// The command a shell tool call was given, dug out of the tool input each vendor shapes
-/// differently: Codex writes `cmd`, Claude writes `command` as a string, and the argv form is a
-/// `bash -lc &lt;script&gt;` triple.
+/// differently: Codex writes `cmd`, Antigravity `CommandLine`, Claude `command` as a string, and
+/// the argv form is a `bash -lc &lt;script&gt;` triple. The server reads them in this order.
 public static class ToolCommandText {
     /// Null when the input carries no command. An argv triple hands its script through, since
     /// <see cref="Harness.Codex.CodexToolKinds"/>'s classifier only peels the wrapper when the
@@ -12,6 +12,7 @@ public static class ToolCommandText {
     public static string? From(JsonElement root) {
         if (!root.IsObject) return null;
         if (root.Str("cmd") is { } cmd) return cmd;
+        if (root.Str("CommandLine") is { } line) return line;
         if (root.Str("command") is { } command) return command;
         if (root.Arr("command") is not { } argv) return null;
         var parts = argv.EnumerateArray().Where(p => p.IsString).Select(p => p.GetString()!).ToList();

@@ -23,13 +23,12 @@ namespace Capacitor.Cli.Daemon.Harness.Kiro;
 /// a settle has a gap by construction: a server can initialize, be used, and be missed between two
 /// samples. Judging each notification on arrival closes it.</para>
 ///
-/// <para><b>Membership, not counting.</b> This originally required each injected name to initialize
-/// exactly once, reasoning that a duplicate could be a second server standing up under an injected
-/// name. But every injected name carries a per-launch GUID (Kiro aliases the result channel and the
+/// <para><b>Membership, not counting.</b> Do not require each injected name to initialize exactly
+/// once. Every injected name carries a per-launch GUID (Kiro aliases the result channel and the
 /// allowlist servers), so nothing in the operator's global config can be standing under one — a
 /// suppression failure surfaces as the operator's own server NAMES, which the membership arm catches.
 /// And kiro-cli 2.16.0 announces one injected server's initialization more than once as ordinary
-/// behaviour, so the count rule reaped every reviewer launch while the surface was exactly the
+/// behaviour, so a count rule reaps every reviewer launch while the surface is exactly the
 /// injected set. A repeated announce of an injected name is therefore benign.</para>
 ///
 /// <para><b>Known residual, not mitigated:</b> a build that stopped emitting

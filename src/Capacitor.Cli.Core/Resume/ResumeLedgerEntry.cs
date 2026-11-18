@@ -42,8 +42,9 @@ public sealed record ResumeLedgerEntry(
     // When the runtime now recorded started; each launch and each resume stamps its own, so a client can
     // tell the runtime it attached to from a successor. Null before the runtime starts.
     DateTimeOffset? StartedAt = null,
-    // Whether the agent was waiting for input, with no background subagent running, when its daemon stopped it.
-    // Null in an entry written by an older daemon, which reads as interrupted mid-turn.
+    // Whether the agent had nothing in flight (waiting for input, no live or unsettled subagent) when the entry was
+    // last written; a running daemon keeps it current, so it is set while Running too. Null in an entry from an
+    // older daemon, which reads as interrupted mid-turn.
     bool? AwaitingInput = null
 ) {
     public const int CurrentSchemaVersion = 1;

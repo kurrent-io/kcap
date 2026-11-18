@@ -11,6 +11,12 @@
       "description": "Records and visualizes Claude Code sessions via kcap CLI hooks",
       "source": "./",
       "category": "productivity"
+    },
+    {
+      "name": "kcap-steering",
+      "description": "Delivers messages sent from the kcap web and mobile apps to a terminal Claude Code session, through the kcap daemon",
+      "source": "./steering",
+      "category": "productivity"
     }
   ]
 }

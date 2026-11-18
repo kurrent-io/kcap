@@ -33,4 +33,10 @@ public static class HarnessNudge {
 
         return result;
     }
+
+    /// <summary>Detected harnesses kcap is not wired into and has never offered or been told to leave alone: they
+    /// appeared after setup, so nobody has chosen whether to store their sessions.</summary>
+    public static IReadOnlyList<IHarness> NeverOffered(HarnessRegistry harnesses, HarnessOfferLedger ledger) =>
+        [.. harnesses.Where(h => harnesses.Detected(h.Id) && !h.Signals.IsWired
+            && ledger.Entry(h.Id) is null or { Declined: false, LastOffered: null })];
 }

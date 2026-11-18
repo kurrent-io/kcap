@@ -41,7 +41,8 @@ static class ClaudeSessionEndHandoff {
     /// Starts the detached continuation and feeds it <paramref name="body"/>. False when that did
     /// not fully happen — the caller then runs the event inline.
     /// </summary>
-    public static bool TrySpawn(string[] args, string body, ConfigRoot config, IProcessStarter starter) {
+    /// <param name="process">The Claude process this hook runs under, which the continuation may outlive.</param>
+    public static bool TrySpawn(string[] args, string body, ConfigRoot config, IProcessStarter starter, ProcessIncarnation? process) {
         DetachedChild? child = null;
 
         try {
@@ -59,6 +60,9 @@ static class ClaudeSessionEndHandoff {
             // The continuation resolves everything else for itself; the root is the one thing it must
             // not, or a hook and its own continuation would read different tokens.
             psi.Environment[ConfigRoot.ConfigDirEnvVar] = config.Directory;
+
+            if (process is not null) psi.Environment[ClaudeSessionEndProcess.EnvVar] = ClaudeSessionEndProcess.Encode(process);
+            else psi.Environment.Remove(ClaudeSessionEndProcess.EnvVar);
 
             // Same pipe-leak hazard as the watcher spawn: the child must not hold Claude's hook
             // pipes open, or Claude waits on them past the hook's own exit. The payload travels on
@@ -98,6 +102,8 @@ static class ClaudeSessionEndHandoff {
     /// out of the terminal's session so a closing window cannot SIGHUP it mid-drain.
     /// </summary>
     public static void EnterDetached(string body, ConfigRoot config) {
+        ClaudeSessionEndProcess.TakeFromEnvironment();
+
         TextWriter writer;
 
         try {

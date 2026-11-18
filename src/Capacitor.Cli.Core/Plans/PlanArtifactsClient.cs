@@ -1,5 +1,5 @@
 using System.Net.Http.Json;
-using System.Text.Json;
+using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.WorkItems;
 
 namespace Capacitor.Cli.Core.Plans;
@@ -24,13 +24,8 @@ public sealed class PlanArtifactsClient(HttpClient http, string serverUrl) {
                     => new(SessionPlansReadKind.Ready, body),
                 _ => PlanArtifactsRead.Of(SessionPlansReadKind.Unreachable),
             };
-        } catch (Exception e) when (IsTransient(e, ct)) {
+        } catch (Exception e) when (HttpReadFailures.IsTransient(e, ct)) {
             return PlanArtifactsRead.Of(SessionPlansReadKind.Unreachable);
         }
     }
-
-    static bool IsTransient(Exception e, CancellationToken ct) =>
-        e is OperationCanceledException
-            ? !ct.IsCancellationRequested
-            : e is HttpRequestException or JsonException or NotSupportedException or IOException;
 }

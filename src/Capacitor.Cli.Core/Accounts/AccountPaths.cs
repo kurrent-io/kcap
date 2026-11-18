@@ -13,6 +13,13 @@ public static class AccountPaths {
             .Select(a => AccountLayouts.Claude(home, a.Directory))
             .FirstOrDefault(p => Contains(p.Projects, transcriptPath));
 
+    /// <summary>The layout a Claude transcript belongs to: a registered account's, or <paramref name="fallback"/>, the one
+    /// the environment resolves.</summary>
+    public static ClaudePaths ClaudeLayoutFor(string? transcriptPath, AccountStore accounts, UserHome home, ClaudePaths fallback) =>
+        transcriptPath is not null && accounts.TryLoad() is { } registry && ClaudeForTranscript(transcriptPath, registry, home) is { } paths
+            ? paths
+            : fallback;
+
     public static VendorAccount? CodexAccountForRollout(string rolloutPath, AccountRegistry registry, UserHome home) =>
         string.IsNullOrWhiteSpace(rolloutPath) ? null : registry.Accounts
             .Where(a => a.Vendor == HarnessId.Codex)

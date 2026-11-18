@@ -121,9 +121,9 @@ public class SingleFlightRefreshTests {
     }
 
 
-    // Codex review round 4: a DISCARDED task is not an asynchronous boundary. The refresh delegate
+    // A DISCARDED task is not an asynchronous boundary. The refresh delegate
     // computes capabilities synchronously (it shells out to probe CLI versions) before awaiting
-    // anything, so `_ = RequestAsync(...)` still ran the whole probe budget on the launch's stack.
+    // anything, so `_ = RequestAsync(...)` would still run the whole probe budget on the launch's stack.
     // Trigger must return before a delegate that blocks synchronously has finished.
     [Test] public async Task Trigger_returns_before_a_synchronously_blocking_delegate_completes() {
         var refresh  = new SingleFlightRefresh();

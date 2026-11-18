@@ -9,9 +9,10 @@ public sealed class LocalEmbeddingOffer(LocalBundleClient bundles, ECDsa manifes
     /// <exception cref="ArgumentException"><paramref name="version"/> is not a release version.</exception>
     public async Task<LocalEmbeddingModelManifest?> LookupAsync(string version, CancellationToken ct) {
         try {
-            var (bytes, signature) = await bundles.FetchManifestAsync(version, rid, ct);
+            var manifest = await bundles.FetchManifestAsync(version, rid,
+                (bytes, signature) => LocalBundleManifest.Verify(bytes, signature, manifestKey, version, rid), ct);
 
-            return LocalBundleManifest.Verify(bytes, signature, manifestKey, version, rid).EmbeddingModel;
+            return manifest.EmbeddingModel;
         } catch (LocalBundleException) {
             return null;
         }

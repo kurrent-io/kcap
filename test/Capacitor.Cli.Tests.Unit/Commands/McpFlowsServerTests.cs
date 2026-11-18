@@ -319,7 +319,7 @@ public class McpFlowsServerTests {
             """;
         var node = JsonNode.Parse(body)!.AsObject();
 
-        // Pins the carried Minor from Task 2's review: a malformed (non-object) array entry must
+        // A malformed (non-object) array entry must
         // be skipped, not throw — FormatPolledRoundResult has no try/catch, so a throw here would
         // turn a terminal result into a generic internal error.
         var text = McpFlowsServer.FormatPolledRoundResult(node, "f1", out var pendingIds);
@@ -476,7 +476,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task StartFlowAsync_with_model_posts_exactly_one_v4_request_with_protocol_4_body() {
-        // §2.7 B3: a model override is orthogonal to park-capability, so a v4 client routes a
+        // A model override is orthogonal to park-capability, so a v4 client routes a
         // model start to /v4 too (the superset route applies the model AND records protocol 4).
         using var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath("/api/flows/review/start/v4").UsingPost())
@@ -692,7 +692,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task CheckReviewerModelResult_uncoded_non_success_body_is_surfaced_not_masked() {
-        // Qodo #2: a non-404/405 uncoded body (e.g. a 5xx / proxy HTML-or-text error) is NOT an
+        // A non-404/405 uncoded body (e.g. a 5xx / proxy HTML-or-text error) is NOT an
         // old-server signal — it returns null so the caller surfaces the real status/body, rather
         // than masking a genuine failure as reviewer_model_protocol_required.
         var result = McpFlowsServer.CheckReviewerModelResult(

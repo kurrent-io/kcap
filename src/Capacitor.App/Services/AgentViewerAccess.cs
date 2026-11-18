@@ -27,6 +27,9 @@ public sealed record AgentViewerAccess(
             HasRights: true);
     }
 
+    /// A terminal session the daemon steers: only its terminal can answer its prompts, whoever the viewer is.
+    public bool AtTerminal { get; init; }
+
     /// The viewer's messages wait for the owner, and they may neither press keys, stop nor resize the agent.
     public bool InputHeld => Reaches && HoldMessages && !SendsDirect;
 
@@ -45,11 +48,12 @@ public sealed record AgentViewerAccess(
     };
 
     /// A question needs Answer questions; a permission needs Approve tool use.
-    public bool CanAnswer(PendingPermissionRequest request) => request.IsQuestion ? AnswerQuestions : ApproveToolUse;
+    public bool CanAnswer(PendingPermissionRequest request) => !AtTerminal && (request.IsQuestion ? AnswerQuestions : ApproveToolUse);
 
     /// Who a prompt the viewer cannot answer waits on; null when they can answer it.
     public string? WaitingOn(PendingPermissionRequest request) =>
-        CanAnswer(request) ? null
+        AtTerminal ? request.IsQuestion ? ViewModels.AttachedAgentCopy.WaitingForAnswer : ViewModels.AttachedAgentCopy.WaitingForApproval
+        : CanAnswer(request) ? null
         : request.IsQuestion ? "Waiting for the owner to answer"
         : "Waiting for the owner to decide";
 }

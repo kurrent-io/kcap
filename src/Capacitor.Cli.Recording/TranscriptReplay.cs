@@ -12,8 +12,10 @@ internal static class TranscriptReplay {
     /// after its call until the result arrives, so anything older is settled and only costs startup time.
     internal const int WindowLines = 512;
 
+    /// <param name="progress">Called after each line, for a caller that has to show it is getting through them.</param>
     internal static async Task ReplayAsync(
-            string transcriptPath, int upToLine, IReadOnlyList<TranscriptReplayConsumer> consumers, CancellationToken ct, Action<string> log) {
+            string transcriptPath, int upToLine, IReadOnlyList<TranscriptReplayConsumer> consumers, CancellationToken ct, Action<string> log,
+            Action? progress = null) {
         if (ct.IsCancellationRequested || upToLine <= 0 || consumers.Count == 0) return;
 
         var windowStart = Math.Max(0, upToLine - WindowLines);
@@ -30,6 +32,8 @@ internal static class TranscriptReplay {
                     if (done[i] || (consumers[i].WindowOnly && lineNumber < windowStart)) continue;
                     done[i] = consumers[i].OnLine(line);
                 }
+
+                progress?.Invoke();
             }
         } catch (OperationCanceledException) {
             // Shutdown racing startup: expected, and not worth a log line.

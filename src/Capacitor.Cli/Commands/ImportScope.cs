@@ -50,12 +50,21 @@ public abstract record ImportScope {
                 (acc, f) => acc ^ StringComparer.Ordinal.GetHashCode(f));
     }
 
-    /// <summary>A folder the way discovery groups sessions by it: ordinal, without a trailing separator.</summary>
+    /// <summary>A folder the way discovery groups sessions by it: ordinal, without a trailing separator, and a
+    /// Windows drive path in its <see cref="WindowsSpelling"/>.</summary>
     public static string FolderKey(string folder) {
-        var trimmed = folder.TrimEnd('/', '\\');
+        var spelled = WindowsSpelling(folder);
+        var trimmed = spelled.TrimEnd('/', '\\');
 
-        return trimmed.Length == 0 ? folder : trimmed;
+        return trimmed.Length == 0 ? spelled : trimmed;
     }
+
+    /// <summary>A Windows drive path in backslashes. Transcripts record one directory with either separator,
+    /// so without one spelling it is listed and counted as two folders.</summary>
+    public static string WindowsSpelling(string path) =>
+        path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && CwdRemapper.IsSeparator(path[2])
+            ? path.Replace('/', '\\')
+            : path;
 
     private ImportScope() { }
 

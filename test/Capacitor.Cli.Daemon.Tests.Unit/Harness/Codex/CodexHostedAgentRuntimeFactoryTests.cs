@@ -397,7 +397,7 @@ public class CodexHostedAgentRuntimeFactoryTests {
         }
     }
 
-    // ── Guard-1 marker (§2.5) ──────────────────────────────────────────────────────────
+    // ── Hosted app-server marker ───────────────────────────────────────────────────────
     [Test]
     public async Task BuildEnv_stamps_the_hosted_appserver_marker_only_when_emitting_envelopes() {
         using var wt = new TempDir();

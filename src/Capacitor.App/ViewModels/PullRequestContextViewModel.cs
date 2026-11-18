@@ -82,7 +82,11 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
     public IAvaloniaReadOnlyList<PullRequestChoice> Choices => _choices;
     public PullRequestChoice? Selected {
         get => _selected;
-        set { if (!_updatingChoices) Select(value, explicitSelection: true); }
+        set {
+            if (_updatingChoices) return;
+            _restoredPick = null;
+            Select(value, explicitSelection: true);
+        }
     }
     public string Notice => _notice;
     public string ReaderNote => _readerNote?.Text ?? "";
@@ -196,6 +200,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
             _sessionItems.Clear();
             _selected = null;
             _explicitSelection = false;
+            _restoredPick = null;
             _positions.Clear();
             _lifecycles.Clear();
             ClearProtected();
@@ -214,6 +219,8 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         }).DisposeWith(_subscriptions);
         signInCompleted?.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => {
             if (_session is null || _disposed) return;
+            // Lifecycles came from the previous account's reads; kept, the next snapshot would hand them to this one.
+            _lifecycles.Clear();
             CancelReads(); ClearProtected(); _source.ResetSession(_session); _stopped = false; _lastRefresh = null; RequestRefresh(manual: true);
         }).DisposeWith(_subscriptions);
     }
@@ -227,6 +234,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         _sessionItems.Clear();
         _selected = null;
         _explicitSelection = false;
+        _restoredPick = null;
         _positions.Clear();
         _lifecycles.Clear();
         _hasListed = true;
@@ -307,6 +315,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
     }
     public void SelectSubject(PullRequestSubjectDto subject) {
         if (_disposed) return;
+        _restoredPick = null;
         _requestedSubject = subject;
         ApplyRequestedSubject();
     }
@@ -341,7 +350,10 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
             _requestedSubject = choice?.Subject;
             _explicitSelection = true;
         }
-        if (choice?.Subject == _selected?.Subject) return;
+        if (choice?.Subject == _selected?.Subject) {
+            if (explicitSelection) RememberPick();
+            return;
+        }
         _explicitSelection = explicitSelection;
         if (_selected is not null) {
             if (_positions.Count >= 20 && !_positions.ContainsKey(_selected.Subject)) _positions.Remove(_positions.MinBy(x => x.Value.Touched).Key);
@@ -358,6 +370,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         if (choice is not null) _notice = ReadRetryAt > _time.GetUtcNow().UtcDateTime
             ? "GitHub reads are paused temporarily. Retry after the cooldown." : "";
         this.RaisePropertyChanged(nameof(Selected));
+        RememberPick();
         Notify();
         RequestOverview();
     }

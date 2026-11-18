@@ -237,7 +237,7 @@ public class ReviewerModelResolutionTests {
         await Assert.That(r.DiagnosticCode).IsEqualTo("codex");
     }
 
-    // === Central anchor guard (Task-7 review Minor, enforced at the coordinator) ===
+    // === Central anchor guard (enforced at the coordinator) ===
 
     /// <summary>A resolver that (buggily) returns Accept WITHOUT a non-null equivalence-key anchor.</summary>
     sealed class AnchorlessAcceptResolver(string vendor, params string[] recognized) : IReviewerModelResolver {
@@ -277,12 +277,12 @@ public class ReviewerModelResolutionTests {
         await Assert.That(r.DiagnosticCode).IsNull();
     }
 
-    // === Codex date-sensitivity (Task 8: the report must never feed a dated slug to the resolver) ===
+    // === Codex date-sensitivity (the report must never feed a dated slug to the resolver) ===
 
     [Test]
     public async Task Codex_DatedSlug_HasADifferentKeyThanTheBareSlug() {
         // Codex's slug-level key is date-SENSITIVE: a hypothetical dated slug canonicalizes to a
-        // DIFFERENT anchor than the bare slug. This locks the contract that Task 8's resolved-model
+        // DIFFERENT anchor than the bare slug. This locks the contract that the resolved-model
         // report must report the verbatim LaunchModel (bare slug), never a date-suffixed
         // session-metadata model — the latter would drift the key and fail the server's echo validation.
         var bare  = CodexReviewerModelResolver.Instance.Resolve("gpt-5-codex");

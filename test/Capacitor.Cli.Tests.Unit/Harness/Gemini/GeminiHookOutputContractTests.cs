@@ -64,10 +64,25 @@ public class GeminiHookOutputContractTests {
         await AssertNonBlockingJsonObject(stdout);
     }
 
+    /// <summary>A resume after the profile's repository list changed has to be judged afresh.</summary>
+    [Test, NotInParallel]
+    public async Task A_sessions_end_lifts_an_exclusion_and_no_persons_disable() {
+        const string disabled = "3f2504e1-4f89-11d3-9a0c-0305e82c3301";
+        var excluded = SessionId.Replace("-", "");
+        DisabledSessions.Exclude(excluded, Config.Root);
+        DisabledSessions.Mark(disabled.Replace("-", ""), Config.Root);
+
+        await RunAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{SessionId}}","cwd":"/tmp"}""");
+        await RunAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{disabled}}","cwd":"/tmp"}""");
+
+        await Assert.That(DisabledSessions.IsDisabled(excluded, Config.Root)).IsFalse();
+        await Assert.That(DisabledSessions.IsDisabledByPerson(disabled.Replace("-", ""), Config.Root)).IsTrue();
+    }
+
     [Test, NotInParallel]
     public async Task A_notification_missing_its_required_fields_still_emits_a_non_blocking_result() {
         // The server's NotificationHook needs message + notification_type; without them the forward is
-        // abandoned. That abandonment used to return zero bytes.
+        // abandoned, and that abandonment must still write a result rather than zero bytes.
         var stdout = await RunAsync($$"""
             {"hook_event_name":"Notification","session_id":"{{SessionId}}","cwd":"/tmp"}
             """);
@@ -126,8 +141,7 @@ public class GeminiHookOutputContractTests {
     }
 
     /// <summary>Writes <paramref name="charsBeforeThrowing"/> characters and THEN throws, so 0 exercises
-    /// "fails before any byte" and a positive value a genuine partial write. An earlier version of this
-    /// writer only ever threw before writing, leaving the advertised partial-write case untested.</summary>
+    /// "fails before any byte" and a positive value a genuine partial write.</summary>
     sealed class ThrowingWriter(int charsBeforeThrowing) : StringWriter {
         public override void Write(string? value) {
             if (value is { Length: > 0 } && charsBeforeThrowing > 0)

@@ -5,7 +5,7 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Phase B (D4 §6.4(3)): <c>HandleStopAgent</c> for an id not in the registry falls back to the
+/// <c>HandleStopAgent</c> for an id not in the registry falls back to the
 /// PID record and reaps a matching live process by exact identity. OS-aware: Linux/Windows can prove
 /// ownership (Linux via the <c>KCAP_AGENT_ID</c> env) and reap; on macOS the outcome depends on the OS
 /// version's start-identity readability (redacted → spared, readable → reaped), so the test asserts the

@@ -1,0 +1,376 @@
+[
+  {
+    "line": 0,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "SessionStarted",
+        "id": "7f434d53-83ba-44f2-a654-63d3db33e7e9",
+        "timestamp": "2026-11-07T21:50:43.1060000\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:43.106Z",
+        "payload": {
+          "timestamp": "2026-11-07T21:50:43.106Z",
+          "extensions": {
+            "copilot": {
+              "cwd": null,
+              "git_root": null,
+              "branch": null,
+              "repository": null,
+              "repository_host": null,
+              "host_type": null,
+              "copilot_version": "0.73.0",
+              "producer": "copilot-agent",
+              "source": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "567a7af1-dd11-4ef2-b1bb-c04593f37bcd",
+        "timestamp": "2026-11-07T21:50:43.9120000\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:43.912Z",
+        "payload": {
+          "content": "In this workspace: 1) create notes.md containing \u0027hello from local\u0027. 2) In calc.py add the docstring \u0027Add two numbers.\u0027 to add. 3) In README.md replace \u0027One line.\u0027 with \u0027Two lines.\u0027 and add a line \u0027Edited by Copilot.\u0027. Use your file editing tools directly. Then reply DONE.",
+          "timestamp": "2026-11-07T21:50:43.912Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "af1b83d2-ccae-4826-17c4-c275fb7de67e",
+        "timestamp": "2026-11-07T21:50:47.4660000\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:47.466Z",
+        "payload": {
+          "content": "I\u2019ll check the two target files, then make the requested edits directly.",
+          "timestamp": "2026-11-07T21:50:47.466Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "5e6cbb6c-a2db-899b-c8c1-6f7be67ad61d",
+        "timestamp": "2026-11-07T21:50:47.4660001\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:47.466Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "call_Sy8TtFM1JRfg1rozrUACeJww",
+              "tool_name": "read_file",
+              "arguments": {
+                "filePath": "/work/demo/calc.py",
+                "startLine": 1,
+                "endLine": 120
+              },
+              "tool_kind": "read"
+            }
+          ],
+          "timestamp": "2026-11-07T21:50:47.466000100Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "4f581469-98f6-aeab-a270-9dd4671dceff",
+        "timestamp": "2026-11-07T21:50:47.4660002\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:47.466Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "call_wVqj4nakKUl3E6PlRAlR4iDT",
+              "tool_name": "read_file",
+              "arguments": {
+                "filePath": "/work/demo/README.md",
+                "startLine": 1,
+                "endLine": 120
+              },
+              "tool_kind": "read"
+            }
+          ],
+          "timestamp": "2026-11-07T21:50:47.466000200Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 8,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "c7c608c3-e371-4a26-8901-0f82d0aedc8c",
+        "timestamp": "2026-11-07T21:50:47.6170000\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:47.617Z",
+        "payload": {
+          "call_id": "call_Sy8TtFM1JRfg1rozrUACeJww",
+          "timestamp": "2026-11-07T21:50:47.617Z",
+          "extensions": {
+            "copilot": {
+              "success": true,
+              "detailed_content": null,
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 9,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "a7977b45-6443-445b-821d-e8443a1278fc",
+        "timestamp": "2026-11-07T21:50:47.6250000\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:47.625Z",
+        "payload": {
+          "call_id": "call_wVqj4nakKUl3E6PlRAlR4iDT",
+          "timestamp": "2026-11-07T21:50:47.625Z",
+          "extensions": {
+            "copilot": {
+              "success": true,
+              "detailed_content": null,
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 10,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "97a22715-944f-12d6-d566-e051d5898f0e",
+        "timestamp": "2026-11-07T21:50:50.6950000\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:50.695Z",
+        "payload": {
+          "content": "Both files are minimal and match the requested anchors. I\u2019m adding the docstring, updating the README text, and creating the notes file now.",
+          "timestamp": "2026-11-07T21:50:50.695Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "5d3aeb42-8c19-90bd-c30a-1f6def3aed05",
+        "timestamp": "2026-11-07T21:50:50.6950001\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:50.695Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "call_FbZcfnAvob6DPue9DXnDOuVm",
+              "tool_name": "apply_patch",
+              "arguments": {
+                "input": "*** Begin Patch\n*** Update File: /work/demo/calc.py\n@@ def add(a, b):\n def add(a, b):\n\u002B    \u0022\u0022\u0022Add two numbers.\u0022\u0022\u0022\n     return a \u002B b\n*** End Patch",
+                "explanation": "Add the requested docstring to add."
+              },
+              "tool_kind": "edit"
+            }
+          ],
+          "timestamp": "2026-11-07T21:50:50.695000100Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "7c762b4f-c1d2-fe9b-8e43-16d544dd465d",
+        "timestamp": "2026-11-07T21:50:50.6950002\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:50.695Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "call_PDw3U5MiDwUUTYV29He9lq4M",
+              "tool_name": "apply_patch",
+              "arguments": {
+                "input": "*** Begin Patch\n*** Update File: /work/demo/README.md\n@@ # Demo\n \n-One line.\n\u002BTwo lines.\n\u002BEdited by Copilot.\n*** End Patch",
+                "explanation": "Update the README wording and add the requested line."
+              },
+              "tool_kind": "edit"
+            }
+          ],
+          "timestamp": "2026-11-07T21:50:50.695000200Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "c1e5edad-cefd-d8a7-389c-e925918b2111",
+        "timestamp": "2026-11-07T21:50:50.6950003\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:50.695Z",
+        "payload": {
+          "tool_calls": [
+            {
+              "call_id": "call_P6pfaKK0q9T2NhB7m5HMnkSc",
+              "tool_name": "create_file",
+              "arguments": {
+                "filePath": "/work/demo/notes.md",
+                "content": "hello from local"
+              },
+              "tool_kind": "edit"
+            }
+          ],
+          "timestamp": "2026-11-07T21:50:50.695000300Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 14,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "35c8039d-a32e-4c7c-be05-a1e60441e52a",
+        "timestamp": "2026-11-07T21:50:50.7780000\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:50.778Z",
+        "payload": {
+          "call_id": "call_FbZcfnAvob6DPue9DXnDOuVm",
+          "timestamp": "2026-11-07T21:50:50.778Z",
+          "extensions": {
+            "copilot": {
+              "success": true,
+              "detailed_content": null,
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 16,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "0107b711-e1f0-4c8f-b6dd-53d633beb754",
+        "timestamp": "2026-11-07T21:50:50.8270000\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:50.827Z",
+        "payload": {
+          "call_id": "call_PDw3U5MiDwUUTYV29He9lq4M",
+          "timestamp": "2026-11-07T21:50:50.827Z",
+          "extensions": {
+            "copilot": {
+              "success": true,
+              "detailed_content": null,
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 18,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "3705202b-ff25-403a-ab66-86689e495537",
+        "timestamp": "2026-11-07T21:50:50.8800000\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:50.880Z",
+        "payload": {
+          "call_id": "call_P6pfaKK0q9T2NhB7m5HMnkSc",
+          "timestamp": "2026-11-07T21:50:50.880Z",
+          "extensions": {
+            "copilot": {
+              "success": true,
+              "detailed_content": null,
+              "agent_id": null
+            }
+          }
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 19,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "9afc54d4-6312-ce3c-fc7d-d4d50edf433f",
+        "timestamp": "2026-11-07T21:50:51.8720000\u002B00:00",
+        "recordTimestamp": "2026-11-07T21:50:51.872Z",
+        "payload": {
+          "content": "DONE",
+          "timestamp": "2026-11-07T21:50:51.872Z"
+        },
+        "usage": null,
+        "vendorMetadata": null,
+        "attachments": null
+      }
+    ],
+    "amendments": 0
+  }
+]

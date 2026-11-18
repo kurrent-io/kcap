@@ -74,7 +74,7 @@ public class LocalDestinationTests : IDisposable {
 
         await Assert.That(refused!.Message).IsEqualTo(LocalServerCondition.Uninstalled.Explanation);
 
-        Directory.CreateDirectory(Path.Combine(root.Directory, "bin"));
+        Tmp.CreateFile(["local", "bin", "current", LocalServerConditions.ServerFileName]);
         using var client = await http.ForCommandAsync();
         using var response = await client.GetAsync($"{Url}/ping");
 

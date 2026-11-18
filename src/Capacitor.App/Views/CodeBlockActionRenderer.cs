@@ -20,12 +20,15 @@ public sealed class CodeBlockActionRenderer(MarkdownView view, CodeBlockActions 
     readonly TextMateCodeBlockRenderer _inner = new();
 
     protected override void Write(AvaloniaRenderer renderer, CodeBlock obj) {
+        var mermaid = view.Flavor == MarkdownFlavor.GitHub && obj is FencedCodeBlock fenced
+            && string.Equals(fenced.Info, "mermaid", StringComparison.OrdinalIgnoreCase);
         var scratch = new StackPanel();
         renderer.Push(scratch);
         _inner.Write(renderer, obj);
         renderer.Pop();
-        if (scratch.Children.Count == 0) return;
-        var block = scratch.Children[0];
+        if (scratch.Children.Count == 0 && !mermaid) return;
+        var block = scratch.Children.FirstOrDefault()
+            ?? new Border { Classes = { "markdown-code-block" }, Child = new TextBlock { Text = obj.Lines.ToString() } };
         // A control carries one parent: the scratch panel has to let go before the host adopts it.
         scratch.Children.Clear();
         // MarkView sets NoWrap as a local value, which a style cannot override, and the viewer's
@@ -33,7 +36,12 @@ public sealed class CodeBlockActionRenderer(MarkdownView view, CodeBlockActions 
         if (block is Border { Child: TextBlock code }) code.TextWrapping = TextWrapping.Wrap;
         // The line group puts its newlines between lines and none after the last, so the text is
         // already what the block displays: trimming the end would drop a blank line it shows.
-        renderer.WriteBlock(Host(block, obj.Lines.ToString()));
+        var text = obj.Lines.ToString();
+        if (mermaid) {
+            renderer.WriteBlock(new MermaidFallback(view, block, text, obj.Span.Start));
+        } else {
+            renderer.WriteBlock(Host(block, text));
+        }
     }
 
     /// The bang is what makes the block a command the composer can run rather than prose, and it
@@ -59,8 +67,8 @@ public sealed class CodeBlockActionRenderer(MarkdownView view, CodeBlockActions 
         return host;
     }
 
-    static Button CopyButton(string text) {
-        var button = ActionButton("Copy", "markdown-code-copy");
+    internal static Button CopyButton(string text, string label = "Copy") {
+        var button = ActionButton(label, "markdown-code-copy");
         var copies = 0;
         button.Click += async (_, _) => {
             if (TopLevel.GetTopLevel(button)?.Clipboard is not { } clipboard) return;
@@ -73,7 +81,7 @@ public sealed class CodeBlockActionRenderer(MarkdownView view, CodeBlockActions 
             }
             // The label is the only receipt a copy leaves, so a later copy's own receipt outranks
             // this one's expiry rather than being cut short by it.
-            DispatcherTimer.RunOnce(() => { if (copies == mine) button.Content = "Copy"; }, CopiedFor);
+            DispatcherTimer.RunOnce(() => { if (copies == mine) button.Content = label; }, CopiedFor);
         };
         return button;
     }

@@ -159,9 +159,8 @@ public class CursorGuardWiringTests {
     // the guard's checks (prior-zone hash, shrink, new-range
     // record) must still work correctly on a NON-cadence poll, where DrainNewLines now captures
     // only a BOUNDED window (the guard's own trailing-tail zone plus the new range) instead of
-    // materializing the whole file. Before this fix, this poll would have re-allocated/re-read the
-    // ~50KB padding line below every single second; this test proves correctness survives making
-    // that incremental — a same-length in-place rewrite of already-checkpointed history (well
+    // materializing the whole file, rather than re-reading the ~50KB padding line below every
+    // second. Correctness survives the bounded read — a same-length in-place rewrite of already-checkpointed history (well
     // outside the small new range) is still caught via the bounded read's prior-zone hash.
     [Test]
     public async Task DrainNewLines_still_catches_a_prior_zone_rewrite_via_the_bounded_non_cadence_read_path() {
@@ -276,7 +275,7 @@ public class CursorGuardWiringTests {
         await Assert.That(pollA).IsEmpty(); // both new lines are blank — nothing to send
         await Assert.That(Markers.IsQuarantined(sid)).IsFalse();
 
-        // THE FIX: the byte frontier must land at the TRUE end of the two blank lines (offset
+        // The byte frontier must land at the TRUE end of the two blank lines (offset
         // 9), in lockstep with the line frontier (4) — not stuck at the old offset (4) while
         // LinesProcessed alone raced ahead.
         await Assert.That(state.LinesProcessed).IsEqualTo(4);
@@ -370,7 +369,7 @@ public class CursorGuardWiringTests {
         await Assert.That(pollA).IsEmpty(); // both new lines blank — nothing sent; the repo-only RPC threw
         await Assert.That(Markers.IsQuarantined(sid)).IsFalse();
 
-        // THE FIX: even though the send failed, the byte frontier must land at the true end of
+        // Even though the send failed, the byte frontier must land at the true end of
         // the two blank lines (9), in lockstep with the line frontier (4) — not stay stuck at 4.
         await Assert.That(state.LinesProcessed).IsEqualTo(4);
         await Assert.That(state.CursorByteOffset).IsEqualTo(9L);

@@ -61,4 +61,23 @@ public class AgentStopAckTests {
     [Test]
     public async Task An_empty_table_reads_as_no_agents() =>
         await Assert.That(AgentCommand.ParseAgentTable("")!.Count).IsEqualTo(0);
+
+    /// <summary>The daemon steers an attached session but doesn't host it, so no outcome may read as stopping one, and
+    /// a failure goes to stderr whichever kind it was.</summary>
+    [Test]
+    [Arguments("Stopped", false)]
+    [Arguments("Skipped", false)]
+    [Arguments("AlreadyStopped", false)]
+    [Arguments("NoSuchAgent", true)]
+    [Arguments("Failed", true)]
+    public async Task No_outcome_reads_as_stopping_a_steered_session(string name, bool error) {
+        var outcome = Enum.Parse<StopAckOutcome>(name);
+        var (steered, steeredError) = AgentCommand.StopLine(outcome, "mod-0123456789abcdef", steered: true);
+        var (_, hostedError)        = AgentCommand.StopLine(outcome, Id, steered: false);
+
+        await Assert.That(steered.Contains("stop", StringComparison.OrdinalIgnoreCase)).IsFalse().Because(steered);
+        await Assert.That(steered).Contains("mod-0123456789abcdef");
+        await Assert.That(steeredError).IsEqualTo(error);
+        await Assert.That(hostedError).IsEqualTo(error);
+    }
 }

@@ -13,6 +13,10 @@ namespace Capacitor.Cli.Core.Harness.Cursor;
 /// a rolling liveness signal.
 /// </summary>
 public sealed class CursorMarkers(ConfigRoot config, TimeProvider time) {
+    /// <summary>Hears of a quarantine that could not be written; null writes to stderr, as a hook wants. A recorder
+    /// may share its process with others, so it passes its own log.</summary>
+    public Action<string>? FailureLog { get; init; }
+
     public string QuarantinePath(string sessionId) => config.Path("cursor-quarantine", $"{sessionId}.json");
     public string BarrierPath(string sessionId)    => config.Path("cursor-barrier", $"{sessionId}.json");
     public string HeartbeatPath(string sessionId)  => config.Path("cursor-heartbeat", $"{sessionId}.json");
@@ -72,7 +76,10 @@ public sealed class CursorMarkers(ConfigRoot config, TimeProvider time) {
             File.WriteAllText(tmp, json);
             File.Move(tmp, path, overwrite: true);
         } catch (Exception e) {
-            Console.Error.WriteLine($"cursor_quarantine_marker_write_failed: session {sessionId}: {e.Message}");
+            var failure = $"cursor_quarantine_marker_write_failed: session {sessionId}: {e.Message}";
+
+            if (FailureLog is { } log) log(failure);
+            else Console.Error.WriteLine(failure);
         }
     }
 

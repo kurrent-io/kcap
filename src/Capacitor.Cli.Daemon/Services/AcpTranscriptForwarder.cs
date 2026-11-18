@@ -55,7 +55,7 @@ namespace Capacitor.Cli.Daemon.Services;
 /// always precedes starting this forwarder. This forwarder also never emits a <c>session_ended</c>
 /// envelope; the server's <c>EndAgentSession</c> is the sole <c>SessionEnded</c> owner.
 ///
-/// <para>§2.7 B4 resume/rebind: a rebind passes null <c>initialEnvelope</c> and <c>resumeFromSeq</c> =
+/// <para>Resume/rebind: a rebind passes null <c>initialEnvelope</c> and <c>resumeFromSeq</c> =
 /// the source-claim's canonical <c>AcceptedSeq</c> — the forwarder sends NO SessionStarted and numbers the
 /// first new event at <c>AcceptedSeq + 1</c>, so round-2 events aren't deduped (<c>≤ AcceptedSeq</c>) and lost.</para>
 /// </summary>
@@ -186,7 +186,7 @@ internal sealed class AcpTranscriptForwarder : IAcpPersistenceProbe {
     /// backoff without real sleeping.
     /// </summary>
     /// <param name="resumeFromSeq">
-    /// §2.7 B4 resume/rebind: the canonical AcceptedSeq this forwarder resumes from. When set, do NOT
+    /// Resume/rebind: the canonical AcceptedSeq this forwarder resumes from. When set, do NOT
     /// (re)send SessionStarted and number the first new event at <paramref name="resumeFromSeq"/>+1, so a
     /// resumed incarnation's events land at the next canonical sequence instead of being deduped against
     /// the prior incarnation's cursor. Null = a fresh session (SessionStarted@0, today's behaviour).

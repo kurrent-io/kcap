@@ -23,6 +23,8 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
     public const int PageSize = 20;
     public const int LivePageSize = 100;
     public const int OffsetCap = 500;
+    /// Each Load more re-reads every ended page it shows, so they go out together rather than one round trip each.
+    const int EndedPagesInFlight = 4;
     static readonly TimeSpan DefaultPushDebounce = TimeSpan.FromMilliseconds(250);
     /// The server pushes every live session of the tenant to every client, and a live re-read is
     /// up to six listing pages, so a busy org gets one re-read per window from each open app.
@@ -257,18 +259,26 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         if (unlisted) IssuePinRefresh();
     }
 
-    public async Task<HandoffContextFetch> ReadHandoffContextAsync(string sessionId, CancellationToken ct) {
-        if (_fetchHandoffContext is null) return new(ServerReadOutcome.Failed, null);
+    public Task<HandoffContextFetch> ReadHandoffContextAsync(string sessionId, CancellationToken ct) =>
+        ReadAsync(_fetchHandoffContext, sessionId, f => f.Outcome, new HandoffContextFetch(ServerReadOutcome.Failed, null), ct);
+
+    public Task<SummaryFetch> ReadSummaryAsync(string sessionId, CancellationToken ct) =>
+        ReadAsync(_fetchSummary, sessionId, f => f.Outcome, new SummaryFetch(ServerReadOutcome.Failed, null), ct);
+
+    async Task<T> ReadAsync<T>(
+            Func<string, CancellationToken, Task<T>>? read, string sessionId, Func<T, ServerReadOutcome> outcome, T failed,
+            CancellationToken ct) {
+        if (read is null) return failed;
         int laneEpoch;
         lock (_lock) laneEpoch = _laneEpoch;
         try {
-            var fetch = await _fetchHandoffContext(sessionId, ct).ConfigureAwait(false);
-            if (fetch.Outcome == ServerReadOutcome.Unauthorized) _onUnauthorized?.Invoke(laneEpoch);
+            var fetch = await read(sessionId, ct).ConfigureAwait(false);
+            if (outcome(fetch) == ServerReadOutcome.Unauthorized) _onUnauthorized?.Invoke(laneEpoch);
             return fetch;
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;
         } catch (Exception) {
-            return new(ServerReadOutcome.Failed, null);
+            return failed;
         }
     }
 
@@ -613,16 +623,35 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         var ended = new List<RepoSessionDto>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var total = 0;
-        for (var page = 0; page < pages; page++) {
-            var offset = page * PageSize;
-            if (offset > OffsetCap) break;
-            var result = await _fetch(new ServerSessionsQuery("ended", owner, PageSize, offset), CancellationToken.None).ConfigureAwait(false);
-            if (result.Unauthorized) return (null, true, null);
-            if (result.Rows is null)
-                return (new Snapshot(all.Rows, owner is null ? null : scoped.Rows, [.. ended], total, liveNotShown, EndedPartial: true), false, result.RetryAfter);
-            total = result.Total;
-            foreach (var row in result.Rows) if (seen.Add(row.SessionId)) ended.Add(row);
-            if (result.Rows.Length < PageSize) break;
+        var count = Math.Min(pages, OffsetCap / PageSize + 1);
+        var inFlight = new Queue<Task<ServerSessionsFetch>>();
+        using var abandon = new CancellationTokenSource();
+        var next = 0;
+        void Launch() {
+            for (; inFlight.Count < EndedPagesInFlight && next < count; next++)
+                inFlight.Enqueue(_fetch(new ServerSessionsQuery("ended", owner, PageSize, next * PageSize), abandon.Token));
+        }
+        // Pages past a short or failed one are dropped unread, exactly as a one-by-one read would never ask.
+        void Abandon() {
+            abandon.Cancel();
+            foreach (var pending in inFlight)
+                _ = pending.ContinueWith(static t => _ = t.Exception, CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+        }
+        try {
+            Launch();
+            while (inFlight.Count > 0) {
+                var result = await inFlight.Dequeue().ConfigureAwait(false);
+                if (result.Unauthorized) return (null, true, null);
+                if (result.Rows is null)
+                    return (new Snapshot(all.Rows, owner is null ? null : scoped.Rows, [.. ended], total, liveNotShown, EndedPartial: true), false, result.RetryAfter);
+                total = result.Total;
+                foreach (var row in result.Rows) if (seen.Add(row.SessionId)) ended.Add(row);
+                if (result.Rows.Length < PageSize) break;
+                Launch();
+            }
+        } finally {
+            Abandon();
         }
         return (new Snapshot(all.Rows, owner is null ? null : scoped.Rows, [.. ended], total, liveNotShown), false, null);
     }

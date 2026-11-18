@@ -27,7 +27,7 @@ namespace Capacitor.Cli.Core;
 /// otherwise boot-relative starttime so a PID file that survives a reboot can't
 /// match an unrelated process that happens to reuse the PID and tick offset.</para>
 ///
-/// <para>On macOS (M1-A(a)) the token is
+/// <para>On macOS the token is
 /// <c>mac:&lt;kern.bootsessionuuid&gt;:&lt;p_uniqueid&gt;</c>: <c>p_uniqueid</c> is
 /// a kernel-assigned, monotonically-increasing per-process counter (never reused
 /// within a boot session) read via the private <c>proc_pidinfo</c> flavor
@@ -36,7 +36,7 @@ namespace Capacitor.Cli.Core;
 /// duplicates (rather than reuses) the SAME vendored capture
 /// <c>pty_shim.c</c>'s <c>pty_capture_mac_identity</c> uses natively, because
 /// <c>Capacitor.Cli</c> (the CLI binary) calls <see cref="ForPid"/> without the
-/// daemon's native shim present — see the M1-A design note. A cross-implementation
+/// daemon's native shim present. A cross-implementation
 /// consistency test guards the two vendored copies from drifting apart.</para>
 ///
 /// <para>On Windows <see cref="Process.StartTime"/> is an absolute timestamp

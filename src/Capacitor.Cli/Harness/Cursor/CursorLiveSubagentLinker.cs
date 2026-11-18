@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core;
 
@@ -65,7 +64,7 @@ public static class CursorLiveSubagentLinker {
     /// parents, which it already refuses to attribute).
     ///
     /// <para>
-    /// NOT AN EVENTUAL-CONSISTENCY RACE — this was previously documented as one. Measurement
+    /// NOT AN EVENTUAL-CONSISTENCY RACE. Measurement
     /// shows the parent's <c>Task</c>/<c>Agent</c> tool_use stays unflushed for the WHOLE of the
     /// child's hook window and lands only after the child's final hook, so correlation here is
     /// not merely often unavailable, it is never available live. (The child's own side does
@@ -177,45 +176,9 @@ public static class CursorLiveSubagentLinker {
             //    top-level session — duplication, not a graceful fallback.
             //
             // A known, accepted corrupt-state risk; remedies are recorded in
-            // docs/superpowers/specs/2026-07-30-ai1505-cursor-subagent-classification-design.md
-            // (D2a). It has no producer on the measured cursor-agent contract, because the
+            // docs/superpowers/specs/2026-07-30-ai1505-cursor-subagent-classification-design.md.
+            // It has no producer on the measured cursor-agent contract, because the
             // only caller sits behind a guard that never opens there.
         }
     }
-
-    /// <summary>
-    /// Mirrors the shape of <c>CursorImportSource.SendSubagentLifecycleAsync</c>'s
-    /// <c>subagent-start</c> POST (session_id=parent, agent_id=child) so live and import
-    /// converge on the same <c>AgentSubsession-{parent}-{child}</c> stream.
-    /// </summary>
-    internal static JsonObject BuildSubagentStartPayload(
-        string parentSessionId, string childSessionId, string subagentType, string transcriptPath
-    ) => new() {
-        ["hook_event_name"] = "subagent_start",
-        ["session_id"]      = parentSessionId,
-        ["agent_id"]        = childSessionId,
-        ["agent_type"]      = subagentType,
-        ["transcript_path"] = transcriptPath, // required by HookBase
-        ["cwd"]             = "",             // required by HookBase
-        ["strict"]          = true,           // fail-closed: 500 if SubagentStarted isn't persisted
-    };
-
-    /// <summary>
-    /// Mirrors the shape of <c>CursorImportSource.SendSubagentLifecycleAsync</c>'s
-    /// <c>subagent-stop</c> POST.
-    /// </summary>
-    internal static JsonObject BuildSubagentStopPayload(
-        string parentSessionId, string childSessionId, string subagentType, string transcriptPath
-    ) => new() {
-        ["hook_event_name"]        = "subagent_stop",
-        ["session_id"]             = parentSessionId,
-        ["agent_id"]               = childSessionId,
-        ["agent_type"]             = subagentType,
-        ["transcript_path"]        = transcriptPath, // required by HookBase
-        ["cwd"]                    = "",              // required by HookBase
-        ["stop_hook_active"]       = false,
-        ["agent_transcript_path"]  = transcriptPath,
-        ["last_assistant_message"] = "",
-        ["strict"]                 = true,            // fail-closed: 500 if SubagentCompleted isn't persisted
-    };
 }

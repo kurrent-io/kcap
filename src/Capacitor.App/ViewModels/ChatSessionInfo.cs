@@ -36,6 +36,9 @@ public sealed record ChatSessionInfo(
 
     public bool IsOwnedByCurrentUser { get; init; }
 
+    /// A terminal session the daemon steers rather than hosts.
+    public bool IsAttached { get; init; }
+
     /// The daemon dropped the agent before this pane ever saw it.
     public static readonly ChatSessionInfo Gone = new("Completed", "Completed", "", null, null, null, true, "", null);
 
@@ -49,6 +52,7 @@ public sealed record ChatSessionInfo(
         dto.LiveSubagents, dto.UsageLimit, dto.TerminalDialog, dto.Interruption, dto.WorkingSince,
         dto.AccountDirectory, dto.AccountId, dto.AccountLabel, dto.TurnAttested, dto.LaunchPromptUnconfirmed) {
         WaitsOnUser = SessionStatusDots.WaitsOnUser(dto), TakesAttachments = dto.Kind == "agent",
+        IsAttached = dto.Kind == AgentActionService.AttachedKind,
     };
 
     /// `readOnlyNotice` names why the chat cannot be messaged; "" when it can.
@@ -58,5 +62,6 @@ public sealed record ChatSessionInfo(
         TerminalDialog: row.TerminalDialog,
         AccountDirectory: row.AccountDirectory, AccountId: row.AccountId, AccountLabel: row.AccountLabel) {
         WaitsOnUser = SessionStatusDots.WaitsOnUser(row), TakesAttachments = row.Kind == "agent",
+        IsAttached = row.IsAttached,
     };
 }

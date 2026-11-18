@@ -20,14 +20,11 @@ public enum StoredCredentialState {
 /// Builds the user-facing line for a request the server answered 401 AFTER the one-shot
 /// re-read-and-refresh recovery (<c>TokenStore.RecoverForServerAsync</c>) already ran.
 ///
-/// <para>The MCP servers used to answer every such 401 with a flat
-/// "Not logged in. Run 'kcap login' on the host shell." — factually wrong in the incident
-/// that motivated this: a server-side signing-key rotation 401'd a token that
-/// <c>kcap status</c> concurrently (and correctly) reported as valid, so the user read the
-/// two surfaces as contradicting each other, concluded <c>kcap login</c> was ineffective,
-/// and reached for a daemon restart — which never helps, because every process re-reads the
-/// same token store. The message now says what is actually true for each store state; the
-/// legacy wording survives byte-identical for the genuinely-logged-out case.</para>
+/// <para>A flat "Not logged in" is wrong when, say, a server-side signing-key rotation 401s a token
+/// that <c>kcap status</c> correctly reports as valid: the user reads the two surfaces as
+/// contradicting each other and reaches for a daemon restart, which never helps because every
+/// process re-reads the same token store. So the message says what is true for each store state;
+/// the "Not logged in" wording is kept for the genuinely-logged-out case.</para>
 ///
 /// <para><b>Two renderings, one vocabulary.</b> <see cref="Render"/> is the MCP form: several
 /// sentences in a tool result the model reads. The recording hooks need the same distinctions in

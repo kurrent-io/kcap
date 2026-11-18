@@ -68,10 +68,20 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         SessionRail.IsVisible = !collapsed;
         RailSplitter.IsVisible = !collapsed;
         RailToggleIcon.Kind = collapsed ? LucideIconKind.PanelLeftOpen : LucideIconKind.PanelLeftClose;
-        var tip = $"{(collapsed ? "Show" : "Hide")} sidebar";
-        ToolTip.SetTip(RailToggleButton, $"{tip} ({ShortcutLabels.ToggleSidebar})");
-        AutomationProperties.SetName(RailToggleButton, tip);
+        ApplyRailAttention();
         ApplyRailClearance();
+    }
+
+    void ApplyRailAttention() {
+        var collapsed = Panes.RailCollapsed;
+        var attention = ViewModel?.RailAttention ?? RailAttentionSummary.None;
+        RailAttentionMark.IsVisible = collapsed && attention.HasAttention;
+        var tip = $"{(collapsed ? "Show" : "Hide")} sidebar";
+        var summary = collapsed && attention.HasAttention ? attention.Text : null;
+        ToolTip.SetTip(RailToggleButton, summary is null
+            ? (object)$"{tip} ({ShortcutLabels.ToggleSidebar})"
+            : new TextBlock { Text = $"{summary}\n{tip} ({ShortcutLabels.ToggleSidebar})", MaxWidth = 360, TextWrapping = TextWrapping.Wrap });
+        AutomationProperties.SetName(RailToggleButton, summary is null ? tip : $"{tip}: {summary}");
     }
 
     void LimitRail() =>
@@ -195,6 +205,9 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             button.MinWidth = button.MinHeight = RailClearance.ButtonSize;
             button.Padding = new Thickness((RailClearance.ButtonSize - 16) / 2);
         }
+        // The negative right margin keeps a wide count from widening the toggle's slot and moving Back.
+        var iconInset = (RailClearance.ButtonSize - 16) / 2;
+        RailAttentionMark.Margin = new Thickness(iconInset + 8, iconInset - 4, -24, 0);
         SessionsSurface.SizeChanged += (_, _) => LimitRail();
         Panes.Changed += (_, _) => {
             ApplyRail();
@@ -242,6 +255,10 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
         var switchCover = new WorkspaceSwitchCover(ContentPane, SwitchCover, SwitchCoverStill);
         this.WhenActivated(disposables => {
+            Observable.Switch(this.WhenAnyValue(x => x.ViewModel)
+                    .Select(vm => vm is null ? Observable.Return(RailAttentionSummary.None) : vm.WhenAnyValue(x => x.RailAttention)))
+                .Subscribe(_ => ApplyRailAttention())
+                .DisposeWith(disposables);
             var coverTracking = new SerialDisposable().DisposeWith(disposables);
             this.WhenAnyValue(x => x.ViewModel)
                 .Subscribe(vm => coverTracking.Disposable = vm is null ? null : switchCover.Track(vm))
@@ -358,12 +375,13 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         DataContextChanged += (_, _) => Apply();
     }
 
-    // ⌘[ and ⌘] on macOS; Alt+Left and Alt+Right elsewhere, which yield to a focused terminal
-    // because a shell reads them as word moves. The mouse's back and forward buttons work anywhere.
+    // ⌘[ and ⌘] on macOS, plus ⌘← and ⌘→ where no caret claims them; Alt+Left and Alt+Right
+    // elsewhere, which yield to a focused terminal because a shell reads them as word moves. The
+    // mouse's back and forward buttons work anywhere.
     void BindHistoryShortcuts() {
         if (ShortcutLabels.UsesCommandKey) {
-            var back = new KeyBinding { Gesture = new KeyGesture(Key.OemOpenBrackets, KeyModifiers.Meta) };
-            var forward = new KeyBinding { Gesture = new KeyGesture(Key.OemCloseBrackets, KeyModifiers.Meta) };
+            var back = new KeyBinding { Gesture = HistoryShortcuts.Back };
+            var forward = new KeyBinding { Gesture = HistoryShortcuts.Forward };
             KeyBindings.Add(back);
             KeyBindings.Add(forward);
             void Apply() {
@@ -373,13 +391,23 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             }
             Apply();
             DataContextChanged += (_, _) => Apply();
+            TextBoxPresenters.Track();
+            // Tunnelled: a focused text box marks ⌘← and ⌘→ handled even when it is empty.
+            AddHandler(KeyDownEvent, (_, e) => {
+                if (DataContext is not MainWindowViewModel vm) return;
+                if (HistoryShortcuts.CaretArrowStep(e.Key, e.KeyModifiers, FocusedCaret) is not { } stepBack) return;
+                System.Windows.Input.ICommand command = stepBack ? vm.GoBackCommand : vm.GoForwardCommand;
+                if (!command.CanExecute(null)) return;
+                e.Handled = true;
+                command.Execute(null);
+            }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         } else {
             KeyBindings.Add(new KeyBinding {
-                Gesture = new KeyGesture(Key.Left, KeyModifiers.Alt),
+                Gesture = HistoryShortcuts.Back,
                 Command = new UnlessTerminalFocused(this, vm => vm.GoBackCommand),
             });
             KeyBindings.Add(new KeyBinding {
-                Gesture = new KeyGesture(Key.Right, KeyModifiers.Alt),
+                Gesture = HistoryShortcuts.Forward,
                 Command = new UnlessTerminalFocused(this, vm => vm.GoForwardCommand),
             });
         }
@@ -397,16 +425,22 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
     }
 
+    // The preedit lives on the presenter only: Text stays empty until the composition commits.
+    (bool TerminalFocused, string? Text, string? Preedit) FocusedCaret() {
+        var box = FocusManager?.GetFocusedElement() as TextBox;
+        return (TerminalFocus.Has(this), box?.Text, TextBoxPresenters.Of(box)?.PreeditText);
+    }
+
     public const string TitleEnvVar = "KCAP_APP_TITLE";
 
-    // Names the instance, so several running side by side can be told apart. Where the window paints
-    // into its title bar the app draws it centred and Title stays empty, because Windows still draws
-    // a non-empty Title at the top left; elsewhere the window manager draws Title. Onboarding puts
-    // its own step title in the same spot, so the label gives way to it.
+    // Names the instance, so several running side by side can be told apart. Title carries it everywhere
+    // (taskbar, Alt+Tab, screen readers); where the window paints into its title bar, whose drawn title
+    // text is hidden, the app also draws it centred. Onboarding puts its own step title in the same spot,
+    // so the label gives way to it.
     void ShowInstanceTitle() {
         if (Environment.GetEnvironmentVariable(TitleEnvVar) is not { } raw || raw.Trim() is not { Length: > 0 } title) return;
         InstanceTitle.Text = title;
-        this.GetObservable(IsExtendedIntoWindowDecorationsProperty).Subscribe(extended => Title = extended ? "" : title);
+        Title = title;
         InstanceTitle.Bind(IsVisibleProperty, this.GetObservable(IsExtendedIntoWindowDecorationsProperty)
             .CombineLatest(OnboardingPane.GetObservable(IsVisibleProperty), (extended, onboarding) => extended && !onboarding));
     }

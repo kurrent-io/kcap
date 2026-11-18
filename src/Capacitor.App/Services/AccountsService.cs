@@ -25,15 +25,15 @@ public sealed class AccountsService : IAccountsService, IDisposable {
     readonly List<Waiter> _waiters = [];
     readonly Func<CancellationToken, IAsyncEnumerable<AccountsStreamEvent>> _subscribe;
     readonly TimeProvider _time;
-    readonly CancellationToken _shutdownToken;
     readonly IDisposable _statusSub;
-    CancellationTokenSource? _loopCts;
+    readonly CancellableLoop _loop;
     bool _disposed;
 
     public AccountsService(
             IDaemonClientService service, Func<CancellationToken, IAsyncEnumerable<AccountsStreamEvent>> subscribe,
             TimeProvider time, CancellationToken shutdownToken) {
-        _subscribe = subscribe; _time = time; _shutdownToken = shutdownToken;
+        _subscribe = subscribe; _time = time;
+        _loop = new CancellableLoop(_lock, () => _disposed, RunLoopAsync, shutdownToken);
         _statusSub = service.Status.Subscribe(OnStatus);
     }
 
@@ -45,7 +45,7 @@ public sealed class AccountsService : IAccountsService, IDisposable {
         lock (_lock) {
             if (_snapshot.Value is { } held) {
                 if (held.Revision >= revision) return true;
-            } else if (_loopCts is null) {
+            } else if (!_loop.IsRunning) {
                 return false;
             }
             waiter = new Waiter(revision);
@@ -72,7 +72,7 @@ public sealed class AccountsService : IAccountsService, IDisposable {
     void OnStatus(AttachStatus status) {
         if (status is { State: AttachState.Connected, Capabilities: not null } && status.Capabilities.Contains(Capability)) {
             SetSupported(true);
-            StartLoop();
+            _loop.Start();
             return;
         }
         StopLoop();
@@ -86,54 +86,30 @@ public sealed class AccountsService : IAccountsService, IDisposable {
         }
     }
 
-    void StartLoop() {
-        CancellationTokenSource cts;
-        lock (_lock) {
-            if (_disposed || _loopCts is not null) return;
-            cts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownToken);
-            _loopCts = cts;
-        }
-        _ = Task.Run(() => RunLoopAsync(cts));
-    }
+    void StopLoop() => _loop.Stop(() => PublishLocked(null));
 
-    void StopLoop() {
-        CancellationTokenSource? cts;
-        lock (_lock) {
-            cts = _loopCts;
-            _loopCts = null;
-            PublishLocked(null);
-        }
-        if (cts is null) return;
-        try { cts.Cancel(); } catch (ObjectDisposedException) { }
-    }
-
-    async Task RunLoopAsync(CancellationTokenSource cts) {
-        var ct = cts.Token;
-        try {
-            while (!ct.IsCancellationRequested) {
-                try {
-                    await foreach (var evt in _subscribe(ct).WithCancellation(ct).ConfigureAwait(false)) {
-                        ct.ThrowIfCancellationRequested();
-                        if (evt is AccountsStreamEvent.Snapshot snapshot) Publish(cts, snapshot.Value);
-                    }
-                } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-                    break;
-                } catch (Exception ex) {
-                    Console.Error.WriteLine($"kcap: accounts subscription attempt failed: {ex.Message}");
+    async Task RunLoopAsync(CancellationToken ct) {
+        while (!ct.IsCancellationRequested) {
+            try {
+                await foreach (var evt in _subscribe(ct).WithCancellation(ct).ConfigureAwait(false)) {
+                    ct.ThrowIfCancellationRequested();
+                    if (evt is AccountsStreamEvent.Snapshot snapshot) Publish(snapshot.Value, ct);
                 }
-                try { await Task.Delay(RetryDelay, _time, ct).ConfigureAwait(false); }
-                catch (OperationCanceledException) { break; }
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                break;
+            } catch (Exception ex) {
+                Console.Error.WriteLine($"kcap: accounts subscription attempt failed: {ex.Message}");
             }
-        } finally {
-            cts.Dispose();
+            try { await Task.Delay(RetryDelay, _time, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) { break; }
         }
     }
 
     /// A loop that has been stopped can still deliver the event it was reading; it must not
     /// repopulate the snapshot StopLoop cleared.
-    void Publish(CancellationTokenSource cts, AccountsSnapshotDto snapshot) {
+    void Publish(AccountsSnapshotDto snapshot, CancellationToken ct) {
         lock (_lock) {
-            if (!ReferenceEquals(_loopCts, cts)) return;
+            if (!_loop.IsCurrent(ct)) return;
             PublishLocked(snapshot);
         }
     }

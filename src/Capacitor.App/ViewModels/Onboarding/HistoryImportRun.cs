@@ -48,6 +48,14 @@ public sealed partial class HistoryImportRun : ReactiveObject {
         }
     }
 
+    bool _bannerDismissed;
+    public bool BannerDismissed {
+        get => _bannerDismissed;
+        private set => this.RaiseAndSetIfChanged(ref _bannerDismissed, value);
+    }
+
+    public void DismissBanner() => BannerDismissed = true;
+
     public bool Running => State == ImportRunState.Running;
 
     public int Imported {

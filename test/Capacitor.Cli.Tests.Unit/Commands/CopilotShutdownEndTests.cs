@@ -1,3 +1,4 @@
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 
@@ -24,8 +25,8 @@ public class CopilotShutdownEndTests {
 
     [Test]
     public async Task A_settled_shutdown_ends_the_session_and_the_process_exiting_outranks_it() {
-        await Assert.That(WatchCommand.DecideEndReason(false, false, false, false, copilotShutdown: true)).IsEqualTo("session_shutdown");
-        await Assert.That(WatchCommand.DecideEndReason(true, false, false, false, copilotShutdown: true)).IsEqualTo("parent_exited");
+        await Assert.That(SessionEnd.DecideEndReason(false, false, false, false, copilotShutdown: true)).IsEqualTo("session_shutdown");
+        await Assert.That(SessionEnd.DecideEndReason(true, false, false, false, copilotShutdown: true)).IsEqualTo("parent_exited");
     }
 
     /// <summary>A Copilot parent is found by name, so finding it dead means the runtime has stopped. Other vendors

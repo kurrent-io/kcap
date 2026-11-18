@@ -25,7 +25,8 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     public TranscriptSpool(string dir, TimeProvider time, long capBytes = DefaultCapBytes)
         : this(SpoolPartition.Standalone(dir), time, capBytes) { }
 
-    /// <summary>One spool line: a batch as the drain replays it.</summary>
+    /// <summary>One spool line: a batch as the drain replays it. It stays a raw batch, so any build can drain it; the
+    /// <paramref name="transcriptPath"/> is what a canonical drain projects the lines before the batch from.</summary>
     public static string BuildTranscriptSpoolBatch(
             string                sessionId,
             string?               agentId,
@@ -33,7 +34,8 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
             IReadOnlyList<string> lines,
             IReadOnlyList<int>    lineNumbers,
             ObservedCommit[]?     observedCommits,
-            bool                  moreFollows = false
+            bool                  moreFollows    = false,
+            string?               transcriptPath = null
         ) => JsonSerializer.Serialize(
             new TranscriptBatch {
                 SessionId       = sessionId,
@@ -43,6 +45,7 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
                 Vendor          = vendor,
                 ObservedCommits = observedCommits,
                 MoreFollows     = moreFollows,
+                TranscriptPath  = transcriptPath,
             },
             CapacitorJsonContext.Default.TranscriptBatch);
 
@@ -56,6 +59,10 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     static readonly Regex SafeSessionId  = SafeSessionIdRegex();
     static readonly Regex LegacyGuidKey = LegacyGuidKeyRegex();
     static int seqCounter;
+
+    /// <summary>Hears of a marker that could not be written; null writes to stderr, as a hook wants. A recorder may
+    /// share its process with others, so it passes its own log.</summary>
+    public Action<string>? FailureLog { get; init; }
 
     /// <summary>The directory where spool files are stored.</summary>
     internal string DirectoryPath => partition.DirectoryPath;
@@ -97,8 +104,8 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
 
     /// <summary>
     /// Records a needs-import marker for the session. Returns <c>true</c> if the marker was
-    /// persisted; <c>false</c> (and logs to stderr) if it could not be written — the caller must
-    /// not assume a marker exists just because it asked for one. With <paramref name="owner"/>, the
+    /// persisted; <c>false</c> (and tells <see cref="FailureLog"/>) if it could not be written — the
+    /// caller must not assume a marker exists just because it asked for one. With <paramref name="owner"/>, the
     /// marker is that owner's own, which only <see cref="ClearNeedsImport"/> with the same owner removes.
     /// </summary>
     public bool MarkNeedsImport(string sessionId, string reason, int? owner = null) {
@@ -109,9 +116,14 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
             File.WriteAllText(p, $"{time.GetUtcNow():O} {reason}\n");
             return true;
         } catch (Exception ex) {
-            Console.Error.WriteLine($"[kcap] transcript spool: failed to write needs-import marker for {sessionId}: {ex.Message}");
+            ReportFailure($"[kcap] transcript spool: failed to write needs-import marker for {sessionId}: {ex.Message}");
             return false;
         }
+    }
+
+    void ReportFailure(string message) {
+        if (FailureLog is { } log) log(message);
+        else Console.Error.WriteLine(message);
     }
 
     /// <summary>Removes the marker <paramref name="owner"/> set. Best effort: one that stays only asks for an
@@ -268,6 +280,22 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     }
 
     public void DeleteExpired() => partition.DeleteExpired(time);
+
+    /// <summary>Forgets everything held for a session a person disabled: a drain pass would send its tail, and a mark
+    /// asks for the rest to be imported. One that can't be removed is reported, and the server refuses it on delivery.</summary>
+    public void Discard(string sessionId) {
+        if (!SafeSessionId.IsMatch(sessionId) || !Directory.Exists(DirectoryPath)) return;
+
+        var key = EncodeKey(sessionId);
+
+        foreach (var pattern in new[] { $"{key}.transcript.jsonl", $"{key}.*.transcript.draining", $"{key}.needs-import", $"{key}.p*.needs-import" }) {
+            try {
+                foreach (var file in Directory.GetFiles(DirectoryPath, pattern)) File.Delete(file);
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                ReportFailure($"[kcap] transcript spool: failed to discard {pattern}: {ex.Message}");
+            }
+        }
+    }
 
     // Filename-safe superset of the old dashless-GUID form. The filename IS the session id --
     // LifecycleSpoolDrain posts it verbatim as session_id for session-needs-import -- so the key may

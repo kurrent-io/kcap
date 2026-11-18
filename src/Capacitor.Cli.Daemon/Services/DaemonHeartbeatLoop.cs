@@ -28,6 +28,10 @@ internal interface IDaemonHeartbeatPort {
     /// <summary>The stored sign-in now names an account other than the one the live hub negotiated as.
     /// The hub keeps its handshake identity for the life of the socket, so only a reconnect picks it up.</summary>
     Task<bool> CredentialChangedAsync(CancellationToken ct);
+
+    /// <summary>The hub is reconnecting for <see cref="CredentialChangedAsync"/>. Any other connection of this daemon
+    /// is holding the identity this one just dropped.</summary>
+    void ReportSignInChanged();
 }
 
 internal sealed class DaemonHeartbeatLoop(
@@ -105,6 +109,7 @@ internal sealed class DaemonHeartbeatLoop(
             } else if (await SafeCredentialChangedAsync(ct)) {
                 logger.LogWarning("Heartbeat: the stored sign-in no longer matches the one the hub negotiated (cause=credential_changed) — reconnecting");
                 await SafeForceReconnectAsync();
+                port.ReportSignInChanged();
             }
         } catch (OperationCanceledException) when (!ct.IsCancellationRequested) {
             // Per-tick deadline fired before the server answered. The

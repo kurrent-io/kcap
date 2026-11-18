@@ -3,7 +3,7 @@ using Capacitor.Cli.Daemon.Harness.Codex;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Codex;
 
 /// <summary>
-/// The daemon-side usage delta converter (§2.4): cumulative app-server totals → per-event deltas, so
+/// The daemon-side usage delta converter: cumulative app-server totals → per-event deltas, so
 /// the additive usage pipeline neither double-counts nor mis-attributes across a model reroute. Covers
 /// the first snapshot, steady deltas, a cumulative reset, and the two resume baseline modes.
 /// </summary>

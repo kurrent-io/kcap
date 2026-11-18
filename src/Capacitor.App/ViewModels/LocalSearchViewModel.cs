@@ -49,11 +49,12 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
     bool _canOpenSettings;
     bool _loaded;
     bool _builtinNeedsRetry;
+    bool _shown;
 
     /// <param name="readSetting">The installation's recorded embedding setting; a disk read, run on
     /// <paramref name="readScheduler"/> (the task pool by default), never on the UI thread.</param>
-    /// <param name="builtinOffer">The built-in model set the installed stack offers, or null; asked again on every reconnect,
-    /// which follows an upgrade.</param>
+    /// <param name="builtinOffer">The built-in model set the installed stack offers, or null. It fetches the release
+    /// manifest, so it is asked only once the search controls have been shown, and then again on every reconnect.</param>
     /// <param name="openSettings">What opens Settings on its Search tab, null while no Settings window can open.</param>
     /// <param name="builtinModelReady">Validates installed model files off the UI thread. Pending or failed setup still needs a retry.</param>
     /// <param name="readHealth">The server's own embeddings report, asked again on every reconnect and whenever the
@@ -79,7 +80,6 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
 
         Choice = new SearchChoiceViewModel { Reconfiguring = true };
         ReadSetting();
-        LookUpOffer();
         ReadHealth();
 
         Observable.Switch(search.WhenAnyValue(x => x.Progress)
@@ -104,7 +104,7 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(_ => {
                 ReadSetting();
-                LookUpOffer();
+                if (_shown) LookUpOffer();
                 ReadHealth();
             })
             .DisposeWith(_disposables);
@@ -260,7 +260,14 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
                 Choice.OfferBuiltin(null);
             });
 
-    public void ReadHealth() {
+    /// <summary>The search controls are on screen: the built-in offer is looked up and the server's report asked again.</summary>
+    public void Shown() {
+        _shown = true;
+        LookUpOffer();
+        ReadHealth();
+    }
+
+    void ReadHealth() {
         if (_readHealth is not { } read) return;
 
         _health.Disposable = Observable.FromAsync(read)

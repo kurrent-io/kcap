@@ -27,7 +27,9 @@ Options:
                       (preserving its tools) to ~/.kiro/agents/kcap.json, add
                       kcap's agentSpawn hook, and make it your default so every
                       session is captured (honours $KIRO_HOME). Needs kiro-cli on
-                      PATH. Session-end is synthesized on exit. Also registers the
+                      PATH: without it the clone is skipped, the MCP servers and
+                      skills still install, and the command exits 1.
+                      Session-end is synthesized on exit. Also registers the
                       kcap MCP servers (see --skip-kiro-mcp) and installs the kcap
                       skills to ~/.kiro/skills to steer Kiro toward those tools
                       (see --skip-kiro-skills).
@@ -52,7 +54,14 @@ Options:
                       OpenCode has no shell
                       hooks; the plugin auto-loads on `opencode` startup and
                       streams each session. User-wide only — --project has no
-                      effect with --opencode.
+                      effect with --opencode. Needs OpenCode 1.18.29 or newer
+                      (an older one is told to upgrade). On OpenCode v2 it
+                      records the session start and end, titles, the memory
+                      index and session ids on kcap tool calls, but not yet
+                      the transcript. A v2 session its background service
+                      runs ends after 60 idle minutes
+                      (KCAP_OPENCODE_IDLE_MINUTES) and resumes on its next
+                      event.
   --skip-opencode-skills
                       With --opencode: skip installing the kcap skills into
                       ~/.agents/skills.
@@ -87,7 +96,7 @@ Options:
                       ~/.agents/skills.
   --skip-cursor-mcp   With --cursor: skip registering the kcap MCP servers in
                       ~/.cursor/mcp.json. By default `install --cursor` also
-                      registers all 6 kcap MCP servers there (non-destructive,
+                      registers the kcap MCP servers there (non-destructive,
                       idempotent — preserves any user-authored servers) so
                       Cursor picks them up with no manual JSON edit.
   --skip-copilot-skills
@@ -95,7 +104,7 @@ Options:
                       ~/.agents/skills.
   --skip-copilot-mcp  With --copilot: skip registering the kcap MCP servers in
                       ~/.copilot/mcp-config.json. By default `install --copilot`
-                      also registers all 6 kcap MCP servers there (non-destructive,
+                      also registers the kcap MCP servers there (non-destructive,
                       idempotent — preserves any user-authored servers) so Copilot
                       picks them up with no manual JSON edit.
   --skip-copilot-instructions
@@ -104,12 +113,19 @@ Options:
                       `install --copilot` writes a small kcap-owned, marker-delimited
                       block (non-destructive — preserves your own instructions) that
                       nudges Copilot to use the kcap tools for why/history questions.
+  --skip-copilot-tool-search
+                      With --copilot: leave Copilot's tool search alone. By default
+                      `install --copilot` sets "toolSearch": true in
+                      ~/.copilot/settings.json when you have not set it, so Copilot
+                      loads MCP tools on demand instead of sending every definition
+                      with each request. The setting is user-wide and covers every
+                      MCP server; a value you set yourself is never changed.
   --skip-gemini-skills
                       With --gemini: skip installing the kcap skills into
                       ~/.agents/skills.
   --skip-gemini-mcp   With --gemini: skip registering the kcap MCP servers in the
                       shared ~/.gemini/settings.json. By default `install --gemini`
-                      also registers all 6 kcap MCP servers there (non-destructive,
+                      also registers the kcap MCP servers there (non-destructive,
                       idempotent — preserves your other Gemini settings + servers)
                       so Gemini picks them up with no manual JSON edit.
   --skip-gemini-instructions
@@ -132,7 +148,7 @@ Options:
                       ~/.agents/skills.
   --skip-pi-mcp       With --pi: skip installing the kcap MCP-bridge extension
                       (~/.pi/agent/extensions/kcap-mcp.ts). By default `install
-                      --pi` writes it so Pi exposes the 6 kcap MCP servers as
+                      --pi` writes it so Pi exposes the kcap MCP servers as
                       native tools (Pi has no JSON mcpServers config, so the
                       bridge extension is the only way to surface them).
   --skip-pi-instructions
@@ -228,17 +244,20 @@ Notes:
   folders. `remove --skills` removes the shared skills whoever still uses them.
 
   --codex also writes hooks to ~/.codex/hooks.json (or <repo>/.codex/hooks.json
-  with --project). Codex runs only hooks you have trusted: the next
-  interactive `codex` launch prompts to trust the new entries (accept once, or
-  use /hooks to trust them individually). `codex exec` and the Codex desktop
-  app never prompt — run `codex` once, or trust the kcap hooks in the app's
-  Settings → Hooks; a script that only runs `codex exec` can pass
-  --dangerously-bypass-hook-trust to each run. MCP server registration is
-  handled separately by the Codex plugin manifest and is not affected by this
-  command.
+  with --project). Codex runs only hooks you have trusted, so a user-scope
+  install has Codex trust kcap's own hooks, the same entries its trust prompt
+  writes to config.toml, and `codex exec` records straight away; `remove
+  --codex` takes out only the trust entries kcap added. When Codex cannot be
+  started, and for a --project install, the next interactive `codex` launch
+  prompts instead (accept once, or use /hooks to trust them individually).
+  `codex exec` and the Codex desktop app never prompt — run `codex` once, or
+  trust the kcap hooks in the app's Settings > Hooks; a script that only runs
+  `codex exec` can pass --dangerously-bypass-hook-trust to each run. MCP
+  server registration is handled separately by the Codex plugin manifest and
+  is not affected by this command.
 
   --cursor writes all 8 supported hooks to ~/.cursor/hooks.json (merged with
-  any existing entries) and then registers all 6 kcap MCP servers in
+  any existing entries) and then registers the kcap MCP servers in
   ~/.cursor/mcp.json (non-destructive, idempotent — see --skip-cursor-mcp to
   opt out). Cursor uses a single user-scope hooks.json/mcp.json — there is no
   project-scope variant, so --project has no effect with --cursor.
@@ -248,17 +267,19 @@ Notes:
 
   --copilot writes the four events kcap subscribes to (sessionStart, sessionEnd,
   agentStop, notification) with the event name embedded in each command —
-  Copilot hook payloads don't carry one — registers all 6 kcap MCP servers in
+  Copilot hook payloads don't carry one — registers the kcap MCP servers in
   ~/.copilot/mcp-config.json (see --skip-copilot-mcp to opt out), and installs a
   kcap-owned steering block into ~/.copilot/copilot-instructions.md (see
-  --skip-copilot-instructions to opt out). All three are non-destructive and
-  idempotent. Copilot loads hook + MCP + instructions config at startup, so
-  restart any running copilot session after install. Copilot has no project-scope
+  --skip-copilot-instructions to opt out). It also turns on Copilot's tool
+  search in ~/.copilot/settings.json when you have not set it (see
+  --skip-copilot-tool-search). All are non-destructive and idempotent. Copilot loads hook + MCP + instructions config at startup, so
+  restart any running copilot session, and quit and reopen VS Code, after
+  install. Copilot has no project-scope
   hooks dir, so --project has no effect with --copilot.
 
   --gemini merges SessionStart/SessionEnd/Notification entries into the shared
   ~/.gemini/settings.json (like --cursor's shared hooks.json — your other Gemini
-  settings and hooks are kept), registers all 6 kcap MCP servers in that same
+  settings and hooks are kept), registers the kcap MCP servers in that same
   settings.json (see --skip-gemini-mcp to opt out), and installs a kcap-owned
   steering block into Gemini's global ~/.gemini/GEMINI.md context file (see
   --skip-gemini-instructions to opt out). All three are non-destructive and
@@ -271,7 +292,7 @@ Notes:
   agentSpawn hook, and sets it as your default agent (chat.defaultAgent in
   ~/.kiro/settings/cli.json) because Kiro hooks fire only for the ACTIVE agent —
   there is no global hook. Needs kiro-cli on PATH to clone. It also registers the
-  6 kcap MCP servers in ~/.kiro/settings/mcp.json (a plain mcpServers merge,
+  kcap MCP servers in ~/.kiro/settings/mcp.json (a plain mcpServers merge,
   independent of the agent clone — so it still applies if kiro-cli is missing;
   non-destructive, preserves user servers + their disabled/autoApprove fields; see
   --skip-kiro-mcp). Restart kiro-cli to pick it up. remove restores your previous
@@ -292,7 +313,7 @@ Notes:
 
   --antigravity installs the kcap plugin to ~/.gemini/config/plugins/kcap/ — a
   plugin.json manifest (which the GUI requires to load the dir) plus a hooks.json
-  kcap block (preserving any hook blocks you authored). It also registers the 6 kcap
+  kcap block (preserving any hook blocks you authored). It also registers the kcap
   MCP servers in ~/.gemini/config/mcp_config.json (Antigravity's OWN MCP file, not the
   Gemini CLI's settings.json — see --skip-antigravity-mcp), installs a steering block
   into the shared ~/.gemini/GEMINI.md (see --skip-antigravity-instructions), and copies
@@ -306,7 +327,7 @@ Notes:
   instead of a hooks file — OpenCode exposes no shell hooks, only an in-process
   plugin API. The plugin shells out to `kcap hook --opencode` on session start
   and writes the {info,parts} transcript the watcher tails, so kcap must be on
-  PATH. It also registers the 6 kcap MCP servers in ~/.config/opencode/opencode.json
+  PATH. It also registers the kcap MCP servers in ~/.config/opencode/opencode.json
   (the `mcp` block, `type:"local"`, non-destructive/idempotent — see
   --skip-opencode-mcp) and installs a kcap-owned steering block into
   ~/.config/opencode/AGENTS.md (see --skip-opencode-instructions). OpenCode loads

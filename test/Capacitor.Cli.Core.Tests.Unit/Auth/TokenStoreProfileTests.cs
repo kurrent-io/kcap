@@ -218,13 +218,22 @@ public class TokenStoreProfileTests {
         var longTok  = MakeTokens("alice") with { AccessToken = new string('A', 1200) };
         var shortTok = MakeTokens("bob")   with { AccessToken = "gho_short" };
 
+        // The writers queue on the profile lock, so each waits out poll gaps until its turn.
         var writers = Enumerable.Range(0, 64)
-            .Select(i => AuthFixtures.NewTokenStore(Config.Root).SaveAsync("race", i % 2 == 0 ? longTok : shortTok));
+            .Select(i => StoreWithShortLockPoll().SaveAsync("race", i % 2 == 0 ? longTok : shortTok));
         await Task.WhenAll(writers);
 
         // Whoever wrote last wins, but the file must always be a single complete document.
         var loaded = await AuthFixtures.NewTokenStore(Config.Root).LoadAsync("race");
         await Assert.That(loaded).IsNotNull();
+    }
+
+    TokenStore StoreWithShortLockPoll() {
+        var factory = new PlainHttpClientFactory(null);
+
+        return new(Config.Root, ProfileOverrides.None, factory, new WorkOSClient(factory, TimeProvider.System), TimeProvider.System) {
+            LockPollGap = TimeSpan.FromMilliseconds(5)
+        };
     }
 
     [Test]

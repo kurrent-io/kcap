@@ -3,6 +3,9 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core.Harness;
+using Capacitor.App.ViewModels.Composer;
+using Capacitor.App.Services.Composer;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.LocalIpc;
@@ -20,6 +23,38 @@ public enum WorkspaceTab { Chat, Terminal, PullRequest, Artefacts }
 /// Ended or removed agents retain their last known session context.
 public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     const string UnresolvedKind = "unresolved";
+    /// The attach's own word for no daemon answering on the socket, which Start daemon repairs.
+    const string DaemonStoppedReason = "daemon_unreachable";
+
+    SessionConnectionPresentation? _connectionNotice;
+    public SessionConnectionPresentation? ConnectionNotice {
+        get => _connectionNotice;
+        private set {
+            this.RaiseAndSetIfChanged(ref _connectionNotice, value);
+            this.RaisePropertyChanged(nameof(HasConnectionNotice));
+            this.RaisePropertyChanged(nameof(ShowsStartingNotice));
+            RaiseBannerNotice();
+            if (Chat is not null) Chat.WorkspaceNotice = ConnectionNotice;
+            if (WorkContext is not null) WorkContext.HasWorkspaceNotice = HasConnectionNotice || IsStarting;
+        }
+    }
+    public bool HasConnectionNotice => ConnectionNotice is not null;
+    public bool ShowsStartingNotice => IsStarting && !HasConnectionNotice;
+    public SessionConnectionPresentation StartingNotice => SessionConnectionPresentation.Starting(StartingText);
+    public ReactiveCommand<Unit, Unit> RetryConnectionCommand { get; }
+    public ReactiveCommand<Unit, Unit> StartDaemonCommand { get; }
+
+    SessionConnectionPresentation? _terminalNotice;
+    /// The one notice above every surface but the chat, which shows its own: the daemon's state is the
+    /// cause of any terminal state, so it outranks the Terminal tab's.
+    public SessionConnectionPresentation? BannerNotice =>
+        ShowsChat ? null : ConnectionNotice ?? (IsTerminalActive ? _terminalNotice : null);
+    public bool HasBannerNotice => BannerNotice is not null;
+
+    void RaiseBannerNotice() {
+        this.RaisePropertyChanged(nameof(BannerNotice));
+        this.RaisePropertyChanged(nameof(HasBannerNotice));
+    }
 
     public string AgentId { get; }
 
@@ -77,6 +112,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             this.RaiseAndSetIfChanged(ref _subagent, value);
             this.RaisePropertyChanged(nameof(ShowsChat));
             this.RaisePropertyChanged(nameof(ShowsSubagent));
+            RaiseBannerNotice();
         }
     }
 
@@ -85,6 +121,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         private set {
             this.RaiseAndSetIfChanged(ref _chat, value);
             this.RaisePropertyChanged(nameof(ShowsChat));
+            RaiseBannerNotice();
         }
     }
 
@@ -123,7 +160,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             this.RaisePropertyChanged(nameof(IsPullRequestActive));
             this.RaisePropertyChanged(nameof(ShowsPullRequestTab));
             this.RaisePropertyChanged(nameof(ShowsSurfaceSwitch));
-            this.RaisePropertyChanged(nameof(ShowsTerminalBanners));
+            RaiseBannerNotice();
             this.RaisePropertyChanged(nameof(IsArtefactsActive));
             Artefacts.IsShown = IsArtefactsActive;
             PullRequests?.SetReaderVisible(value == WorkspaceTab.PullRequest);
@@ -138,7 +175,6 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     public bool IsTerminalActive => ActiveTab == WorkspaceTab.Terminal;
     public bool IsPullRequestActive => ActiveTab == WorkspaceTab.PullRequest;
     public bool IsArtefactsActive => ActiveTab == WorkspaceTab.Artefacts;
-    public bool ShowsTerminalBanners => IsTerminalActive;
 
     public ReactiveCommand<Unit, Unit> ShowChatCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowTerminalCommand { get; }
@@ -166,13 +202,17 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     internal void OpenCard(ToolCard card) {
         if (card.DocumentPath is { } path) {
             if (Artefacts.OpenDocument(path)) return;
-            if (Artefacts.HasAny) { Artefacts.RequestOpen(); return; }
+            if (Artefacts.HasDocumentOrOpenPage) { Artefacts.RequestOpen(); return; }
         }
         if (card.Url is { } url) Artefacts.OpenLink(url);
     }
 
     public ReactiveCommand<Unit, Unit> OpenInWebCommand { get; }
     public ReactiveCommand<Unit, Unit> StopCommand { get; }
+
+    readonly ObservableAsPropertyHelper<string> _stopLabel;
+    /// Stopping an attached agent removes the steering and leaves its session running in the terminal.
+    public string StopLabel => _stopLabel.Value;
 
     readonly CompositeDisposable _disposables = new();
     readonly SerialDisposable _lease = new();
@@ -203,6 +243,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             IObservable<ServerLaneStatus>? serverLane = null, WorkContextLayout? workContextLayout = null,
             HandoffOutcomeReader? handoffOutcomes = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
+            ComposerPickers? pickers = null,
             Func<bool>? inAppPages = null) {
         AgentId = agentId;
         _drafts = drafts;
@@ -211,6 +252,51 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         _permissions = permissions;
         Terminal = new TerminalTabViewModel(agentId, daemon, factory, surfaceFactory, time, resumeLedger) { SurfaceShown = IsTerminalActive };
         _disposables.Add(_lease);
+        RetryConnectionCommand = ReactiveCommand.CreateFromTask(daemon.RestartLoopAsync);
+        _disposables.Add(RetryConnectionCommand);
+        var startFailure = new System.Reactive.Subjects.BehaviorSubject<string?>(null);
+        var startFailureGate = new object();
+        var startFailureDisposed = false;
+        void PublishStartFailure(string? failure) {
+            lock (startFailureGate) {
+                if (!startFailureDisposed) startFailure.OnNext(failure);
+            }
+        }
+        // Unsubscribing cannot recall an in-flight daemon callback or start completion.
+        _disposables.Add(Disposable.Create(() => {
+            lock (startFailureGate) {
+                startFailureDisposed = true;
+                startFailure.Dispose();
+            }
+        }));
+        StartDaemonCommand = ReactiveCommand.CreateFromTask(async ct => {
+            PublishStartFailure(null);
+            var result = await daemon.StartDaemonAsync(ct);
+            if (!result.Ok) PublishStartFailure(result.Message ?? "The daemon didn’t start.");
+        });
+        _disposables.Add(StartDaemonCommand);
+        daemon.Status.Where(s => s.State == AttachState.Connected)
+            .Subscribe(_ => PublishStartFailure(null)).DisposeWith(_disposables);
+        daemon.Status.CombineLatest(StartDaemonCommand.IsExecuting, RetryConnectionCommand.IsExecuting, startFailure)
+            .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(t => {
+                var (status, starting, retrying, failure) = t;
+                ConnectionNotice = status.State switch {
+                    AttachState.Connected => null,
+                    AttachState.Unreachable when status.Reason == ExpectedDaemonRestart.Reason =>
+                        SessionConnectionPresentation.Reconnecting("The daemon is restarting. Retrying automatically."),
+                    AttachState.Unreachable when status.Reason == ExpectedDaemonRestart.StartingReason || starting =>
+                        SessionConnectionPresentation.DaemonStarting(),
+                    AttachState.Unreachable when retrying => SessionConnectionPresentation.Reconnecting(),
+                    AttachState.Unreachable when status.Reason == DaemonStoppedReason =>
+                        SessionConnectionPresentation.DaemonStopped(StartDaemonCommand, failure),
+                    AttachState.Unreachable => SessionConnectionPresentation.Failed(RetryConnectionCommand),
+                    _ => ConnectionNotice,
+                };
+            }).DisposeWith(_disposables);
+        Terminal.WhenAnyValue(t => t.State).ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(state => {
+            _terminalNotice = TerminalNotices.For(state, Terminal.ReattachCommand, Terminal.DetachCommand, Terminal.RetryResolveCommand);
+            RaiseBannerNotice();
+        }).DisposeWith(_disposables);
 
         var presence = daemon.Agents.Connect()
             .Filter(dto => dto.Id == agentId)
@@ -246,6 +332,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             actions.OpenWorkItemInWeb, plans, planActivity, artefacts: Artefacts, serverLane: serverLane,
             canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
             sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout);
+        WorkContext.HasWorkspaceNotice = HasConnectionNotice;
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));
         // An open subagent belongs to the transcript it was opened from.
@@ -331,6 +418,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         _repoLabelText = header.Select(h => h.Dto is not null ? CheckoutLabelFor(h.Dto) : h.Row is { } row ? RepoLabel.Leaf(row.RepoPath) : CheckoutLabelFor(null))
             .ToProperty(this, x => x.RepoLabelText, CheckoutLabelFor(null))
             .DisposeWith(_disposables);
+        _stopLabel = header.Select(h => h.Dto?.Kind == AgentActionService.AttachedKind ? AttachedAgentCopy.DisconnectSteering : "Stop")
+            .ToProperty(this, x => x.StopLabel, "Stop")
+            .DisposeWith(_disposables);
         _hasAgent = header.Select(h => h.Dto is not null)
             .ToProperty(this, x => x.HasAgent, initialValue: false)
             .DisposeWith(_disposables);
@@ -344,6 +434,11 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         _startingText = header.Select(h => h.Row is { } row ? LaunchStages.StartingText(row.Vendor, row.LaunchStage) : "")
             .ToProperty(this, x => x.StartingText, initialValue: "")
             .DisposeWith(_disposables);
+        this.WhenAnyValue(vm => vm.IsStarting, vm => vm.StartingText).Subscribe(_ => {
+            this.RaisePropertyChanged(nameof(StartingNotice));
+            this.RaisePropertyChanged(nameof(ShowsStartingNotice));
+            WorkContext.HasWorkspaceNotice = HasConnectionNotice || IsStarting;
+        }).DisposeWith(_disposables);
         var showsTerminal = presence.Select(p => p.Dto is not null && HostedHarnessCatalog.ShowsTerminal(p.Dto.HasTerminal, p.Dto.Vendor));
         _showsTerminalTab = showsTerminal
             .ToProperty(this, x => x.ShowsTerminalTab, initialValue: false)
@@ -380,9 +475,17 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     senders, readings?.Local, readings?.Clock, signInCompleted,
                     handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(sessionIds
                         .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-                    openLink: Artefacts.OpenLink, findMemory: finds) {
+                    openLink: Artefacts.OpenLink, findMemory: finds,
+                    viewerAccess: presence.Select(p => AgentViewerAccess.Unrestricted with { AtTerminal = p.Dto?.Kind == AgentActionService.AttachedKind })
+                        .DistinctUntilChanged()) {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
                     InputSending = inputSending,
+                    WorkspaceNotice = ConnectionNotice,
+                    Picker = pickers?.Create(presence.Select(p =>
+                            p.Dto is { } dto && (CheckoutLabel.CheckoutPathFor(dto) ?? dto.RepoPath) is { Length: > 0 } checkout
+                                ? new ComposerContext(checkout, HarnessId.From(dto.Vendor), agentId)
+                                : null))
+                        .DisposeWith(_disposables),
                 };
                 Chat.Tasks.RunOpened += OpenSubagent;
                 _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
@@ -411,12 +514,12 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         StopCommand = ReactiveCommand.Create(() => {
             var dto = _latestDto;
             // UnresolvedKind fails safe as protected (AgentActionService.IsProtectedKind treats
-            // anything other than exactly "agent" as protected) -- the edge case of a Stop click
-            // before the first dto ever arrives must never default to the ONE kind that skips
-            // the confirm-then-force seam.
+            // anything other than exactly "agent" as protected) -- a Stop click before the first dto
+            // ever arrives must never default to a kind that skips the confirm-then-force seam.
             var row   = _startingRow;
             var kind  = dto?.Kind ?? row?.Kind ?? UnresolvedKind;
-            var label = dto is not null ? $"{dto.Kind} · {dto.Vendor} · {RepoLabel.Leaf(dto.RepoPath)}"
+            var label = dto?.Kind == AgentActionService.AttachedKind ? AttachedAgentCopy.TerminalSession
+                      : dto is not null ? $"{dto.Kind} · {dto.Vendor} · {RepoLabel.Leaf(dto.RepoPath)}"
                       : row is not null ? $"{row.Kind} · {row.Vendor} · {RepoLabel.Leaf(row.RepoPath)}"
                       : agentId;
             actions.RequestStop(agentId, label, kind);
@@ -445,6 +548,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     /// `repo / checkout`, with the marker for a borrowed reviewer; the repository alone from an
     /// older daemon.
     internal static string CheckoutLabelFor(AgentStatusDto? dto) {
+        if (dto?.Kind == AgentActionService.AttachedKind) return AttachedAgentCopy.TerminalSession;
         var repo = RepoLabel.Leaf(dto?.RepoPath);
         if (dto is null || CheckoutLabel.CheckoutPathFor(dto) is not { } checkout) return repo;
 

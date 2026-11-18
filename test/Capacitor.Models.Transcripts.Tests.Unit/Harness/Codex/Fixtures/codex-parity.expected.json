@@ -317,6 +317,7 @@
             }
           },
           "anchor": "73d734a0-26ba-71f6-9e08-89c35c33c20f",
+          "cacheCreation": null,
           "targets": [
             {
               "eventId": "73d734a0-26ba-71f6-9e08-89c35c33c20f",
@@ -550,6 +551,7 @@
             }
           },
           "anchor": "7d8d106e-1b84-f692-3300-317a3e35af53",
+          "cacheCreation": null,
           "targets": [
             {
               "eventId": "7d8d106e-1b84-f692-3300-317a3e35af53",
@@ -674,6 +676,7 @@
             "model": "gpt-5.1-codex"
           },
           "anchor": "2331771b-8400-a35d-313b-4f090f907030",
+          "cacheCreation": null,
           "targets": [
             {
               "eventId": "2331771b-8400-a35d-313b-4f090f907030",
@@ -839,6 +842,7 @@
             }
           },
           "anchor": "9412d789-550f-fdd4-5612-a9435a5d4df5",
+          "cacheCreation": null,
           "targets": [
             {
               "eventId": "9412d789-550f-fdd4-5612-a9435a5d4df5",
@@ -967,6 +971,151 @@
     "batch": 4,
     "rejected": true,
     "events": [],
+    "amendments": []
+  },
+  {
+    "line": 41,
+    "batch": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "34dc1a68-40f1-09a5-0e1c-b062d5c43552",
+        "timestamp": "2026-09-04T09:00:39.0000000\u002B00:00",
+        "recordTimestamp": "2026-09-04T09:00:39.000Z",
+        "causedBy": null,
+        "payload": {
+          "content": "\u003Cenvironment_context\u003E is what I mean by context",
+          "timestamp": "2026-09-04T09:00:39Z",
+          "extensions": {
+            "codex": {
+              "turn_id": "019a0000-0000-7000-8000-000000000002",
+              "content_item_kinds": [
+                "user.text"
+              ]
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": []
+  },
+  {
+    "line": 42,
+    "batch": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "0fd5b238-6499-9065-c09d-51e497c274a2",
+        "timestamp": "2026-09-04T09:00:40.0000000\u002B00:00",
+        "recordTimestamp": "2026-09-04T09:00:40.000Z",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "call_g",
+              "toolName": "shell_command",
+              "arguments": {
+                "command": "rg needle src"
+              },
+              "toolKind": "search"
+            }
+          ],
+          "timestamp": "2026-09-04T09:00:40Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": []
+  },
+  {
+    "line": 43,
+    "batch": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "198aa4bf-a1eb-41ef-262b-d250f9434422",
+        "timestamp": "2026-09-04T09:00:41.0000000\u002B00:00",
+        "recordTimestamp": "2026-09-04T09:00:41.000Z",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "call_h",
+              "toolName": "container.exec",
+              "arguments": {
+                "command": [
+                  "bash",
+                  "-lc",
+                  "find . -name \u0027*.tmp\u0027 -delete"
+                ]
+              },
+              "toolKind": "execute"
+            }
+          ],
+          "timestamp": "2026-09-04T09:00:41Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": []
+  },
+  {
+    "line": 44,
+    "batch": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UsageApplied",
+        "id": "39662509-1141-927d-e6bf-63dc094aa226",
+        "timestamp": "2026-09-04T09:00:42.0000000\u002B00:00",
+        "recordTimestamp": "2026-09-04T09:00:42.000Z",
+        "causedBy": null,
+        "payload": {
+          "usage": {
+            "inputTokens": "250",
+            "outputTokens": "40",
+            "totalTokens": "1040",
+            "cachedInputTokens": "600",
+            "reasoningTokens": "7",
+            "model": "gpt-5.1-codex",
+            "additionalCounts": {
+              "model_context_window": 258400
+            }
+          },
+          "anchor": "7ce3aaad-b727-f4be-40f5-60dbd22a8e0e",
+          "cacheCreation": 150,
+          "targets": [
+            {
+              "eventId": "7ce3aaad-b727-f4be-40f5-60dbd22a8e0e",
+              "eventType": "AssistantToolCallsGenerated",
+              "toolName": "tool_search",
+              "isEcho": false
+            },
+            {
+              "eventId": "0fd5b238-6499-9065-c09d-51e497c274a2",
+              "eventType": "AssistantToolCallsGenerated",
+              "toolName": "shell_command",
+              "isEcho": true
+            },
+            {
+              "eventId": "198aa4bf-a1eb-41ef-262b-d250f9434422",
+              "eventType": "AssistantToolCallsGenerated",
+              "toolName": "container.exec",
+              "isEcho": true
+            }
+          ]
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
     "amendments": []
   }
 ]

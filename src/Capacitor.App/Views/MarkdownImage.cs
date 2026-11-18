@@ -65,6 +65,8 @@ public sealed class MarkdownImage : Panel {
 
     public bool ShowsPicture => _picture.IsVisible;
 
+    public IImage? Picture => _picture.IsVisible ? _picture.Source : null;
+
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e) {
         base.OnAttachedToVisualTree(e);
         _pane = (Control?)this.FindAncestorOfType<MarkdownView>() ?? this.FindAncestorOfType<MarkdownViewer>();

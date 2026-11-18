@@ -136,8 +136,22 @@ public class LocalSendTextWithAttachmentsTests : IDisposable {
 
         AgentOrchestratorHarness.SeedAcpAgent(orch, "starting", new FakeAcpRuntime(), status: "Starting");
         await Assert.That((await Send(orch, Payload("starting", "hi", [Id(0)]))).Reason).IsEqualTo(SendTextReasons.NotRunning);
+    }
 
-        AgentOrchestratorHarness.SeedAcpAgent(orch, "a1", new FakeAcpRuntime());
-        await Assert.That((await Send(orch, Payload("a1", "  ", [Id(0)]))).Reason).IsEqualTo(SendTextReasons.TextEmpty);
+    /// <summary>Files alone are a message: the prompt is the trailer with no blank line ahead of it,
+    /// so the composer reads it back as an attachments-only row.</summary>
+    [Test]
+    public async Task Blank_text_with_attachments_delivers_the_trailer_alone() {
+        await using var orch = Build();
+        Serve(Id(0));
+        var agent = AgentOrchestratorHarness.SeedBorrowedAcpAgent(
+            orch, "a1", new FakeAcpRuntime(), placement: AttachmentPlacement.DaemonStore);
+
+        var ack = await Send(orch, Payload("a1", "  ", [Id(0)]));
+
+        await Assert.That(ack.Ok).IsTrue();
+        var sent = ((FakeAcpRuntime)agent.Runtime).SentInputs.Single();
+        await Assert.That(sent).StartsWith(AttachmentTrailer.Prefix);
+        await Assert.That(AttachmentTrailer.Split(sent).Typed).IsEmpty();
     }
 }

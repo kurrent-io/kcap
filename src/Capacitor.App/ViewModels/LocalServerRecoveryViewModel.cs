@@ -22,6 +22,8 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
 
     static readonly TimeSpan ChangingRecheck = TimeSpan.FromSeconds(2);
 
+    static readonly TimeSpan SettledRecheck = TimeSpan.FromSeconds(5);
+
     readonly Func<CancellationToken, Task<ProcessResult>> _start;
     readonly Func<Task> _reconnect;
     readonly CancellationToken _shutdown;
@@ -38,8 +40,8 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
     string? _message;
 
     /// <param name="readCondition">What the local root's files and the server's port say, read off the UI thread each
-    /// time the lane retries and after each start; a newer read cancels the one in flight. Null trusts the
-    /// installation to exist.</param>
+    /// time the lane retries, after each start, and again on a fixed interval until the lane connects; a newer read
+    /// cancels the one in flight. Null trusts the installation to exist.</param>
     /// <param name="canStart">Whether <c>kcap local start</c> runs on this platform at all.</param>
     public LocalServerRecoveryViewModel(
             IObservable<ServerLaneStatus> status, bool isLocalServer,
@@ -62,18 +64,20 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
                     .SelectMany(Observable.FromAsync(readCondition))
                     .Catch(Observable.Return(new LocalServerReading(LocalServerCondition.Unreadable)));
 
-            // The lock is held only while a command runs, and the lane can go most of a minute without a retry while
-            // SignalR reconnects on its own, so a Changing reading is read again until it settles.
-            IObservable<LocalServerReading> ReadUntilSettled() =>
-                Read().SelectMany(r => r.Condition == LocalServerCondition.Changing
-                    ? Observable.Return(r).Concat(Observable.Timer(ChangingRecheck, recheck).SelectMany(_ => ReadUntilSettled()))
-                    : Observable.Return(r));
+            // The lane can go a minute or more without a retry: SignalR reconnects on its own, and a port another program
+            // took after a stop accepts the connection and never answers, so only the negotiate timeout ends the attempt.
+            // So the reading is taken again while the server stays down, sooner while another command holds the lock.
+            IObservable<LocalServerReading> ReadWhileDown() =>
+                Read().SelectMany(r => Observable.Return(r).Concat(
+                    Observable.Timer(r.Condition == LocalServerCondition.Changing ? ChangingRecheck : SettledRecheck, recheck)
+                        .SelectMany(_ => ReadWhileDown())));
 
-            // A connected server ends every read, a start's included: its reading is not shown.
-            var lane = status.Where(s => s.State is ServerLaneState.Retrying or ServerLaneState.Connected).Select(s => s.State == ServerLaneState.Retrying);
+            // A connected server ends every read, a start's included: its reading is not shown. Any other state but a
+            // retry's Connecting takes the banner down, and ends the reads with it.
+            var lane = status.Where(s => s.State != ServerLaneState.Connecting).Select(s => s.State == ServerLaneState.Retrying);
             var afterStart = _rereads.WithLatestFrom(status, (_, s) => s.State != ServerLaneState.Connected);
             Observable.Switch(lane.Merge(afterStart)
-                    .Select(read => read ? ReadUntilSettled() : Observable.Empty<LocalServerReading>()))
+                    .Select(read => read ? ReadWhileDown() : Observable.Empty<LocalServerReading>()))
                 .ObserveOn(RxSchedulers.MainThreadScheduler)
                 .Subscribe(r => Reading = r)
                 .DisposeWith(_disposables);

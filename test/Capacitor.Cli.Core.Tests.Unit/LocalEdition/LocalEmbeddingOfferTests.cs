@@ -54,6 +54,19 @@ public class LocalEmbeddingOfferTests {
     }
 
     [Test]
+    public async Task A_lookup_after_a_pair_that_did_not_verify_fetches_again() {
+        using var key   = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var other = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var bad   = Publishing(other, ModelEntry);
+        var good  = Publishing(key, ModelEntry);
+        var calls = 0;
+        var offer = Offer(key, r => ++calls <= 2 ? bad(r) : good(r));
+
+        await Assert.That(await offer.LookupAsync(Version, CancellationToken.None)).IsNull();
+        await Assert.That((await offer.LookupAsync(Version, CancellationToken.None))?.ModelSet).IsEqualTo(new string('c', 64));
+    }
+
+    [Test]
     [Arguments(HttpStatusCode.NotFound)]
     [Arguments(HttpStatusCode.InternalServerError)]
     public async Task A_publication_that_does_not_answer_offers_none(HttpStatusCode status) {

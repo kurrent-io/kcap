@@ -15,10 +15,6 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// </summary>
 [ExcludeOn(OS.Windows)] // Unix-domain socket path
 public class AdmissionFenceIpcTests {
-    sealed class NoopRestartStrategy : IRestartStrategy {
-        public RestartOutcome Restart() => RestartOutcome.NoOp;
-    }
-
     sealed record Harness(LocalControlServer Server, AgentOrchestrator Orchestrator, DaemonConfig Config, string SockPath);
 
     static async Task<Harness> StartAsync(ServerConnection server, CancellationToken ct) {
@@ -37,7 +33,7 @@ public class AdmissionFenceIpcTests {
         var settingsIpc   = new DaemonSettingsIpc(config, orchestrator, notifier, NullLogger<DaemonSettingsIpc>.Instance);
         var restart       = RestartCoordinator.ForTest(config.Store, config.Name, "test", new NoopRestartStrategy(), TimeProvider.System);
         var control       = new LocalControlServer(config, orchestrator, restart, consentIpc, permissionIpc, statusIpc, settingsIpc,
-            TestFences.Ipc(config, orchestrator), TestShutdown.Ipc(orchestrator, restart), TestAccountsIpc.Inert(), NullLogger<LocalControlServer>.Instance);
+            TestFences.Ipc(config, orchestrator), TestShutdown.Ipc(orchestrator, restart), TestAccountsIpc.Inert(), TestSteering.Switch(config), NullLogger<LocalControlServer>.Instance);
         await control.StartAsync(ct);
 
         var sockPath = config.Store.SocketPath(config.Name);

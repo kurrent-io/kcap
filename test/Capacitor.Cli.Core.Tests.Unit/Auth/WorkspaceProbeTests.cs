@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using Capacitor.Cli.Core.Auth;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -25,10 +27,16 @@ public class WorkspaceProbeTests {
 
     [Test]
     public async Task A_refused_connection_is_no_answer() {
-        using var server = WireMockServer.Start();
-        var       url    = server.Urls[0];
-        server.Stop();
-        using var client = new HttpClient();
+        // Reserve the port without listening. Stopping a server releases its port, allowing a
+        // parallel test's server to take it and answer this probe (including with a real 404).
+        using var reserved = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        reserved.ExclusiveAddressUse = true;
+        reserved.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+        var url = $"http://127.0.0.1:{((IPEndPoint)reserved.LocalEndPoint!).Port}";
+        // macOS drops a SYN to a port bound without listening instead of refusing it, so the connect
+        // would otherwise run to the OS's own timeout.
+        using var handler = new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromMilliseconds(500) };
+        using var client = new HttpClient(handler);
 
         await Assert.That(await WorkspaceProbe.AskAsync(client, url, TimeProvider.System)).IsEqualTo(WorkspaceAnswer.NoAnswer);
     }

@@ -12,7 +12,7 @@ public class McpWorkItemsNextWorkTests {
 
     McpWorkItemsServer Server(TimeProvider? time = null) =>
         new(Config.Root, Resolutions.None(Config.Root), AuthFixtures.NewTokenStore(Config.Root), new FixedCapacitorHttpClient(), NoTelemetry.Startup,
-            new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory), time ?? TimeProvider.System);
+            new GitProviderRouter(), new WorkingDirectory(AppContext.BaseDirectory), new McpCaptureScope(Config.Root, Resolutions.None(Config.Root), new GitProviderRouter(), new UserHome(AppContext.BaseDirectory), new WorkingDirectory(AppContext.BaseDirectory), TimeProvider.System), time ?? TimeProvider.System);
 
     const string Feed = """
         {
@@ -330,6 +330,33 @@ public class McpWorkItemsNextWorkTests {
     public async Task A_non_integer_limit_is_a_field_error() {
         await Assert.That(() => McpWorkItemsServer.BuildNextWorkUrl("http://x", JsonNode.Parse("""{"limit":"5"}""")!.AsObject(), null, null))
             .Throws<ArgumentException>().WithMessageContaining("limit");
+    }
+
+    [Test]
+    public async Task Get_next_work_joins_a_server_relative_href_to_the_server_url_and_leaves_an_absolute_one() {
+        var feed = JsonNode.Parse(Feed)!.AsObject();
+        feed["items"]![1]!["target_href"] = "/repo/fa1efc1b2ecbbde9/evals";
+        feed["attached_open"] = JsonNode.Parse("""[ { "work_item_id": "wi-9", "label": "Publish install.txt", "href": "/work-items/wi-9", "subjects": [] } ]""");
+
+        var (_, response) = await DispatchAsync("{}", () => ValueTask.FromResult<string?>(null), body: feed.ToJsonString());
+        var text          = Result(response).Text;
+
+        await Assert.That(text).Contains("- Publish install.txt (http://x/work-items/wi-9)");
+        await Assert.That(text).Contains("Review PR #42 — Priya is waiting on your review (https://github.com/o/r/pull/42)");
+        await Assert.That(text).Contains("Finish the retry test — You stopped mid-way yesterday (http://x/repo/fa1efc1b2ecbbde9/evals)");
+    }
+
+    [Test]
+    public async Task Dismiss_next_work_joins_a_server_relative_page_one_href_to_the_server_url() {
+        const string body = """
+            {"target_key":"tk1","dismissed_at":"2026-09-25T10:00:00Z","page_one":[
+              {"rank":1,"tier":2,"arm":"finish_yours","target_key":"k2","target_label":"Finish the retry test","target_href":"/repo/r/evals"}]}
+            """;
+
+        var (_, response) = await DispatchToolAsync("dismiss_next_work", """{"target_key":"tk1"}""",
+            () => ValueTask.FromResult<string?>(null), HttpStatusCode.OK, body);
+
+        await Assert.That(Result(response).Text).Contains("Finish the retry test (http://x/repo/r/evals)");
     }
 
     sealed class FeedHandler(HttpStatusCode status, string body) : HttpMessageHandler {

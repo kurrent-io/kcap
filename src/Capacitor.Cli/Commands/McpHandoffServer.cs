@@ -1,7 +1,4 @@
-using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Continuation;
 using Capacitor.Cli.Core.Auth;
@@ -23,74 +20,13 @@ sealed class McpHandoffServer(ConfigRoot config, ProfileContext profiles, TokenS
     internal const string NoCurrentSessionMessage =
         "Error: no current session. Pass current_session_id with this session's id, or run continue_session inside the harness session that takes over (CLAUDE_CODE_SESSION_ID, GROK_SESSION_ID, KCAP_SESSION_ID or CODEX_THREAD_ID).";
 
-    public async Task<int> RunAsync() {
-        var baseUrl = profiles.Resolution.ServerUrl!;
-
-        var tools = BuildToolsList();
-
-        // Best-effort, and recorded even when the read throws: a stale token on disk must never
-        // block the server from starting.
-        var loggedIn = false;
-        try { loggedIn = await tokens.LoadForProfileAsync(profiles.Name) is not null; } catch { }
-
-        // MCP servers are long-lived and denylisted under the top-level "mcp" command; the
-        // reportable pseudo-command "mcp-server" is what lets per-tool-call events leave.
-        var telemetry = CliTelemetry.Start(startup with { Command = "mcp-server" }, config, time);
-        telemetry.AddSharedProperty("logged_in", loggedIn);
-
-        await using var mcp = new McpTelemetry(telemetry);
-
-        var urlOk = HttpClientExtensions.IsAcceptableUrl(baseUrl);
-
-        // Created on first use, so a session that never calls a tool stays local-only.
-        using var sessionClient = new OnDemand<HttpClient>(() => http.ForSessionAsync());
-
-        async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            if (!urlOk)
-                return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
-
-            try {
-                var client = await sessionClient.GetAsync();
-                // Per call: a hosted agent is bound to its session only after this server has started.
-                var current = WorkContextIds.CanonicalSessionId(HarnessRequesterContext.Resolve().SessionId);
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, current);
-            } catch (Exception ex) {
-                // The detail goes to stderr, not the client, which could leak local paths.
-                await Console.Error.WriteLineAsync($"kcap mcp handoff: unexpected error handling tools/call: {ex}");
-                return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);
-            }
-        }
-
-        async Task<string> TimedDispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            var start = time.GetTimestamp();
-            var tool  = McpTelemetry.SafeToolName(callRequest);
-            var ok    = false;
-
-            try {
-                var response = await DispatchToolCallAsync(callId, callRequest);
-                ok = McpTelemetry.ResponseOk(response);
-                return response;
-            } finally {
-                mcp.ToolCalled("kcap-handoff", tool, ok, CommandTiming.ElapsedMs(start, time));
-            }
-        }
-
-        await using var stdin  = Console.OpenStandardInput();
-        await using var stdout = Console.OpenStandardOutput();
-        using var       reader = new StreamReader(stdin, Encoding.UTF8);
-        await using var writer = new StreamWriter(stdout, new UTF8Encoding(false));
-        writer.AutoFlush = true;
-
-        await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
-            null         => BuildErrorResponse(id, -32600, "Invalid request: method must be a string"),
-            "initialize" => BuildInitializeResponse(id, request),
-            "tools/list" => BuildToolsListResponse(id, tools),
-            _            => McpProtocol.TryHandleStandardMethod(method, id)
-                            ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
-        }, "handoff");
-
-        return 0;
-    }
+    public Task<int> RunAsync() =>
+        McpServerHost.RunAsync(
+            new("kcap-handoff", "handoff", ServerInstructions, BuildToolsList()),
+            new(config, profiles, tokens, http, startup, time),
+            // Per call: a hosted agent is bound to its session only after this server has started.
+            (id, request, client, baseUrl) => HandleToolCallAsync(
+                id, request, client, baseUrl, WorkContextIds.CanonicalSessionId(HarnessRequesterContext.Resolve().SessionId)));
 
     internal const string ServerInstructions =
         "Use continue_session when the user asks you to continue, resume or pick up another session's work — " +
@@ -98,29 +34,19 @@ sealed class McpHandoffServer(ConfigRoot config, ProfileContext profiles, TokenS
         "unfinished plans. If it refuses because the session may still be running, ask the user before " +
         "retrying with force: true. Then check the working tree before resuming: a task left in progress may be half-done.";
 
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
-        ToResponse<McpInitResult>(
-            id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-handoff", "1.0.0"), ServerInstructions),
-            McpJsonContext.Default.McpInitResult
-        );
-
-    static string BuildToolsListResponse(JsonNode id, McpTool[] tools) =>
-        ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
-
     internal async Task<string> HandleToolCallAsync(JsonNode id, JsonObject request, HttpClient client, string baseUrl, string? currentSessionId) {
         var paramsNode = request["params"]?.AsObject();
         var toolName   = paramsNode?["name"]?.GetValue<string>();
         var arguments  = paramsNode?["arguments"]?.AsObject();
 
-        if (toolName is null) return BuildErrorResponse(id, -32602, "Missing params.name");
-        if (toolName != ToolName) return BuildToolResult(id, $"Error: Unknown tool: {toolName}", isError: true);
+        if (toolName is null) return McpResponses.Error(id, -32602, "Missing params.name");
+        if (toolName != ToolName) return McpResponses.ToolResult(id, $"Error: Unknown tool: {toolName}", isError: true);
 
         try {
             if (McpToolArguments.OptionalString(arguments, CurrentSessionArgument) is { } given)
                 currentSessionId = WorkContextIds.CanonicalSessionId(given) ?? given;
 
-            if (currentSessionId is null) return BuildToolResult(id, NoCurrentSessionMessage, isError: true);
+            if (currentSessionId is null) return McpResponses.ToolResult(id, NoCurrentSessionMessage, isError: true);
 
             var previous = McpToolArguments.RequireString(arguments, "session_id");
             var force    = OptionalBool(arguments, "force");
@@ -130,18 +56,18 @@ sealed class McpHandoffServer(ConfigRoot config, ProfileContext profiles, TokenS
 
             return result switch {
                 TakeoverResult.Completed { CredentialRejected: true } c
-                                              => BuildToolResult(id, $"{c.Outcome.ToJsonString()}\n\n{await UnauthorizedNoticeAsync(baseUrl)}", isError: true),
-                TakeoverResult.Completed c    => BuildToolResult(id, c.Outcome.ToJsonString(), isError: c.Unsuccessful),
-                TakeoverResult.Refused r      => BuildToolResult(id, $"Error: {r.Reason}", isError: true),
-                TakeoverResult.Failed f       => BuildToolResult(id, $"Error: {f.Reason}", isError: true),
-                TakeoverResult.Interrupted i  => BuildToolResult(id, $"Error: the takeover was interrupted ({i.Code}).\n\n{i.Outcome.ToJsonString()}", isError: true),
-                TakeoverResult.Unauthorized   => BuildToolResult(id, await UnauthorizedNoticeAsync(baseUrl), isError: true),
+                                              => McpResponses.ToolResult(id, $"{c.Outcome.ToJsonString()}\n\n{await UnauthorizedNoticeAsync(baseUrl)}", isError: true),
+                TakeoverResult.Completed c    => McpResponses.ToolResult(id, c.Outcome.ToJsonString(), isError: c.Unsuccessful),
+                TakeoverResult.Refused r      => McpResponses.ToolResult(id, $"Error: {r.Reason}", isError: true),
+                TakeoverResult.Failed f       => McpResponses.ToolResult(id, $"Error: {f.Reason}", isError: true),
+                TakeoverResult.Interrupted i  => McpResponses.ToolResult(id, $"Error: the takeover was interrupted ({i.Code}).\n\n{i.Outcome.ToJsonString()}", isError: true),
+                TakeoverResult.Unauthorized   => McpResponses.ToolResult(id, await UnauthorizedNoticeAsync(baseUrl), isError: true),
                 _                             => throw new InvalidOperationException(result.GetType().Name),
             };
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -162,29 +88,6 @@ sealed class McpHandoffServer(ConfigRoot config, ProfileContext profiles, TokenS
         } catch {
             return null;
         }
-    }
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        };
-
-        return envelope.ToJsonString();
     }
 
     internal static McpTool[] BuildToolsList() => [

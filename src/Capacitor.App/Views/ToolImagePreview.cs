@@ -50,12 +50,20 @@ public sealed class ToolImagePreview : Button {
         HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Left;
         Cursor = new Cursor(StandardCursorType.Hand);
         Content = _image;
+        ContextFlyout = TextContextMenu.ForImage;
         Click += (_, _) => {
             if (!ExpandsOnClick) return;
             _expanded = !_expanded;
             _image.MaxHeight = _expanded ? Expanded : Thumb;
             _image.MaxWidth = _expanded ? 720 : 480;
         };
+    }
+
+    public bool CanCopyImage => _image.Source is not null && !string.IsNullOrEmpty(Path);
+
+    public async Task CopyImageAsync() {
+        if (!CanCopyImage || _loaded?.Lease() is not { } lease) return;
+        using (lease) await ImageClipboard.CopyFileAsync(this, Path!, lease.Image);
     }
 
     public bool ExpandsOnClick {

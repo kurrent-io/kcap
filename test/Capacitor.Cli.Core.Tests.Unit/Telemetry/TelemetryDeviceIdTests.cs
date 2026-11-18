@@ -69,10 +69,8 @@ public class TelemetryDeviceIdTests {
         await Assert.That(TelemetryDeviceId.ReadPersisted(Config.Root)).IsEqualTo(first);
     }
 
-    // Unlike the old coupled telemetry.json, GetOrCreate has no notion of "enabled" at all — the
-    // file it owns doesn't carry that field. This pins the property that used to require a separate
-    // precedence rule (an earlier revision of the coupled GetOrCreateDeviceId re-checked
-    // state.Enabled itself, which broke KCAP_TELEMETRY=1 overriding a persisted opt-out): calling it
+    // GetOrCreate has no notion of "enabled" at all — the file it owns doesn't carry that field, and
+    // re-checking it here would break KCAP_TELEMETRY=1 overriding a persisted opt-out. Calling it
     // directly always mints/returns an id, full stop.
     [Test]
     public async Task Get_or_create_is_unaffected_by_telemetry_state() {
@@ -83,8 +81,7 @@ public class TelemetryDeviceIdTests {
         await Assert.That(id).IsNotNull();
     }
 
-    // Closes a documented gap: the spec justifies the device id living in its own file on the
-    // grounds that opt-out can delete it outright, not merely stop minting new ones.
+    // The device id lives in its own file so that opt-out can delete it outright, not merely stop minting new ones.
     [Test]
     public async Task Set_enabled_false_deletes_an_existing_device_id() {
         var id = TelemetryDeviceId.GetOrCreate(Config.Root);
@@ -96,8 +93,8 @@ public class TelemetryDeviceIdTests {
         await Assert.That(TelemetryState.PersistedEnabled(Config.Root)).IsFalse();
     }
 
-    // Re-enabling must not resurrect the discarded id — GetOrCreate mints a fresh one, which is the
-    // more private behaviour the spec calls for.
+    // Re-enabling must not resurrect the discarded id — GetOrCreate mints a fresh one, the more
+    // private behaviour.
     [Test]
     public async Task Re_enabling_after_disable_mints_a_fresh_device_id() {
         var original = TelemetryDeviceId.GetOrCreate(Config.Root);

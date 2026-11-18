@@ -22,7 +22,7 @@ internal sealed class ClaudeScreenWatcher {
         if (AnsiScreen.Fits(cols, rows)) _screen.Resize(cols, rows);
     }
 
-    public (UsageLimitNoticeDto? UsageLimit, TerminalDialogDto? Dialog) Observe(ReadOnlySpan<byte> chunk) {
+    public (UsageLimitNoticeDto? UsageLimit, TerminalDialogDto? Dialog, bool PromptShown) Observe(ReadOnlySpan<byte> chunk) {
         _screen.Write(chunk);
         var text = _screen.Text();
         var read = ClaudeTerminalDialogDetector.Read(text, _screen.Cols);
@@ -33,7 +33,9 @@ internal sealed class ClaudeScreenWatcher {
         if (read.IncompleteRedraw && dialog is not null
             && _dialog is { Options.Count: > 0 } && _dialog.Heading == dialog.Heading)
             dialog = _dialog;
+        else if (read.IncompleteRedraw && dialog is null)
+            dialog = _dialog;
         _dialog = dialog;
-        return (ClaudeUsageLimitDetector.Parse(text), dialog);
+        return (ClaudeUsageLimitDetector.Parse(text), dialog, ClaudePromptBox.IsShown(text));
     }
 }

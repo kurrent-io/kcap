@@ -9,12 +9,9 @@ namespace Capacitor.Cli.Core.Tests.Unit;
 /// process-driven services' consumers, not for ProcessRunner's guts, so a real child process is
 /// the only way to exercise the actual stdout/stderr drain wiring.
 ///
-/// Regression coverage for a Qodo review finding: the stdout drain task used to be discarded
-/// (`_ = process.StandardOutput.ReadToEndAsync(ct)`), so a fault on it (e.g. once `ct` fired,
-/// since it shared the caller's token) surfaced nowhere — an unobserved task exception. The fix
-/// keeps both drain tasks, reads them with CancellationToken.None (so a detached child's pipes
-/// never back up just because the caller stopped waiting), and awaits both via Task.WhenAll on
-/// the normal path.
+/// A discarded drain task sharing the caller's token faults unobserved once `ct` fires, so both
+/// drain tasks are kept, read with CancellationToken.None (so a detached child's pipes never back
+/// up just because the caller stopped waiting), and awaited via Task.WhenAll on the normal path.
 ///
 /// Not covered here: (1) asserting the abandoned-drain-observed property on the cancellation
 /// path — that would require hooking the process-wide TaskScheduler.UnobservedTaskException

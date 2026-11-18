@@ -1,9 +1,6 @@
 using System.Net.Http.Json;
-using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Commands;
@@ -23,92 +20,23 @@ sealed class McpReviewServer(ConfigRoot config, ProfileContext profiles, TokenSt
     /// Tool calls may still override the default by passing a <c>pr</c> argument.
     /// </summary>
     public Task<int> RunAsync(string owner, string repo, int prNumber)
-        => RunCoreAsync(profiles.Resolution.ServerUrl!, new PrIdentity(owner, repo, prNumber));
+        => RunCoreAsync(new PrIdentity(owner, repo, prNumber));
 
     /// <summary>
     /// Run without an explicit session default (used by the plugin's argless MCP
     /// registration). PR identity comes from each tool call's <c>pr</c> argument,
     /// or as a fallback from git auto-detection against the current branch.
     /// </summary>
-    public Task<int> RunAutoAsync() => RunCoreAsync(profiles.Resolution.ServerUrl!, null);
+    public Task<int> RunAutoAsync() => RunCoreAsync(null);
 
-    async Task<int> RunCoreAsync(string baseUrl, PrIdentity? startupDefault) {
-        // Compute the session default once: explicit startup args win; otherwise
-        // try git auto-detect (local). Result is cached for the lifetime of the server
-        // and used as the fallback when a tool call doesn't carry an explicit `pr`.
+    async Task<int> RunCoreAsync(PrIdentity? startupDefault) {
+        // Explicit startup args win; otherwise git auto-detect, once, as the fallback for a call without `pr`.
         var sessionDefault = startupDefault ?? await DetectPrFromGitAsync();
 
-        var tools = BuildToolsList();
-
-        // Best-effort, and recorded even when the read throws: a stale token on disk must never
-        // block the server from starting, and an absent property is a different value in a funnel
-        // from a false one — "could not tell" belongs with "not logged in", not with a gap.
-        var loggedIn = false;
-        try { loggedIn = await tokens.LoadForProfileAsync(profiles.Name) is not null; } catch { }
-
-        // MCP servers are long-lived and denylisted under the top-level "mcp" command
-        // (CommandEvents.Denylisted) — a second facade under the reportable pseudo-command
-        // "mcp-server" is what lets per-tool-call events leave at all.
-        var telemetry = CliTelemetry.Start(startup with { Command = "mcp-server" }, config, time);
-        telemetry.AddSharedProperty("logged_in", loggedIn);
-
-        await using var mcp = new McpTelemetry(telemetry);
-
-        // Validate the server_url shape once, locally (pure string check — no network, token,
-        // or stderr). Used to fail gracefully instead of hard-exiting mid-request (below).
-        var urlOk = HttpClientExtensions.IsAcceptableUrl(baseUrl);
-
-        // Created on first use, so a session that never calls a tool stays local-only.
-        using var sessionClient = new OnDemand<HttpClient>(() => http.ForSessionAsync());
-
-        // Guarded tool dispatch: never let the stdio JSON-RPC loop die on one bad request. An
-        // unexpected failure would otherwise bubble out of the loop and kill the server mid-protocol;
-        // return a JSON-RPC tool error instead so it keeps serving.
-        async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            if (!urlOk)
-                return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
-
-            try {
-                var client = await sessionClient.GetAsync();
-                return await HandleToolCallAsync(callId, callRequest, client, baseUrl, sessionDefault);
-            } catch (Exception ex) {
-                // Unexpected: log the detail to stderr (not to the client, which could leak local
-                // paths from IO errors) and return a generic tool error, keeping the loop alive.
-                await Console.Error.WriteLineAsync($"kcap mcp review: unexpected error handling tools/call: {ex}");
-                return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);
-            }
-        }
-
-        // Records which MCP tools agents actually reach for. Never touches the response path:
-        // the result (or the exception) is returned exactly as DispatchToolCallAsync produced it.
-        async Task<string> TimedDispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            var start = time.GetTimestamp();
-            var tool  = McpTelemetry.SafeToolName(callRequest);
-            var ok    = false;
-
-            try {
-                var response = await DispatchToolCallAsync(callId, callRequest);
-                ok = McpTelemetry.ResponseOk(response);
-                return response;
-            } finally {
-                mcp.ToolCalled("kcap-review", tool, ok, CommandTiming.ElapsedMs(start, time));
-            }
-        }
-
-        await using var stdin  = Console.OpenStandardInput();
-        await using var stdout = Console.OpenStandardOutput();
-        using var       reader = new StreamReader(stdin, Encoding.UTF8);
-        await using var writer = new StreamWriter(stdout, new UTF8Encoding(false));
-        writer.AutoFlush = true;
-
-        await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
-            "initialize" => BuildInitializeResponse(id, request),
-            "tools/list" => BuildToolsListResponse(id, tools),
-            _            => McpProtocol.TryHandleStandardMethod(method, id)
-                            ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
-        }, "review");
-
-        return 0;
+        return await McpServerHost.RunAsync(
+            new("kcap-review", "review", ServerInstructions, BuildToolsList()) { RejectsNonStringMethod = false },
+            new(config, profiles, tokens, http, startup, time),
+            (id, request, client, baseUrl) => HandleToolCallAsync(id, request, client, baseUrl, sessionDefault));
     }
 
     async Task<PrIdentity?> DetectPrFromGitAsync() {
@@ -135,16 +63,6 @@ sealed class McpReviewServer(ConfigRoot config, ProfileContext profiles, TokenSt
         "reasoning from the recorded session transcript, which commits and diffs don't capture — while you " +
         "still read the diff itself for correctness.";
 
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
-        ToResponse<McpInitResult>(
-            id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-review", "1.0.0"), ServerInstructions),
-            McpJsonContext.Default.McpInitResult
-        );
-
-    static string BuildToolsListResponse(JsonNode id, McpTool[] tools) =>
-        ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
-
     static async Task<string> HandleToolCallAsync(
             JsonNode    id,
             JsonObject  request,
@@ -158,7 +76,7 @@ sealed class McpReviewServer(ConfigRoot config, ProfileContext profiles, TokenSt
 
         switch (toolName) {
             case null:
-                return BuildErrorResponse(id, -32602, "Missing params.name");
+                return McpResponses.Error(id, -32602, "Missing params.name");
             // get_transcript keys off session_id, not PR — skip PR resolution.
             case "get_transcript":
                 return await DispatchAsync(id, toolName, arguments, client, baseUrl, pr: null);
@@ -167,7 +85,7 @@ sealed class McpReviewServer(ConfigRoot config, ProfileContext profiles, TokenSt
         var resolution = PrResolution.Resolve(arguments, sessionDefault);
 
         if (resolution.Identity is null) {
-            return BuildToolResult(id, resolution.Error!, isError: true);
+            return McpResponses.ToolResult(id, resolution.Error!, isError: true);
         }
 
         return await DispatchAsync(id, toolName, arguments, client, baseUrl, resolution.Identity);
@@ -201,11 +119,11 @@ sealed class McpReviewServer(ConfigRoot config, ProfileContext profiles, TokenSt
 
             var body = await httpResponse.Content.ReadAsStringAsync();
 
-            return !httpResponse.IsSuccessStatusCode ? BuildToolResult(id, $"Error: HTTP {(int)httpResponse.StatusCode} — {body}", isError: true) : BuildToolResult(id, body);
+            return !httpResponse.IsSuccessStatusCode ? McpResponses.ToolResult(id, $"Error: HTTP {(int)httpResponse.StatusCode} — {body}", isError: true) : McpResponses.ToolResult(id, body);
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -239,29 +157,6 @@ sealed class McpReviewServer(ConfigRoot config, ProfileContext profiles, TokenSt
         }
 
         return url;
-    }
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        };
-
-        return envelope.ToJsonString();
     }
 
     internal static McpTool[] BuildToolsList() {

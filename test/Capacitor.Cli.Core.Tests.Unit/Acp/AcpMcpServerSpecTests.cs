@@ -4,12 +4,9 @@ using Capacitor.Cli.Core.Acp;
 namespace Capacitor.Cli.Core.Tests.Unit.Acp;
 
 /// <summary>
-/// Test plan item 6(d) (Round 2 Finding 1): <see cref="AcpMcpServerSpec"/>'s explicit
-/// constructor coalesces <c>null</c> <c>Args</c>/<c>Env</c> to empty arrays at its OWN boundary,
-/// so the ACP-illegal wire shape <c>"args":null</c>/<c>"env":null</c> can never be produced
-/// regardless of what any caller passes in — not just when a caller happens to pass well-formed
-/// values (as every other exact-JSON case in <c>AcpHostedAgentRuntimeFactoryTests</c>
-/// test item 6(a)/(b)/(c) does).
+/// <see cref="AcpMcpServerSpec"/>'s explicit constructor coalesces <c>null</c> <c>Args</c>/<c>Env</c>
+/// to empty arrays at its OWN boundary, so the ACP-illegal wire shape <c>"args":null</c>/<c>"env":null</c>
+/// can never be produced, whatever a caller passes in.
 /// </summary>
 public class AcpMcpServerSpecTests {
     [Test]
@@ -31,7 +28,7 @@ public class AcpMcpServerSpecTests {
         await Assert.That(json).IsEqualTo("""{"name":"fs","command":"npx","args":[],"env":[]}""");
     }
 
-    /// <summary>Qodo finding 4: the constructor must clone caller-supplied <c>Args</c>/<c>Env</c>
+    /// <summary>The constructor must clone caller-supplied <c>Args</c>/<c>Env</c>
     /// arrays rather than store them by reference, so mutating the original array after
     /// construction can't silently change what this record serializes onto the ACP wire.</summary>
     [Test]

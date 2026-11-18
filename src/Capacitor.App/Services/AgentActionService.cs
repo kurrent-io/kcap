@@ -74,10 +74,14 @@ public sealed class AgentActionService {
     public static string StopKey(AgentOrigin origin, string agentId) => $"{origin}:{agentId}";
 
     /// A kind other than exactly "agent" is protected (KindText vocabulary: agent|review|
-    /// review-flow). Any non-"agent" value — including one this build doesn't recognise — fails
-    /// safe as protected, mirroring the daemon's own `Kind != LaunchKind.Default` check and the
-    /// CLI's `IsProtectedKind`.
+    /// review-flow|attached). Any non-"agent" value — including one this build doesn't recognise —
+    /// fails safe as protected, mirroring the daemon's own `Kind != LaunchKind.Default` check and the
+    /// CLI's `IsProtectedKind`. The stop of an attached agent asks nothing even so: see AttachedKind.
     internal static bool IsProtectedKind(string kind) => kind is not "agent";
+
+    /// A terminal session the daemon steers rather than hosts. Its stop only disconnects the steering, which strands
+    /// no flow, so it confirms nothing.
+    public const string AttachedKind = "attached";
 
     /// Whether the user can type at this kind, mirroring the daemon's AcceptsTypedInput: a PR-review
     /// agent is a dialogue, a flow participant is not, and an unrecognised kind fails safe as read-only.
@@ -95,26 +99,27 @@ public sealed class AgentActionService {
             _inFlight = _inFlight.Add(key);
             _stopsInFlight.OnNext(_inFlight);
         }
-        _ = Task.Run(() => origin == AgentOrigin.Remote ? RunRemoteStopAsync(agentId, label, key, accepted) : RunStopAsync(agentId, label, kind, key));
+        _ = Task.Run(() => origin == AgentOrigin.Remote ? RunRemoteStopAsync(agentId, label, kind, key, accepted) : RunStopAsync(agentId, label, kind, key));
     }
 
     /// A remote row's stop never reaches ILocalControlOps — it goes to the server hub, which
     /// forwards it to the owning daemon. Ok is not a toast: the row's disappearance comes from the
     /// next registry update, same as a local stop's confirmation-by-absence.
-    async Task RunRemoteStopAsync(string agentId, string label, string key, Action? accepted) {
+    async Task RunRemoteStopAsync(string agentId, string label, string kind, string key, Action? accepted) {
+        var attached = kind == AttachedKind;
         try {
-            if (_lane is null) { _notifier.Notify("Not signed in to a server"); return; }
+            if (_lane is null) { _notifier.Notify(attached ? Disconnect("not signed in to a server") : "Not signed in to a server"); return; }
             var outcome = await _lane.RequestStopAgentAsync(agentId, _shutdownToken).ConfigureAwait(false);
             switch (outcome.Result) {
                 case HubCallResult.Ok: accepted?.Invoke(); break;
-                case HubCallResult.NotConnected: _notifier.Notify("Not connected to the server"); break;
-                case HubCallResult.Denied: _notifier.Notify($"The server declined to stop {label}"); break;
-                default: _notifier.Notify($"Couldn't stop {label}: {outcome.Reason}"); break;
+                case HubCallResult.NotConnected: _notifier.Notify(attached ? Disconnect("not connected to the server") : "Not connected to the server"); break;
+                case HubCallResult.Denied: _notifier.Notify(attached ? Disconnect("the server declined") : $"The server declined to stop {label}"); break;
+                default: _notifier.Notify(attached ? Disconnect(outcome.Reason) : $"Couldn't stop {label}: {outcome.Reason}"); break;
             }
         } catch (OperationCanceledException) {
             // Deliberate shutdown: absorbed quietly, no toast, no log.
         } catch (Exception ex) {
-            _notifier.Notify($"Couldn't stop {label}: {ex.Message}");
+            _notifier.Notify(attached ? Disconnect(ex.Message) : $"Couldn't stop {label}: {ex.Message}");
         } finally {
             lock (_lock) {
                 _inFlight = _inFlight.Remove(key);
@@ -124,9 +129,10 @@ public sealed class AgentActionService {
     }
 
     async Task RunStopAsync(string agentId, string label, string kind, string key) {
+        var attached = kind == AttachedKind;
         try {
             var force = false;
-            if (IsProtectedKind(kind)) {
+            if (!attached && IsProtectedKind(kind)) {
                 // false (dialog cancelled) is a quiet no-op — the finally below still clears the
                 // in-flight entry, but nothing is sent to the daemon and no toast is shown.
                 if (!await _confirmForceStop(label).ConfigureAwait(false)) return;
@@ -136,26 +142,28 @@ public sealed class AgentActionService {
             var result = await _ops.StopAgentAsync(agentId, force, _shutdownToken).ConfigureAwait(false);
             switch (result.Status) {
                 case "stopped": break; // no toast — disappearance from the next snapshot is the confirmation
-                case "failed":  _notifier.Notify($"Couldn't stop {label}"); break;
-                case "skipped": _notifier.Notify($"The daemon declined to stop {label}"); break;
+                case "failed":  _notifier.Notify(attached ? Disconnect(null) : $"Couldn't stop {label}"); break;
+                case "skipped": _notifier.Notify(attached ? Disconnect("the daemon declined") : $"The daemon declined to stop {label}"); break;
                 case "error":
                     // The daemon's Error text may name an id or CLI-speak ("Pass --force…") the
                     // app cannot act on — never surfaced verbatim in the UI. The full text goes to
                     // stderr only; the toast stays generic. With force-after-confirm above, this
                     // covers unknown-id/stale cases.
                     Console.Error.WriteLine($"kcap: stop {agentId} failed: {result.Error}");
-                    _notifier.Notify($"Couldn't stop {label}");
+                    _notifier.Notify(attached ? Disconnect(null) : $"Couldn't stop {label}");
                     break;
             }
         } catch (OperationCanceledException) {
             // Deliberate shutdown: absorbed quietly, no toast, no log.
         } catch (LocalControlOpsException ex) {
-            _notifier.Notify(ex.Reason == DaemonUnreachableReason ? UnreachableCopy : $"Couldn't stop {label}: {ex.Message}");
+            var unreachable = ex.Reason == DaemonUnreachableReason;
+            _notifier.Notify(attached ? Disconnect(unreachable ? "the daemon is not reachable" : ex.Message)
+                : unreachable ? UnreachableCopy : $"Couldn't stop {label}: {ex.Message}");
         } catch (Exception ex) {
             // An unmapped exception still gets a toast (never a silent drop) — AppNotifier.Notify
             // covers both the toast AND stderr, so this one call satisfies both
             // without a separate Console.Error write. The finally below still runs either way.
-            _notifier.Notify($"Couldn't stop {label}: {ex.Message}");
+            _notifier.Notify(attached ? Disconnect(ex.Message) : $"Couldn't stop {label}: {ex.Message}");
         } finally {
             // A completion into an already-vanished row/entry is naturally a no-op — the set
             // just loses a member nothing is rendering against anymore.
@@ -165,6 +173,9 @@ public sealed class AgentActionService {
             }
         }
     }
+
+    static string Disconnect(string? reason) =>
+        string.IsNullOrWhiteSpace(reason) ? ViewModels.AttachedAgentCopy.DisconnectFailed : $"{ViewModels.AttachedAgentCopy.DisconnectFailed}: {reason}";
 
     /// Opens {ServerUrl trimmed of trailing '/'}/agents/{Uri.EscapeDataString(id)} from the
     /// latest snapshot in the default browser. Never throws.

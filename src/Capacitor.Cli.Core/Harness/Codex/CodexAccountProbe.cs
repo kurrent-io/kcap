@@ -78,7 +78,7 @@ public sealed class CodexAccountProbe(HarnessRegistry harnesses, UserHome home, 
             if (!identityDone) identityError = failure;
             if (!limitsDone) limitsError = failure;
         } finally {
-            await CodexAppServer.ShutDownAsync(process, time).ConfigureAwait(false);
+            await VendorProcess.ShutDownAsync(process, time).ConfigureAwait(false);
         }
 
         ct.ThrowIfCancellationRequested();

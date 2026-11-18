@@ -42,12 +42,15 @@ sealed class FakeServerLane : IServerLane {
     public Func<string, Task<HubCallOutcome>> TerminalUnsubscribeHandler = _ => Task.FromResult(HubCallOutcome.Ok);
     public Func<string, Task<HubCallOutcome>> UserInputHandler = _ => Task.FromResult(HubCallOutcome.Ok);
     public Func<string, Task<HubCallOutcome>> SpecialKeyHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+    public Func<byte[], Task<HubCallOutcome>> TerminalInputHandler = _ => Task.FromResult(HubCallOutcome.Ok);
     ImmutableList<string> _stops = [], _chatSubscribes = [], _chatUnsubscribes = [], _accessWatches = [], _calls = [];
     ImmutableList<(string Stream, ulong? From)> _tails = [];
     ImmutableList<string> _terminalSubscribes = [], _terminalUnsubscribes = [], _resizeReleases = [];
     ImmutableList<(string AgentId, int Cols, int Rows)> _resizes = [];
     ImmutableList<(string AgentId, string Text)> _userInputs = [];
+    ImmutableList<(string AgentId, string[] Ids)> _userInputAttachments = [];
     ImmutableList<(string AgentId, string Key)> _specialKeys = [];
+    ImmutableList<(string AgentId, byte[] Data)> _terminalInputs = [];
     readonly Dictionary<string, Channel<StreamEventEnvelope>> _tailChannels = new(StringComparer.Ordinal);
     readonly Lock _tailLock = new();
 
@@ -62,7 +65,9 @@ sealed class FakeServerLane : IServerLane {
     public ImmutableList<(string AgentId, int Cols, int Rows)> Resizes => Volatile.Read(ref _resizes);
     public ImmutableList<string> ResizeReleases => Volatile.Read(ref _resizeReleases);
     public ImmutableList<(string AgentId, string Text)> UserInputs => Volatile.Read(ref _userInputs);
+    public ImmutableList<(string AgentId, string[] Ids)> UserInputAttachments => Volatile.Read(ref _userInputAttachments);
     public ImmutableList<(string AgentId, string Key)> SpecialKeys => Volatile.Read(ref _specialKeys);
+    public ImmutableList<(string AgentId, byte[] Data)> TerminalInputs => Volatile.Read(ref _terminalInputs);
 
     static void Append<T>(ref ImmutableList<T> list, T item) => ImmutableInterlocked.Update(ref list, static (l, i) => l.Add(i), item);
 
@@ -165,9 +170,10 @@ sealed class FakeServerLane : IServerLane {
         return Task.FromResult(HubCallOutcome.Ok);
     }
 
-    public Task<HubCallOutcome> SendUserInputAsync(string agentId, string text, CancellationToken ct) {
+    public Task<HubCallOutcome> SendUserInputAsync(string agentId, string text, IReadOnlyList<string> attachmentIds, CancellationToken ct) {
         Append(ref _calls, $"input:{agentId}");
         Append(ref _userInputs, (agentId, text));
+        Append(ref _userInputAttachments, (agentId, attachmentIds.ToArray()));
         return UserInputHandler(agentId);
     }
 
@@ -177,5 +183,11 @@ sealed class FakeServerLane : IServerLane {
         Append(ref _calls, $"key:{agentId}:{key}");
         Append(ref _specialKeys, (agentId, key));
         return SpecialKeyHandler(agentId);
+    }
+
+    public Task<HubCallOutcome> SendTerminalInputAsync(string agentId, byte[] data, CancellationToken ct) {
+        Append(ref _calls, $"input:{agentId}:{Convert.ToBase64String(data)}");
+        Append(ref _terminalInputs, (agentId, data));
+        return TerminalInputHandler(data);
     }
 }
