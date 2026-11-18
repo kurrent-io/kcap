@@ -107,6 +107,16 @@
                                   DragDelta="OnRailSplitterDragDelta" DragCompleted="OnRailSplitterDragCompleted" />
                 </Grid>
 
+                <!-- Stands in for the surface until a view model exists: every binding there needs one,
+                     and unresolved they show a connected footer and an empty launcher. See ShowsStartup. -->
+                <Grid x:Name="StartupPane" IsVisible="False" ColumnDefinitions="Auto,*">
+                    <Border x:Name="StartupRail" Background="{StaticResource KcapSurfaceBrush}"
+                            BorderThickness="0,0,1,0" BorderBrush="{StaticResource KcapBorderBrush}">
+                        <TextBlock Text="Loading sessions…" FontSize="12" Foreground="{StaticResource KcapFaintBrush}"
+                                   Margin="16,54,16,8" VerticalAlignment="Top" />
+                    </Border>
+                </Grid>
+
                 <!-- Window controls that never move: over the rail's chrome row while it shows, over
                      the content's top-left corner once it collapses to nothing, where each header
                      pads clear of them through RailClearance. -->

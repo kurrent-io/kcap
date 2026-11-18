@@ -36,8 +36,20 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         set {
             OnboardingPane.DataContext = value;
             OnboardingPane.IsVisible   = value is not null;
-            SessionsSurface.IsVisible  = value is null;
+            SessionsSurface.IsVisible  = value is null && !ShowsStartup;
             ApplyMinimumSize();
+        }
+    }
+
+    /// The frame shown before the app has a MainWindowViewModel to give it: the rail's loading line in
+    /// place of the rail and launcher. Clear it in the same pass that assigns the view model.
+    public bool ShowsStartup {
+        get => StartupPane.IsVisible;
+        set {
+            StartupPane.IsVisible     = value;
+            SessionsSurface.IsVisible = !value && Onboarding is null;
+            BackButton.IsVisible      = !value;
+            ForwardButton.IsVisible   = !value;
         }
     }
 
@@ -67,6 +79,8 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         RailColumn.Width = new GridLength(collapsed ? 0 : Panes.RailWidth);
         SessionRail.IsVisible = !collapsed;
         RailSplitter.IsVisible = !collapsed;
+        StartupRail.Width = Panes.RailWidth;
+        StartupRail.IsVisible = !collapsed;
         RailToggleIcon.Kind = collapsed ? LucideIconKind.PanelLeftOpen : LucideIconKind.PanelLeftClose;
         ApplyRailAttention();
         ApplyRailClearance();

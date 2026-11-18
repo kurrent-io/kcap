@@ -101,6 +101,44 @@ public class AppStartupTests {
         await Assert.That(height).IsEqualTo(888);
     }
 
+    /// The frame shown before the graph exists becomes the main window in place, keeping the size the
+    /// user gave it while it loaded rather than snapping back to the remembered one.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task BuildAndShowMainWindow_takes_over_the_startup_window_where_it_stands() {
+        var appState = AppState();
+        await appState.UpdateAsync(s => s with { WindowWidth = 1552, WindowHeight = 888 });
+        var savedState = await appState.LoadAsync();
+        var (before, after) = await AvaloniaSession.DispatchAsync(() => {
+            var startup = AppUnderTest.ShowStartupWindow(savedState, uiScale: null);
+            Dispatcher.UIThread.RunJobs();
+            var shown = (Visible: startup.IsVisible, Startup: startup.StartupPane.IsVisible, Surface: startup.SessionsSurface.IsVisible, startup.Width);
+            startup.Width = 1640;
+
+            var service = new FakeDaemonClientService();
+            var (actions, notifier) = NewActions(service);
+            var window = AppUnderTest.BuildAndShowMainWindow(
+                service, Config.Root, appState, actions, notifier, new FakeTicker(), CancellationToken.None,
+                TestActivity.New(), new NeverLaunchClient(), TimeProvider.System, adopt: (startup, savedState));
+            Dispatcher.UIThread.RunJobs();
+
+            var taken = (Same: ReferenceEquals(window, startup), Startup: window.StartupPane.IsVisible, Surface: window.SessionsSurface.IsVisible,
+                HasVm: window.DataContext is MainWindowViewModel, window.Width);
+            window.Close();
+            return (shown, taken);
+        });
+
+        await Assert.That(before.Visible).IsTrue();
+        await Assert.That(before.Startup).IsTrue();
+        await Assert.That(before.Surface).IsFalse();
+        await Assert.That(before.Width).IsEqualTo(1552);
+        await Assert.That(after.Same).IsTrue();
+        await Assert.That(after.Startup).IsFalse();
+        await Assert.That(after.Surface).IsTrue();
+        await Assert.That(after.HasVm).IsTrue();
+        await Assert.That(after.Width).IsEqualTo(1640);
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task BuildAndShowMainWindow_restores_the_remembered_window_placement() {
