@@ -271,6 +271,14 @@ public class ServerConnectionServiceTests {
         await lane.RestartAsync().WaitAsync(TimeSpan.FromSeconds(5));
         await Next(lane.Status, s => s.State == ServerLaneState.Connected);
 
+        // Both hubs are connected here; only the live one's push may reach subscribers.
+        var pings = 0;
+        using (lane.AgentInstancesChanged.Subscribe(_ => Interlocked.Increment(ref pings))) {
+            await host.BroadcastAsync(HubBroadcasts.AgentInstancesChanged);
+            await Task.Delay(500);
+        }
+        await Assert.That(Volatile.Read(ref pings)).IsEqualTo(1);
+
         var connectingAfter = 0;
         using var dials = lane.Status.Skip(1)
             .Where(s => s.State == ServerLaneState.Connecting)

@@ -230,7 +230,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             SignalRSubscriptionClient? streams = null;
             try {
                 var refusal = new StrongBox<Exception?>();
-                hub = Build(refusal);
+                hub = Build(generation, refusal);
                 var capturedHub = hub;
                 streams = new SignalRSubscriptionClient(hub);
 
@@ -390,8 +390,11 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
 
     /// SignalR closes a connection the policy gave up on with an exception of its own, so the 401 is
     /// kept in `refusal`. One per connection: loops can overlap once a restart abandons one, and a
-    /// refusal must only park the loop whose hub met it.
-    HubConnection Build(StrongBox<Exception?> refusal) {
+    /// refusal must only park the loop whose hub met it. For the same reason a push reaches subscribers
+    /// only while `generation` is current: a retired hub still connected must not deliver another
+    /// account's permission requests or sessions.
+    HubConnection Build(int generation, StrongBox<Exception?> refusal) {
+        bool Live() => Volatile.Read(ref _generation) == generation;
         var builder = new HubConnectionBuilder()
             .WithUrl($"{_serverUrl}/hubs/sessions", o => {
                 o.AccessTokenProvider = TokenAsync;
@@ -414,31 +417,35 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             .AddJsonProtocol(o => LaunchHubJson.Configure(o.PayloadSerializerOptions))
             .Build();
         hub.KeepAliveInterval = HubRetryPolicy.KeepAliveInterval;
-        hub.On(HubBroadcasts.AgentInstancesChanged, () => _agentsChanged.OnNext(Unit.Default));
-        hub.On(HubBroadcasts.DaemonsChanged, () => _daemonsChanged.OnNext(Unit.Default));
-        hub.On(HubBroadcasts.DaemonAccountsChanged, () => _daemonAccountsChanged.OnNext(Unit.Default));
-        hub.On<string, string>(HubBroadcasts.LaunchFailed, (agentId, reason) => _launchFailures.OnNext(new(agentId, reason)));
-        hub.On<string>(HubBroadcasts.PermissionPending, _permissionPending.OnNext);
-        hub.On<string, string?>(HubBroadcasts.PermissionResponded, (sid, rid) => _permissionResponded.OnNext(new(sid, rid)));
-        hub.On<string, string, string?, JsonElement?, JsonElement?>(HubBroadcasts.PermissionRequested,
-            (sid, rid, tool, input, options) => _permissionRequests.OnNext(ServerPermissionRequest.From(sid, rid, tool, input, options)));
+        hub.On(HubBroadcasts.AgentInstancesChanged, () => { if (Live()) _agentsChanged.OnNext(Unit.Default); });
+        hub.On(HubBroadcasts.DaemonsChanged, () => { if (Live()) _daemonsChanged.OnNext(Unit.Default); });
+        hub.On(HubBroadcasts.DaemonAccountsChanged, () => { if (Live()) _daemonAccountsChanged.OnNext(Unit.Default); });
+        hub.On<string, string>(HubBroadcasts.LaunchFailed, (agentId, reason) => { if (Live()) _launchFailures.OnNext(new(agentId, reason)); });
+        hub.On<string>(HubBroadcasts.PermissionPending, sid => { if (Live()) _permissionPending.OnNext(sid); });
+        hub.On<string, string?>(HubBroadcasts.PermissionResponded, (sid, rid) => { if (Live()) _permissionResponded.OnNext(new(sid, rid)); });
+        hub.On<string, string, string?, JsonElement?, JsonElement?>(HubBroadcasts.PermissionRequested, (sid, rid, tool, input, options) => {
+            if (Live()) _permissionRequests.OnNext(ServerPermissionRequest.From(sid, rid, tool, input, options));
+        });
         // JsonElement, not the typed array: binding the options to a record with required members
         // makes SignalR drop the WHOLE push over one malformed option, so it is parsed leniently
         // instead — an array that does not read as options is no options, which asks for free text.
-        hub.On<string, string, string, JsonElement?, bool>(HubBroadcasts.AcpElicitationRequested,
-            (sid, rid, prompt, options, multi) => _elicitations.OnNext(new(sid, rid, prompt, ServerPermissionRequest.ParseOptions(options) ?? [], multi)));
-        hub.On<string>(HubBroadcasts.SessionAccessChanged, _sessionAccessChanged.OnNext);
-        hub.On<string>(HubBroadcasts.ActiveSessionAdded, id => _sessionPushes.OnNext(new(SessionPushKind.ActiveAdded, id)));
-        hub.On<string>(HubBroadcasts.ActiveSessionChanged, id => _sessionPushes.OnNext(new(SessionPushKind.ActiveChanged, id)));
-        hub.On<string>(HubBroadcasts.ActiveSessionRemoved, id => _sessionPushes.OnNext(new(SessionPushKind.ActiveRemoved, id)));
-        hub.On<string>(HubBroadcasts.SessionTitleChanged, id => _sessionPushes.OnNext(new(SessionPushKind.TitleChanged, id)));
-        hub.On<string>(HubBroadcasts.SessionDeleted, id => _sessionPushes.OnNext(new(SessionPushKind.Deleted, id)));
-        hub.On<string, string, JsonElement?>(HubBroadcasts.PendingInputChanged, (_, sessionId, items) => {
-            if (ParseQueue(items) is { } queue) _pendingInput.OnNext(new(sessionId, queue));
+        hub.On<string, string, string, JsonElement?, bool>(HubBroadcasts.AcpElicitationRequested, (sid, rid, prompt, options, multi) => {
+            if (Live()) _elicitations.OnNext(new(sid, rid, prompt, ServerPermissionRequest.ParseOptions(options) ?? [], multi));
         });
-        hub.On<string>(HubBroadcasts.HeldMessagesChanged, _heldMessagesChanged.OnNext);
-        hub.On<string, string>(HubBroadcasts.TerminalOutput, (agentId, base64) => _terminalOutput.OnNext(new(agentId, base64)));
-        hub.On<string, int, int>(HubBroadcasts.TerminalDimensions, (agentId, cols, rows) => _terminalDimensions.OnNext(new(agentId, cols, rows)));
+        hub.On<string>(HubBroadcasts.SessionAccessChanged, sid => { if (Live()) _sessionAccessChanged.OnNext(sid); });
+        hub.On<string>(HubBroadcasts.ActiveSessionAdded, id => { if (Live()) _sessionPushes.OnNext(new(SessionPushKind.ActiveAdded, id)); });
+        hub.On<string>(HubBroadcasts.ActiveSessionChanged, id => { if (Live()) _sessionPushes.OnNext(new(SessionPushKind.ActiveChanged, id)); });
+        hub.On<string>(HubBroadcasts.ActiveSessionRemoved, id => { if (Live()) _sessionPushes.OnNext(new(SessionPushKind.ActiveRemoved, id)); });
+        hub.On<string>(HubBroadcasts.SessionTitleChanged, id => { if (Live()) _sessionPushes.OnNext(new(SessionPushKind.TitleChanged, id)); });
+        hub.On<string>(HubBroadcasts.SessionDeleted, id => { if (Live()) _sessionPushes.OnNext(new(SessionPushKind.Deleted, id)); });
+        hub.On<string, string, JsonElement?>(HubBroadcasts.PendingInputChanged, (_, sessionId, items) => {
+            if (Live() && ParseQueue(items) is { } queue) _pendingInput.OnNext(new(sessionId, queue));
+        });
+        hub.On<string>(HubBroadcasts.HeldMessagesChanged, id => { if (Live()) _heldMessagesChanged.OnNext(id); });
+        hub.On<string, string>(HubBroadcasts.TerminalOutput, (agentId, base64) => { if (Live()) _terminalOutput.OnNext(new(agentId, base64)); });
+        hub.On<string, int, int>(HubBroadcasts.TerminalDimensions, (agentId, cols, rows) => {
+            if (Live()) _terminalDimensions.OnNext(new(agentId, cols, rows));
+        });
         foreach (var name in UnusedNudges) hub.On(name, static () => { });
         foreach (var name in UnusedPings) hub.On<JsonElement>(name, static _ => { });
         return hub;
