@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.VisualTree;
 
 namespace Capacitor.App.Views;
 
@@ -22,7 +23,8 @@ public static class BusyIndicator {
             if (e.NewValue is true) {
                 visual.AttachedToVisualTree += OnAttached;
                 visual.DetachedFromVisualTree += OnDetached;
-                if (TopLevel.GetTopLevel(visual) is not null) Busy.Add(visual);
+                // A closed window is still the top level of its old content, so ask the tree.
+                if (visual.IsAttachedToVisualTree()) Busy.Add(visual);
             } else {
                 visual.AttachedToVisualTree -= OnAttached;
                 visual.DetachedFromVisualTree -= OnDetached;
@@ -32,10 +34,9 @@ public static class BusyIndicator {
         });
         // Effective visibility is already updated when class handlers run, and it changes only
         // through IsVisible or attachment.
-        Visual.IsVisibleProperty.Changed.AddClassHandler<Visual>((_, _) => {
-            if (Busy.Count == 0) return;
-            foreach (var visual in Busy.ToArray()) Sync(visual);
-        });
+        Visual.IsVisibleProperty.Changed.AddClassHandler<Visual>((changed, _) => SyncUnder(changed));
+        // A minimized window leaves its content effectively visible.
+        Window.WindowStateProperty.Changed.AddClassHandler<Window>((window, _) => SyncUnder(window));
     }
 
     public static bool GetIsBusy(Visual visual) => visual.GetValue(IsBusyProperty);
@@ -53,8 +54,18 @@ public static class BusyIndicator {
         Sync(visual);
     }
 
+    static void SyncUnder(Visual changed) {
+        if (Busy.Count == 0) return;
+        List<Visual>? affected = null;
+        foreach (var visual in Busy)
+            if (visual == changed || changed.IsVisualAncestorOf(visual)) (affected ??= []).Add(visual);
+        if (affected is null) return;
+        foreach (var visual in affected) Sync(visual);
+    }
+
     static void Sync(Visual visual) {
-        var animate = Busy.Contains(visual) && visual.IsEffectivelyVisible;
+        var animate = Busy.Contains(visual) && visual.IsEffectivelyVisible
+            && TopLevel.GetTopLevel(visual) is not Window { WindowState: WindowState.Minimized };
         if (visual is ProgressBar bar) {
             if (bar.IsIndeterminate != animate) bar.IsIndeterminate = animate;
         } else {

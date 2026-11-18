@@ -206,7 +206,7 @@
                     AutomationProperties.ControlTypeOverride="Group" AutomationProperties.LandmarkType="Region">
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
                     <Panel VerticalAlignment="Top">
-                        <views:AppIcon Classes="noticeIcon" views:BusyIndicator.IsBusy="True" Size="16" Kind="LoaderCircle" Foreground="{StaticResource KcapMutedBrush}"
+                        <views:AppIcon Classes="noticeIcon" views:BusyIndicator.IsBusy="{Binding LocalServer.IsStarting, FallbackValue=False}" Size="16" Kind="LoaderCircle" Foreground="{StaticResource KcapMutedBrush}"
                                        IsVisible="{Binding LocalServer.IsStarting, FallbackValue=False}" />
                         <!-- Red only when something broke; a server that is merely stopped needs the user. -->
                         <views:AppIcon x:Name="LocalServerIcon" Classes="noticeIcon" Size="16" Kind="ServerOff" Foreground="{StaticResource KcapWarningBrush}">
@@ -253,7 +253,7 @@
             <Border x:Name="ConnectionBanner" Classes="notice" IsVisible="{Binding Notices.ShowConnection}">
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
                     <Panel VerticalAlignment="Top">
-                        <views:AppIcon x:Name="BannerBusyIcon" Classes="noticeIcon" views:BusyIndicator.IsBusy="True" Size="16" Kind="LoaderCircle" Foreground="{StaticResource KcapMutedBrush}"
+                        <views:AppIcon x:Name="BannerBusyIcon" Classes="noticeIcon" views:BusyIndicator.IsBusy="{Binding BannerBusy}" Size="16" Kind="LoaderCircle" Foreground="{StaticResource KcapMutedBrush}"
                                        IsVisible="{Binding BannerBusy}" />
                         <views:AppIcon x:Name="BannerIcon" Classes="noticeIcon" Size="16" Kind="CircleAlert" Foreground="{StaticResource KcapWarningBrush}">
                             <views:AppIcon.IsVisible>

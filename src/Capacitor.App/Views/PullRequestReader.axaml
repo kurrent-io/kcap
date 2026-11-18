@@ -106,7 +106,7 @@
                 <TextBlock x:Name="PageNoteText" Text="{Binding PageNote}" Classes="prNote" Margin="0,12,0,0" IsVisible="{Binding PageNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <!-- Loading and empty share one slot, glyph size and type so the one gives way to the other in place. -->
                 <StackPanel x:Name="LoadingState" Classes="prSectionState" Classes.shown="{Binding ShowsLoading}">
-                    <views:AppIcon Kind="LoaderCircle" Size="20" Classes="prStateGlyph" views:BusyIndicator.IsBusy="True" />
+                    <views:AppIcon Kind="LoaderCircle" Size="20" Classes="prStateGlyph" views:BusyIndicator.IsBusy="{Binding ShowsLoading}" />
                     <TextBlock Text="{Binding LoadingNote}" Classes="prNote" TextAlignment="Center" />
                 </StackPanel>
                 <StackPanel x:Name="EmptyState" Classes="prSectionState" Classes.shown="{Binding HasEmptyNote}">
