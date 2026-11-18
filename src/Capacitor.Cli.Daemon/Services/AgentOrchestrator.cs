@@ -5929,12 +5929,17 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             ReportDimsSendFailed(ex, agent.Id);
         }
 
-        if (agent.RegistrationRefused || agent.ExitedCts.IsCancellationRequested) return;
+        // Under the gate a stop's report is queued under, so a start never follows that report either.
+        lock (agent.StatusSendGate) {
+            bool stopping;
+            lock (_ledgerLock) stopping = agent.StopRequested;
+            if (stopping || agent.RegistrationRefused || agent.ExitedCts.IsCancellationRequested) return;
 
-        _ = _server.AppendAgentRunEventAsync(
-            agent.Id,
-            new AgentRunStarted(agent.Prompt, agent.Model, agent.Effort, agent.RepoPath, agent.Worktree.Path, agent.Vendor)
-        );
+            _ = _server.AppendAgentRunEventAsync(
+                agent.Id,
+                new AgentRunStarted(agent.Prompt, agent.Model, agent.Effort, agent.RepoPath, agent.Worktree.Path, agent.Vendor)
+            );
+        }
 
         // Persist repo path and notify server so the launch dialog updates. A scratch workspace is
         // deleted at teardown, so recording it would advertise a repository that no longer exists.

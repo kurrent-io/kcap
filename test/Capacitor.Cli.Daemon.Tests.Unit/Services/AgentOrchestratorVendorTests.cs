@@ -244,6 +244,7 @@ public class AgentOrchestratorVendorTests {
         await WaitHarness.PollUntilAsync(() => agent.ExitedCts.IsCancellationRequested);
         held.SetResult();
         await reRegistration;
+        await agent.RunStartTask!;
 
         List<object> Events() {
             lock (server.RunEvents) return server.RunEvents.Where(e => e.AgentId == "displaced-ending").Select(e => e.Event).ToList();
