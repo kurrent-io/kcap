@@ -159,8 +159,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
                 this.RaisePropertyChanged(nameof(HasPullRequest));
                 this.RaisePropertyChanged(nameof(PullRequestAccessibleName));
             }).DisposeWith(_disposables);
-        // Pending launches open a local workspace; publication must keep that row selected.
-        var selectionKey = row.Origin == AgentOrigin.Pending ? $"local:{row.Id}" : row.Key;
+        var selectionKey = SelectionKey(row);
         _isMarked = (marked ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty))
             .Select(keys => keys.Contains(row.Key)).DistinctUntilChanged()
             .ToProperty(this, x => x.IsMarked, initialValue: false)
@@ -318,6 +317,9 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
 
     static string Join(params string?[] parts) =>
         string.Join(" · ", parts.Where(p => !string.IsNullOrEmpty(p)));
+
+    /// Pending launches open a local workspace; publication must keep that row selected.
+    internal static string SelectionKey(AgentRow row) => row.Origin == AgentOrigin.Pending ? $"local:{row.Id}" : row.Key;
 
     public void Dispose() => _disposables.Dispose();
 }

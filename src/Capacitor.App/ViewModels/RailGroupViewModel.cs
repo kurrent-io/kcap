@@ -223,7 +223,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         var kept = all.OrderByDescending(row => row.LastActivityAt ?? row.CreatedAt).Take(WorkItemKeeps).Select(row => row.Key)
             .ToHashSet(StringComparer.Ordinal);
         foreach (var row in all)
-            if (!IsEnded(row) || (row.Origin == AgentOrigin.Pending ? $"local:{row.Id}" : row.Key) == selectedKey) kept.Add(row.Key);
+            if (!IsEnded(row) || RailSessionViewModel.SelectionKey(row) == selectedKey) kept.Add(row.Key);
         return kept;
     }
 
