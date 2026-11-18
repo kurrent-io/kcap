@@ -203,12 +203,14 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             });
             _pageReads.ClearCurrent(ResetPages);
         } else {
+            // Pages do not depend on the checkout, so a new root for the same session keeps them. Their lease
+            // opens first: cached documents apply inside the switch, and an empty answer then must not read
+            // as a settled, empty tab.
+            if (!_pageReads.HasCurrent || _pageReads.CurrentState != sessionId) _pageReads.Switch(sessionId, ResetPages);
             _reads.Switch((sessionId, root), () => {
                 RaiseLoading();
                 Clear();
             });
-            // Pages do not depend on the checkout, so a new root for the same session keeps them.
-            if (!_pageReads.HasCurrent || _pageReads.CurrentState != sessionId) _pageReads.Switch(sessionId, ResetPages);
         }
     }
 

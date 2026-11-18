@@ -764,6 +764,28 @@ public class ArtefactsTabViewModelTests {
         });
     }
 
+    /// The workspace hides the tab when it is neither listing nor loading; a switch to a session whose
+    /// cached documents are empty never passes through that state while its pages are on the way.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_switch_to_cached_empty_documents_never_reads_as_an_empty_settled_tab() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            h.Source.Enqueue(Ready(Doc("1", "plan", "docs/p.md")));
+            await h.SwitchAsync(SessionA);
+            h.Source.CachedReads[SessionB] = Ready();
+            h.Source.GatePages();
+            var hidden = false;
+            h.Vm.PropertyChanged += (_, _) => hidden |= !h.Vm.HasAny && !h.Vm.IsLoading;
+
+            h.Vm.SwitchSession(SessionB, "/repo");
+
+            await Assert.That(hidden).IsFalse();
+            await Assert.That(h.Vm.IsLoading).IsTrue();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
     /// Cached documents for the next session land before its pages lease opens; the first row waits for
     /// that session's pages rather than pairing its documents with the last session's.
     [Test]
