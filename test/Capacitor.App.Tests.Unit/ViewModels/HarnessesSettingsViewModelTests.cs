@@ -364,7 +364,7 @@ public class HarnessesSettingsViewModelTests {
     static ImportDiscoveryReport Found(int inRepos, int unmatched) =>
         new([new ImportDiscoveryRepo("acme", "app", inRepos, null, null)], unmatched, []);
 
-    /// Settings with one Copilot row whose recording the next install turns on, and whose imports are kept.
+    /// Settings with one Copilot row that installs and removals turn on and off, and whose imports are kept.
     sealed record ImportRig(HarnessesSettingsViewModel Vm, FakeKcapCli Cli, List<HistoryImportRun> Shown) : IDisposable {
         public HarnessSettingsRow Row => Vm.Rows[0];
         public void Dispose() => Vm.Dispose();
@@ -374,6 +374,7 @@ public class HarnessesSettingsViewModelTests {
         var wired = wiredAtStart;
         var cli = new FakeKcapCli {
             PluginInstallBehavior = (_, _) => { wired = true; return Task.FromResult(new ProcessResult(0, "", "", false)); },
+            PluginRemoveBehavior = (_, _) => { wired = false; return Task.FromResult(new ProcessResult(0, "", "", false)); },
             DiscoverBehavior = _ => Task.FromResult(found),
         };
         var shown = new List<HistoryImportRun>();
@@ -422,6 +423,26 @@ public class HarnessesSettingsViewModelTests {
         await Assert.That(rig.Row.OffersImport).IsFalse();
         await Assert.That(rig.Row.ImportOffer).IsNull();
         await Assert.That(rig.Cli.DiscoverCalls.Count).IsEqualTo(wiredAtStart ? 0 : 1);
+    });
+
+    /// <summary>A look still running when the row changes again answers a turn-on that no longer stands, so its count
+    /// never reaches the row.</summary>
+    [Test]
+    public Task A_superseded_lookup_never_offers() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = await ImportRigAsync(null);
+        var first = new TaskCompletionSource<ImportDiscoveryReport?>();
+        var answers = new Queue<Task<ImportDiscoveryReport?>>([first.Task, Task.FromResult<ImportDiscoveryReport?>(Found(0, 0))]);
+        rig.Cli.DiscoverBehavior = _ => answers.Dequeue();
+        await rig.Vm.ToggleConnectionAsync(rig.Row);
+        var stale = rig.Vm.ImportOfferLookup;
+        await rig.Vm.ToggleConnectionAsync(rig.Row);
+        await rig.Vm.ToggleConnectionAsync(rig.Row);
+        await rig.Vm.ImportOfferLookup;
+        first.SetResult(Found(5, 0));
+        await stale;
+
+        await Assert.That(rig.Cli.DiscoverCalls.Count).IsEqualTo(2);
+        await Assert.That(rig.Row.OffersImport).IsFalse();
     });
 
     [Test]

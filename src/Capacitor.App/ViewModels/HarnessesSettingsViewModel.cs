@@ -132,6 +132,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
             : $"Could not update {row.Label}";
         var mutationStarted = false;
         var turnedOn = record && !row.IsConfigured;
+        var lookup = row.StartImportLookup();
         row.OfferImport(null);
         try {
             await Task.Run(_store.LoadProfile, _lifetime.Token);
@@ -182,7 +183,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
                     ? $"Disconnected. Restart {row.Label} to unload kcap. Existing sessions are kept."
                     : Completed(row, record, tools));
                 await RememberSetupAsync(row, unverified: false, tools: tools);
-                if (turnedOn && _showImport is not null) ImportOfferLookup = OfferImportAsync(row);
+                if (turnedOn && _showImport is not null) ImportOfferLookup = OfferImportAsync(row, lookup);
             }
             // The command line keeps restart reminders on stdout, so anything on stderr is a part that did not land.
             if (result is { ExitCode: 0, TimedOut: false } && !string.IsNullOrWhiteSpace(result.Stderr))
@@ -218,7 +219,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
 
     /// Discovery reads this machine's history without asking the server, so the count includes any chat already stored,
     /// which the import then skips.
-    async Task OfferImportAsync(HarnessSettingsRow row) {
+    async Task OfferImportAsync(HarnessSettingsRow row, int lookup) {
         ImportDiscoveryReport? report;
         try {
             report = await _cli.ImportDiscoverAsync([row.Id.Flag], _lifetime.Token);
@@ -228,7 +229,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
             Console.Error.WriteLine($"kcap: could not look for {row.Label}'s earlier chats: {ex.Message}");
             return;
         }
-        if (report is null || !Rows.Contains(row) || !row.IsConfigured) return;
+        if (report is null || !Rows.Contains(row) || !row.IsConfigured || !row.IsCurrentImportLookup(lookup)) return;
         row.OfferImport(report.Repos.Sum(r => r.Sessions) + report.UnmatchedSessions);
     }
 

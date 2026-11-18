@@ -18,6 +18,7 @@ public sealed class HarnessSettingsRow : ReactiveObject {
     bool _setupUnverified;
     bool _untrusted;
     int? _earlierChats;
+    int _importLookup;
 
     internal HarnessSettingsRow(HarnessIdentity identity, DetectedAgent detected, bool? wired, bool tools, bool setupUnverified = false,
             bool untrusted = false) {
@@ -147,6 +148,10 @@ public sealed class HarnessSettingsRow : ReactiveObject {
     };
 
     internal void OfferImport(int? earlierChats) => EarlierChats = earlierChats is > 0 ? earlierChats : null;
+
+    /// Each change to the row starts a new look for earlier chats, so an answer to an older one is dropped.
+    internal int StartImportLookup() => ++_importLookup;
+    internal bool IsCurrentImportLookup(int lookup) => lookup == _importLookup;
 
     internal void Report(string? message, string? errorTitle = null, string? details = null, bool warning = false) {
         Message = message;

@@ -132,8 +132,9 @@ public sealed class DoneStepViewModel : ReactiveObject, IWizardStep {
     /// and when setup changed PATH, a terminal open since before it cannot run the hooks either. VS Code is the
     /// exception: it runs new hooks at once, and only the kcap tools wait for it to start again.
     public string? RestartLine => !CapturePromised ? null
-        : _current.CopilotRecording ? $"{AgentRestart}. {VsCodeLine}"
-        : AgentRestart;
+        : !_current.CopilotRecording ? AgentRestart
+        : _current.Recording.Count == 1 ? $"{VsCodeLine}. Restart any Copilot CLI session running in a terminal"
+        : $"{AgentRestart}. {VsCodeLine}";
 
     string VsCodeLine => _current.CopilotTools
         ? "Chats in VS Code are stored now. Quit and reopen VS Code to give Copilot kcap's tools"

@@ -323,7 +323,7 @@ public class DoneStepViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_restart_line_shows_only_when_new_hooks_need_one() {
-        var (remote, local, nothing, blocked, pathAdded, copilot, copilotNoTools) = await AvaloniaSession.DispatchAsync(async () => {
+        var (remote, local, nothing, blocked, pathAdded, copilot, copilotNoTools, copilotOnly) = await AvaloniaSession.DispatchAsync(async () => {
             async Task<string?> LineFor(DoneFacts facts) {
                 var vm = new DoneStepViewModel(() => facts);
                 await vm.OnEnterAsync(CancellationToken.None);
@@ -333,8 +333,9 @@ public class DoneStepViewModelTests {
             return (await LineFor(Facts()), await LineFor(Facts() with { Local = true }),
                 await LineFor(Facts(recording: [])), await LineFor(Facts(hazard: true)),
                 await LineFor(Facts() with { PathAdded = true }),
-                await LineFor(Facts() with { CopilotRecording = true, CopilotTools = true }),
-                await LineFor(Facts() with { CopilotRecording = true }));
+                await LineFor(Facts(["Claude Code", "Copilot"]) with { CopilotRecording = true, CopilotTools = true }),
+                await LineFor(Facts(["Claude Code", "Copilot"]) with { CopilotRecording = true }),
+                await LineFor(Facts(["Copilot"]) with { CopilotRecording = true, CopilotTools = true }));
         });
 
         await Assert.That(remote).IsEqualTo("Agents already open will start storing sessions the next time you launch them");
@@ -347,6 +348,10 @@ public class DoneStepViewModelTests {
             + "Chats in VS Code are stored now. Quit and reopen VS Code to give Copilot kcap's tools");
         await Assert.That(copilotNoTools).IsEqualTo(
             "Agents already open will start storing sessions the next time you launch them. Chats in VS Code are stored now");
+        // With Copilot alone, only a terminal Copilot CLI session waits for a launch.
+        await Assert.That(copilotOnly).IsEqualTo(
+            "Chats in VS Code are stored now. Quit and reopen VS Code to give Copilot kcap's tools. "
+            + "Restart any Copilot CLI session running in a terminal");
         await Assert.That(local).IsEqualTo(remote);
         await Assert.That(nothing).IsNull();
         await Assert.That(blocked).IsNull();
