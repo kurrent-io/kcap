@@ -1,5 +1,3 @@
-using Capacitor.App.ViewModels;
-
 namespace Capacitor.App.Tests.Unit.ViewModels;
 
 /// <summary>A repository is named by its last segment, whether the path is this host's or a Windows daemon's,

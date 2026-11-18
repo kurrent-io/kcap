@@ -247,7 +247,7 @@ public class DoneStepViewModelTests {
         var (details, shownDetails, failedBefore, retries, eyebrowAfter, detailsAfter) = await AvaloniaSession.DispatchAsync(async () => {
             var facts = Facts() with {
                 DaemonRunning = false, DaemonProblem = "The daemon start failed (verify_viability).",
-                ServiceDetail = DaemonEnabler.UnconfirmedStatus(Capacitor.App.Services.Mutation.MutationVerb.StartVerified),
+                ServiceDetail = DaemonEnabler.UnconfirmedStatus(MutationVerb.StartVerified),
             };
             var changed = new System.Reactive.Subjects.Subject<System.Reactive.Unit>();
             var retries = 0;

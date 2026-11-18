@@ -1,0 +1,78 @@
+using System.Collections.Frozen;
+using System.Reactive.Linq;
+using System.Reactive.Subjects;
+using Capacitor.Client;
+using DynamicData;
+
+namespace Capacitor.Tests.Helpers;
+
+/// A directory a test edits row by row, skipping AgentDirectory's two-lane merge. Rows and
+/// RemoteStale are the writable types so a test can drive them; the interface members hand the
+/// same instances to the code under test.
+public sealed class FakeAgentDirectory : IAgentDirectory, IDisposable {
+    public SourceCache<AgentRow, string> Rows { get; } = new(r => r.Key);
+    public BehaviorSubject<bool> RemoteStale { get; } = new(false);
+
+    /// True unless a test is about server scoping: the local daemon shares the app's server.
+    public BehaviorSubject<bool> LocalOnAppServer { get; } = new(true);
+    /// The agent ids the directory reports the local daemon has proven it hosts.
+    public HashSet<string> ProvenTwins { get; } = new(StringComparer.Ordinal);
+
+    IObservableCache<AgentRow, string> IAgentDirectory.Rows => Rows;
+    IObservable<bool> IAgentDirectory.RemoteStale => RemoteStale;
+    IObservable<bool> IAgentDirectory.LocalDaemonOnAppServer => LocalOnAppServer;
+    /// Lane evidence for IsHostedNow; a test about a cached row clears one of them.
+    public bool LocalConnected { get; set; } = true;
+    public bool RegistryCurrent { get; set; } = true;
+    public bool IsHostedNow(AgentRow row) => !AgentRow.IsTerminalStatus(row.Status) && row.Origin switch {
+        AgentOrigin.Local => LocalConnected && LocalOnAppServer.Value,
+        AgentOrigin.Remote => RegistryCurrent,
+        _ => false,
+    };
+
+    public bool IsProvenLocalTwin(string agentId) => ProvenTwins.Contains(agentId);
+
+    /// Placeholder calls as received, in order; a test asserts on them rather than on rows.
+    public List<(string Id, string Vendor, string RepoPath, string? Title, string? Model)> Placeholders { get; } = [];
+    public List<(string Id, string Machine, string? Owner, string Vendor, string RepoPath)> RemotePlaceholders { get; } = [];
+    public List<string> RemovedPlaceholders { get; } = [];
+
+    public void AddPlaceholder(string agentId, string vendor, string repoPath, string? title, string? model) =>
+        Placeholders.Add((agentId, vendor, repoPath, title, model));
+
+    public void AddRemotePlaceholder(
+            string agentId, string machine, string? ownerUserId, string vendor, string repoPath, string? title, string? model) =>
+        RemotePlaceholders.Add((agentId, machine, ownerUserId, vendor, repoPath));
+
+    public void RemovePlaceholder(string agentId) => RemovedPlaceholders.Add(agentId);
+
+    public List<string> Finished { get; } = [];
+    public void NoteFinished(string sessionId) => Finished.Add(sessionId);
+
+    public IObservable<IReadOnlyDictionary<string, string>> SessionAgents =>
+        Rows.Connect().QueryWhenChanged(q => SessionMap(q.Items))
+            .StartWith((IReadOnlyDictionary<string, string>)FrozenDictionary<string, string>.Empty);
+
+    public string? VendorOfSession(string sessionId) =>
+        Rows.Items.Where(r => r.SessionId == sessionId).OrderBy(r => r.Origin).Select(r => r.Vendor).FirstOrDefault();
+
+    /// AgentDirectory's own rule: Local sorts before Remote, so a session an unproven twin pair
+    /// claims on both lanes resolves to the local row rather than throwing on the duplicate.
+    static IReadOnlyDictionary<string, string> SessionMap(IEnumerable<AgentRow> rows) {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var row in rows.OrderBy(r => r.Origin))
+            if (row.SessionId is { Length: > 0 } sid) map.TryAdd(sid, row.Id);
+        return map;
+    }
+
+    /// Session id -> what RowForSession answers; a missing id answers null.
+    public Dictionary<string, (string Id, AgentOrigin Origin)> SessionRows { get; } = new(StringComparer.Ordinal);
+    public (string Id, AgentOrigin Origin)? RowForSession(string sessionId) =>
+        SessionRows.TryGetValue(sessionId, out var row) ? row : null;
+
+    public void Dispose() {
+        Rows.Dispose();
+        RemoteStale.Dispose();
+        LocalOnAppServer.Dispose();
+    }
+}

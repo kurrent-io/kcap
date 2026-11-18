@@ -197,6 +197,5 @@ public static class SessionStatusDots {
     static string? UsageLimitSummary(UsageLimitNoticeDto? notice) =>
         UsageLimitNoticeDto.IsQuestion(notice) ? notice!.Summary : null;
 
-    /// Process is gone — Completed/Failed stay in the snapshot until teardown removes the agent.
-    public static bool IsTerminal(string? status) => status is "Completed" or "Failed";
+    public static bool IsTerminal(string? status) => AgentRow.IsTerminalStatus(status);
 }

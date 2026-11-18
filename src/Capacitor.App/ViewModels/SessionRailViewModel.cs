@@ -8,9 +8,6 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
-using Capacitor.App.Services;
-using Capacitor.Cli.Core;
-using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.PullRequests;
 using DynamicData;
 using DynamicData.Binding;
@@ -511,11 +508,6 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         var byLabel = StringComparer.OrdinalIgnoreCase.Compare(a.Label, b.Label);
         return byLabel != 0 ? byLabel : string.CompareOrdinal(a.Key, b.Key);
     }
-
-    internal static string WorktreeKeyFor(AgentStatusDto dto) =>
-        PlatformPaths.Normalize(CheckoutLabel.CheckoutPathFor(dto) ?? dto.RepoPath ?? "");
-
-    internal static string WorktreeKeyFor(AgentRow row) => row.CheckoutKey;
 
     /// A quit keeps driving the setters and commands after this, so each one ignores a disposed rail.
     public void Dispose() => _disposables.Dispose();

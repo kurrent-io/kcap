@@ -7,8 +7,9 @@ namespace Capacitor.Cli.Core;
 /// <summary>
 /// Global, session-agnostic drain pass run at the start of every kcap invocation (and periodically by
 /// the daemon). Enforces cross-spool ordering per session: spooled session-start → transcript tail
-/// (+ needs-import marker) → spooled session-end. Idempotent under repeated/partial passes via
-/// deterministic server ids. Stdout-contract hooks (Codex) run this in the BACKGROUND / AFTER stdout.
+/// → spooled session-end. Idempotent under repeated/partial passes via deterministic server ids. A
+/// needs-import marker is reported locally, never posted: the server has no route for it.
+/// Stdout-contract hooks (Codex) run this in the BACKGROUND / AFTER stdout.
 /// </summary>
 public static class LifecycleSpoolDrain {
     // Ordering is enforced by draining the lifecycle spool's START routes first, then the transcript
@@ -17,7 +18,7 @@ public static class LifecycleSpoolDrain {
             ConfigRoot config, HookSpool lifecycle, TranscriptSpool transcript, string? currentSessionId,
             Func<string, string, Task<DrainOutcome>> lifecyclePoster,
             Func<string, Task<DrainOutcome>>         transcriptPoster,
-            TimeSpan budget, TimeProvider time, CancellationToken ct) {
+            TimeSpan budget, TimeProvider time, CancellationToken ct, Action<string>? reportNeedsImport = null) {
         using var lease = SpoolDrainLease.TryTake(lifecycle.DirectoryPath);
         if (lease is null) return;
 
@@ -53,7 +54,14 @@ public static class LifecycleSpoolDrain {
 
             // Nothing of a run whose end was delivered may follow that end, and an earlier run's end
             // must not follow a later run's start: both are settled before the phases run.
-            if (!await lifecycle.SettleEarlierRunsAsync(sid, PostLifecycle, Expired, ct) || lifecycle.IsMarkedEnded(sid)) continue;
+            if (!await lifecycle.SettleEarlierRunsAsync(sid, PostLifecycle, Expired, ct)) continue;
+
+            // A loss found after the end was delivered is still the user's to import.
+            if (lifecycle.IsMarkedEnded(sid)) {
+                if (reportNeedsImport is not null) transcript.ReportNeedsImport(sid, reportNeedsImport);
+
+                continue;
+            }
 
             // First: session-start (and any non-terminal lifecycle) BEFORE transcript tail.
             await lifecycle.DrainRoutesAsync(sid, isTerminal: false, PostLifecycle, Expired, ct);
@@ -61,7 +69,7 @@ public static class LifecycleSpoolDrain {
             // Then: transcript tail. If it can't fully drain, DO NOT drain session-end (ordering).
             await transcript.DrainAsync(sid, PostTranscript, Expired, ct);
             if (transcript.HasBacklog(sid)) continue;
-            if (transcript.NeedsImport(sid)) await DeliverNeedsImportAsync(sid, PostLifecycle);
+            if (reportNeedsImport is not null) transcript.ReportNeedsImport(sid, reportNeedsImport);
             if (Expired()) return;
             // Last: session-end. A non-zero consumed count means a terminal entry was truly
             // resolved (delivered or permanently dropped) in THIS call — not merely left for a retry
@@ -74,11 +82,6 @@ public static class LifecycleSpoolDrain {
             }, Expired, ct);
             if (consumed > 0) lifecycle.MarkEnded(sid, ended);
         }
-    }
-
-    static async Task DeliverNeedsImportAsync(string sid, Func<string, string, Task<DrainOutcome>> poster) {
-        var body = new System.Text.Json.Nodes.JsonObject { ["session_id"] = sid, ["needs_import"] = true }.ToJsonString();
-        await poster("session-needs-import", body); // route resolved server-side; best-effort
     }
 
     static IEnumerable<string> OrderedSessions(HookSpool life, TranscriptSpool tx, string? current) {
@@ -105,7 +108,9 @@ public static class LifecycleSpoolDrain {
     /// <para><paramref name="onLifecycleOutcome"/> sees what the server made of each lifecycle entry, for a caller that
     /// must tell a delivered end from one a rejection removed. False keeps the entry spooled for a retry.
     /// <paramref name="holds"/> keeps an entry spooled unsent, for a later pass. <paramref name="decide"/> is the
-    /// redaction that captured the spooled tails, which a replay before a tail decides a large line with.</para>
+    /// redaction that captured the spooled tails, which a replay before a tail decides a large line with.
+    /// <paramref name="reportNeedsImport"/> tells the user about a session marked for import, whose markers then go;
+    /// without it they stay.</para>
     /// </summary>
     public static Task RunAsync(ConfigRoot config, CursorMarkers markers, HttpClient client, string baseUrl, HookSpool lifecycle,
                                 TranscriptSpool transcript, string? currentSessionId, TimeSpan budget,
@@ -113,7 +118,8 @@ public static class LifecycleSpoolDrain {
                                 Action<string, string>? onWhatsDoneRequested = null,
                                 Func<string, string, DrainOutcome, bool>? onLifecycleOutcome = null,
                                 Func<string, string, bool>? holds = null,
-                                LineCaptureDecider? decide = null) {
+                                LineCaptureDecider? decide = null,
+                                Action<string>? reportNeedsImport = null) {
         // The other half is the posts'.
         var routes = new SpooledTranscriptRoutes(client, baseUrl, replayBudget: budget / 2, time, decide);
 
@@ -125,7 +131,7 @@ public static class LifecycleSpoolDrain {
                 return onLifecycleOutcome is null || onLifecycleOutcome(route, body, outcome) ? outcome : DrainOutcome.TransientStop;
             },
             transcriptPoster: body => PostTranscript(markers, routes, client, baseUrl, body, time, ct),
-            budget, time, ct);
+            budget, time, ct, reportNeedsImport);
     }
 
     static readonly TimeSpan PostTimeout = TimeSpan.FromSeconds(3);

@@ -2,7 +2,6 @@ using System.Reactive;
 using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
-using Capacitor.App.Services;
 using Capacitor.App.Services.Onboarding;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;

@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocol_version": 1,
+    "cli_version": "1.2.3",
+    "capabilities": [
+      "sessions/1"
+    ],
+    "scope": "mine"
+  }
+}
