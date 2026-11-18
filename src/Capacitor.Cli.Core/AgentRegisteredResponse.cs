@@ -13,4 +13,9 @@ public sealed record AgentRegisteredResponse(bool Registered, string? RefusedRea
 
     /// <summary>False when no server answered the registration, so nothing it carried is known to have been read.</summary>
     [JsonIgnore] public bool Answered { get; init; } = true;
+
+    /// <summary>A refusal about the reporting connection rather than the agent: the server did not hold it as the
+    /// daemon's, so it read nothing the registration carried, and a registration on one it does hold may stand.</summary>
+    [JsonIgnore] public bool RefusesConnection =>
+        !Registered && RefusedReason is AgentRegistrationRefusal.NotADaemon or AgentRegistrationRefusal.ConnectionVanished;
 }
