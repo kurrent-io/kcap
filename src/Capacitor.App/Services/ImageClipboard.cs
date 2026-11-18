@@ -9,21 +9,19 @@ namespace Capacitor.App.Services;
 /// Puts a picture the chat shows on the clipboard as a bitmap. A vector image is rasterised at
 /// its natural size, since the clipboard carries pixels.
 public static class ImageClipboard {
-    // The platform clipboard may read the bitmap after the set returns, so the one this class made
-    // stays alive until the next copy replaces it.
-    static Bitmap? _held;
+    // The platform clipboard may read the bitmap after the set returns, so the last one copied stays
+    // referenced until the next copy replaces it; only one this class made is disposed then.
+    static (Bitmap Bitmap, bool Owned)? _held;
     const double MaxEdge = 4096;
 
     public static async Task CopyAsync(Visual owner, IImage? image) {
         if (image is null || TopLevel.GetTopLevel(owner)?.Clipboard is not { } clipboard) return;
         try {
             if (image is Bitmap bitmap) {
-                await clipboard.SetBitmapAsync(bitmap);
+                await SetAsync(clipboard, bitmap, owned: false);
                 return;
             }
-            if (Rasterise(image) is not { } rendered) return;
-            await clipboard.SetBitmapAsync(rendered);
-            Hold(rendered);
+            if (Rasterise(image) is { } rendered) await SetAsync(clipboard, rendered, owned: true);
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: copy image failed: {ex.Message}");
         }
@@ -47,8 +45,7 @@ public static class ImageClipboard {
                 await CopyAsync(owner, preview);
                 return;
             }
-            await clipboard.SetBitmapAsync(bitmap);
-            Hold(bitmap);
+            await SetAsync(clipboard, bitmap, owned: true);
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: copy image failed: {ex.Message}");
         }
@@ -66,8 +63,15 @@ public static class ImageClipboard {
         return rendered;
     }
 
-    static void Hold(Bitmap bitmap) {
-        var previous = Interlocked.Exchange(ref _held, bitmap);
-        previous?.Dispose();
+    static async Task SetAsync(IClipboard clipboard, Bitmap bitmap, bool owned) {
+        try {
+            await clipboard.SetBitmapAsync(bitmap);
+        } catch {
+            if (owned) bitmap.Dispose();
+            throw;
+        }
+        var previous = _held;
+        _held = (bitmap, owned);
+        if (previous is { Owned: true } held && !ReferenceEquals(held.Bitmap, bitmap)) held.Bitmap.Dispose();
     }
 }
