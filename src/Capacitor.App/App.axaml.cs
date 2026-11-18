@@ -2443,7 +2443,9 @@ public partial class App : Application {
                 .Merge((workItemPages?.Changed ?? Observable.Never<Unit>()).Do(changed => { _ = sessions.ReconcileAsync(); })),
             suggestedSessions: workItemPages?.SuggestedSessions,
             stopSession: actions.RequestStop,
-            closeWorkspace: () => vm?.CloseWorkspace());
+            closeWorkspace: () => vm?.CloseWorkspace(),
+            fileSession: workItemPages is null ? null : (workItemId, sessionId) => _ = workItemPages.MoveSessionAsync(workItemId, sessionId, CancellationToken.None),
+            unfileSession: workItemPages is null ? null : (workItemId, sessionId) => _ = workItemPages.RemoveSessionAsync(workItemId, sessionId, CancellationToken.None));
         // The page mutates on whatever thread its inputs arrive on, so every input lands on the UI thread.
         Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory =
             search is null || sessions is null ? null : open => new SessionSearchViewModel(

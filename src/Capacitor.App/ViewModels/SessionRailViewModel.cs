@@ -39,6 +39,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     HashSet<string> _removed;
     readonly Action? _closeWorkspace;
     readonly IReadOnlyList<RailAction> _actions;
+    readonly Action<string, string>? _fileSession;
+    readonly Action<string, string>? _unfileSession;
     readonly BehaviorSubject<IReadOnlySet<string>> _marked = new(FrozenSet<string>.Empty);
     string? _markAnchor;
     bool _applying;
@@ -336,8 +338,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             IObservable<Unit>? workItemsChanged = null,
             IObservable<IReadOnlySet<string>>? suggestedSessions = null,
             Action<AgentRow>? stopSession = null, Action? closeWorkspace = null,
-            Action<Action>? afterPaint = null) {
+            Action<Action>? afterPaint = null,
+            Action<string, string>? fileSession = null, Action<string, string>? unfileSession = null) {
         _directory = directory;
+        _fileSession = fileSession;
+        _unfileSession = unfileSession;
         _closeWorkspace = closeWorkspace;
         _afterPaint = afterPaint ?? PostAfterPaint;
         openLocalSession = SelectingFirst("local:", openLocalSession);
@@ -650,6 +655,29 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             }));
         }
         return items;
+    }
+
+    /// The rows a drag starting on this one carries: the marked rows when it is one of them, else it alone.
+    public IReadOnlyList<RailSessionViewModel> Picked(RailSessionViewModel row) =>
+        _marked.Value.Contains(row.Key) ? [.. ShownRows().Where(r => _marked.Value.Contains(r.Key))] : [row];
+
+    /// Dropping the rows under a work item files them there; a null work item takes them out of theirs.
+    /// Null when the drop would change nothing.
+    public Action? DropOn(IReadOnlyList<RailSessionViewModel> rows, string? workItemId) {
+        var workItemOf = _workItemOf.Value;
+        var sessions = rows.Select(r => r.Row.SessionId).OfType<string>();
+        if (workItemId is { } target) {
+            List<string> moving = [.. sessions.Where(id => workItemOf.GetValueOrDefault(id) != target)];
+            return _fileSession is not { } file || moving.Count == 0 ? null : () => {
+                foreach (var id in moving) file(target, id);
+                ClearMarks();
+            };
+        }
+        List<string> leaving = [.. sessions.Where(workItemOf.ContainsKey)];
+        return _unfileSession is not { } unfile || leaving.Count == 0 ? null : () => {
+            foreach (var id in leaving) unfile(workItemOf[id], id);
+            ClearMarks();
+        };
     }
 
     List<RailSessionViewModel> ShownRows() =>

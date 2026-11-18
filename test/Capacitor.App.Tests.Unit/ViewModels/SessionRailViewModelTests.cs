@@ -1110,23 +1110,25 @@ public class SessionRailViewModelTests {
 
     // ── work items ─────────────────────────────────────────────────────────────────────────────
 
-    static RepoSessionDto Tracked(string id, string workItem, DateTime lastActivity, string status = "ended") => new() {
+    static RepoSessionDto Tracked(string id, string? workItem, DateTime lastActivity, string status = "ended") => new() {
         SessionId = id, Status = status, AccessLevel = "full", Vendor = "claude", Title = id,
         Owner = new() { UserId = "me", DisplayName = "Alexey" },
         StartedAt = new DateTimeOffset(lastActivity.AddHours(-1)), LastActivityAt = new DateTimeOffset(lastActivity),
         EndedAt = status == "ended" ? new DateTimeOffset(lastActivity) : null,
         Repo = new() { Hash = "h", Owner = "kurrent-io", Name = "kcap-cli" },
-        WorkItem = new() { WorkItemId = workItem, Title = workItem },
+        WorkItem = workItem is null ? null : new() { WorkItemId = workItem, Title = workItem },
     };
 
-    static (FakeAgentDirectory Directory, FakeServerSessionsService Sessions, SessionRailViewModel Rail) BuildWithWorkItems() {
+    static (FakeAgentDirectory Directory, FakeServerSessionsService Sessions, SessionRailViewModel Rail) BuildWithWorkItems(
+            Action<string, string>? fileSession = null, Action<string, string>? unfileSession = null) {
         var directory = new FakeAgentDirectory();
         var sessions = new FakeServerSessionsService();
         var rail = new SessionRailViewModel(directory, _ => { }, _ => { },
             new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(Noon)),
             openServerSession: _ => { }, sessions: sessions,
             preferences: RailPreferences.Default with { Grouping = RailGrouping.WorkItem, Project = new RailProject("p", "P", ["h"]) },
-            readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, [])));
+            readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, [])),
+            fileSession: fileSession, unfileSession: unfileSession);
         return (directory, sessions, rail);
     }
 
@@ -1135,6 +1137,31 @@ public class SessionRailViewModelTests {
             (dto.Status == "active" ? sessions.LiveCache : sessions.EndedCache).AddOrUpdate(dto);
             directory.Rows.AddOrUpdate(AgentRow.FromServer(dto, hostedPresentation: false));
         }
+    }
+
+    /// A row dropped on another work item is filed there, dropped out it leaves its work item, and where it already is nothing happens.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Dropping_a_row_files_it_under_a_work_item_or_out_of_one() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var calls = new List<string>();
+            var (directory, sessions, rail) = BuildWithWorkItems(
+                (item, id) => calls.Add($"file {item} {id}"), (item, id) => calls.Add($"unfile {item} {id}"));
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1)), Tracked("b", "AI-2", Noon.AddHours(-2)),
+                    Tracked("loose", null, Noon.AddHours(-3)));
+                IReadOnlyList<RailSessionViewModel> Row(string id) => [rail.Groups.SelectMany(g => g.Sessions).Single(s => s.Row.SessionId == id)];
+
+                rail.DropOn(Row("a"), "AI-2")!();
+                rail.DropOn(Row("a"), null)!();
+                rail.DropOn(Row("loose"), "AI-1")!();
+
+                await Assert.That(rail.DropOn(Row("a"), "AI-1") is null).IsTrue();
+                await Assert.That(rail.DropOn(Row("loose"), null) is null).IsTrue();
+                await Assert.That(calls).IsEquivalentTo(["file AI-2 a", "unfile AI-1 a", "file AI-1 loose"],
+                    TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            }
+        });
     }
 
     /// A work item nobody has worked on for three days leaves the rail's work items, and its sessions fall back to their days.

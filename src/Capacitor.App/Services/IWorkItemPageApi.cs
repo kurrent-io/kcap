@@ -17,7 +17,7 @@ public interface IWorkItemPageApi {
     /// The new part's id, or null when the server refused it.
     Task<string?> AddPartAsync(string workItemId, string title, CancellationToken ct);
     Task<bool> AddLinkAsync(string workItemId, string reference, CancellationToken ct);
-    /// Moves the session to the part, or onto the work item itself, from where it sits in the same work item.
+    /// Files the session under the part or work item, moving it from where it sits in that work item, else from its own.
     Task<bool> MoveSessionAsync(string workItemId, string sessionId, CancellationToken ct);
     /// Takes the session out of the work item and every part of it, and kcap never adds it back.
     Task<bool> RemoveSessionAsync(string workItemId, string sessionId, CancellationToken ct);
