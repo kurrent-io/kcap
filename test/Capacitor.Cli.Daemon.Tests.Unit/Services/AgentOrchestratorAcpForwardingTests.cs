@@ -71,6 +71,43 @@ public class AgentOrchestratorAcpForwardingTests {
 
     }
 
+    /// <summary>A launch refused for its connection binds its transcript only once a registration takes the agent:
+    /// the server refuses a bind from a connection it does not hold as the daemon's, and nothing would bind it again.</summary>
+    [Test]
+    public async Task A_launch_refused_for_its_connection_binds_once_a_registration_takes_it() {
+        using var repoPath = GitRepo.CreateWithCommit();
+
+        var server        = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_a_daemon") };
+        var cursorFactory = new SpyAcpHostedAgentRuntimeFactory();
+
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(),
+            allowedRepoPath: repoPath, extraRuntimeFactories: [cursorFactory]
+        );
+        orch.AcpFinalDrainBudget = TimeSpan.FromMilliseconds(200);
+
+        await orch.HandleLaunchAgentForTest(AgentOrchestratorHarness.NewCursorLaunch("agent-acp-displaced", repoPath));
+
+        int bindsWhileRefused;
+        lock (server.AcpCallOrder) bindsWhileRefused = server.AcpSessionStartedCalls.Count;
+
+        server.RegistrationResponse = null;
+        await server.ReRegisterAgentsHook!();
+        await server.AcpEventsCallSignal.Reader.ReadAsync().AsTask().WaitAsync(WaitHarness.AcpHangGuard);
+
+        List<string> order;
+        lock (server.AcpCallOrder) order = server.AcpCallOrder.Where(e => e is "register:agent-acp-displaced" or "bind:agent-acp-displaced").ToList();
+
+        await Assert.That(bindsWhileRefused).IsEqualTo(0);
+        await Assert.That(order).IsEquivalentTo(
+            new[] { "register:agent-acp-displaced", "register:agent-acp-displaced", "bind:agent-acp-displaced" },
+            TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await WaitHarness.PollUntilAsync(() => cursorFactory.LastRuntime!.ServerBindSettledCalls == 1);
+        await Assert.That(cursorFactory.LastRuntime!.ServerBound).IsTrue();
+
+        await orch.HandleStopAgentForTest("agent-acp-displaced");
+    }
+
     // ── Forwarding ──────────────────────────────────────────────────────────────────────────────
 
     /// <summary>The server attributes a hosted session to a repository only from what session_started

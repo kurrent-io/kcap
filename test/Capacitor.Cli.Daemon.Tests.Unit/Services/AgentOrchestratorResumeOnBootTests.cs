@@ -962,6 +962,31 @@ public class AgentOrchestratorResumeOnBootTests {
             .IsEquivalentTo(new[] { true, true, true }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
     }
 
+    /// <summary>A resume refused for its connection keeps its agent rather than going on under a new id: the server
+    /// read nothing it carried, so the next announcement is still flagged as the first.</summary>
+    [Test]
+    public async Task A_resume_refused_for_its_connection_keeps_its_agent_and_announces_it_first_again() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-launch-displaced");
+        var calls = 0;
+        f.Server.RegistrationResponse = _ => ++calls == 1 ? new AgentRegisteredResponse(false, "not_a_daemon") : null;
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await f.Orch.ReRegisterAgentsAsync();
+
+        await Assert.That(continued).IsEqualTo(0);
+        await Assert.That(f.Orch.GetAgentForTest("resume-launch-displaced")).IsNotNull();
+        await Assert.That(f.Server.AgentRegisteredResumes.Where(r => r.AgentId == "resume-launch-displaced").Select(r => r.FirstAnnounce))
+            .IsEquivalentTo(new[] { true, true }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
     /// <summary>A registration a server without the acked method took answered nothing, so the next one, after a
     /// reconnect to a server that may now read the resume, is still flagged as the first.</summary>
     [Test]

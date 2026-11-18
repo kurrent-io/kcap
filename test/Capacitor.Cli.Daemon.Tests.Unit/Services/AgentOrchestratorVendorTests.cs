@@ -179,6 +179,42 @@ public class AgentOrchestratorVendorTests {
         await Assert.That(server.AgentUnregisteredCalls).IsEmpty();
     }
 
+    /// <summary>A launch refused for its connection stays reported, and its run starts once the registration that
+    /// follows the connection's recovery takes it.</summary>
+    [Test]
+    [Arguments("not_a_daemon")]
+    [Arguments("connection_vanished")]
+    public async Task A_launch_refused_for_its_connection_stays_reported_and_starts_its_run_once_registered(string refusal) {
+        using var repoPath = GitRepo.CreateWithCommit();
+        var server = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, refusal) };
+
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(new ScriptedPtyProcess()), AgentOrchestratorHarness.Launcher("claude"), allowedRepoPath: repoPath);
+
+        await orch.HandleLaunchAgentForTest(new LaunchAgentCommand(
+            AgentId: "displaced-launch", Prompt: "hi", Model: "opus", Effort: null,
+            RepoPath: repoPath, Tools: null, AttachmentIds: null, Vendor: "claude"));
+
+        bool RunStarted() {
+            lock (server.RunEvents) return server.RunEvents.Any(e => e is { AgentId: "displaced-launch", Event: AgentRunStarted });
+        }
+
+        var liveWhileRefused    = server.GetLiveAgentIds!();
+        var startedWhileRefused = RunStarted();
+
+        server.RegistrationResponse = null;
+        await server.ReRegisterAgentsHook!();
+        await WaitHarness.PollUntilAsync(RunStarted);
+
+        await Assert.That(liveWhileRefused).Contains("displaced-launch");
+        await Assert.That(startedWhileRefused).IsFalse();
+        await Assert.That(orch.GetAgentForTest("displaced-launch")!.IsServerSilent).IsFalse();
+        await Assert.That(server.AgentRegisteredCallCount).IsEqualTo(2);
+        await Assert.That(server.StatusChangedCalls.Select(c => c.AgentId)).Contains("displaced-launch");
+
+        await orch.HandleStopAgentForTest("displaced-launch");
+    }
+
     // A PTY codex runtime reports "pty" on AgentRegistered — the transport rides the runtime TYPE,
     // not the vendor (a codex agent is not automatically app-server).
     [Test]
