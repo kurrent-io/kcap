@@ -15,7 +15,7 @@ public class RailSessionActionsTests {
         public readonly List<(string Id, string Label, string Kind, AgentOrigin Origin)> Stopped = [];
         public int Refreshes;
         public bool Confirm = true;
-        public ProcessResult Result = new(0, "", "", false);
+        public ProcessResult Result = new(0, "Session x disabled. Recording stopped and server data deleted.\n", "", false);
 
         public RailSessionActions Build() => new(
             rename: (id, origin) => Renamed.Add((id, origin)),
@@ -104,6 +104,27 @@ public class RailSessionActionsTests {
         await Assert.That(h.Disabled).IsEquivalentTo(new[] { SessionId });
         await Assert.That(h.Refreshes).IsEqualTo(1);
         await Assert.That(h.Notifier.Notified).IsEquivalentTo(new[] { "Deleted Fix it from kcap" });
+    }
+
+    public static IEnumerable<Func<(ProcessResult Result, string Told)>> DeleteOutcomes() {
+        yield return () => (new ProcessResult(0, "Session x disabled. Server data deleted.\n", "", false), "Deleted Fix it from kcap");
+        yield return () => (new ProcessResult(0, "Session x disabled. Server data deleted.\nThis agent is still running.\n", "", false),
+            "Deleted Fix it from kcap. This agent is still running");
+        yield return () => (new ProcessResult(0, "Session disabled locally (hooks silenced). Server data not deleted.\n", "connection refused\n", false),
+            "Fix it: Session disabled locally (hooks silenced). Server data not deleted. connection refused");
+        yield return () => (new ProcessResult(1, "Session x disabled. Server data deleted.\nA send may still land.\n", "", false),
+            "Fix it: Session x disabled. Server data deleted. A send may still land");
+        yield return () => (new ProcessResult(1, "", "Server returned 500\n", false), "Couldn't delete Fix it: Server returned 500");
+        yield return () => (new ProcessResult(-1, "", "", true), "Couldn't delete Fix it: kcap did not answer in time");
+    }
+
+    /// A zero exit can still leave the server's data in place, so only the CLI's own summary earns "Deleted".
+    [Test]
+    [MethodDataSource(nameof(DeleteOutcomes))]
+    public async Task Delete_reports_only_what_kcap_disable_confirmed(ProcessResult result, string told) {
+        var h = new Harness { Result = result };
+        await h.Build().DeleteAsync(Row(AgentOrigin.Local), "Fix it");
+        await Assert.That(h.Notifier.Notified).IsEquivalentTo(new[] { told });
     }
 
     [Test]

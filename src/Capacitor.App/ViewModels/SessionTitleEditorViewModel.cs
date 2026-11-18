@@ -71,7 +71,7 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
         canRename.DistinctUntilChanged().Subscribe(can => {
             CanRename = can;
             if (!can && IsEditing) Cancel();
-            if (can && _editRequested) BeginEdit();
+            if (can && Volatile.Read(ref _editRequested) == 1) BeginEdit();
         }).DisposeWith(_disposables);
 
         BeginEditCommand = ReactiveCommand.Create(BeginEdit, _canBegin).DisposeWith(_disposables);
@@ -86,24 +86,40 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
         _canFinish.OnNext(IsEditing && !IsSaving);
     }
 
-    bool _editRequested;
+    public const string CannotRenameCopy = "This session can't be renamed right now";
 
-    /// Begins the edit now, or as soon as the session turns out renamable: a workspace opened for
-    /// the rename reads its eligibility after it is built.
-    public void RequestEdit() {
-        _editRequested = !CanRename;
-        BeginEdit();
+    // 1 while a requested edit waits for eligibility; the expiry timer clears it off the UI thread.
+    int _editRequested;
+    readonly SerialDisposable _requestExpiry = new();
+
+    /// Begins the edit now, or once the session turns out renamable within <paramref name="within"/>: a
+    /// workspace opened for the rename reads its eligibility after it is built. A request that outlives
+    /// the window is dropped with a notice, so a later reconnect never opens the editor unasked.
+    public void RequestEdit(TimeProvider time, TimeSpan within) {
+        if (CanRename) {
+            BeginEdit();
+            return;
+        }
+        Interlocked.Exchange(ref _editRequested, 1);
+        _requestExpiry.Disposable = time.CreateTimer(_ => {
+            if (Interlocked.Exchange(ref _editRequested, 0) == 1) _notifier.Notify(CannotRenameCopy);
+        }, null, within, Timeout.InfiniteTimeSpan);
+    }
+
+    void DropRequest() {
+        Interlocked.Exchange(ref _editRequested, 0);
+        _requestExpiry.Disposable = null;
     }
 
     void BeginEdit() {
         if (!CanRename || IsEditing) return;
-        _editRequested = false;
+        DropRequest();
         Draft = Title;
         IsEditing = true;
     }
 
     void Cancel() {
-        _editRequested = false;
+        DropRequest();
         Draft = Title;
         IsEditing = false;
     }
@@ -146,6 +162,7 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
     };
 
     public void Dispose() {
+        _requestExpiry.Dispose();
         _disposed.Cancel();
         _disposables.Dispose();
         _disposed.Dispose();

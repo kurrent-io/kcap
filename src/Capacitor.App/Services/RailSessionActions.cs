@@ -33,13 +33,13 @@ public sealed class RailSessionActions(
     public async Task MakePrivateAsync(AgentRow row, string label) {
         if (!OwnsSession(row)) return;
         var result = await RunAsync(hide, row.SessionId!).ConfigureAwait(false);
-        notifier.Notify(result is { ExitCode: 0, TimedOut: false } ? $"{label} is now private" : Failure($"Couldn't make {label} private", result));
+        notifier.Notify(result is { ExitCode: 0, TimedOut: false } ? $"{label} is now private" : Failure($"Couldn't make {label} private", result).TrimEnd('.'));
     }
 
     public async Task DeleteAsync(AgentRow row, string label) {
         if (!OwnsSession(row) || !await confirmDelete(label).ConfigureAwait(false)) return;
         var result = await RunAsync(disable, row.SessionId!).ConfigureAwait(false);
-        notifier.Notify(result is { ExitCode: 0, TimedOut: false } ? $"Deleted {label} from kcap" : Failure($"Couldn't delete {label}", result));
+        notifier.Notify(DeleteOutcome(label, result).TrimEnd('.'));
         if (refresh is not null) {
             try {
                 await refresh().ConfigureAwait(false);
@@ -64,13 +64,24 @@ public sealed class RailSessionActions(
         }
     }
 
+    /// `kcap disable` exits 0 with its local steps done and the server unreached, and 1 with the data deleted but a
+    /// doubt left, so its own lines, which say only what the run confirmed, are what the user is told.
+    internal static string DeleteOutcome(string label, ProcessResult? result) {
+        if (result is null || result.TimedOut) return Failure($"Couldn't delete {label}", result);
+        var lines = Lines(result.Stdout);
+        var deleted = result.ExitCode == 0 && lines.FirstOrDefault() is { } summary
+            && !summary.Contains("not deleted", StringComparison.Ordinal);
+        if (deleted) return string.Join(" ", [$"Deleted {label} from kcap.", .. lines.Skip(1)]);
+        if (lines.Length == 0) return Failure($"Couldn't delete {label}", result);
+        return string.Join(" ", [$"{label}:", .. lines, .. Lines(result.Stderr).Take(1)]);
+    }
+
+    static string[] Lines(string text) => text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
     static string Failure(string what, ProcessResult? result) {
         if (result is null) return what;
         if (result.TimedOut) return $"{what}: kcap did not answer in time";
-        var detail = FirstLine(result.Stderr) ?? FirstLine(result.Stdout);
+        var detail = Lines(result.Stderr).FirstOrDefault() ?? Lines(result.Stdout).FirstOrDefault();
         return detail is null ? what : $"{what}: {detail}";
     }
-
-    static string? FirstLine(string text) =>
-        text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault();
 }

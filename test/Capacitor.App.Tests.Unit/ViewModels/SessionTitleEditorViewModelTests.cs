@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Time.Testing;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
@@ -34,13 +35,33 @@ public class SessionTitleEditorViewModelTests {
     public async Task A_requested_edit_waits_for_the_session_to_be_renamable() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
+            var time = new FakeTimeProvider();
             h.CanRename.OnNext(false);
-            h.Vm.RequestEdit();
+            h.Vm.RequestEdit(time, TimeSpan.FromSeconds(5));
             await Assert.That(h.Vm.IsEditing).IsFalse();
 
+            time.Advance(TimeSpan.FromSeconds(4));
             h.CanRename.OnNext(true);
             await Assert.That(h.Vm.IsEditing).IsTrue();
             await Assert.That(h.Vm.Draft).IsEqualTo("Old name");
+            time.Advance(TimeSpan.FromSeconds(5));
+            await Assert.That(h.Notifier.Notified).IsEmpty();
+        });
+    }
+
+    /// Eligibility that arrives after the window, from a reconnect or an account change, must not open the editor unasked.
+    [Test]
+    public async Task An_expired_request_is_dropped_with_a_notice() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var time = new FakeTimeProvider();
+            h.CanRename.OnNext(false);
+            h.Vm.RequestEdit(time, TimeSpan.FromSeconds(5));
+            time.Advance(TimeSpan.FromSeconds(5));
+            await Assert.That(h.Notifier.Notified).IsEquivalentTo(new[] { SessionTitleEditorViewModel.CannotRenameCopy });
+
+            h.CanRename.OnNext(true);
+            await Assert.That(h.Vm.IsEditing).IsFalse();
         });
     }
 
@@ -48,7 +69,7 @@ public class SessionTitleEditorViewModelTests {
     public async Task A_cancelled_edit_does_not_reopen_on_a_later_eligibility_change() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Vm.RequestEdit();
+            h.Vm.RequestEdit(new FakeTimeProvider(), TimeSpan.FromSeconds(5));
             await h.Vm.CancelCommand.Execute();
             h.CanRename.OnNext(false);
             h.CanRename.OnNext(true);

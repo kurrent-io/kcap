@@ -804,10 +804,13 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// running. True when the session is the open workspace afterwards.
     public bool OpenSession(string agentId, AgentOrigin? origin = null) => Navigate(agentId, origin, sessionId: null);
 
+    // Long enough for a freshly built workspace's first daemon and listing reads to settle.
+    static readonly TimeSpan RenameEligibilityWait = TimeSpan.FromSeconds(5);
+
     /// Opens the session and puts its header title into edit mode.
     public void RenameSession(string agentId, AgentOrigin origin) {
         if (!OpenSession(agentId, origin) || CurrentWorkspace is not { } open) return;
-        open.TitleEditor.RequestEdit();
+        open.TitleEditor.RequestEdit(Time, RenameEligibilityWait);
     }
 
     /// `sessionId` is the session the caller asked for; without one it is read off what opened.
