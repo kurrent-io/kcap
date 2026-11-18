@@ -35,6 +35,23 @@ public partial class WorkContextView : UserControl {
             await pane.AskAboutAsync(bookmark, ask);
     }
 
+    void OnTopicMenuOpening(object? sender, EventArgs e) {
+        _topicMenu = sender as Flyout;
+        if (_topicMenu?.Content is not Panel rows) return;
+        var can = DataContext is WorkContextViewModel { CanAskAgent: true }
+            && _topicMenu.Target?.DataContext is ChatBookmarkGroup { Bookmarks.Count: > 0 };
+        foreach (var row in rows.Children) row.IsEnabled = can;
+    }
+
+    Flyout? _topicMenu;
+
+    async void OnTopicLooseEndsClick(object? sender, RoutedEventArgs e) {
+        var section = _topicMenu?.Target?.DataContext as ChatBookmarkGroup;
+        _topicMenu?.Hide();
+        if (section is not null && DataContext is WorkContextViewModel pane)
+            await pane.FileLooseEndsAsync(section);
+    }
+
     void OnBookmarkColorsOpening(object? sender, EventArgs e) {
         _colours = sender as FlyoutBase;
         _colouring = _colours?.Target?.DataContext as ChatBookmark;

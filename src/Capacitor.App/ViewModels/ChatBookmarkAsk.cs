@@ -19,6 +19,14 @@ public static class ChatBookmarkAskText {
             + "conversation around it.\n\n" + Quoted(bookmark),
     };
 
+    /// One message filing every bookmark under a topic, each as its own loose end.
+    public static string LooseEnds(string topic, IReadOnlyList<ChatBookmark> bookmarks) =>
+        $"File each of the {bookmarks.Count} bookmarks below, from the topic \"{topic}\", as its own loose end "
+        + "with kcap's declare_loose_end tool, one call per bookmark. Write each so it makes sense to someone "
+        + "who hasn't read this session: what is left to do and why, drawn from our conversation around it. "
+        + "If two bookmarks are the same piece of work, file them once and say so.\n\n"
+        + string.Join("\n\n", bookmarks.Select(static (b, i) => $"{i + 1}. " + Quoted(b)));
+
     static string Quoted(ChatBookmark bookmark) {
         var lead = bookmark.Quote is null ? "The bookmark marks a whole message, which begins:" : "The bookmarked text:";
         var text = (bookmark.Quote ?? bookmark.Text).Replace("\r\n", "\n").Trim();

@@ -1062,11 +1062,21 @@ public class WorkContextViewSmokeTests {
             await Assert.That(host.Sent).Count().IsEqualTo(1);
             await Assert.That(host.Sent[0]).Contains("declare_loose_end").And.Contains("> Retry jitter");
 
+            var topicRow = (Control)topicLinks[0].GetVisualParent()!;
+            var onTopic = At(topicRow, topicRow.Bounds.Width / 2, topicRow.Bounds.Height / 2);
+            host.Window.MouseMove(onTopic);
+            host.Window.MouseDown(onTopic, MouseButton.Right);
+            host.Window.MouseUp(onTopic, MouseButton.Right);
+            Settle();
+            Press(host.Window.GetVisualDescendants().OfType<Button>().First(b => b.Classes.Contains("topicAsk")));
+            await Assert.That(host.Sent).Count().IsEqualTo(2);
+            await Assert.That(host.Sent[1]).Contains("\"Locks\"").And.Contains("> Lock order").And.Contains("> Retry jitter");
+
             host.CanSend = false;
             var start = Ask(ChatBookmarkAsk.StartSession);
             await Assert.That(start.IsEnabled).IsFalse();
             Press(start);
-            await Assert.That(host.Sent).Count().IsEqualTo(1);
+            await Assert.That(host.Sent).Count().IsEqualTo(2);
             row.ContextFlyout!.Hide();
             Settle();
 

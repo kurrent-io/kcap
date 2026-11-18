@@ -111,5 +111,9 @@ public class ChatBookmarksTests {
 
         var whole = ChatBookmarkAsk.StartSession.For(new ChatBookmark("Three points", 1));
         await Assert.That(whole).Contains("start_agent").And.EndsWith("The bookmark marks a whole message, which begins:\n> Three points");
+
+        var all = ChatBookmarkAskText.LooseEnds("Locks", [new ChatBookmark("Lock order", 1, "Lock order"), new ChatBookmark("Three points", 1)]);
+        await Assert.That(all).Contains("one call per bookmark").And.EndsWith(
+            "1. The bookmarked text:\n> Lock order\n\n2. The bookmark marks a whole message, which begins:\n> Three points");
     }
 }

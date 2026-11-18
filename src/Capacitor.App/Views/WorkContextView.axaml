@@ -1092,6 +1092,15 @@
                                         <StackPanel>
                                             <Grid Classes="markRow" ColumnDefinitions="*,Auto" Margin="-6,0,0,0"
                                                   IsVisible="{Binding Topic, Converter={x:Static ObjectConverters.IsNotNull}}">
+                                                <Grid.ContextFlyout>
+                                                    <Flyout FlyoutPresenterClasses="kcapPanel" Opening="OnTopicMenuOpening">
+                                                        <StackPanel Spacing="2" Margin="6" MinWidth="160">
+                                                            <Button Classes="kcapGhost topicAsk" Click="OnTopicLooseEndsClick"
+                                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="13.5"
+                                                                    Content="File its bookmarks as loose ends" />
+                                                        </StackPanel>
+                                                    </Flyout>
+                                                </Grid.ContextFlyout>
                                                 <Button Classes="kcapGhost topicLink" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                                                         Padding="6,4" Cursor="Hand"
                                                         Command="{Binding $parent[views:WorkContextView].((vm:WorkContextViewModel)DataContext).Topics.RevealCommand, FallbackValue={x:Null}}"

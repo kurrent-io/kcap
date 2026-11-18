@@ -481,9 +481,17 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public bool CanAskAgent => _canSendToAgent();
 
     /// Asks the session's agent to act on a bookmark; false means nothing was sent.
-    public async Task<bool> AskAboutAsync(ChatBookmark bookmark, ChatBookmarkAsk ask) {
+    public Task<bool> AskAboutAsync(ChatBookmark bookmark, ChatBookmarkAsk ask) => AskAsync(ask.For(bookmark));
+
+    /// Asks the agent to file every bookmark under a topic, in one message.
+    public Task<bool> FileLooseEndsAsync(ChatBookmarkGroup section) =>
+        section is { Topic: { } topic, Bookmarks.Count: > 0 }
+            ? AskAsync(ChatBookmarkAskText.LooseEnds(topic.Label, section.Bookmarks))
+            : Task.FromResult(false);
+
+    async Task<bool> AskAsync(string text) {
         if (_tornDown || !CanAskAgent) return false;
-        try { return await _sendToAgent(ask.For(bookmark)); }
+        try { return await _sendToAgent(text); }
         catch (Exception ex) {
             Console.Error.WriteLine($"kcap: bookmark request failed: {ex.Message}");
             return false;
