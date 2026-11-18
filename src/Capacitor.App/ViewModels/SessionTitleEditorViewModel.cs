@@ -71,7 +71,8 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
         canRename.DistinctUntilChanged().Subscribe(can => {
             CanRename = can;
             if (!can && IsEditing) Cancel();
-            if (can && Volatile.Read(ref _editRequested) == 1) BeginEdit();
+            if (can && Volatile.Read(ref _pendingRequest) is var request and not 0
+                && Interlocked.CompareExchange(ref _pendingRequest, 0, request) == request) BeginEdit();
         }).DisposeWith(_disposables);
 
         BeginEditCommand = ReactiveCommand.Create(BeginEdit, _canBegin).DisposeWith(_disposables);
@@ -88,8 +89,10 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
 
     public const string CannotRenameCopy = "This session can't be renamed right now";
 
-    // 1 while a requested edit waits for eligibility; the expiry timer clears it off the UI thread.
-    int _editRequested;
+    // The id of the request waiting for eligibility, 0 for none. Eligibility and the expiry timer, which fires off
+    // the UI thread, each act only on a request they consume themselves.
+    long _pendingRequest;
+    long _lastRequest;
     readonly SerialDisposable _requestExpiry = new();
 
     /// Begins the edit now, or once the session turns out renamable within <paramref name="within"/>: a
@@ -100,14 +103,15 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
             BeginEdit();
             return;
         }
-        Interlocked.Exchange(ref _editRequested, 1);
+        var request = Interlocked.Increment(ref _lastRequest);
+        Volatile.Write(ref _pendingRequest, request);
         _requestExpiry.Disposable = time.CreateTimer(_ => {
-            if (Interlocked.Exchange(ref _editRequested, 0) == 1) _notifier.Notify(CannotRenameCopy);
+            if (Interlocked.CompareExchange(ref _pendingRequest, 0, request) == request) _notifier.Notify(CannotRenameCopy);
         }, null, within, Timeout.InfiniteTimeSpan);
     }
 
     void DropRequest() {
-        Interlocked.Exchange(ref _editRequested, 0);
+        Interlocked.Exchange(ref _pendingRequest, 0);
         _requestExpiry.Disposable = null;
     }
 

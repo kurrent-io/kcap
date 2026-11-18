@@ -65,6 +65,26 @@ public class SessionTitleEditorViewModelTests {
         });
     }
 
+    /// A second request restarts the window: the first one's expiry must not drop it or send a notice for it.
+    [Test]
+    public async Task A_repeated_request_answers_to_its_own_window() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var time = new FakeTimeProvider();
+            h.CanRename.OnNext(false);
+            h.Vm.RequestEdit(time, TimeSpan.FromSeconds(5));
+            time.Advance(TimeSpan.FromSeconds(3));
+            h.Vm.RequestEdit(time, TimeSpan.FromSeconds(5));
+            time.Advance(TimeSpan.FromSeconds(3));
+            await Assert.That(h.Notifier.Notified).IsEmpty();
+
+            h.CanRename.OnNext(true);
+            await Assert.That(h.Vm.IsEditing).IsTrue();
+            time.Advance(TimeSpan.FromSeconds(5));
+            await Assert.That(h.Notifier.Notified).IsEmpty();
+        });
+    }
+
     [Test]
     public async Task A_cancelled_edit_does_not_reopen_on_a_later_eligibility_change() {
         await RunOnUiAsync(async () => {
