@@ -77,6 +77,8 @@
                            Text="{Binding NoAgentsLine}" />
                 <TextBlock x:Name="FirstSessionText" Classes="onboardingBody" IsVisible="{Binding FirstSessionVisible}"
                            Text="{x:Static vm:DoneStepViewModel.FirstSessionLine}" />
+                <TextBlock x:Name="RestartNoteText" Classes="onboardingNote" Text="{Binding RestartLine}"
+                           IsVisible="{Binding RestartLine, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <TextBlock Classes="onboardingNote" IsVisible="{Binding PathHazardVisible}">
                     <Run Text="Nothing is stored until your terminal can find " /><Run Text="kcap" FontFamily="{StaticResource OnboardingMonoFont}" /><Run Text=". Go back to your agents to fix it" />
                 </TextBlock>
@@ -162,8 +164,6 @@
         </Border>
 
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
-            <TextBlock x:Name="RestartNoteText" Classes="onboardingNote" VerticalAlignment="Center" Text="{Binding RestartLine}"
-                       IsVisible="{Binding RestartLine, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             <StackPanel Grid.Column="1" x:Name="PreparingRow" Orientation="Horizontal" Spacing="8" Margin="0,6"
                         IsVisible="{Binding PreparingVisible}">
                 <views:AppIcon Kind="LoaderCircle" Size="14" Classes.kcapSpinning="{Binding PreparingVisible}"

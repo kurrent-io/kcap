@@ -282,6 +282,8 @@ public partial class App : Application {
     WizardAuthService? _wizardAuth;
     // The History step, kept past the handoff: its import outlives onboarding and only shutdown stops it.
     HistoryStepViewModel? _historyImport;
+    // Imports of earlier chats started from Settings → Harnesses; shutdown stops every one like setup's.
+    readonly List<HistoryImportRun> _settingsImports = [];
     // One per app run, shared by every wizard so a reopened one shows the settled outcome; every
     // close and a quit settle it before moving on.
     LocalInstallController? _localInstall;
@@ -1420,7 +1422,7 @@ public partial class App : Application {
                 openFeedback: openFeedback, settingsAction: _appMenu.SettingsAction,
                 adopt: TakeAdoptableWindow(), show: !_holdingMainWindow,
                 requestSetup: () => _ = RestartForSetupAsync(desktop),
-                historyImport: _historyImport?.Run,
+                historyImport: _settingsImports.LastOrDefault() ?? _historyImport?.Run,
                 backgroundPriority: lifecycle.BackgroundPriority, reloadState: lifecycle.ReloadState,
                 isReloading: lifecycle.IsReloading, reloadDaemon: lifecycle.ReloadServiceAsync,
                 movingToWindowsService: lifecycle.IsMovingToWindowsService,
@@ -1669,6 +1671,11 @@ public partial class App : Application {
             toolsMemory: _appState,
             // The daemon's stored answer, unless a change made here just rewrote the hooks it describes.
             isUntrusted: (id, askTool) => id == HarnessId.Codex && CodexHooksUntrusted(harnesses, askTool),
+            showImport: run => {
+                _settingsImports.Add(run);
+                (_coordinator?.Window?.DataContext as MainWindowViewModel)?.ShowHistoryImport(run);
+            },
+            post: action => Dispatcher.UIThread.Post(action),
             ensureTerminalCommand: shimInstaller is null ? null : async ct => {
                 // An inconclusive probe never offers an install, as in setup.
                 if (await probe.KcapOnPathAsync(ct) != false) return null;
@@ -3238,6 +3245,8 @@ public partial class App : Application {
         _menuBar?.SetLaunchApprovalsAction(null);
         if (_feedbackWindow is { } feedbackDialog) feedbackDialog.Close();
         if (_reauthSettle is { } reauthSettle) await reauthSettle.ConfigureAwait(false);
+
+        await Task.WhenAll(_settingsImports.Select(run => run.CancelAsync())).ConfigureAwait(false);
 
         // An in-flight sign-in always settles, mutations get a bounded chance
         // to — both while the UI is still up, before teardown.

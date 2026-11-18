@@ -2532,7 +2532,8 @@ sealed class FakeKcapCli : IKcapCli {
     public readonly List<IReadOnlyList<string>> PluginInstallOptions = [];
     public Func<string?, CancellationToken, Task<ProcessResult>> PluginInstallBehavior =
         (_, _) => Task.FromResult(new ProcessResult(0, "", "", false));
-    public Task<ProcessResult> PluginRemoveAsync(string? vendorFlag, CancellationToken ct) => throw new NotSupportedException();
+    public Func<string?, CancellationToken, Task<ProcessResult>> PluginRemoveBehavior = (_, _) => throw new NotSupportedException();
+    public Task<ProcessResult> PluginRemoveAsync(string? vendorFlag, CancellationToken ct) => PluginRemoveBehavior(vendorFlag, ct);
 
     public Task<ProcessResult> PluginInstallAsync(string? vendorFlag, CancellationToken ct, IReadOnlyList<string>? options = null) {
         PluginInstallCallCount++;
