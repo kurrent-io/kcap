@@ -9,55 +9,6 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.App.Tests.Unit.Services;
 
 public class ServerSessionsServiceTests {
-    [Test]
-    [Arguments(true)]
-    [Arguments(false)]
-    [NotInParallel("AvaloniaSession")]
-    public Task Show_more_expands_only_groups_receiving_new_ended_sessions(bool receivesNewSessions) => AvaloniaSession.RunOnUiAsync(async () => {
-        var (lane, listing, time, service) = Build();
-        using var serviceLifetime = service;
-        var other = Row("other", "active") with { Repo = new() { Hash = "other", Owner = "kurrent-io", Name = "other" } };
-        listing.Answer("active", "me", 0, 1, other);
-        listing.Answer("active", null, 0, 1, other);
-        var rows = Rows("s", 1, 24).Select(row => row with {
-            Repo = new() { Hash = "h", Owner = "kurrent-io", Name = "kcap" }
-        }).ToArray();
-        listing.Answer("ended", "me", 0, 24, rows[..20]);
-        listing.Answer("ended", "me", 20, 24, receivesNewSessions ? rows[20..] : []);
-        using var remote = new FakeRemoteAgents();
-        using var directory = new AgentDirectory(new FakeDaemonClientService(), remote, lane,
-            new RepoIdentityResolver(_ => null), path => path, null, null, time, sessions: service);
-        var persisted = new List<RailPreferences>();
-        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, time,
-            sessions: service, persistPreferences: persisted.Add);
-        Connect(lane);
-        await Eventually(() => rail.Groups.Count == 2 && rail.Groups.Sum(g => g.Sessions.Count) == 21 && rail.ShowsShowMore, "first page in rail");
-        var group = rail.Groups.Single(g => g.Label == "kurrent-io/kcap");
-        var unrelated = rail.Groups.Single(g => g.Label == "kurrent-io/other");
-        await group.ToggleCommand.Execute();
-        await unrelated.ToggleCommand.Execute();
-
-        await rail.ShowMoreCommand.Execute();
-
-        await Assert.That(group.Sessions.Count).IsEqualTo(receivesNewSessions ? 24 : 20);
-        await Assert.That(group.IsExpanded).IsEqualTo(receivesNewSessions);
-        await Assert.That(unrelated.IsExpanded).IsFalse();
-        await Assert.That(persisted[^1].Collapsed.Contains(group.Key)).IsEqualTo(!receivesNewSessions);
-        await Assert.That(persisted[^1].Collapsed.Contains(unrelated.Key)).IsTrue();
-        if (receivesNewSessions) {
-            await Assert.That(rail.ShowsShowMore).IsFalse();
-            await Assert.That(rail.LoadedText).IsEqualTo("");
-            await group.ToggleCommand.Execute();
-        }
-
-        // Background refreshes must still respect a group the user folds again.
-        listing.Answer("ended", "me", 0, 25, [rows[0] with { SessionId = "newer" }, .. rows[..19]]);
-        await service.ReconcileAsync();
-        await Eventually(() => group.Sessions.Any(s => s.Id == "newer"), "background refresh in rail");
-        await Assert.That(group.IsExpanded).IsFalse();
-        await Assert.That(unrelated.IsExpanded).IsFalse();
-    });
-
     /// A session sits under the work item it arrived with, the work item worked on most recently first, and a
     /// later page brings a work item no earlier page held. A session that arrived with none stays in its day.
     [Test]
@@ -89,7 +40,7 @@ public class ServerSessionsServiceTests {
             readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, [])));
         Connect(lane);
         IEnumerable<RailGroupViewModel> WorkItems() => rail.Groups.Where(g => g.IsWorkItem);
-        await Eventually(() => WorkItems().Sum(g => g.Sessions.Count) == 3 && rail.ShowsShowMore, "first page in rail");
+        await Eventually(() => WorkItems().Sum(g => g.Sessions.Count) == 3 && rail.ShowsViewAll, "first page in rail");
 
         await Assert.That(listing.Calls.Where(q => q.State == "ended").All(q => q.ProjectId == "p1")).IsTrue();
         await Assert.That(string.Join(",", rail.Groups.TakeWhile(g => g.IsWorkItem).Select(g => g.WorkItemId))).IsEqualTo("offline-queue,plan-ledger");
@@ -97,11 +48,11 @@ public class ServerSessionsServiceTests {
         await Assert.That(WorkItems().Select(g => g.IsDone)).IsEquivalentTo([false, true]);
         await Assert.That(rail.Groups.Where(g => !g.IsWorkItem).Sum(g => g.Sessions.Count)).IsEqualTo(17);
 
-        await rail.ShowMoreCommand.Execute();
+        await service.ShowMoreAsync();
         await Eventually(() => WorkItems().Count() == 3, "second page in rail");
 
         await Assert.That(WorkItems().Last().Sessions.Select(s => s.Id)).IsEquivalentTo(["s21"]);
-        await Assert.That(rail.ShowsShowMore).IsFalse();
+        await Assert.That(rail.ShowsViewAll).IsFalse();
     });
 
     /// A project's ended sessions page from their first page, and the live listing stays every project's.

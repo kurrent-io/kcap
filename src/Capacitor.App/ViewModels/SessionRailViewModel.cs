@@ -25,7 +25,6 @@ namespace Capacitor.App.ViewModels;
 /// ONE ObserveOn at the top of the pipeline: nested group caches are mutated by this outer
 /// pipeline, so every inner Connect() below already fires on the UI thread.
 public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
-    public const string CapNote = "Loading limit reached · search or narrow the scope for older sessions";
     public const string ScopeLockedTip = "Local version only stores your sessions. Upgrade to work with your team.";
 
     readonly CompositeDisposable _disposables = new();
@@ -267,16 +266,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly ObservableAsPropertyHelper<bool> _isEmpty;
     public bool IsEmpty => _isEmpty.Value;
 
-    readonly ObservableAsPropertyHelper<string> _loadedText;
-    /// Ended-session loading progress; hidden for live-only or fully loaded listings.
-    public string LoadedText => _loadedText.Value;
-    readonly ObservableAsPropertyHelper<bool> _showsShowMore;
-    public bool ShowsShowMore => _showsShowMore.Value;
-    readonly ObservableAsPropertyHelper<bool> _atCap;
-    public bool AtCap => _atCap.Value;
+    readonly ObservableAsPropertyHelper<bool> _showsViewAll;
+    /// The listing holds ended sessions older than the ones the rail shows.
+    public bool ShowsViewAll => _showsViewAll.Value;
     readonly ObservableAsPropertyHelper<string?> _liveNotShownText;
     public string? LiveNotShownText => _liveNotShownText.Value;
-    public ReactiveCommand<Unit, Unit> ShowMoreCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenPreviousSessionCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenNextSessionCommand { get; }
 
@@ -405,19 +399,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .Replay(1).RefCount();
         var endedListPartial = endedPaging.Select(p => p.Visible && p.Page.Loaded < p.Page.Total)
             .DistinctUntilChanged().Replay(1).RefCount();
-        _loadedText = endedPaging.Select(p => p.Visible && p.Page.Loaded < p.Page.Total
-                ? $"{p.Page.Loaded} of {p.Page.Total} ended sessions loaded" : "")
-            .ToProperty(this, x => x.LoadedText, initialValue: "").DisposeWith(_disposables);
-        _showsShowMore = endedPaging.Select(p => p.Visible && p.Page.CanShowMore)
-            .ToProperty(this, x => x.ShowsShowMore, initialValue: false).DisposeWith(_disposables);
-        _atCap = endedPaging.Select(p => p.Visible && p.Page.AtCap && p.Page.Loaded < p.Page.Total)
-            .ToProperty(this, x => x.AtCap, initialValue: false).DisposeWith(_disposables);
+        _showsViewAll = endedListPartial.ToProperty(this, x => x.ShowsViewAll, initialValue: false).DisposeWith(_disposables);
         _liveNotShownText = (sessions?.LiveNotShown ?? Observable.Return(0))
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Select(n => n > 0 ? $"{n} more live session{(n == 1 ? "" : "s")} · narrow the scope" : null)
             .ToProperty(this, x => x.LiveNotShownText, initialValue: null).DisposeWith(_disposables);
-        ShowMoreCommand = ReactiveCommand.CreateFromObservable(
-            ShowMore, endedPaging.Select(p => p.Visible && p.Page.CanShowMore)).DisposeWith(_disposables);
 
         // The lane names the viewer after the rail has opened in the last user's shape; a read that
         // fails keeps the shape already showing.
@@ -513,19 +499,6 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .DistinctUntilChanged()
             .ToProperty(this, x => x.IsEmpty, initialValue: _groupsSource.Count == 0)
             .DisposeWith(_disposables);
-    }
-
-    IObservable<Unit> ShowMore() {
-        var loaded = _directory.Rows.Keys.ToHashSet(StringComparer.Ordinal);
-        return Observable.FromAsync(() => _sessions?.ShowMoreAsync() ?? Task.CompletedTask)
-            // The directory queues its rows before the read completes; reveal them on the UI thread
-            // after those changes reach the groups. Background refreshes keep the user's folds.
-            .ObserveOn(RxSchedulers.MainThreadScheduler)
-            .Do(_ => {
-                if (_disposables.IsDisposed) return;
-                foreach (var group in Groups.Where(g => g.Sessions.Any(s => s is { IsServer: true, IsEnded: true } && !loaded.Contains(s.Key))))
-                    group.Expand();
-            });
     }
 
     /// Another user's remembered shape, or this user's set now that the lane has named them: applied
@@ -763,10 +736,13 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         _ => "",
     };
 
-    string DayLabel(string key) {
-        if (!DateOnly.TryParseExact(key["day:".Length..], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day)) return key;
-        if (day == _today) return "Today";
-        if (day == _today.AddDays(-1)) return "Yesterday";
+    string DayLabel(string key) =>
+        DateOnly.TryParseExact(key["day:".Length..], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day)
+            ? DayLabel(day, _today) : key;
+
+    internal static string DayLabel(DateOnly day, DateOnly today) {
+        if (day == today) return "Today";
+        if (day == today.AddDays(-1)) return "Yesterday";
         return day.ToString("ddd d MMM", CultureInfo.InvariantCulture);
     }
 

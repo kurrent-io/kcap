@@ -1,0 +1,62 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.AllSessionsPageView"
+             x:DataType="vm:AllSessionsPageViewModel">
+    <UserControl.Styles>
+        <Style Selector="Button.rowButton">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="10,6" />
+        </Style>
+    </UserControl.Styles>
+
+    <Border Background="{StaticResource KcapCanvasBrush}">
+        <DockPanel Margin="24,20,24,0">
+            <Grid DockPanel.Dock="Top" MaxWidth="860" Margin="0,0,0,16">
+                <TextBlock x:Name="AllSessionsHeading" Text="{Binding Heading}" FontSize="18" FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis" />
+            </Grid>
+            <ScrollViewer>
+                <StackPanel MaxWidth="860" Spacing="8" Margin="0,0,0,24">
+                    <ItemsControl x:Name="AllSessionsDays" ItemsSource="{Binding Days}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AllSessionsDay">
+                                <StackPanel Margin="0,0,0,8">
+                                    <TextBlock Text="{Binding Label}" FontSize="12" FontWeight="Medium"
+                                               Foreground="{StaticResource KcapMutedBrush}" Margin="10,6" />
+                                    <ItemsControl ItemsSource="{Binding Rows}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:AllSessionsRow">
+                                                <Button Classes="kcapGhost rowButton"
+                                                        Command="{Binding $parent[views:AllSessionsPageView].((vm:AllSessionsPageViewModel)DataContext).OpenSessionCommand}"
+                                                        CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}">
+                                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                                        <StackPanel Spacing="2">
+                                                            <TextBlock Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                                                            <TextBlock Text="{Binding Meta}" FontSize="11.5" TextTrimming="CharacterEllipsis"
+                                                                       Foreground="{StaticResource KcapMutedBrush}"
+                                                                       IsVisible="{Binding Meta, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="1" Text="{Binding Age}" FontSize="11" VerticalAlignment="Top"
+                                                                   Foreground="{StaticResource KcapFaintBrush}" />
+                                                    </Grid>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="AllSessionsMessage" Text="{Binding Message}" FontSize="13" Margin="10,0"
+                               Foreground="{StaticResource KcapMutedBrush}"
+                               IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <Button x:Name="AllSessionsShowMore" Classes="kcapGhost kcapQuiet" Content="Show more" Command="{Binding ShowMoreCommand}"
+                            IsVisible="{Binding CanShowMore}" HorizontalAlignment="Left" Padding="9,5" />
+                </StackPanel>
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</UserControl>

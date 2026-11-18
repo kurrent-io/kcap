@@ -912,40 +912,23 @@ public class SessionRailViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Show_more_loads_ended_sessions_and_the_footer_names_what_is_counted() {
+    public async Task View_all_shows_while_the_listing_holds_older_ended_sessions_the_filter_admits() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var (directory, sessions, _, _, rail) = BuildWithControls();
             using (directory) using (sessions) using (rail) {
-                sessions.PagingSubject.OnNext(new ServerSessionsPaging(12, 212, 1, true, false));
-                await Assert.That(rail.LoadedText).IsEqualTo("12 of 212 ended sessions loaded");
-                await Assert.That(rail.ShowsShowMore).IsTrue();
-                await Assert.That(rail.AtCap).IsFalse();
+                await Assert.That(rail.ShowsViewAll).IsFalse();
 
-                await rail.ShowMoreCommand.Execute();
-                await Assert.That(sessions.ShowMoreCalls).IsEqualTo(1);
+                sessions.PagingSubject.OnNext(new ServerSessionsPaging(20, 84, 1, true, false));
+                await Assert.That(rail.ShowsViewAll).IsTrue();
 
-                sessions.PagingSubject.OnNext(new ServerSessionsPaging(500, 1000, 25, false, true));
-                await Assert.That(rail.ShowsShowMore).IsFalse();
-                await Assert.That(rail.AtCap).IsTrue();
-                await Assert.That(SessionRailViewModel.CapNote).IsEqualTo("Loading limit reached · search or narrow the scope for older sessions");
-            }
-        });
-    }
+                rail.State = RailState.Live;
+                await Assert.That(rail.ShowsViewAll).IsFalse();
 
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task Completed_ended_listing_hides_the_count_and_pagination() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var (directory, sessions, _, _, rail) = BuildWithControls();
-            using (directory) using (sessions) using (rail) {
+                rail.State = RailState.Ended;
+                await Assert.That(rail.ShowsViewAll).IsTrue();
+
                 sessions.PagingSubject.OnNext(new ServerSessionsPaging(4, 4, 1, false, false));
-                await Assert.That(rail.LoadedText).IsEqualTo("");
-                await Assert.That(rail.ShowsShowMore).IsFalse();
-                await Assert.That(rail.AtCap).IsFalse();
-
-                sessions.PagingSubject.OnNext(new ServerSessionsPaging(500, 500, 25, false, true));
-                await Assert.That(rail.LoadedText).IsEqualTo("");
-                await Assert.That(rail.AtCap).IsFalse();
+                await Assert.That(rail.ShowsViewAll).IsFalse();
             }
         });
     }
@@ -988,35 +971,6 @@ public class SessionRailViewModelTests {
 
                 rail.State = RailState.Live;
                 await Assert.That(rail.Groups.Single().CountText).IsEqualTo("2 sessions");
-            }
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task Live_filter_hides_ended_pagination_and_switching_back_restores_it() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var (directory, sessions, _, _, rail) = BuildWithControls();
-            using (directory) using (sessions) using (rail) {
-                sessions.PagingSubject.OnNext(new ServerSessionsPaging(20, 84, 1, true, false));
-                rail.State = RailState.Live;
-                await Assert.That(rail.LoadedText).IsEqualTo("");
-                await Assert.That(rail.ShowsShowMore).IsFalse();
-                await Assert.That(await rail.ShowMoreCommand.CanExecute.FirstAsync()).IsFalse();
-
-                rail.State = RailState.Ended;
-                await Assert.That(rail.LoadedText).IsEqualTo("20 of 84 ended sessions loaded");
-                await Assert.That(rail.ShowsShowMore).IsTrue();
-                await Assert.That(await rail.ShowMoreCommand.CanExecute.FirstAsync()).IsTrue();
-
-                sessions.PagingSubject.OnNext(new ServerSessionsPaging(500, 1000, 25, false, true));
-                rail.State = RailState.Live;
-                await Assert.That(rail.LoadedText).IsEqualTo("");
-                await Assert.That(rail.AtCap).IsFalse();
-
-                rail.State = RailState.All;
-                await Assert.That(rail.LoadedText).IsEqualTo("500 of 1000 ended sessions loaded");
-                await Assert.That(rail.AtCap).IsTrue();
             }
         });
     }

@@ -440,6 +440,15 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         }
     }
 
+    public async Task<ServerSessionsFetch> ReadPageAsync(ServerSessionsQuery query, CancellationToken ct) {
+        int laneEpoch;
+        lock (_lock) laneEpoch = _laneEpoch;
+        var fetch = await _fetch(query, ct).ConfigureAwait(false);
+        if (fetch.Unauthorized) _onUnauthorized?.Invoke(laneEpoch);
+        return fetch;
+    }
+
+    /// Asks for one more page of ended sessions; refused silently at the offset cap.
     public Task ShowMoreAsync() {
         lock (_lock) {
             if (_pages * PageSize >= OffsetCap) return Task.CompletedTask;

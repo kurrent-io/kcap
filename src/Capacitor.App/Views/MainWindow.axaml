@@ -51,13 +51,14 @@
                     </Grid.ColumnDefinitions>
                     <rail:SessionRailView x:Name="SessionRail" Grid.Column="0" />
                     <Panel x:Name="ContentPane" Grid.Column="1">
-                        <!-- Hidden, never removed, under the search or work item cover: the workspace and its watches carry on. -->
+                        <!-- Hidden, never removed, under a page cover: the workspace and its watches carry on. -->
                         <Grid x:Name="LauncherPane" RowDefinitions="Auto,*" Margin="24,20,24,24">
                             <Grid.IsVisible>
                                 <MultiBinding Converter="{x:Static BoolConverters.And}">
                                     <Binding Path="CurrentWorkspace" Converter="{x:Static ObjectConverters.IsNull}" />
                                     <Binding Path="!IsSearchOpen" />
                                     <Binding Path="WorkItemPage" Converter="{x:Static ObjectConverters.IsNull}" />
+                                    <Binding Path="AllSessionsPage" Converter="{x:Static ObjectConverters.IsNull}" />
                                 </MultiBinding>
                             </Grid.IsVisible>
                             <Grid x:Name="LauncherHeader" Grid.Row="0" ColumnDefinitions="*,Auto" Background="Transparent"
@@ -86,6 +87,7 @@
                                     <Binding Path="CurrentWorkspace" Converter="{x:Static ObjectConverters.IsNotNull}" />
                                     <Binding Path="!IsSearchOpen" />
                                     <Binding Path="WorkItemPage" Converter="{x:Static ObjectConverters.IsNull}" />
+                                    <Binding Path="AllSessionsPage" Converter="{x:Static ObjectConverters.IsNull}" />
                                 </MultiBinding>
                             </ContentControl.IsVisible>
                             <ContentControl.DataTemplates>
@@ -102,6 +104,9 @@
 
                         <views:WorkItemPageView x:Name="WorkItemCover" DataContext="{Binding WorkItemPage}"
                                                 IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
+
+                        <views:AllSessionsPageView x:Name="AllSessionsCover" DataContext="{Binding AllSessionsPage}"
+                                                   IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
 
                         <Border x:Name="SwitchCover" Background="{StaticResource KcapCanvasBrush}" IsVisible="False">
                             <views:StillImage x:Name="SwitchCoverStill" />

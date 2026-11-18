@@ -763,42 +763,33 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Rail_pagination_tracks_the_filter_and_disappears_when_fully_loaded() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task View_all_sessions_opens_the_page_over_the_main_area() => AvaloniaSession.RunOnUiAsync(async () => {
         var service = new FakeDaemonClientService();
         using var directory = new FakeAgentDirectory();
         using var sessions = new FakeServerSessionsService();
         using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System, sessions: sessions);
-        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, rail: rail);
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, rail: rail,
+            allSessionsPageFactory: () => new AllSessionsPageViewModel(
+                sessions, Observable.Return((RailScope.Mine, (RailProject?)null)), TimeProvider.System, _ => { }));
         var window = new MainWindow { DataContext = vm };
         try {
             window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var link = window.FindDescendantOfType<SessionRailView>()!.FindControl<Button>("RailViewAllButton")!;
+            var cover = window.FindControl<AllSessionsPageView>("AllSessionsCover")!;
+            await Assert.That(link.IsVisible).IsFalse();
+            await Assert.That(cover.IsVisible).IsFalse();
+
             sessions.PagingSubject.OnNext(new ServerSessionsPaging(20, 84, 1, true, false));
             Dispatcher.UIThread.RunJobs();
-            var view = window.FindDescendantOfType<SessionRailView>()!;
-            var more = view.FindControl<Button>("RailShowMoreButton")!;
-            var count = view.FindControl<TextBlock>("RailLoadedText")!;
-            var cap = view.FindControl<TextBlock>("RailCapNote")!;
-            await Assert.That(more.IsVisible).IsTrue();
-            await Assert.That(more.Content).IsEqualTo("Load more ended sessions");
-            await Assert.That(count.Text).IsEqualTo("20 of 84 ended sessions loaded");
+            await Assert.That(link.IsVisible).IsTrue();
 
-            rail.State = RailState.Live;
+            link.Command!.Execute(null);
             Dispatcher.UIThread.RunJobs();
-            await Assert.That(more.IsVisible).IsFalse();
-            await Assert.That(count.IsVisible).IsFalse();
-            await Assert.That(cap.IsVisible).IsFalse();
-
-            rail.State = RailState.Ended;
-            Dispatcher.UIThread.RunJobs();
-            await Assert.That(more.IsVisible).IsTrue();
-            await Assert.That(count.IsVisible).IsTrue();
-
-            sessions.PagingSubject.OnNext(new ServerSessionsPaging(4, 4, 1, false, false));
-            Dispatcher.UIThread.RunJobs();
-            await Assert.That(more.IsVisible).IsFalse();
-            await Assert.That(count.IsVisible).IsFalse();
-            await Assert.That(cap.IsVisible).IsFalse();
+            await Assert.That(cover.IsVisible).IsTrue();
+            await Assert.That(cover.FindControl<TextBlock>("AllSessionsHeading")!.Text).IsEqualTo("All sessions");
         } finally {
+            vm.AllSessionsPage?.Dispose();
             window.Close();
             Dispatcher.UIThread.RunJobs();
         }

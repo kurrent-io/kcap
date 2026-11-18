@@ -2464,6 +2464,9 @@ public partial class App : Application {
             openUrl: openUrl,
             openInWeb: openUrl is null || string.IsNullOrEmpty(appServerUrl) ? null
                 : () => openUrl($"{appServerUrl.TrimEnd('/')}/work-items/{Uri.EscapeDataString(id)}"));
+        Func<AllSessionsPageViewModel>? allSessionsPageFactory = sessions is null ? null : () => new AllSessionsPageViewModel(
+            sessions, rail.WhenAnyValue(r => r.Scope, r => r.Project, (scope, project) => (scope, project)), time,
+            openSession: sessionId => _ = vm?.OpenAllSessionsSessionAsync(sessionId));
         vm = new MainWindowViewModel(
             service, shutdownToken, activity, time, startAction, lifecycleStatus, home: home,
             navigation: navigation, trackWorkspaceTeardown: trackWorkspaceTeardown, workspaceFactory: workspaceFactory,
@@ -2472,6 +2475,7 @@ public partial class App : Application {
             originOf: originOf, remoteWorkspaceFactory: remoteWorkspaceFactory, directory: resolvedDirectory,
             serverWorkspaceFactory: serverWorkspaceFactory, sessions: sessions,
             searchFactory: searchFactory, appServerUrl: appServerUrl, workItemPageFactory: workItemPageFactory,
+            allSessionsPageFactory: allSessionsPageFactory,
             openFeedback: openFeedback, opener: new ShellUrlOpener(), requestSignIn: requestSignIn,
             settingsAction: settingsAction, checkForUpdatesAction: checkForUpdatesAction,
             uninstallAction: uninstallAction, requestSetup: requestSetup, historyImport: historyImport,
@@ -2485,6 +2489,7 @@ public partial class App : Application {
         window.Closed += (_, _) => {
             vm.Search?.Dispose();
             vm.WorkItemPage?.Dispose();
+            vm.AllSessionsPage?.Dispose();
         };
         // An adopted window still holds the labels over the directory it was built with.
         window.GetValue(MarkdownView.AgentLinksProperty)?.Dispose();

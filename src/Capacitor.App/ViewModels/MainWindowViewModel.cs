@@ -257,6 +257,15 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public ReactiveCommand<string, Unit> OpenWorkItemCommand { get; }
     readonly Func<string, WorkItemPageViewModel>? _workItemPageFactory;
 
+    /// Every session of the rail's scope and project, drawn over the main area like the search page. Null while closed.
+    public AllSessionsPageViewModel? AllSessionsPage {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    public ReactiveCommand<Unit, Unit> OpenAllSessionsCommand { get; }
+    readonly Func<AllSessionsPageViewModel>? _allSessionsPageFactory;
+
     readonly Subject<Unit> _searchFocusRequests = new();
     /// The shortcut or the rail field while the page is already open: focus the query, keep its state.
     public IObservable<Unit> SearchFocusRequests => _searchFocusRequests;
@@ -432,7 +441,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             Func<string, RemoteSessionViewModel?>? serverWorkspaceFactory = null,
             Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory = null,
             IServerSessionsService? sessions = null, string? appServerUrl = null,
-            Func<string, WorkItemPageViewModel>? workItemPageFactory = null) {
+            Func<string, WorkItemPageViewModel>? workItemPageFactory = null,
+            Func<AllSessionsPageViewModel>? allSessionsPageFactory = null) {
         _service = service;
         _appServerUrl = appServerUrl ?? "";
         _serverFactory = serverWorkspaceFactory;
@@ -463,6 +473,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         DismissSearchCommand = ReactiveCommand.Create(ClosePages);
         _workItemPageFactory = workItemPageFactory;
         OpenWorkItemCommand = ReactiveCommand.Create<string>(OpenWorkItem);
+        _allSessionsPageFactory = allSessionsPageFactory;
+        OpenAllSessionsCommand = ReactiveCommand.Create(OpenAllSessions);
         var canRefreshWork = Observable.Switch(this.WhenAnyValue(x => x.CurrentWorkspace)
             .Select(CanRefreshOpenWork))
             .ObserveOn(RxSchedulers.MainThreadScheduler);
@@ -853,6 +865,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             return;
         }
         CloseWorkItem();
+        CloseAllSessions();
         Search?.Reset();
         Search?.Refresh();
         IsSearchOpen = true;
@@ -865,6 +878,27 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         ClosePages();
         WorkItemPage = _workItemPageFactory(workItemId);
         _navigation.Bump();
+    }
+
+    /// The current workspace stays open beneath the page.
+    void OpenAllSessions() {
+        if (_allSessionsPageFactory is null || AllSessionsPage is not null) return;
+        ClosePages();
+        AllSessionsPage = _allSessionsPageFactory();
+        _navigation.Bump();
+    }
+
+    void CloseAllSessions() {
+        var page = AllSessionsPage;
+        AllSessionsPage = null;
+        page?.Dispose();
+    }
+
+    /// Opens what a rail click on the session would, pinning a session the rail does not list.
+    public Task<SearchOpenOutcome> OpenAllSessionsSessionAsync(string sessionId) {
+        var page = AllSessionsPage;
+        return OpenServerSessionAsync(sessionId, new PinPresentation(null, null, null),
+            () => page is not null && AllSessionsPage == page, CancellationToken.None);
     }
 
     void CloseWorkItem() {
@@ -883,6 +917,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// A closed search page keeps no query, so a reconnect or an access change has nothing to ask again.
     void ClosePages() {
         CloseWorkItem();
+        CloseAllSessions();
         IsSearchOpen = false;
         Search?.Reset();
         if (CurrentWorkspace is null) ReleasePinUnless(null);

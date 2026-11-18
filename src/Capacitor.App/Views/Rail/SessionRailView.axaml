@@ -739,10 +739,9 @@
                     </rail:RailList>
                     <StackPanel x:Name="RailPaging" DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
                                 Margin="0,4,0,6" Spacing="4" IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}">
-                        <Button x:Name="RailShowMoreButton" Classes="kcapGhost kcapQuiet" Content="Show more" Command="{Binding ShowMoreCommand}"
-                                IsVisible="{Binding ShowsShowMore}" HorizontalAlignment="Left" Padding="9,5" />
-                        <TextBlock x:Name="RailCapNote" Text="{x:Static vm:SessionRailViewModel.CapNote}" Classes="railMeta"
-                                   Foreground="{StaticResource KcapFaintBrush}" Margin="9,0" TextWrapping="Wrap" IsVisible="{Binding AtCap}" />
+                        <Button x:Name="RailViewAllButton" Classes="kcapGhost kcapQuiet" Content="View all sessions"
+                                Command="{Binding $parent[rail:SessionRailView].((vm:MainWindowViewModel)DataContext).OpenAllSessionsCommand, FallbackValue={x:Null}}"
+                                IsVisible="{Binding ShowsViewAll}" HorizontalAlignment="Left" Padding="9,5" />
                         <TextBlock x:Name="RailLiveNotShownText" Text="{Binding LiveNotShownText}" Classes="railMeta"
                                    Foreground="{StaticResource KcapFaintBrush}" Margin="9,0" TextWrapping="Wrap"
                                    IsVisible="{Binding LiveNotShownText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />

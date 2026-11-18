@@ -25,7 +25,9 @@ sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
     public PinOutcome PinResult = PinOutcome.Pinned;
     public readonly List<(string SessionId, PinPresentation Presentation)> PinCalls = [];
     public int UnpinCalls;
-    public int ShowMoreCalls;
+    /// What ReadPageAsync answers for a query.
+    public Func<ServerSessionsQuery, ServerSessionsFetch> Page = _ => new([], 0);
+    public readonly List<ServerSessionsQuery> PageCalls = [];
     public int ReconcileCalls;
 
     public IObservableCache<RepoSessionDto, string> Live => LiveCache.AsObservableCache();
@@ -85,7 +87,10 @@ sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
     public IObservable<RailScope> ScopeChanges => _scope;
     public string? Project { get; set; }
 
-    public Task ShowMoreAsync() { ShowMoreCalls++; return Task.CompletedTask; }
+    public Task<ServerSessionsFetch> ReadPageAsync(ServerSessionsQuery query, CancellationToken ct) {
+        PageCalls.Add(query);
+        return Task.FromResult(Page(query));
+    }
     public Task ReconcileAsync() { ReconcileCalls++; return Task.CompletedTask; }
 
     public void Dispose() {

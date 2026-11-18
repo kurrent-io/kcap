@@ -33,8 +33,8 @@ public interface IServerSessionsService {
     /// The project whose ended sessions are paged, or null for every project. Live sessions are listed
     /// whatever the project. A server that does not know the filter pages every project's.
     string? Project { get; set; }
-    /// Asks for one more page of ended sessions; refused silently at the offset cap.
-    Task ShowMoreAsync();
+    /// One listing page read on its own: nothing it returns reaches the caches.
+    Task<ServerSessionsFetch> ReadPageAsync(ServerSessionsQuery query, CancellationToken ct);
     /// Re-reads the live listing and the whole ended prefix and replaces the caches with the result.
     Task ReconcileAsync();
     /// The session whose row is open in the rail: it stays in the snapshot's Ended set when a read
