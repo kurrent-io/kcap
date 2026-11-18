@@ -1027,18 +1027,23 @@
                                     <Button Content="Marks" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding WorthKnowingMarked}"
                                             Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Marked}" />
                                     <Button Content="Fade" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding WorthKnowingFaded}"
-                                            Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Faded}" />
+                                            Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Faded}">
+                                        <Button.Flyout>
+                                            <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="6" FlyoutPresenterClasses="kcapPanel">
+                                                <Grid ColumnDefinitions="Auto,160,Auto" ColumnSpacing="10" Margin="4,2">
+                                                    <TextBlock Text="Opacity" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                                                    <Slider Grid.Column="1" Minimum="5" Maximum="95" Value="{Binding WorthFade}" VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding WorthFade, StringFormat={}{0}%}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                                                </Grid>
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
                                     <Button Content="Collapse" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding WorthKnowingCollapsed}"
                                             Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Collapsed}" />
                                     <Button Content="Hide" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding WorthKnowingHidden}"
                                             Command="{Binding SetWorthKnowingCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Hidden}" />
                                 </StackPanel>
                             </Border>
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" IsVisible="{Binding WorthKnowingFaded}">
-                                <TextBlock Text="Opacity" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                                <Slider Grid.Column="1" Minimum="5" Maximum="95" Value="{Binding WorthFade}" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="2" Text="{Binding WorthFade, StringFormat={}{0}%}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                            </Grid>
                             <TextBlock Text="Only if curious" FontSize="13" Foreground="{StaticResource KcapMutedBrush}" Margin="0,6,0,0" />
                             <Border Classes="kcapSegment" HorizontalAlignment="Left">
                                 <StackPanel Orientation="Horizontal" Spacing="2">
@@ -1047,18 +1052,23 @@
                                     <Button Content="Marks" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding OnlyIfCuriousMarked}" IsEnabled="{Binding OnlyIfCuriousCanBeMarked}"
                                             Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Marked}" />
                                     <Button Content="Fade" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding OnlyIfCuriousFaded}" IsEnabled="{Binding OnlyIfCuriousCanBeFaded}"
-                                            Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Faded}" />
+                                            Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Faded}">
+                                        <Button.Flyout>
+                                            <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="6" FlyoutPresenterClasses="kcapPanel">
+                                                <Grid ColumnDefinitions="Auto,160,Auto" ColumnSpacing="10" Margin="4,2">
+                                                    <TextBlock Text="Opacity" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                                                    <Slider Grid.Column="1" Minimum="5" Maximum="95" Value="{Binding CuriousFade}" VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding CuriousFade, StringFormat={}{0}%}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                                                </Grid>
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
                                     <Button Content="Collapse" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding OnlyIfCuriousCollapsed}" IsEnabled="{Binding OnlyIfCuriousCanBeCollapsed}"
                                             Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Collapsed}" />
                                     <Button Content="Hide" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding OnlyIfCuriousHidden}"
                                             Command="{Binding SetOnlyIfCuriousCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Hidden}" />
                                 </StackPanel>
                             </Border>
-                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" IsVisible="{Binding OnlyIfCuriousFaded}">
-                                <TextBlock Text="Opacity" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                                <Slider Grid.Column="1" Minimum="5" Maximum="95" Value="{Binding CuriousFade}" VerticalAlignment="Center" />
-                                <TextBlock Grid.Column="2" Text="{Binding CuriousFade, StringFormat={}{0}%}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                            </Grid>
                         </StackPanel>
                     </Border>
                 </StackPanel>
