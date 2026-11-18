@@ -6,9 +6,11 @@ namespace Capacitor.Cli.Daemon.Services;
 /// vendor rewrites its catalog and auth files with fresh timestamps and tokens and nothing else.
 public readonly record struct CatalogPathStat(string Path, bool Exists, long Length, long LastWriteTicks, string? Digest = null) {
     /// <paramref name="previous"/>, when its size and write time still match, is returned as is,
-    /// so an untouched file is never read. It is also what a file that exists but cannot be read
-    /// right now reads as: a vendor holding it mid-rewrite is a transient, never a change.
-    internal static CatalogPathStat Of(string path, CatalogPathStat? previous = null) {
+    /// so an untouched file is never read. Its digest is kept for a file that cannot be read right
+    /// now, since a vendor holding it mid-rewrite is a transient, never a change, and for a write
+    /// <paramref name="writtenByProbedCli"/> refuses.
+    internal static CatalogPathStat Of(
+            string path, CatalogPathStat? previous = null, Func<string, byte[], bool>? writtenByProbedCli = null) {
         long length, ticks;
         try {
             var info = new FileInfo(path);
@@ -22,11 +24,25 @@ public readonly record struct CatalogPathStat(string Path, bool Exists, long Len
         var prior = previous is { Exists: true, Digest: not null } p && p.Path == path ? p : (CatalogPathStat?) null;
         if (prior is { } same && same.Length == length && same.LastWriteTicks == ticks) return same;
 
+        byte[] content;
         try {
-            return new(path, true, length, ticks, CatalogContentDigest.Of(File.ReadAllBytes(path)));
+            content = ReadShared(path);
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return prior ?? new(path, true, length, ticks);
         }
+
+        // The new size and write time are kept, so the next tick does not read the file again.
+        if (prior is { } kept && writtenByProbedCli?.Invoke(path, content) == false)
+            return kept with { Length = length, LastWriteTicks = ticks };
+        return new(path, true, length, ticks, CatalogContentDigest.Of(content));
+    }
+
+    // The vendor owns the file: a Windows read that denies writers would stall its rewrite.
+    static byte[] ReadShared(string path) {
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var buffer = new MemoryStream();
+        stream.CopyTo(buffer);
+        return buffer.ToArray();
     }
 
     /// Two fingerprints without a digest compare by size and write time. One without a digest
