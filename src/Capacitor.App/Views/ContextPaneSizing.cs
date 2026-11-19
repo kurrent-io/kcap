@@ -10,12 +10,12 @@ public static class ContextPaneSizing {
     public static void Attach(Control view, ColumnDefinition column, Control pane, Button hideButton,
             GridSplitter splitter, Button showButton) {
         PaneLayout? panes = null;
+        var slide = new PaneSlide(column, pane, Dock.Right);
 
         void Apply() {
             var collapsed = panes?.ContextCollapsed ?? false;
             column.MinWidth = panes is null ? PaneLayout.ContextMinWidth : 0;
-            column.Width = new GridLength(collapsed ? 0 : panes?.ContextWidth ?? PaneLayout.ContextMinWidth);
-            pane.IsVisible = !collapsed;
+            slide.Apply(collapsed, panes?.ContextWidth ?? PaneLayout.ContextMinWidth);
             splitter.IsVisible = !collapsed;
             showButton.IsVisible = collapsed;
             hideButton.IsVisible = panes is not null;

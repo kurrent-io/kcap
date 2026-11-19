@@ -62,44 +62,15 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     void ToggleRail() => Panes.RailCollapsed = !Panes.RailCollapsed;
 
-    bool _railCollapsed;
-    CancellationTokenSource? _railSlide;
+    PaneSlide? _railSlide;
 
     void ApplyRail() {
         var collapsed = Panes.RailCollapsed;
-        if (collapsed != _railCollapsed && IsLoaded) _ = SlideRail(collapsed);
-        else if (_railSlide is null) SettleRail(collapsed);
-        _railCollapsed = collapsed;
+        (_railSlide ??= new PaneSlide(RailColumn, SessionRail, Dock.Left)).Apply(collapsed, Panes.RailWidth);
         RailSplitter.IsVisible = !collapsed;
         RailToggleIcon.Kind = collapsed ? LucideIconKind.PanelLeftOpen : LucideIconKind.PanelLeftClose;
         ApplyRailAttention();
         ApplyRailClearance();
-    }
-
-    // The rail keeps its width and slides past the window's edge while an Auto column follows it.
-    async Task SlideRail(bool collapsed) {
-        var from = SessionRail.IsVisible ? SessionRail.Margin : new Thickness(-Panes.RailWidth, 0, 0, 0);
-        _railSlide?.Cancel();
-        var slide = _railSlide = new CancellationTokenSource();
-        SessionRail.Width = Panes.RailWidth;
-        SessionRail.IsVisible = true;
-        RailColumn.Width = GridLength.Auto;
-        // The animation drops its value when it ends, a frame before the rail is hidden: the end
-        // margin is set underneath it so that frame does not flash the open rail.
-        var to = new Thickness(collapsed ? -Panes.RailWidth : 0, 0, 0, 0);
-        SessionRail.Margin = to;
-
-        await Motion.Standard.RunAsync(SessionRail, slide.Token, (MarginProperty, from, to));
-        if (slide.IsCancellationRequested) return;
-
-        _railSlide = null;
-        SessionRail.ClearValue(WidthProperty);
-        SettleRail(collapsed);
-    }
-
-    void SettleRail(bool collapsed) {
-        RailColumn.Width = new GridLength(collapsed ? 0 : Panes.RailWidth);
-        SessionRail.IsVisible = !collapsed;
     }
 
     void ApplyRailAttention() {
