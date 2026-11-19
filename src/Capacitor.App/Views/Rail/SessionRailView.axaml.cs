@@ -39,6 +39,11 @@ public partial class SessionRailView : UserControl {
 
     SessionRailViewModel? RailModel => (DataContext as MainWindowViewModel)?.Rail;
 
+    void OnSessionRowAttached(object? sender, VisualTreeAttachmentEventArgs e) {
+        if (sender is Button { DataContext: RailSessionViewModel row } button && RailModel?.TakeArrival(row.Key) == true)
+            _ = Motion.Arrive.RunAsync(button, CancellationToken.None, (OpacityProperty, 0d, 1d));
+    }
+
     static Button? RowButtonOf(object? source) =>
         (source as Visual)?.GetSelfAndVisualAncestors().OfType<Button>().FirstOrDefault(b => b.Classes.Contains("railRow"));
 

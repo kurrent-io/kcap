@@ -34,6 +34,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly IServerSessionsService? _sessions;
     readonly Action<RailPreferences>? _persist;
     readonly TimeProvider _time;
+    const int MaxArrivals = 2;
+    static readonly TimeSpan StartedWithin = TimeSpan.FromMinutes(1);
+    static readonly TimeSpan ArrivalWindow = TimeSpan.FromSeconds(2);
+    readonly Dictionary<string, DateTimeOffset> _arrivals = new(StringComparer.Ordinal);
+    readonly HashSet<string> _seen = new(StringComparer.Ordinal);
     // Keep the user's folds when the directory empties/re-forms a group during refresh.
     HashSet<string> _collapsed;
     HashSet<string> _removed;
@@ -404,6 +409,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         _disposables.Add(_regroup);
         _disposables.Add(_workItems);
         _disposables.Add(_workItemOf);
+        directory.Rows.Connect().Subscribe(NoteArrivals).DisposeWith(_disposables);
 
         var ageTicks = new Subject<Unit>().DisposeWith(_disposables);
         time.CreateTimer(_ => RxSchedulers.MainThreadScheduler.Schedule(() => { if (!ageTicks.IsDisposed) ageTicks.OnNext(Unit.Default); }),
@@ -726,6 +732,30 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     /// The work items the project's listed sessions arrived with that are in progress or were worked on lately, newest
     /// created first so that filing a session under one never moves it.
+    // A session the rail has never shown, started moments ago and not part of a bulk load, fades in once.
+    void NoteArrivals(IChangeSet<AgentRow, string> changes) {
+        var now = _time.GetUtcNow();
+        lock (_arrivals) {
+            var settled = _seen.Count > 0;
+            var fresh = changes.Where(change => change.Reason == ChangeReason.Add && !Seen(change.Current)).Select(change => change.Current).ToList();
+            foreach (var change in changes) {
+                _seen.Add(change.Current.Id);
+                if (change.Current.SessionId is { } id) _seen.Add(id);
+            }
+            if (!settled || fresh.Count > MaxArrivals) return;
+            foreach (var row in fresh)
+                if (now.UtcDateTime - RailSessionViewModel.AsUtc(row.CreatedAt) < StartedWithin) _arrivals[row.Key] = now;
+        }
+
+        bool Seen(AgentRow row) => _seen.Contains(row.Id) || row.SessionId is { } id && _seen.Contains(id);
+    }
+
+    /// True once for a row that just arrived, for its view to fade it in.
+    public bool TakeArrival(string key) {
+        var now = _time.GetUtcNow();
+        lock (_arrivals) return _arrivals.Remove(key, out var at) && now - at < ArrivalWindow;
+    }
+
     static IReadOnlyList<RailWorkItem> WorkItemsIn(ServerSessionsSnapshot listed, RailProject? project, DateTimeOffset now) {
         if (project is null) return [];
         return [.. listed.Live.Concat(listed.MineLive).Concat(listed.Ended).Append(listed.Pinned).OfType<RepoSessionDto>()

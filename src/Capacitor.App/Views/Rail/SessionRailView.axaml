@@ -672,7 +672,7 @@
                                                     <Border Margin="0,0,0,4"
                                                             Opacity="{Binding IsStale, Converter={x:Static views:StaleOpacityConverter.Instance}}">
                                                         <Button Command="{Binding OpenCommand}" HorizontalAlignment="Stretch"
-                                                                HorizontalContentAlignment="Stretch" Padding="9,4"
+                                                                HorizontalContentAlignment="Stretch" Padding="9,4" AttachedToVisualTree="OnSessionRowAttached"
                                                                 AutomationProperties.Name="{Binding Primary}"
                                                                 Classes="railRow" Classes.selected="{Binding IsSelected}" Classes.marked="{Binding IsMarked}" Classes.unread="{Binding IsUnread}">
                                                             <ToolTip.Tip>

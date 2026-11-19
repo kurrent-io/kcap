@@ -294,7 +294,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
 
     /// A local stamp is converted rather than relabelled: relabelling shifts it by the UTC offset,
     /// enough to move an age across a day boundary.
-    static DateTime AsUtc(DateTime at) =>
+    internal static DateTime AsUtc(DateTime at) =>
         at.Kind == DateTimeKind.Local ? at.ToUniversalTime() : DateTime.SpecifyKind(at, DateTimeKind.Utc);
 
     void RefreshAge() {
