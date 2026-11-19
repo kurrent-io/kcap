@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Recording.Harness.GrokBot;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Recording.Tests.Unit.Harness.GrokBot;
 
@@ -24,9 +25,9 @@ public class GrokBotWatcherTests {
 
     readonly List<string> _log = [];
 
-    GrokBotWatcher Watcher(Server server) => new(
+    GrokBotWatcher Watcher(Server server, TimeProvider? time = null) => new(
         new ConfigRoot(Tmp.PathTo("config")), Resolutions.Of(new() { ServerUrl = "https://acme.kcap.ai/", DefaultVisibility = "org_public" }),
-        new UserHome(Tmp.PathTo("home")), new FixedCapacitorHttpClient(background: server), TimeProvider.System);
+        new UserHome(Tmp.PathTo("home")), new FixedCapacitorHttpClient(background: server), time ?? TimeProvider.System);
 
     /// <summary>A store holding one chat of two entries, both far older than the gap.</summary>
     GrokBotWatchOptions OneOldChat(bool dryRun = false) {
@@ -84,6 +85,34 @@ public class GrokBotWatcherTests {
         var accepting = new Server();
         await Assert.That(await RunAsync(accepting, options)).IsEqualTo(GrokBotWatchOutcome.Completed);
         await Assert.That(accepting.Posts.Count).IsEqualTo(3);
+    }
+
+    /// <summary>An empty read past the gap closes a session. A file that could not be read is not an empty
+    /// chat, and the session waits for the read that shows what is in it.</summary>
+    [Test]
+    public async Task A_chat_that_cannot_be_read_is_left_as_it_was_until_it_can() {
+        var server  = new Server();
+        var options = OneOldChat();
+        var file    = Directory.GetFiles(Tmp.PathTo("chats")).Single();
+        var chat    = await File.ReadAllTextAsync(file);
+        var time    = new FakeTimeProvider(DateTimeOffset.FromUnixTimeMilliseconds(1790595501000).AddMinutes(1));
+        var watcher = Watcher(server, time);
+
+        await watcher.RunAsync(options, _log.Add, CancellationToken.None);
+        await Assert.That(server.Posts.Select(p => p.Path)).IsEquivalentTo(["/hooks/session-start/grok-bot", "/hooks/transcript"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+
+        time.Advance(TimeSpan.FromHours(3));
+        await File.WriteAllTextAsync(file, chat[..(chat.Length / 2)]);
+        await watcher.RunAsync(options, _log.Add, CancellationToken.None);
+
+        await Assert.That(server.Posts.Count).IsEqualTo(2);
+        await Assert.That(_log.Any(l => l.Contains("could not be read"))).IsTrue();
+
+        await File.WriteAllTextAsync(file, chat);
+        await watcher.RunAsync(options, _log.Add, CancellationToken.None);
+
+        await Assert.That(server.Posts[^1].Path).IsEqualTo("/hooks/session-end/grok-bot");
+        await Assert.That(server.Posts.Count).IsEqualTo(3);
     }
 
     [Test]

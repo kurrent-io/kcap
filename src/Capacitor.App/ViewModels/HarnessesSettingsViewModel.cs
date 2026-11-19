@@ -110,7 +110,12 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
                             untrusted: Untrusted(h.Id, wired));
                     }).ToArray();
             }, _lifetime.Token);
-            (GrokBotShown, GrokBotRecording) = await Task.Run(ReadGrokBot, _lifetime.Token);
+            var (grokBotShown, grokBotRecording) = await Task.Run(ReadGrokBot, _lifetime.Token);
+            GrokBotShown = grokBotShown;
+            // An unreadable setting leaves the switch as it was: off would read as a confirmed opt-out
+            // while the daemon, which keeps its last answer too, may still be recording.
+            if (grokBotRecording is { } recording) GrokBotRecording = recording;
+            GrokBotMessage = grokBotShown && grokBotRecording is null ? GrokBotUnread : null;
             Message = null;
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
@@ -118,14 +123,16 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         } finally { Scanning = false; }
     }
 
-    (bool Shown, bool Recording) ReadGrokBot() {
+    (bool Shown, bool? Recording) ReadGrokBot() {
         if (_grokBotFound?.Invoke() != true) return (false, false);
         try {
             return (true, _store.LoadProfile().GrokBot?.Record == true);
         } catch (InvalidOperationException) {
-            return (true, false);
+            return (true, null);
         }
     }
+
+    internal const string GrokBotUnread = "Could not read this profile's setting, so the switch may not show what the daemon is doing. Rescan to try again.";
 
     internal const string GrokBotOn  = "Recording. The daemon starts within half a minute.";
     internal const string GrokBotOff = "Not recording. The daemon stops within half a minute.";

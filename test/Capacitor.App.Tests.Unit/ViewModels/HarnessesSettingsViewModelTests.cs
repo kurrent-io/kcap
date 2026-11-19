@@ -83,6 +83,25 @@ public class HarnessesSettingsViewModelTests {
         await Assert.That(cli.ReceivedCalls()).IsEmpty();
     });
 
+    /// <summary>The daemon keeps its last answer when the config cannot be read, so the switch keeps what it
+    /// showed and says it is unsure: off would read as an opt-out the daemon never saw.</summary>
+    [Test]
+    public Task An_unreadable_setting_keeps_the_grok_bot_switch_as_it_was_and_says_so() => AvaloniaSession.RunOnUiAsync(async () => {
+        var store = Seed();
+        using var vm = new HarnessesSettingsViewModel(store, Substitute.For<IKcapCli>(),
+            _ => Task.FromResult<IReadOnlyDictionary<HarnessId, DetectedAgent>>(new Dictionary<HarnessId, DetectedAgent>()),
+            grokBotFound: () => true);
+
+        await vm.RescanAsync();
+        await vm.ToggleGrokBotAsync();
+        await File.WriteAllTextAsync(AppConfig.GetConfigPath(Config.Root), "{not json");
+        await vm.RescanAsync();
+
+        await Assert.That(vm.GrokBotShown).IsTrue();
+        await Assert.That(vm.GrokBotRecording).IsTrue();
+        await Assert.That(vm.GrokBotMessage).IsEqualTo(HarnessesSettingsViewModel.GrokBotUnread);
+    });
+
     /// <summary>Codex hooks in place that Codex has not trusted record nothing, so the row asks for the approval
     /// instead of reading Recording, and reads Recording once a rescan finds them trusted.</summary>
     [Test]

@@ -64,14 +64,20 @@ public class GrokBotDesktopChatsTests {
     [Test]
     [Arguments("{\"schemaVersion\":1,\"value\":{\"entries\":[{\"id\":\"e1\"")]
     [Arguments("{\"schemaVersion\":2,\"rows\":[]}")]
-    public async Task A_file_caught_mid_write_or_in_another_shape_reads_as_nothing(string content) {
+    public async Task A_file_caught_mid_write_or_in_another_shape_is_unreadable_not_empty(string content) {
         Tmp.CreateFile(ChatFile(), content);
 
-        await Assert.That((await Store().ReadSinceAsync(Chat, -1, CancellationToken.None)).Entries).IsEmpty();
+        var read = await Store().ReadSinceAsync(Chat, -1, CancellationToken.None);
+
+        await Assert.That(read.Entries).IsEmpty();
+        await Assert.That(read.Failed).IsTrue();
     }
 
     [Test]
     public async Task A_chat_with_no_file_reads_as_nothing() {
-        await Assert.That((await Store().ReadSinceAsync(Chat, -1, CancellationToken.None)).Entries).IsEmpty();
+        var read = await Store().ReadSinceAsync(Chat, -1, CancellationToken.None);
+
+        await Assert.That(read.Entries).IsEmpty();
+        await Assert.That(read.Failed).IsFalse();
     }
 }

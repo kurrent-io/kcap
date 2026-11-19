@@ -34,7 +34,7 @@ public sealed class GrokBotDesktopChats(string storeDir) : IGrokBotSource {
             // The app owns this file and replaces it while it runs.
             text = await File.ReadAllTextSharedAsync(file);
         } catch (IOException) {
-            return GrokBotRead.Nothing;
+            return GrokBotRead.Unreadable;
         }
 
         JsonDocument doc;
@@ -42,11 +42,11 @@ public sealed class GrokBotDesktopChats(string storeDir) : IGrokBotSource {
             doc = JsonDocument.Parse(text);
         } catch (JsonException) {
             // Caught mid-write: the next cycle reads the finished file.
-            return GrokBotRead.Nothing;
+            return GrokBotRead.Unreadable;
         }
 
         using (doc) {
-            if (doc.RootElement.Obj("value")?.Arr("entries") is not { } list) return GrokBotRead.Nothing;
+            if (doc.RootElement.Obj("value")?.Arr("entries") is not { } list) return GrokBotRead.Unreadable;
 
             var all = new List<GrokBotEntry>();
             foreach (var e in list.EnumerateArray())

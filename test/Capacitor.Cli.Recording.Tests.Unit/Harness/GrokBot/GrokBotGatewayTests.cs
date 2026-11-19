@@ -49,7 +49,8 @@ public class GrokBotGatewayTests {
 
     /// <summary>Serves a chat of <paramref name="count"/> entries, seq 1 upward, in tail pages.</summary>
     /// <param name="stuckAt">A cursor the gateway hands out and then answers with an empty page.</param>
-    sealed class Paged(int count, int pageSize, int? stuckAt = null) : HttpMessageHandler {
+    /// <param name="unusable">Entries the gateway serves without a time, which the reader rejects.</param>
+    sealed class Paged(int count, int pageSize, int? stuckAt = null, Func<int, bool>? unusable = null) : HttpMessageHandler {
         public int Calls { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
@@ -57,16 +58,17 @@ public class GrokBotGatewayTests {
             using var body = System.Text.Json.JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
             var before = body.RootElement.TryGetProperty("beforeSeq", out var b) ? b.GetInt32() : count + 1;
             var first  = before == stuckAt ? before : Math.Max(1, before - pageSize);
-            var page   = string.Join(",", Enumerable.Range(first, before - first).Select(seq => $$"""{"id":"e{{seq}}","seq":{{seq}},"timestampMs":{{seq}}}"""));
+            var page   = string.Join(",", Enumerable.Range(first, before - first).Select(seq =>
+                unusable?.Invoke(seq) == true ? $$"""{"id":"e{{seq}}","seq":{{seq}}}""" : $$"""{"id":"e{{seq}}","seq":{{seq}},"timestampMs":{{seq}}}"""));
             var cursor = first > 1 ? $",\"nextBeforeSeq\":{first}" : "";
 
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($$"""{"entries":[{{page}}]{{cursor}}}""", Encoding.UTF8, "application/json") };
         }
     }
 
-    async Task<(GrokBotRead Read, int Calls)> ReadSince(int count, int lastSeq, int? stuckAt = null) {
+    async Task<(GrokBotRead Read, int Calls)> ReadSince(int count, int lastSeq, int? stuckAt = null, Func<int, bool>? unusable = null) {
         var descriptor = Tmp.CreateFile("gateway.json", """{"scheme":"http","host":"127.0.0.1","port":1340,"token":"t"}""");
-        var handler    = new Paged(count, pageSize: 10, stuckAt);
+        var handler    = new Paged(count, pageSize: 10, stuckAt, unusable);
         using var http = new HttpClient(handler);
 
         return (await new GrokBotGateway(descriptor, http).ReadSinceAsync("g1", lastSeq, CancellationToken.None), handler.Calls);
@@ -103,6 +105,35 @@ public class GrokBotGatewayTests {
 
         await Assert.That(read.Entries.Min(e => e.Seq)).IsEqualTo(16);
         await Assert.That(read.FromThreadStart).IsFalse();
+    }
+
+    /// <summary>The budget is for a chat whose beginning is unknown. A resumed read that stopped at it would
+    /// deliver the newest pages and pass over everything between them and what was delivered before.</summary>
+    [Test]
+    public async Task A_resumed_read_goes_back_to_what_was_delivered_however_far_that_is() {
+        var count = GrokBotGateway.MaxPages * 10 + 50;
+
+        var (read, calls) = await ReadSince(count, lastSeq: 5);
+
+        await Assert.That(read.Failed).IsFalse();
+        await Assert.That(read.Entries.Select(e => e.Seq).Where(seq => seq > 5).Order()).IsEquivalentTo(Enumerable.Range(6, count - 5));
+        await Assert.That(calls).IsGreaterThan(GrokBotGateway.MaxPages);
+    }
+
+    [Test]
+    public async Task A_resumed_read_that_cannot_get_back_to_what_was_delivered_is_unreadable() {
+        var (read, _) = await ReadSince(count: 35, lastSeq: 5, stuckAt: 16);
+
+        await Assert.That(read.Failed).IsTrue();
+        await Assert.That(read.Entries).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_page_of_entries_the_reader_rejects_does_not_end_the_read() {
+        var (read, _) = await ReadSince(count: 35, lastSeq: -1, unusable: seq => seq is >= 16 and <= 35);
+
+        await Assert.That(read.Entries.Select(e => e.Seq).Order()).IsEquivalentTo(Enumerable.Range(1, 15));
+        await Assert.That(read.FromThreadStart).IsTrue();
     }
 
     [Test]

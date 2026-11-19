@@ -81,6 +81,8 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
         public Dictionary<string, (string Fingerprint, DateTimeOffset ReadAt)> Seen { get; } = new(StringComparer.Ordinal);
 
         public HashSet<string> WithoutBeginning { get; } = new(StringComparer.Ordinal);
+
+        public HashSet<string> Unread { get; } = new(StringComparer.Ordinal);
     }
 
     /// <summary>The source the options name, else the gateway where this computer has one, else the desktop
@@ -108,6 +110,15 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
             if (!changed && state.Open is null) continue;
 
             var read    = GrokBotSessionizer.NeedsRead(state, changed, now.ToUnixTimeMilliseconds(), run.Options.Gap) ? await run.Source.ReadSinceAsync(agent.Id, state.LastSeq, ct) : GrokBotRead.Nothing;
+
+            if (read.Failed) {
+                // Said once per stretch; the chat is read again next cycle.
+                if (run.Unread.Add(agent.Id)) run.Log($"chat {agent.Id}: could not be read; nothing is sent for it until it can");
+                continue;
+            }
+
+            run.Unread.Remove(agent.Id);
+
             var actions = GrokBotSessionizer.Plan(agent.Id, state, read.Entries, now.ToUnixTimeMilliseconds(), agent.IsRunningTurn, run.Options.Gap, read.FromThreadStart);
 
             if (run.Options.DryRun) {

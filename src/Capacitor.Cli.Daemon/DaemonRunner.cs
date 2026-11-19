@@ -685,9 +685,7 @@ public static partial class DaemonRunner {
             record: async () => {
                 var (outcome, snapshot) = await AppConfig.TryLoadProfileConfig(configRoot);
 
-                return outcome == ProfileConfigLoad.Unreadable
-                    ? null
-                    : (snapshot.Profiles.GetValueOrDefault(config.Profiles.Name) ?? config.Profiles.Effective)?.GrokBot?.Record == true;
+                return GrokBotWatcherService.Records(outcome, snapshot, config.Profiles);
             },
             watch: (log, ct) => sp.GetRequiredService<GrokBotWatcher>().RunAsync(new GrokBotWatchOptions(), log, ct),
             time, sp.GetRequiredService<ILogger<GrokBotWatcherService>>()));

@@ -42,27 +42,28 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) : IGr
     }
 
     /// <summary>The newest page, then earlier pages until one reaches <paramref name="lastSeq"/> or the
-    /// chat's first entry.</summary>
+    /// chat's first entry. Unreadable when a resumed read cannot get back to <paramref name="lastSeq"/>.</summary>
     public async Task<GrokBotRead> ReadSinceAsync(string agentId, int lastSeq, CancellationToken ct) {
         var (entries, before) = await TailAsync(agentId, null, ct);
-        var all          = new List<GrokBotEntry>(entries);
-        var reachedStart = before is null;
+        var all   = new List<GrokBotEntry>(entries);
+        var floor = Math.Max(lastSeq + 1, 1);
 
-        for (var page = 1; !reachedStart && all.Count > 0 && all.Min(e => e.Seq) > Math.Max(lastSeq + 1, 1); page++) {
-            if (page >= MaxPages) return new(all, false);
+        // Paged by the cursor, not by what a page parsed to: a page of entries this reader rejects still
+        // has earlier pages behind it.
+        for (var pages = 1; before is { } cursor && cursor > floor; pages++) {
+            // The budget bounds a first read only. A resumed read stops short of nothing: whatever it left
+            // unread behind the newest pages would be passed over for good once those are delivered.
+            if (lastSeq < 0 && pages >= MaxPages) return new(all, false);
 
-            var oldest        = all.Min(e => e.Seq);
-            var (older, next) = await TailAsync(agentId, before, ct);
+            var (older, next) = await TailAsync(agentId, cursor, ct);
 
-            // A page that does not move backwards while a cursor is outstanding leaves the beginning unreached.
-            if (older.Count == 0 || older.Min(e => e.Seq) >= oldest) break;
+            if (next >= cursor) return lastSeq < 0 ? new(all.Concat(older).ToList(), false) : GrokBotRead.Unreadable;
 
             all.AddRange(older);
-            before       = next;
-            reachedStart = next is null;
+            before = next;
         }
 
-        return new(all, reachedStart || all.Count == 0 || all.Min(e => e.Seq) <= Math.Max(lastSeq + 1, 1));
+        return new(all, true);
     }
 
     /// <summary>The newest entries, or the page before <paramref name="beforeSeq"/>. Returns the

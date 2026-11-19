@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Daemon.Harness.GrokBot;
 using Capacitor.Cli.Recording.Harness.GrokBot;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -117,6 +118,44 @@ public class GrokBotWatcherServiceTests {
         await Assert.That(service.ExecuteTask!.IsFaulted).IsFalse();
         await service.StopAsync(CancellationToken.None);
         await Assert.That(service.ExecuteTask.IsCompletedSuccessfully).IsTrue();
+    }
+
+    /// <summary>An unreadable config keeps the last answer read, and that answer may be "off": it must not
+    /// fall back to the "on" that came before it.</summary>
+    [Test]
+    public async Task An_off_answer_outlives_a_config_that_can_no_longer_be_read() {
+        bool? record  = true;
+        var   checks  = 0;
+        using var watcher = new FakeWatcher();
+        using var service = Service(() => { Interlocked.Increment(ref checks); return record; }, watcher);
+
+        await service.StartAsync(CancellationToken.None);
+        await Assert.That(await watcher.StartedAsync()).IsTrue();
+
+        record = false;
+        await Assert.That(await watcher.StoppedAsync()).IsTrue();
+
+        record = null;
+        var seen = Volatile.Read(ref checks);
+        await WaitUntilAsync(() => Volatile.Read(ref checks) >= seen + 4);
+
+        await Assert.That(watcher.Starts).IsEqualTo(1);
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    static Profile Recording(string serverUrl, bool? record = true) => new() { ServerUrl = serverUrl, GrokBot = new GrokBotSettings { Record = record } };
+
+    static ProfileConfig Config(Profile profile) => new() { Profiles = new() { ["default"] = profile } };
+
+    [Test]
+    public async Task A_profile_records_only_for_the_server_the_daemon_started_with() {
+        var own = Resolutions.Of(Recording("https://acme.kcap.ai"));
+
+        await Assert.That(GrokBotWatcherService.Records(ProfileConfigLoad.Ok, Config(Recording("https://acme.kcap.ai/")), own) == true).IsTrue();
+        await Assert.That(GrokBotWatcherService.Records(ProfileConfigLoad.Ok, Config(Recording("https://acme.kcap.ai", record: false)), own) == false).IsTrue();
+        await Assert.That(GrokBotWatcherService.Records(ProfileConfigLoad.Ok, Config(Recording("https://acme.kcap.ai", record: null)), own) == false).IsTrue();
+        await Assert.That(GrokBotWatcherService.Records(ProfileConfigLoad.Ok, Config(Recording("https://other.kcap.ai")), own) == false).IsTrue();
+        await Assert.That(GrokBotWatcherService.Records(ProfileConfigLoad.Unreadable, Config(Recording("https://acme.kcap.ai")), own)).IsNull();
     }
 
     static async Task WaitUntilAsync(Func<bool> condition) {

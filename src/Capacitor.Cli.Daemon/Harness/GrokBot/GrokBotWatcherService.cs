@@ -1,3 +1,5 @@
+using Capacitor.Cli.Core.Auth;
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Recording.Harness.GrokBot;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -20,15 +22,27 @@ internal sealed class GrokBotWatcherService(
         ILogger<GrokBotWatcherService>                                        logger) : BackgroundService {
     public static readonly TimeSpan Recheck = TimeSpan.FromSeconds(30);
 
+    /// <summary>Whether the daemon's profile asks for recording now: null when the config cannot be read.
+    /// The watcher posts to the server the daemon started with, so a profile since pointed at another
+    /// server gave its answer for that one and it does not count here.</summary>
+    public static bool? Records(ProfileConfigLoad outcome, ProfileConfig snapshot, ProfileContext own) {
+        if (outcome == ProfileConfigLoad.Unreadable) return null;
+
+        var profile = snapshot.Profiles.GetValueOrDefault(own.Name) ?? own.Effective;
+
+        return profile?.GrokBot?.Record == true && ServerIdentity.SameServer(profile.ServerUrl, own.Resolution.ServerUrl);
+    }
+
+    // The last answer actually read, for both loops: an unreadable config must not turn an observed
+    // "off" back into the "on" that came before it.
+    bool _record;
+
     protected override async Task ExecuteAsync(CancellationToken ct) {
-        var                  on   = false;
         GrokBotWatchOutcome? last = null;
 
         try {
             while (!ct.IsCancellationRequested) {
-                on = await RecordAsync(on).ConfigureAwait(false);
-
-                if (on) {
+                if (await RecordAsync().ConfigureAwait(false)) {
                     var outcome = await WatchWhileOnAsync(ct).ConfigureAwait(false);
 
                     // Said once per stretch: with no chat store or a watcher run by hand, every recheck ends the same way.
@@ -51,7 +65,7 @@ internal sealed class GrokBotWatcherService(
         while (!watching.IsCompleted && !ct.IsCancellationRequested) {
             await Task.WhenAny(watching, Task.Delay(Recheck, time, ct)).ConfigureAwait(false);
 
-            if (!watching.IsCompleted && !ct.IsCancellationRequested && !await RecordAsync(true).ConfigureAwait(false)) {
+            if (!watching.IsCompleted && !ct.IsCancellationRequested && !await RecordAsync().ConfigureAwait(false)) {
                 logger.LogInformation("Grok Bot recording turned off; stopping the watcher");
                 await run.CancelAsync().ConfigureAwait(false);
             }
@@ -72,14 +86,14 @@ internal sealed class GrokBotWatcherService(
         }
     }
 
-    async Task<bool> RecordAsync(bool known) {
+    async Task<bool> RecordAsync() {
         try {
-            return await record().ConfigureAwait(false) ?? known;
+            _record = await record().ConfigureAwait(false) ?? _record;
         } catch (Exception ex) when (ex is not OperationCanceledException) {
             logger.LogDebug(ex, "Grok Bot recording setting could not be read");
-
-            return known;
         }
+
+        return _record;
     }
 
     static string? Explain(GrokBotWatchOutcome outcome) => outcome switch {

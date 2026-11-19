@@ -1400,7 +1400,10 @@ sealed class SetupCommand(
                 ServerUrl          = serverUrl,
                 DefaultVisibility  = defaultVisibility,
                 UseProviderApiKey  = useProviderApiKey,
-                GrokBot            = grokBotRecord is { } record ? (defaultProfile.GrokBot ?? new GrokBotSettings()) with { Record = record } : defaultProfile.GrokBot,
+                // Asked of activeProfile: if another profile has become active since, the answer is not its own.
+                GrokBot            = grokBotRecord is { } record && activeName == activeProfile
+                                         ? (defaultProfile.GrokBot ?? new GrokBotSettings()) with { Record = record }
+                                         : defaultProfile.GrokBot,
                 Daemon             = (defaultProfile.Daemon ?? new DaemonSettings()) with { Name = daemonName }
             };
 
