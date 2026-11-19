@@ -390,7 +390,7 @@
                                             CommandParameter="{Binding}">
                                         <Panel>
                                             <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNull}}" />
-                                            <views:AppIcon Kind="Bookmark" Size="12" Filled="True" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                            <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
                                                            Foreground="{Binding Bookmark.Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}, FallbackValue={x:Null}}" />
                                         </Panel>
                                     </Button>
@@ -454,7 +454,7 @@
                                         CommandParameter="{Binding}">
                                     <Panel>
                                         <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNull}}" />
-                                        <views:AppIcon Kind="Bookmark" Size="12" Filled="True" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                        <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
                                                        Foreground="{Binding Bookmark.Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}, FallbackValue={x:Null}}" />
                                     </Panel>
                                 </Button>
