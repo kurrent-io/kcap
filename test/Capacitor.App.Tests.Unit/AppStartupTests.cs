@@ -188,14 +188,17 @@ public class AppStartupTests {
         await Assert.That(builds).IsEqualTo(0);
     }
 
-    /// A startup frame the user minimized while it loaded stays minimized when the graph adopts it.
+    /// A startup frame the user minimized while it loaded stays minimized when the graph adopts it, and
+    /// a close to the tray and a reopen bring it back maximized, as it opened, not normal.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_minimized_startup_window_is_adopted_without_being_restored() {
         var appState = AppState();
+        await appState.UpdateAsync(s => s with { WindowMaximized = true });
         var savedState = await appState.LoadAsync();
-        var (same, state, hasVm) = await AvaloniaSession.DispatchAsync(() => {
-            var startup = AppUnderTest.ShowStartupWindow(savedState, uiScale: null, appState);
+        var (same, adopted, hasVm, reopened) = await AvaloniaSession.DispatchAsync(() => {
+            var placement = new WindowRestore();
+            var startup = AppUnderTest.ShowStartupWindow(savedState, uiScale: null, appState, placement);
             Dispatcher.UIThread.RunJobs();
             startup.WindowState = WindowState.Minimized;
 
@@ -204,19 +207,25 @@ public class AppStartupTests {
             var coordinator = new MainWindowCoordinator(() => AppUnderTest.BuildAndShowMainWindow(
                 service, Config.Root, appState, actions, notifier, new FakeTicker(), CancellationToken.None,
                 TestActivity.New(), new NeverLaunchClient(), TimeProvider.System, adopt: (startup, savedState)));
-            AppUnderTest.OpenMainWindow(coordinator, hadStartupFrame: true);
+            AppUnderTest.OpenMainWindow(coordinator, placement);
             Dispatcher.UIThread.RunJobs();
 
             var window = coordinator.Window!;
             var result = (ReferenceEquals(window, startup), window.WindowState, window.DataContext is MainWindowViewModel);
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            coordinator.ShowMainWindow();
+            Dispatcher.UIThread.RunJobs();
+            var back = window.WindowState;
             coordinator.QuitInProgress = true;
             window.Close();
-            return result;
+            return (result.Item1, result.Item2, result.Item3, back);
         });
 
         await Assert.That(same).IsTrue();
-        await Assert.That(state).IsEqualTo(WindowState.Minimized);
+        await Assert.That(adopted).IsEqualTo(WindowState.Minimized);
         await Assert.That(hasVm).IsTrue();
+        await Assert.That(reopened).IsEqualTo(WindowState.Maximized);
     }
 
     /// With the rail collapsed the loading line moves to the main pane rather than leaving it blank.

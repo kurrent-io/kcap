@@ -56,7 +56,9 @@ public sealed class MainWindowCoordinator(
     }
 
     /// Builds the window without showing it, for a launch that has something to finish first.
-    public void Prepare() {
+    /// <param name="placement">A tracker already following the window the factory adopts, which saw
+    /// states this coordinator did not; used only if it tracks that window.</param>
+    public void Prepare(WindowRestore? placement = null) {
         if (QuitInProgress) return;
 
         if (_window is null) {
@@ -68,8 +70,11 @@ public sealed class MainWindowCoordinator(
                 if (ReferenceEquals(_window, window)) _window = null;
             };
             _window = window;
-            _placement = new WindowRestore();
-            _placement.Track(window);
+            if (placement is not null && placement.Tracks(window)) _placement = placement;
+            else {
+                _placement = new WindowRestore();
+                _placement.Track(window);
+            }
         }
     }
 

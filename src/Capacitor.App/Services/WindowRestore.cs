@@ -12,10 +12,14 @@ namespace Capacitor.App.Services;
 public sealed class WindowRestore {
     WindowState _lastShown = WindowState.Normal;
     WindowState? _hiddenAs;
+    Window? _tracked;
+
+    public bool Tracks(Window window) => ReferenceEquals(_tracked, window);
 
     /// Follows the window's state while it is on screen, so one closed while minimized comes back
     /// as it was before that. A hidden window's state changes are the platform's, not the user's.
     public void Track(Window window) {
+        _tracked = window;
         if (window.WindowState != WindowState.Minimized) _lastShown = window.WindowState;
         window.PropertyChanged += (_, e) => {
             if (e.Property != Window.WindowStateProperty || !window.IsVisible) return;

@@ -86,6 +86,8 @@ public partial class App : Application {
     TimeSpan? _windowBuild;
     // The frame put up before the graph existed, open or since closed; the graph's window replaces neither.
     MainWindow? _startupFrame;
+    // Follows the startup frame from before its first show, so a maximize it opened in outlives a minimize before the graph adopts it.
+    WindowRestore? _startupPlacement;
     static readonly TimeSpan StartupFrameWait = TimeSpan.FromMilliseconds(500);
 
     // The update this launch finishes, once StartAsync has taken its record; null on an ordinary launch.
@@ -1488,7 +1490,7 @@ public partial class App : Application {
             // A setup window adopted as the main window is already on screen; it waits for the hand-over too.
             _coordinator.Window?.Hide();
         } else {
-            OpenMainWindow(_coordinator, hadStartupFrame: _startupFrame is not null);
+            OpenMainWindow(_coordinator, _startupPlacement);
             _updateHandedOver.TrySetResult();
         }
         desktop.MainWindow = _coordinator.Window;
@@ -1599,6 +1601,8 @@ public partial class App : Application {
                 ? Observable.FromEvent<string?>(h => hint.TrayHintChanged += h, h => hint.TrayHintChanged -= h).StartWith(hint.TrayHint)
                 : null);
         _tray = new TrayIconManager(this, _trayVm);
+        // A startup frame closed before the coordinator could intercept the close was a hide to the tray all the same.
+        if (!_shutdownStarted && _startupFrame is { } frame && !ReferenceEquals(_coordinator.Window, frame)) _ = _closeToTrayHint?.OnHiddenAsync();
         StartupMarks.Mark("tray_created", ("executable", Environment.ProcessPath));
     }
 
@@ -2532,8 +2536,8 @@ public partial class App : Application {
 
     // A startup frame is adopted where it stands, minimized or behind another app as the user left it,
     // and one the user closed leaves the window built but hidden: showing either would reopen it.
-    internal static void OpenMainWindow(MainWindowCoordinator coordinator, bool hadStartupFrame) {
-        if (hadStartupFrame) coordinator.Prepare();
+    internal static void OpenMainWindow(MainWindowCoordinator coordinator, WindowRestore? startupPlacement) {
+        if (startupPlacement is not null) coordinator.Prepare(startupPlacement);
         else coordinator.ShowMainWindow();
     }
 
@@ -2558,14 +2562,17 @@ public partial class App : Application {
     async Task<bool> ShowStartupWindowAsync(ProfileContext? profiles) {
         if (_postUpdate is null) {
             var serverUrl = profiles?.Resolution.ServerUrl;
-            var owed = await Task.Run(() => IsLocalServer(serverUrl, _localRoot) && AppComponentStamp.Owed(_config, CapacitorVersion.CurrentDisplay()));
-            _postUpdate ??= InferUpdate(owed);
+            var inferred = await Task.Run(() => InferUpdate(
+                IsLocalServer(serverUrl, _localRoot) && AppComponentStamp.Owed(_config, CapacitorVersion.CurrentDisplay())));
+            _postUpdate ??= inferred;
         }
         if (_postUpdate is not null || _shutdownStarted) return false;
         var state = await _appState.LoadAsync();
         if (_shutdownStarted || _shutdown.IsCancellationRequested) return false;
 
-        var window = ShowStartupWindow(state, _uiScale, _appState);
+        var placement = new WindowRestore();
+        var window = ShowStartupWindow(state, _uiScale, _appState, placement);
+        _startupPlacement = placement;
         _adoptableWindow = (window, state);
         _startupFrame = window;
         var drawn = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2580,12 +2587,13 @@ public partial class App : Application {
 
     // Tracked before the first Show(): a window that opens maximized must seed its tracker with the
     // normal frame, not the work area the platform resizes it to.
-    internal static MainWindow ShowStartupWindow(AppState state, UiScaleSetting? uiScale, IAppStateStore store) {
+    internal static MainWindow ShowStartupWindow(AppState state, UiScaleSetting? uiScale, IAppStateStore store, WindowRestore? placement = null) {
         var window = new MainWindow { ContentScale = uiScale, ShowsStartup = true };
         WindowSizeMemory.Apply(window, state);
         WindowSizeMemory.Attach(window, store);
         PaneLayoutMemory.Apply(window.Panes, state);
         PaneLayoutMemory.Attach(window.Panes, store);
+        placement?.Track(window);
         window.Show();
         return window;
     }
