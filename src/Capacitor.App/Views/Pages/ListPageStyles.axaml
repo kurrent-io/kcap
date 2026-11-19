@@ -8,9 +8,9 @@
             <Setter Property="Template">
                 <ControlTemplate>
                     <Border Background="{TemplateBinding Background}">
-                        <DockPanel Margin="24,20,24,0" XYFocus.NavigationModes="Keyboard">
-                            <!-- The right margin keeps the list's text clear of its scrollbar, and the header in line with it. -->
-                            <StackPanel DockPanel.Dock="Top" MaxWidth="860" Spacing="4" Margin="0,0,14,16">
+                        <!-- The same column as the launcher: 680 wide inside a 24px gutter, the scrollbar at the window's edge. -->
+                        <DockPanel Margin="0,20,0,0" XYFocus.NavigationModes="Keyboard">
+                            <StackPanel DockPanel.Dock="Top" MaxWidth="680" Spacing="4" Margin="24,0,24,16">
                                 <TextBlock Name="PART_Heading" Text="{TemplateBinding Heading}" FontSize="18" FontWeight="SemiBold"
                                            TextTrimming="CharacterEllipsis" />
                                 <TextBlock Text="{TemplateBinding Count}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" />
@@ -23,7 +23,7 @@
                                 </DockPanel>
                             </StackPanel>
                             <ScrollViewer>
-                                <StackPanel MaxWidth="860" Spacing="8" Margin="0,0,14,24">
+                                <StackPanel MaxWidth="680" Spacing="8" Margin="24,0,24,24">
                                     <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}"
                                                       ContentTemplate="{TemplateBinding ContentTemplate}" />
                                     <TextBlock Name="PART_Message" Text="{TemplateBinding Message}" FontSize="13"
