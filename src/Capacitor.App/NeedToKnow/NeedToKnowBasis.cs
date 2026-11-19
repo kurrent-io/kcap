@@ -5,7 +5,7 @@ namespace Capacitor.App.NeedToKnow;
 /// How each level below must-know is shown. Must-know is always shown normally, and footnote is
 /// never more visible than detail.
 public sealed record NeedToKnowBasis(NeedToKnowDisplay Detail, NeedToKnowDisplay Footnote) {
-    public static NeedToKnowBasis Default { get; } = new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Faded);
+    public static NeedToKnowBasis Default { get; } = new(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Faded);
 
     static readonly BehaviorSubject<NeedToKnowBasis> Subject = new(Default);
 

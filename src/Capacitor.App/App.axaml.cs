@@ -26,6 +26,7 @@ using Capacitor.App.Services.Notifications;
 using Capacitor.App.Services.Onboarding;
 using Capacitor.App.Services.Update;
 using Capacitor.Cli.Core.Install;
+using Capacitor.App.NeedToKnow;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.NextWork;
 using Capacitor.App.ViewModels.Onboarding;
@@ -112,6 +113,7 @@ public partial class App : Application {
     readonly AppStateStore _appState;
 
     readonly UiScaleSetting _uiScale;
+    readonly NeedToKnowPreferences? _needToKnow;
     readonly BetaUpdatesSetting _betaUpdates;
 
     // Set only in a copy started to uninstall; nothing of the normal app is built in it.
@@ -139,6 +141,7 @@ public partial class App : Application {
 #pragma warning restore RS0030
         _uiScale = UiScaleSetting.LoadAsync(_appState).GetAwaiter().GetResult();
         _betaUpdates = BetaUpdatesSetting.LoadAsync(_appState).GetAwaiter().GetResult();
+        _needToKnow = _appState.LoadAsync().GetAwaiter().GetResult().NeedToKnow;
     }
 
     internal static TelemetryStartup DesktopTelemetry(
@@ -334,6 +337,8 @@ public partial class App : Application {
 
     public override void Initialize() {
         AvaloniaXamlLoader.Load(this);
+        // After the load, which would put back the fade brushes this replaces.
+        NeedToKnowBasisViewModel.Shared.Restore(_needToKnow, _appState);
         LineSelection.Install();
         ToolTipFocusGate.Install();
         // Here, not later: Avalonia exports the app menu right after Initialize, substituting its own

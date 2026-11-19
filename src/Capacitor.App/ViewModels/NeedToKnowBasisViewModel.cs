@@ -1,5 +1,6 @@
 using System.Reactive;
 using Capacitor.App.NeedToKnow;
+using Capacitor.App.Services;
 using Capacitor.App.Views;
 using ReactiveUI.Reactive;
 
@@ -11,7 +12,16 @@ namespace Capacitor.App.ViewModels;
 public sealed class NeedToKnowBasisViewModel : ReactiveObject {
     public static NeedToKnowBasisViewModel Shared { get; } = new();
 
+    // Opacity percent of the text colour; the defaults match the brushes App.axaml starts with.
+    const double DefaultDetailFade = 60;
+    const double DefaultFootnoteFade = 40;
+    const double MinFade = 5;
+    const double MaxFade = 95;
+
     NeedToKnowBasis _basis = NeedToKnowBasis.Current;
+    double _detailFade = DefaultDetailFade;
+    double _footnoteFade = DefaultFootnoteFade;
+    IAppStateStore? _store;
 
     NeedToKnowBasisViewModel() {
         SetDetailCommand = ReactiveCommand.Create<NeedToKnowDisplay>(display =>
@@ -24,24 +34,14 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
 
     public ReactiveCommand<NeedToKnowDisplay, Unit> SetFootnoteCommand { get; }
 
-    // Opacity percent of the text colour; the defaults match the brushes App.axaml starts with.
-    double _detailFade = 60;
-    double _footnoteFade = 40;
-
     public double DetailFade {
         get => _detailFade;
-        set {
-            this.RaiseAndSetIfChanged(ref _detailFade, Math.Round(value));
-            NeedToKnowFades.Set(NeedToKnowLevel.Detail, _detailFade);
-        }
+        set => SetFade(NeedToKnowLevel.Detail, value);
     }
 
     public double FootnoteFade {
         get => _footnoteFade;
-        set {
-            this.RaiseAndSetIfChanged(ref _footnoteFade, Math.Round(value));
-            NeedToKnowFades.Set(NeedToKnowLevel.Footnote, _footnoteFade);
-        }
+        set => SetFade(NeedToKnowLevel.Footnote, value);
     }
 
     public bool DetailNormal => _basis.Detail == NeedToKnowDisplay.Normal;
@@ -53,6 +53,31 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
     public bool FootnoteCanBeNormal => _basis.Detail <= NeedToKnowDisplay.Normal;
     public bool FootnoteCanBeFaded => _basis.Detail <= NeedToKnowDisplay.Faded;
 
+    /// Takes the saved basis, then saves every later change to the store. Run once the app's resources
+    /// are loaded, since the fades replace brushes there.
+    public void Restore(NeedToKnowPreferences? saved, IAppStateStore? store) {
+        _store = null;
+        var detail = Parse(saved?.Detail, NeedToKnowBasis.Default.Detail);
+        Apply(new(detail, Max(detail, Parse(saved?.Footnote, NeedToKnowBasis.Default.Footnote))));
+        SetFade(NeedToKnowLevel.Detail, saved?.DetailFade ?? DefaultDetailFade);
+        SetFade(NeedToKnowLevel.Footnote, saved?.FootnoteFade ?? DefaultFootnoteFade);
+        _store = store;
+    }
+
+    static NeedToKnowDisplay Parse(string? name, NeedToKnowDisplay fallback) =>
+        Enum.TryParse<NeedToKnowDisplay>(name, ignoreCase: true, out var display) && Enum.IsDefined(display) ? display : fallback;
+
+    static NeedToKnowDisplay Max(NeedToKnowDisplay a, NeedToKnowDisplay b) => a > b ? a : b;
+
+    void SetFade(NeedToKnowLevel level, double value) {
+        var percent = Math.Clamp(Math.Round(value), MinFade, MaxFade);
+        if (percent == (level == NeedToKnowLevel.Footnote ? _footnoteFade : _detailFade)) return;
+        if (level == NeedToKnowLevel.Footnote) this.RaiseAndSetIfChanged(ref _footnoteFade, percent, nameof(FootnoteFade));
+        else this.RaiseAndSetIfChanged(ref _detailFade, percent, nameof(DetailFade));
+        NeedToKnowFades.Set(level, percent);
+        Save();
+    }
+
     void Apply(NeedToKnowBasis basis) {
         _basis = basis;
         NeedToKnowBasis.Set(basis);
@@ -62,5 +87,15 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
                      nameof(FootnoteCanBeNormal), nameof(FootnoteCanBeFaded),
                  })
             this.RaisePropertyChanged(name);
+        Save();
     }
+
+    /// Each write stores what is current when it runs, so overlapping changes cannot leave an older one on disk.
+    void Save() {
+        if (_store is not { } store) return;
+        Volatile.Write(ref _saved, new(_basis.Detail.ToString(), _basis.Footnote.ToString(), _detailFade, _footnoteFade));
+        _ = store.UpdateAsync(state => state with { NeedToKnow = Volatile.Read(ref _saved) });
+    }
+
+    NeedToKnowPreferences? _saved;
 }

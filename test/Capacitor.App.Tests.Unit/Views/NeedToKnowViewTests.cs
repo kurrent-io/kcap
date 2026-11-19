@@ -20,7 +20,7 @@ public class NeedToKnowViewTests {
     [Test]
     public async Task A_chat_view_follows_the_basis_as_it_changes() {
         await RunOnUiAsync(async () => {
-            NeedToKnowBasis.Set(NeedToKnowBasis.Default);
+            NeedToKnowBasis.Set(new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Normal));
             var (window, root, _) = Show("Tests pass. ⌞7 ran.⌟ CI is green.");
             try {
                 await Assert.That(Reads(Paragraphs(root).Single())).IsEqualTo("Tests pass. 7 ran. CI is green.");
@@ -29,7 +29,7 @@ public class NeedToKnowViewTests {
                 Dispatcher.UIThread.RunJobs();
                 await Assert.That(Reads(Paragraphs(root).Single())).IsEqualTo("Tests pass. CI is green.");
 
-                NeedToKnowBasis.Set(NeedToKnowBasis.Default with { Detail = NeedToKnowDisplay.Faded });
+                NeedToKnowBasis.Set(new(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Hidden));
                 Dispatcher.UIThread.RunJobs();
                 var greyed = Spans<Span>(Paragraphs(root).Single().Inlines!).Where(s => s.Classes.Contains("need-to-know-faded")).ToList();
                 await Assert.That(greyed.Count).IsEqualTo(1);
