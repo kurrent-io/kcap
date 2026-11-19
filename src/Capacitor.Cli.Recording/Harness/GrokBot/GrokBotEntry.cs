@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace Capacitor.Cli.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Harness.GrokBot;
 
 /// <summary>One gateway transcript entry, with what the sessionizer needs to decide whether it may be
 /// sent yet. <see cref="StartsTurn"/> marks a message from the user, which leaves an unanswered question

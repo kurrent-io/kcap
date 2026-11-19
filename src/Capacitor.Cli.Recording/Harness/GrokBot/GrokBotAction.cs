@@ -1,4 +1,4 @@
-namespace Capacitor.Cli.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Harness.GrokBot;
 
 /// <summary>One server call the poller owes for a Bot. <see cref="After"/> is the state to persist once
 /// the call succeeds, so a failure part-way leaves state at the last call that landed.</summary>

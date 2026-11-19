@@ -1,6 +1,6 @@
-using Capacitor.Cli.Harness.GrokBot;
+using Capacitor.Cli.Recording.Harness.GrokBot;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.GrokBot;
 
 /// <summary>Pins that delivery state survives a round trip, and that a missing or corrupt file reads as
 /// "nothing delivered" rather than failing the watcher.</summary>

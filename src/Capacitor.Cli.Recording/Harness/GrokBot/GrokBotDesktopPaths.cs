@@ -1,7 +1,7 @@
 using System.Text;
 using Capacitor.Cli.Core;
 
-namespace Capacitor.Cli.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Harness.GrokBot;
 
 /// <summary>Where the Grok Bot desktop app keeps its own copy of each chat: one file per chat under its
 /// Electron data directory, named by the base32 of a dotted key that ends in the chat's id.</summary>

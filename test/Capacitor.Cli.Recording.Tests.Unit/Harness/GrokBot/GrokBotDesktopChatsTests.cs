@@ -1,7 +1,7 @@
 using System.Text;
-using Capacitor.Cli.Harness.GrokBot;
+using Capacitor.Cli.Recording.Harness.GrokBot;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.GrokBot;
 
 /// <summary>Pins how the desktop app's chat store is read: which files are chats, when one counts as
 /// changed, and when a copy is known to hold its chat from the first entry.</summary>
@@ -11,7 +11,7 @@ public class GrokBotDesktopChatsTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     /// <summary>A store file name as the app writes it: the key in unpadded lowercase base32.</summary>
-    static string FileFor(string key) {
+    internal static string FileFor(string key) {
         const string alphabet = "abcdefghijklmnopqrstuvwxyz234567";
         var name   = new StringBuilder();
         var buffer = 0;

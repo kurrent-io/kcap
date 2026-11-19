@@ -1,6 +1,6 @@
-using Capacitor.Cli.Harness.GrokBot;
+using Capacitor.Cli.Recording.Harness.GrokBot;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.GrokBot;
 
 /// <summary>Pins how a Bot's endless thread is cut into sessions and when an entry may be sent.</summary>
 public class GrokBotSessionizerTests {

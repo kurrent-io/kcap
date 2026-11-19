@@ -1,4 +1,4 @@
-namespace Capacitor.Cli.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Harness.GrokBot;
 
 /// <summary>
 /// Spacing between watcher cycles. Each consecutive failed cycle doubles the wait up to a ceiling, and a

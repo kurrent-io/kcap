@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Capacitor.Cli.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Harness.GrokBot;
 
 /// <summary>
 /// Cuts one Bot's endless thread into sessions: a session opens at the first entry after an idle gap and

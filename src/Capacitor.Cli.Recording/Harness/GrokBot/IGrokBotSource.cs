@@ -1,4 +1,4 @@
-namespace Capacitor.Cli.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Harness.GrokBot;
 
 /// <summary>Where the watcher reads chats from: the cloud computer's gateway, or the desktop app's own
 /// copy of each chat. Both hand over the same entries, so a chat read from either lands in the same

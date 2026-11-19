@@ -3,7 +3,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 
-namespace Capacitor.Cli.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Harness.GrokBot;
 
 /// <summary>Per-Bot delivery state, one JSON file under the config root. Written whole through a
 /// temporary file, so a crash mid-write leaves the previous state rather than a torn one.</summary>

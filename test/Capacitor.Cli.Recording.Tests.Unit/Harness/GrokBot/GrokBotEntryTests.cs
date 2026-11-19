@@ -1,7 +1,7 @@
 using System.Text.Json;
-using Capacitor.Cli.Harness.GrokBot;
+using Capacitor.Cli.Recording.Harness.GrokBot;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.GrokBot;
 
 /// <summary>Pins how a gateway entry is read: which entries may wait, and that the line keeps the entry
 /// verbatim plus its Bot.</summary>

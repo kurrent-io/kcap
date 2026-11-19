@@ -1,8 +1,8 @@
 using System.Net;
 using System.Text;
-using Capacitor.Cli.Harness.GrokBot;
+using Capacitor.Cli.Recording.Harness.GrokBot;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.GrokBot;
 
 /// <summary>Pins which <c>listAgents</c> fields count as a change. <c>lastEntry</c> previews how the last
 /// message opens and <c>localActivityAt</c> is the chat's creation time, so a fingerprint built on them stays

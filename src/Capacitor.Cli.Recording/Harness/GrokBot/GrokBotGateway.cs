@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 
-namespace Capacitor.Cli.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Harness.GrokBot;
 
 /// <summary>
 /// Client for the Grok Bot cloud computer's local gateway, an undocumented internal API: every call is

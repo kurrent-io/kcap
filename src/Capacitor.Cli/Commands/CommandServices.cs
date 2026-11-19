@@ -12,6 +12,7 @@ using Capacitor.Cli.Core.Skills;
 using Capacitor.Cli.Core.Telemetry;
 using Capacitor.Cli.Harness.MuseAssistant;
 using Capacitor.Cli.LocalEdition;
+using Capacitor.Cli.Recording.Harness.GrokBot;
 using Microsoft.Extensions.DependencyInjection;
 using Capacitor.Cli.Recording.PrDetection;
 
@@ -133,6 +134,7 @@ public static class CommandServices {
                 ? s => FeedbackMail.Send(s, sp.GetRequiredService<IBrowserLauncher>(), Clipboard.TryCopy)
                 : null));
         services.AddTransient<GrokBotWatchCommand>();
+        services.AddTransient<GrokBotWatcher>();
         services.AddTransient<HarnessCommand>();
         services.AddTransient<IdeCommand>();
         services.AddTransient<IgnoreCommand>();

@@ -1,6 +1,6 @@
-using Capacitor.Cli.Harness.GrokBot;
+using Capacitor.Cli.Recording.Harness.GrokBot;
 
-namespace Capacitor.Cli.Tests.Unit.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Tests.Unit.Harness.GrokBot;
 
 /// <summary>Pins the watcher's spacing after failures and that an unchanged failure is reported once.</summary>
 public class GrokBotBackoffTests {

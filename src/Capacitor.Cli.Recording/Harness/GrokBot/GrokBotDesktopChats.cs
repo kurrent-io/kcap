@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Capacitor.Cli.Core;
 
-namespace Capacitor.Cli.Harness.GrokBot;
+namespace Capacitor.Cli.Recording.Harness.GrokBot;
 
 /// <summary>
 /// The Grok Bot desktop app's own copy of each chat, read from disk. The app rewrites a chat's file as
