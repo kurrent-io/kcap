@@ -1778,17 +1778,21 @@ still never reads a credential location of its own accord — it only forwards w
 
 On Windows nothing is derived unless you ask for it. A gcloud credentials file that merely exists does not
 set `AGY_ADC_AUTH=1` there: that flag turns `agy` away from its own sign-in, and with it set and no project
-`agy` fails with `plan model not specified`. To use ADC there, set the flag for the start command alone,
-and `kcap daemon start`/`-d` fills in the other two as above:
+`agy` fails with `plan model not specified`. To use ADC there, log gcloud in, give it a project, and set
+the flag for the start command alone; `kcap daemon start`/`-d` then fills in the other two as above:
 
 ```powershell
+gcloud auth application-default login
+gcloud config set project <id>
 $env:AGY_ADC_AUTH = '1'; kcap daemon start -d --name $env:USERNAME; Remove-Item Env:AGY_ADC_AUTH
 ```
 
 Removing it afterwards matters: left set in your shell, it is the export the end of this section warns
-against. The desktop app starts its daemon the same way from its own environment, so it derives nothing
-unless the flag is set there. `service install` derives nothing either way and never carries the
-credential path, as it carries no secret-capable value into a Windows unit.
+against. The desktop app does not do this for you. With no service installed it runs `kcap daemon start -d`
+from its own environment, where the flag is normally unset; with a service installed it starts that
+service, which derives nothing. Start the daemon from a shell as above when you want ADC. `service install`
+derives nothing either way and never carries the credential path, as it carries no secret-capable value
+into a Windows unit.
 
 A daemon already running from before you logged in needs a fresh start to pick the trio up — `kcap daemon
 stop` then `kcap daemon start`/`-d` (or re-run `service install`). `kcap daemon restart` reuses the running
