@@ -1776,9 +1776,12 @@ launch redirects `HOME` (and on Windows `APPDATA`) to a per-launch state directo
 location is not visible to the child. Derivation happens in the CLI, at your command; the daemon itself
 still never reads a credential location of its own accord — it only forwards what it was started with.
 
-On Windows, `service install` derives nothing and never carries the credential path, as it carries no
-secret-capable value into a Windows unit, so a Windows daemon gets the trio from `kcap daemon start`/`-d`
-— which is how the desktop app starts it.
+On Windows nothing is derived unless you ask for it. A gcloud credentials file that merely exists does not
+set `AGY_ADC_AUTH=1` there: that flag turns `agy` away from its own sign-in, and with it set and no project
+`agy` fails with `plan model not specified`. Export `AGY_ADC_AUTH=1` yourself and `kcap daemon start`/`-d`
+— which is how the desktop app starts the daemon — fills in the other two as above. `service install`
+derives nothing either way and never carries the credential path, as it carries no secret-capable value
+into a Windows unit.
 
 A daemon already running from before you logged in needs a fresh start to pick the trio up — `kcap daemon
 stop` then `kcap daemon start`/`-d` (or re-run `service install`). `kcap daemon restart` reuses the running
