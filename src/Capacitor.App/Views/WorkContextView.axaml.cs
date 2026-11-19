@@ -1,9 +1,11 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
 
@@ -23,7 +25,22 @@ public partial class WorkContextView : UserControl {
         _bookmarkMenu = sender as Flyout;
         if (_bookmarkMenu?.Content is not Panel rows) return;
         var can = DataContext is WorkContextViewModel { CanAskAgent: true };
-        foreach (var row in rows.Children) row.IsEnabled = can;
+        foreach (var row in rows.Children) {
+            row.IsEnabled = can;
+            if (row is Button { Tag: ChatBookmarkAsk ask } button) AgentRow(button, ask.Label());
+        }
+    }
+
+    // A row that sends the agent a message leads with the agent's own mark.
+    void AgentRow(Button row, string label) {
+        Control mark = (DataContext as WorkContextViewModel)?.AgentVendor is { Length: > 0 } vendor
+            ? LaunchChipsView.BuildGlyph(vendor, 14)
+            : new AppIcon { Kind = ToolCategoryIcons.AgentIcon, Size = 14, VerticalAlignment = VerticalAlignment.Center };
+        row.Content = new StackPanel {
+            Orientation = Orientation.Horizontal, Spacing = 8,
+            Children = { mark, new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center } },
+        };
+        AutomationProperties.SetName(row, label);
     }
 
     Flyout? _bookmarkMenu;
@@ -42,7 +59,7 @@ public partial class WorkContextView : UserControl {
         var can = DataContext is WorkContextViewModel { CanAskAgent: true } && section is { Bookmarks.Count: > 0 };
         foreach (var row in rows.Children) {
             row.IsEnabled = can;
-            if (row is Button { Classes: var classes } ask && classes.Contains("topicAsk") && section is not null) ask.Content = section.LooseEndsLabel;
+            if (row is Button { Classes: var classes } ask && classes.Contains("topicAsk") && section is not null) AgentRow(ask, section.LooseEndsLabel);
         }
     }
 

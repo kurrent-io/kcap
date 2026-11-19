@@ -1013,7 +1013,8 @@ public class WorkContextViewSmokeTests {
 
     /// The section lists each topic with its bookmarks under it, the topic gone to in bold; a
     /// bookmark is recoloured from the swatches under its icon, handed to the session's agent from its
-    /// right-click menu only while the agent can take a message, and removed from its row.
+    /// right-click menu, whose rows lead with the agent's mark, only while the agent can take a
+    /// message, and removed from its row.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Topics_list_their_bookmarks_which_recolour_and_remove() {
@@ -1069,7 +1070,8 @@ public class WorkContextViewSmokeTests {
             host.Window.MouseUp(onTopic, MouseButton.Right);
             Settle();
             var fileAll = host.Window.GetVisualDescendants().OfType<Button>().First(b => b.Classes.Contains("topicAsk"));
-            await Assert.That(fileAll.Content).IsEqualTo("File 2 bookmarks as loose ends");
+            await Assert.That(AutomationProperties.GetName(fileAll)).IsEqualTo("File 2 bookmarks as loose ends");
+            await Assert.That(((StackPanel)fileAll.Content!).Children[0]).IsTypeOf<Avalonia.Controls.Shapes.Path>();
             Press(fileAll);
             await Assert.That(host.Sent).Count().IsEqualTo(2);
             await Assert.That(host.Sent[1]).Contains("\"Locks\"").And.Contains("> Lock order").And.Contains("> Retry jitter");

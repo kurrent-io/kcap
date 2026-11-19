@@ -4,6 +4,11 @@ namespace Capacitor.App.ViewModels;
 public enum ChatBookmarkAsk { StartSession, FileLooseEnd }
 
 public static class ChatBookmarkAskText {
+    public static string Label(this ChatBookmarkAsk ask) => ask switch {
+        ChatBookmarkAsk.StartSession => "Start a session for this",
+        _ => "File as a loose end",
+    };
+
     /// The message that asks the agent. A bookmark is a fragment of the conversation, so the agent is told
     /// to write what it files or launches from the conversation around it, not from the bookmark alone.
     public static string For(this ChatBookmarkAsk ask, ChatBookmark bookmark) => ask switch {

@@ -302,11 +302,9 @@
                     <Flyout FlyoutPresenterClasses="kcapPanel" Opening="OnBookmarkMenuOpening">
                         <StackPanel Spacing="2" Margin="6" MinWidth="160">
                             <Button Classes="kcapGhost bookmarkAsk" Tag="{x:Static vm:ChatBookmarkAsk.StartSession}" Click="OnBookmarkAskClick"
-                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="13.5"
-                                    Content="Start a session for this" />
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="13.5" />
                             <Button Classes="kcapGhost bookmarkAsk" Tag="{x:Static vm:ChatBookmarkAsk.FileLooseEnd}" Click="OnBookmarkAskClick"
-                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="13.5"
-                                    Content="File as a loose end" />
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="13.5" />
                         </StackPanel>
                     </Flyout>
                 </Grid.ContextFlyout>

@@ -116,6 +116,9 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     public bool CanCopyBranch => _branch != "—";
     string _harness = "—";
     public string Harness { get => _harness; private set => this.RaiseAndSetIfChanged(ref _harness, value); }
+
+    /// The session's agent, as a vendor token; null until the session reports one.
+    public string? AgentVendor { get; private set; }
     string _tokens = SessionFactText.Unknown;
     public string Tokens { get => _tokens; private set => this.RaiseAndSetIfChanged(ref _tokens, value); }
     string _cost = SessionFactText.Unknown;
@@ -542,6 +545,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         ResolveBranch();
         var vendorLabel = HostedHarnessCatalog.LabelFor(DefaultHarnessOptions, dto.Vendor);
         Harness = $"{vendorLabel} · {HostedHarnessCatalog.ModelLabelFor(dto.Vendor, dto.Model ?? "")}";
+        AgentVendor = dto.Vendor;
         if (!_reader.HasCurrent) SessionIdText = SessionIds.Canonical(dto.SessionId) ?? "resolving…";
         UpdateRequester(dto, vendorLabel);
     }
