@@ -1,10 +1,11 @@
 ---
 name: progressive-disclosure
 description: >-
-  This skill should be used when the user asks for progressive disclosure,
-  progressive disclosure marks or graded replies — "use progressive disclosure",
-  "enable progressive disclosure", "grade your replies", "mark the detail" — or
-  asks to stop using it. It says
+  This skill should be used when the user asks for progressive disclosure
+  ("pd" for short), progressive disclosure marks or graded replies — "use
+  progressive disclosure", "enable progressive disclosure", "use pd", "pd on",
+  "grade your replies", "mark the detail" — or asks to stop using it ("pd off",
+  "stop pd"). It says
   how to mark the detail and footnote parts of a chat reply with corner
   brackets, which the kcap desktop app can fade.
 ---
