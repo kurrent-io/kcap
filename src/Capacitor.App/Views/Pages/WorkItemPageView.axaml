@@ -138,7 +138,8 @@
                     Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OpenSessionCommand}"
                     CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="Normal" Foreground="{StaticResource KcapMutedBrush}"
+                               TextTrimming="CharacterEllipsis" />
                     <TextBlock Grid.Column="1" Text="{Binding Meta}" FontSize="12.5" Foreground="{StaticResource KcapFaintBrush}"
                                VerticalAlignment="Center" />
                 </Grid>
