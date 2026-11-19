@@ -1424,7 +1424,7 @@ public class ChatTabViewSmokeTests {
         });
     }
 
-    /// A bookmark leads back to its message and selects the text it was taken from in place of whatever
+    /// A bookmark leads back to its message and selects the text it was taken from, ready to copy, in place of whatever
     /// else was selected; a whole message's bookmark, taken with the message's toggle, selects nothing.
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -1458,10 +1458,15 @@ public class ChatTabViewSmokeTests {
                 var jitter = host.Chat.Bookmarks.All.Single(b => b.Text == "Retry jitter");
 
                 reply.SelectAll();
+                host.Composer.Focus();
                 host.Chat.Bookmarks.RevealCommand.Execute(jitter).Subscribe();
                 host.Settle();
                 // A selection from an item's start reads with its marker, as a copy of it would.
                 await Assert.That(MarkViewSelection.SelectedText(viewer)).IsEqualTo("2. Retry jitter");
+                var copy = Application.Current!.PlatformSettings!.HotkeyConfiguration.Copy[0];
+                host.Window.KeyPressQwerty(PhysicalKey.C, (RawInputModifiers)copy.KeyModifiers);
+                host.Settle();
+                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("2. Retry jitter");
 
                 reply.ClearSelection();
                 host.Chat.Bookmarks.RevealCommand.Execute(message).Subscribe();

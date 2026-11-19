@@ -233,8 +233,9 @@ public sealed class MarkdownView : ContentControl {
             bookmarks.ToggleMessageCommand.Execute(source).Subscribe();
     }
 
-    /// Selects the first run of text reading as <paramref name="quote"/> and returns where it starts,
-    /// in this view's coordinates; null when the view shows no such text.
+    /// Selects the first run of text reading as <paramref name="quote"/>, with keyboard focus so Copy
+    /// takes it, and returns where it starts, in this view's coordinates; null when the view shows no
+    /// such text.
     internal Rect? Highlight(string quote) {
         Rect? found;
         if (Content is SelectableTextBlock plain) {
@@ -242,8 +243,10 @@ public sealed class MarkdownView : ContentControl {
             if (index < 0) return null;
             plain.SelectionStart = index;
             plain.SelectionEnd = index + quote.Length;
+            plain.Focus();
             found = new Rect(default, new Size(plain.Bounds.Width, 0));
         } else if (MarkViewSelection.Select(_viewer, quote) is { } rect && _viewer.TranslatePoint(rect.Position, this) is { } at) {
+            _viewer.Focus();
             found = new Rect(at, rect.Size);
         } else return null;
         _selectionHost?.UpdateSelection(this);
