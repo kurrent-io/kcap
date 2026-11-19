@@ -596,8 +596,9 @@ public static partial class CodexConfigToml {
         if (!OperatingSystem.IsWindows())
             options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
         using (var stream = new FileStream(path, options))
-        using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+        using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))) {
             writer.Write(content);
+        }
         // Defense in depth for platforms/filesystems that ignore the create mode.
         SetOwnerOnly(path);
     }

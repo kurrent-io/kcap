@@ -127,10 +127,11 @@ internal sealed class SingleFlightReader<TState, TResult>(
         foreach (var lease in leases) lease.Cts.Cancel();
         // Uninterruptible filesystem reads settle and dispose their leases after teardown returns.
         if (!waitForPending) return;
-        foreach (var lease in leases)
+        foreach (var lease in leases) {
             if (lease.Pending is { } pending) {
                 try { await pending; } catch (Exception) { }
             }
+        }
         foreach (var lease in leases) lease.Cts.Dispose();
     }
 }

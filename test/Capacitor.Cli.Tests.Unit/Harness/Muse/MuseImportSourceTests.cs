@@ -465,9 +465,10 @@ public class MuseImportSourceTests : IDisposable {
 
         await ImportProbeAsync();
 
-        foreach (var route in new[] { "/hooks/subagent-start", "/hooks/subagent-stop" })
+        foreach (var route in new[] { "/hooks/subagent-start", "/hooks/subagent-stop" }) {
             for (var i = 0; i < 2; i++)
                 await Assert.That((bool?)PostedBody(route, i)["strict"]).IsTrue();
+        }
 
         var start = _server.LogEntries.First(e => e.RequestMessage.Path == "/hooks/subagent-start").RequestMessage.Body!;
         var stop  = _server.LogEntries.First(e => e.RequestMessage.Path == "/hooks/subagent-stop").RequestMessage.Body!;

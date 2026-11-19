@@ -1855,12 +1855,13 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
                 VendorModels: _currentLocalCatalog),
         };
 
-        foreach (var d in await OwnRemoteDaemonsAsync())
+        foreach (var d in await OwnRemoteDaemonsAsync()) {
             options.Add(new MachineOption(
                 d.Name, IsLocal: false, d.Connected, d.Platform, d.RepoPaths ?? [], d.SupportedVendors,
                 Selected: RemoteMachineSelected && string.Equals(d.Name, SelectedMachine, StringComparison.Ordinal),
                 Version: d.Version, VendorModels: VendorModelMaps.FromRegistry(d.VendorModels),
                 VendorModelsByAccount: VendorModelMaps.FromRegistry(d.VendorModelsByAccount)));
+        }
 
         return options;
     }
@@ -1961,9 +1962,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
 
     static DaemonInfo? FindDaemon(IReadOnlyList<DaemonInfo> daemons, string name, string? viewerId) {
         if (viewerId is null) return null;
-        foreach (var d in daemons)
+        foreach (var d in daemons) {
             if (string.Equals(d.Name, name, StringComparison.Ordinal) && d.OwnerUserId == viewerId)
                 return d;
+        }
         return null;
     }
 
@@ -2371,9 +2373,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         // arrived while the invoke above was still in flight, and that failure gets the same
         // restore a delayed one does.
         if (draft.Files.Count > 0)
-            lock (_launchTrackingLock)
+            lock (_launchTrackingLock) {
                 _retainedDraft = new RetainedDraft(
                     agentId, draft, uploadedAt!.Value, clearedGoal, _goalEdits, clearedTray, Tray.Generation);
+            }
         var lane = draft.Remote ? AgentOrigin.Remote : AgentOrigin.Local;
         var opensUnder = new StrongBox<int>(generation);
         var tracked = RecordPendingLaunch(
@@ -2579,7 +2582,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             // A pending row or placeholder is the launch's own stand-in, so only a published row on
             // the launch's own lane settles it. The registry's row can replace a remote placeholder
             // under the same key, which arrives as an update.
-            foreach (var change in changes)
+            foreach (var change in changes) {
                 if (change.Reason is ChangeReason.Add or ChangeReason.Update && !change.Current.IsPlaceholder
                     && NormalizeAgentId(change.Current.Id) is { } agentId
                     && _pendingLaunches.TryGetValue(agentId, out var pending) && pending.Lane == change.Current.Origin) {
@@ -2590,6 +2593,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
                         (remoteOpens ??= []).Add((change.Current.Id, pending.Generation));
                     if (pending.BaseRef is not null) (started ??= []).Add(pending);
                 }
+            }
         }
         if (started is not null)
             foreach (var pending in started)
@@ -2669,11 +2673,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
 
     /// The server's base-ref refusals carry a code before their sentence; the sentence is the message.
     static string? ServerBaseRefRefusal(string reason) {
-        foreach (var code in (ReadOnlySpan<string>) ["base_ref_invalid:", "base_ref_unsupported:", "base_ref_not_allowed:"])
+        foreach (var code in (ReadOnlySpan<string>) ["base_ref_invalid:", "base_ref_unsupported:", "base_ref_not_allowed:"]) {
             if (reason.StartsWith(code, StringComparison.Ordinal)) {
                 var sentence = reason[code.Length..].Trim();
                 return sentence.Length == 0 ? reason : char.ToUpperInvariant(sentence[0]) + sentence[1..];
             }
+        }
         return null;
     }
 
@@ -2755,9 +2760,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     static string? Lookup(IReadOnlyDictionary<string, string>? byRepo, string repoPath) {
         if (byRepo is null) return null;
 
-        foreach (var entry in byRepo)
+        foreach (var entry in byRepo) {
             if (PathComparer.Equals(entry.Key, repoPath))
                 return entry.Value;
+        }
 
         return null;
     }
@@ -2769,9 +2775,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         var normalized = key.Length == 0 ? key : PlatformPaths.Normalize(key);
         var next = new Dictionary<string, string>();
         if (existing is not null)
-            foreach (var entry in existing)
+            foreach (var entry in existing) {
                 if (!PathComparer.Equals(entry.Key, normalized))
                     next[entry.Key] = entry.Value;
+            }
 
         next[normalized] = value;
         return next;
@@ -2780,9 +2787,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     static string? RemoteLookup(
             IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>>? byMachine, string machine, string repoPath) {
         if (byMachine is null || !byMachine.TryGetValue(machine, out var byRepo)) return null;
-        foreach (var entry in byRepo)
+        foreach (var entry in byRepo) {
             if (RemotePathComparer.Equals(entry.Key, repoPath))
                 return entry.Value;
+        }
 
         return null;
     }

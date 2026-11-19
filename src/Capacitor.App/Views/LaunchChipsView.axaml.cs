@@ -382,11 +382,12 @@ public partial class LaunchChipsView : UserControl {
                 rows.Children.Add(Row(
                     vendor, option.Label, $"Default — {option.Label} chooses", unavailableTip,
                     isCurrentVendor && vm.SelectedModel.Length == 0, () => Pick(vendor, "")));
-            foreach (var model in vm.ModelChoicesFor(vendor).Where(matches))
+            foreach (var model in vm.ModelChoicesFor(vendor).Where(matches)) {
                 rows.Children.Add(Row(
                     vendor, option.Label, model.Label, unavailableTip,
                     isCurrentVendor && string.Equals(vm.SelectedModel, model.Slug, StringComparison.OrdinalIgnoreCase),
                     () => Pick(vendor, model.Slug)));
+            }
         }
 
         void RebuildRows() {

@@ -69,9 +69,10 @@ sealed record PlanTaskState(string TaskId, int Ordinal, string? Title, string St
     }
 
     static IEnumerable<JsonObject> FromBlocks(JsonArray blocks) {
-        foreach (var block in blocks)
+        foreach (var block in blocks) {
             if (Text(block?["text"]) is { } text && Parse(text) is { } parsed)
                 yield return parsed;
+        }
     }
 
     static JsonObject? Parse(string text) {

@@ -677,9 +677,10 @@ public class SkillsSyncFlowTests {
 
         var exclude = Exclude(fx);
 
-        foreach (var root in SkillsCommand.Targets(fx.LegacyRoots))
+        foreach (var root in SkillsCommand.Targets(fx.LegacyRoots)) {
             await Assert.That(exclude).Contains(
                 "/" + root.RelativePath.Replace(Path.DirectorySeparatorChar, '/') + "/kcap-*/");
+        }
     }
 
     /// <summary>A local sync stamps a fresh refresh while its tail can still leave a global copy

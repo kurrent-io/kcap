@@ -66,9 +66,10 @@ public class GrokReviewerLaunchTests {
     public async Task An_interactive_launch_keeps_the_users_compat_sources() {
         var interactive = Psi(isReviewFlow: false);
 
-        foreach (var key in GrokReviewerLaunch.ReviewerEnvironment.Keys)
+        foreach (var key in GrokReviewerLaunch.ReviewerEnvironment.Keys) {
             await Assert.That(interactive.Environment.TryGetValue(key, out var value) ? value : null)
                 .IsEqualTo(Environment.GetEnvironmentVariable(key));
+        }
     }
 
     [Test]

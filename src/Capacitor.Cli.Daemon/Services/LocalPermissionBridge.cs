@@ -1032,9 +1032,10 @@ internal sealed partial class LocalPermissionBridge(
 
         var server = afterPrefix[..sep].Replace('-', '_');
 
-        foreach (var allowed in boundAllowlist)
+        foreach (var allowed in boundAllowlist) {
             if (string.Equals(server, allowed.Replace('-', '_'), StringComparison.OrdinalIgnoreCase))
                 return true;
+        }
 
         return false;
     }

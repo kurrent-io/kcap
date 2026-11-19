@@ -1364,9 +1364,10 @@ class ImportCommand(
         // discovered it rather than to its vendor.
         var sourceBySession = new Dictionary<(HarnessId Vendor, string SessionId), IImportSource>();
 
-        for (var i = 0; i < sources.Count; i++)
+        for (var i = 0; i < sources.Count; i++) {
             foreach (var c in classificationsPerSource[i])
                 sourceBySession.TryAdd((c.Vendor, c.SessionId), sources[i]);
+        }
 
         // Local read failures also carry scope, even though they never reached a probe.
         if (captureScope.Configured) classifications = await captureScope.ApplyAsync(classifications, sessionCwds);

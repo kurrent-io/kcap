@@ -2468,9 +2468,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             string agentId, LaunchKind kind, string? flowRunId, string? flowRole, AgentActivityClock clock,
             string? vendor = null, string? repoPath = null, string? title = null, DateTime? createdAt = null,
             ResolvedAccount? account = null) {
-        lock (_membership)
+        lock (_membership) {
             _pendingLaunches[agentId] = new PendingLaunch(
                 agentId, kind, createdAt ?? _time.GetUtcNow().UtcDateTime, flowRunId, flowRole, clock, vendor, repoPath, title, account);
+        }
         _statusNotifier.Pulse();
 
         return new PendingLaunchScope(this, agentId);
@@ -4238,9 +4239,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             // Under the lock a stop marks itself requested by, so a stop already under way keeps its report.
             bool reportsItself;
-            lock (_ledgerLock)
+            lock (_ledgerLock) {
                 reportsItself = agent.Status is not "Completed" and not "Failed" && !agent.StopRequested
                     && ClaimRunReport(agent, RunReportSent);
+            }
 
             if (reportsItself) {
                 if (!agent.Runtime.HasExited) LogOutputEndedWhileRunning(agent.Id);

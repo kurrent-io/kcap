@@ -318,19 +318,21 @@ public class AntigravityReviewerLiveCertTests {
         }
 
         internal void Report(string label, string conversationId) {
-            lock (Spawns)
+            lock (Spawns) {
                 Console.WriteLine(
                     $"[agy-cert:{label}] conversation={conversationId} rounds={Spawns.Count} "
                   + $"pids=[{string.Join(",", Spawns.Select(s => s.Process.Pid))}] "
                   + $"binary={Config.AntigravityPath} worktree={Worktree}");
+            }
         }
 
         public void Dispose() {
-            lock (Spawns)
+            lock (Spawns) {
                 foreach (var spawn in Spawns) {
                     try { spawn.Process.TerminateAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult(); }
                     catch { /* best-effort — the runtime owns these; this is the leak backstop */ }
                 }
+            }
 
             _tmp.Dispose();
             _daemons.Dispose();

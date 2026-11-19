@@ -72,9 +72,10 @@ public sealed class ProjectScope {
     bool LiesUnderARoot(string? path) {
         if (string.IsNullOrEmpty(path)) return false;
 
-        for (var dir = Canonical(path); !string.IsNullOrEmpty(dir); dir = Path.GetDirectoryName(dir))
+        for (var dir = Canonical(path); !string.IsNullOrEmpty(dir); dir = Path.GetDirectoryName(dir)) {
             foreach (var root in _roots)
                 if (PlatformPaths.Comparer.Equals(dir, root)) return true;
+        }
 
         return false;
     }

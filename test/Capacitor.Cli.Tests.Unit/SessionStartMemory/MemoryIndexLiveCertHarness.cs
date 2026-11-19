@@ -293,9 +293,10 @@ internal static partial class MemoryIndexLiveCertHarness {
 
                 if (text is null || JsonNode.Parse(text) is not JsonArray hits) continue;
 
-                foreach (var hit in hits)
+                foreach (var hit in hits) {
                     if (hit?["slug"]?.GetValue<string>() == slug && hit["memory_id"]?.GetValue<string>() is { } id)
                         found.Add(id);
+                }
             } catch {
                 // Transient or terminal — indistinguishable from here. Keep polling; the caller fails
                 // closed on anything it could not positively clean up.

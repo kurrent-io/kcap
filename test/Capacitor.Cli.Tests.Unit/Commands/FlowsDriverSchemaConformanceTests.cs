@@ -216,9 +216,10 @@ public class FlowsDriverSchemaConformanceTests {
 
     static string RepoKcapDir() {
         var d = new DirectoryInfo(AppContext.BaseDirectory);
-        for (; d is not null; d = d.Parent)
+        for (; d is not null; d = d.Parent) {
             if (File.Exists(Path.Combine(d.FullName, "kcap", ".mcp.json")))
                 return Path.Combine(d.FullName, "kcap");
+        }
         throw new DirectoryNotFoundException("kcap/ not found above the test base dir");
     }
 
@@ -673,8 +674,9 @@ public class FlowsDriverSchemaConformanceTests {
             .Append("--grok")     // writes no MCP config: Grok loads Claude's, covered by the static-config test
             .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var flag in VendorSelection.KnownVendorFlags)
+        foreach (var flag in VendorSelection.KnownVendorFlags) {
             await Assert.That(covered.Contains(flag)).IsTrue()
                 .Because($"{flag} is an installable target with no driver-schema conformance coverage");
+        }
     }
 }

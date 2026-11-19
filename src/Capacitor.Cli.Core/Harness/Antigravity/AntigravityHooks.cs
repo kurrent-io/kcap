@@ -64,12 +64,13 @@ public static class AntigravityHooks {
         foreach (var e in LifecycleEvents)
             block[e] = new JsonArray(Handler(e)); // direct handler list
 
-        foreach (var e in ToolEvents)
+        foreach (var e in ToolEvents) {
             block[e] = new JsonArray(
                 new JsonObject {
                     ["matcher"] = "*",
                     ["hooks"]   = new JsonArray(Handler(e))
                 });
+        }
 
         return block;
     }

@@ -3168,9 +3168,10 @@ sealed class SetupCommand(
             return 0;
         }
 
-        foreach (var workspace in payload.Workspaces)
+        foreach (var workspace in payload.Workspaces) {
             AnsiConsole.MarkupLine(
                 $"  [cyan]{Markup.Escape(workspace.Slug ?? workspace.Url)}[/]  [dim]{Markup.Escape(workspace.Url)}[/]");
+        }
 
         // A GitHub-App row is identified by origin and carries no slug, so the command it can be
         // handed is the URL one.

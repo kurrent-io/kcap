@@ -65,17 +65,19 @@ internal sealed class DispatchedInputLedger(TimeProvider time) {
     void Settle(Guid dispatchId, DispatchState state, string? reason) {
         var now = time.GetUtcNow();
 
-        lock (_gate)
+        lock (_gate) {
             if (_state.TryGetValue(dispatchId, out var entry) && !(state == DispatchState.Taken && entry.State == DispatchState.Dropped))
                 _state[dispatchId] = new(state, reason, now);
+        }
     }
 
     void Prune(DateTimeOffset now) {
         List<Guid>? expired = null;
 
-        foreach (var (id, entry) in _state)
+        foreach (var (id, entry) in _state) {
             if (now - entry.LastSeen > Retention)
                 (expired ??= []).Add(id);
+        }
 
         if (expired is null) return;
 

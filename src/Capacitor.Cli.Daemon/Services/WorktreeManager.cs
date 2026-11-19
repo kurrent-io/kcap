@@ -1526,10 +1526,11 @@ public partial class WorktreeManager(
         var protectedName = protectedIndex < protectedSegments.Length
             ? protectedSegments[protectedIndex]
             : null;
-        foreach (var entry in Directory.EnumerateFileSystemEntries(target))
+        foreach (var entry in Directory.EnumerateFileSystemEntries(target)) {
             if (protectedName is null ||
                 !Path.GetFileName(entry).Equals(protectedName, FileSystemPathComparison))
                 DeleteTreeNoFollow(entry);
+        }
         if (staging is not null) foreach (var entry in Directory.EnumerateFileSystemEntries(staging)) {
             if (protectedName is not null &&
                 Path.GetFileName(entry).Equals(protectedName, FileSystemPathComparison))
@@ -1833,10 +1834,11 @@ public partial class WorktreeManager(
     /// <summary>Whether <paramref name="rawPath"/> is a proper ancestor of a reserved path.</summary>
     static bool RoutesToReservedPath(
             ReadOnlySpan<byte> rawPath, (string Canonical, byte[] Bytes)[] reserved, bool caseSensitive) {
-        foreach (var candidate in reserved)
+        foreach (var candidate in reserved) {
             if (candidate.Bytes.Length > rawPath.Length && candidate.Bytes[rawPath.Length] == (byte)'/'
              && AsciiPathEquals(rawPath, candidate.Bytes.AsSpan(0, rawPath.Length), caseSensitive))
                 return true;
+        }
         return false;
     }
 

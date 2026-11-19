@@ -368,9 +368,10 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
         var lastActivity = lastRecordedAt;
         var childLogs    = MuseSubagentDiscovery.EnumerateChildLogs(parentLog);
 
-        foreach (var log in childLogs.Prepend(parentLog))
+        foreach (var log in childLogs.Prepend(parentLog)) {
             if (ImportPaths.TryGetLastWriteUtc(log) is { } written && (lastActivity is null || written > lastActivity))
                 lastActivity = written;
+        }
 
         if (lastActivity is not { } last || time.GetUtcNow() - last <= AbandonedAfter) return false;
         if (WatcherLiveness.PidAlive(watchers, sessionId)) return false;

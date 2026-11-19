@@ -116,9 +116,10 @@ public class TenantDiscovery(IAuthProxyClient proxy, ITenantPicker picker) {
             if (names[i] is { } own) claimed.Add(own);
         }
 
-        foreach (var i in order)
+        foreach (var i in order) {
             if (names[i] is null && AloneOnServer(i) && ProfileOnServer(existing, tenants[i], claimed) is { } onServer && claimed.Add(onServer))
                 names[i] = onServer;
+        }
 
         foreach (var i in order)
             names[i] ??= Unclaimed(existing, claimed, tenants[i].ProfileName);

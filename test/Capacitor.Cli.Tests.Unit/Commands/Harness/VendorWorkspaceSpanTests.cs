@@ -408,9 +408,10 @@ public class VendorWorkspaceSpanTests : IDisposable {
         const string Disabled = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         const string Live     = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         var spool = new WorkspaceSpool(Config.Root, _server.Url!, _time);
-        foreach (var session in new[] { Disabled, Live })
+        foreach (var session in new[] { Disabled, Live }) {
             spool.Write(new WorkspaceChangesRequest(session, Guid.NewGuid(), Repo.Path, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
                 [new WorkspaceChange("x.txt", "edit")], false));
+        }
         Directory.CreateDirectory(Config.Root.Path("disabled"));
         File.WriteAllText(Path.Combine(Config.Root.Path("disabled"), Disabled), "");
 
@@ -443,9 +444,10 @@ public class VendorWorkspaceSpanTests : IDisposable {
         var profiles = Resolutions.At(_server.Url!, Config.Root);
         var http     = new FixedCapacitorHttpClient();
         var spool    = new WorkspaceSpool(Config.Root, _server.Url!, _time);
-        foreach (var session in new[] { "dddddddddddddddddddddddddddddddd", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" })
+        foreach (var session in new[] { "dddddddddddddddddddddddddddddddd", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }) {
             spool.Write(new WorkspaceChangesRequest(session, Guid.NewGuid(), Repo.Path, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
                 [new WorkspaceChange("x.txt", "edit")], false));
+        }
         Directory.CreateDirectory(Config.Root.Path("disabled"));
         File.WriteAllText(Path.Combine(Config.Root.Path("disabled"), "dddddddddddddddddddddddddddddddd"), "");
 

@@ -81,7 +81,7 @@ public static class ChatPipeline {
         /// Markdown reads any run of blank lines as one paragraph break. Adjacent paragraphs are
         /// joined instead, by a line break for each newline that separated them in the source.
         static void Keep(MarkdownDocument document) {
-            foreach (var container in document.Descendants<ContainerBlock>().Prepend(document).ToArray())
+            foreach (var container in document.Descendants<ContainerBlock>().Prepend(document).ToArray()) {
                 for (var i = 0; i < container.Count - 1;) {
                     if (container[i] is not ParagraphBlock { Inline: { } into } before
                         || container[i + 1] is not ParagraphBlock { Inline: { } from } after) {
@@ -96,6 +96,7 @@ public static class ChatPipeline {
                     before.SetData(LastLineKey, LastLine(after));
                     container.RemoveAt(i + 1);
                 }
+            }
         }
 
         static int LastLine(ParagraphBlock paragraph) => paragraph.GetData(LastLineKey) as int? ?? paragraph.Line;
@@ -107,7 +108,7 @@ public static class ChatPipeline {
         public void Setup(MarkdownPipeline pipeline, IMarkdownRenderer renderer) { }
 
         static void Process(MarkdownDocument document) {
-            foreach (var leaf in document.Descendants<LeafBlock>())
+            foreach (var leaf in document.Descendants<LeafBlock>()) {
                 if (leaf.Inline is { } root) {
                     foreach (var auto in root.Descendants<AutolinkInline>().ToArray()) {
                         var link = new LinkInline(auto.IsEmail ? "mailto:" + auto.Url : auto.Url, "") {
@@ -118,6 +119,7 @@ public static class ChatPipeline {
                     }
                     LinkHoister.Hoist(root, includeImages: false);
                 }
+            }
         }
     }
 }

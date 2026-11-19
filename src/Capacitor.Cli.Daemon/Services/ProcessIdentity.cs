@@ -101,9 +101,10 @@ internal static partial class ProcessIdentity {
         try {
             if (OperatingSystem.IsLinux()) {
                 var raw = File.ReadAllText($"/proc/{pid}/environ");
-                foreach (var entry in raw.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+                foreach (var entry in raw.Split('\0', StringSplitOptions.RemoveEmptyEntries)) {
                     if (entry.StartsWith(key + "=", StringComparison.Ordinal))
                         return entry[(key.Length + 1)..];
+                }
 
                 return null;
             }

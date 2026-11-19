@@ -86,25 +86,29 @@ public partial class ChatTabViewModelTests {
         report.Toggle();
         await Assert.That(report.ToggleAccessibleName).IsEqualTo("Collapse Subagent report");
 
-        foreach (var emphasised in new[] { "*Finished task*", "_Finished task_", "- **Finished task**" })
+        foreach (var emphasised in new[] { "*Finished task*", "_Finished task_", "- **Finished task**" }) {
             await Assert.That(new SystemNoteItem(emphasised + "\n\nBody.", SystemNoteItem.AgentReportLabel).HeaderLabel)
                 .IsEqualTo("Subagent report · Finished task");
+        }
 
-        foreach (var fenced in new[] { "---\n```text\n\nFindings\n```\n\nMore.", "~~~text\nFindings\n~~~\nMore." })
+        foreach (var fenced in new[] { "---\n```text\n\nFindings\n```\n\nMore.", "~~~text\nFindings\n~~~\nMore." }) {
             await Assert.That(new SystemNoteItem(fenced, SystemNoteItem.AgentReportLabel).HeaderLabel)
                 .IsEqualTo("Subagent report · Findings");
+        }
 
         foreach (var (literal, peek) in new[] { ("-10% change in throughput", "-10% change in throughput"), ("#123 is fixed", "#123 is fixed"),
                      ("> ## Summary", "Summary"), ("* item", "item"), ("+ item", "item"), ("- # Findings", "Findings"), ("# - Findings", "Findings"), (">  ## Findings", "Findings"), ("Inspect `src/**/test.cs`", "Inspect src/**/test.cs"), ("**Run `__init__`**", "Run __init__"), ("Inspect ``src/**/test.cs``", "Inspect src/**/test.cs"),
                      ("Inspect `src/**/test.cs", "Inspect `src/**/test.cs"), ("Inspect src/**/test.cs", "Inspect src/**/test.cs"),
                      ("Ran **all** the __unit__ tests", "Ran all the unit tests"), ("Check user__id__ field", "Check user__id__ field"),
-                     ("Saw \uE0000\uE001 in **`x`**", "Saw \uE0000\uE001 in x"), ("Observed \uE000 in `**secret**`", "Observed \uE000 in **secret**") })
+                     ("Saw \uE0000\uE001 in **`x`**", "Saw \uE0000\uE001 in x"), ("Observed \uE000 in `**secret**`", "Observed \uE000 in **secret**") }) {
             await Assert.That(new SystemNoteItem(literal + "\nMore.", SystemNoteItem.AgentReportLabel).HeaderLabel)
                 .IsEqualTo($"Subagent report · {peek}");
+        }
 
-        foreach (var ruled in new[] { "* * *", "- - -", "> ---", "> - - -", ">  ---", "> > ---" })
+        foreach (var ruled in new[] { "* * *", "- - -", "> ---", "> - - -", ">  ---", "> > ---" }) {
             await Assert.That(new SystemNoteItem(ruled + "\nFindings\nMore.", SystemNoteItem.AgentReportLabel).HeaderLabel)
                 .IsEqualTo("Subagent report · Findings");
+        }
 
         foreach (var lone in new[] { "---\n\n**Done.**", "---\n```text\n\nFindings\n```", "Findings\n~~~\n---" })
             await Assert.That(new SystemNoteItem(lone, SystemNoteItem.AgentReportLabel).IsCollapsible).IsFalse();

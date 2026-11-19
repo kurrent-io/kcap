@@ -163,9 +163,10 @@ public class CodexChatRulesTests {
         await Assert.That(e[1].ToolCallId).IsEqualTo(e[0].ToolCallId);
         await Assert.That(e[0].ToolCallId).IsNotNull();
 
-        foreach (var action in new[] { """{"type":"openPage","url":"https://x/y"}""", """{"type":"find_in_page","url":"https://x/y","pattern":"acp"}""" })
+        foreach (var action in new[] { """{"type":"openPage","url":"https://x/y"}""", """{"type":"find_in_page","url":"https://x/y","pattern":"acp"}""" }) {
             await Assert.That(P(Item($$$"""{"type":"web_search_call","status":"completed","action":{{{action}}}}"""))[0].ToolKind)
                 .IsEqualTo(AcpToolKind.Fetch).Because(action);
+        }
     }
 
     [Test]

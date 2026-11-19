@@ -165,9 +165,10 @@ public static class ToolDetail {
         try {
             using var doc = JsonDocument.Parse(inputJson);
             if (!doc.RootElement.IsObject) return "";
-            foreach (var property in doc.RootElement.EnumerateObject())
+            foreach (var property in doc.RootElement.EnumerateObject()) {
                 if (property.Value.IsString && property.Value.GetString() is { } s && s.Trim().Length > 0)
                     return TextElision.End(FirstLine(s), MaxLength);
+            }
         } catch (JsonException) { }
         return "";
     }

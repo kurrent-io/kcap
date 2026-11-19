@@ -518,7 +518,7 @@ public static partial class DaemonRunner {
                      AcpVendorDescriptors.MistralVibe
         ];
 
-        foreach (var descriptor in acpVendors)
+        foreach (var descriptor in acpVendors) {
             builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
                 new AcpHostedAgentRuntimeFactory(
                     descriptor,
@@ -530,6 +530,7 @@ public static partial class DaemonRunner {
                     policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
                 )
             );
+        }
 
         // Not an ACP factory: agy speaks NDJSON over one child process PER TURN, so it carries its own
         // runtime rather than AcpHostedAgentRuntimeFactory's persistent-child shape. Takes the logger
@@ -1718,11 +1719,12 @@ public static partial class DaemonRunner {
     /// </summary>
     internal static void LogUnattendedVendorIdentities(
             ILogger logger, IEnumerable<UnattendedVendorCapability> capabilities) {
-        foreach (var capability in capabilities)
+        foreach (var capability in capabilities) {
             LogUnattendedVendorIdentity(
                 logger,
                 capability.Vendor,
                 string.IsNullOrWhiteSpace(capability.CliVersion) ? UnknownCliVersion : capability.CliVersion);
+        }
     }
 
     /// <summary>Registration probe budget. Generous and retried because this result is cached for the
@@ -1758,9 +1760,10 @@ public static partial class DaemonRunner {
         // A probe blocks its thread for its whole budget, so each gets a dedicated one. Queued on the
         // thread pool they start only as the pool grows — one thread a second once it is saturated —
         // which serializes the very pass this seam exists to overlap.
-        foreach (var vendor in vendors)
+        foreach (var vendor in vendors) {
             tasks.TryAdd(vendor, Task.Factory.StartNew(
                 () => probe(vendor), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default));
+        }
 
         if (tasks.Count == 0) return FrozenDictionary<string, T>.Empty;
 

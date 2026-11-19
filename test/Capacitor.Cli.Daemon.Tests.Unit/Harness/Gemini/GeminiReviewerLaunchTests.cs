@@ -236,9 +236,10 @@ public class GeminiReviewerLaunchTests {
     public async Task InteractiveLaunch_CarriesNoApprovalModeInAnySpelling() {
         var argv = Build(isReviewFlow: false);
 
-        foreach (var token in argv)
+        foreach (var token in argv) {
             await Assert.That(token.StartsWith("--approval-mode", StringComparison.OrdinalIgnoreCase)
                            || token.Equals("--yolo", StringComparison.OrdinalIgnoreCase)).IsFalse();
+        }
     }
 
     [Test]

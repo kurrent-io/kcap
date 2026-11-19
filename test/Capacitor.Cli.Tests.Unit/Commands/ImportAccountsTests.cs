@@ -259,9 +259,10 @@ public class ImportAccountsTests : IDisposable {
     void StubImportHooks() {
         _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(404));
-        foreach (var path in new[] { "/hooks/transcript", "/hooks/session-start*", "/hooks/subagent-start", "/hooks/subagent-stop" })
+        foreach (var path in new[] { "/hooks/transcript", "/hooks/session-start*", "/hooks/subagent-start", "/hooks/subagent-stop" }) {
             _server.Given(Request.Create().WithPath(path).UsingPost())
                 .RespondWith(Response.Create().WithStatusCode(200));
+        }
 
         _server.Given(Request.Create().WithPath("/hooks/session-end*").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));

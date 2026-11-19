@@ -188,9 +188,10 @@ public sealed class CliTelemetry {
         try {
             if (!StillEnabled()) return;
 
-            lock (_sharedGate)
+            lock (_sharedGate) {
                 foreach (var (key, value) in _shared)
                     properties[key] ??= value?.DeepClone();
+            }
 
             var e = new TelemetryEvent(name, properties, _time.GetUtcNow());
 
@@ -222,9 +223,10 @@ public sealed class CliTelemetry {
         try {
             if (!Enabled) return;
 
-            lock (_sharedGate)
+            lock (_sharedGate) {
                 foreach (var (name, value) in properties)
                     _shared[name] = value?.DeepClone();
+            }
         } catch { }
     }
 
