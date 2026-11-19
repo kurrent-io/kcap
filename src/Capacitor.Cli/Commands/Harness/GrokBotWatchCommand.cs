@@ -140,7 +140,7 @@ public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profil
 
             if (!changed && state.Open is null) continue;
 
-            var read    = changed ? await source.ReadSinceAsync(agent.Id, state.LastSeq, ct) : GrokBotRead.Nothing;
+            var read    = GrokBotSessionizer.NeedsRead(state, changed, now.ToUnixTimeMilliseconds(), gap) ? await source.ReadSinceAsync(agent.Id, state.LastSeq, ct) : GrokBotRead.Nothing;
             var actions = GrokBotSessionizer.Plan(agent.Id, state, read.Entries, now.ToUnixTimeMilliseconds(), agent.IsRunningTurn, gap, read.FromThreadStart);
 
             if (dryRun) {

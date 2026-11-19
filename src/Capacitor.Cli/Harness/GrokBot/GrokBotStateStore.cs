@@ -37,8 +37,9 @@ public sealed class GrokBotStateStore(string path) {
              && o["sessionId"]?.GetValue<string>() is { } sessionId
              && o["firstEntryId"]?.GetValue<string>() is { } firstEntryId
              && o["startedAtMs"]?.GetValue<long>() is { } startedAtMs
+             && o["firstSeq"]?.GetValue<int>() is { } firstSeq
              && o["lastEntryMs"]?.GetValue<long>() is { } lastEntryMs)
-                open = new GrokBotOpenSession(sessionId, firstEntryId, startedAtMs, lastEntryMs);
+                open = new GrokBotOpenSession(sessionId, firstEntryId, startedAtMs, firstSeq, lastEntryMs);
 
             result[agentId] = new GrokBotBotState(lastSeq, open);
         }
@@ -56,6 +57,7 @@ public sealed class GrokBotStateStore(string path) {
                     ["sessionId"]    = open.SessionId,
                     ["firstEntryId"] = open.FirstEntryId,
                     ["startedAtMs"]  = open.StartedAtMs,
+                    ["firstSeq"]     = open.FirstSeq,
                     ["lastEntryMs"]  = open.LastEntryMs
                 };
             bots[agentId] = bot;

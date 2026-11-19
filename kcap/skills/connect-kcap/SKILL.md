@@ -55,9 +55,13 @@ Never start `kcap daemon` unless the user asks for hosted agents.
 
 **Grok Bot.** If the user asked to record their Grok Bot chats and this machine
 has the Grok Bot desktop app, `kcap grok-bot watch --once --dry-run` lists the
-chats it finds and what it would send. Tell the user what C4 says about scope,
-and once they agree start it the way C4 does; it reads the app's own copy of
-each chat.
+chats it finds and what it would send; it reads the app's own copy of each
+chat. Tell the user what C4 says about scope, and start it only once they agree:
+
+- macOS or Linux: the way C4 does, and stop it the way C4 says.
+- Windows: C4's commands are for a Unix shell. Run `kcap grok-bot watch` in a
+  terminal window of its own and leave that window open; Ctrl+C in it stops
+  recording. It keeps recording only while that window stays open.
 
 ## Part B — Muse Assistant
 
@@ -426,8 +430,13 @@ command line holds the same words; without it a watcher always seems to be
 running.
 
 A `Server:` line naming the workspace the user wants plus `Server:   accepts
-this token` means C2 and C3 are done. A `pgrep` line means the watcher is
-already running: say so and stop.
+this token` means C2 and C3 are done; a `pgrep` line as well means the watcher
+is already recording there: say so and stop.
+
+A `pgrep` line while kcap is signed in to another workspace, or to none, is a
+watcher recording somewhere the user did not ask for. Tell them where it
+records, and with their agreement stop it the way C4 says before going on to
+C3 and C4.
 
 ### C2. Install
 
@@ -491,7 +500,9 @@ the full path `command -v kcap` prints, written here as `<kcap>`:
 */5 * * * * pgrep -f "[k]cap grok-bot watch" >/dev/null || nohup <kcap> grok-bot watch >> $HOME/.config/kcap/grok-bot/watch.log 2>&1 &
 ```
 
-To stop recording: `pkill -f "[k]cap grok-bot watch"`, and remove that line.
+To stop recording, in this order: remove that line from the crontab first, so
+nothing starts a watcher again; then `pkill -f "[k]cap grok-bot watch"`; then
+check that `pgrep -af "[k]cap grok-bot watch"` prints nothing.
 
 ### C5. Tell the user
 

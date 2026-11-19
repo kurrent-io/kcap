@@ -11,7 +11,7 @@ public class GrokBotStateStoreTests {
     public async Task State_round_trips_with_and_without_an_open_session() {
         var store = new GrokBotStateStore(Tmp.PathTo("grok-bot", "state.json"));
         var saved = new Dictionary<string, GrokBotBotState> {
-            ["a"] = new(42, new GrokBotOpenSession("0123456789abcdef0123456789abcdef", "t3u", 1_790_000_000_000, 1_790_000_100_000)),
+            ["a"] = new(42, new GrokBotOpenSession("0123456789abcdef0123456789abcdef", "t3u", 1_790_000_000_000, 40, 1_790_000_100_000)),
             ["b"] = new(7, null)
         };
 

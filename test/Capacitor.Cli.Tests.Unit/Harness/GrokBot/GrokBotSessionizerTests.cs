@@ -182,6 +182,28 @@ public class GrokBotSessionizerTests {
             await Assert.That(((GrokBotSendLines)retry[0]).SessionId).IsEqualTo(started.SessionId);
             await Assert.That(((GrokBotSendLines)retry[0]).Seqs).IsEquivalentTo([41, 42]);
         }
+
+        // The source has dropped the entry the session opened at: what follows it still belongs there.
+        var withoutOpening = GrokBotSessionizer.Plan(Agent, started.After, [entries[0], entries[2]], T0 + 3 * Hour + 2, false, Gap, fromThreadStart: false);
+
+        await Assert.That(((GrokBotSendLines)withoutOpening.Single()).SessionId).IsEqualTo(started.SessionId);
+        await Assert.That(((GrokBotSendLines)withoutOpening.Single()).Seqs).IsEquivalentTo([42]);
+    }
+
+    /// <summary>An unchanged chat is planned from no entries, where nothing shows the entry its session is
+    /// still holding back. Past the gap it is read again first, and the read keeps the session open.</summary>
+    [Test]
+    public async Task An_open_session_past_the_gap_is_read_again_before_it_may_close() {
+        var open = Plan(GrokBotBotState.Empty, T0, entries: [Entry(1, T0)])[^1].After;
+        var held = Entry(2, T0 + Hour, awaiting: true);
+
+        await Assert.That(GrokBotSessionizer.NeedsRead(open, changed: false, T0 + Hour, Gap)).IsFalse();
+        await Assert.That(GrokBotSessionizer.NeedsRead(open, changed: false, T0 + 2 * Hour, Gap)).IsTrue();
+        await Assert.That(GrokBotSessionizer.NeedsRead(open with { Open = null }, changed: false, T0 + 2 * Hour, Gap)).IsFalse();
+        await Assert.That(GrokBotSessionizer.NeedsRead(open, changed: true, T0, Gap)).IsTrue();
+
+        await Assert.That(Plan(open, T0 + 2 * Hour)).IsNotEmpty();
+        await Assert.That(Plan(open, T0 + 2 * Hour, entries: [held])).IsEmpty();
     }
 
     [Test]

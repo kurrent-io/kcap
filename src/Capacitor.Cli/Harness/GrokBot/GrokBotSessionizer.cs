@@ -36,15 +36,14 @@ public static class GrokBotSessionizer {
 
         var fresh = entries.Where(e => e.Seq > state.LastSeq).DistinctBy(e => e.Seq).OrderBy(e => e.Seq).ToList();
 
-        if (state.LastSeq < 0) {
-            // Nothing of this chat is delivered yet. A session already open was opened at the entry that
-            // names it, and whatever precedes that entry was passed over when it was chosen: a retry after
-            // an accepted start and a refused send must pass over it again.
-            var from = state.Open is { } opened ? fresh.FindIndex(e => e.Id == opened.FirstEntryId)
-                     : fromThreadStart          ? 0
-                     : Enumerable.Range(1, Math.Max(fresh.Count - 1, 0)).FirstOrDefault(i => fresh[i].TimestampMs - fresh[i - 1].TimestampMs >= gapMs, -1);
+        if (state.LastSeq < 0 && state.Open is { } opened) {
+            // The start was accepted and no line yet: the retry passes over what the start passed over,
+            // by position, since the source may have dropped the opening entry itself by now.
+            fresh = [.. fresh.Where(e => e.Seq >= opened.FirstSeq)];
+        } else if (state.LastSeq < 0 && !fromThreadStart) {
+            var boundary = Enumerable.Range(1, Math.Max(fresh.Count - 1, 0)).FirstOrDefault(i => fresh[i].TimestampMs - fresh[i - 1].TimestampMs >= gapMs);
 
-            fresh = from > 0 ? fresh[from..] : from == 0 ? fresh : [];
+            fresh = boundary > 0 ? fresh[boundary..] : [];
         }
 
         GrokBotEntry? held = null;
@@ -65,7 +64,7 @@ public static class GrokBotSessionizer {
             }
 
             if (state.Open is null) {
-                state = state with { Open = new GrokBotOpenSession(SessionId(agentId, entry.Id), entry.Id, entry.TimestampMs, entry.TimestampMs) };
+                state = state with { Open = new GrokBotOpenSession(SessionId(agentId, entry.Id), entry.Id, entry.TimestampMs, entry.Seq, entry.TimestampMs) };
                 actions.Add(new GrokBotStartSession(state.Open.SessionId, entry.TimestampMs, state));
             }
 
@@ -98,6 +97,12 @@ public static class GrokBotSessionizer {
             seqs.Clear();
         }
     }
+
+    /// <summary>Whether a chat must be read this cycle. An unchanged chat is not, except when its open
+    /// session has sat past the gap: closing it on what was read earlier would miss an entry still held
+    /// back inside it, and a session reopened for that entry would split one conversation in two.</summary>
+    public static bool NeedsRead(GrokBotBotState state, bool changed, long nowMs, TimeSpan gap) =>
+        changed || state.Open is { } open && nowMs - open.LastEntryMs >= (long)gap.TotalMilliseconds;
 
     /// <summary>32 lowercase hex: a session id the server accepts, derived from data a restarted poller
     /// re-reads. Persisted as the session's identity, so the derivation never changes.</summary>
