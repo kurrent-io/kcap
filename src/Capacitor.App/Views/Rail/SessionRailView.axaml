@@ -178,9 +178,6 @@
             <Setter Property="Text" Value="·" />
             <Setter Property="RenderTransform" Value="scale(1.5)" />
         </Style>
-        <Style Selector="views|AgentStatusMark.railRowStatus TextBlock.kcapStatusWord">
-            <Setter Property="IsVisible" Value="False" />
-        </Style>
         <Style Selector="Button.railRow:pointerover /template/ ContentPresenter#PART_ContentPresenter,
                          Button.railRow:pressed /template/ ContentPresenter#PART_ContentPresenter,
                          Button.railRow.menuOpen /template/ ContentPresenter#PART_ContentPresenter">
@@ -693,8 +690,7 @@
                                                             </ToolTip.Tip>
                                                             <Grid ColumnDefinitions="20,*,Auto">
                                                                 <Panel Height="20" VerticalAlignment="Top" HorizontalAlignment="Left">
-                                                                    <views:AgentStatusMark Classes="railRowStatus" DataContext="{Binding Status}" IsVisible="{Binding HasGlyph}"
-                                                                                           ToolTip.Tip="{x:Null}" VerticalAlignment="Center" />
+                                                                    <views:AgentStatusMark DataContext="{Binding Status}" VerticalAlignment="Center" />
                                                                     <Ellipse Width="4" Height="4" Margin="4,0,0,0" Fill="{StaticResource KcapFaintBrush}" VerticalAlignment="Center"
                                                                              IsVisible="{Binding !Status.HasGlyph}" />
                                                                 </Panel>

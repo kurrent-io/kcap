@@ -74,7 +74,6 @@ public class SessionStatusDotsTests {
         var local = SessionStatusDots.ForRow(Local("a1", awaiting: true), pending: false);
         await Assert.That(remote.Kind).IsEqualTo(local.Kind);
         await Assert.That(remote.HasGlyph).IsFalse();
-        await Assert.That(remote.IsWarning).IsTrue();
         // Presentation parity does not fabricate the local daemon's input/attention facts.
         await Assert.That(row.AwaitingInput).IsNull();
         await Assert.That(SessionStatusDots.NeedsAttention(row)).IsFalse();
@@ -95,8 +94,7 @@ public class SessionStatusDotsTests {
         await Assert.That(status.Kind).IsEqualTo(AgentStatusKind.DaemonDown);
         await Assert.That(status.Label).IsEqualTo("Daemon not running");
         await Assert.That(status.AccessibleName).IsEqualTo("Its daemon is not running");
-        await Assert.That(status.IsWarning).IsTrue();
-        await Assert.That(status.IsInFlight).IsFalse();
+        await Assert.That(status.ShowsPause).IsTrue();
         await Assert.That(pending.Kind).IsEqualTo(AgentStatusKind.DaemonDown);
     }
 
@@ -154,13 +152,13 @@ public class SessionStatusDotsTests {
 
     /// A removed remote row republishes its last word, Running, as ended: it must read settled.
     [Test]
-    public async Task An_ended_running_session_is_not_in_flight() {
+    public async Task An_ended_running_session_is_not_running() {
         var live = SessionStatusDots.Present("Running", null, false, null, false, null, null, null);
         var ended = SessionStatusDots.Present("Running", null, false, null, false, null, null, null, ended: true);
 
-        await Assert.That(live.IsInFlight).IsTrue();
+        await Assert.That(live.IsRunningUnknownTurn).IsTrue();
         await Assert.That(ended.Label).IsEqualTo("Running");
-        await Assert.That(ended.IsInFlight).IsFalse();
+        await Assert.That(ended.IsRunningUnknownTurn).IsFalse();
         await Assert.That(ended.HasGlyph).IsFalse();
     }
 
@@ -201,8 +199,7 @@ public class SessionStatusDotsTests {
 
         await Assert.That(status.Kind).IsEqualTo(AgentStatusKind.Resuming);
         await Assert.That(status.Label).IsEqualTo("Resuming");
-        await Assert.That(status.IsInFlight).IsTrue();
-        await Assert.That(status.IsWarning).IsFalse();
+        await Assert.That(status.ShowsWorkingDots).IsTrue();
         await Assert.That(status.Tip).Contains("Resuming after a daemon restart");
     }
 
@@ -217,9 +214,7 @@ public class SessionStatusDotsTests {
         await Assert.That(row.Interruption).IsEqualTo("too_old");
         await Assert.That(status.Kind).IsEqualTo(AgentStatusKind.Interrupted);
         await Assert.That(status.Label).IsEqualTo("Interrupted");
-        await Assert.That(status.IsWarning).IsTrue();
         await Assert.That(status.ShowsPause).IsTrue();
-        await Assert.That(status.IsInFlight).IsFalse();
         await Assert.That(status.Facts.Select(f => (f.Text, f.Caption))).Contains(("too_old", "Reason"));
         await Assert.That(SessionStatusDots.NeedsAttention(row)).IsTrue();
     }

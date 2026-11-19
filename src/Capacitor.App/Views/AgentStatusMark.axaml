@@ -5,28 +5,17 @@
              x:Class="Capacitor.App.Views.AgentStatusMark"
              x:DataType="vm:AgentStatusPresentation"
              ClipToBounds="False"
-             IsVisible="{Binding HasLabel, FallbackValue=False}"
+             IsVisible="{Binding HasGlyph, FallbackValue=False}"
              AutomationProperties.Name="{Binding AccessibleName}">
-    <ToolTip.Tip>
-        <views:AgentStatusTip DataContext="{Binding}" />
-    </ToolTip.Tip>
-    <!-- A DockPanel, not a horizontal StackPanel, so the word is width-bounded and trims when a
-         raw daemon status outgrows its column; the tooltip carries the full text. -->
-    <DockPanel VerticalAlignment="Center">
-        <Panel x:Name="Glyph" Classes="kcapStatusGlyph" DockPanel.Dock="Left" Margin="0,0,5,0" IsVisible="{Binding HasGlyph}"
-               VerticalAlignment="Center" ClipToBounds="False">
-            <views:WorkingDots Foreground="{StaticResource KcapPurpleBrush}" IsVisible="{Binding ShowsWorkingDots}" />
-            <views:AppIcon Kind="CircleQuestionMark" Size="12" Foreground="{StaticResource KcapWarningBrush}" HorizontalAlignment="Center"
-                           VerticalAlignment="Center" IsVisible="{Binding ShowsAsk}" />
-            <views:AppIcon Kind="CircleAlert" Size="12" Foreground="{StaticResource KcapWarningBrush}" HorizontalAlignment="Center"
-                           VerticalAlignment="Center" IsVisible="{Binding ShowsBang}" />
-            <views:AppIcon Kind="CirclePause" Size="12" Foreground="{StaticResource KcapWarningBrush}" HorizontalAlignment="Center"
-                           VerticalAlignment="Center" IsVisible="{Binding ShowsPause}" />
-            <views:AppIcon Kind="X" Size="12" IsVisible="{Binding ShowsCross}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                           Foreground="{StaticResource KcapDangerBrush}" />
-        </Panel>
-        <TextBlock x:Name="StatusWord" Classes="kcapStatusWord" Text="{Binding Label}"
-                   Classes.inflight="{Binding IsInFlight}" Classes.warning="{Binding IsWarning}"
-                   Classes.danger="{Binding IsDanger}" TextTrimming="CharacterEllipsis" />
-    </DockPanel>
+    <Panel Classes="kcapStatusGlyph" HorizontalAlignment="Left" VerticalAlignment="Center" ClipToBounds="False">
+        <views:WorkingDots Foreground="{StaticResource KcapPurpleBrush}" IsVisible="{Binding ShowsWorkingDots}" />
+        <views:AppIcon Kind="CircleQuestionMark" Size="12" Foreground="{StaticResource KcapWarningBrush}" HorizontalAlignment="Center"
+                       VerticalAlignment="Center" IsVisible="{Binding ShowsAsk}" />
+        <views:AppIcon Kind="CircleAlert" Size="12" Foreground="{StaticResource KcapWarningBrush}" HorizontalAlignment="Center"
+                       VerticalAlignment="Center" IsVisible="{Binding ShowsBang}" />
+        <views:AppIcon Kind="CirclePause" Size="12" Foreground="{StaticResource KcapWarningBrush}" HorizontalAlignment="Center"
+                       VerticalAlignment="Center" IsVisible="{Binding ShowsPause}" />
+        <views:AppIcon Kind="X" Size="12" IsVisible="{Binding ShowsCross}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                       Foreground="{StaticResource KcapDangerBrush}" />
+    </Panel>
 </UserControl>
