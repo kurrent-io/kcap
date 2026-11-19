@@ -1174,7 +1174,6 @@ public partial class App : Application {
 
         // After the directory, which feeds it the session→agent map: a server-lane item names a
         // session, and only that map turns it into the agent whose card it belongs on.
-        SessionDetailReader readDetail = new SharedSessionDetailReader(ServerSessionHttp.DetailReader(sessionHttp, profiles)).ReadAsync;
         var readSubagent = ServerSessionHttp.SubagentEventsReader(sessionHttp, profiles);
         var readEvents = ServerSessionHttp.SessionEventsReader(sessionHttp, profiles);
         var readSummary = ServerSearchHttp.Summary(sessionHttp, profiles);

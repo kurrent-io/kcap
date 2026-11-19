@@ -37,28 +37,6 @@ public static class ServerSessionHttp {
         }
     };
 
-    public static SessionDetailReader DetailReader(ICapacitorHttpClient? http, ProfileContext? profiles) => async (sessionId, ct) => {
-        var serverUrl = profiles?.Resolution.ServerUrl;
-        if (http is null || profiles is null || string.IsNullOrEmpty(serverUrl)) return new(null);
-        try {
-            var (client, status, _, _) = await http.ForWaitAsync(ct).ConfigureAwait(false);
-            using (client) {
-                if (status is not (AuthStatus.Ok or AuthStatus.NoAuthRequired)) return new(null, Unauthorized: true);
-                var url = $"{serverUrl.TrimEnd('/')}/{ApiRoutes.SessionDetail(sessionId)}";
-                using var response = await client.GetAsync(url, ct).ConfigureAwait(false);
-                if (response.StatusCode == HttpStatusCode.NotFound) return new(null, NotFound: true);
-                if (response.StatusCode == HttpStatusCode.Unauthorized) return new(null, Unauthorized: true);
-                if (!response.IsSuccessStatusCode) return new(null);
-                var detail = await response.Content.ReadFromJsonAsync(RemoteModelsJsonContext.Default.SessionDetailDto, ct).ConfigureAwait(false);
-                return new(detail);
-            }
-        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-            throw;
-        } catch (Exception) {
-            return new(null);
-        }
-    };
-
     public static SubagentEventsReader SubagentEventsReader(ICapacitorHttpClient? http, ProfileContext? profiles) => (sessionId, agentId, from, ct) =>
         ReadPageAsync(http, profiles, ApiRoutes.SubagentEvents(sessionId, agentId, from), ct);
 

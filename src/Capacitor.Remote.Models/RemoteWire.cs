@@ -60,8 +60,6 @@ public static class ApiRoutes {
     public static string SessionListing(string state, string? owner, int limit, int offset) =>
         $"api/sessions/listing?state={state}&limit={limit}&offset={offset}"
         + (owner is null ? "" : $"&owner={Uri.EscapeDataString(owner)}");
-    public static string SessionDetail(string sessionId) =>
-        $"api/sessions/{Uri.EscapeDataString(sessionId)}/detail";
     public static string SessionHandoffContext(string sessionId) =>
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/handoff-context";
     public static string Search(string query, string mode, int limit) =>

@@ -70,24 +70,6 @@ public class ServerSessionHttpTests {
     }
 
     [Test]
-    public async Task Detail_reader_returns_the_parsed_detail_and_distinguishes_not_found() {
-        using var server = WireMockServer.Start();
-        server.Given(Request.Create().WithPath("/api/sessions/s1/detail").UsingGet())
-              .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
-                  .WithBody("""{"session_id":"s1","ended_at":null,"last_event_number":1,"events":[{"event_type":"InterruptIssued","event_number":1,"payload":{"request_id":"p1","kind":"permission","tool_name":"Bash"}}]}"""));
-        server.Given(Request.Create().WithPath("/api/sessions/nope/detail").UsingGet()).RespondWith(Response.Create().WithStatusCode(404));
-        var (http, profiles, provider) = await WireMockLane.BuildAsync(server, Config.Root);
-        await using var _ = provider;
-        var read = ServerSessionHttp.DetailReader(http, profiles);
-
-        var found = await read("s1", CancellationToken.None);
-        await Assert.That(found.Detail!.Events![0].EventType).IsEqualTo("InterruptIssued");
-        var missing = await read("nope", CancellationToken.None);
-        await Assert.That(missing.Detail).IsNull();
-        await Assert.That(missing.NotFound).IsTrue();
-    }
-
-    [Test]
     public async Task Session_events_reader_asks_from_the_given_count_and_distinguishes_not_found() {
         using var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath("/api/sessions/s1/events").WithParam("from", "3").UsingGet())
