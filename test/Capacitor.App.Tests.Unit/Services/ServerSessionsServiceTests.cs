@@ -901,7 +901,7 @@ public class ServerSessionsServiceTests {
     public async Task A_failed_owners_read_is_retried_on_the_cadence() {
         var attempts = 0;
         var (lane, listing, time, service) = Build(
-            owners: _ => Task.FromResult<SessionOwnerOptionDto[]?>(++attempts == 1 ? null : Owners("me")),
+            owners: _ => Task.FromResult(++attempts == 1 ? null : Owners("me")),
             reconcileEvery: TimeSpan.FromSeconds(60));
         using var _ = service;
         ScriptDefault(listing);

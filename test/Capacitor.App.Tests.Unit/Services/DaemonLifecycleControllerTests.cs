@@ -1440,7 +1440,7 @@ public class DaemonLifecycleControllerTests {
         var words = new Queue<string?>(["adaptive", "app", "", null]);
         h.Cli.StatusBehavior = _ => {
             var word = words.Dequeue();
-            return Task.FromResult<ServiceSnapshot?>(word is null ? null : Snap(state: "running", jobPid: 100, daemonPid: 100) with { LoadedSpawnType = word });
+            return Task.FromResult(word is null ? null : Snap(state: "running", jobPid: 100, daemonPid: 100) with { LoadedSpawnType = word });
         };
         h.Start();
         h.PushConnected();

@@ -1191,7 +1191,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             this.WhenAnyValue(x => x.ShowsInterrupt, x => x.IsAttached, (shows, attached) => shows && !attached));
         _disposables.Add(InterruptCommand);
 
-        OpenLinkCommand = ReactiveCommand.Create<string>(openLink ?? (url => LinkPolicy.Open(_opener, url)));
+        OpenLinkCommand = ReactiveCommand.Create(openLink ?? (url => LinkPolicy.Open(_opener, url)));
         _disposables.Add(OpenLinkCommand);
 
         OpenAttachmentCommand = ReactiveCommand.Create<UserAttachment>(OpenAttachment);
