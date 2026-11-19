@@ -53,6 +53,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly Dictionary<string, string> _retitled = new(StringComparer.Ordinal);
     readonly Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? _renameSession;
     readonly Func<string, string, Task<bool>>? _renameWorkItem;
+    readonly Func<string, string, Task<string?>>? _createWorkItem;
     SessionTitleEditorViewModel? _renaming;
     Action? _endRename;
     readonly IAppNotifier? _notifier;
@@ -362,8 +363,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             IAppNotifier? notifier = null,
             Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? renameSession = null,
             Func<AgentRow, bool>? canRenameSession = null,
-            Func<string, string, Task<bool>>? renameWorkItem = null) {
+            Func<string, string, Task<bool>>? renameWorkItem = null,
+            Func<string, string, Task<string?>>? createWorkItem = null) {
         _directory = directory;
+        _createWorkItem = createWorkItem;
         _renameSession = renameSession;
         _renameWorkItem = renameWorkItem;
         _fileSession = fileSession;
@@ -378,6 +381,9 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             new(LucideIconKind.Pencil, _ => "Rename",
                 row => renameSession is not null && canRenameSession is not null && row.SessionId is { Length: > 0 } && canRenameSession(row),
                 rows => BeginRename(rows[0]), SingleRow: true),
+            new(LucideIconKind.FolderPlus, _ => "Convert to work item",
+                row => createWorkItem is not null && OffersWorkItem && row.Title is { Length: > 0 } && row.SessionId is { Length: > 0 } id && !IsFiled(id),
+                rows => _ = ConvertToWorkItemAsync(rows[0]), SingleRow: true),
             new(LucideIconKind.CircleStop, rows => rows[0].IsAttached ? AttachedAgentCopy.DisconnectSteering : "Stop",
                 row => stopSession is not null && RailSessionViewModel.Stoppable(row), rows => stopSession!(rows[0]), SingleRow: true),
             new(LucideIconKind.EyeOff, rows => rows.Count == 1 ? "Remove from sidebar" : $"Remove {rows.Count} from sidebar",
@@ -802,6 +808,24 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         if (!_dropped.TryGetValue(session, out var shown) || shown != workItem) return;
         _dropped.Remove(session);
         ApplyGrouping();
+    }
+
+    // From the whole listing: the rail shows only recent work items, so a session filed under an older one looks loose.
+    bool IsFiled(string sessionId) =>
+        _dropped.TryGetValue(sessionId, out var dropped) ? dropped is not null
+            : _listed.Live.Concat(_listed.MineLive).Concat(_listed.Ended).Append(_listed.Pinned).OfType<RepoSessionDto>()
+                .Any(row => row.SessionId == sessionId && row.WorkItem is not null);
+
+    async Task ConvertToWorkItemAsync(AgentRow row) {
+        var session = row.SessionId!;
+        var created = await _createWorkItem!(session, row.Title!);
+        if (_disposables.IsDisposed) return;
+        if (created is null) {
+            _notifier?.Notify("Couldn't convert the session to a work item");
+            return;
+        }
+        _dropped[session] = created;
+        _openWorkItems.Add(WorkItemKey(created));
     }
 
     List<RailSessionViewModel> ShownRows() =>

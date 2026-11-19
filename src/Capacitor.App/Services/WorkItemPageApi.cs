@@ -47,6 +47,15 @@ public sealed class WorkItemPageApi(ICapacitorHttpClient http, ProfileContext pr
     public Task<bool> AddLinkAsync(string workItemId, string reference, CancellationToken ct) =>
         PostAsync(ApiRoutes.WorkItem(workItemId, "links"), new WorkItemLinkRequestDto(reference), Json.WorkItemLinkRequestDto, ct);
 
+    public async Task<string?> CreateForSessionAsync(string sessionId, string title, CancellationToken ct) {
+        string? id = null;
+        await ChangeAsync(ApiRoutes.WorkItemDeclare,
+            (client, url) => client.PostAsJsonAsync(url, new WorkItemDeclareRequestDto(title, sessionId), Json.WorkItemDeclareRequestDto, ct),
+            async response => id = (await response.Content.ReadFromJsonAsync(Json.WorkItemDeclaredDto, ct).ConfigureAwait(false))?.WorkItemId,
+            ct).ConfigureAwait(false);
+        return id;
+    }
+
     public Task<bool> MoveSessionAsync(string workItemId, string sessionId, CancellationToken ct) =>
         PostAsync(ApiRoutes.WorkItem(workItemId, "sessions"), new WorkItemSessionRequestDto(sessionId), Json.WorkItemSessionRequestDto, ct);
 

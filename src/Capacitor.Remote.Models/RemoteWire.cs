@@ -57,6 +57,7 @@ public static class ApiRoutes {
     public const string Daemons        = "api/daemons";
     public const string ModelOptions   = "api/agents/model-options";
     public const string Projects       = "api/projects";
+    public const string WorkItemDeclare = "api/work-items/declare";
     public static string ProjectWorkItems(string projectId) => $"api/work-items?project_id={Uri.EscapeDataString(projectId)}";
     public static string WorkItem(string workItemId, string action) => $"api/work-items/{Uri.EscapeDataString(workItemId)}/{action}";
     public static string SessionSuggestion(string sessionId) => $"api/work-items/session/{Uri.EscapeDataString(sessionId)}/suggestion";

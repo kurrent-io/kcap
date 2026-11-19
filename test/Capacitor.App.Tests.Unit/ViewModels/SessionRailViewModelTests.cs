@@ -1089,7 +1089,7 @@ public class SessionRailViewModelTests {
             Func<string, string, Task<bool>>? fileSession = null, Func<string, string, Task<bool>>? unfileSession = null,
             Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? renameSession = null,
             Func<AgentRow, bool>? canRenameSession = null, Func<string, string, Task<bool>>? renameWorkItem = null,
-            IAppNotifier? notifier = null) {
+            IAppNotifier? notifier = null, Func<string, string, Task<string?>>? createWorkItem = null) {
         var directory = new FakeAgentDirectory();
         var sessions = new FakeServerSessionsService();
         var rail = new SessionRailViewModel(directory, _ => { }, _ => { },
@@ -1098,7 +1098,7 @@ public class SessionRailViewModelTests {
             preferences: RailPreferences.Default with { Grouping = RailGrouping.WorkItem, Project = new RailProject("p", "P", ["h"]) },
             readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, [])),
             fileSession: fileSession, unfileSession: unfileSession, renameSession: renameSession, canRenameSession: canRenameSession, renameWorkItem: renameWorkItem,
-            notifier: notifier);
+            notifier: notifier, createWorkItem: createWorkItem);
         return (directory, sessions, rail);
     }
 
@@ -1182,6 +1182,37 @@ public class SessionRailViewModelTests {
                 await Assert.That(calls).IsEquivalentTo(["mine Checkout"]);
                 await Assert.That(Row("mine").TitleEditor).IsNull();
                 await Assert.That(Row("mine").Primary).IsEqualTo("Checkout");
+            }
+        });
+    }
+
+    /// Convert is offered only on a session in no work item, even one too old for the rail to show, and once
+    /// converted the session is not offered it again; a refusal says so.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Convert_to_work_item_is_offered_only_on_a_session_in_no_work_item() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var calls = new List<string>();
+            var notifier = new RecordingNotifier();
+            var (directory, sessions, rail) = BuildWithWorkItems(notifier: notifier, createWorkItem: (id, title) => {
+                calls.Add($"{id} {title}");
+                return Task.FromResult<string?>(id == "loose" ? "AI-9" : null);
+            });
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("filed", "AI-1", Noon.AddHours(-1)), Tracked("old", "AI-2", Noon.AddDays(-10)),
+                    Tracked("loose", null, Noon.AddHours(-2)), Tracked("refused", null, Noon.AddHours(-3)));
+                RailSessionViewModel Row(string id) => rail.Groups.SelectMany(g => g.Sessions).Single(s => s.Row.SessionId == id);
+                const string convert = "Convert to work item";
+
+                await Assert.That(rail.MenuFor(Row("filed")).Select(item => item.Label)).DoesNotContain(convert);
+                await Assert.That(rail.MenuFor(Row("old")).Select(item => item.Label)).DoesNotContain(convert);
+                rail.MenuFor(Row("loose")).Single(item => item.Label == convert).Run();
+                rail.MenuFor(Row("refused")).Single(item => item.Label == convert).Run();
+
+                await Assert.That(calls).IsEquivalentTo(["loose loose", "refused refused"]);
+                await Assert.That(rail.MenuFor(Row("loose")).Select(item => item.Label)).DoesNotContain(convert);
+                await Assert.That(rail.MenuFor(Row("refused")).Select(item => item.Label)).Contains(convert);
+                await Assert.That(notifier.Notified).IsEquivalentTo(["Couldn't convert the session to a work item"]);
             }
         });
     }
