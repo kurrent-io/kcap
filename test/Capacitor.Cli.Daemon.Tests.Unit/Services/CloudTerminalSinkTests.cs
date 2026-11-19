@@ -110,6 +110,26 @@ public class CloudTerminalSinkTests {
             .IsEqualTo("aaaa,<SIZE 90x20>,<RIS>,aaaa,bbbb,cccc,dddd");
     }
 
+    /// <summary>A pump held on a send must not queue every resize of an agent that draws nothing: sizes count
+    /// against the budget, and an overflow is recovered by a replay that starts with the latest size.</summary>
+    [Test]
+    public async Task Resizes_behind_a_held_send_overflow_into_a_replay() {
+        using var gate = new StepGate();
+        await using var rig = new Rig(Fast with { BacklogBudgetBytes = 40 });
+        rig.Mirror.OnSend = gate.Wait;
+        _ = rig.Sink;
+
+        rig.Emit("aaaa");
+        await WaitHarness.PollUntilAsync(() => rig.Mirror.Entered == 1);
+        for (var cols = 81; cols <= 90; cols++) rig.Resize(cols, 24);
+
+        gate.Open();
+        await WaitHarness.PollUntilAsync(() => rig.Mirror.Sent.Count == 4);
+        await rig.Sink.StopAsync(HangGuard).WaitAsync(HangGuard);
+
+        await Assert.That(string.Join(",", rig.Mirror.SentText())).IsEqualTo("aaaa,<SIZE 90x24>,<RIS>,aaaa");
+    }
+
     [Test]
     public async Task Nothing_is_sent_until_the_connection_is_ready() {
         await using var rig = new Rig();

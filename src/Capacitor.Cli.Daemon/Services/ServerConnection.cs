@@ -1211,8 +1211,8 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     /// them and broadcasts to subscribed read-only viewers so their xterm locks to
     /// the source size instead of auto-fitting its panel (which garbles the TUI).
     /// </summary>
-    public virtual Task SendTerminalDimensionsAsync(string agentId, int cols, int rows)
-        => _hub.SendAsync("SendTerminalDimensions", agentId, cols, rows, cancellationToken: _ct);
+    public virtual Task SendTerminalDimensionsAsync(string agentId, int cols, int rows, CancellationToken ct = default)
+        => _hub.SendAsync("SendTerminalDimensions", agentId, cols, rows, cancellationToken: ct.CanBeCanceled ? ct : _ct);
 
     public virtual Task AgentStatusChangedAsync(string agentId, string status, string? sessionId)
         => _hub.InvokeAsync("AgentStatusChanged", new AgentStatusChanged(agentId, status, sessionId), cancellationToken: _ct);

@@ -32,6 +32,10 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
     static readonly byte[] Wake  = [];
     static readonly byte[] Reset = [0x1B, 0x63];
 
+    // A size counts against the budget too, or a held pump would queue every resize of an idle agent.
+    // Nominal: it only has to be more than zero and far below the budget.
+    const int SizeCost = 16;
+
     volatile bool _completed;
     volatile bool _desynced;
     volatile bool _abortReplay;
@@ -104,18 +108,8 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
     /// <summary>Caller holds the sinks lock and has already appended this chunk to the ring: a
     /// chunk dropped here (desynced, or over budget) is recovered only by the replay.</summary>
     public void TryEnqueue(byte[] chunk) {
-        if (_completed || _desynced) return;
+        if (_completed || _desynced || !TryChargeLocked(chunk.Length)) return;
 
-        var queued = Interlocked.Read(ref _queuedBytes);
-
-        // An empty queue always accepts, so an overflow implies a pump with work to wake on.
-        if (queued > 0 && queued + chunk.Length > _options.BacklogBudgetBytes) {
-            MarkDesyncedLocked("backlog over budget", abortReplay: false);
-
-            return;
-        }
-
-        Interlocked.Add(ref _queuedBytes, chunk.Length);
         _queue.Writer.TryWrite(chunk);
     }
 
@@ -125,9 +119,25 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
     public void TryEnqueueSize(int cols, int rows) {
         _size = new Size(cols, rows);
 
-        if (_completed || _desynced) return;
+        if (_completed || _desynced || !TryChargeLocked(SizeCost)) return;
 
         _queue.Writer.TryWrite(_size);
+    }
+
+    /// <summary>Caller holds the sinks lock.</summary>
+    bool TryChargeLocked(int cost) {
+        var queued = Interlocked.Read(ref _queuedBytes);
+
+        // An empty queue always accepts, so an overflow implies a pump with work to wake on.
+        if (queued > 0 && queued + cost > _options.BacklogBudgetBytes) {
+            MarkDesyncedLocked("backlog over budget", abortReplay: false);
+
+            return false;
+        }
+
+        Interlocked.Add(ref _queuedBytes, cost);
+
+        return true;
     }
 
     /// <summary>Caller holds the sinks lock.</summary>
@@ -281,6 +291,7 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
                     }
 
                     if (item is Size size) {
+                        Interlocked.Add(ref _queuedBytes, -SizeCost);
                         await SendAsync(size, replay: false, ct);
 
                         continue;

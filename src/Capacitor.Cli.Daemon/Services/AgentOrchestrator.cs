@@ -840,7 +840,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             var sink = new CloudTerminalSink(
                 agent.Id, agent.SinksLock, agent.OutputBuffer,
                 _server.SendTerminalOutputAsync,
-                (agentId, cols, rows, _) => _server.SendTerminalDimensionsAsync(agentId, cols, rows),
+                _server.SendTerminalDimensionsAsync,
                 () => _server.IsReady,
                 _logger, _time, CloudSinkOptions, _shutdownCts.Token);
 

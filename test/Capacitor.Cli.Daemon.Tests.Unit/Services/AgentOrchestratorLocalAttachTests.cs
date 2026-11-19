@@ -1169,7 +1169,7 @@ public class AgentOrchestratorLocalAttachTests {
         public ConcurrentBag<object> RunEvents { get; } = [];
         public (int Cols, int Rows)? LastDims { get; private set; }
 
-        public override Task SendTerminalDimensionsAsync(string agentId, int cols, int rows) { LastDims = (cols, rows); Calls.Add(nameof(SendTerminalDimensionsAsync)); return Task.CompletedTask; }
+        public override Task SendTerminalDimensionsAsync(string agentId, int cols, int rows, CancellationToken ct = default) { LastDims = (cols, rows); Calls.Add(nameof(SendTerminalDimensionsAsync)); return Task.CompletedTask; }
         public override Task LaunchFailedAsync(string agentId, string reason) { Calls.Add(nameof(LaunchFailedAsync)); return Task.CompletedTask; }
         public ConcurrentBag<AgentStartTitle?> RegisteredTitles { get; } = [];
         public override Task<AgentRegisteredResponse> AgentRegisteredAsync(string agentId, string? prompt, string? model, string? effort, string? repoPath, string? sandboxPolicy = null, string? approvalPolicy = null, string? permissionPreset = null, string? runtimeTransport = null, string? vendor = null, AgentStartTitle? title = null, string? continuesAgentId = null, string? accountDirectory = null, string? accountId = null, string? accountLabel = null, string? resumedSessionId = null, bool resumeFirstAnnounce = false) { Calls.Add(nameof(AgentRegisteredAsync)); RegisteredTitles.Add(title); return Task.FromResult(AgentRegisteredResponse.Accepted); }

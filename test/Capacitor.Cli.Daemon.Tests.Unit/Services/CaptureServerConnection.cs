@@ -518,7 +518,7 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>Terminal output as text and sizes as <c>&lt;SIZE colsxrows&gt;</c>, in the order they arrived.</summary>
     public ConcurrentQueue<(string AgentId, string Entry)> TerminalStream { get; } = new();
 
-    public override Task SendTerminalDimensionsAsync(string agentId, int cols, int rows) {
+    public override Task SendTerminalDimensionsAsync(string agentId, int cols, int rows, CancellationToken ct = default) {
         TerminalStream.Enqueue((agentId, $"<SIZE {cols}x{rows}>"));
 
         return Task.CompletedTask;
