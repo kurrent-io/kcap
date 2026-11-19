@@ -183,6 +183,41 @@ public class CopilotImportSourceImportTests : IDisposable {
         }
     }
 
+    /// <summary>A moved chat whose copied history ends only while the import sends it gets no marker from that run, which
+    /// sent it without stopping at a lost batch: the import fails, and a re-run sends it with the marker.</summary>
+    [Test]
+    public async Task A_moved_history_that_ends_during_the_import_fails_it_for_a_rerun() {
+        var dir  = Path.Combine(CopilotLayout.SessionStateDir, DashedSid);
+        var path = Path.Combine(dir, "events.jsonl");
+        Directory.CreateDirectory(dir);
+        await File.WriteAllLinesAsync(path, new[] {
+            $$$"""{"type":"session.start","data":{"sessionId":"{{{DashedSid}}}","producer":"vscode-copilot-migration","context":{"cwd":"/work/a"}},"id":"e1","timestamp":"2026-11-18T17:51:27.398Z","parentId":null}""",
+            """{"type":"user.message","data":{"content":"Add multiply."},"id":"e2","timestamp":"2026-11-18T17:51:27.408Z","parentId":"e1"}""",
+        });
+        await File.WriteAllTextAsync(Path.Combine(dir, "workspace.yaml"), "cwd: /work/a\n");
+
+        _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number":-1}"""));
+        foreach (var route in new[] { "/hooks/session-start/copilot", "/hooks/harness-title", "/hooks/set-title", "/hooks/session-end/copilot" })
+            _server.Given(Request.Create().WithPath(route).UsingPost()).RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
+        // The resume lands in the file as the transcript is sent.
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}").WithCallback(_ => {
+                File.AppendAllText(path, """{"type":"session.resume","data":{"context":{}},"id":"e3","timestamp":"2026-11-18T17:53:40.853Z","parentId":"e2"}""" + "\n");
+                return new WireMock.ResponseMessage { StatusCode = 200, BodyData = new WireMock.Util.BodyData { BodyAsString = "{}", DetectedBodyType = WireMock.Types.BodyType.String } };
+            }));
+
+        using var client = new HttpClient();
+        var source     = new CopilotImportSource(Config.Root, CopilotLayout, [], new GitProviderRouter(), TimeProvider.System);
+        var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
+        var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, _server.Url!, MinLines: 0, Home: Home), CancellationToken.None);
+
+        var outcome = await source.ImportSessionAsync(classified.Single(), new ImportContext(client, _server.Url!, ForcePrivate: false), CancellationToken.None);
+
+        await Assert.That(File.ReadAllText(path)).Contains("session.resume");
+        await Assert.That(outcome.Outcome).IsEqualTo(ImportOutcome.Failed);
+    }
+
     /// <summary>The import reads Copilot's name through the same store the live watcher polls, so a name that only
     /// repeats the first prompt is left for the server's own title.</summary>
     [Test]

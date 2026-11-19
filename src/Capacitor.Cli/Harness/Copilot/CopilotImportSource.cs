@@ -390,7 +390,9 @@ internal sealed class CopilotImportSource : IImportSource {
         ) {
         var sessionId = classification.SessionId;
 
-        if (before is null || CopilotMovedChat.FindLocalChat(_vsCodeWorkspaceStorageDirs, before).Found is not { } local) return true;
+        // A history that ended while the send ran was sent without a stop at a lost batch: a re-run sends it with one.
+        if (before is null) return ReadMovedHistory(transcriptPath) is null;
+        if (CopilotMovedChat.FindLocalChat(_vsCodeWorkspaceStorageDirs, before).Found is not { } local) return true;
         if (ReadMovedHistory(transcriptPath) != before) return false;
 
         var history = before;
