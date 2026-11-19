@@ -1102,7 +1102,6 @@
                                                         Padding="6,4" Cursor="Hand"
                                                         Command="{Binding $parent[views:WorkContextView].((vm:WorkContextViewModel)DataContext).Topics.RevealCommand, FallbackValue={x:Null}}"
                                                         CommandParameter="{Binding Topic}"
-                                                        ToolTip.Tip="{Binding Topic.Label, FallbackValue={x:Null}}"
                                                         AutomationProperties.Name="{Binding Topic.Label, StringFormat='Go to topic {0}', FallbackValue={x:Null}}">
                                                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                                         <views:AppIcon Kind="Signpost" Size="12" VerticalAlignment="Center"
@@ -1117,7 +1116,6 @@
                                                 <Button Grid.Column="1" Classes="kcapGhost markRemove"
                                                         Command="{Binding $parent[views:WorkContextView].((vm:WorkContextViewModel)DataContext).Topics.RemoveCommand, FallbackValue={x:Null}}"
                                                         CommandParameter="{Binding Topic}"
-                                                        ToolTip.Tip="Remove this topic"
                                                         AutomationProperties.Name="{Binding Topic.Label, StringFormat='Remove topic {0}', FallbackValue={x:Null}}">
                                                     <views:AppIcon Kind="X" Size="12" />
                                                 </Button>
