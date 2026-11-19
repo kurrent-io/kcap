@@ -67,4 +67,23 @@ public class SharedSessionDetailReaderTests {
         await Assert.That((await shared.ReadAsync("s1", CancellationToken.None)).NotFound).IsTrue();
         await Assert.That(server.Count).IsEqualTo(2);
     }
+
+    /// The read a caller joined may have gone out with a token refreshed since; only the caller
+    /// that started it takes its refusal as final.
+    [Test]
+    public async Task A_joiner_handed_a_refusal_reads_again_and_the_starter_does_not() {
+        var server = new Server();
+        var shared = new SharedSessionDetailReader(server.Read);
+        var starter = shared.ReadAsync("s1", CancellationToken.None);
+        await WaitUntilAsync(() => server.Count == 1, what: "request issued");
+        var joiner = shared.ReadAsync("s1", CancellationToken.None);
+        var refused = server.Answer;
+        server.Answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        server.Answer.SetResult(new SessionDetailFetch(RemoteFixtures.Detail()));
+        refused.SetResult(new SessionDetailFetch(null, Unauthorized: true));
+
+        await Assert.That((await starter).Unauthorized).IsTrue();
+        await Assert.That((await joiner).Detail).IsNotNull();
+        await Assert.That(server.Count).IsEqualTo(2);
+    }
 }
