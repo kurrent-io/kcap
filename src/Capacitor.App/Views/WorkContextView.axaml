@@ -969,28 +969,6 @@
                         </Border>
                     </StackPanel>
                 </StackPanel>
-
-                <StackPanel x:Name="NeedToKnowSection" Margin="0,18,0,0" IsVisible="{Binding ShowsNeedToKnow}">
-                    <Button x:Name="NeedToKnowToggle" Command="{Binding ToggleNeedToKnowCommand}" Classes="sectionHeader expandable"
-                            AutomationProperties.Name="{Binding NeedToKnowToggleName}">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-                            <TextBlock Text="NEED TO KNOW BASIS" Classes="eyebrow" />
-                            <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
-                                <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding NeedToKnowExpanded}" />
-                                <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !NeedToKnowExpanded}" />
-                            </Panel>
-                        </Grid>
-                    </Button>
-                    <Border Classes="sectionBody" IsVisible="{Binding NeedToKnowExpanded}">
-                        <Grid x:Name="NeedToKnowControls" ColumnDefinitions="*,Auto" ColumnSpacing="10"
-                              x:DataType="vm:NeedToKnowBasisViewModel" DataContext="{x:Static vm:NeedToKnowBasisViewModel.Shared}">
-                            <TextBlock Text="Fade detail and footnotes" FontSize="13" Foreground="{StaticResource KcapMutedBrush}"
-                                       TextWrapping="Wrap" VerticalAlignment="Center" />
-                            <ToggleSwitch x:Name="NeedToKnowSwitch" Grid.Column="1" Classes="kcapSwitch" VerticalAlignment="Center"
-                                          IsChecked="{Binding Enabled, Mode=TwoWay}" AutomationProperties.Name="Fade detail and footnotes" />
-                        </Grid>
-                    </Border>
-                </StackPanel>
             </StackPanel>
         </ScrollViewer>
     </Border>

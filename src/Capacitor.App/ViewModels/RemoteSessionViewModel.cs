@@ -434,7 +434,6 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             RaiseConnectionNotice();
         }).DisposeWith(_disposables);
         Chat.Tasks.RunOpened += OpenSubagent;
-        Chat.WhenAnyValue(c => c.HasNeedToKnowMarks).Subscribe(shows => WorkContext.ShowsNeedToKnow = shows).DisposeWith(_disposables);
         _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
         lane.Status.Select(s => s.Subject).DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler)

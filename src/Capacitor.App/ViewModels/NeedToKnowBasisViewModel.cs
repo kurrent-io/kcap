@@ -5,7 +5,7 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// The right bar's need-to-know switch. One instance, because the basis is process-wide.
+/// The chat's progressive disclosure toggle. One instance, because the basis is process-wide.
 /// On fades detail and footnote; off shows both normally.
 public sealed class NeedToKnowBasisViewModel : ReactiveObject {
     public static NeedToKnowBasisViewModel Shared { get; } = new();
@@ -24,7 +24,9 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
     double _footnoteFade = DefaultFootnoteFade;
     IAppStateStore? _store;
 
-    NeedToKnowBasisViewModel() { }
+    NeedToKnowBasisViewModel() => ToggleCommand = ReactiveCommand.Create(() => { Enabled = !Enabled; });
+
+    public ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit> ToggleCommand { get; }
 
     public bool Enabled {
         get => _basis != Off;

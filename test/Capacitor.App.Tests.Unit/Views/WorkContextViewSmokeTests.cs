@@ -97,29 +97,6 @@ public class WorkContextViewSmokeTests {
         });
     }
 
-    /// The section stays hidden until the session has a graded reply, then shows the switch bound to the
-    /// shared basis; its header folds it.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_need_to_know_section_shows_once_the_session_has_a_graded_reply_and_folds() {
-        await RunOnUiAsync(async () => {
-            await using var host = new Host();
-            await host.ShowAsync(KeyOnlyRead());
-            await Assert.That(host.Find<Control>("NeedToKnowSection").IsEffectivelyVisible).IsFalse();
-
-            host.Vm.ShowsNeedToKnow = true;
-            Dispatcher.UIThread.RunJobs();
-            await Assert.That(host.Find<Control>("NeedToKnowControls").IsEffectivelyVisible).IsTrue();
-            await Assert.That(host.Find<ToggleSwitch>("NeedToKnowSwitch").IsChecked).IsEqualTo(NeedToKnowBasisViewModel.Shared.Enabled);
-
-            host.Find<Button>("NeedToKnowToggle").Command!.Execute(null);
-            Dispatcher.UIThread.RunJobs();
-            await Assert.That(host.Find<Control>("NeedToKnowControls").IsEffectivelyVisible).IsFalse();
-            await Assert.That(host.Find<Button>("NeedToKnowToggle").GetValue(Avalonia.Automation.AutomationProperties.NameProperty))
-                .IsEqualTo("Need to know basis, collapsed");
-        });
-    }
-
     /// The session's pages are listed in the pane, hidden while it has none, and a row opens its page.
     [Test]
     [NotInParallel("AvaloniaSession")]
