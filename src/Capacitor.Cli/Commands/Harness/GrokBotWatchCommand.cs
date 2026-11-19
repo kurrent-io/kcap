@@ -10,11 +10,11 @@ namespace Capacitor.Cli.Commands.Harness;
 
 /// <summary>
 /// <c>kcap grok-bot watch</c>: polls the Grok Bot gateway on its cloud computer and records every chat as
-/// Capacitor sessions. The gateway lists each chat as an agent: a Bot's own thread, and every new chat as a
+/// kcap sessions. The gateway lists each chat as an agent: a Bot's own thread, and every new chat as a
 /// group, so groups are read like any other. One instance per computer, held by a lock file; delivery state advances
 /// only after the server accepts a call, so a restart resends nothing and loses nothing.
 /// </summary>
-sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profiles, UserHome home, ICapacitorHttpClient http, TimeProvider time) {
+public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profiles, UserHome home, ICapacitorHttpClient http, TimeProvider time) {
     static readonly TimeSpan DefaultInterval = TimeSpan.FromSeconds(5);
     static readonly TimeSpan DefaultGap      = TimeSpan.FromHours(2);
     static readonly TimeSpan BackoffCeiling  = TimeSpan.FromMinutes(5);
@@ -26,7 +26,7 @@ sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profiles, Use
     // A thread longer than this many tail pages is not paged further back in one cycle.
     const int MaxPagesPerCycle = 50;
 
-    public async Task<int> Handle(string[] args) {
+    public async Task<int> HandleAsync(string[] args) {
         if (args.Length < 2 || args[1] != "watch") {
             await Console.Error.WriteLineAsync("Usage: kcap grok-bot watch [--once] [--dry-run] [--gateway <gateway.json>] [--interval <seconds>] [--gap-minutes <n>]");
             return 1;
@@ -170,7 +170,7 @@ sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profiles, Use
                 Lines       = lines.Lines,
                 LineNumbers = lines.Seqs,
                 Vendor      = "grok-bot",
-                Strict      = false
+                Strict      = true
             }, CapacitorJsonContext.Default.TranscriptBatch)),
             GrokBotEndSession end     => ("hooks/session-end/grok-bot", new JsonObject {
                 ["session_id"] = end.SessionId,
@@ -200,16 +200,13 @@ sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profiles, Use
         _                     => action.GetType().Name
     };
 
-    string StartBody(GrokBotStartSession start) {
-        var body = new JsonObject {
-            ["session_id"] = start.SessionId,
-            ["started_at"] = Iso(start.StartedAtMs),
-            ["home_dir"]   = home.Path
-        };
-        if (profiles.Effective?.DefaultVisibility is { } visibility) body["default_visibility"] = visibility;
-
-        return body.ToJsonString();
-    }
+    // Always private, whatever the profile's default: a Bot reads mail, chat and documents.
+    string StartBody(GrokBotStartSession start) => new JsonObject {
+        ["session_id"]         = start.SessionId,
+        ["started_at"]         = Iso(start.StartedAtMs),
+        ["default_visibility"] = "private",
+        ["home_dir"]           = home.Path
+    }.ToJsonString();
 
     static string SessionOf(GrokBotAction action) => action switch {
         GrokBotStartSession a => a.SessionId,

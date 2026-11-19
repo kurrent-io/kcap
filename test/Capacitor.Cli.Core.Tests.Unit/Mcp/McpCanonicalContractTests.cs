@@ -37,6 +37,12 @@ public class McpCanonicalContractTests {
             .IsEquivalentTo(KcapMcpServers.ForCodex.Select(s => s.Name).ToArray());
     }
 
+    [Test]
+    public async Task Bundled_cursor_mcp_json_matches_the_cursor_subset() {
+        await Assert.That(Keys(".cursor-mcp.json"))
+            .IsEquivalentTo(KcapMcpServers.ForCursor.Select(s => s.Name).ToArray());
+    }
+
     /// <summary>Codex reads a plugin descriptor's entries into the same server config as
     /// config.toml, so the bundled descriptor must carry every tool timeout the TOML writer emits.</summary>
     [Test]

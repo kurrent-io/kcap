@@ -368,7 +368,7 @@ switch (command) {
         return 0;
     }
     case "grok-bot":
-        return await Run<GrokBotWatchCommand>().Handle(args);
+        return await Run<GrokBotWatchCommand>().HandleAsync(args);
     case "errors": {
         var useChain     = args.Contains("--chain");
         var errSessionId = ResolveSessionId(args, skipCount: 1);

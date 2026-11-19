@@ -184,6 +184,7 @@ public static class HostedHarnessCatalog {
         ["mistral-vibe"] = ("Mv", "#FA520F"),
         ["muse-assistant"] = ("MA", "#2F6FE0"),
         ["grok"]        = ("Gk", "#F5F5F5"),
+        ["grok-bot"]    = ("GB", "#F5F5F5"),
         ["muse"]         = ("Mu", "#4B93FF"),
     };
 

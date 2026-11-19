@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Capacitor.Cli.Core;
 
 namespace Capacitor.Cli.Harness.GrokBot;
 
@@ -23,22 +24,15 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) {
     public async Task<IReadOnlyList<GrokBotAgent>> ListAgentsAsync(CancellationToken ct) {
         using var doc = await CallAsync("listAgents", new JsonObject(), ct);
 
-        var list = doc.RootElement.ValueKind == JsonValueKind.Array ? doc.RootElement
-                 : doc.RootElement.TryGetProperty("agents", out var agents) ? agents
-                 : default;
-        if (list.ValueKind != JsonValueKind.Array) return [];
+        if ((doc.RootElement.IsArray ? doc.RootElement : doc.RootElement.Arr("agents")) is not { } list) return [];
 
         var result = new List<GrokBotAgent>();
         foreach (var a in list.EnumerateArray()) {
-            if (!a.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String || id.GetString() is not { Length: > 0 } agentId) continue;
+            if (a.Str("id") is not { Length: > 0 } agentId) continue;
 
-            var fingerprint = string.Join("|", ChangeFields.Select(f => a.TryGetProperty(f, out var v) ? v.GetRawText() : ""));
+            var fingerprint = string.Join("|", ChangeFields.Select(f => a.Prop(f)?.GetRawText() ?? ""));
 
-            result.Add(new GrokBotAgent(
-                agentId,
-                a.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString()! : "",
-                a.TryGetProperty("isRunningTurn", out var r) && r.ValueKind == JsonValueKind.True,
-                fingerprint));
+            result.Add(new GrokBotAgent(agentId, a.Str("name") ?? "", a.Bool("isRunningTurn") == true, fingerprint));
         }
 
         return result;
@@ -55,12 +49,13 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) {
         var root = doc.RootElement;
 
         var entries = new List<GrokBotEntry>();
-        if (root.TryGetProperty("entries", out var list) && list.ValueKind == JsonValueKind.Array) {
+        if (root.Arr("entries") is { } list) {
             foreach (var e in list.EnumerateArray())
                 if (GrokBotEntry.TryParse(e, agentId) is { } entry) entries.Add(entry);
         }
 
-        int? next = root.TryGetProperty("nextBeforeSeq", out var n) && n.ValueKind == JsonValueKind.Number && n.TryGetInt32(out var nv) ? nv : null;
+        int? next = root.Num("nextBeforeSeq") is { } n and >= int.MinValue and <= int.MaxValue ? (int)n : null;
+
         return (entries, next);
     }
 
@@ -79,7 +74,8 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) {
     }
 
     (string BaseUrl, string Token) ReadDescriptor() {
-        var root   = JsonNode.Parse(File.ReadAllText(descriptorPath))!.AsObject();
+        // The gateway rewrites its descriptor on every restart, so the read must not deny that write.
+        var root   = JsonNode.Parse(File.ReadAllTextShared(descriptorPath))!.AsObject();
         var scheme = root["scheme"]?.GetValue<string>() is { Length: > 0 } s ? s : "http";
         var host   = root["host"]?.GetValue<string>() is { Length: > 0 } h && h != "0.0.0.0" ? h : "127.0.0.1";
         var port   = root["port"]?.GetValue<int>() ?? throw new InvalidDataException("gateway.json has no port");
