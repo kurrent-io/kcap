@@ -252,7 +252,7 @@ public class ChatTabViewSmokeTests {
         RemoteTranscriptFeed? feed = null;
         var chat = new ChatTabViewModel("a1", AgentOrigin.Remote,
             Observable.Return(new ChatSessionInfo("Ended", "Ended", "gemini", null, null, null, true, "", "s1")), Observable.Return<string[]?>(null),
-            new Capacitor.App.Tests.Unit.ViewModels.AcceptingChatPromptInput(), new NoAttachmentUploader(), key => feed = new RemoteTranscriptFeed(key, "gemini", access, server.Reader, lane, time, _ => { }),
+            new ViewModels.AcceptingChatPromptInput(), new NoAttachmentUploader(), key => feed = new RemoteTranscriptFeed(key, "gemini", access, server.Reader, lane, time, _ => { }),
             new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time));
         var view = new ChatTabView { DataContext = chat };
         var window = new Window { Content = view, Width = 800, Height = 600 };
@@ -301,7 +301,7 @@ public class ChatTabViewSmokeTests {
             // A scroll asked for right after rows go in above lands where it was asked to, not where the
             // insertion's pending correction would put it.
             var rows = (Avalonia.Collections.AvaloniaList<ChatItemViewModel>)chat.Items;
-            rows.InsertRange(0, [new AssistantTextItem("extra 1", null), new AssistantTextItem("extra 2", null)]);
+            rows.InsertRange(0, [new AssistantTextItem("extra 1"), new AssistantTextItem("extra 2")]);
             list.ScrollIntoView(500);
             Settle();
             var target = list.ContainerFromIndex(500)?.TranslatePoint(default, Scroll())?.Y;
@@ -314,7 +314,7 @@ public class ChatTabViewSmokeTests {
             await Assert.That(list.ContainerFromIndex(0)).IsNotNull();
 
             // A scroll to a row past the extent laid out before the insert still reaches it once layout grows.
-            rows.InsertRange(0, [.. Enumerable.Range(0, 300).Select(i => new AssistantTextItem($"page {i}", null))]);
+            rows.InsertRange(0, [.. Enumerable.Range(0, 300).Select(i => new AssistantTextItem($"page {i}"))]);
             list.ScrollIntoView(rows.Count - 1);
             Settle();
             var last = list.ContainerFromIndex(rows.Count - 1)?.TranslatePoint(default, Scroll())?.Y;
@@ -331,7 +331,7 @@ public class ChatTabViewSmokeTests {
                 .Select(container => (container, top: container.TranslatePoint(default, Scroll())!.Value.Y))
                 .Where(row => row.top + row.container.Bounds.Height > 1)
                 .MinBy(row => row.top);
-            rows.InsertRange(0, [new AssistantTextItem("extra 3", null), new AssistantTextItem("extra 4", null)]);
+            rows.InsertRange(0, [new AssistantTextItem("extra 3"), new AssistantTextItem("extra 4")]);
             Scroll().Offset = new Vector(0, Scroll().Offset.Y - 60);
             Settle();
             var moved = list.ContainerFromItem(reading.container.DataContext!)?.TranslatePoint(default, Scroll())?.Y;

@@ -194,7 +194,7 @@ public partial class ChatTabViewModelTests {
         using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
         var time = new FakeTimeProvider();
         var permissions = new FakePermissionService();
-        permissions.Add(PermissionEntries.ServerQuestion("srv-q1"));
+        permissions.Add(PermissionEntries.ServerQuestion());
         var server = new FakeSessionEvents([.. Enumerable.Range(0, 400).Select(i => i switch {
             99  => RemoteFixtures.Event(i, CanonicalEventTypes.AssistantToolCallsGenerated,
                 """{"tool_calls":[{"call_id":"q1","tool_name":"AskUserQuestion","arguments":{"questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]}]}}]}"""),

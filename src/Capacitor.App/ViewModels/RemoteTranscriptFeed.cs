@@ -364,7 +364,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     /// Null for a refusal, which stops paging; any other failure throws, for the retry.
     (long Earliest, long? Oldest)? Refused(StreamEventsFetch fetch) {
-        if (!fetch.NotFound && !fetch.Unauthorized) throw new InvalidOperationException(fetch.Failure ?? "could not read older events");
+        if (fetch is { NotFound: false, Unauthorized: false }) throw new InvalidOperationException(fetch.Failure ?? "could not read older events");
         _log($"remote transcript: older events: {(fetch.NotFound ? "not found" : "not signed in")}");
         return null;
     }
