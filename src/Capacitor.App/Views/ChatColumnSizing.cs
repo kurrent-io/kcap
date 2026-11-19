@@ -15,7 +15,7 @@ public sealed class ChatColumnSizing {
     const double HandleReserve = 20;
     const double HandleWidth = 8;
     // The lane handle crosses the user's messages; over one, the pointer selects text instead.
-    const string UserBubbleClass = "userBubble";
+    static readonly string[] UserBubbleClasses = ["userTurn", "shellCommand"];
 
     readonly ChatTabView _view;
     readonly ItemsControl _items;
@@ -124,7 +124,7 @@ public sealed class ChatColumnSizing {
     bool OverUserBubble(Point point) {
         if (_laneHandle.TranslatePoint(point, _items) is not { } at) return false;
         return _items.InputHitTest(at) is Visual hit
-            && hit.GetSelfAndVisualAncestors().OfType<StyledElement>().Any(e => e.Classes.Contains(UserBubbleClass));
+            && hit.GetSelfAndVisualAncestors().OfType<StyledElement>().Any(e => UserBubbleClasses.Any(e.Classes.Contains));
     }
 
     void EndDrag() {
