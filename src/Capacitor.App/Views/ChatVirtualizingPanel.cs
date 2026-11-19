@@ -21,7 +21,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     sealed record Row(object Item, Control Container, object? RecycleKey, bool OwnContainer);
     const double EstimatedHeight = 80;
     const double KeepAliveOverscan = 240;
-    const double RailWidth = 16;
+    internal const double RailWidth = 16;
     // Centres the rail under a topic header's 14px icon.
     const double RailInset = 7;
     // From the middle of a topic header to just below its icon.
@@ -83,7 +83,9 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     /// A user's turn spans the column to sit at its right edge; the agent's rows keep to the lane.
     static bool SpansColumn(object item) => item is UserTurnItem or ShellCommandItem or ChatTopicItem or ChatTopicEndItem;
 
-    static double Indent(object item) => item is ChatItemViewModel { Topic: not null } ? RailWidth : 0;
+    // Every row keeps the rail's space, so marking a topic never shifts its messages sideways; a
+    // topic's header and end sit out over the rail.
+    static double Indent(object item) => item is ChatTopicItem or ChatTopicEndItem ? 0 : RailWidth;
 
     double RowWidth(object item, double width) {
         var inner = Math.Max(0, width - Indent(item));

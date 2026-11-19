@@ -820,7 +820,7 @@ public class ChatTabViewSmokeTests {
 
     /// The column keeps its share of the window and the agent's lane its width. The edge handles drag
     /// the column about the centre, the lane handle the lane's right edge; the composer follows the
-    /// column and a user turn keeps to its right edge.
+    /// column, a user turn keeps to its right edge, and an agent's row starts past the topic rail's gutter.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Dragging_the_chat_handles_resizes_the_column_and_the_agents_lane() => RunOnUiAsync(async () => {
@@ -841,8 +841,8 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(composer.Bounds.Width).IsEqualTo(column).Within(1);
                 await Assert.That(Centre(presenter)).IsEqualTo(window / 2).Within(1);
                 await Assert.That(Right(bubble)).IsEqualTo(Right(presenter)).Within(1);
-                await Assert.That(Left(AgentRow())).IsEqualTo(Left(presenter)).Within(1);
-                await Assert.That(AgentRow().Bounds.Width).IsEqualTo(lane).Within(1);
+                await Assert.That(Left(AgentRow())).IsEqualTo(Left(presenter) + ChatVirtualizingPanel.RailWidth).Within(1);
+                await Assert.That(Right(AgentRow())).IsEqualTo(Left(presenter) + lane).Within(1);
             }
             void Drag(string name, double dx) {
                 var start = PresentAndLocate(host, host.View.FindControl<Border>(name)!);
@@ -1263,18 +1263,20 @@ public class ChatTabViewSmokeTests {
         });
     }
 
-    /// The header lands above the message, so the chat scrolls by its height and the toggle stays
-    /// under the pointer for a second click; taking the topic away again leaves it there too.
+    /// The header lands above the message, so the chat scrolls by its height, and every row keeps the
+    /// rail's space, so the toggle stays under the pointer for a second click; taking the topic away
+    /// again leaves it there too. An agent's reply sits at the left, where an indent would show.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_message_topic_toggle_stays_where_it_was_clicked() {
         await RunOnUiAsync(async () => {
             var host = new Host();
             try {
-                await host.LoadAsync(Tmp.CreateFile("topic-in-place.jsonl", Enumerable.Repeat(UserLine, 40).ToArray()));
+                const string reply = """{"type":"assistant","message":{"content":[{"type":"text","text":"Noted."}]}}""";
+                await host.LoadAsync(Tmp.CreateFile("topic-in-place.jsonl", Enumerable.Range(0, 40).Select(i => i % 2 == 0 ? UserLine : reply).ToArray()));
                 WheelUp(host);
                 host.Settle();
-                var turn = host.Chat.Items.OfType<UserTurnItem>().ElementAt(20);
+                var turn = host.Chat.Items.OfType<AssistantTextItem>().ElementAt(10);
                 host.View.FindControl<ItemsControl>("ChatItems")!.ScrollIntoView(turn);
                 host.Settle();
                 // Mid-viewport: at the top the list keeps its first row still on its own.
@@ -1282,17 +1284,20 @@ public class ChatTabViewSmokeTests {
                 host.Settle();
                 Button Toggle() => host.View.GetVisualDescendants().OfType<Button>()
                     .Single(b => b.Classes.Contains("topicHere") && ReferenceEquals(b.DataContext, turn));
-                var before = SummaryViewportY(host, Toggle());
+                Point At() => Toggle().TranslatePoint(default, host.Scroll)!.Value;
+                var before = At();
 
                 Click(host, Toggle());
                 host.Settle();
                 await Assert.That(turn.StartsTopic).IsTrue();
-                await Assert.That(Math.Abs(SummaryViewportY(host, Toggle()) - before)).IsLessThan(2);
+                await Assert.That(Math.Abs(At().Y - before.Y)).IsLessThan(2);
+                await Assert.That(Math.Abs(At().X - before.X)).IsLessThan(1);
 
                 Click(host, Toggle());
                 host.Settle();
                 await Assert.That(turn.StartsTopic).IsFalse();
-                await Assert.That(Math.Abs(SummaryViewportY(host, Toggle()) - before)).IsLessThan(2);
+                await Assert.That(Math.Abs(At().Y - before.Y)).IsLessThan(2);
+                await Assert.That(Math.Abs(At().X - before.X)).IsLessThan(1);
             } finally { await host.CloseAsync(); }
         });
     }
