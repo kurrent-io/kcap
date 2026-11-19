@@ -281,14 +281,16 @@ public class SessionInterruptLogTests {
     public async Task Sessions_past_the_capacity_are_evicted_least_recently_read_first() {
         var stream = new Stream().Append(Issued("r1"), Line);
         using var log = stream.Log();
-        for (var i = 0; i <= SessionInterruptLog.Capacity; i++) await log.ReadAsync($"s{i}", CancellationToken.None);
+        for (var i = 0; i < SessionInterruptLog.Capacity; i++) await log.ReadAsync($"s{i}", CancellationToken.None);
+        // Rereading the oldest makes s1 the least recently read, so a FIFO cache would evict s0 instead.
+        await log.ReadAsync("s0", CancellationToken.None);
         await log.ReadAsync($"s{SessionInterruptLog.Capacity}", CancellationToken.None);
 
         stream.Froms.Clear();
-        await log.ReadAsync("s1", CancellationToken.None);
+        await log.ReadAsync("s0", CancellationToken.None);
         await Assert.That(stream.Froms[0]).IsEqualTo(2);
         stream.Froms.Clear();
-        await log.ReadAsync("s0", CancellationToken.None);
+        await log.ReadAsync("s1", CancellationToken.None);
         await Assert.That(stream.Froms[0]).IsEqualTo(0);
     }
 }
