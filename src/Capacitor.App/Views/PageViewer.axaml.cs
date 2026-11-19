@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using Capacitor.App.Platform.Linux;
 using Capacitor.App.Platform.Mac;
 using Capacitor.App.Platform.Windows;
 using Capacitor.App.Services;
@@ -12,7 +13,7 @@ namespace Capacitor.App.Views;
 
 /// Hosts a ready page in a NativeWebView. The WebView exists only while the page is Ready, which
 /// the view model reaches only where IWebViewAvailability allows it, so a runtime without a usable
-/// WebView never constructs one. A page loads only into a WKWebView or WebView2 whose WebRTC is
+/// WebView never constructs one. A page loads only into a WKWebView, WebView2 or WebKitGTK view whose WebRTC is
 /// shown to be off and whose navigations, in every frame, pass the platform's guard; anything less
 /// falls back to the browser. Every handler the WebView raises catches what it throws: they run
 /// from native callbacks, where an escaping exception ends the process.
@@ -93,6 +94,7 @@ public partial class PageViewer : UserControl {
                 if (e is AppleWKWebViewEnvironmentRequestedEventArgs apple) apple.NonPersistentDataStore = true;
                 else if (e is WindowsWebView2EnvironmentRequestedEventArgs windows)
                     WebView2PageEnvironment.Configure(windows, Environment.GetEnvironmentVariable("LOCALAPPDATA"));
+                else if (e is GtkWebViewEnvironmentRequestedEventArgs gtk) gtk.EphemeralDataManager = true;
             } catch (Exception ex) {
                 Console.Error.WriteLine($"kcap: page web view setup failed: {ex.Message}");
             }
@@ -108,8 +110,11 @@ public partial class PageViewer : UserControl {
                         webView2 = true;
                         _ = SecureWebView2Async(webView, windows);
                         break;
+                    case IGtkWebViewPlatformHandle gtk:
+                        _ = SecureWebKitGtkAsync(webView, gtk.WebKitWebView);
+                        break;
                     default:
-                        Console.Error.WriteLine("kcap: the page web view is neither a WKWebView nor a WebView2; pages open in the browser");
+                        Console.Error.WriteLine("kcap: the page web view is not a WKWebView, WebView2 or WebKitGTK view; pages open in the browser");
                         _vm?.WebViewUnusable();
                         break;
                 }
@@ -207,6 +212,33 @@ public partial class PageViewer : UserControl {
         } finally {
             WebView2Com.Release(core);
         }
+    }
+
+    /// The guard holds a weak reference only: the native view may outlive this one.
+    async Task SecureWebKitGtkAsync(NativeWebView webView, nint webKitWebView) {
+        var self = new WeakReference<PageViewer>(this);
+        try {
+            var problem = await Avalonia.X11.Interop.GtkInteropHelper.RunOnGlibThread(() =>
+                !WebKitGtkSettings.TryHarden(webKitWebView) ? "could not lock the page web view's settings"
+                : !WebKitGtkNavigationGuard.TryInstall(webKitWebView, uri => Cancels(self, uri), uri => OpenNewWindow(self, uri))
+                    ? "could not guard the page web view's navigations"
+                : null);
+            if (!ReferenceEquals(webView, _webView)) return;
+            if (problem is not null) {
+                Console.Error.WriteLine($"kcap: {problem}; pages open in the browser");
+                _vm?.WebViewUnusable();
+                return;
+            }
+            _webViewSafe = true;
+            Show();
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: page web view setup failed: {ex.Message}");
+            if (ReferenceEquals(webView, _webView)) _vm?.WebViewUnusable();
+        }
+    }
+
+    static void OpenNewWindow(WeakReference<PageViewer> self, Uri request) {
+        if (self.TryGetTarget(out var viewer)) viewer._vm?.OpenNewWindow(request);
     }
 
     static bool Cancels(WeakReference<PageViewer> self, Uri request) =>

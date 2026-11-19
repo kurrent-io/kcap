@@ -11,7 +11,7 @@ public static class ExperimentalFeatures {
     public static ExperimentalFeature InAppPages { get; } = new(
         "in-app-pages",
         "In-app pages",
-        "Open kcap Pages inside the desktop app instead of the browser, where interactive pages can be answered. macOS, and Windows with the WebView2 runtime.",
+        "Open kcap Pages inside the desktop app instead of the browser, where interactive pages can be answered. macOS, Windows with the WebView2 runtime, and Linux with WebKitGTK 4.1.",
         AppliesLive: true,
         DesktopAppOnly: true,
         OnByDefault: false);
