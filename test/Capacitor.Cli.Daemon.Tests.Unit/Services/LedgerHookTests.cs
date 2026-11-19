@@ -7,17 +7,16 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 public class LedgerHookTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
-    (AgentPidRecordStore store, ResolvedCandidatesLedger ledger, string dir) NewPair() {
+    (AgentPidRecordStore store, ResolvedCandidatesLedger ledger) NewPair() {
         return (
             new AgentPidRecordStore(Tmp.Path, NullLogger.Instance),
-            new ResolvedCandidatesLedger(Tmp.Path, NullLogger.Instance),
-            dir: Tmp.Path
+            new ResolvedCandidatesLedger(Tmp.Path, NullLogger.Instance)
         );
     }
 
     [Test]
     public async Task Record_pass_appends_resolved_evidence_before_deleting_the_source() {
-        var (store, ledger, _) = NewPair();
+        var (store, ledger) = NewPair();
         using var dummy = DummyProcess.StartSleep(30);
         var pid = dummy.Pid; var id = ProcessIdentity.Capture(pid)!;
         dummy.Kill(); dummy.WaitForExit(TimeSpan.FromSeconds(5)); // process gone -> confirmed absent
@@ -38,7 +37,7 @@ public class LedgerHookTests {
 
     [Test]
     public async Task Crash_between_append_and_delete_reconciles_idempotently_on_restart() {
-        var (store, ledger, _) = NewPair();
+        var (store, ledger) = NewPair();
         using var dummy = DummyProcess.StartSleep(30);
         var pid = dummy.Pid; var id = ProcessIdentity.Capture(pid)!;
         dummy.Kill(); dummy.WaitForExit(TimeSpan.FromSeconds(5));
@@ -64,7 +63,7 @@ public class LedgerHookTests {
     public async Task Crash_before_append_re_derives_the_record_pass_evidence_next_boot() {
         // Crash BEFORE the durable append leaves the source only → re-derived next boot
         // (at-least-once, deduped). The record pass confirms death but the daemon dies before Upsert.
-        var (store, ledger, _) = NewPair();
+        var (store, ledger) = NewPair();
         using var dummy = DummyProcess.StartSleep(30);
         var pid = dummy.Pid; var id = ProcessIdentity.Capture(pid)!;
         dummy.Kill(); dummy.WaitForExit(TimeSpan.FromSeconds(5));
@@ -109,7 +108,7 @@ public class LedgerHookTests {
     // Generation, which the pre-append source lacks).
     [Test]
     public async Task Quarantine_drain_crash_between_append_and_delete_reconciles_single_emit() {
-        var (store, ledger, _) = NewPair();
+        var (store, ledger) = NewPair();
         using var dummy = DummyProcess.StartSleep(30);
         var pid = dummy.Pid; var id = ProcessIdentity.Capture(pid)!;
         dummy.Kill(); dummy.WaitForExit(TimeSpan.FromSeconds(5));
@@ -127,7 +126,7 @@ public class LedgerHookTests {
 
     [Test]
     public async Task Quarantine_drain_crash_before_append_re_derives_next_boot() {
-        var (store, ledger, _) = NewPair();
+        var (store, ledger) = NewPair();
         using var dummy = DummyProcess.StartSleep(30);
         var pid = dummy.Pid; var id = ProcessIdentity.Capture(pid)!;
         dummy.Kill(); dummy.WaitForExit(TimeSpan.FromSeconds(5));
@@ -147,7 +146,7 @@ public class LedgerHookTests {
     // (AgentId, OldEpoch) reconciliation as the drain hook.
     [Test]
     public async Task Stop_fallback_crash_between_append_and_delete_reconciles_single_emit() {
-        var (store, ledger, _) = NewPair();
+        var (store, ledger) = NewPair();
         using var dummy = DummyProcess.StartSleep(30);
         var pid = dummy.Pid; var id = ProcessIdentity.Capture(pid)!;
         dummy.Kill(); dummy.WaitForExit(TimeSpan.FromSeconds(5));
@@ -165,7 +164,7 @@ public class LedgerHookTests {
 
     [Test]
     public async Task Stop_fallback_crash_before_append_re_derives_next_boot() {
-        var (store, ledger, _) = NewPair();
+        var (store, ledger) = NewPair();
         using var dummy = DummyProcess.StartSleep(30);
         var pid = dummy.Pid; var id = ProcessIdentity.Capture(pid)!;
         dummy.Kill(); dummy.WaitForExit(TimeSpan.FromSeconds(5));
