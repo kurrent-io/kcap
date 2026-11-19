@@ -333,7 +333,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             HandoffOutcomeReader? handoffOutcomes = null, IHeldMessagesApi? heldMessages = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
             Func<bool>? inAppPages = null, Func<Task>? retryConnection = null, LocalServerRecoveryViewModel? localServer = null,
-            IWorkItemPageApi? workItems = null) {
+            IWorkItemPageApi? workItems = null, LastReads<SessionDetailFetch>? sessionHistories = null) {
         _drafts = drafts;
         _localMachine = localMachine;
         _handoffFactory = handoff;
@@ -413,7 +413,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             : new HeldMessagesViewModel(row.Id, heldMessages, lane.HeldMessagesChanged, HeldViewer(lane.Status, _rows));
         Chat = new ChatTabViewModel(
             row.Id, AgentOrigin.Remote, _session, Observable.Return<string[]?>(null), input, new NoAttachmentUploader(),
-            key => new RemoteTranscriptFeed(key, row.Vendor, _accessStates, readDetail, lane, time, Log),
+            key => new RemoteTranscriptFeed(key, row.Vendor, _accessStates, readDetail, lane, time, Log, sessionHistories),
             // A session-only chat has no agent here to answer for it: no session, no cards, no send.
             opener, time, permissions, runs, missingNote: MissingNote, sessionId: IsSessionOnly ? Observable.Return<string?>(null) : _sessionIds,
             serverQueue: Observable.Switch(_sessionIds

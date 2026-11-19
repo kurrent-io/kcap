@@ -21,6 +21,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// superseded tail can still be projecting the event the next one starts from.
     ScheduledPrompts _scheduled = new();
     readonly SessionDetailReader _readDetail;
+    readonly LastReads<SessionDetailFetch>? _histories;
     readonly IServerLane _lane;
     readonly TimeProvider _time;
     readonly Action<string> _log;
@@ -56,8 +57,9 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     public RemoteTranscriptFeed(
             string sessionId, string vendor, IObservable<SessionAccessState> access, SessionDetailReader readDetail,
-            IServerLane lane, TimeProvider time, Action<string> log) {
+            IServerLane lane, TimeProvider time, Action<string> log, LastReads<SessionDetailFetch>? histories = null) {
         _sessionId = sessionId;
+        _histories = histories;
         _rules = TranscriptChat.RulesFor(vendor);
         _readDetail = readDetail;
         _lane = lane;
@@ -161,7 +163,10 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// nothing to explain it.
     async Task<bool> EnsureSeededAsync(int attempt, CancellationToken ct) {
         lock (_lock) if (_position is not null) return true;
-        var fetch = await _readDetail(_sessionId, ct).ConfigureAwait(false);
+        // A history kept from an earlier pane shows at once; the tail then catches up from where it ends.
+        var kept = _histories?.Get(_sessionId);
+        if (kept is not null) _ = ReadHistoryAsync(ct);
+        var fetch = kept ?? await ReadHistoryAsync(ct).ConfigureAwait(false);
         if (!IsCurrent(attempt)) return false;
         if (fetch.NotFound) { Enqueue(attempt, FeedStatus.Missing); return false; }
         if (fetch.Unauthorized) { Enqueue(attempt, FeedStatus.Failed, "not signed in"); return false; }
@@ -185,6 +190,12 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         Changed?.Invoke();
         return true;
     }
+
+    Task<SessionDetailFetch> ReadHistoryAsync(CancellationToken ct) =>
+        _histories is null
+            ? _readDetail(_sessionId, ct)
+            : _histories.RecordAsync(_sessionId, () => _readDetail(_sessionId, ct),
+                fetch => fetch.Detail is not null ? true : fetch.NotFound || fetch.Unauthorized ? false : null);
 
     /// True when the tail delivered at least one envelope, which is what resets the retry ladder;
     /// a tail that ends without ever yielding keeps the caller's failure count climbing.

@@ -1218,8 +1218,10 @@ public partial class App : Application {
         // only a successful sign-in can fill it.
         // Before any pane's own sign-in handler, which runs on the UI thread after this.
         var pullRequestSnapshots = new LastReads<PullRequestSnapshot>();
+        var sessionHistories = new LastReads<SessionDetailFetch>(16);
         serverClients.SignInCompleted.Subscribe(signedIn => {
             pullRequestSnapshots.Clear();
+            sessionHistories.Clear();
             _ = serverLane.RestartAsync();
             _ = modelCatalog.LoadAsync(_shutdown.Token);
             _ = reportCliSetup(_shutdown.Token);
@@ -1341,6 +1343,7 @@ public partial class App : Application {
                     pullRequests: readers, requestSignIn: requestSignIn, linkGitHub: linkGitHub,
                     signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, finds: finds, inputSending: attention.ReplySending,
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
+                    sessionHistories: sessionHistories,
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
                     heldMessages: heldMessages, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
@@ -1379,6 +1382,7 @@ public partial class App : Application {
                     pullRequests: readers, requestSignIn: requestSignIn, linkGitHub: linkGitHub,
                     signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, finds: finds, inputSending: attention.ReplySending,
                     pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
+                    sessionHistories: sessionHistories,
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
                     handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
