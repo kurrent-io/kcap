@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
+using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
@@ -28,7 +29,9 @@ public static class TextContextMenu {
         new("Bookmark selection", c => ((MarkdownView)c).HasSelection, c => ((MarkdownView)c).BookmarkSelection(),
             c => ((MarkdownView)c).Bookmarks is not null),
         new("Bookmark each list item", _ => true, c => ((MarkdownView)c).BookmarkListItems(),
-            c => ((MarkdownView)c).Bookmarks is not null && ((MarkdownView)c).ContextListItems is not null));
+            c => ((MarkdownView)c).Bookmarks is not null && ((MarkdownView)c).ContextListItems is not null),
+        new("Bookmark message", _ => true, c => ((MarkdownView)c).BookmarkMessage(),
+            c => ((MarkdownView)c) is { Bookmarks: not null, DataContext: ChatItemViewModel { Bookmark: null } }));
 
     static Flyout Build<T>(params Row[] rows) where T : Control {
         var flyout = new Flyout();

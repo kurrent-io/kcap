@@ -1433,6 +1433,10 @@ public class ChatTabViewSmokeTests {
                 host.Settle();
                 await Assert.That(host.Chat.Bookmarks.All).DoesNotContain(message);
                 await Assert.That(toggle.Classes.Contains("on")).IsFalse();
+
+                Invoke(MenuRow(OpenContextMenu(host, reply, item), "Bookmark message"));
+                host.Settle();
+                await Assert.That(toggle.Classes.Contains("on")).IsTrue();
             } finally { await host.CloseAsync(); }
         });
     }
