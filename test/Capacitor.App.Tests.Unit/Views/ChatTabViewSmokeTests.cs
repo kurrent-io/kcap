@@ -897,6 +897,36 @@ public class ChatTabViewSmokeTests {
         } finally { await host.CloseAsync(); }
     });
 
+    /// The lane handle takes the pointer beside the agent's messages but yields it to a user message
+    /// it crosses, so the message's text stays selectable.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_lane_handle_lets_the_pointer_through_to_a_user_message() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            host.Window.Width = 1400;
+            await host.LoadAsync(Tmp.CreateFile("lane-yield.jsonl", [UserLine, AssistantLinkLine]));
+            var handle = host.View.FindControl<Border>("ChatLaneHandle")!;
+            var start = PresentAndLocate(host, handle);
+            // At full width the lane's handle sits inside the column's right edge, where a user turn ends.
+            host.Window.MouseMove(start);
+            host.Window.MouseDown(start, MouseButton.Left);
+            host.Window.MouseMove(start + new Point(5000, 0));
+            host.Window.MouseUp(start + new Point(5000, 0), MouseButton.Left);
+            var x = PresentAndLocate(host, handle).X;
+            var bubble = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("userTurn"));
+            var items = host.View.FindControl<ItemsControl>("ChatItems")!;
+            var agentRow = items.ContainerFromItem(host.Chat.Items.OfType<AssistantTextItem>().Single())!;
+            double MiddleY(Control c) => c.TranslatePoint(new Point(0, c.Bounds.Height / 2), host.Window)!.Value.Y;
+            await Assert.That(bubble.TranslatePoint(new Point(bubble.Bounds.Width, 0), host.Window)!.Value.X).IsGreaterThan(x);
+
+            var overBubble = host.Window.InputHitTest(new Point(x, MiddleY(bubble))) as Visual;
+            await Assert.That(overBubble).IsNotNull();
+            await Assert.That(overBubble!.GetSelfAndVisualAncestors().Contains(bubble)).IsTrue();
+            await Assert.That(host.Window.InputHitTest(new Point(x, MiddleY(agentRow)))).IsSameReferenceAs(handle);
+        } finally { await host.CloseAsync(); }
+    });
+
     [Test]
     [Arguments("ChatColumnLeftHandle")]
     [Arguments("ChatColumnRightHandle")]
