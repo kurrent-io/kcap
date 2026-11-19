@@ -9,9 +9,9 @@ namespace Capacitor.App.Views;
 /// Lights the faded span under the pointer. Inlines take no pointer events, so the span is found by
 /// hit-testing the block's text layout, which counts a line break as the platform's newline and an
 /// embedded control as one character.
-sealed class NeedToKnowHover {
-    public const string FadedClass = "need-to-know-faded";
-    public const string LitClass = "need-to-know-lit";
+sealed class ProgressiveDisclosureHover {
+    public const string FadedClass = "progressive-disclosure-faded";
+    public const string LitClass = "progressive-disclosure-lit";
 
     Span? _lit;
     TextBlock? _litBlock;

@@ -1,23 +1,23 @@
 using System.Text;
-using Capacitor.App.NeedToKnow;
+using Capacitor.App.ProgressiveDisclosure;
 using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 using MarkView.Avalonia;
 
-namespace Capacitor.App.Tests.Unit.NeedToKnow;
+namespace Capacitor.App.Tests.Unit.ProgressiveDisclosure;
 
-public class NeedToKnowMarksTests {
+public class ProgressiveDisclosureMarksTests {
     static readonly MarkdownPipeline WithoutPass = new MarkdownPipelineBuilder().UseSupportedExtensions().Build();
 
-    static readonly NeedToKnowBasis AllFaded = new(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Faded);
-    static readonly NeedToKnowBasis AllHidden = new(NeedToKnowDisplay.Hidden, NeedToKnowDisplay.Hidden);
-    static readonly NeedToKnowBasis AllNormal = new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Normal);
+    static readonly ProgressiveDisclosureBasis AllFaded = new(ProgressiveDisclosureDisplay.Faded, ProgressiveDisclosureDisplay.Faded);
+    static readonly ProgressiveDisclosureBasis AllHidden = new(ProgressiveDisclosureDisplay.Hidden, ProgressiveDisclosureDisplay.Hidden);
+    static readonly ProgressiveDisclosureBasis AllNormal = new(ProgressiveDisclosureDisplay.Normal, ProgressiveDisclosureDisplay.Normal);
 
     /// One line per leaf block; a faded run shows as `{w:…}` or `{c:…}`.
-    static string Render(string markdown, NeedToKnowBasis basis) {
+    static string Render(string markdown, ProgressiveDisclosureBasis basis) {
         var document = Markdown.Parse(markdown, WithoutPass);
-        NeedToKnowMarks.Apply(document, basis);
+        ProgressiveDisclosureMarks.Apply(document, basis);
         return string.Join("\n", document.Descendants<LeafBlock>().Select(leaf => leaf.Inline is { } root ? Text(root) : "<" + leaf.GetType().Name + ">"));
     }
 
@@ -37,7 +37,7 @@ public class NeedToKnowMarksTests {
     }
 
     static string Graded(GradedInline graded) =>
-        "{" + (graded.Level == NeedToKnowLevel.Detail ? "w:" : "c:") + Text(graded) + "}";
+        "{" + (graded.Level == ProgressiveDisclosureLevel.Detail ? "w:" : "c:") + Text(graded) + "}";
 
     [Test]
     [Arguments("Plain text.", false)]
@@ -46,7 +46,7 @@ public class NeedToKnowMarksTests {
     [Arguments("A. ⌞B.⌟", true)]
     [Arguments("A. ⌞⌞B.", true)]
     public async Task Only_a_mark_outside_code_grades_a_text(string markdown, bool grades) =>
-        await Assert.That(NeedToKnowMarks.Grades(markdown)).IsEqualTo(grades);
+        await Assert.That(ProgressiveDisclosureMarks.Grades(markdown)).IsEqualTo(grades);
 
     [Test]
     public async Task A_single_corner_pair_marks_detail() =>
@@ -62,7 +62,7 @@ public class NeedToKnowMarksTests {
 
     [Test]
     public async Task Each_level_follows_its_own_display() =>
-        await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟ D.", new(NeedToKnowDisplay.Normal, NeedToKnowDisplay.Hidden))).IsEqualTo("A. B. D.");
+        await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟ D.", new(ProgressiveDisclosureDisplay.Normal, ProgressiveDisclosureDisplay.Hidden))).IsEqualTo("A. B. D.");
 
     [Test]
     public async Task A_hidden_span_leaves_one_space_between_its_neighbours() =>
@@ -70,7 +70,7 @@ public class NeedToKnowMarksTests {
 
     [Test]
     public async Task Footnote_is_never_shown_more_than_detail() =>
-        await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟", new(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Normal))).IsEqualTo("A. {w:B.} {c:C.}");
+        await Assert.That(Render("A. ⌞B.⌟ ⌞⌞C.⌟⌟", new(ProgressiveDisclosureDisplay.Faded, ProgressiveDisclosureDisplay.Normal))).IsEqualTo("A. {w:B.} {c:C.}");
 
     [Test]
     public async Task A_graded_span_is_one_run_however_many_inlines_it_holds() =>
@@ -115,7 +115,7 @@ public class NeedToKnowMarksTests {
     [Test]
     public async Task A_list_hidden_entirely_is_removed() {
         var document = Markdown.Parse("A.\n\n- ⌞B.⌟\n- ⌞C.⌟", WithoutPass);
-        NeedToKnowMarks.Apply(document, AllHidden);
+        ProgressiveDisclosureMarks.Apply(document, AllHidden);
         await Assert.That(document.Descendants<ListBlock>().Any()).IsFalse();
     }
 
@@ -130,13 +130,13 @@ public class NeedToKnowMarksTests {
     [Test]
     public async Task A_hidden_span_keeps_an_image_without_alt_text() {
         var document = Markdown.Parse("![](diagram.png) ⌞Optional.⌟", WithoutPass);
-        NeedToKnowMarks.Apply(document, AllHidden);
+        ProgressiveDisclosureMarks.Apply(document, AllHidden);
         await Assert.That(document.Descendants<LinkInline>().Any(link => link.IsImage)).IsTrue();
     }
 
     [Test]
     public async Task Text_nested_past_the_parser_limit_grades_nothing() =>
-        await Assert.That(NeedToKnowMarks.Grades(new string('>', 200) + " A. ⌞B.⌟")).IsFalse();
+        await Assert.That(ProgressiveDisclosureMarks.Grades(new string('>', 200) + " A. ⌞B.⌟")).IsFalse();
 
     [Test]
     public async Task Text_without_marks_is_untouched() =>

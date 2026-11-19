@@ -28,9 +28,9 @@
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                     <!-- Shown while the chat is on screen and has a graded reply; the panels carry that, since the button's context is the shared basis. -->
                     <Panel IsVisible="{Binding IsChatActive}" VerticalAlignment="Center">
-                        <Panel IsVisible="{Binding Chat.HasNeedToKnowMarks, FallbackValue=False}">
+                        <Panel IsVisible="{Binding Chat.HasProgressiveDisclosureMarks, FallbackValue=False}">
                             <Button x:Name="ProgressiveDisclosureButton" Classes="kcapGhost kcapIcon progressiveDisclosure"
-                                    x:DataType="vm:NeedToKnowBasisViewModel" DataContext="{x:Static vm:NeedToKnowBasisViewModel.Shared}"
+                                    x:DataType="vm:ProgressiveDisclosureViewModel" DataContext="{x:Static vm:ProgressiveDisclosureViewModel.Shared}"
                                     Classes.on="{Binding Enabled}" Command="{Binding ToggleCommand}"
                                     ToolTip.Tip="Progressive disclosure" AutomationProperties.Name="Progressive disclosure">
                                 <views:AppIcon Kind="Focus" Size="14" />

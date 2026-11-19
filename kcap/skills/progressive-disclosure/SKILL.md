@@ -1,14 +1,15 @@
 ---
-name: need-to-know
+name: progressive-disclosure
 description: >-
-  This skill should be used when the user asks for need-to-know formatting,
-  need-to-know marks or graded replies — "use need to know formatting",
-  "enable need-to-know formatting", "grade your replies", "mark the detail" — or asks to stop using it. It says
+  This skill should be used when the user asks for progressive disclosure,
+  progressive disclosure marks or graded replies — "use progressive disclosure",
+  "enable progressive disclosure", "grade your replies", "mark the detail" — or
+  asks to stop using it. It says
   how to mark the detail and footnote parts of a chat reply with corner
   brackets, which the kcap desktop app can fade.
 ---
 
-# Need-to-know formatting
+# Progressive disclosure formatting
 
 The reader can fade the less important parts of your replies. Once
 they ask for this, grade every chat reply until they ask you to stop.

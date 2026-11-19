@@ -60,7 +60,7 @@ public sealed record AppState(
     bool CloseToTrayExplained = false,
     // Canonical session ids whose hand-off card the user closed, newest last; see HandoffOutcomeDismissals.
     IReadOnlyList<string>? DismissedHandoffOutcomes = null,
-    NeedToKnow.NeedToKnowPreferences? NeedToKnow = null);
+    ProgressiveDisclosure.ProgressiveDisclosurePreferences? ProgressiveDisclosure = null);
 
 public interface IAppStateStore {
     Task<AppState> LoadAsync();

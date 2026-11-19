@@ -10,7 +10,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.GitHubHtml;
-using Capacitor.App.NeedToKnow;
+using Capacitor.App.ProgressiveDisclosure;
 using Capacitor.App.Services;
 using MarkView.Avalonia;
 using MarkView.Avalonia.Rendering.Inlines;
@@ -83,11 +83,11 @@ public sealed class MarkdownView : ContentControl {
     IDisposable? _titledWatch;
     readonly MarkdownLinkKeys _linkKeys;
     readonly FindHighlighter _find = new();
-    readonly NeedToKnowHover _hover = new();
+    readonly ProgressiveDisclosureHover _hover = new();
     bool _hasMarks;
     int _currentFind = -1;
     bool _nonLeftRelease;
-    NeedToKnowBasis? _renderedBasis;
+    ProgressiveDisclosureBasis? _renderedBasis;
     IDisposable? _basisWatch;
 
     static MarkdownView() {
@@ -168,10 +168,10 @@ public sealed class MarkdownView : ContentControl {
         _attached = true;
         RelabelAgentLinks();
         // Replays the current basis, so a view detached across a change catches up on return.
-        _basisWatch = NeedToKnowBasis.Changes.Subscribe(OnBasisChanged);
+        _basisWatch = ProgressiveDisclosureBasis.Changes.Subscribe(OnBasisChanged);
     }
 
-    void OnBasisChanged(NeedToKnowBasis basis) {
+    void OnBasisChanged(ProgressiveDisclosureBasis basis) {
         if (_hasMarks && basis != _renderedBasis) Render();
     }
 
@@ -292,8 +292,8 @@ public sealed class MarkdownView : ContentControl {
     }
 
     void ReadMarks() {
-        _renderedBasis = NeedToKnowBasis.Current;
-        _hasMarks = Flavor == MarkdownFlavor.Chat && NeedToKnowMarks.HasMarks(Text);
+        _renderedBasis = ProgressiveDisclosureBasis.Current;
+        _hasMarks = Flavor == MarkdownFlavor.Chat && ProgressiveDisclosureMarks.HasMarks(Text);
         _hover.Clear();
     }
 

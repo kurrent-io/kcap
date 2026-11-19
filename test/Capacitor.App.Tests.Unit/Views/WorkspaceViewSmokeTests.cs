@@ -710,7 +710,7 @@ public class WorkspaceViewSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public async Task The_progressive_disclosure_toggle_shows_for_a_graded_chat_and_flips_the_fade() {
         await RunOnUiAsync(async () => {
-            var basis = NeedToKnowBasisViewModel.Shared;
+            var basis = ProgressiveDisclosureViewModel.Shared;
             var was = basis.Enabled;
             using var tmp = new TempDir();
             var (window, vm, daemon, _) = await ShowPtyAsync();
@@ -722,7 +722,7 @@ public class WorkspaceViewSmokeTests {
                 daemon.Agents.AddOrUpdate(Agent(AgentId, hasTerminal: true) with { TranscriptPath = path });
                 await (vm.Chat!.PendingReadForTesting ?? Task.CompletedTask);
                 Dispatcher.UIThread.RunJobs();
-                await Assert.That(vm.Chat.HasNeedToKnowMarks).IsTrue();
+                await Assert.That(vm.Chat.HasProgressiveDisclosureMarks).IsTrue();
                 var button = Find<Button>(window, "ProgressiveDisclosureButton")!;
                 await Assert.That(button.IsEffectivelyVisible).IsTrue();
                 await Assert.That(ToolTip.GetTip(button)).IsEqualTo("Progressive disclosure");
