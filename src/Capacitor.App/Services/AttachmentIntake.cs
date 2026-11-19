@@ -39,7 +39,7 @@ public static class AttachmentIntake {
             if (accepted.Count >= capacity) { refused.Add(new(file.Name, AttachmentTray.CapReason)); continue; }
             try {
                 var props = await file.GetBasicPropertiesAsync().ConfigureAwait(false);
-                if (props.Size is { } size && size > (ulong)InputWire.MaxAttachmentBytes) { refused.Add(new(file.Name, AttachmentTray.SizeReason)); continue; }
+                if (props.Size is { } size && size > InputWire.MaxAttachmentBytes) { refused.Add(new(file.Name, AttachmentTray.SizeReason)); continue; }
                 await using var stream = await file.OpenReadAsync().ConfigureAwait(false);
                 var bytes = await ReadCappedAsync(stream, ct).ConfigureAwait(false);
                 if (bytes is null) { refused.Add(new(file.Name, AttachmentTray.SizeReason)); continue; }

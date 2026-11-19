@@ -106,7 +106,7 @@ public class ImportExclusionTests {
         var (exit, outcome) = await RunAsync(server, projects, excluded, console);
 
         await Assert.That(exit).IsEqualTo(0);
-        await Assert.That(stdin.Peek()).IsEqualTo((int)'y');
+        await Assert.That(stdin.Peek()).IsEqualTo('y');
         await Assert.That(error.ToString()).DoesNotContain("is excluded. Include");
         await Assert.That(error.ToString()).Contains("Auto-skipping 1 session(s) from 1 excluded source(s) (--yes keeps exclusions).");
         await Assert.That(outcome!.Counts.Excluded).IsEqualTo(1);

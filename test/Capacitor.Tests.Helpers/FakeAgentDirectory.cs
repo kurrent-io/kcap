@@ -51,7 +51,7 @@ public sealed class FakeAgentDirectory : IAgentDirectory, IDisposable {
 
     public IObservable<IReadOnlyDictionary<string, string>> SessionAgents =>
         Rows.Connect().QueryWhenChanged(q => SessionMap(q.Items))
-            .StartWith((IReadOnlyDictionary<string, string>)FrozenDictionary<string, string>.Empty);
+            .StartWith(FrozenDictionary<string, string>.Empty);
 
     public string? VendorOfSession(string sessionId) =>
         Rows.Items.Where(r => r.SessionId == sessionId).OrderBy(r => r.Origin).Select(r => r.Vendor).FirstOrDefault();

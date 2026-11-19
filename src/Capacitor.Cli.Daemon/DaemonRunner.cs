@@ -1618,7 +1618,7 @@ public static partial class DaemonRunner {
             .Where(v => byVendor.TryGetValue(v, out var f) && !string.IsNullOrEmpty(f.CliPath))
             .ToDictionary(v => v, v => byVendor[v].CliPath, StringComparer.Ordinal);
         var probedVersions = ProbeVendorsConcurrently(
-            probePaths.Keys, vendor => ProbeCliVersion(probePaths[vendor]), timedOut: (string?)null);
+            probePaths.Keys, vendor => ProbeCliVersion(probePaths[vendor]), timedOut: null);
 
         var capabilities = new List<UnattendedVendorCapability>();
         foreach (var vendor in unattended) {

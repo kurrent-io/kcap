@@ -106,8 +106,8 @@ public class StatusLineWrapperTests : IDisposable {
         var reading = Accounts.Readings.LoadAll()[AccountId];
         await Assert.That(reading.Reading.Windows.Select(w => (w.LimitId, w.WindowMinutes, w.UsedPercent, w.ResetsAt)).ToArray())
             .IsEquivalentTo(new[] {
-                ("claude", 300, 12.5, (DateTimeOffset?) DateTimeOffset.FromUnixTimeSeconds(1_800_000_000)),
-                ("claude", 10080, 40.0, (DateTimeOffset?) DateTimeOffset.FromUnixTimeSeconds(1_800_500_000)),
+                ("claude", 300, 12.5, DateTimeOffset.FromUnixTimeSeconds(1_800_000_000)),
+                ("claude", 10080, 40.0, DateTimeOffset.FromUnixTimeSeconds(1_800_500_000)),
             });
         await Assert.That(reading.Sessions.Single().SessionId).IsEqualTo("s1");
     }

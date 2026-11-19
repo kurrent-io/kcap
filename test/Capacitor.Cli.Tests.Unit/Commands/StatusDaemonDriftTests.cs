@@ -65,7 +65,7 @@ internal sealed class StatusDaemonDriftTests {
     public async Task An_unreadable_unit_is_kept_without_hiding_the_others() {
         var units = StatusCommand.ReadUnits(new UnitsManager(new() { ["a"] = null, ["b"] = NpmBin }));
 
-        await Assert.That(units).IsEquivalentTo([("a", (string?)null), ("b", (string?)NpmBin)]);
+        await Assert.That(units).IsEquivalentTo([("a", null), ("b", (string?)NpmBin)]);
     }
 
     sealed class UnitsManager(Dictionary<string, string?> binaries) : IServiceManager {

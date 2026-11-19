@@ -254,8 +254,8 @@ public class MarkdownViewTests {
                 await Assert.That(cells.Skip(2).Any(c => c.Classes.Contains("markdown-table-header"))).IsFalse();
                 await Assert.That(cells.Select(c => Reads(Paragraphs(c).Single()))).IsEquivalentTo(["Issue", "Count", "x first", "2", "second", "10"]);
                 await Assert.That(Spans<Run>(Paragraphs(cells[2]).Single().Inlines!).Any(r => r.Classes.Contains("markdown-code-inline"))).IsTrue();
-                await Assert.That(((Control)cells[3].Child!).HorizontalAlignment).IsEqualTo(HorizontalAlignment.Right);
-                await Assert.That(((Control)cells[2].Child!).HorizontalAlignment).IsNotEqualTo(HorizontalAlignment.Right);
+                await Assert.That((cells[3].Child!).HorizontalAlignment).IsEqualTo(HorizontalAlignment.Right);
+                await Assert.That((cells[2].Child!).HorizontalAlignment).IsNotEqualTo(HorizontalAlignment.Right);
             } finally { window.Close(); }
         });
     }
@@ -643,7 +643,7 @@ public class MarkdownViewTests {
             var deep = string.Concat(Enumerable.Repeat("> ", 128)) + "x";
             var (window, root, _) = Show(deep, flavor);
             try {
-                var view = (MarkdownView)root;
+                var view = root;
                 await Assert.That(All<MarkdownViewer>(root)).IsEmpty();
                 await Assert.That(All<TextBlock>(root).Select(Reads)).IsEquivalentTo([deep]);
                 var clipboard = TopLevel.GetTopLevel(view)!.Clipboard!;

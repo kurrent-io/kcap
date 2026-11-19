@@ -284,7 +284,7 @@ public class CodexHostedAgentRuntimeFactoryTests {
     [Arguments("pty")]
     [Arguments("appserver")]
     public async Task Both_transports_support_a_restart_resume(string? transport) {
-        await Assert.That(((IHostedAgentRuntimeFactory)Factory(new RecordingPtyFactory(), appServerActive: false)).SupportsRestartResume(transport)).IsTrue();
+        await Assert.That((Factory(new RecordingPtyFactory(), appServerActive: false)).SupportsRestartResume(transport)).IsTrue();
     }
 
     /// <summary>Only a session recorded on the terminal resumes there with no turn; an app-server session, or one
@@ -295,7 +295,7 @@ public class CodexHostedAgentRuntimeFactoryTests {
     [Arguments("pending", false)]
     [Arguments(null, false)]
     public async Task Only_a_terminal_session_resumes_without_a_prompt(string? transport, bool silent) {
-        await Assert.That(((IHostedAgentRuntimeFactory)Factory(new RecordingPtyFactory(), appServerActive: true)).ResumesIdleWithoutPrompt(transport))
+        await Assert.That((Factory(new RecordingPtyFactory(), appServerActive: true)).ResumesIdleWithoutPrompt(transport))
             .IsEqualTo(silent);
     }
 

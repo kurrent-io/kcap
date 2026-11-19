@@ -68,7 +68,7 @@ public class PiRpcHostedAgentRuntimeTests {
 
         await rt.WaitForSessionReadyAsync(CancellationToken.None).WaitAsync(HangGuard);
 
-        await Assert.That(((IHostedAgentRuntime)rt).VendorResumeToken).IsEqualTo("/tmp/s.jsonl");
+        await Assert.That(rt.VendorResumeToken).IsEqualTo("/tmp/s.jsonl");
     }
 
     /// <summary>Security/correctness regression: <see cref="PiRpcHostedAgentRuntime.ResolvedModel"/>

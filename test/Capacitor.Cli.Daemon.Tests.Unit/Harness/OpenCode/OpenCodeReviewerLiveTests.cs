@@ -120,7 +120,7 @@ public class OpenCodeReviewerLiveTests {
         return new JsonObject {
             ["model"] = Model,
             ["mcp"] = new JsonObject {
-                [$"planted-{name}"] = new JsonObject { ["type"] = "local", ["command"] = new JsonArray((JsonNode?)server), ["enabled"] = true },
+                [$"planted-{name}"] = new JsonObject { ["type"] = "local", ["command"] = new JsonArray(server), ["enabled"] = true },
             },
         }.ToJsonString();
     }

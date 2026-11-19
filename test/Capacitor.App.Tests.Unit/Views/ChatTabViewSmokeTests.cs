@@ -684,7 +684,7 @@ public class ChatTabViewSmokeTests {
             var host = new Host();
             var path = Tmp.CreateFile("big.jsonl", Enumerable.Repeat(UserLine, 5000).ToArray());
             var notifications = 0;
-            ((INotifyCollectionChanged)host.Chat.Items).CollectionChanged += (_, _) => notifications++;
+            host.Chat.Items.CollectionChanged += (_, _) => notifications++;
 
             await host.LoadAsync(path);
 
@@ -1017,9 +1017,9 @@ public class ChatTabViewSmokeTests {
             host.Window.UpdateLayout();
             await Assert.That(host.AtBottom()).IsTrue();
             void ScrollUp(object? sender, NotifyCollectionChangedEventArgs e) => WheelUp(host);
-            ((INotifyCollectionChanged)host.Chat.Items).CollectionChanged += ScrollUp;
+            host.Chat.Items.CollectionChanged += ScrollUp;
             await host.AppendAndTickAsync(path, 20);
-            ((INotifyCollectionChanged)host.Chat.Items).CollectionChanged -= ScrollUp;
+            host.Chat.Items.CollectionChanged -= ScrollUp;
             Dispatcher.UIThread.RunJobs();
             host.Window.UpdateLayout();
             Dispatcher.UIThread.RunJobs();

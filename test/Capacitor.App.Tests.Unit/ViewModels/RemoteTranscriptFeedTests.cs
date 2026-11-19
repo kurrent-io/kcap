@@ -450,7 +450,7 @@ public class RemoteTranscriptFeedTests {
 
         var envelope = h.Feed.ReadAppended().Lines.Single().Projection.Envelopes.Single();
         var at = DateTimeOffset.Parse(envelope.TimestampIso!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
-        await Assert.That(at).IsEqualTo((DateTimeOffset)storedAt);
+        await Assert.That(at).IsEqualTo(storedAt);
     }
 
     const string TagLed = """{"content":"<environment_context> is what I mean by context"}""";

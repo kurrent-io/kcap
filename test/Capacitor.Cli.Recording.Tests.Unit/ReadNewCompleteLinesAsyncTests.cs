@@ -284,7 +284,7 @@ public class ReadNewCompleteLinesAsyncTests {
         // The captured buffer starts at rawBytesReadFrom and is bounded by the NEW range —
         // nowhere near the ~50,000-byte padding line, which the old unconditional whole-file
         // capture would have re-read and re-hashed every single poll.
-        await Assert.That(r.SnapshotStartOffset).IsEqualTo((long)paddingLineByteLength);
+        await Assert.That(r.SnapshotStartOffset).IsEqualTo(paddingLineByteLength);
         await Assert.That(r.SnapshotBytes).IsNotNull();
         await Assert.That(r.SnapshotBytes!.Length).IsEqualTo((int)(totalFileLength - paddingLineByteLength));
         await Assert.That(r.SnapshotBytes!.Length).IsLessThan(1000); // "new1\nnew2\nnew3\n" — tiny

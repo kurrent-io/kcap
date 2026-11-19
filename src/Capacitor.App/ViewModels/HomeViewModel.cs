@@ -1015,7 +1015,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             .CombineLatest(canAttach, AttachHintFor)
             .DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler)
-            .ToProperty(this, x => x.AttachHint, initialValue: (string?)null)
+            .ToProperty(this, x => x.AttachHint, initialValue: null)
             .DisposeWith(_disposables);
 
         var stagedCount = Observable.FromEvent<PropertyChangedEventHandler, PropertyChangedEventArgs>(
@@ -1102,7 +1102,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             _daemonStartMessageFeed, _machineSelectionChanges, harnessNotice, newHarnessNotice,
             (notice, startMessage, sel, harness, newHarness) => {
                 var content = BannerContentFor(notice, sel.Remote ? null : startMessage);
-                return content.Message is null ? (Message: newHarness ?? harness, Detail: (string?)null) : content;
+                return content.Message is null ? (Message: newHarness ?? harness, Detail: null) : content;
             });
         _bannerMessage = bannerContent.Select(content => content.Message)
             .ToProperty(this, x => x.BannerMessage, ConnectingNotice)

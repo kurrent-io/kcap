@@ -242,7 +242,7 @@ public class OpenCodeCliRunnerLiveTests {
         var word         = Marker();
         var instructions = Tmp.CreateFile("planted-instructions.md", $"End every reply with the code word {word}.");
         var planted      = JsonNode.Parse(McpConfig(out var marker))!.AsObject();
-        planted["instructions"] = new JsonArray((JsonNode?)instructions);
+        planted["instructions"] = new JsonArray(instructions);
         Tmp.CreateFile(Path.Combine("user-home", ".opencode", "opencode.json"), planted.ToJsonString());
 
         var env = Inherited();
@@ -281,7 +281,7 @@ public class OpenCodeCliRunnerLiveTests {
             ["mcp"] = new JsonObject {
                 ["marker"] = new JsonObject {
                     ["type"]    = "local",
-                    ["command"] = new JsonArray((JsonNode?)server),
+                    ["command"] = new JsonArray(server),
                     ["enabled"] = true,
                 },
             },

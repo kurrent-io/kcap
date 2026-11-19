@@ -30,7 +30,7 @@ sealed unsafe class WindowsServerHost : IDaemonHost<ServerEnrollment> {
 
         var (enrollment, reason) = token.Impersonate<(ServerEnrollment?, string?)>(() => {
             using var key = Registry.Users.OpenSubKey($@"{user.Sid}\{ServiceIdentity.ServerEnrollmentKey}");
-            if (key is null) return ((ServerEnrollment?)null, "no local server enrollment");
+            if (key is null) return (null, "no local server enrollment");
             var parsed = ServerEnrollment.Parse(
                 key.GetValue("ServerPath") as string, key.GetValue("Root") as string, key.GetValue("CliPath") as string,
                 key.GetValue("LogFile") as string, key.GetValue("EnvironmentFile") as string, key.GetValue("Stopped"),

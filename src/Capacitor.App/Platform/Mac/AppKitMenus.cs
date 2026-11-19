@@ -41,7 +41,7 @@ public static partial class AppKitMenus {
     public static void SuppressFullScreenItem() {
         if (!OperatingSystem.IsMacOS()) return;
 
-        var no = Send(GetClass("NSNumber"), Selector("numberWithBool:"), (nint)0);
+        var no = Send(GetClass("NSNumber"), Selector("numberWithBool:"), 0);
         var key = String("NSFullScreenMenuItemEverywhere");
         var defaults = Send(GetClass("NSDictionary"), Selector("dictionaryWithObject:forKey:"), no, key);
         SendVoid(Send(GetClass("NSUserDefaults"), Selector("standardUserDefaults")), Selector("registerDefaults:"), defaults);

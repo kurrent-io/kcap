@@ -654,7 +654,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                         local, other, pending, app, otherServer))
                 .DistinctUntilChanged();
             _alert = alert
-                .ToProperty(this, x => x.Alert, (RailAlert?)null)
+                .ToProperty(this, x => x.Alert, null)
                 .DisposeWith(disposables);
             _statusBrush = alert.Select(a => Paint(a?.Tone ?? StatusColors.Unavailable))
                 .ToProperty(this, x => x.StatusBrush, Paint(StatusColors.Unavailable))
@@ -675,7 +675,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .ToProperty(this, x => x.BackgroundPriority, false)
                 .DisposeWith(disposables);
             _backgroundPriorityText = backgroundWhileConnected.Select(b => b ? BackgroundPriorityMessage : null)
-                .ToProperty(this, x => x.BackgroundPriorityText, (string?)null)
+                .ToProperty(this, x => x.BackgroundPriorityText, null)
                 .DisposeWith(disposables);
 
             _isReloading = reloadingSource
@@ -684,7 +684,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
 
             var failureText = reloadSource.Select(state => state is null ? null : ReloadCopy.For(state));
             _reloadFailureText = failureText
-                .ToProperty(this, x => x.ReloadFailureText, (string?)null)
+                .ToProperty(this, x => x.ReloadFailureText, null)
                 .DisposeWith(disposables);
             _showsReloadBlock = backgroundWhileConnected
                 .CombineLatest(failureText, (bg, text) => bg || text is not null)
@@ -719,7 +719,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .DisposeWith(disposables);
 
             _reason = status.Select(ReasonText)
-                .ToProperty(this, x => x.Reason, (string?)null)
+                .ToProperty(this, x => x.Reason, null)
                 .DisposeWith(disposables);
 
             // A connect clears the progress lines back to the standing identity report, whichever of the two the

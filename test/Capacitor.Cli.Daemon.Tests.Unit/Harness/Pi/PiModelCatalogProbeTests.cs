@@ -1,5 +1,4 @@
 using Capacitor.Cli.Daemon.Harness.Pi;
-using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using TUnit.Assertions.Enums;
@@ -171,7 +170,7 @@ public class PiModelCatalogProbeTests {
         var paths   = new Capacitor.Cli.Core.Harness.Pi.PiPaths(new Core.UserHome(Tmp.Path), null);
         var factory = new PiRpcHostedAgentRuntimeFactory(new DaemonConfig(), NullLoggerFactory.Instance, TimeProvider.System, paths: paths);
 
-        await Assert.That(((IHostedAgentRuntimeFactory) factory).CatalogFingerprintPaths)
+        await Assert.That(factory.CatalogFingerprintPaths)
             .IsEquivalentTo([paths.AuthJson, paths.ModelsJson], CollectionOrdering.Matching);
     }
 

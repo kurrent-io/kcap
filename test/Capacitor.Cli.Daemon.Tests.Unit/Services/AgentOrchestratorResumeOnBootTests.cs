@@ -1634,7 +1634,7 @@ public class AgentOrchestratorResumeOnBootTests {
 
         await Assert.That(f.Server.ShutdownReports.Select(r => (r.AgentId, r.Status, r.Reason)))
             .Contains(("exits-1", "Failed", "resume_failed:runtime_exited"));
-        await Assert.That(f.Server.ShutdownReportExitCodes).Contains(("exits-1", (int?)3));
+        await Assert.That(f.Server.ShutdownReportExitCodes).Contains(("exits-1", 3));
     }
 
     /// <summary>The server already holds the reopened session's events through its cursor, so the first

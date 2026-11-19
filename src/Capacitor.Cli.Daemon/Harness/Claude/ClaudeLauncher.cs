@@ -238,11 +238,11 @@ internal sealed partial class ClaudeLauncher(
         argsNode.Add((JsonNode?)"flow-result");
 
         var server = new JsonObject {
-            ["command"] = (JsonNode?)config.CapacitorPath,
+            ["command"] = config.CapacitorPath,
             ["args"]    = argsNode,
             ["env"]     = new JsonObject {
-                [ProfileOverrides.UrlVar] = (JsonNode?)config.ServerUrl,
-                ["KCAP_FLOW_AGENT_ID"]    = (JsonNode?)ctx.AgentId
+                [ProfileOverrides.UrlVar] = config.ServerUrl,
+                ["KCAP_FLOW_AGENT_ID"]    = ctx.AgentId
             }
         };
 
@@ -267,10 +267,10 @@ internal sealed partial class ClaudeLauncher(
             foreach (var a in descriptor.Args) entryArgs.Add((JsonNode?)a);
 
             mcpServers[descriptor.Id] = new JsonObject {
-                ["command"] = (JsonNode?)config.CapacitorPath,
+                ["command"] = config.CapacitorPath,
                 ["args"]    = entryArgs,
                 ["env"]     = new JsonObject {
-                    [ProfileOverrides.UrlVar] = (JsonNode?)config.ServerUrl
+                    [ProfileOverrides.UrlVar] = config.ServerUrl
                 }
             };
         }

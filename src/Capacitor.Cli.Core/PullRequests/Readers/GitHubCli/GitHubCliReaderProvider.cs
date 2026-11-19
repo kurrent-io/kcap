@@ -144,8 +144,8 @@ public sealed class GitHubCliReaderProvider(GitHubCliRunner cli, TimeProvider ti
         var (view, result, fetched) = await ViewAsync(subject, ct).ConfigureAwait(false);
         if (view is null) return result.Outcome == GitHubCliOutcome.Ok ? Invalid<PullRequestPageDto<T>>(subject) : GitHubCliMapping.Failure<PullRequestPageDto<T>>(result, subject, Now);
         (object Items, bool Capped) frozen = section switch {
-            "checks" => ((object)view.Checks, view.ChecksCapped), "reviewers" => ((object)view.Reviewers, false),
-            "reviews" => ((object)view.Reviews, view.ReviewsCapped), _ => ((object)view.Comments, view.CommentsCapped)
+            "checks" => (view.Checks, view.ChecksCapped), "reviewers" => (view.Reviewers, false),
+            "reviews" => (view.Reviews, view.ReviewsCapped), _ => (view.Comments, view.CommentsCapped)
         };
         var entry = new GitHubCliCursorEntry(GitHubCliCursors.NewHandle(), key, view.FetchedAt, section == "checks" ? view.HeadSha : null, frozen.Items, 0, null, frozen.Capped);
         return Slice<T>(_cursors.Mint(entry), key, entry, subject, fetched);

@@ -379,7 +379,7 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
     /// mostly won't. An explicit session_ids wins when the caller means a different set.</summary>
     static JsonArray? CitedSessions(JsonObject? args, Func<string, string?> getEnv) =>
         ReadSessions(args) ?? (McpSessionId.TryResolveWithin(null, HarnessRequesterContext.Resolve(getEnv, Directory.Exists).SessionId) is { Length: > 0 } ambient
-            ? new JsonArray((JsonNode?)JsonValue.Create(ambient))
+            ? new JsonArray(JsonValue.Create(ambient))
             : null);
 
     /// <summary>Forwarded whole rather than reshaped: the server owns every rule about what a schema

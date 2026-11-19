@@ -63,7 +63,7 @@ public class CodexAppServerLiveSmokeTests {
             // hooks/list — the runtime flattens data[].hooks[] into CodexHookEntry; assert the shape
             // parses (an isolated CODEX_HOME has no kcap hooks, so the set is empty/managed).
             var hooks = await conn.RequestAsync("hooks/list", Element(new JsonObject {
-                ["cwds"] = new JsonArray((JsonNode?) cwd.Path),
+                ["cwds"] = new JsonArray(cwd.Path),
             }), cts.Token).WaitAsync(HangGuard);
             await Assert.That(hooks.TryGetProperty("data", out var data)).IsTrue();
             await Assert.That(data.ValueKind).IsEqualTo(JsonValueKind.Array);

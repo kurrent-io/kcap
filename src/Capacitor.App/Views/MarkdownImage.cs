@@ -70,7 +70,7 @@ public sealed class MarkdownImage : Panel {
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e) {
         base.OnAttachedToVisualTree(e);
         _pane = (Control?)this.FindAncestorOfType<MarkdownView>() ?? this.FindAncestorOfType<MarkdownViewer>();
-        _host = this.FindAncestorOfType<TextBlock>() ?? this.GetVisualParent() as Visual ?? this;
+        _host = this.FindAncestorOfType<TextBlock>() ?? this.GetVisualParent() ?? this;
         LayoutUpdated += OnLayoutUpdated;
         _ = LoadAsync();
     }
