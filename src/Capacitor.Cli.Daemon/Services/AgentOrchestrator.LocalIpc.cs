@@ -1128,28 +1128,44 @@ internal partial class AgentOrchestrator {
                 try { await Send(LocalFrame.Exited(agent.Runtime.ExitCode ?? 0)); } catch { /* client already gone */ }
             }
         } finally {
+            bool queued;
+
             lock (agent.SinksLock) {
                 agent.LocalSinks.Remove(sink);
                 agent.ClientDims.Remove(sink);
                 ClampPtyLocked(agent); // a departing (possibly smaller) client must not leave the rest clamped
+                queued = QueueSizeLocked(agent);
             }
 
             // A detach can grow the PTY (the smaller client left) — re-announce so web viewers re-lock.
-            if (!agent.IsPrivate) _ = SafeSendDimsAsync(agent);
+            if (!queued && !agent.IsPrivate) _ = SafeSendDimsAsync(agent);
         }
     }
 
     internal static bool IsSubmit(byte[] input) => Array.IndexOf(input, (byte) '\r') >= 0 || Array.IndexOf(input, (byte) '\n') >= 0;
 
     void ApplyResizeClamp(AgentInstance agent, ITerminalSink sink, ushort cols, ushort rows) {
+        bool queued;
+
         lock (agent.SinksLock) {
             agent.ClientDims[sink] = new AgentInstance.Dim(cols, rows);
             ClampPtyLocked(agent);
+            queued = QueueSizeLocked(agent);
         }
 
-        // Announce the new clamped size so registered agents' web viewers re-lock. Outside the
-        // lock (best-effort, fire-and-forget); no-op for --private.
-        if (!agent.IsPrivate) _ = SafeSendDimsAsync(agent);
+        // Announce the new clamped size so registered agents' web viewers re-lock.
+        if (!queued && !agent.IsPrivate) _ = SafeSendDimsAsync(agent);
+    }
+
+    /// <summary>Caller holds <see cref="AgentInstance.SinksLock"/>, so the size is queued between the
+    /// output read before the resize and the output read after it. False when there is no cloud sink,
+    /// which leaves no output to order against, or no size yet.</summary>
+    static bool QueueSizeLocked(AgentInstance agent) {
+        if (agent.CloudSink is not { } cloud || agent.CurrentCols == 0 || agent.CurrentRows == 0) return false;
+
+        cloud.TryEnqueueSize(agent.CurrentCols, agent.CurrentRows);
+
+        return true;
     }
 
     async Task SafeSendDimsAsync(AgentInstance agent) {

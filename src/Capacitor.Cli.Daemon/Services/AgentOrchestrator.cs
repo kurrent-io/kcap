@@ -839,7 +839,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             var sink = new CloudTerminalSink(
                 agent.Id, agent.SinksLock, agent.OutputBuffer,
-                _server.SendTerminalOutputAsync, () => _server.IsReady,
+                _server.SendTerminalOutputAsync,
+                (agentId, cols, rows, _) => _server.SendTerminalDimensionsAsync(agentId, cols, rows),
+                () => _server.IsReady,
                 _logger, _time, CloudSinkOptions, _shutdownCts.Token);
 
             _cloudSinks.Add(sink);
@@ -6272,15 +6274,16 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             var valid = cmd is { Cols: > 0 and <= ushort.MaxValue, Rows: > 0 and <= ushort.MaxValue };
 
             if (clear || valid) {
+                bool queued;
+
                 lock (agent.SinksLock) {
                     agent.WebDims = clear ? null : new AgentInstance.Dim((ushort)cmd.Cols, (ushort)cmd.Rows);
                     ClampPtyLocked(agent);
+                    queued = QueueSizeLocked(agent);
                 }
 
-                // Announce the clamped size so every web viewer re-locks (and reconnect resends the
-                // real size, not stale ones). Outside the lock, best-effort, fire-and-forget — same
-                // as the local resize path in ApplyResizeClamp.
-                _ = SafeSendDimsAsync(agent);
+                // Announce the clamped size so every web viewer re-locks.
+                if (!queued) _ = SafeSendDimsAsync(agent);
             }
         }
 
