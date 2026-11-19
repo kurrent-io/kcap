@@ -89,8 +89,7 @@
                         Command="{Binding ToggleDetailsCommand}">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="{Binding DetailsLabel}" />
-                        <views:AppIcon Kind="ChevronDown" Size="12" VerticalAlignment="Center" IsVisible="{Binding !DetailsExpanded}" />
-                        <views:AppIcon Kind="ChevronUp" Size="12" VerticalAlignment="Center" IsVisible="{Binding DetailsExpanded}" />
+                        <views:FoldChevron Size="12" VerticalAlignment="Center" IsOpen="{Binding DetailsExpanded}" />
                     </StackPanel>
                 </Button>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">

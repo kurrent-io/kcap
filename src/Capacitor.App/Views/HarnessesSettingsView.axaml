@@ -101,14 +101,14 @@
                                                                 <ToggleButton x:Name="DetailsToggle" Classes="settingsDetailsToggle"
                                                                               AutomationProperties.Name="{Binding Label, StringFormat='Show details for {0}'}">
                                                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                                                        <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !#DetailsToggle.IsChecked}" />
-                                                                        <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding #DetailsToggle.IsChecked}" />
+                                                                        <views:FoldChevron Size="12" IsOpen="{Binding #DetailsToggle.IsChecked}" />
                                                                         <TextBlock Text="Show details" IsVisible="{Binding !#DetailsToggle.IsChecked}" />
                                                                         <TextBlock Text="Hide details" IsVisible="{Binding #DetailsToggle.IsChecked}" />
                                                                     </StackPanel>
                                                                 </ToggleButton>
-                                                                <SelectableTextBlock Classes="settingsErrorDetail settingsErrorOutput" Text="{Binding Details}"
-                                                                                     IsVisible="{Binding #DetailsToggle.IsChecked}" />
+                                                                <views:FoldPanel IsOpen="{Binding #DetailsToggle.IsChecked}">
+                                                                    <SelectableTextBlock Classes="settingsErrorDetail settingsErrorOutput" Text="{Binding Details}" />
+                                                                </views:FoldPanel>
                                                             </StackPanel>
                                                         </StackPanel>
                                                     </Grid>

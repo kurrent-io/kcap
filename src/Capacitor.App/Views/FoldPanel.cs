@@ -4,11 +4,13 @@ using Avalonia.Controls;
 namespace Capacitor.App.Views;
 
 /// Shows or hides its child, sliding its height and fading when <see cref="Animates"/> is set.
+/// A fold that arrives with a new data context, such as a recycled row, snaps instead.
 public sealed class FoldPanel : Decorator {
     public static readonly StyledProperty<bool> IsOpenProperty = AvaloniaProperty.Register<FoldPanel, bool>(nameof(IsOpen), true);
-    public static readonly StyledProperty<bool> AnimatesProperty = AvaloniaProperty.Register<FoldPanel, bool>(nameof(Animates));
+    public static readonly StyledProperty<bool> AnimatesProperty = AvaloniaProperty.Register<FoldPanel, bool>(nameof(Animates), true);
 
     CancellationTokenSource? _folding;
+    bool _rebinding;
 
     public FoldPanel() => ClipToBounds = true;
 
@@ -20,9 +22,19 @@ public sealed class FoldPanel : Decorator {
         if (change.Property == IsOpenProperty) _ = FoldAsync(change.GetNewValue<bool>());
     }
 
+    protected override void OnDataContextBeginUpdate() {
+        base.OnDataContextBeginUpdate();
+        _rebinding = true;
+    }
+
+    protected override void OnDataContextEndUpdate() {
+        base.OnDataContextEndUpdate();
+        _rebinding = false;
+    }
+
     async Task FoldAsync(bool open) {
         _folding?.Cancel();
-        if (!Animates || !IsLoaded) {
+        if (!Animates || !IsLoaded || _rebinding) {
             ClearValue(HeightProperty);
             ClearValue(OpacityProperty);
             IsVisible = open;

@@ -356,12 +356,7 @@
                             <views:ChatKindHeader Label="{Binding HeaderLabel}"
                                                   IconKind="{x:Static views:ToolCategoryIcons.ThinkingIcon}">
                                 <views:ChatKindHeader.Status>
-                                    <Panel Width="12" Height="12" VerticalAlignment="Center">
-                                        <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                                       Foreground="{StaticResource KcapMutedBrush}" />
-                                        <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                                       Foreground="{StaticResource KcapMutedBrush}" />
-                                    </Panel>
+                                    <views:FoldChevron VerticalAlignment="Center" Size="12" Foreground="{StaticResource KcapMutedBrush}" IsOpen="{Binding IsExpanded}" />
                                 </views:ChatKindHeader.Status>
                             </views:ChatKindHeader>
                         </Button>
@@ -410,12 +405,7 @@
                                         AutomationProperties.Name="{Binding ToggleAccessibleName}">
                                     <views:ChatKindHeader Label="{Binding HeaderLabel}" IconKind="{Binding IconKind}">
                                         <views:ChatKindHeader.Status>
-                                            <Panel Width="12" Height="12" VerticalAlignment="Center">
-                                                <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                                <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                            </Panel>
+                                            <views:FoldChevron VerticalAlignment="Center" Size="12" Foreground="{StaticResource KcapMutedBrush}" IsOpen="{Binding IsExpanded}" />
                                         </views:ChatKindHeader.Status>
                                     </views:ChatKindHeader>
                                 </Button>
@@ -482,12 +472,7 @@
                                                        IsVisible="{Binding IsAwaitingPermission}"
                                                        Foreground="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />
                                     </Panel>
-                                    <Panel Grid.Column="3" Width="12" Height="12" Margin="8,0,0,0" VerticalAlignment="Center">
-                                        <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                                       Foreground="{StaticResource KcapMutedBrush}" />
-                                        <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                                       Foreground="{StaticResource KcapMutedBrush}" />
-                                    </Panel>
+                                    <views:FoldChevron Grid.Column="3" Margin="8,0,0,0" VerticalAlignment="Center" Size="12" Foreground="{StaticResource KcapMutedBrush}" IsOpen="{Binding IsExpanded}" />
                                 </Grid>
                             </Button>
                             <views:ToolImagePreview Grid.Row="1" Classes="toolBody kcapGhost" Margin="0,6,0,2" Path="{Binding PreviewPath}" />
@@ -555,12 +540,7 @@
                                         AutomationProperties.Name="{Binding Summary}">
                                     <views:ChatKindHeader Label="{Binding Summary}" IconKind="{Binding HeaderIconKind}">
                                         <views:ChatKindHeader.Status>
-                                            <Panel Width="12" Height="12" VerticalAlignment="Center">
-                                                <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                                <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                            </Panel>
+                                            <views:FoldChevron VerticalAlignment="Center" Size="12" Foreground="{StaticResource KcapMutedBrush}" IsOpen="{Binding IsExpanded}" />
                                         </views:ChatKindHeader.Status>
                                     </views:ChatKindHeader>
                                 </Button>
@@ -644,12 +624,7 @@
                                     <TextBlock Text="{Binding Count}" Margin="7,1" FontSize="11.5" FontWeight="SemiBold"
                                                Foreground="{StaticResource KcapPurpleBrush}" VerticalAlignment="Center" />
                                 </Panel>
-                                <Panel Grid.Column="3" Width="12" Height="12" VerticalAlignment="Center">
-                                    <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                                   Foreground="{StaticResource KcapMutedBrush}" />
-                                    <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                                   Foreground="{StaticResource KcapMutedBrush}" />
-                                </Panel>
+                                <views:FoldChevron Grid.Column="3" VerticalAlignment="Center" Size="12" Foreground="{StaticResource KcapMutedBrush}" IsOpen="{Binding IsExpanded}" />
                             </Grid>
                         </Button>
                         <!-- 2px here plus a row's 6px padding: rows start where the title does. -->

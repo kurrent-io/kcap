@@ -205,8 +205,7 @@
                 <Button x:Name="MoreToggle" Classes="kcapGhost nwbFold" Command="{Binding ToggleMoreCommand}" IsVisible="{Binding HasMoreCards}"
                         AutomationProperties.Name="{Binding MoreToggleText}">
                     <StackPanel Orientation="Horizontal" Spacing="6">
-                        <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !MoreExpanded}" />
-                        <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding MoreExpanded}" />
+                        <views:FoldChevron Size="12" IsOpen="{Binding MoreExpanded}" />
                         <TextBlock Text="{Binding MoreToggleText}" FontSize="12" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>

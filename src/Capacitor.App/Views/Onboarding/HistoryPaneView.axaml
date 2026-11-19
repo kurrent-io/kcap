@@ -70,8 +70,7 @@
                             Command="{Binding ToggleCustomizeCommand}" AutomationProperties.Name="{Binding CustomizeLabel}">
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <TextBlock Text="{Binding CustomizeLabel}" VerticalAlignment="Center" />
-                            <icons:AppIcon Kind="ChevronDown" Size="14" IsVisible="{Binding !Customizing}" />
-                            <icons:AppIcon Kind="ChevronUp" Size="14" IsVisible="{Binding Customizing}" />
+                            <icons:FoldChevron Size="14" IsOpen="{Binding Customizing}" />
                         </StackPanel>
                     </Button>
                 </StackPanel>

@@ -59,4 +59,7 @@
     <Style Selector="views|AppIcon.chevron">
         <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
     </Style>
+    <Style Selector="views|FoldChevron.chevron">
+        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+    </Style>
 </Styles>

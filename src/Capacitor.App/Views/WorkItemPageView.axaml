@@ -119,10 +119,7 @@
                         <Panel Width="24">
                             <Button Classes="kcapGhost kcapIcon" Command="{Binding ToggleCommand}" IsVisible="{Binding HasSessions}"
                                     AutomationProperties.Name="{Binding Title, StringFormat='Show sessions of {0}'}">
-                                <Panel Width="14" Height="14">
-                                    <views:AppIcon Kind="ChevronDown" Size="14" Classes="chevron" IsVisible="{Binding IsExpanded}" />
-                                    <views:AppIcon Kind="ChevronRight" Size="14" Classes="chevron" IsVisible="{Binding !IsExpanded}" />
-                                </Panel>
+                                <views:FoldChevron Size="14" Classes="chevron" IsOpen="{Binding IsExpanded}" />
                             </Button>
                         </Panel>
                         <Button Grid.Column="1" Classes="kcapGhost kcapIcon" ToolTip.Tip="{Binding StatusLabel, StringFormat='{}{0}. Set the status by hand'}"
@@ -191,10 +188,11 @@
                         </Button>
                     </Grid>
                 </Border>
-                <Border BorderThickness="1,0,0,0" BorderBrush="{StaticResource KcapBorderStrongBrush}" Margin="16,2,0,4"
-                        IsVisible="{Binding IsExpanded}">
-                    <ItemsControl ItemsSource="{Binding Sessions}" ItemTemplate="{StaticResource SessionRow}" />
-                </Border>
+                <views:FoldPanel IsOpen="{Binding IsExpanded}">
+                    <Border BorderThickness="1,0,0,0" BorderBrush="{StaticResource KcapBorderStrongBrush}" Margin="16,2,0,4">
+                        <ItemsControl ItemsSource="{Binding Sessions}" ItemTemplate="{StaticResource SessionRow}" />
+                    </Border>
+                </views:FoldPanel>
             </StackPanel>
         </DataTemplate>
 
@@ -202,34 +200,33 @@
             <StackPanel>
                 <Button Classes="kcapGhost groupHead" Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Label}">
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Panel Width="14" Height="14">
-                            <views:AppIcon Kind="ChevronDown" Size="14" Classes="chevron" IsVisible="{Binding IsExpanded}" />
-                            <views:AppIcon Kind="ChevronRight" Size="14" Classes="chevron" IsVisible="{Binding !IsExpanded}" />
-                        </Panel>
+                        <views:FoldChevron Size="14" Classes="chevron" IsOpen="{Binding IsExpanded}" />
                         <views:AppIcon Kind="{Binding Icon}" Size="14"
                                        Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
                         <TextBlock Text="{Binding Label}" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" />
                         <TextBlock Text="{Binding Count}" FontSize="15" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <StackPanel Classes="groupItems" IsVisible="{Binding IsExpanded}">
-                    <ItemsControl ItemsSource="{Binding Parts}" ItemTemplate="{StaticResource Part}" />
-                    <ItemsControl ItemsSource="{Binding LooseEnds}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="vm:WorkItemPageLooseEnd">
-                                <Border Classes="row" Padding="10,4,6,4">
-                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                        <TextBlock Text="{Binding Text}" FontSize="15" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                        <Button Grid.Column="1" Classes="kcapChip makePart" Content="Make slice"
-                                                Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).MakePartCommand}"
-                                                CommandParameter="{Binding}" AutomationProperties.Name="{Binding Text, StringFormat='Make {0} a slice'}" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <ItemsControl ItemsSource="{Binding Sessions}" ItemTemplate="{StaticResource SessionRow}" />
-                </StackPanel>
+                <views:FoldPanel IsOpen="{Binding IsExpanded}">
+                    <StackPanel Classes="groupItems">
+                        <ItemsControl ItemsSource="{Binding Parts}" ItemTemplate="{StaticResource Part}" />
+                        <ItemsControl ItemsSource="{Binding LooseEnds}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:WorkItemPageLooseEnd">
+                                    <Border Classes="row" Padding="10,4,6,4">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                                            <TextBlock Text="{Binding Text}" FontSize="15" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                            <Button Grid.Column="1" Classes="kcapChip makePart" Content="Make slice"
+                                                    Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).MakePartCommand}"
+                                                    CommandParameter="{Binding}" AutomationProperties.Name="{Binding Text, StringFormat='Make {0} a slice'}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <ItemsControl ItemsSource="{Binding Sessions}" ItemTemplate="{StaticResource SessionRow}" />
+                    </StackPanel>
+                </views:FoldPanel>
             </StackPanel>
         </DataTemplate>
     </UserControl.Resources>

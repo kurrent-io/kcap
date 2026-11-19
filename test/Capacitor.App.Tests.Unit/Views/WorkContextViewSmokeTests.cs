@@ -971,7 +971,11 @@ public class WorkContextViewSmokeTests {
             await Assert.That(facts.IsEffectivelyVisible).IsTrue();
 
             Click();
-            await Assert.That(facts.IsEffectivelyVisible).IsFalse();
+            await WorkspaceFixtures.WaitUntilAsync(() => {
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Dispatcher.UIThread.RunJobs();
+                return !facts.IsEffectivelyVisible;
+            }, what: "the checkout rows to fold");
         });
     }
 
