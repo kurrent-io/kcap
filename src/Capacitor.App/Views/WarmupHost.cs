@@ -19,9 +19,3 @@ internal sealed class WarmupHost : Decorator {
 
     protected override AutomationPeer OnCreateAutomationPeer() => new WarmupHostAutomationPeer(this);
 }
-
-internal sealed class WarmupHostAutomationPeer(WarmupHost owner) : ControlAutomationPeer(owner) {
-    protected override IReadOnlyList<AutomationPeer>? GetChildrenCore() => null;
-    protected override bool IsControlElementCore() => false;
-    protected override bool IsContentElementCore() => false;
-}
