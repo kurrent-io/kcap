@@ -646,7 +646,7 @@ public class AgentOrchestratorBorrowLaunchTests {
         // fails AFTER the borrowed worktree is assigned (runtime StartAsync throws), reaching the
         // failed-launch cleanup, which must gate the removal on OwnedWorktree rather than
         // git-worktree-removing whatever it was handed.
-        var (_, linkedCwd, cleanup) = CreateLinkedWorktree();
+        var (_, linkedCwd, _) = CreateLinkedWorktree();
 
         var server          = new CaptureServerConnection();
         var ptyFactory      = new SpyPtyProcessFactory();

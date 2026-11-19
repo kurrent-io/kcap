@@ -378,7 +378,7 @@ public class AgentStatusSnapshotTests {
         try {
             var running = fx.Orchestrator.SeedAgentForTest("run");
             var done    = fx.Orchestrator.SeedAgentForTest("done", status: "Completed");
-            var busy    = fx.Orchestrator.SeedAgentForTest("busy");
+            _ = fx.Orchestrator.SeedAgentForTest("busy");
             running.ActivityClock.SetAwaitingInput(true);
             done.ActivityClock.SetAwaitingInput(true);
 

@@ -114,7 +114,7 @@ public class TerminalSendGateTests {
     [NotInParallel("AvaloniaSession")]
     public async Task A_resubmit_is_withheld_once_the_viewer_typed_in_the_terminal() {
         await RunOnUiAsync(async () => {
-            var (_, _, time, vm, client) = await BuildAttachedAsync();
+            var (_, _, time, vm, _) = await BuildAttachedAsync();
             await Assert.That(vm.TrySendText("hello")).IsTrue();
             time.Advance(Delay);
             await vm.PendingDeliveryForTesting!;

@@ -878,7 +878,7 @@ public class MainWindowViewModelTests {
     public async Task Start_and_reconnect_visibility_are_mutually_exclusive() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var (vm, home, tmp) = WithLauncher(service);
+            var (_, home, tmp) = WithLauncher(service);
             using var _tmp = tmp;
             using var _home = home;
 
@@ -907,7 +907,7 @@ public class MainWindowViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
             var moving = new BehaviorSubject<bool>(true);
-            var (vm, home, tmp) = WithLauncher(service, moving);
+            var (_, home, tmp) = WithLauncher(service, moving);
             using var _tmp = tmp;
             using var _home = home;
 
@@ -2128,7 +2128,7 @@ public class MainWindowViewModelTests {
                 originOf: id => id == "S" ? AgentOrigin.Server : AgentOrigin.Local,
                 serverWorkspaceFactory: id => built = host.NewServer(id), directory: host.Directory, time: time);
             vm.OpenSession("a1", AgentOrigin.Local);
-            var local = vm.CurrentWorkspace;
+            _ = vm.CurrentWorkspace;
 
             service.Agents.AddOrUpdate(LocalWithSession("a1", "S", "Completed"));
             host.Directory.Rows.Edit(rows => {

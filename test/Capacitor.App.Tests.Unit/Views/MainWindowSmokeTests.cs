@@ -137,7 +137,7 @@ public class MainWindowSmokeTests {
                 connection: "connected", active: 1, max: 5));
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
 
-            var (actions, _) = NewActions(service);
+            var (_, _) = NewActions(service);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
                 tenantName: "kurrent");
             var window = new MainWindow { DataContext = vm };
@@ -186,7 +186,7 @@ public class MainWindowSmokeTests {
     public async Task Status_transition_from_a_background_thread_does_not_throw_and_converges() {
         var (thrown, startEnabledAfter) = await AvaloniaSession.DispatchAsync(() => {
             var service = new FakeDaemonClientService();
-            var (actions, _) = NewActions(service);
+            var (_, _) = NewActions(service);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
             var window = new MainWindow { DataContext = vm };
             window.Show();
@@ -237,7 +237,7 @@ public class MainWindowSmokeTests {
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, "daemon_unreachable", null));
 
             var shutdown = new CancellationTokenSource();
-            var (actions, _) = NewActions(service);
+            var (_, _) = NewActions(service);
             var vm = new MainWindowViewModel(service, shutdown.Token, TestActivity.New(), TimeProvider.System);
             var window = new MainWindow { DataContext = vm };
             window.Show();
@@ -334,7 +334,7 @@ public class MainWindowSmokeTests {
     public async Task Toast_renders_the_notifier_message() {
         var rendered = await AvaloniaSession.DispatchAsync(() => {
             var service = new FakeDaemonClientService();
-            var (actions, notifier) = NewActions(service);
+            var (_, notifier) = NewActions(service);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
             var window = new MainWindow { DataContext = vm, Notifier = notifier };
             window.Show();
@@ -1617,7 +1617,7 @@ public class MainWindowSmokeTests {
             var ok = await AvaloniaSession.DispatchAsync(() => {
                 var service = new FakeDaemonClientService();
                 service.SnapshotsSubject.OnNext(Snap());
-                var (actions, _) = NewActions(service);
+                var (_, _) = NewActions(service);
                 var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
                 var window = new MainWindow { DataContext = vm };
                 window.Show();

@@ -222,7 +222,7 @@ static partial class DocsShotScenes {
             Action? requestSetup, bool openSession, bool localServerDown, WorkContextRead workContextRead,
             SessionPlansRead? plan, bool moreSessions, bool remoteMachine, Capacitor.App.ViewModels.NextWork.NextWorkBandViewModel? nextWork) {
         var transcript = openSession ? scene.Own(new TempDir()) : null;
-        var homeState = scene.Own(TempDir.WithPathTo("app-state.json", out var homeStatePath));
+        _ = scene.Own(TempDir.WithPathTo("app-state.json", out var homeStatePath));
         var service = new FakeDaemonClientService();
         Northwind(service, moreSessions);
         var permissions = new FakePermissionService();

@@ -596,7 +596,7 @@ public class TerminalTabViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public async Task Surface_swap_and_state_mutations_happen_on_the_ui_thread() {
         var (surfaceCreatedOnUi, stateChangedOnUi, failure) = await AvaloniaSession.DispatchAsync(async () => {
-            var (daemon, factory, time, vm, _) = await BuildConnectingAsync();
+            var (daemon, factory, time, _, _) = await BuildConnectingAsync();
             Dispatcher.UIThread.RunJobs();
 
             bool? surfaceOnUi = null;

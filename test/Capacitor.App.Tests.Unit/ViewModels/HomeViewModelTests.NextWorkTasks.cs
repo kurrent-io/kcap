@@ -68,7 +68,7 @@ public partial class HomeViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public async Task A_refused_machine_switch_leaves_the_task_waiting_for_its_checkout() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
+            using var vm = Build(out _, out _, Tmp.PathTo("state.json"));
             await vm.SelectRepositoryAsync(Tmp.CreateDir("unrelated"));
 
             await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", "studio", false, "/home/maya/payments", "Recorded context"));

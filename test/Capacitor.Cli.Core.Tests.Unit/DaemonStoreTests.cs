@@ -71,11 +71,11 @@ public class DaemonStoreTests {
     public async Task Environment_value_wins_over_the_home_fallback() {
         using var home = EnvScope.Exclusive("HOME", PinnedHome);
 
-        using (var env = EnvScope.Exclusive(DaemonStore.DaemonsDirEnvVar, "/elsewhere"))
+        using (EnvScope.Exclusive(DaemonStore.DaemonsDirEnvVar, "/elsewhere"))
             await Assert.That(DaemonStore.FromEnvironment().Directory).IsEqualTo("/elsewhere");
 
         // Empty reads as unset, or `export KCAP_DAEMONS_DIR=` puts every lock in the cwd.
-        using (var env = EnvScope.Exclusive(DaemonStore.DaemonsDirEnvVar, ""))
+        using (EnvScope.Exclusive(DaemonStore.DaemonsDirEnvVar, ""))
             await Assert.That(DaemonStore.FromEnvironment().Directory).IsEqualTo(DefaultDaemonsDir);
     }
 

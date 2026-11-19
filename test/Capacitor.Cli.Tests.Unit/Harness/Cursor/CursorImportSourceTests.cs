@@ -1473,7 +1473,7 @@ public class CursorImportSourceTests {
         // import (return Failed) BEFORE the parent session-end, so a re-run repairs it — rather
         // than posting subagent-stop + session-end over a child whose transcript wasn't accepted.
         using var fx = new ProjectsDirFixture();
-        var (parentId, childId, classified, src) = await SetupParentChildAsync(fx);
+        var (parentId, _, classified, src) = await SetupParentChildAsync(fx);
         var parentClass = classified.Single(c => c.SessionId == parentId);
 
         var posted = new List<string>();
@@ -1502,7 +1502,7 @@ public class CursorImportSourceTests {
         // the child would create a standalone top-level session AND post subagent lifecycle
         // out of order with the parent.
         using var fx = new ProjectsDirFixture();
-        var (parentId, childId, classified, src) = await SetupParentChildAsync(fx);
+        var (_, childId, classified, src) = await SetupParentChildAsync(fx);
 
         var childClass = classified.Single(c => c.SessionId == childId);
         await Assert.That(childClass.SourceMeta!.ContainsKey("IsSubagentChild")).IsTrue();

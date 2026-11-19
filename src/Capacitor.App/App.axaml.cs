@@ -1669,7 +1669,7 @@ public partial class App : Application {
     }
 
     HarnessesSettingsViewModel CreateHarnessesSettings(SettingsProfileStore settings, string daemonName) {
-        var (cli, probe, runner) = SettingsCli(settings, daemonName);
+        var (cli, probe, _) = SettingsCli(settings, daemonName);
         var harnesses = HarnessRegistry.FromEnvironment(_userHome);
         var shimInstaller = CliPathInstallers.Create(probe, _userHome);
         var shimTarget = ShimTargetFor(cli.CliPath, Program.Host.CliOutlivesApp);

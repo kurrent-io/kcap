@@ -205,7 +205,7 @@ public class McpFlowsServerSettlementRetryTests {
         var clock = Clock();
         using var response = ResponseOf(await McpFlowsServer.SendWithSettlementRetryAsync(
             client, "https://flows.example.test", (c, ct) => c.PostAsync($"{server.Url}/start", null, ct), clock, SettlementBackoff.Seeded(11)));
-        var delays = clock.Delays;
+        _ = clock.Delays;
 
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
         await Assert.That(server.LogEntries.Count).IsEqualTo(2);

@@ -132,7 +132,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task PreQuery_loaded_is_contended_not_bootout_unknown() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home) { InitialProbe = LabelProbe.Loaded };
         var sut = new ServiceVerify(Daemons.Store, Config.Root, manager, _ => 4242, (_, _) => Task.FromResult(new HelloProbeResult(false, null, null, null)), Stopped(), readPlist: OwnPlist);
 
@@ -146,7 +146,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task PreQuery_unknown_is_bootout_unknown_distinct_from_loaded() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home) { InitialProbe = LabelProbe.Unknown };
         var sut = new ServiceVerify(Daemons.Store, Config.Root, manager, _ => 4242, (_, _) => Task.FromResult(new HelloProbeResult(false, null, null, null)), Stopped(), readPlist: OwnPlist);
 
@@ -160,7 +160,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Happy_path_writes_marker_through_every_phase_then_commits_and_deletes() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home);
         // Render viability now runs GenerateFiles BEFORE the first destructive step, so no marker
         // exists yet when it fires (the old ordering wrote "captured" first — that was the bug).
@@ -193,7 +193,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Leftover_committed_marker_at_entry_self_heals_and_proceeds() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         ServiceTxnMarker.Write(Daemons.Store, Id, new TxnMarker(1, "install", "committed", "stale", "no-unit", "stale-fingerprint"));
 
         var manager = new FakeServiceManager(Home);
@@ -211,7 +211,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Leftover_written_phase_marker_with_matching_plist_is_cleaned_up_and_proceeds() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         // Unlike the mismatch case below, the on-disk plist's fingerprint matches exactly what
         // the dead transaction itself recorded — provably its own residue, so recovery cleans
         // it up (Uninstall, benign-absence semantics) rather than surfacing.
@@ -235,7 +235,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Leftover_marker_with_null_fingerprint_is_cleared_without_touching_the_manager() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         // Died before ever writing a plist (e.g. a crash right after "captured") — there is
         // nothing on disk that could be the dead transaction's residue, so recovery just clears
         // the marker; it must not call Uninstall on a label it never touched.
@@ -256,7 +256,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Leftover_marker_with_unreadable_but_present_plist_surfaces_restore_verification_untouched() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         // A read failure (permission error, transient I/O error, ...) is NOT the same as
         // absence: _readPlist returns null for both, but the file demonstrably exists here, so
         // recovery must never guess it's gone and clean up regardless — that would pave over
@@ -280,7 +280,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Leftover_marker_whose_clear_never_confirms_absent_aborts_without_deleting_the_marker() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         // Uninstall "succeeds" (bootout exit 0) but the label never actually settles to
         // Absent — the exact race ClearLabelAsync (now shared with entry recovery, not a bare
         // trust-the-bool call) exists to catch.
@@ -304,7 +304,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Leftover_written_phase_marker_at_entry_surfaces_restore_verification_untouched() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         ServiceTxnMarker.Write(Daemons.Store, Id, new TxnMarker(1, "install", "written", "stale", "no-unit", "stale-fingerprint"));
 
         var manager = new FakeServiceManager(Home);
@@ -320,7 +320,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Wrong_hello_version_rolls_back_by_uninstalling_its_own_unit() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home);
         var time = new FakeTimeProvider();
 
@@ -343,7 +343,7 @@ public class ServiceVerifyInstallTests {
     /// socket, and that's just as much a rollback trigger as a version mismatch.</summary>
     [Test]
     public async Task Wrong_hello_name_rolls_back_by_uninstalling_its_own_unit() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home);
         var time = new FakeTimeProvider();
 
@@ -366,7 +366,7 @@ public class ServiceVerifyInstallTests {
     /// incompatibility, not something a retry can fix.</summary>
     [Test]
     public async Task Unsupported_protocol_version_rolls_back_by_uninstalling_its_own_unit() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home);
         var time = new FakeTimeProvider();
 
@@ -390,7 +390,7 @@ public class ServiceVerifyInstallTests {
     /// confirmed ownership still commits.</summary>
     [Test]
     public async Task Null_expected_version_skips_version_validation_but_still_succeeds() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home);
 
         static Task<HelloProbeResult> Hello(string _, TimeSpan __) =>
@@ -406,7 +406,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Foreign_plist_at_final_recheck_is_never_deleted_and_keeps_the_marker() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home);
 
         static Task<HelloProbeResult> Hello(string _, TimeSpan __) =>
@@ -425,7 +425,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task PreQuery_absent_but_unit_present_stopped_but_installed_is_contended() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         // `service stop` retains the plist by design — a stopped-but-installed service must be
         // treated the same as Loaded, not as a fresh Absent slot to overwrite.
         var manager = new FakeServiceManager(Home) { InitialProbe = LabelProbe.Absent, InitialUnitPresent = true };
@@ -441,7 +441,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task GenerateFiles_throwing_is_a_viability_abort_before_any_destructive_step() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home) { GenerateFilesThrows = new InvalidOperationException("invalid captured env value") };
         var sut = new ServiceVerify(Daemons.Store, Config.Root, manager, _ => 4242, (_, _) => Task.FromResult(new HelloProbeResult(false, null, null, null)), Stopped(), readPlist: OwnPlist);
 
@@ -458,7 +458,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Invalid_pinned_profile_url_is_a_viability_abort_touching_nothing() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home);
         var sut = new ServiceVerify(Daemons.Store, Config.Root, manager, _ => 4242, (_, _) => Task.FromResult(new HelloProbeResult(false, null, null, null)),
             Stopped(), readPlist: OwnPlist, profileViable: () => false);
@@ -472,7 +472,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task WriteAndBootstrap_throwing_still_rolls_back_the_plist_it_already_wrote() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         // launchctl bootstrap can throw (EPERM under MDM, I/O error) AFTER WriteUnitFiles has
         // already put the plist on disk — readPlist reflects that with matching ("own") content.
         var manager = new FakeServiceManager(Home) { WriteAndBootstrapThrows = new InvalidOperationException("launchctl bootstrap failed (exit 5): Input/output error") };
@@ -488,7 +488,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Rollback_reserve_exhausted_with_undetermined_state_is_rollback_budget() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home) { RunningPid = 111, StayUnknownAfterUninstall = true }; // ownership never holds
         var time = new FakeTimeProvider();
 
@@ -510,7 +510,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Lock_loser_never_converges_rolls_back_to_readiness_timeout() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home) { RunningPid = 111 }; // never matches the validated pid below
         var time = new FakeTimeProvider();
 
@@ -532,7 +532,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Final_recheck_at_a_different_incarnation_rolls_back_instead_of_committing() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         // Every readiness check observes a NEW job pid — a KeepAlive respawn between the primary
         // check and the final recheck. Ownership holds for each individual check, but the pinned
         // incarnation never survives to the recheck, so the transaction must never commit a
@@ -558,7 +558,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task A_late_hello_never_hands_a_hung_query_a_second_full_budget() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var time = new FakeTimeProvider();
         var start = time.GetUtcNow();
 
@@ -587,7 +587,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Rollback_never_uninstalls_an_unreadable_present_plist() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         // A lock-unaware writer replaced our plist with a foreign/unreadable file between
         // bootstrap and rollback: _readPlist returns null (can't fingerprint it) but the file
         // demonstrably exists. Uninstalling it would delete something we never verified is ours,
@@ -612,7 +612,7 @@ public class ServiceVerifyInstallTests {
     /// verify_viability token.</summary>
     [Test, NotInParallel]
     public async Task Gated_install_with_bad_binary_digest_aborts_viability_with_reason_line() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         using var capture = ConsoleOutput.StartErrorCapture();
 
         var manager = new FakeServiceManager(Home);
@@ -641,7 +641,7 @@ public class ServiceVerifyInstallTests {
     /// WriteAndBootstrap, leaving no unit on disk.</summary>
     [Test]
     public async Task Gated_install_digest_drift_before_bootstrap_rolls_back_with_29() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home);
         static Task<HelloProbeResult> Hello(string _, TimeSpan __) =>
             Task.FromResult(new HelloProbeResult(true, 1, ExpectedVersion, Id));
@@ -666,7 +666,7 @@ public class ServiceVerifyInstallTests {
     /// pre-bootstrap, post-readiness) must still commit exactly like the ungated path.</summary>
     [Test]
     public async Task Gated_install_with_passing_digest_throughout_still_commits() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home);
         static Task<HelloProbeResult> Hello(string _, TimeSpan __) =>
             Task.FromResult(new HelloProbeResult(true, 1, ExpectedVersion, Id));
@@ -688,7 +688,7 @@ public class ServiceVerifyInstallTests {
     /// wired at all, matching a plain `kcap daemon service install --verify` from a terminal.</summary>
     [Test]
     public async Task Ungated_install_with_failing_digest_still_commits_gate_truly_inactive() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home);
         static Task<HelloProbeResult> Hello(string _, TimeSpan __) =>
             Task.FromResult(new HelloProbeResult(true, 1, ExpectedVersion, Id));
@@ -712,7 +712,7 @@ public class ServiceVerifyInstallTests {
     /// there happened to be nothing to replace.</summary>
     [Test, NotInParallel]
     public async Task Gated_replace_with_bad_binary_digest_aborts_viability_before_any_destructive_step() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         using var capture = ConsoleOutput.StartErrorCapture();
 
         // Loaded and owned (RunningPid matches the validated pid below) — exactly the shape
@@ -748,7 +748,7 @@ public class ServiceVerifyInstallTests {
     /// the transaction never reached "committed", not just that the final exit code is 29.</summary>
     [Test]
     public async Task Gated_install_digest_drift_at_post_readiness_recheck_rolls_back_with_29_never_committing() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         var manager = new FakeServiceManager(Home);
         static Task<HelloProbeResult> Hello(string _, TimeSpan __) =>
             Task.FromResult(new HelloProbeResult(true, 1, ExpectedVersion, Id));
@@ -773,7 +773,7 @@ public class ServiceVerifyInstallTests {
 
     [Test]
     public async Task Rollback_uninstalls_when_the_plist_is_genuinely_absent() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         // The other null-read shape: the file is genuinely gone (read null AND not present), so
         // the idempotent uninstall still runs and verifies the restored (absent) state.
         var manager = new FakeServiceManager(Home) { WriteAndBootstrapThrows = new InvalidOperationException("launchctl bootstrap failed (exit 5)") };
@@ -794,7 +794,7 @@ public class ServiceVerifyInstallTests {
 
     [Test, NotInParallel]
     public async Task Gated_install_readiness_timeout_with_matching_marker_attributes_refusal_reason() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         using var capture = ConsoleOutput.StartErrorCapture();
 
         // The observed job pid IS this test process's own pid, matching what BootRefusal.TryWrite
@@ -836,7 +836,7 @@ public class ServiceVerifyInstallTests {
 
     [Test, NotInParallel]
     public async Task Gated_install_readiness_timeout_with_a_foreign_marker_reports_no_refusal_reason() {
-        var (dir, daemonPath) = SetUpViableInstall();
+        var (_, daemonPath) = SetUpViableInstall();
         using var capture = ConsoleOutput.StartErrorCapture();
 
         // Same shape as the matching-marker test, but the marker names a DIFFERENT daemon —

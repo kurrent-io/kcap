@@ -616,7 +616,7 @@ public class PullRequestToneCacheTests {
 
     [Test]
     public async Task The_strongest_tone_across_a_sessions_links_wins() {
-        var (directory, source, time, cache) = Build();
+        var (directory, source, _, cache) = Build();
         using var _c = cache;
         using var _d = directory;
         source.OverviewResponses.Enqueue((subject, _) => Task.FromResult(source.Overview(subject)));

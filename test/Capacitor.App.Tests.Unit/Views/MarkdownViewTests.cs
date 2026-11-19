@@ -550,7 +550,7 @@ public class MarkdownViewTests {
     public async Task A_prompt_renders_only_what_someone_types_on_purpose() {
         await RunOnUiAsync(async () => {
             const string typed = "C:\\Users\\me\\.config \\*\n# not a heading\nunderlined\n---\n***\n&amp; <b>x</b> [label](l.example)\n    indented\n**bold** *em* ~~struck~~ `code` https://u.example\n\n```\nvar x = 1;\n```\n\n- one\n\n> quoted";
-            var (window, root, opened) = Show(typed, MarkdownFlavor.Prompt);
+            var (window, root, _) = Show(typed, MarkdownFlavor.Prompt);
             try {
                 var paragraph = Paragraphs(root).First();
                 await Assert.That(Reads(paragraph).ReplaceLineEndings("\n")).IsEqualTo(string.Join('\n',

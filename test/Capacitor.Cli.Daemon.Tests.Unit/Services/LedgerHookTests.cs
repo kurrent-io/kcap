@@ -38,7 +38,7 @@ public class LedgerHookTests {
 
     [Test]
     public async Task Crash_between_append_and_delete_reconciles_idempotently_on_restart() {
-        var (store, ledger, dir) = NewPair();
+        var (store, ledger, _) = NewPair();
         using var dummy = DummyProcess.StartSleep(30);
         var pid = dummy.Pid; var id = ProcessIdentity.Capture(pid)!;
         dummy.Kill(); dummy.WaitForExit(TimeSpan.FromSeconds(5));

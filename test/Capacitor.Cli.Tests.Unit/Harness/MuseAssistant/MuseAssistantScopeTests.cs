@@ -294,7 +294,7 @@ public class MuseAssistantScopeTests {
     [Test]
     [NotInParallel]
     public async Task Sweep_exits_3_naming_each_listed_chat_without_usable_state_and_still_prints_the_active_ones() {
-        var poster = await Record(async scope => { await scope.AddAsync("chat-a", History, default); await scope.AddAsync("chat-b", History, default); });
+        _ = await Record(async scope => { await scope.AddAsync("chat-a", History, default); await scope.AddAsync("chat-b", History, default); });
         var dir = MuseAssistantPaths.ScopeDir(Config.Root, Acme);
         File.WriteAllText(MuseAssistantPaths.ChatState(dir, "chat-b"), "{ not json");
         var store = Store();

@@ -685,7 +685,7 @@ public class AntigravityReviewerLaunchTests {
         var start = await factory.StartAsync(Ctx(isReviewFlow: false), CancellationToken.None)
             .WaitAsync(HangGuard);
 
-        await using (var runtime = start.Runtime)
+        await using (start.Runtime)
             await Assert.That(start.Transcript!.AcpSessionId).IsEqualTo(FixedConversationId);
 
         // Review: still refused, on the SAME factory instance, with the text that names the switch.

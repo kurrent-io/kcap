@@ -191,7 +191,7 @@ public class ShellProfileTests {
     [Test]
     public async Task Removal_refuses_a_profile_that_another_writer_holds() {
         var profile = Tmp.CreateFile(".zprofile", Block);
-        using (var held = new FileStream(profile, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite)) {
+        using (new FileStream(profile, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite)) {
             await Assert.That(() => ShellProfile.Remove(profile)).Throws<IOException>();
         }
         await Assert.That(File.ReadAllText(profile)).IsEqualTo(Block);
