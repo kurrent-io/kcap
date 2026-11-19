@@ -132,10 +132,11 @@ public class CopilotImportSourceImportTests : IDisposable {
     /// first copied prompt's time and text, so the server links the two as the live watcher's marker does. The marker
     /// ends the copied history on the server, so it goes only once the server holds the resume that ends it.</summary>
     [Test]
-    [Arguments(2, 200, true)]
-    [Arguments(1, 200, false)]
-    [Arguments(2, 422, false)]
-    public async Task An_import_of_a_chat_moved_from_local_names_its_local_chat(int serverLastLine, int transcriptStatus, bool marked) {
+    [Arguments(2, 200, false, true)]
+    [Arguments(1, 200, false, false)]
+    [Arguments(2, 422, false, false)]
+    [Arguments(1, 200, true, true)]
+    public async Task An_import_of_a_chat_moved_from_local_names_its_local_chat(int serverLastLine, int transcriptStatus, bool resumeHeldBack, bool marked) {
         const string localId = "fa0d6e8d-7c9d-446f-a93c-5a2a89e011b4";
         var cwd = Path.Combine(_tempDir, "work", "a");
         var dir = Path.Combine(CopilotLayout.SessionStateDir, DashedSid);
@@ -168,7 +169,14 @@ public class CopilotImportSourceImportTests : IDisposable {
         var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
         var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, _server.Url!, MinLines: 0, Home: Home), CancellationToken.None);
 
-        var outcome = await source.ImportSessionAsync(classified.Single(), new ImportContext(client, _server.Url!, ForcePrivate: false), CancellationToken.None);
+        // A rewrite can keep the resume as a copy of a line the server already holds, which the numbering leaves unsent.
+        var classification = classified.Single();
+        if (resumeHeldBack)
+            classification = classification with {
+                SourceMeta = new Dictionary<string, object?>(classification.SourceMeta!) { ["Numbering"] = (Func<int, int?>)(line => line == 2 ? null : line) },
+            };
+
+        var outcome = await source.ImportSessionAsync(classification, new ImportContext(client, _server.Url!, ForcePrivate: false), CancellationToken.None);
 
         await Assert.That(outcome.Outcome == ImportOutcome.Failed).IsEqualTo(!marked);
         var markers = _server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost())
