@@ -94,10 +94,11 @@ public sealed class ChatBookmarks : ReactiveObject {
         Outline();
     }
 
-    // Bookmarks from one message keep the order they were taken in.
+    // A whole-message bookmark leads its message's picks; the picks keep the order they were taken in.
     void Outline() {
         var runs = _topics.Runs();
-        var placed = _all.Where(static b => b.Message is not null).OrderBy(static b => b.Message).ToList();
+        var placed = _all.Where(static b => b.Message is not null)
+            .OrderBy(static b => b.Message).ThenBy(static b => b.Quote is not null).ToList();
         var sections = new List<ChatBookmarkGroup>();
         var next = 0;
         for (var i = 0; i < runs.Count; i++) {

@@ -71,7 +71,8 @@ public class ChatBookmarksTests {
     }
 
     /// The outline lists every topic, empty ones too, with the bookmarks from its messages in chat
-    /// order; bookmarks from outside every topic sit where they fall between topics.
+    /// order and a whole-message bookmark ahead of the picks from that message; bookmarks from outside
+    /// every topic sit where they fall between topics.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Sections_follow_the_chat_with_each_bookmark_under_its_topic() {
@@ -90,10 +91,12 @@ public class ChatBookmarksTests {
             bookmarks.Add(["intro"], intro);
             bookmarks.Add(["a"], two);
             bookmarks.Add(["two"], two);
+            bookmarks.ToggleMessageCommand.Execute(two).Subscribe();
             await Assert.That(bookmarks.Sections.Select(static s => s.Topic?.Label)).IsEquivalentTo(new string?[] { null, "Point 1", "Point 2" }, CollectionOrdering.Matching);
             await Assert.That(bookmarks.Sections[0].Bookmarks.Select(static b => b.Text)).IsEquivalentTo(["intro"], CollectionOrdering.Matching);
             await Assert.That(bookmarks.Sections[1].Bookmarks).IsEmpty();
-            await Assert.That(bookmarks.Sections[2].Bookmarks.Select(static b => b.Text)).IsEquivalentTo(["b", "a", "two"], CollectionOrdering.Matching);
+            await Assert.That(bookmarks.Sections[2].Bookmarks.Select(static b => (b.Text, b.Quote))).IsEquivalentTo(
+                [("Point 2", null), ("b", "b"), ("a", "a"), ("two", "two")], CollectionOrdering.Matching);
 
             topics.End();
             var after = new AssistantTextItem("After");
