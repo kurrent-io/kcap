@@ -92,6 +92,7 @@ def main():
     if done.returncode != 0:
         raise SystemExit(f"kcap import exited {done.returncode}: {done.stderr.decode(errors='replace')}")
 
+    incomplete = 0
     for sid, turns, lines in seeded:
         start = time.time()
         last, steady = None, 0
@@ -104,8 +105,12 @@ def main():
             if steady >= 6:
                 break
             time.sleep(5)
+        settled = steady >= 6
+        incomplete += not settled
         print(json.dumps({"session": sid, "turns": turns, "lines": lines, "event_count": last,
-                          "ingest_s": round(time.time() - start, 1)}), flush=True)
+                          "ingest_s": round(time.time() - start, 1), "settled": settled}), flush=True)
+    if incomplete:
+        raise SystemExit(f"{incomplete} session(s) did not hold a steady event count within --wait")
 
 
 if __name__ == "__main__":

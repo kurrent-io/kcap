@@ -10,12 +10,20 @@ source "$(dirname "$0")/common.sh"
 runs=${1:?runs}; secs=${2:?seconds}; shift 2
 [ -e "$APP" ] && { echo "move $APP out of the way first" >&2; exit 1; }
 
+moved=
+restore() {
+  [ -n "$moved" ] || return 0
+  quit_app
+  mv "$APP" "$moved"; moved=
+}
+trap restore EXIT
+trap 'exit 130' INT TERM
+
 with_bundle() {
   local bundle=$1; shift
-  mv "$bundle" "$APP"
-  "$@" || true
-  quit_app
-  mv "$APP" "$bundle"
+  mv "$bundle" "$APP"; moved=$bundle
+  "$@"
+  restore
 }
 
 for pair in "$@"; do

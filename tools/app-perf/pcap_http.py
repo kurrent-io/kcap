@@ -4,6 +4,7 @@ Reassembles plain HTTP/1.1 on a loopback capture and prints one line per request
 method, path, the request's Accept-Encoding, response status, Content-Encoding and body bytes on the wire. Then the
 totals: requests per route and bytes received. Standard library only; reads classic pcap with the BSD loopback
 link type."""
+import bisect
 import collections
 import re
 import struct
@@ -68,12 +69,17 @@ def main():
         resp = joined((client, "resp"))
         req_bytes = b"".join(p for _, p in req)
         resp_bytes = b"".join(p for _, p in resp)
-        req_times = [t for t, _ in req]
-        for m in re.finditer(rb"(GET|POST|PUT|DELETE|PATCH) (\S+) HTTP/1\.1\r\n(.*?)\r\n\r\n", req_bytes, re.S):
+        offsets = [0]
+        for _, p in req[:-1]:
+            offsets.append(offsets[-1] + len(p))
+        mine = []
+        for m in re.finditer(rb"([A-Z]+) (\S+) HTTP/1\.1\r\n(.*?)\r\n\r\n", req_bytes, re.S):
             enc = re.search(rb"(?im)^accept-encoding: *(.*)$", m.group(3))
-            rows.append([client, m.group(1).decode(), m.group(2).decode(), enc.group(1).decode().strip() if enc else "-"])
+            sent = req[bisect.bisect_right(offsets, m.start()) - 1][0]
+            mine.append([client, m.group(1).decode(), m.group(2).decode(), enc.group(1).decode().strip() if enc else "-"])
+            mine[-1].insert(1, round(sent - first, 2))
         statuses = list(re.finditer(rb"HTTP/1\.1 (\d{3})[^\r]*\r\n(.*?)\r\n\r\n", resp_bytes, re.S))
-        mine = [r for r in rows if r[0] == client and len(r) == 4]
+        rows += mine
         for i, r in enumerate(mine):
             if i < len(statuses):
                 hdrs = statuses[i].group(2)
@@ -84,7 +90,6 @@ def main():
                 received += body
             else:
                 r += ["?", "-", 0]
-            r.insert(1, round((req_times[0] if req_times else first) - first, 2))
     for r in sorted(rows, key=lambda r: r[1]):
         _, t, method, target, accept, status, ce, size = r
         route = re.sub(r"[0-9a-f]{32}", "{id}", target.split("?")[0])
