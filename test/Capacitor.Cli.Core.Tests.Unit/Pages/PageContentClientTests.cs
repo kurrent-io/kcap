@@ -38,7 +38,7 @@ public class PageContentClientTests {
         await Assert.That(found.Version).IsEqualTo(3);
         await Assert.That(found.Html).IsEqualTo("<p>hi</p>");
         await Assert.That(found.Page.Title).IsEqualTo("One");
-        await Assert.That(handler.Requests.Select(r => r.Uri)).IsEquivalentTo(new[] { "/api/artefacts/a1", "/artefacts/a1/content?v=3&theme=dark" });
+        await Assert.That(handler.Requests.Select(r => r.Uri)).IsEquivalentTo(new[] { "/api/artefacts/a1", "/artefacts/a1/content?v=3&theme=light" });
     }
 
     [Test]
@@ -46,7 +46,7 @@ public class PageContentClientTests {
         var (client, handler) = Page();
         var read = await client.ReadContentAsync("a1", 2, CancellationToken.None);
         await Assert.That(((PageContentRead.Found)read).Version).IsEqualTo(2);
-        await Assert.That(handler.Requests[1].Uri).IsEqualTo("/artefacts/a1/content?v=2&theme=dark");
+        await Assert.That(handler.Requests[1].Uri).IsEqualTo("/artefacts/a1/content?v=2&theme=light");
     }
 
     [Test]

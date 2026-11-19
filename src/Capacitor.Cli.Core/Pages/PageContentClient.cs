@@ -24,7 +24,7 @@ public sealed class PageContentClient(HttpClient http, string serverUrl) {
             if (detail?.Artefact is not { } page) return new PageContentRead.Unreachable();
 
             var pinned = version ?? page.LatestVersion;
-            using var contentReq  = new HttpRequestMessage(HttpMethod.Get, $"{_base}/artefacts/{id}/content?v={pinned}&theme=dark");
+            using var contentReq  = new HttpRequestMessage(HttpMethod.Get, $"{_base}/artefacts/{id}/content?v={pinned}&theme=light");
             using var contentResp = await http.SendAsync(contentReq, ct).ConfigureAwait(false);
             if (Totalize(contentResp) is { } contentFailed) return contentFailed;
             return new PageContentRead.Found(page, pinned, await contentResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
