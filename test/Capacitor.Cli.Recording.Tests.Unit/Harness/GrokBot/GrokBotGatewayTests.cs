@@ -50,13 +50,16 @@ public class GrokBotGatewayTests {
     /// <summary>Serves a chat of <paramref name="count"/> entries, seq 1 upward, in tail pages.</summary>
     /// <param name="stuckAt">A cursor the gateway hands out and then answers with an empty page.</param>
     /// <param name="unusable">Entries the gateway serves without a time, which the reader rejects.</param>
-    sealed class Paged(int count, int pageSize, int? stuckAt = null, Func<int, bool>? unusable = null) : HttpMessageHandler {
+    /// <param name="shapelessAt">A cursor the gateway answers with an object that has no entries list.</param>
+    sealed class Paged(int count, int pageSize, int? stuckAt = null, Func<int, bool>? unusable = null, int? shapelessAt = null) : HttpMessageHandler {
         public int Calls { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
             Calls++;
             using var body = System.Text.Json.JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
             var before = body.RootElement.TryGetProperty("beforeSeq", out var b) ? b.GetInt32() : count + 1;
+            if (before == shapelessAt) return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+
             var first  = before == stuckAt ? before : Math.Max(1, before - pageSize);
             var page   = string.Join(",", Enumerable.Range(first, before - first).Select(seq =>
                 unusable?.Invoke(seq) == true ? $$"""{"id":"e{{seq}}","seq":{{seq}}}""" : $$"""{"id":"e{{seq}}","seq":{{seq}},"timestampMs":{{seq}}}"""));
@@ -66,9 +69,9 @@ public class GrokBotGatewayTests {
         }
     }
 
-    async Task<(GrokBotRead Read, int Calls)> ReadSince(int count, int lastSeq, int? stuckAt = null, Func<int, bool>? unusable = null) {
+    async Task<(GrokBotRead Read, int Calls)> ReadSince(int count, int lastSeq, int? stuckAt = null, Func<int, bool>? unusable = null, int? shapelessAt = null) {
         var descriptor = Tmp.CreateFile("gateway.json", """{"scheme":"http","host":"127.0.0.1","port":1340,"token":"t"}""");
-        var handler    = new Paged(count, pageSize: 10, stuckAt, unusable);
+        var handler    = new Paged(count, pageSize: 10, stuckAt, unusable, shapelessAt);
         using var http = new HttpClient(handler);
 
         return (await new GrokBotGateway(descriptor, http).ReadSinceAsync("g1", lastSeq, CancellationToken.None), handler.Calls);
@@ -123,6 +126,18 @@ public class GrokBotGatewayTests {
     [Test]
     public async Task A_resumed_read_that_cannot_get_back_to_what_was_delivered_is_unreadable() {
         var (read, _) = await ReadSince(count: 35, lastSeq: 5, stuckAt: 16);
+
+        await Assert.That(read.Failed).IsTrue();
+        await Assert.That(read.Entries).IsEmpty();
+    }
+
+    /// <summary>An answer with no entries list carries no cursor either, so read as an empty page it would
+    /// look like the chat's beginning and let the pages already in hand be delivered past what is unread.</summary>
+    [Test]
+    [Arguments(5)]
+    [Arguments(-1)]
+    public async Task A_page_that_is_no_page_makes_the_whole_read_unreadable(int lastSeq) {
+        var (read, _) = await ReadSince(count: 35, lastSeq, shapelessAt: 26);
 
         await Assert.That(read.Failed).IsTrue();
         await Assert.That(read.Entries).IsEmpty();

@@ -44,7 +44,8 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) : IGr
     /// <summary>The newest page, then earlier pages until one reaches <paramref name="lastSeq"/> or the
     /// chat's first entry. Unreadable when a resumed read cannot get back to <paramref name="lastSeq"/>.</summary>
     public async Task<GrokBotRead> ReadSinceAsync(string agentId, int lastSeq, CancellationToken ct) {
-        var (entries, before) = await TailAsync(agentId, null, ct);
+        if (await TailAsync(agentId, null, ct) is not var (entries, before)) return GrokBotRead.Unreadable;
+
         var all   = new List<GrokBotEntry>(entries);
         var floor = Math.Max(lastSeq + 1, 1);
 
@@ -55,7 +56,7 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) : IGr
             // unread behind the newest pages would be passed over for good once those are delivered.
             if (lastSeq < 0 && pages >= MaxPages) return new(all, false);
 
-            var (older, next) = await TailAsync(agentId, cursor, ct);
+            if (await TailAsync(agentId, cursor, ct) is not var (older, next)) return GrokBotRead.Unreadable;
 
             if (next >= cursor) return lastSeq < 0 ? new(all.Concat(older).ToList(), false) : GrokBotRead.Unreadable;
 
@@ -67,8 +68,10 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) : IGr
     }
 
     /// <summary>The newest entries, or the page before <paramref name="beforeSeq"/>. Returns the
-    /// parsed entries and the cursor for the page before them, when the gateway gives one.</summary>
-    public async Task<(IReadOnlyList<GrokBotEntry> Entries, int? NextBeforeSeq)> TailAsync(
+    /// parsed entries and the cursor for the page before them, when the gateway gives one; null for an
+    /// answer with no entries list, which is no page at all: read as an empty one with no cursor, it
+    /// would pass for the chat's beginning.</summary>
+    public async Task<(IReadOnlyList<GrokBotEntry> Entries, int? NextBeforeSeq)?> TailAsync(
             string agentId, int? beforeSeq, CancellationToken ct) {
         var body = new JsonObject { ["id"] = agentId, ["limit"] = TailLimit };
         if (beforeSeq is { } before) body["beforeSeq"] = before;
@@ -76,11 +79,11 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) : IGr
         using var doc = await CallAsync("getAgentTranscriptTail", body, ct);
         var root = doc.RootElement;
 
+        if (root.Arr("entries") is not { } list) return null;
+
         var entries = new List<GrokBotEntry>();
-        if (root.Arr("entries") is { } list) {
-            foreach (var e in list.EnumerateArray())
-                if (GrokBotEntry.TryParse(e, agentId) is { } entry) entries.Add(entry);
-        }
+        foreach (var e in list.EnumerateArray())
+            if (GrokBotEntry.TryParse(e, agentId) is { } entry) entries.Add(entry);
 
         int? next = root.Num("nextBeforeSeq") is { } n and >= int.MinValue and <= int.MaxValue ? (int)n : null;
 
