@@ -22,6 +22,8 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
 
     public ReactiveCommand<NeedToKnowDisplay, Unit> SetDetailCommand { get; }
 
+    public ReactiveCommand<NeedToKnowDisplay, Unit> SetFootnoteCommand { get; }
+
     // Opacity percent of the text colour; the defaults match the brushes App.axaml starts with.
     double _detailFade = 60;
     double _footnoteFade = 40;
@@ -42,8 +44,6 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
         }
     }
 
-    public ReactiveCommand<NeedToKnowDisplay, Unit> SetFootnoteCommand { get; }
-
     public bool DetailNormal => _basis.Detail == NeedToKnowDisplay.Normal;
     public bool DetailFaded => _basis.Detail == NeedToKnowDisplay.Faded;
     public bool DetailHidden => _basis.Detail == NeedToKnowDisplay.Hidden;
@@ -57,12 +57,9 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
         _basis = basis;
         NeedToKnowBasis.Set(basis);
         foreach (var name in new[] {
-                     nameof(DetailNormal), nameof(DetailFaded),
-                     nameof(DetailHidden),
-                     nameof(FootnoteNormal), nameof(FootnoteFaded),
-                     nameof(FootnoteHidden),
-                     nameof(FootnoteCanBeNormal),
-                     nameof(FootnoteCanBeFaded),
+                     nameof(DetailNormal), nameof(DetailFaded), nameof(DetailHidden),
+                     nameof(FootnoteNormal), nameof(FootnoteFaded), nameof(FootnoteHidden),
+                     nameof(FootnoteCanBeNormal), nameof(FootnoteCanBeFaded),
                  })
             this.RaisePropertyChanged(name);
     }

@@ -21,8 +21,8 @@ public sealed record NeedToKnowBasis(NeedToKnowDisplay Detail, NeedToKnowDisplay
     }
 
     public NeedToKnowDisplay For(NeedToKnowLevel level) => level switch {
-        NeedToKnowLevel.Detail  => Detail,
+        NeedToKnowLevel.Detail   => Detail,
         NeedToKnowLevel.Footnote => Footnote < Detail ? Detail : Footnote,
-        _                             => NeedToKnowDisplay.Normal,
+        _                        => NeedToKnowDisplay.Normal,
     };
 }

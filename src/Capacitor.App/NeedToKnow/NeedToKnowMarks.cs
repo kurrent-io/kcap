@@ -8,7 +8,8 @@ using MarkView.Avalonia;
 namespace Capacitor.App.NeedToKnow;
 
 /// Reads the importance marks in an agent's answer — `⌞…⌟` detail, `⌞⌞…⌟⌟` footnote —
-/// and wraps what they enclose for display under the reader's basis. Every block starts at must-know, so a span left open ends
+/// and applies the reader's basis to what they enclose: a hidden span is removed and a faded one wrapped in a
+/// <see cref="GradedInline"/>. Every block starts at must-know, so a span left open ends
 /// with its block and a stray close is ignored. Only literal text is scanned: a mark inside code is
 /// the code's own text.
 public sealed class NeedToKnowMarks : IMarkdownExtension {
@@ -39,7 +40,7 @@ public sealed class NeedToKnowMarks : IMarkdownExtension {
         var graded = new List<(Inline Inline, NeedToKnowLevel Level)>();
         Walk(root, [], graded);
 
-        // Neighbouring pieces at one level share a wrapper, so a marked span shows one pair of brackets.
+        // Neighbouring pieces at one level share a wrapper, so a faded span lights as one run.
         var removed = false;
         for (var i = 0; i < graded.Count;) {
             var level = graded[i].Level;
@@ -49,8 +50,8 @@ public sealed class NeedToKnowMarks : IMarkdownExtension {
             if (display == NeedToKnowDisplay.Hidden) {
                 for (var j = i; j < end; j++) graded[j].Inline.Remove();
                 removed = true;
-            } else if (display != NeedToKnowDisplay.Normal) {
-                var wrapper = new GradedInline(level, display);
+            } else if (display == NeedToKnowDisplay.Faded) {
+                var wrapper = new GradedInline(level);
                 graded[end - 1].Inline.InsertAfter(wrapper);
                 for (var j = i; j < end; j++) {
                     graded[j].Inline.Remove();

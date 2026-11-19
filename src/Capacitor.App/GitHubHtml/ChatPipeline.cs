@@ -10,9 +10,8 @@ using MarkView.Avalonia;
 
 namespace Capacitor.App.GitHubHtml;
 
-/// Chat markdown is MarkView's supported set, with links hoisted out of emphasis and importance marks
-/// applied under the reader's need-to-know basis. A bare builder
-/// is CommonMark and drops the tables and autolinks chat already renders. MarkView only activates
+/// Chat markdown is MarkView's supported set, with links hoisted out of emphasis and need-to-know marks
+/// applied under the reader's basis. A bare builder is CommonMark and drops the tables and autolinks chat already renders. MarkView only activates
 /// a hyperlink that is a direct inline of its text block.
 public static class ChatPipeline {
     public static MarkdownPipeline Instance { get; } =

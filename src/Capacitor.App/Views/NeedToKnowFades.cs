@@ -9,9 +9,9 @@ static class NeedToKnowFades {
     static readonly Color Text = Color.Parse("#F1F3F7");
     static readonly Color CodeBackground = Color.Parse("#191D27");
 
-    public static string TextKey(NeedToKnowLevel level) => level == NeedToKnowLevel.Footnote ? "NeedToKnowFootnoteFadeBrush" : "NeedToKnowDetailFadeBrush";
+    static string TextKey(NeedToKnowLevel level) => level == NeedToKnowLevel.Footnote ? "NeedToKnowFootnoteFadeBrush" : "NeedToKnowDetailFadeBrush";
 
-    public static string CodeKey(NeedToKnowLevel level) => level == NeedToKnowLevel.Footnote ? "NeedToKnowFootnoteCodeFadeBrush" : "NeedToKnowDetailCodeFadeBrush";
+    static string CodeKey(NeedToKnowLevel level) => level == NeedToKnowLevel.Footnote ? "NeedToKnowFootnoteCodeFadeBrush" : "NeedToKnowDetailCodeFadeBrush";
 
     public static void Set(NeedToKnowLevel level, double percent) {
         if (Application.Current is not { } app) return;

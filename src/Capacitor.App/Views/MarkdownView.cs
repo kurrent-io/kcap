@@ -172,7 +172,7 @@ public sealed class MarkdownView : ContentControl {
     }
 
     void OnBasisChanged(NeedToKnowBasis basis) {
-        if (basis != _renderedBasis && Flavor == MarkdownFlavor.Chat && NeedToKnowMarks.HasMarks(Text)) Render();
+        if (_hasMarks && basis != _renderedBasis) Render();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {

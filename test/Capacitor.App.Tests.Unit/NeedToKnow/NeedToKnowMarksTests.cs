@@ -36,14 +36,8 @@ public class NeedToKnowMarksTests {
         return text.ToString();
     }
 
-    static string Graded(GradedInline graded) {
-        var (open, close) = graded.Display switch {
-            NeedToKnowDisplay.Faded => ("{", "}"),
-            _                        => ("[", "]"),
-        };
-        return open + (graded.Level == NeedToKnowLevel.Detail ? "w:" : "c:") + Text(graded) + close;
-    }
-
+    static string Graded(GradedInline graded) =>
+        "{" + (graded.Level == NeedToKnowLevel.Detail ? "w:" : "c:") + Text(graded) + "}";
 
     [Test]
     [Arguments("Plain text.", false)]
