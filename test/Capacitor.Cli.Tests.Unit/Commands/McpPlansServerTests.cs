@@ -81,7 +81,7 @@ public class McpPlansServerTests {
 
     [Test]
     public async Task Server_instructions_say_the_three_things() {
-        var s = McpPlansServer.ServerInstructions;
+        const string s = McpPlansServer.ServerInstructions;
         await Assert.That(s).Contains("declare_plan_document");
         await Assert.That(s).Contains("set_plan_tasks");
         await Assert.That(s).Contains("update_plan_task");

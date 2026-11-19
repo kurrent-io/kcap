@@ -180,7 +180,7 @@ public class GrokHostedLaunchTests {
         const string child      = "01a14f26-a703-7de1-aa37-7eda7334fe82";
         const string agentId    = "01a14f26a7037de1aa377eda7334fe82";
         const string grandchild = "01a14f26-b000-7000-8000-000000000001";
-        var parent = FakeAcpAgent.FixedSessionId;
+        const string parent = FakeAcpAgent.FixedSessionId;
 
         JsonElement Frame(string json) => JsonDocument.Parse(json).RootElement.Clone();
         JsonElement Update(string sid, string update) =>

@@ -33,7 +33,7 @@ public class BorrowedReviewContextTests {
             await Assert.That(Directory.Exists(snapshot.ReviewContextRoot!)).IsTrue();
             await Assert.That(snapshot.ReviewContextGeneration).IsNotNull();
             if (!OperatingSystem.IsWindows()) {
-                var forbidden = UnixFileMode.GroupRead | UnixFileMode.GroupWrite |
+                const UnixFileMode forbidden = UnixFileMode.GroupRead | UnixFileMode.GroupWrite |
                     UnixFileMode.GroupExecute | UnixFileMode.OtherRead |
                     UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
                 await Assert.That(File.GetUnixFileMode(snapshot.ReviewContextRoot!) & forbidden)

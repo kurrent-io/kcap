@@ -109,9 +109,9 @@ public class BorrowedReviewRuntimeRootsTests {
     /// unnoticed.</para></summary>
     [Test]
     public async Task Package_installed_crypto_config_is_granted_as_files_not_directories() {
-        var binary = "/opt/hb/lib/node_modules/@vendor/tool/loader.js";
-        var files  = ResolveFiles(binary, Prefix("/opt/hb"), "/Users/nobody", "/opt/hb");
-        var roots  = Resolve(binary, "/opt/hb");
+        const string binary = "/opt/hb/lib/node_modules/@vendor/tool/loader.js";
+        var files           = ResolveFiles(binary, Prefix("/opt/hb"), "/Users/nobody", "/opt/hb");
+        var roots           = Resolve(binary, "/opt/hb");
 
         await Assert.That(files).Contains("/opt/hb/etc/openssl@3/openssl.cnf");
         await Assert.That(files).Contains("/opt/hb/etc/ca-certificates/cert.pem");
@@ -146,7 +146,7 @@ public class BorrowedReviewRuntimeRootsTests {
     /// directory sits inside a software root this prefix already admits (<c>lib</c>).</summary>
     [Test]
     public async Task The_program_is_granted_as_a_file_and_its_package_only_inside_a_software_root() {
-        var binary = "/opt/hb/lib/node_modules/@vendor/tool/loader.js";
+        const string binary = "/opt/hb/lib/node_modules/@vendor/tool/loader.js";
 
         await Assert.That(ResolveFiles(binary, Prefix("/opt/hb"), "/Users/nobody", "/opt/hb")).Contains(binary);
         await Assert.That(Resolve(binary, "/opt/hb")).Contains("/opt/hb/lib/node_modules/@vendor/tool");

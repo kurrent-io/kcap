@@ -68,7 +68,7 @@ public static class AttachmentIntake {
 
     /// Null when the stream runs past the cap; reading stops at cap + 1 bytes.
     static async Task<byte[]?> ReadCappedAsync(Stream stream, CancellationToken ct) {
-        var limit = InputWire.MaxAttachmentBytes + 1;
+        const long limit = InputWire.MaxAttachmentBytes + 1;
         using var ms = new MemoryStream();
         var buffer = new byte[64 * 1024];
         while (ms.Length < limit) {

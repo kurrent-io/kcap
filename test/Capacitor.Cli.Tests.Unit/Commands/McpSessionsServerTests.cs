@@ -562,8 +562,8 @@ public class McpSessionsServerTests {
 
     [Test]
     public async Task ShouldWiden_false_on_author_short_circuits() {
-        var disamb = "{\"hits\":[],\"disambiguation\":[{\"git_hub_id\":1}]}";
-        var noAuth = "{\"hits\":[],\"no_author_match\":true}";
+        const string disamb = "{\"hits\":[],\"disambiguation\":[{\"git_hub_id\":1}]}";
+        const string noAuth = "{\"hits\":[],\"no_author_match\":true}";
 
         await Assert.That(McpSessionsServer.ShouldWiden(new JsonObject { ["query"] = "x" }, "abc1234567890def", disamb, out _)).IsFalse();
         await Assert.That(McpSessionsServer.ShouldWiden(new JsonObject { ["query"] = "x" }, "abc1234567890def", noAuth, out _)).IsFalse();

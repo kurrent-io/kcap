@@ -423,7 +423,7 @@ public class McpWorkItemsServerTests {
     public async Task Server_instructions_steer_agents_to_declare_breakdown_and_relations() {
         // Pin that the preamble names both declare tools + the declared-never-inferred rule, so it
         // can't silently regress to a bare correlation description.
-        var instructions = McpWorkItemsServer.ServerInstructions;
+        const string instructions = McpWorkItemsServer.ServerInstructions;
 
         await Assert.That(instructions).Contains("declare_work_breakdown");
         await Assert.That(instructions).Contains("declare_work_relation");
@@ -432,7 +432,7 @@ public class McpWorkItemsServerTests {
 
     [Test]
     public async Task Server_instructions_steer_unfinished_work_to_declare_loose_end() {
-        var instructions = McpWorkItemsServer.ServerInstructions;
+        const string instructions = McpWorkItemsServer.ServerInstructions;
 
         await Assert.That(instructions).Contains("declare_loose_end");
         await Assert.That(instructions).Contains("unfinished");
@@ -464,7 +464,7 @@ public class McpWorkItemsServerTests {
 
     [Test]
     public async Task Out_of_scope_instructions_keep_asked_for_next_work_and_drop_every_declaration() {
-        var instructions = McpWorkItemsServer.OutOfScopeInstructions;
+        const string instructions = McpWorkItemsServer.OutOfScopeInstructions;
 
         await Assert.That(instructions).Contains("call get_next_work first");
         await Assert.That(instructions).DoesNotContain(NextWorkEmitter.CompletionInstruction);
@@ -1182,7 +1182,7 @@ public class McpWorkItemsServerTests {
 
     [Test]
     public async Task Server_instructions_point_at_the_next_work_dismiss_tools() {
-        var instructions = McpWorkItemsServer.ServerInstructions;
+        const string instructions = McpWorkItemsServer.ServerInstructions;
 
         await Assert.That(instructions).Contains("dismiss_next_work");
         await Assert.That(instructions).Contains("restore_next_work");

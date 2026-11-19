@@ -112,8 +112,8 @@ public class SecretRedactorTests {
     public async Task RedactValue_ScansAMultiMegabyteValue_WithoutTheWatcherDeadline() {
         // Every delimiter gate is open, so each pattern scans the whole value before reaching the secret.
         const string secret = "DATABASE_PASSWORD=hunter2-hunter2";
-        var row   = "[inventory row 000001] status=ok bytes=4096 note: none user@host\n";
-        var value = string.Concat(Enumerable.Repeat(row, 8_000_000 / row.Length)) + secret;
+        const string row = "[inventory row 000001] status=ok bytes=4096 note: none user@host\n";
+        var value        = string.Concat(Enumerable.Repeat(row, 8_000_000 / row.Length)) + secret;
 
         var redacted = SecretRedactor.RedactValue(value, keyIsSecret: false);
 
@@ -173,9 +173,9 @@ public class SecretRedactorTests {
 
     [Test]
     public async Task RedactsLine_OverSizeLimit_ReplacesWithPlaceholder_DoesNotLeakContent() {
-        var secretMarker = "GHOST_TOKEN_DO_NOT_LEAK_ME_xyz12345";
-        var padding      = new string('A', SecretRedactor.MaxRedactableLineChars);
-        var oversized    = padding + secretMarker;
+        const string secretMarker = "GHOST_TOKEN_DO_NOT_LEAK_ME_xyz12345";
+        var padding               = new string('A', SecretRedactor.MaxRedactableLineChars);
+        var oversized             = padding + secretMarker;
 
         var sw = Stopwatch.StartNew();
         var result = Redact(oversized);
@@ -219,7 +219,7 @@ public class SecretRedactorTests {
     [Test]
     public async Task LeavesAssistantText_Unchanged_WhenNoSecretMatch() {
         // Plain assistant prose with no secret-matching tokens — scanned, but nothing to redact.
-        var line = """{"type":"progress","data":{"message":{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}},"uuid":"abc","timestamp":"2026-01-01T00:00:00Z"}""";
+        const string line = """{"type":"progress","data":{"message":{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}},"uuid":"abc","timestamp":"2026-01-01T00:00:00Z"}""";
 
         var result = Redact(line);
 
@@ -228,7 +228,7 @@ public class SecretRedactorTests {
 
     [Test]
     public async Task LeavesMalformedJson_Unchanged_WhenNoSecretMatch() {
-        var line = "not json at all";
+        const string line = "not json at all";
 
         var result = Redact(line);
 
@@ -544,7 +544,7 @@ public class SecretRedactorTests {
         // "hunter2" is below LabeledSecretRegex's 16-char floor; no pattern matches.
         // (A real high-entropy secret in the same shape WOULD be redacted — see
         // RedactsLine_VendorToken_InUserTextContent.)
-        var line = """{"type":"user","message":{"role":"user","content":"my secret password is hunter2"}}""";
+        const string line = """{"type":"user","message":{"role":"user","content":"my secret password is hunter2"}}""";
 
         var result = Redact(line);
 
@@ -555,7 +555,7 @@ public class SecretRedactorTests {
     public async Task LeavesToolUse_Unchanged_WhenNoSecretMatch() {
         // tool_use args reference a file path; "/etc/secret.pem" has no key:value or labeled-secret
         // shape, so the line passes through scanning unmodified.
-        var line = """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"/etc/secret.pem"}}]}}""";
+        const string line = """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"/etc/secret.pem"}}]}}""";
 
         var result = Redact(line);
 
@@ -1110,7 +1110,7 @@ public class SecretRedactorTests {
     public async Task RedactsSecretsAppearingAsPropertyNames_WithDistinctMarkers() {
         // A name that is itself a token has to go, and two of them cannot both become the bare
         // marker: that would collapse the object into a duplicate key.
-        var line = """{"ghp_abc123def456ghi789jkl012":"repo","AKIAIOSFODNN7EXAMPLE":"acct","keep":"v"}""";
+        const string line = """{"ghp_abc123def456ghi789jkl012":"repo","AKIAIOSFODNN7EXAMPLE":"acct","keep":"v"}""";
 
         var result = Redact(line);
 
@@ -1121,7 +1121,7 @@ public class SecretRedactorTests {
     public async Task PreservesJson_WhenPemMarkersSpanTwoStringValues() {
         // `BEGIN` in one value and `END` in another, at different depths, are two values — not one
         // block — so there is nothing to redact and every structural token between them stays.
-        var line = """{"outer":{"head":"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIB"},"tail":["x",{"rest":"more\n-----END RSA PRIVATE KEY-----"}]}""";
+        const string line = """{"outer":{"head":"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIB"},"tail":["x",{"rest":"more\n-----END RSA PRIVATE KEY-----"}]}""";
 
         var result = Redact(line);
 
@@ -1157,7 +1157,7 @@ public class SecretRedactorTests {
         // A real JSON pair is two tokens, so a `"key": "value"` text pattern cannot see the key at
         // all: the property name decides, and the whole value goes — a value carrying quotes or
         // backslashes must not survive from its first escape onward.
-        var line = """{"type":"user","toolUseResult":{"client_secret":"a\"b\\c-1234567890"}}""";
+        const string line = """{"type":"user","toolUseResult":{"client_secret":"a\"b\\c-1234567890"}}""";
 
         var result = Redact(line);
 
@@ -1230,7 +1230,7 @@ public class SecretRedactorTests {
     public async Task RedactsLine_WithDuplicatePropertyNames() {
         // JSON permits duplicate keys and transcripts are written by third-party tooling, so a
         // line carrying them must still redact rather than throw at the drain.
-        var line = """{"a":1,"a":2,"tok":"ghp_abc123def456ghi789jkl012mno345"}""";
+        const string line = """{"a":1,"a":2,"tok":"ghp_abc123def456ghi789jkl012mno345"}""";
 
         var result = Redact(line);
 
@@ -1271,7 +1271,7 @@ public class SecretRedactorTests {
     public async Task LeavesNonJsonLine_ToTheWholeLinePipeline() {
         // The drop only applies to a line that was JSON going in. Text that never parsed has
         // nothing to corrupt, and replacing it with a placeholder would lose it for no gain.
-        var line = "plain log output with GITHUB_TOKEN=ghp_abc123def456ghi789jkl012 in it";
+        const string line = "plain log output with GITHUB_TOKEN=ghp_abc123def456ghi789jkl012 in it";
 
         var result = Redact(line);
 

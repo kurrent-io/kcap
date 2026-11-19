@@ -231,7 +231,7 @@ public class McpWorkItemEvalToolsTests {
     /// silently; the first entries still render, so the caps are what cut the rest.</summary>
     [Test]
     public async Task Retrospective_lists_and_scope_reasons_past_their_caps_say_how_many_were_left_out() {
-        var over      = WorkItemEvalToolResults.MaxListItems + 3;
+        const int over      = WorkItemEvalToolResults.MaxListItems + 3;
         string Strings(string prefix) => string.Join(",", Enumerable.Range(0, over).Select(i => $"\"{prefix}{i}\""));
         var suggestions = string.Join(",", Enumerable.Range(0, over).Select(i => $$$"""{"text":"s{{{i}}}","audience":"agent"}"""));
         var text = WorkItemEvalToolResults.RenderRun($$$"""

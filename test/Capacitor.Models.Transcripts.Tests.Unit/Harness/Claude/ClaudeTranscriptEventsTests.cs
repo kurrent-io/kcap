@@ -94,7 +94,7 @@ public class ClaudeTranscriptEventsTests {
 
     [Test]
     public async Task Assistant_blocks_map_in_order_with_the_record_id_first_and_block_siblings_after() {
-        var line = $$$"""{"type":"assistant","uuid":"{{{Uuid}}}","timestamp":"2026-08-26T12:00:01Z","message":{"model":"claude-fable-5","content":[{"type":"thinking","thinking":"hmm","signature":"sig"},{"type":"text","text":"Hi"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}}""";
+        const string line = $$$"""{"type":"assistant","uuid":"{{{Uuid}}}","timestamp":"2026-08-26T12:00:01Z","message":{"model":"claude-fable-5","content":[{"type":"thinking","thinking":"hmm","signature":"sig"},{"type":"text","text":"Hi"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}}""";
         var e = E(line);
 
         await Assert.That(e).Count().IsEqualTo(3);
@@ -211,7 +211,7 @@ public class ClaudeTranscriptEventsTests {
 
     [Test]
     public async Task A_queued_command_task_notification_attachment_projects_one_user_message() {
-        var line = $$$"""{"parentUuid":"p1","isSidechain":false,"attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"X\" finished</summary>\n</task-notification>","source_uuid":"s1","commandMode":"task-notification","timestamp":"2026-09-17T11:53:57.948Z"},"type":"attachment","uuid":"{{{Uuid}}}","timestamp":"2026-09-17T11:53:58.000Z"}""";
+        const string line = $$$"""{"parentUuid":"p1","isSidechain":false,"attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"X\" finished</summary>\n</task-notification>","source_uuid":"s1","commandMode":"task-notification","timestamp":"2026-09-17T11:53:57.948Z"},"type":"attachment","uuid":"{{{Uuid}}}","timestamp":"2026-09-17T11:53:58.000Z"}""";
         var e = E(line);
         await Assert.That(e).Count().IsEqualTo(1);
         await Assert.That(e[0].EventType).IsEqualTo(CanonicalEventTypes.UserMessageReceived);
@@ -229,7 +229,7 @@ public class ClaudeTranscriptEventsTests {
     /// record, and its event id is the record's own uuid.
     [Test]
     public async Task A_queued_command_prompt_attachment_projects_the_users_message() {
-        var line = $$$"""{"parentUuid":"p1","attachment":{"type":"queued_command","prompt":"also check the toggle","commandMode":"prompt","origin":{"kind":"human"}},"type":"attachment","uuid":"{{{Uuid}}}"}""";
+        const string line = $$$"""{"parentUuid":"p1","attachment":{"type":"queued_command","prompt":"also check the toggle","commandMode":"prompt","origin":{"kind":"human"}},"type":"attachment","uuid":"{{{Uuid}}}"}""";
         var e = E(line).Single();
         await Assert.That(((UserMessageReceived)e.Payload).Content).IsEqualTo("also check the toggle");
         await Assert.That(e.EventId).IsEqualTo(Guid.Parse(Uuid));
@@ -241,14 +241,14 @@ public class ClaudeTranscriptEventsTests {
 
     [Test]
     public async Task A_sidechain_attachment_notification_carries_is_sidechain() {
-        var line = """{"type":"attachment","isSidechain":true,"attachment":{"type":"queued_command","prompt":"<task-notification></task-notification>","commandMode":"task-notification"}}""";
+        const string line = """{"type":"attachment","isSidechain":true,"attachment":{"type":"queued_command","prompt":"<task-notification></task-notification>","commandMode":"task-notification"}}""";
         var e = E(line);
         await Assert.That(SchemaExtensions.Flag(SchemaExtensions.Slug(e[0].Payload, "claude_code"), "is_sidechain")).IsTrue();
     }
 
     [Test]
     public async Task A_meta_attachment_notification_carries_is_meta() {
-        var line = """{"type":"attachment","isMeta":true,"attachment":{"type":"queued_command","prompt":"<task-notification></task-notification>","commandMode":"task-notification"}}""";
+        const string line = """{"type":"attachment","isMeta":true,"attachment":{"type":"queued_command","prompt":"<task-notification></task-notification>","commandMode":"task-notification"}}""";
         var e = E(line);
         await Assert.That(SchemaExtensions.Flag(SchemaExtensions.Slug(e[0].Payload, "claude_code"), "is_meta")).IsTrue();
     }

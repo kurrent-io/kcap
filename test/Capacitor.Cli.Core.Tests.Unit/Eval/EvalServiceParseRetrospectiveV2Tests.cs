@@ -5,7 +5,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.Eval;
 public class EvalServiceParseRetrospectiveV2Tests {
     [Test]
     public async Task Parses_structured_suggestions_with_audience() {
-        var json = """
+        const string json = """
             {
               "overall": "fine",
               "strengths": [],
@@ -27,7 +27,7 @@ public class EvalServiceParseRetrospectiveV2Tests {
 
     [Test]
     public async Task Coerces_unknown_audience_to_human() {
-        var json = """
+        const string json = """
             { "overall": "x", "strengths": [], "issues": [],
               "suggestions": [ { "text": "y", "audience": "bot" } ] }
             """;
@@ -37,7 +37,7 @@ public class EvalServiceParseRetrospectiveV2Tests {
 
     [Test]
     public async Task Coerces_missing_audience_to_human() {
-        var json = """
+        const string json = """
             { "overall": "x", "strengths": [], "issues": [],
               "suggestions": [ { "text": "y" } ] }
             """;
@@ -47,7 +47,7 @@ public class EvalServiceParseRetrospectiveV2Tests {
 
     [Test]
     public async Task Coerces_legacy_string_suggestion_to_human() {
-        var json = """
+        const string json = """
             { "overall": "x", "strengths": [], "issues": [],
               "suggestions": [ "Run tests" ] }
             """;
@@ -58,7 +58,7 @@ public class EvalServiceParseRetrospectiveV2Tests {
 
     [Test]
     public async Task Strips_code_fences() {
-        var json = """
+        const string json = """
             ```json
             { "overall": "x", "suggestions": [] }
             ```
@@ -78,7 +78,7 @@ public class EvalServiceParseRetrospectiveV2Tests {
     public async Task Parser_returns_null_when_root_field_is_wrong_type() {
         // `overall` as a number, not a string — must not throw, parser returns
         // a retrospective with overall = "" rather than throwing.
-        var json = """
+        const string json = """
             { "overall": 42, "strengths": [], "issues": [], "suggestions": [] }
             """;
         var retro = EvalService.ParseRetrospectiveV2(json);
@@ -89,7 +89,7 @@ public class EvalServiceParseRetrospectiveV2Tests {
     [Test]
     public async Task Parser_tolerates_suggestion_text_wrong_type() {
         // `text` as a boolean — must not throw; coerce to empty text.
-        var json = """
+        const string json = """
             { "overall": "x", "strengths": [], "issues": [],
               "suggestions": [ { "text": false, "audience": "agent" } ] }
             """;
@@ -99,7 +99,7 @@ public class EvalServiceParseRetrospectiveV2Tests {
 
     [Test]
     public async Task Parser_normalizes_case_in_audience() {
-        var json = """
+        const string json = """
             { "overall": "x", "strengths": [], "issues": [],
               "suggestions": [ { "text": "y", "audience": "Agent" } ] }
             """;
@@ -109,7 +109,7 @@ public class EvalServiceParseRetrospectiveV2Tests {
 
     [Test]
     public async Task Parser_normalizes_whitespace_in_audience() {
-        var json = """
+        const string json = """
             { "overall": "x", "strengths": [], "issues": [],
               "suggestions": [ { "text": "y", "audience": " human " } ] }
             """;
@@ -119,7 +119,7 @@ public class EvalServiceParseRetrospectiveV2Tests {
 
     [Test]
     public async Task Parser_normalizes_uppercase_audience() {
-        var json = """
+        const string json = """
             { "overall": "x", "strengths": [], "issues": [],
               "suggestions": [ { "text": "y", "audience": "AGENT" } ] }
             """;
@@ -129,7 +129,7 @@ public class EvalServiceParseRetrospectiveV2Tests {
 
     [Test]
     public async Task Parser_tolerates_audience_wrong_type() {
-        var json = """
+        const string json = """
             { "overall": "x", "strengths": [], "issues": [],
               "suggestions": [ { "text": "y", "audience": 1 } ] }
             """;
@@ -139,7 +139,7 @@ public class EvalServiceParseRetrospectiveV2Tests {
 
     [Test]
     public async Task Mixed_input_parses_all_three_audience_paths() {
-        var json = """
+        const string json = """
             {
               "overall": "x",
               "strengths": [],

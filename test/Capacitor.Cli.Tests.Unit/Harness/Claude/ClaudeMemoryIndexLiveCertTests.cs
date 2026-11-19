@@ -339,7 +339,7 @@ public class ClaudeMemoryIndexLiveCertParsingTests {
 
     [Test]
     public async Task Newline_delimited_json_stream_extracts_the_first_matching_text_field() {
-        var stdout = """
+        const string stdout = """
                      {"type":"system","subtype":"init"}
                      {"type":"assistant","message":{"content":[{"type":"text","text":"kcap-live-nonce-abc123"}]}}
                      """;
@@ -355,8 +355,8 @@ public class ClaudeMemoryIndexLiveCertParsingTests {
 
     [Test]
     public async Task Leading_json_block_extraction_splits_on_an_lf_blank_line() {
-        var stdout = "{\"active_profile\":\"default\"}\n\nPath: ~/.config/kcap/config.json\n";
-        var result = ClaudeMemoryIndexLiveCertTests.ExtractLeadingJsonBlock(stdout);
+        const string stdout = "{\"active_profile\":\"default\"}\n\nPath: ~/.config/kcap/config.json\n";
+        var result          = ClaudeMemoryIndexLiveCertTests.ExtractLeadingJsonBlock(stdout);
         await Assert.That(result).IsEqualTo("{\"active_profile\":\"default\"}");
     }
 
@@ -364,8 +364,8 @@ public class ClaudeMemoryIndexLiveCertParsingTests {
     public async Task Leading_json_block_extraction_tolerates_a_crlf_blank_line() {
         // Windows `kcap config show` stdout: the same "JSON, blank line, Path:" shape but with
         // \r\n line endings — must still isolate the JSON, not the whole CRLF blob.
-        var stdout = "{\"active_profile\":\"default\"}\r\n\r\nPath: C:\\Users\\me\\config.json\r\n";
-        var result = ClaudeMemoryIndexLiveCertTests.ExtractLeadingJsonBlock(stdout);
+        const string stdout = "{\"active_profile\":\"default\"}\r\n\r\nPath: C:\\Users\\me\\config.json\r\n";
+        var result          = ClaudeMemoryIndexLiveCertTests.ExtractLeadingJsonBlock(stdout);
         await Assert.That(result).IsEqualTo("{\"active_profile\":\"default\"}");
     }
 }

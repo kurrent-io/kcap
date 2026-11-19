@@ -19,7 +19,7 @@ public class JudgeTextTests {
 
     [Test]
     public async Task A_cut_never_splits_a_surrogate_pair() {
-        var text = "ab\U0001F600cd";
+        const string text = "ab\U0001F600cd";
 
         await Assert.That(JudgeText.Boundary(text, 3)).IsEqualTo(2);
         await Assert.That(JudgeText.Boundary(text, 4)).IsEqualTo(4);

@@ -146,8 +146,8 @@ public class ReadNewCompleteLinesAsyncTests {
         // The wrapper mirrors a length sampled BEFORE a concurrent append: bytes past `limit`
         // exist in `inner` but must never be surfaced, so an as-yet unterminated final line can't
         // be made to look complete and get consumed (the bug this PR fixes).
-        var full  = Encoding.UTF8.GetBytes("a\nb\nc\n");   // 6 bytes
-        var limit = 4L;                                     // "a\nb\n" only
+        var full         = Encoding.UTF8.GetBytes("a\nb\nc\n");   // 6 bytes
+        const long limit = 4L;                                    // "a\nb\n" only
         using var inner = new MemoryStream(full);
 
         var capped = new LengthLimitedReadStream(inner, limit);
@@ -186,8 +186,8 @@ public class ReadNewCompleteLinesAsyncTests {
 
     [Test]
     public async Task Cap_sync_read_stops_at_the_sampled_length() {
-        var full  = Encoding.UTF8.GetBytes("hello-world");
-        var limit = 5L;
+        var full         = Encoding.UTF8.GetBytes("hello-world");
+        const long limit = 5L;
         using var inner = new MemoryStream(full);
 
         var capped = new LengthLimitedReadStream(inner, limit);
@@ -317,9 +317,9 @@ public class ReadNewCompleteLinesAsyncTests {
         // for the BOUNDED path: the guard's exact-byte-binding property (the bytes hashed for the
         // new-range record are the SAME bytes decoded into the sent lines) must survive making the
         // capture incremental, not just the whole-file case.
-        var padding = "prefix-line-already-checkpointed";
-        var content = padding + "\nnew1\nnew2\n";
-        var path    = WriteTemp(content);
+        const string padding = "prefix-line-already-checkpointed";
+        var content          = padding + "\nnew1\nnew2\n";
+        var path             = WriteTemp(content);
         var paddingLineByteLength = Encoding.UTF8.GetByteCount(padding) + 1;
 
         var r = await ReadViaStreamRawBounded(

@@ -510,8 +510,8 @@ public class AntigravityTranscriptEventsTests {
 
     [Test]
     public async Task A_held_result_delivered_again_before_its_planner_is_held_once() {
-        var ctx  = Context();
-        var line = """{"step_index":6,"type":"VIEW_FILE","content":"only once"}""";
+        var ctx           = Context();
+        const string line = """{"step_index":6,"type":"VIEW_FILE","content":"only once"}""";
         Project(line, ctx, 1);
         Project(line, ctx, 2);
 

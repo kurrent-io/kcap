@@ -118,7 +118,7 @@ public class CodexApprovalBridgeTests {
     [Test]
     public async Task Permissions_grant_accept_echoes_requested_profile() {
         var bridge = Deciding(new AcpInteractionDecision("allow", "accept", null, null, null, null));
-        var paramsJson = """{"threadId":"thread-1","itemId":"item-1","permissions":{"network":{"allowed":true}}}""";
+        const string paramsJson = """{"threadId":"thread-1","itemId":"item-1","permissions":{"network":{"allowed":true}}}""";
         var result = await bridge.HandleAsync(ApprovalRequest(PermsMethod, paramsJson), CancellationToken.None);
 
         await Assert.That(result).IsNotNull();
@@ -131,7 +131,7 @@ public class CodexApprovalBridgeTests {
     [Test]
     public async Task Permissions_grant_deny_returns_empty_grant_not_a_decision() {
         var bridge = Deciding(new AcpInteractionDecision("deny", null, null, null, null, null));
-        var paramsJson = """{"threadId":"thread-1","itemId":"item-1","permissions":{"network":{"allowed":true}}}""";
+        const string paramsJson = """{"threadId":"thread-1","itemId":"item-1","permissions":{"network":{"allowed":true}}}""";
         var result = await bridge.HandleAsync(ApprovalRequest(PermsMethod, paramsJson), CancellationToken.None);
 
         var r = result!.Value;
@@ -145,7 +145,7 @@ public class CodexApprovalBridgeTests {
         // Even an affirmative decision must not grant a profile we can't read back as an object — echoing
         // {} at the affirmative "session" scope could over-grant if the server treats it as defaults.
         var bridge = Deciding(new AcpInteractionDecision("allow", "accept", null, null, null, null));
-        var paramsJson = """{"threadId":"thread-1","itemId":"item-1","permissions":"all"}"""; // non-object profile
+        const string paramsJson = """{"threadId":"thread-1","itemId":"item-1","permissions":"all"}"""; // non-object profile
         var result = await bridge.HandleAsync(ApprovalRequest(PermsMethod, paramsJson), CancellationToken.None);
 
         var r = result!.Value;

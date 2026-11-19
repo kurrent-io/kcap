@@ -29,7 +29,7 @@ public class ClaudePermissionsTests {
     /// <summary>The approval covers the call's tool and nothing else Claude suggested alongside it.</summary>
     [Test]
     public async Task Always_allow_keeps_only_the_approved_tools_suggestions() {
-        var mixed = """
+        const string mixed = """
             [{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"echo third:*"},{"toolName":"Read","ruleContent":"//etc/**"}],"behavior":"allow","destination":"localSettings"},
              {"type":"addRules","rules":[{"toolName":"WebFetch","ruleContent":"domain:example.com"}],"behavior":"allow","destination":"localSettings"},
              {"type":"setMode","mode":"acceptEdits","destination":"session"},

@@ -35,7 +35,7 @@ public class StatusIpcJsonTests {
     [Test]
     public async Task Unknown_members_in_a_payload_deserialize_without_error() {
         // Forward compat: an older client must survive a future additive field.
-        var json =
+        const string json =
             """{"daemon":{"name":"m","version":"1","server_url":"u","connection":"connected","max_agents":5,"active_agents":0,"future_field":42},"agents":[{"id":"a","kind":"agent","vendor":"codex","repo_path":null,"status":"Live","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null,"future_field":{"x":1}}],"future_top":true}""";
 
         var dto = JsonSerializer.Deserialize(json, StatusIpcJsonContext.Default.DaemonStatusDto);
@@ -234,7 +234,7 @@ public class StatusIpcJsonTests {
 
     [Test]
     public async Task Old_agent_json_without_transcript_format_deserializes_to_null() {
-        var json = """{"id":"a","kind":"agent","vendor":"codex","repo_path":null,"status":"Live","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null,"requester_display":null,"awaiting_input":true}""";
+        const string json = """{"id":"a","kind":"agent","vendor":"codex","repo_path":null,"status":"Live","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null,"requester_display":null,"awaiting_input":true}""";
         var dto = JsonSerializer.Deserialize(json, StatusIpcJsonContext.Default.AgentStatusDto)!;
         await Assert.That(dto.TranscriptFormat).IsNull();
         await Assert.That(dto.AwaitingInput).IsTrue();
@@ -255,7 +255,7 @@ public class StatusIpcJsonTests {
 
     [Test]
     public async Task Old_agent_json_without_live_subagents_deserializes_to_null() {
-        var json = """{"id":"a","kind":"agent","vendor":"claude","repo_path":null,"status":"Running","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null,"requester_display":null,"awaiting_input":true,"transcript_format":"vendor"}""";
+        const string json = """{"id":"a","kind":"agent","vendor":"claude","repo_path":null,"status":"Running","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null,"requester_display":null,"awaiting_input":true,"transcript_format":"vendor"}""";
         var dto = JsonSerializer.Deserialize(json, StatusIpcJsonContext.Default.AgentStatusDto)!;
         await Assert.That(dto.LiveSubagents).IsNull();
         await Assert.That(dto.UsageLimit).IsNull();
@@ -298,8 +298,8 @@ public class StatusIpcJsonTests {
         var dto = new AgentStatusDto("a", "agent", "claude", null, "Interrupted", null, null, null, DateTime.UnixEpoch, null, null,
             Interruption: "too_old");
 
-        var json = JsonSerializer.Serialize(dto, StatusIpcJsonContext.Default.AgentStatusDto);
-        var old  = """{"id":"a","kind":"agent","vendor":"claude","repo_path":null,"status":"Running","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null,"requester_display":null}""";
+        var json         = JsonSerializer.Serialize(dto, StatusIpcJsonContext.Default.AgentStatusDto);
+        const string old = """{"id":"a","kind":"agent","vendor":"claude","repo_path":null,"status":"Running","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null,"requester_display":null}""";
 
         await Assert.That(json).EndsWith("\"interruption\":\"too_old\",\"working_since\":null,\"account_directory\":null,\"account_id\":null,\"account_label\":null,\"turn_attested\":null,\"is_private\":null,\"launch_prompt_unconfirmed\":null}");
         await Assert.That(JsonSerializer.Deserialize(json, StatusIpcJsonContext.Default.AgentStatusDto)!.Interruption).IsEqualTo("too_old");
@@ -310,7 +310,7 @@ public class StatusIpcJsonTests {
     public async Task Account_members_serialize_last_and_are_null_from_an_older_daemon() {
         var dto = new AgentStatusDto("a", "agent", "claude", null, "Running", null, null, null, DateTime.UnixEpoch, null, null,
             AccountDirectory: "/Users/x/.claude-work", AccountId: "a1b2", AccountLabel: "Work");
-        var old = """{"id":"a","kind":"agent","vendor":"claude","repo_path":null,"status":"Running","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null,"requester_display":null}""";
+        const string old = """{"id":"a","kind":"agent","vendor":"claude","repo_path":null,"status":"Running","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null,"requester_display":null}""";
 
         var json = JsonSerializer.Serialize(dto, StatusIpcJsonContext.Default.AgentStatusDto);
         var back = JsonSerializer.Deserialize(old, StatusIpcJsonContext.Default.AgentStatusDto)!;

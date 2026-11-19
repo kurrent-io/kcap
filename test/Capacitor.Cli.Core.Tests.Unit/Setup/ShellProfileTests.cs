@@ -122,14 +122,14 @@ public class ShellProfileTests {
     /// Lines typed after a lost end marker may be the user's own.
     [Test]
     public async Task An_unterminated_block_is_left_alone() {
-        var text = $"{ShellProfile.Begin}\nexport PATH=\"$PATH:/x\"\nexport MINE=1\n";
+        const string text = $"{ShellProfile.Begin}\nexport PATH=\"$PATH:/x\"\nexport MINE=1\n";
 
         await Assert.That(ShellProfile.Without(text, "export PATH=\"$PATH:/x\"")).IsNull();
     }
 
     [Test]
     public async Task A_marker_inside_a_line_is_not_a_block() {
-        var text = $"echo '{ShellProfile.Begin}'\necho '{ShellProfile.End}'\n";
+        const string text = $"echo '{ShellProfile.Begin}'\necho '{ShellProfile.End}'\n";
 
         await Assert.That(ShellProfile.Without(text, "export PATH=\"$PATH:/x\"")).IsNull();
     }

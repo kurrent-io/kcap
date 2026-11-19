@@ -12,7 +12,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.Mcp;
 public class McpRegistrationAuditTests {
     [Test]
     public async Task Detects_user_scope_canonical_duplicate_of_a_plugin_server() {
-        var json = """
+        const string json = """
         { "mcpServers": { "kcap-flows": { "type": "stdio", "command": "kcap", "args": ["mcp","flows"] } } }
         """;
 
@@ -26,7 +26,7 @@ public class McpRegistrationAuditTests {
 
     [Test]
     public async Task Detects_project_scope_canonical_duplicate() {
-        var json = """
+        const string json = """
         { "projects": { "/w/repo": { "mcpServers": {
             "kcap-sessions": { "command": "kcap", "args": ["mcp","sessions"], "cwd": "/w/repo" } } } } }
         """;
@@ -41,7 +41,7 @@ public class McpRegistrationAuditTests {
     [Test]
     public async Task Cosmetic_fields_do_not_break_canonical_classification() {
         // description + empty env are what the shipped plugin/older registrations carry.
-        var json = """
+        const string json = """
         { "mcpServers": { "kcap-review": {
             "command": "kcap", "args": ["mcp","review"], "description": "anything", "env": {} } } }
         """;
@@ -81,7 +81,7 @@ public class McpRegistrationAuditTests {
     [Test]
     public async Task Cwd_is_canonical_only_as_the_placeholder_or_the_projects_own_path() {
         // User scope: placeholder OK (the shipped plugin shape); kcap-review takes no cwd at all.
-        var json = """
+        const string json = """
         { "mcpServers": {
             "kcap-flows":  { "command": "kcap", "args": ["mcp","flows"], "cwd": "${CLAUDE_PROJECT_DIR}" },
             "kcap-review": { "command": "kcap", "args": ["mcp","review"], "cwd": "${CLAUDE_PROJECT_DIR}" } },
@@ -117,7 +117,7 @@ public class McpRegistrationAuditTests {
 
     [Test]
     public async Task Resolved_native_path_command_is_canonical_only_when_it_matches_exactly() {
-        var json = """
+        const string json = """
         { "mcpServers": {
             "kcap-review":   { "command": "/opt/kcap/bin/kcap", "args": ["mcp","review"] },
             "kcap-sessions": { "command": "/somewhere/else/kcap", "args": ["mcp","sessions"] } } }
@@ -133,7 +133,7 @@ public class McpRegistrationAuditTests {
 
     [Test]
     public async Task Remove_strips_only_canonical_duplicates_and_preserves_the_rest() {
-        var json = """
+        const string json = """
         {
           "keep": 1,
           "mcpServers": {
@@ -175,7 +175,7 @@ public class McpRegistrationAuditTests {
 
     [Test]
     public async Task FindAbsoluteKcapCommands_extracts_string_and_argv_shapes_only_for_kcap_names() {
-        var json = """
+        const string json = """
         { "mcpServers": {
             "kcap-review":   { "command": "/opt/kcap/bin/kcap", "args": ["mcp","review"] },
             "kcap-sessions": { "command": "kcap", "args": ["mcp","sessions"] },
@@ -188,7 +188,7 @@ public class McpRegistrationAuditTests {
         await Assert.That(abs[0].Command).IsEqualTo("/opt/kcap/bin/kcap");
 
         // OpenCode's argv-array shape under its "mcp" block.
-        var opencode = """{ "mcp": { "kcap-review": { "command": ["/opt/kcap/bin/kcap", "mcp", "review"] } } }""";
+        const string opencode = """{ "mcp": { "kcap-review": { "command": ["/opt/kcap/bin/kcap", "mcp", "review"] } } }""";
         var absArgv = McpRegistrationAudit.FindAbsoluteKcapCommands(opencode, blockKey: "mcp");
         await Assert.That(absArgv.Count).IsEqualTo(1);
         await Assert.That(absArgv[0].Command).IsEqualTo("/opt/kcap/bin/kcap");

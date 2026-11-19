@@ -51,7 +51,7 @@ public class ConsentDialogDetectorTests {
         var detector = new ConsentDialogDetector();
 
         // A realistic Ink frame: box-drawing borders + SGR colour codes + cursor moves around the text.
-        var framed =
+        const string framed =
             "\e[2J\e[H\e[1m\e[33m╭──────────────────────────────╮\e[0m\n" +
             "\e[1m WARNING: Claude Code running in Bypass Permissions mode \e[0m\n" +
             "\e[2m 1. No, exit \e[0m\n" +

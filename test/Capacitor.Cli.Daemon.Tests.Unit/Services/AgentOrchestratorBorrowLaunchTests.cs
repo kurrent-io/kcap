@@ -68,7 +68,7 @@ public class AgentOrchestratorBorrowLaunchTests {
         try {
             File.WriteAllText(Path.Combine(cwd, "README.md"), "dirty-one");
             File.WriteAllText(Path.Combine(cwd, "untracked.txt"), "untracked-one");
-            var firstContext = "{\"mcpServers\":{\"first\":{}}}";
+            const string firstContext = "{\"mcpServers\":{\"first\":{}}}";
             File.WriteAllText(Path.Combine(cwd, ".mcp.json"), firstContext);
             cwd.Do("add", ".mcp.json");
             var server = new CaptureServerConnection();
@@ -118,7 +118,7 @@ public class AgentOrchestratorBorrowLaunchTests {
             var retiredGenerationPath = ctx.Worktree.ReviewContextGeneration!.StoragePath;
 
             File.WriteAllText(Path.Combine(cwd, "README.md"), "dirty-two");
-            var secondContext = "{\"mcpServers\":{\"second\":{}}}";
+            const string secondContext = "{\"mcpServers\":{\"second\":{}}}";
             File.WriteAllText(Path.Combine(cwd, ".mcp.json"), secondContext);
             cwd.Do("add", ".mcp.json");
             await orch.HandleSendInputForTest(new SendInputCommand(cmd.AgentId, "next", null));
@@ -149,7 +149,7 @@ public class AgentOrchestratorBorrowLaunchTests {
         using var cwd = GitRepo.CreateWithCommit();
         LocalPermissionBridge? bridge = null;
         try {
-            var firstContext = "{\"mcpServers\":{\"first\":{}}}";
+            const string firstContext = "{\"mcpServers\":{\"first\":{}}}";
             File.WriteAllText(Path.Combine(cwd, ".mcp.json"), firstContext);
             cwd.Do("add", ".mcp.json");
             var server = new CaptureServerConnection();
@@ -175,7 +175,7 @@ public class AgentOrchestratorBorrowLaunchTests {
             await Assert.That(context.ReviewContextCapabilityUrl).IsNotNull();
             await Assert.That(bridge.ReviewerTokenCountForTest).IsEqualTo(1);
 
-            var secondContext = "{\"mcpServers\":{\"second\":{}}}";
+            const string secondContext = "{\"mcpServers\":{\"second\":{}}}";
             File.WriteAllText(Path.Combine(cwd, ".mcp.json"), secondContext);
             cwd.Do("add", ".mcp.json");
             await orch.HandleSendInputForTest(new SendInputCommand(command.AgentId, "next", null));

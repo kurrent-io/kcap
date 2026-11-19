@@ -542,9 +542,9 @@ public class SetupCommandTests {
 
     [Test]
     public async Task InstallPlugin_CreatesNewSettingsFile() {
-        using var tmp          = new TempDir();
-        var       settingsPath = tmp.PathTo("settings.json");
-        var       marketplace  = "/opt/kcap";
+        using var tmp            = new TempDir();
+        var       settingsPath   = tmp.PathTo("settings.json");
+        const string marketplace = "/opt/kcap";
 
         var result = SetupCommand.InstallPlugin(settingsPath, marketplace);
 

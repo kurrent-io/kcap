@@ -65,21 +65,21 @@ public class ClaudeUsageLimitDetectorTests {
 
     [Test]
     public async Task Prose_that_quotes_one_choice_is_not_a_question() {
-        var prose = "The menu says Stop and wait for limit to reset, or ask your admin for more usage.\n";
+        const string prose = "The menu says Stop and wait for limit to reset, or ask your admin for more usage.\n";
 
         await Assert.That(new ClaudeScreenWatcher().Observe(Utf8(prose)).UsageLimit).IsNull();
     }
 
     [Test]
     public async Task A_title_with_only_one_known_choice_is_not_a_question() {
-        var screen = "You've hit your session limit\nWhat do you want to do?\n1. Stop and wait for limit to reset\n";
+        const string screen = "You've hit your session limit\nWhat do you want to do?\n1. Stop and wait for limit to reset\n";
 
         await Assert.That(ClaudeUsageLimitDetector.Parse(screen)).IsNull();
     }
 
     [Test]
     public async Task A_title_and_two_choices_without_a_limit_line_is_not_a_question() {
-        var screen =
+        const string screen =
             "What do you want to do?\n" +
             "1. Stop and wait for limit to reset\n" +
             "2. Wait here, then continue automatically shortly\n";

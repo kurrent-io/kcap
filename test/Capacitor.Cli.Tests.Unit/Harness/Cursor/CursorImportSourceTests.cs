@@ -1571,7 +1571,7 @@ public class CursorImportSourceTests {
         var jsonl = fx.AddSession(
             "Users-me-proj", "11111111-1111-1111-1111-111111111111", "{\"a\":1}\n{\"b\":2}\n{\"c\":3}\n");
         var src = new CursorImportSource(Config.Root, fx.ProjectsDir, fx.WorkspaceStorageDir, router: new GitProviderRouter(), time: TimeProvider.System);
-        var sessionId = "11111111111111111111111111111111";
+        const string sessionId = "11111111111111111111111111111111";
 
         var posted = new List<string>();
         using var handler = new StubHandler(

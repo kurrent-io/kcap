@@ -189,7 +189,7 @@ public class PolicyInputHashTests {
     [Test]
     public async Task String_escaping_does_not_change_the_hash() {
         var a = PolicyInputHash.Compute("Bash", Input("""{"a":"A"}"""));
-        var unicodeEscaped = "{\"a\":\"" + "\\u0041" + "\"}";
+        const string unicodeEscaped = "{\"a\":\"" + "\\u0041" + "\"}";
         var b = PolicyInputHash.Compute("Bash", Input(unicodeEscaped));
         await Assert.That(a).IsEqualTo(b);
     }

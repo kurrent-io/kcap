@@ -122,8 +122,8 @@ public class DaemonStatusDtoTests {
 
     [Test]
     public async Task DaemonInfoDto_from_an_older_daemon_has_null_vendor_models() {
-        var json = """{"daemon":{"name":"d","version":"1","server_url":"http://s","connection":"connected","max_agents":1,"active_agents":0},"agents":[]}""";
-        var back = JsonSerializer.Deserialize(json, StatusIpcJsonContext.Default.DaemonStatusDto)!;
+        const string json = """{"daemon":{"name":"d","version":"1","server_url":"http://s","connection":"connected","max_agents":1,"active_agents":0},"agents":[]}""";
+        var back          = JsonSerializer.Deserialize(json, StatusIpcJsonContext.Default.DaemonStatusDto)!;
         await Assert.That(back.Daemon.VendorModels).IsNull();
     }
 

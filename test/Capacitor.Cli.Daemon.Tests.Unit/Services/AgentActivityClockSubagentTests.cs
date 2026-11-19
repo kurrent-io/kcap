@@ -56,9 +56,9 @@ public class AgentActivityClockSubagentTests {
 
     [Test]
     public async Task A_start_stamped_within_the_window_after_its_stop_is_ignored_and_a_later_one_counts_again() {
-        var clock  = new AgentActivityClock(new FakeTimeProvider());
-        var stopAt = 10_000L;
-        var window = (long) Window.TotalMilliseconds;
+        var clock         = new AgentActivityClock(new FakeTimeProvider());
+        const long stopAt = 10_000L;
+        var window        = (long) Window.TotalMilliseconds;
 
         await Assert.That(clock.SubagentStopped("a", stopAt)).IsTrue();
         await Assert.That(clock.SubagentSeen("a", stopAt + window)).IsFalse();
@@ -95,9 +95,9 @@ public class AgentActivityClockSubagentTests {
 
     [Test]
     public async Task After_a_backward_wall_clock_step_the_resumed_id_is_rejected_until_the_stops_stamp_expires() {
-        var time   = new FakeTimeProvider();
-        var clock  = new AgentActivityClock(time);
-        var stopAt = 1_000_000L;
+        var time          = new FakeTimeProvider();
+        var clock         = new AgentActivityClock(time);
+        const long stopAt = 1_000_000L;
         clock.SubagentSeen("a", stopAt - 1_000);
         clock.SubagentStopped("a", stopAt);
         var steppedBack = stopAt - (long) TimeSpan.FromMinutes(11).TotalMilliseconds;

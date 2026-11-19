@@ -259,7 +259,7 @@ public class BorrowedReviewAuthBrokerTests {
     public async Task The_real_runner_rejects_output_longer_than_a_token() {
         Skip.When(OperatingSystem.IsWindows(), "POSIX shell command");
 
-        var length = BorrowedReviewTokenCommand.MaxTokenLength + 100;
+        const int length = BorrowedReviewTokenCommand.MaxTokenLength + 100;
 
         await Assert.That(BorrowedReviewTokenCommand.Run(
             $"head -c {length} /dev/zero | tr '\\0' 'a'")).IsNull();
@@ -271,8 +271,8 @@ public class BorrowedReviewAuthBrokerTests {
     public async Task The_real_runner_accepts_output_at_the_cap() {
         Skip.When(OperatingSystem.IsWindows(), "POSIX shell command");
 
-        var length = BorrowedReviewTokenCommand.MaxTokenLength;
-        var token  = BorrowedReviewTokenCommand.Run($"head -c {length} /dev/zero | tr '\\0' 'a'");
+        const int length = BorrowedReviewTokenCommand.MaxTokenLength;
+        var token        = BorrowedReviewTokenCommand.Run($"head -c {length} /dev/zero | tr '\\0' 'a'");
 
         await Assert.That(token).IsNotNull();
         await Assert.That(token!.Length).IsEqualTo(length);

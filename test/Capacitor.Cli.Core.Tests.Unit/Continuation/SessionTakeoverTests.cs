@@ -153,7 +153,7 @@ public class SessionTakeoverTests {
     /// <summary>The server makes the last declared item primary, so the previous primary must go last.</summary>
     [Test]
     public async Task The_previous_sessions_primary_work_item_is_declared_last() {
-        var items = """[{"work_item_id":"w1","label":"One","is_primary":false},{"work_item_id":"w2","label":"Two","is_primary":true},{"work_item_id":"w3","label":"Three","is_primary":false}]""";
+        const string items = """[{"work_item_id":"w1","label":"One","is_primary":false},{"work_item_id":"w2","label":"Two","is_primary":true},{"work_item_id":"w3","label":"Three","is_primary":false}]""";
         var routes = Server(Ended(), items: items);
         routes.Post("/api/work-items/declare", 200, "{}");
 
@@ -214,9 +214,9 @@ public class SessionTakeoverTests {
     /// <summary>An adoption makes its plan current, so a plan ordered before one the session joined is not retried.</summary>
     [Test]
     public async Task Skipping_attached_items_does_not_retry_a_plan_ordered_before_a_joined_one() {
-        var joined = $"[\"{Current}\"]";
-        var plans  = $"[{Plan("p1", false, $"[{Task("t1", 1, "pending")}]")},{Plan("p2", true, $"[{Task("t2", 1, "in_progress")}]", sessions: joined)}]";
-        var routes = Server(Ended(), plans: plans);
+        const string joined = $"[\"{Current}\"]";
+        var plans           = $"[{Plan("p1", false, $"[{Task("t1", 1, "pending")}]")},{Plan("p2", true, $"[{Task("t2", 1, "in_progress")}]", sessions: joined)}]";
+        var routes          = Server(Ended(), plans: plans);
         routes.Get($"/api/work-items/session/{Current}", 200, "[]");
         routes.Post("/api/plans/p1/tasks/t1", 200, "{}");
 
@@ -376,7 +376,7 @@ public class SessionTakeoverTests {
 
     [Test]
     public async Task Tasks_without_ids_are_not_adopted() {
-        var tasks = """[{"ordinal":1,"title":"x","status":"in_progress","source":"mcp"},{"task_id":"t2","ordinal":2,"title":"y","status":"weird","source":"mcp"}]""";
+        const string tasks = """[{"ordinal":1,"title":"x","status":"in_progress","source":"mcp"},{"task_id":"t2","ordinal":2,"title":"y","status":"weird","source":"mcp"}]""";
         var o = Outcome(await Run(Server(Ended(), plans: $"[{Plan("p1", true, tasks)}]")));
         await Assert.That(o["skipped_plans"]!.AsArray()[0]!["reason"]!.GetValue<string>()).IsEqualTo("no_open_task");
     }

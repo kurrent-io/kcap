@@ -83,7 +83,7 @@ public class NextWorkEmitterTests {
     /// that has the tool, and hands start_agent only the target keys it accepts.</summary>
     [Test]
     public async Task The_start_agent_offer_waits_for_the_user_and_the_tool() {
-        var text = NextWorkEmitter.StartAgentOffer;
+        const string text = NextWorkEmitter.StartAgentOffer;
 
         await Assert.That(text).StartsWith("If start_agent is among your tools");
         await Assert.That(text).Contains("Start one only when the user asks");
@@ -94,7 +94,7 @@ public class NextWorkEmitterTests {
     /// the answered-question case that keeps agents from presenting after every reply, and the open-work hold.</summary>
     [Test]
     public async Task The_completion_instruction_gates_on_the_piece_of_work_reaching_a_terminal_state() {
-        var text = NextWorkEmitter.CompletionInstruction;
+        const string text = NextWorkEmitter.CompletionInstruction;
 
         await Assert.That(text).StartsWith("Present next work once per piece of work the user framed");
         await Assert.That(text).Contains("a question answered with nothing pending");

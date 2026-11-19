@@ -272,7 +272,7 @@ public class MuseHookCommandTests : IDisposable {
     public async Task A_child_hook_finds_the_marker_under_its_parent_session() {
         var daemonRoot = DaemonRoot(_server.Url!);
         WriteMarker(daemonRoot, _server.Url);
-        var child = $$"""{"hook_event_name":"SubagentStart","child_session_id":"{{WorkerChild}}","session_id":"{{WorkerChild}}"}""";
+        const string child = $$"""{"hook_event_name":"SubagentStart","child_session_id":"{{WorkerChild}}","session_id":"{{WorkerChild}}"}""";
 
         var connection = MuseHookConnection.Resolve(child, Home, ParentEnv);
 

@@ -118,7 +118,7 @@ public class PluginCommandToolsOnlyTests {
         var env    = Env();
         var cursor = env.Harnesses.Of<CursorHarness>().Paths;
         Home.CreateFile([".cursor", "hooks.json"], """{"version":1,"hooks":{"sessionStart":[{"command":"kcap hook --cursor"}]}}""");
-        var gitBefore = "[hook \"kcap\"]\n\tcommand = '/old/kcap' git-hook\n\tevent = post-commit\n";
+        const string gitBefore = "[hook \"kcap\"]\n\tcommand = '/old/kcap' git-hook\n\tevent = post-commit\n";
         Home.CreateFile([".gitconfig"], gitBefore);
         var before = await File.ReadAllTextAsync(cursor.UserHooksJson);
 

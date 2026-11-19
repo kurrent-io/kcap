@@ -193,14 +193,14 @@ public class ConfigDefaultsTests {
     // AppConfig.LoadProfileConfig already reports and recovers from.
     [Test]
     public async Task Wrong_typed_version_reports_a_handled_error_instead_of_migrating() {
-        var json = """{ "version": "2", "profiles": { "test": {} } }""";
+        const string json = """{ "version": "2", "profiles": { "test": {} } }""";
 
         await Assert.That(() => ConfigMigration.MigrateIfNeeded(json)).Throws<JsonException>();
     }
 
     [Test]
     public async Task Wrong_typed_scalars_report_a_handled_error() {
-        var json = """
+        const string json = """
             {
                 "version": 2,
                 "profiles": { "test": { "update_check": "yes" } }

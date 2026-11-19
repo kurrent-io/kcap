@@ -2182,9 +2182,9 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     /// rejected behavior.</summary>
     [Test]
     public async Task StartAsync_BorrowedSnapshot_LogsNoVendorVersionAndNoBinaryPath() {
-        var fake          = new FakeAcpAgent();
-        var loggerFactory = new CaptureLoggerFactory();
-        var binaryPath    = "/definitely/not/a/validated/build/cursor-agent";
+        var fake                = new FakeAcpAgent();
+        var loggerFactory       = new CaptureLoggerFactory();
+        const string binaryPath = "/definitely/not/a/validated/build/cursor-agent";
 
         var factory = new AcpHostedAgentRuntimeFactory(
             descriptor: AcpVendorDescriptors.Cursor,

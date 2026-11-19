@@ -270,7 +270,7 @@ public class ValidatePlanCommandTests : IDisposable {
             .RespondWith(Response.Create().WithStatusCode(404));
 
         // Legacy path: a single recap call carrying a "plan" entry plus the usual work/whats_done.
-        var extra = $$""", {"type":"plan","session_id":"{{SessionId}}","agent_id":null,"agent_type":null,"content":"Legacy plan text","file_path":null,"timestamp":"2026-06-30T00:00:00Z"}""";
+        const string extra = $$""", {"type":"plan","session_id":"{{SessionId}}","agent_id":null,"agent_type":null,"content":"Legacy plan text","file_path":null,"timestamp":"2026-06-30T00:00:00Z"}""";
         _server.Given(Request.Create().WithPath($"/api/sessions/{SessionId}/recap").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody(RecapJson(extra)));
 

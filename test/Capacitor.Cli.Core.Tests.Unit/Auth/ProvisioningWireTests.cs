@@ -18,8 +18,8 @@ public class ProvisioningWireTests {
 
     [Test]
     public async Task ProvisionResponse_deserializes_camelCase_active_body() {
-        var body = """{"slug":"acme","state":"active","url":"https://acme.kcap.ai","workosOrgId":"org_live"}""";
-        var resp = JsonSerializer.Deserialize(body, CapacitorJsonContext.Default.ProvisionResponse)!;
+        const string body = """{"slug":"acme","state":"active","url":"https://acme.kcap.ai","workosOrgId":"org_live"}""";
+        var resp          = JsonSerializer.Deserialize(body, CapacitorJsonContext.Default.ProvisionResponse)!;
 
         await Assert.That(resp.State).IsEqualTo("active");
         await Assert.That(resp.Url).IsEqualTo("https://acme.kcap.ai");

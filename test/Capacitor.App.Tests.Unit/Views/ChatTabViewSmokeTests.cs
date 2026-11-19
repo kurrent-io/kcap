@@ -1510,8 +1510,8 @@ public class ChatTabViewSmokeTests {
             var host = new Host();
             try {
                 const string path = "/private/tmp/claude-501/a-deliberately-long-worktree-name-for-the-session-bd54/scratchpad/demo.txt";
-                var patch = $"*** Begin Patch\n*** Update File: {path}\n@@\n-a\n+b\n*** Add File: src/another.cs\n+x\n*** End Patch";
-                var input = new System.Text.Json.Nodes.JsonObject { ["input"] = patch }.ToJsonString();
+                const string patch = $"*** Begin Patch\n*** Update File: {path}\n@@\n-a\n+b\n*** Add File: src/another.cs\n+x\n*** End Patch";
+                var input          = new System.Text.Json.Nodes.JsonObject { ["input"] = patch }.ToJsonString();
                 var call = ToolCallLine.Replace("\"Bash\"", "\"apply_patch\"").Replace("""{"command":"ls -la"}""", input);
                 await host.LoadAsync(Tmp.CreateFile("patch-paths.jsonl", [call, ToolResultLine]));
                 host.View.ColumnSizing.UseLayout(1, double.PositiveInfinity);
@@ -2972,7 +2972,7 @@ public class ChatTabViewSmokeTests {
             var prose = string.Join("\\n\\n", Enumerable.Range(1, 60).Select(i => $"Paragraph {i} of a long reply that wraps across the column."));
             var tall = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + prose + "\"}]}}";
             const string question = """{"questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]}]}""";
-            var ask = $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"q-tool","name":"AskUserQuestion","input":{{{question}}}}]}}""";
+            const string ask = $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"q-tool","name":"AskUserQuestion","input":{{{question}}}}]}}""";
             var path = Tmp.CreateFile("card.jsonl", [tall, tall, tall, .. Enumerable.Repeat(UserLine, 20), ask]);
             await host.LoadAsync(path);
             await Assert.That(host.AtBottom()).IsTrue();
@@ -3010,7 +3010,7 @@ public class ChatTabViewSmokeTests {
                 var prose = string.Join("\\n\\n", Enumerable.Range(1, 60).Select(i => $"Paragraph {i} of a long reply that wraps across the column."));
                 var tall = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + prose + "\"}]}}";
                 const string question = """{"questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]}]}""";
-                var ask = $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"q-tool","name":"AskUserQuestion","input":{{{question}}}}]}}""";
+                const string ask = $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"q-tool","name":"AskUserQuestion","input":{{{question}}}}]}}""";
                 var path = Tmp.CreateFile("pending-question.jsonl",
                     [tall, tall, tall, UserLine, ThinkingLine, CallLine(1), ResultLine(1), UserLine, ThinkingLine, CallLine(2), ResultLine(2),
                      ThinkingLine, CallLine(3), ResultLine(3), CallLine(4), ResultLine(4), ask]);
@@ -3326,7 +3326,7 @@ public class ChatTabViewSmokeTests {
         await RunOnUiAsync(async () => {
             var host = new Host();
             host.Window.Width = width;
-            var text = "Run every integration suite against the staging server and collect the coverage";
+            const string text = "Run every integration suite against the staging server and collect the coverage";
             var input = described ? $$$"""{"command":"make it","description":"{{{text}}}"}""" : $$$"""{"command":"{{{text}}}"}""";
             await host.LoadAsync(Tmp.CreateFile("sh.jsonl", [ShellCall("toolu_S", input), ShellLaunch("toolu_S", "b1")]));
             Click(host, host.View.FindControl<Button>("BackgroundTasksToggle")!);

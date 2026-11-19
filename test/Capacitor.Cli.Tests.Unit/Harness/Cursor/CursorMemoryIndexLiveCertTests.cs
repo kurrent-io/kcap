@@ -326,7 +326,7 @@ public class CursorMemoryIndexLiveCertParsingTests {
 
     [Test]
     public async Task Newline_delimited_json_stream_extracts_the_first_matching_text_field() {
-        var stdout = """
+        const string stdout = """
                      {"type":"system","subtype":"init"}
                      {"type":"assistant","message":{"content":[{"type":"text","text":"kcap-live-nonce-abc123"}]}}
                      """;

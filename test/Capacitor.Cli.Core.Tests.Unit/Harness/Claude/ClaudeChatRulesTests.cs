@@ -276,7 +276,7 @@ public class ClaudeChatRulesTests {
 
     [Test]
     public async Task Assistant_blocks_map_to_text_thinking_and_tool_call() {
-        var line = """{"type":"assistant","timestamp":"2026-08-26T12:00:01Z","message":{"model":"claude-fable-5","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Hi"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}}""";
+        const string line = """{"type":"assistant","timestamp":"2026-08-26T12:00:01Z","message":{"model":"claude-fable-5","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Hi"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}}""";
         var e = P(line);
 
         await Assert.That(e).Count().IsEqualTo(3);
@@ -323,8 +323,8 @@ public class ClaudeChatRulesTests {
     /// the user's words: its summary leads in bold and its result follows as markdown.
     [Test]
     public async Task A_task_notification_projects_to_a_system_note_of_summary_and_result() {
-        var line = """{"type":"user","origin":{"kind":"task-notification"},"promptSource":"system","message":{"role":"user","content":"<task-notification>\n<task-id>k1</task-id>\n<status>completed</status>\n<summary>Agent \"Review Task 15\" finished</summary>\n<result>\n## Findings\n\nNone.\n</result>\n</task-notification>"}}""";
-        var note = P(line);
+        const string line = """{"type":"user","origin":{"kind":"task-notification"},"promptSource":"system","message":{"role":"user","content":"<task-notification>\n<task-id>k1</task-id>\n<status>completed</status>\n<summary>Agent \"Review Task 15\" finished</summary>\n<result>\n## Findings\n\nNone.\n</result>\n</task-notification>"}}""";
+        var note          = P(line);
         await Assert.That(note).Count().IsEqualTo(1);
         await Assert.That(note[0].Kind).IsEqualTo(AcpEventKind.SystemNote);
         await Assert.That(note[0].Text).IsEqualTo("**Agent \"Review Task 15\" finished**\n\n## Findings\n\nNone.");
@@ -421,7 +421,7 @@ public class ClaudeChatRulesTests {
     /// timeout is moved to the background, and only its result says so.
     [Test]
     public async Task An_unflagged_Bash_call_without_a_description_is_named_by_its_first_command_line() {
-        var call = """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_C","name":"Bash","input":{"command":"  make check\nmake lint"}}]}}""";
+        const string call = """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_C","name":"Bash","input":{"command":"  make check\nmake lint"}}]}}""";
         var started = (RunSignal.Started)R(call).Runs.Single();
         await Assert.That(started.Provisional).IsTrue();
         await Assert.That(started.Name).IsEqualTo("make check");
@@ -448,7 +448,7 @@ public class ClaudeChatRulesTests {
 
     [Test]
     public async Task A_plain_Bash_result_is_no_signal() {
-        var result = """{"type":"user","message":{"content":[{"tool_use_id":"toolu_B","type":"tool_result","content":"ok"}]},"toolUseResult":{"stdout":"ok","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false}}""";
+        const string result = """{"type":"user","message":{"content":[{"tool_use_id":"toolu_B","type":"tool_result","content":"ok"}]},"toolUseResult":{"stdout":"ok","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false}}""";
         await Assert.That(R(result).Runs).IsEmpty();
     }
 
@@ -520,7 +520,7 @@ public class ClaudeChatRulesTests {
     /// finishes the subagent and shows its note the same way.
     [Test]
     public async Task An_attachment_delivered_notification_finishes_the_subagent_and_shows_its_note() {
-        var line = """{"type":"attachment","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification>\n<task-id>a8c6e38f425550515</task-id>\n<tool-use-id>toolu_A</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Trace subagent data to desktop\" finished</summary>\n</task-notification>"}}""";
+        const string line = """{"type":"attachment","attachment":{"type":"queued_command","commandMode":"task-notification","prompt":"<task-notification>\n<task-id>a8c6e38f425550515</task-id>\n<tool-use-id>toolu_A</tool-use-id>\n<status>completed</status>\n<summary>Agent \"Trace subagent data to desktop\" finished</summary>\n</task-notification>"}}""";
         var result = R(line);
         await Assert.That(result.Envelopes.Single().Kind).IsEqualTo(AcpEventKind.SystemNote);
         await Assert.That(result.Envelopes.Single().Text).IsEqualTo("**Agent \"Trace subagent data to desktop\" finished**");
@@ -663,7 +663,7 @@ public class ClaudeChatRulesTests {
 
     [Test]
     public async Task A_notification_cut_off_before_its_closing_tag_still_finishes() {
-        var line = """{"type":"user","message":{"content":"<task-notification>\n<task-id>a9f262478e032f427</task-id>\n<tool-use-id>toolu_A"}}""";
+        const string line = """{"type":"user","message":{"content":"<task-notification>\n<task-id>a9f262478e032f427</task-id>\n<tool-use-id>toolu_A"}}""";
         var finished = (RunSignal.Finished)R(line).Runs.Single();
         await Assert.That(finished.CallId).IsEqualTo("toolu_A");
         await Assert.That(finished.AgentId).IsEqualTo("a9f262478e032f427");
@@ -725,7 +725,7 @@ public class ClaudeChatRulesTests {
     /// it; the command is still running.
     [Test]
     public async Task A_check_in_on_a_quiet_command_ends_nothing() {
-        var content = "<task-notification>\n<task-id>brizrthis</task-id>\n<tool-use-id>toolu_A</tool-use-id>\n<output-file>/tmp/brizrthis.output</output-file>\n<summary>Background command \"Run the tests\" is still running after 59m, with no new output for 30m</summary>\n</task-notification>\nThis is a check-in, not a completion.";
+        const string content = "<task-notification>\n<task-id>brizrthis</task-id>\n<tool-use-id>toolu_A</tool-use-id>\n<output-file>/tmp/brizrthis.output</output-file>\n<summary>Background command \"Run the tests\" is still running after 59m, with no new output for 30m</summary>\n</task-notification>\nThis is a check-in, not a completion.";
         await Assert.That(Report(content, "\"origin\":{\"kind\":\"task-notification\",\"producer\":\"session-task\"},\"promptSource\":\"system\",").Runs).IsEmpty();
     }
 
@@ -894,7 +894,7 @@ public class ClaudeChatRulesTests {
     /// A rewording of Claude Code's guidance shows the whole message, where a looser match could drop someone's words.
     [Test]
     public async Task A_peers_message_with_unknown_guidance_shows_whole() {
-        var content = "Another Claude session sent a message:\n" + PeerFrame + "\n\nThis is from a session you may know.";
+        const string content = "Another Claude session sent a message:\n" + PeerFrame + "\n\nThis is from a session you may know.";
         var note = R(User(content, "\"isMeta\":true,\"origin\":{\"kind\":\"peer\"}")).Envelopes.Single();
         await Assert.That(note.ToolKind).IsEqualTo(ChatDisplayKind.PeerSession);
         await Assert.That(note.ToolName).IsEqualTo("Message from another session");

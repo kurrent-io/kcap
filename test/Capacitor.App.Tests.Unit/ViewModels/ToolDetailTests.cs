@@ -135,8 +135,8 @@ public class ToolDetailTests {
     [Test]
     public async Task Patch_rows_keep_the_first_path_and_count_without_preelision() {
         const string path = "src/Capacitor.App/AnExtremelyLongFolderName/ViewModels/ToolDetail.cs";
-        var patch = $"*** Begin Patch\n*** Update File: /repo/{path}\n@@\n-a\n+b\n*** Add File: src/another.cs\n+x\n*** End Patch";
-        var input = new System.Text.Json.Nodes.JsonObject { ["input"] = patch }.ToJsonString();
+        const string patch = $"*** Begin Patch\n*** Update File: /repo/{path}\n@@\n-a\n+b\n*** Add File: src/another.cs\n+x\n*** End Patch";
+        var input          = new System.Text.Json.Nodes.JsonObject { ["input"] = patch }.ToJsonString();
 
         var row = ToolDetail.ForRow(input, "/repo", ToolCategory.Edit);
 
