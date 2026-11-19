@@ -631,18 +631,20 @@
                                                 Padding="0" ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding Label}">
                                             <Grid ColumnDefinitions="30,*,Auto">
                                                 <!-- The toggle fills the row behind the title, so the chevron and the space after it
-                                                     toggle; the title's own background takes its clicks for the header. -->
+                                                     toggle; the title's full-height strip takes its clicks for the header. -->
                                                 <Button x:Name="RailWorkItemToggle" Grid.Column="1" Grid.ColumnSpan="2" Command="{Binding ToggleCommand}"
                                                         HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                                         AutomationProperties.Name="{Binding ToggleAccessibleName}" />
                                                 <DockPanel Grid.Column="1" HorizontalAlignment="Left" Margin="0,0,10,0">
                                                     <views:FoldChevron DockPanel.Dock="Right" Margin="5,0,0,0" VerticalAlignment="Center"
                                                                        Classes="chevron headerCaret" IsOpen="{Binding IsExpanded}" />
-                                                    <TextBlock x:Name="RailWorkItemTitle" FontSize="14" Foreground="{StaticResource KcapMutedBrush}"
-                                                               Background="Transparent" TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
-                                                        <Run Text="{Binding Label}" />
-                                                        <Run Text="{Binding SessionCount}" Foreground="{StaticResource KcapFaintBrush}" />
-                                                    </TextBlock>
+                                                    <Panel Background="Transparent">
+                                                        <TextBlock x:Name="RailWorkItemTitle" FontSize="14" Foreground="{StaticResource KcapMutedBrush}"
+                                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
+                                                            <Run Text="{Binding Label}" />
+                                                            <Run Text="{Binding SessionCount}" Foreground="{StaticResource KcapFaintBrush}" />
+                                                        </TextBlock>
+                                                    </Panel>
                                                 </DockPanel>
                                                 <views:AppIcon x:Name="RailWorkItemDone" Grid.Column="2" Kind="Check" Size="14" Margin="0,0,10,0" VerticalAlignment="Center"
                                                                IsVisible="{Binding IsDone}" Foreground="{StaticResource KcapSuccessBrush}" />
