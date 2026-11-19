@@ -1848,7 +1848,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         CheckPickup();
         _runs.Tick();
         if (_lease is not { } lease) return;
-        if (lease.Feed is RemoteTranscriptFeed && Volatile.Read(ref lease.Pending) == 0) return;
+        // A settled poll reads nothing new, and a failure there would stand with no tick left to retry it.
+        if ((lease.Feed is RemoteTranscriptFeed || !_ticking) && Volatile.Read(ref lease.Pending) == 0) return;
         if (Interlocked.CompareExchange(ref _readInFlight, 1, 0) != 0) return;
         Interlocked.Exchange(ref lease.Pending, 0);
         _pendingRead = ReadAndApplyAsync(lease, _settleEpoch);

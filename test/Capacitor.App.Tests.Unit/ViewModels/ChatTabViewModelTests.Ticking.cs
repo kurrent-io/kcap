@@ -1,5 +1,6 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using DynamicData;
@@ -70,14 +71,41 @@ public partial class ChatTabViewModelTests {
         });
     }
 
-    sealed class CountingFeed : IChatTranscriptFeed {
+    /// The tick that finds the poll settled stops it without one more read: a failure there would
+    /// stand on screen with no tick left to retry it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_settled_poll_stops_without_reading_again() {
+        await RunOnUiAsync(async () => {
+            var time = new FakeTimeProvider();
+            var feed = new CountingFeed(failAfter: 1);
+            var session = new BehaviorSubject<ChatSessionInfo>(Session("k") with { Status = "Exited", Ended = true, WriterDone = true });
+            var chat = new ChatTabViewModel(
+                "a1", AgentOrigin.Local, session, Observable.Return<string[]?>(null), new ReadOnlyChatInput(),
+                new NoAttachmentUploader(), _ => feed, new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time));
+            try {
+                await WaitUntilAsync(() => feed.Reads > 0, what: "the settling read");
+                await (chat.PendingReadForTesting ?? Task.CompletedTask);
+                for (var i = 0; i < 3; i++) {
+                    time.Advance(ChatTabViewModel.PollInterval);
+                    Dispatcher.UIThread.RunJobs();
+                    await (chat.PendingReadForTesting ?? Task.CompletedTask);
+                }
+                await Assert.That(chat.IsTickingForTesting).IsFalse();
+                await Assert.That(feed.Reads).IsEqualTo(1);
+                await Assert.That(chat.ShowsActivityNote).IsFalse();
+            } finally {
+                await chat.TeardownAsync();
+            }
+        });
+    }
+
+    sealed class CountingFeed(int failAfter = int.MaxValue) : IChatTranscriptFeed {
         int _reads;
         public int Reads => Volatile.Read(ref _reads);
 
-        public FeedRead ReadAppended() {
-            Interlocked.Increment(ref _reads);
-            return new(FeedStatus.Ok, []);
-        }
+        public FeedRead ReadAppended() =>
+            Interlocked.Increment(ref _reads) > failAfter ? new(FeedStatus.Failed, [], Failure: "disk gone") : new(FeedStatus.Ok, []);
 
         public long? CurrentOffset => 0;
         public void Dispose() { }
