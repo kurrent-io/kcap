@@ -1798,7 +1798,8 @@ path, as it carries no secret-capable value into a Windows unit. A service-manag
 therefore has no ADC.
 
 A daemon already running from before you logged in needs a fresh start to pick the trio up — `kcap daemon
-stop` then `kcap daemon start`/`-d` (or, on macOS and Linux, re-run `service install`). `kcap daemon restart` reuses the running
+stop` then `kcap daemon start`/`-d` (or, on macOS and Linux, re-run `service install`); on Windows that start
+is the one above, with the flag set for it. `kcap daemon restart` reuses the running
 process's own environment rather than re-deriving, so it will not.
 
 Deliberately unit-only: do **not** export `AGY_ADC_AUTH=1` in your interactive shell — under ADC auth agy
