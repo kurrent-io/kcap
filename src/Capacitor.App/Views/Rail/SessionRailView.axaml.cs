@@ -155,13 +155,18 @@ public partial class SessionRailView : UserControl {
         if (e.Source == sender && sender is Control { DataContext: RailGroupViewModel group }) group.Expand();
     }
 
-    void OnGroupPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailGroupButton, sender, e);
+    void OnGroupPickerItemClick(object? sender, RoutedEventArgs e) => RunFilterItem(RailGroupButton, sender, e);
 
-    void OnSortPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailSortButton, sender, e);
+    void OnSortPickerItemClick(object? sender, RoutedEventArgs e) => RunFilterItem(RailSortButton, sender, e);
 
-    void OnScopePickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailScopeButton, sender, e);
+    void OnScopePickerItemClick(object? sender, RoutedEventArgs e) => RunFilterItem(RailScopeButton, sender, e);
 
-    void OnStatePickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailStateButton, sender, e);
+    void OnStatePickerItemClick(object? sender, RoutedEventArgs e) => RunFilterItem(RailStateButton, sender, e);
+
+    void RunFilterItem(Button anchor, object? sender, RoutedEventArgs e) {
+        RunFlyoutItem(anchor, sender, e);
+        if (e.Handled) RailFilterButton.Flyout?.Hide();
+    }
 
     void OnProjectPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailProjectButton, sender, e);
 

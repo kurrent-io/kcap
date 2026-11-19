@@ -826,7 +826,7 @@ public class MainWindowSmokeTests {
 
             await Assert.That(rail.Scope).IsEqualTo(RailScope.Team);
             await Assert.That(scope.Flyout.IsOpen).IsFalse();
-            await Assert.That(filter.Flyout.IsOpen).IsTrue();
+            await Assert.That(filter.Flyout.IsOpen).IsFalse();
             await Assert.That(persisted.Select(p => p.Scope)).IsEquivalentTo(new[] { RailScope.Team });
         } finally {
             window.Close();
