@@ -54,9 +54,15 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
     string _newLinkReference = "";
     public string NewLinkReference { get => _newLinkReference; set => this.RaiseAndSetIfChanged(ref _newLinkReference, value); }
 
+    PageViewerViewModel? _pageViewer;
+    CancellationTokenSource? _pageLifetime;
+    /// The Page shown in the main column in place of the slices; null shows the slices.
+    public PageViewerViewModel? PageViewer { get => _pageViewer; private set => this.RaiseAndSetIfChanged(ref _pageViewer, value); }
+
     public ReactiveCommand<Unit, Unit> OpenInWebCommand { get; }
     public ReactiveCommand<WorkItemPageLink, Unit> OpenLinkCommand { get; }
     public ReactiveCommand<WorkItemPublishedPage, Unit> OpenPageCommand { get; }
+    public ReactiveCommand<Unit, Unit> ClosePageCommand { get; }
     public ReactiveCommand<WorkItemPageSession, Unit> OpenSessionCommand { get; }
     public ReactiveCommand<WorkItemPageLooseEnd, Unit> MakePartCommand { get; }
     public ReactiveCommand<Unit, Unit> AddPartCommand { get; }
@@ -65,9 +71,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
     /// <param name="flippedGroups">The groups the viewer opened or closed against their default, kept for the
     /// life of the app.</param>
     /// <param name="needsYou">The agents waiting on the viewer, such as for a permission.</param>
+    /// <param name="viewPage">A viewer for a Page by id and URL, or null when Pages open in the browser right now.</param>
     public WorkItemPageViewModel(string workItemId, IWorkItemPageApi api, IAgentDirectory directory, TimeProvider time,
             ISet<string> flippedGroups, IObservable<IReadOnlySet<string>>? needsYou = null, IObservable<Unit>? changed = null,
-            Action<string>? openSession = null, Action<string>? openUrl = null, Action? openInWeb = null) {
+            Action<string>? openSession = null, Action<string>? openUrl = null, Action? openInWeb = null,
+            Func<string, string, PageViewerViewModel?>? viewPage = null) {
         WorkItemId = workItemId;
         _api = api;
         _directory = directory;
@@ -77,7 +85,12 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
 
         OpenInWebCommand = ReactiveCommand.Create(() => openInWeb?.Invoke(), Observable.Return(openInWeb is not null)).DisposeWith(_disposables);
         OpenLinkCommand = ReactiveCommand.Create<WorkItemPageLink>(link => { if (link.Url is { } url) openUrl?.Invoke(url); }).DisposeWith(_disposables);
-        OpenPageCommand = ReactiveCommand.Create<WorkItemPublishedPage>(page => openUrl?.Invoke(page.Url)).DisposeWith(_disposables);
+        OpenPageCommand = ReactiveCommand.Create<WorkItemPublishedPage>(page => {
+            if (PageViewer?.ArtefactId == page.ArtefactId) return;
+            if (viewPage?.Invoke(page.ArtefactId, page.Url) is { } viewer) ShowPage(viewer);
+            else openUrl?.Invoke(page.Url);
+        }).DisposeWith(_disposables);
+        ClosePageCommand = ReactiveCommand.Create(ClosePage).DisposeWith(_disposables);
         OpenSessionCommand = ReactiveCommand.Create<WorkItemPageSession>(session => openSession?.Invoke(session.SessionId)).DisposeWith(_disposables);
         MakePartCommand = ReactiveCommand.CreateFromTask<WorkItemPageLooseEnd>(looseEnd =>
             ChangeAsync(ct => _api.MakePartAsync(WorkItemId, looseEnd.LooseEndId, ct), "Couldn't make a slice from that loose end")).DisposeWith(_disposables);
@@ -115,6 +128,27 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
             () => _ = ChangeAsync(ct => _api.RemoveSessionAsync(WorkItemId, session.SessionId, ct), "Couldn't remove that session")),
     ];
 
+    void ShowPage(PageViewerViewModel viewer) {
+        ClosePage();
+        _pageLifetime = new CancellationTokenSource();
+        PageViewer = viewer;
+        _ = LoadPageAsync(viewer, _pageLifetime.Token);
+    }
+
+    static async Task LoadPageAsync(PageViewerViewModel viewer, CancellationToken ct) {
+        try { await viewer.LoadAsync(ct); }
+        catch (Exception ex) { Console.Error.WriteLine($"kcap: work item page load: {ex.Message}"); }
+    }
+
+    void ClosePage() {
+        if (PageViewer is not { } viewer) return;
+        _pageLifetime?.Cancel();
+        _pageLifetime?.Dispose();
+        _pageLifetime = null;
+        viewer.Close();
+        PageViewer = null;
+    }
+
     async Task<bool> ChangeAsync(Func<CancellationToken, Task<bool>> change, string failure) {
         Message = null;
         var recorded = await change(CancellationToken.None);
@@ -134,7 +168,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
         Goal = string.IsNullOrWhiteSpace(read.Goal) ? null : read.Goal.Trim();
         Links = LinksOf(read.Links);
         Pages = [.. read.Pages.Select(page => new WorkItemPublishedPage(
-            string.IsNullOrWhiteSpace(page.Title) ? "Untitled page" : page.Title, $"v{page.LatestVersion} · {Ago(page.UpdatedAt)}", page.Url))];
+            page.ArtefactId, string.IsNullOrWhiteSpace(page.Title) ? "Untitled page" : page.Title, $"v{page.LatestVersion} · {Ago(page.UpdatedAt)}", page.Url))];
 
         var parts = read.Parts.Select(part => PartOf(part, rows)).ToList();
         var done = parts.Count(part => part.Status == WorkStatus.Done);
@@ -197,5 +231,8 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
 
     string Ago(DateTimeOffset at) => RelativeTime.Ago(at, _time.GetUtcNow(), _time.LocalTimeZone);
 
-    public void Dispose() => _disposables.Dispose();
+    public void Dispose() {
+        ClosePage();
+        _disposables.Dispose();
+    }
 }

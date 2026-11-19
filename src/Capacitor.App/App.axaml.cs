@@ -1418,7 +1418,7 @@ public partial class App : Application {
                 sessions: sessions, railPreferences: railPreferences, profileName: profiles?.Name,
                 readProjects: ServerProjectsHttp.Reader(sessionHttp, profiles),
                 readWorkItems: ServerWorkItemsHttp.Reader(sessionHttp, profiles),
-                workItemPages: workItems,
+                workItemPages: workItems, pageContent: planArtifacts, inAppPages: () => webView.IsAvailable && inAppPages.IsOn,
                 modelCatalog: modelCatalog.Catalog, uploader: uploader, appServerUrl: profiles?.Resolution.ServerUrl,
                 openFeedback: openFeedback, settingsAction: _appMenu.SettingsAction, checkForUpdatesAction: _appMenu.CheckForUpdatesAction,
                 uninstallAction: _appMenu.UninstallAction,
@@ -2337,7 +2337,7 @@ public partial class App : Application {
             Func<bool>? nextWorkEnabled = null,
             Func<CancellationToken, Task<IReadOnlyList<RailProject>?>>? readProjects = null,
             Func<string, CancellationToken, Task<RailWorkItems?>>? readWorkItems = null,
-            IWorkItemPageApi? workItemPages = null) {
+            IWorkItemPageApi? workItemPages = null, IPageContentSource? pageContent = null, Func<bool>? inAppPages = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
         // the VM's WhenActivated-scoped projections.
@@ -2466,7 +2466,9 @@ public partial class App : Application {
             openSession: sessionId => _ = vm?.OpenWorkItemSessionAsync(sessionId),
             openUrl: openUrl,
             openInWeb: openUrl is null || string.IsNullOrEmpty(appServerUrl) ? null
-                : () => openUrl($"{appServerUrl.TrimEnd('/')}/work-items/{Uri.EscapeDataString(id)}"));
+                : () => openUrl($"{appServerUrl.TrimEnd('/')}/work-items/{Uri.EscapeDataString(id)}"),
+            viewPage: pageContent is null || inAppPages is null ? null : (pageId, url) => inAppPages()
+                ? new PageViewerViewModel(pageContent, pageId, url, new ShellUrlOpener(), time, webViewAvailable: true) : null);
         Func<AllSessionsPageViewModel>? allSessionsPageFactory = sessions is null ? null : () => new AllSessionsPageViewModel(
             sessions, rail.WhenAnyValue(r => r.Scope, r => r.Project, (scope, project) => (scope, project)), time,
             openSession: sessionId => _ = vm?.OpenAllSessionsSessionAsync(sessionId));

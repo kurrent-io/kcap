@@ -260,53 +260,73 @@
                 </Grid>
             </Border>
 
-            <ScrollViewer>
-                <Grid ColumnDefinitions="*,6*,*" Margin="0,16,0,24">
-                    <StackPanel Grid.Column="1" Spacing="8">
-                        <TextBlock x:Name="WorkItemMessage" Text="{Binding Message}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}"
-                                   IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-
-                        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
-                            <TextBlock Classes="bar" Text="Slices" />
-                            <StackPanel x:Name="WorkItemProgress" Grid.Column="1" Orientation="Horizontal" Spacing="6"
-                                        IsVisible="{Binding ProgressText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                        ToolTip.Tip="{Binding ProgressText, StringFormat='{}{0} slices done'}">
-                                <Panel Width="16" Height="16" VerticalAlignment="Center">
-                                    <Ellipse Stroke="{StaticResource KcapBorderStrongBrush}" StrokeThickness="2.5" />
-                                    <Arc StartAngle="-90" SweepAngle="{Binding ProgressSweep}" Stroke="{StaticResource KcapSuccessBrush}"
-                                         StrokeThickness="2.5" StrokeLineCap="Round" />
-                                </Panel>
-                                <TextBlock Text="{Binding ProgressText}" FontSize="15" Foreground="{StaticResource KcapMutedBrush}"
-                                           VerticalAlignment="Center" />
+            <Panel>
+                <DockPanel x:Name="WorkItemPageHost" IsVisible="{Binding PageViewer, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <Border DockPanel.Dock="Top" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1" Padding="16,6">
+                        <Button x:Name="WorkItemPageBack" Classes="kcapGhost barAction" HorizontalAlignment="Left"
+                                Command="{Binding ClosePageCommand}" AutomationProperties.Name="Back to slices">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <views:AppIcon Kind="ArrowLeft" Size="12" />
+                                <TextBlock Text="Slices" />
                             </StackPanel>
-                            <Button x:Name="AddPartButton" Grid.Column="3" Classes="kcapGhost barAction" AutomationProperties.Name="Add slice">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <views:AppIcon Kind="Plus" Size="12" />
-                                    <TextBlock Text="Slice" />
-                                </StackPanel>
-                                <Button.Flyout>
-                                    <Flyout Placement="BottomEdgeAlignedRight" FlyoutPresenterClasses="kcapPanel">
-                                        <StackPanel Spacing="8" Margin="8" Width="260">
-                                            <TextBox Classes="kcapField" Text="{Binding NewPartTitle}" PlaceholderText="Slice title"
-                                                     AutomationProperties.Name="Slice title" />
-                                            <Button Classes="kcapChip" Content="Add slice" HorizontalAlignment="Right"
-                                                    Command="{Binding AddPartCommand}" Click="OnFlyoutItemClick" />
-                                        </StackPanel>
-                                    </Flyout>
-                                </Button.Flyout>
-                            </Button>
-                        </Grid>
+                        </Button>
+                    </Border>
+                    <ContentControl Content="{Binding PageViewer}">
+                        <ContentControl.ContentTemplate>
+                            <DataTemplate x:DataType="vm:PageViewerViewModel">
+                                <views:PageViewer />
+                            </DataTemplate>
+                        </ContentControl.ContentTemplate>
+                    </ContentControl>
+                </DockPanel>
+                <ScrollViewer IsVisible="{Binding PageViewer, Converter={x:Static ObjectConverters.IsNull}}">
+                    <Grid ColumnDefinitions="*,6*,*" Margin="0,16,0,24">
+                        <StackPanel Grid.Column="1" Spacing="8">
+                            <TextBlock x:Name="WorkItemMessage" Text="{Binding Message}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}"
+                                       IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
-                        <ItemsControl x:Name="WorkItemGroups" ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource Group}">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Spacing="8" />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                        </ItemsControl>
-                    </StackPanel>
-                </Grid>
-            </ScrollViewer>
+                            <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
+                                <TextBlock Classes="bar" Text="Slices" />
+                                <StackPanel x:Name="WorkItemProgress" Grid.Column="1" Orientation="Horizontal" Spacing="6"
+                                            IsVisible="{Binding ProgressText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                            ToolTip.Tip="{Binding ProgressText, StringFormat='{}{0} slices done'}">
+                                    <Panel Width="16" Height="16" VerticalAlignment="Center">
+                                        <Ellipse Stroke="{StaticResource KcapBorderStrongBrush}" StrokeThickness="2.5" />
+                                        <Arc StartAngle="-90" SweepAngle="{Binding ProgressSweep}" Stroke="{StaticResource KcapSuccessBrush}"
+                                             StrokeThickness="2.5" StrokeLineCap="Round" />
+                                    </Panel>
+                                    <TextBlock Text="{Binding ProgressText}" FontSize="15" Foreground="{StaticResource KcapMutedBrush}"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                                <Button x:Name="AddPartButton" Grid.Column="3" Classes="kcapGhost barAction" AutomationProperties.Name="Add slice">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <views:AppIcon Kind="Plus" Size="12" />
+                                        <TextBlock Text="Slice" />
+                                    </StackPanel>
+                                    <Button.Flyout>
+                                        <Flyout Placement="BottomEdgeAlignedRight" FlyoutPresenterClasses="kcapPanel">
+                                            <StackPanel Spacing="8" Margin="8" Width="260">
+                                                <TextBox Classes="kcapField" Text="{Binding NewPartTitle}" PlaceholderText="Slice title"
+                                                         AutomationProperties.Name="Slice title" />
+                                                <Button Classes="kcapChip" Content="Add slice" HorizontalAlignment="Right"
+                                                        Command="{Binding AddPartCommand}" Click="OnFlyoutItemClick" />
+                                            </StackPanel>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </Grid>
+
+                            <ItemsControl x:Name="WorkItemGroups" ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource Group}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Spacing="8" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+            </Panel>
         </DockPanel>
 
         <Border x:Name="DetailsPane" Grid.Column="1" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1,0,0,0">
