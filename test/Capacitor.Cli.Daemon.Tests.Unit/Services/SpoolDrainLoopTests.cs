@@ -30,13 +30,13 @@ public class SpoolDrainLoopTests {
         const string session = "01a13694b0ad7ae28bf52af6357a0847";
         const string payload = """{"hook_event_name":"SessionEnd","reason":"exit"}""";
         var paths = WatcherPaths.FromEnvironment(Config.Root);
-        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, session, payload);
-        File.SetLastWriteTimeUtc(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.PathFor(paths, session, payload), DateTime.UtcNow.AddMinutes(-10));
+        Core.Harness.Muse.MuseSessionEndRequest.Write(paths, session, payload);
+        File.SetLastWriteTimeUtc(Core.Harness.Muse.MuseSessionEndRequest.PathFor(paths, session, payload), DateTime.UtcNow.AddMinutes(-10));
 
         await MakeLoop(new StatusOnlyHttpClient(AuthStatus.UnusableServerUrl), new CapturingLogger<SpoolDrainLoopTests>()).TickAsync(CancellationToken.None);
 
         await Assert.That(new HookSpool(Config.PathTo("lifecycle"), time: TimeProvider.System).HasBacklog(session)).IsTrue();
-        await Assert.That(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, session)).IsFalse();
+        await Assert.That(Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, session)).IsFalse();
     }
 
     /// <summary>The tick pays a span close a hook's drain owed, auth or not: the close only spools its changes.</summary>
@@ -45,12 +45,12 @@ public class SpoolDrainLoopTests {
         const string session = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
         var paths = WatcherPaths.FromEnvironment(Config.Root);
         const string end = $$"""{"session_id":"{{session}}","reason":"user_exit"}""";
-        Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Record(paths, session, "https://example.invalid", end);
-        Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.NoteOutcome(paths, "session-end/copilot", end, DrainOutcome.Delivered);
+        Recording.Harness.Copilot.CopilotSpanClose.Record(paths, session, "https://example.invalid", end);
+        Recording.Harness.Copilot.CopilotSpanClose.NoteOutcome(paths, "session-end/copilot", end, DrainOutcome.Delivered);
 
         await MakeLoop(new StatusOnlyHttpClient(AuthStatus.UnusableServerUrl), new CapturingLogger<SpoolDrainLoopTests>()).TickAsync(CancellationToken.None);
 
-        await Assert.That(Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Pending(paths, "https://example.invalid")).DoesNotContain(session);
+        await Assert.That(Recording.Harness.Copilot.CopilotSpanClose.Pending(paths, "https://example.invalid")).DoesNotContain(session);
     }
 
     // Credential resolution must run on the loop's own token, not one truncated to the drain

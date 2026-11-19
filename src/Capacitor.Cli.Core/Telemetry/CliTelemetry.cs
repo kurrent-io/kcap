@@ -158,7 +158,7 @@ public sealed class CliTelemetry {
                     ["os"]            = OS(),
                     ["arch"]          = RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
                     ["is_ci"]         = TelemetryEnvironment.IsCi(),
-                    ["is_headless"]   = Auth.HeadlessEnvironment.IsHeadless(),
+                    ["is_headless"]   = HeadlessEnvironment.IsHeadless(),
                     ["has_server"]    = startup.ServerUrl is not null,
                 },
                 time,

@@ -28,8 +28,8 @@ public static partial class HandoffFailureText {
             case "invalid_handoff": return InvalidHandoff;
             case "handoff_unsupported_daemon": return HandoffComposerViewModel.DaemonTooOld;
             case "handoff_not_owner": return NotOwner;
-            case Capacitor.Cli.Core.LocalIpc.HandoffRefusals.RepoMismatch: return RepoMismatch;
-            case Capacitor.Cli.Core.LocalIpc.HandoffRefusals.RepoNotAllowed: return RepoNotAllowed;
+            case Cli.Core.LocalIpc.HandoffRefusals.RepoMismatch: return RepoMismatch;
+            case Cli.Core.LocalIpc.HandoffRefusals.RepoNotAllowed: return RepoNotAllowed;
         }
         var friendly = HomeViewModel.FriendlyLaunchFailure(reason);
         if (friendly != reason || code is null) return friendly;

@@ -61,7 +61,7 @@ public class RemoteSessionViewModelTests {
         public readonly RecordingNotifier Notifier = new();
 
         public RemoteSessionViewModel Build(AgentRow row, IPlanArtifactSource? planArtifacts = null,
-                Capacitor.Cli.Core.PullRequests.IPullRequestSource? pullRequests = null, IPlanSource? plans = null,
+                Cli.Core.PullRequests.IPullRequestSource? pullRequests = null, IPlanSource? plans = null,
                 SessionRunActivity? commands = null, SubagentEventsReader? readSubagent = null, AccountReadings? readings = null,
                 Func<AgentRow, HandoffComposerViewModel>? handoff = null, HandoffOutcomeReader? handoffOutcomes = null,
                 IPageContentSource? pageContent = null, IUrlOpener? opener = null, bool? webView = null, bool inAppPages = true,
@@ -104,7 +104,7 @@ public class RemoteSessionViewModelTests {
         var rig = new RemoteAgentsServiceTests.GateRig("work-mac");
         rig.Accounts = [StripReadings.Remote("work-mac", StripReadings.Reading(StripReadings.Window(300, 42, TimeSpan.FromHours(2))))];
         var readings = new AccountReadings(
-            Observable.Return<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>(null), rig.Service.DrawableDaemonAccounts,
+            Observable.Return<Cli.Core.Accounts.AccountsSnapshotDto?>(null), rig.Service.DrawableDaemonAccounts,
             Observable.Return(StripReadings.Now));
         return (rig, readings);
     }
@@ -638,7 +638,7 @@ public class RemoteSessionViewModelTests {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
             var source = new FakePullRequestSource(h.Time) { Links = [],
-                Capability = failed ? Capacitor.Cli.Core.PullRequests.PullRequestCapabilityKind.Unavailable : Capacitor.Cli.Core.PullRequests.PullRequestCapabilityKind.Supported };
+                Capability = failed ? Cli.Core.PullRequests.PullRequestCapabilityKind.Unavailable : Cli.Core.PullRequests.PullRequestCapabilityKind.Supported };
             var vm = h.Build(Harness.Row(), pullRequests: source);
             vm.OpenPullRequest();
             await Assert.That(vm.IsPullRequestActive).IsTrue();
@@ -660,7 +660,7 @@ public class RemoteSessionViewModelTests {
             var vm = h.Build(Harness.Row(), pullRequests: source);
             await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
             vm.PullRequests!.SetForeground(true);
-            vm.OpenPullRequest(Capacitor.Cli.Core.PullRequests.PullRequestWire.Subject(source.Links[0]));
+            vm.OpenPullRequest(Cli.Core.PullRequests.PullRequestWire.Subject(source.Links[0]));
             await WaitUntilAsync(() => vm.PullRequests.CanReveal && !vm.PullRequests.IsReading, what: "PR reader");
             await Assert.That(vm.IsPullRequestActive).IsTrue();
             await Assert.That(vm.ShowsPullRequestPane).IsTrue();

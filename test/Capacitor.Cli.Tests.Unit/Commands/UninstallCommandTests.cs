@@ -1420,13 +1420,13 @@ public class UninstallCommandTests {
         var vibe = TestHarnesses.Under(fixture.UserHome).Of<Capacitor.Cli.Core.Harness.MistralVibe.MistralVibeHarness>().Paths;
         Directory.CreateDirectory(vibe.Home);
         await File.WriteAllTextAsync(vibe.ConfigToml, "model = \"user-model\"\n");
-        Capacitor.Cli.Core.Harness.MistralVibe.MistralVibeHooksInstaller.Install(vibe.HooksToml);
-        Capacitor.Cli.Core.Harness.MistralVibe.MistralVibeConfigToml.RegisterKcapMcpServers(vibe.ConfigToml);
+        Core.Harness.MistralVibe.MistralVibeHooksInstaller.Install(vibe.HooksToml);
+        Core.Harness.MistralVibe.MistralVibeConfigToml.RegisterKcapMcpServers(vibe.ConfigToml);
 
         await Assert.That(await RunUninstall(fixture)).IsEqualTo(0);
-        await Assert.That(Capacitor.Cli.Core.Harness.MistralVibe.MistralVibeHooksInstaller.IsInstalled(vibe.HooksToml)).IsFalse();
+        await Assert.That(Core.Harness.MistralVibe.MistralVibeHooksInstaller.IsInstalled(vibe.HooksToml)).IsFalse();
         await Assert.That(await File.ReadAllTextAsync(vibe.ConfigToml)).Contains("user-model");
-        await Assert.That(Capacitor.Cli.Core.Harness.MistralVibe.MistralVibeConfigToml.OwnsAnything(vibe.ConfigToml)).IsFalse();
+        await Assert.That(Core.Harness.MistralVibe.MistralVibeConfigToml.OwnsAnything(vibe.ConfigToml)).IsFalse();
     }
 
     [Test]
@@ -1475,13 +1475,13 @@ public class UninstallCommandTests {
     public async Task Uninstall_reports_malformed_antigravity_hooks_instead_of_claiming_success() {
         await using var fixture = await Fixture.CreateAsync();
         var agy = TestHarnesses.Under(fixture.UserHome).Of<Capacitor.Cli.Core.Harness.Antigravity.AntigravityHarness>().Paths;
-        Capacitor.Cli.Core.Harness.Antigravity.AntigravityHooksInstaller.Install(agy.GlobalHooksJson);
+        Core.Harness.Antigravity.AntigravityHooksInstaller.Install(agy.GlobalHooksJson);
         await File.WriteAllTextAsync(agy.GlobalHooksJson, "{broken");
 
         await Assert.That(await RunUninstall(fixture)).IsEqualTo(1);
         await Assert.That(Directory.Exists(fixture.ConfigDir)).IsTrue();
         await Assert.That(await File.ReadAllTextAsync(agy.GlobalHooksJson)).IsEqualTo("{broken");
-        await Assert.That(Capacitor.Cli.Core.Harness.Antigravity.AntigravityHooksInstaller.IsInstalled(agy.GlobalHooksJson)).IsTrue();
+        await Assert.That(Core.Harness.Antigravity.AntigravityHooksInstaller.IsInstalled(agy.GlobalHooksJson)).IsTrue();
     }
 
     [Test]

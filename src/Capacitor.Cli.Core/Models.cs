@@ -1085,24 +1085,24 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(EvalQuestionFailure))]
 [JsonSerializable(typeof(List<EvalQuestionFailure>))]
 [JsonSerializable(typeof(SessionEvalCompletedPayloadV4))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.EvalUsage))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.BaselineQuestionOutput))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.BaselineQuestionFailure))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.BaselineRetrospectiveOutput))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.BaselineOutput))]
+[JsonSerializable(typeof(Eval.EvalUsage))]
+[JsonSerializable(typeof(Eval.BaselineQuestionOutput))]
+[JsonSerializable(typeof(Eval.BaselineQuestionFailure))]
+[JsonSerializable(typeof(Eval.BaselineRetrospectiveOutput))]
+[JsonSerializable(typeof(Eval.BaselineOutput))]
 [JsonSerializable(typeof(QuestionResultV2))]
 [JsonSerializable(typeof(FinalizeEvalV2Command))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.Evidence.EvidenceScopeManifestDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.Evidence.EvidenceScopeErrorDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.Evidence.EvidenceReadErrorDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.Evidence.EvidenceCitationsRequestDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.Evidence.EvidenceScopeHoldCreateRequestDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.Evidence.EvidenceScopeHoldRequestDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.Evidence.EvidenceCitationsResponseDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.Evidence.EvidenceEventPageDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.Evidence.EvidenceTurnPageDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.Evidence.EvidenceBodyChunkDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Eval.Evidence.EvalTreatment))]
+[JsonSerializable(typeof(Eval.Evidence.EvidenceScopeManifestDto))]
+[JsonSerializable(typeof(Eval.Evidence.EvidenceScopeErrorDto))]
+[JsonSerializable(typeof(Eval.Evidence.EvidenceReadErrorDto))]
+[JsonSerializable(typeof(Eval.Evidence.EvidenceCitationsRequestDto))]
+[JsonSerializable(typeof(Eval.Evidence.EvidenceScopeHoldCreateRequestDto))]
+[JsonSerializable(typeof(Eval.Evidence.EvidenceScopeHoldRequestDto))]
+[JsonSerializable(typeof(Eval.Evidence.EvidenceCitationsResponseDto))]
+[JsonSerializable(typeof(Eval.Evidence.EvidenceEventPageDto))]
+[JsonSerializable(typeof(Eval.Evidence.EvidenceTurnPageDto))]
+[JsonSerializable(typeof(Eval.Evidence.EvidenceBodyChunkDto))]
+[JsonSerializable(typeof(Eval.Evidence.EvalTreatment))]
 [JsonSerializable(typeof(EvalTraceCoverage))]
 [JsonSerializable(typeof(List<ErrorEntry>))]
 [JsonSerializable(typeof(List<CliProjectSummary>))]
@@ -1116,7 +1116,7 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(WorkItems.WorkItemErrorDto))]
 [JsonSerializable(typeof(RepositoryPayload))]
 [JsonSerializable(typeof(TranscriptBatch))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Transcripts.CanonicalTranscriptBatch))]
+[JsonSerializable(typeof(Transcripts.CanonicalTranscriptBatch))]
 [JsonSerializable(typeof(SessionTitlePayload))]
 [JsonSerializable(typeof(HarnessTitleHook))]
 [JsonSerializable(typeof(WhatsDonePayload))]
@@ -1191,11 +1191,11 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(StatusReportRequest))]
 [JsonSerializable(typeof(ResumingAgentClaim))]
 [JsonSerializable(typeof(ResumingAgentClaim[]))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Accounts.AccountsSnapshotDto))]
+[JsonSerializable(typeof(Accounts.AccountsSnapshotDto))]
 // Surface 3 (new-harness detection): per-machine coding-agent inventory carried on the status report.
-[JsonSerializable(typeof(Capacitor.Cli.Core.Setup.HarnessInventory))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Setup.HarnessInventoryEntry))]
-[JsonSerializable(typeof(Dictionary<string, Capacitor.Cli.Core.Setup.HarnessInventoryEntry>))]
+[JsonSerializable(typeof(Setup.HarnessInventory))]
+[JsonSerializable(typeof(Setup.HarnessInventoryEntry))]
+[JsonSerializable(typeof(Dictionary<string, Setup.HarnessInventoryEntry>))]
 // Report / connect side wire DTOs.
 [JsonSerializable(typeof(ResolvedStartupCandidate))]
 [JsonSerializable(typeof(ResolvedStartupCandidate[]))]
@@ -1289,8 +1289,8 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(AcpLaunchConfirmOutcome))]
 [JsonSerializable(typeof(ParkParticipantOutcome))]
 [JsonSerializable(typeof(TranscriptBatchAck))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Transcripts.CanonicalSendResult))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Transcripts.CanonicalCapabilities))]
+[JsonSerializable(typeof(Transcripts.CanonicalSendResult))]
+[JsonSerializable(typeof(Transcripts.CanonicalCapabilities))]
 // The AcpSessionStarted hub method's optional metadata argument. Registered as its own root type
 // (not just nested inside another JsonSerializable graph) because SignalR's JsonHubProtocol
 // serializes each hub-invocation argument independently by its declared type.
@@ -1304,48 +1304,48 @@ public sealed record CurationApplyResponse {
 // LaunchAgent handler never fires (DEV-1665).
 // Machine credentials. Registered here because the AOT CLI has no reflection fallback:
 // an unregistered type throws at runtime, not at build.
-[JsonSerializable(typeof(Capacitor.Cli.Core.Commands.CreateMachineApplicationRequest))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Commands.CreateMachineApplicationResponse))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Commands.RegisterMachineRequest))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Commands.RegisterMachineResponse))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Commands.MachineSummary[]))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Skills.SkillsSnapshotResponse))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Skills.SkillsManifest))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Skills.SkillsLedger))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Commands.FeedbackSubmitRequest))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Commands.FeedbackSubmitContext))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Commands.FeedbackSubmitResponse))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Policy.PolicyDecisionEventV1))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Policy.PolicySnapshotUploadV1))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Policy.PolicyJudgeRequestV1))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Policy.PolicyJudgeResponseV1))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.ArtefactDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.ArtefactDetailDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.ArtefactListDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PageSearchResponseDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PageResponseBody))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.ArtefactErrorDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PublishArtefactBody))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PublishArtefactVersionBody))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.SharingDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.SharingCandidatesDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.SetSharingGrantBody))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.SharingErrorDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.UserSurfacesDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.UserCandidatesDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.StartPassBody))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.StartPassResponseDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PassRefusalDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.ApprovePassBody))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PassApprovalResponseDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.PassDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.CatchUpDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.WhatElseDto))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Http.DeclareLooseEndBody))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Setup.VisibilityOptionsResponse))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceSetupRequest))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceSetupResponse))]
-[JsonSerializable(typeof(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceSetupError))]
+[JsonSerializable(typeof(CreateMachineApplicationRequest))]
+[JsonSerializable(typeof(CreateMachineApplicationResponse))]
+[JsonSerializable(typeof(RegisterMachineRequest))]
+[JsonSerializable(typeof(RegisterMachineResponse))]
+[JsonSerializable(typeof(MachineSummary[]))]
+[JsonSerializable(typeof(Skills.SkillsSnapshotResponse))]
+[JsonSerializable(typeof(Skills.SkillsManifest))]
+[JsonSerializable(typeof(Skills.SkillsLedger))]
+[JsonSerializable(typeof(FeedbackSubmitRequest))]
+[JsonSerializable(typeof(FeedbackSubmitContext))]
+[JsonSerializable(typeof(FeedbackSubmitResponse))]
+[JsonSerializable(typeof(Policy.PolicyDecisionEventV1))]
+[JsonSerializable(typeof(Policy.PolicySnapshotUploadV1))]
+[JsonSerializable(typeof(Policy.PolicyJudgeRequestV1))]
+[JsonSerializable(typeof(Policy.PolicyJudgeResponseV1))]
+[JsonSerializable(typeof(ArtefactDto))]
+[JsonSerializable(typeof(ArtefactDetailDto))]
+[JsonSerializable(typeof(ArtefactListDto))]
+[JsonSerializable(typeof(PageSearchResponseDto))]
+[JsonSerializable(typeof(PageResponseBody))]
+[JsonSerializable(typeof(ArtefactErrorDto))]
+[JsonSerializable(typeof(PublishArtefactBody))]
+[JsonSerializable(typeof(PublishArtefactVersionBody))]
+[JsonSerializable(typeof(SharingDto))]
+[JsonSerializable(typeof(SharingCandidatesDto))]
+[JsonSerializable(typeof(SetSharingGrantBody))]
+[JsonSerializable(typeof(SharingErrorDto))]
+[JsonSerializable(typeof(UserSurfacesDto))]
+[JsonSerializable(typeof(UserCandidatesDto))]
+[JsonSerializable(typeof(StartPassBody))]
+[JsonSerializable(typeof(StartPassResponseDto))]
+[JsonSerializable(typeof(PassRefusalDto))]
+[JsonSerializable(typeof(ApprovePassBody))]
+[JsonSerializable(typeof(PassApprovalResponseDto))]
+[JsonSerializable(typeof(PassDto))]
+[JsonSerializable(typeof(CatchUpDto))]
+[JsonSerializable(typeof(WhatElseDto))]
+[JsonSerializable(typeof(DeclareLooseEndBody))]
+[JsonSerializable(typeof(Setup.VisibilityOptionsResponse))]
+[JsonSerializable(typeof(Setup.Intelligence.IntelligenceSetupRequest))]
+[JsonSerializable(typeof(Setup.Intelligence.IntelligenceSetupResponse))]
+[JsonSerializable(typeof(Setup.Intelligence.IntelligenceSetupError))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     UseStringEnumConverter = true
@@ -1803,10 +1803,10 @@ public readonly record struct LaunchAgentCommand(
         bool              ScratchWorkspace = false,
         // Continue an ended session from this start. Sent only to a daemon advertising
         // DaemonConnect.SupportsHandoffLaunch; a daemon that cannot carry it refuses the launch.
-        Capacitor.Cli.Core.Handoff.HandoffLaunch? Handoff = null,
+        Handoff.HandoffLaunch? Handoff = null,
         // Resume an ended session natively in its own directory. Sent only to a daemon advertising
         // DaemonConnect.SupportsResumeInPlace; a daemon that cannot carry it refuses the launch.
-        Capacitor.Cli.Core.Resume.ResumeInPlaceLaunch? ResumeInPlace = null
+        Resume.ResumeInPlaceLaunch? ResumeInPlace = null
     );
 
 /// <summary>Caller-selected Codex launch posture. Valid ONLY for interactive, daemon-owned-worktree
@@ -1993,7 +1993,7 @@ public readonly record struct DaemonStatusReport(
         long?                         HighestResolutionGeneration   = null,
         // Surface 3 (new-harness detection): this machine's coding-agent inventory. Additive/optional
         // — recomputed by the daemon on its own 6h in-memory cadence, attached to every report.
-        Capacitor.Cli.Core.Setup.HarnessInventory? HarnessInventory = null,
+        Setup.HarnessInventory? HarnessInventory = null,
         // Echo of the nonce from a server-sent StatusReportRequest (RequestStatusReport2), null on
         // every unsolicited report. The server's idle-marker coordinator confirms a claim only
         // against the report carrying ITS nonce — an unechoed report can never confirm one.
@@ -2363,7 +2363,7 @@ public readonly record struct DaemonConnect(
         // Advertises a launch that names an account. False from a daemon predating it; the server
         // then never sends an AccountId.
         bool                                        SupportsAccountLaunches = false,
-        Capacitor.Cli.Core.Accounts.AccountsSnapshotDto? Accounts = null,
+        Accounts.AccountsSnapshotDto? Accounts = null,
         // Per-account launchable models, keyed by registry id.
         Dictionary<string, VendorModelOption[]>?    VendorModelsByAccount = null,
         // Harness tokens this daemon runs RunHeadlessPrompt on. Null from a daemon predating the field;

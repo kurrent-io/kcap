@@ -86,7 +86,7 @@ public sealed class RemoteTerminalControl : TerminalControl {
         if (_historyScrollBar is null || ColumnDefinitions.Count != 2 || RowDefinitions.Count > 1) return;
         var typeface = new Typeface(FontFamily);
         if (!FontManager.Current.TryGetGlyphTypeface(typeface, out var glyphs)) {
-            typeface = new Typeface(Avalonia.Media.FontFamily.Default);
+            typeface = new Typeface(FontFamily.Default);
             if (!FontManager.Current.TryGetGlyphTypeface(typeface, out glyphs)) return;
         }
         var shaped = TextShaper.Current.ShapeText("a", new TextShaperOptions(glyphs, FontSize));

@@ -294,7 +294,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
 
     ResolvedAccount? RecordedAccount() =>
         _session.Recording is { ConfigDir: { Length: > 0 } store } recording
-            ? new ResolvedAccount(store, recording.AccountId, Services.AccountRows.LastSegment(store))
+            ? new ResolvedAccount(store, recording.AccountId, AccountRows.LastSegment(store))
             : null;
 
     internal HandoffChoicesViewModel ChoicesForTesting => _choices;

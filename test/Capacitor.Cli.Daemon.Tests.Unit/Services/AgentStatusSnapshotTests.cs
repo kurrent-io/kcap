@@ -202,13 +202,13 @@ public class AgentStatusSnapshotTests {
         try {
             var agent = orch.SeedAgentForTest("pty-1");
 
-            var before = System.Text.Json.JsonSerializer.Serialize(orch.SnapshotAgentsForStatus()[0], StatusIpcJsonContext.Default.AgentStatusDto);
+            var before = JsonSerializer.Serialize(orch.SnapshotAgentsForStatus()[0], StatusIpcJsonContext.Default.AgentStatusDto);
             await Assert.That(before).Contains("\"transcript_path\":null");
 
             var versionBefore = fixture.Notifier.Version;
             await orch.RunDiscoveryForTest(agent, _ => ("0123456789abcdef0123456789abcdef", "/home/u/.claude/projects/-repo/t.jsonl"));
 
-            var after = System.Text.Json.JsonSerializer.Serialize(orch.SnapshotAgentsForStatus()[0], StatusIpcJsonContext.Default.AgentStatusDto);
+            var after = JsonSerializer.Serialize(orch.SnapshotAgentsForStatus()[0], StatusIpcJsonContext.Default.AgentStatusDto);
             await Assert.That(after).Contains("\"transcript_path\":\"/home/u/.claude/projects/-repo/t.jsonl\"");
             await Assert.That(agent.SessionId).IsEqualTo("0123456789abcdef0123456789abcdef");
             await Assert.That(fixture.Notifier.Version).IsGreaterThan(versionBefore);

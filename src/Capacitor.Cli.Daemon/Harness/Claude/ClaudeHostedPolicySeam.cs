@@ -1,9 +1,9 @@
 namespace Capacitor.Cli.Daemon.Harness.Claude;
 
-using Capacitor.Cli.Core;
+using Core;
 using Capacitor.Cli.Core.Harness.Claude;
-using Capacitor.Cli.Core.Policy;
-using Capacitor.Cli.Daemon.Services;
+using Core.Policy;
+using Services;
 using Microsoft.Extensions.Logging;
 
 /// <summary>

@@ -181,7 +181,7 @@ public partial class LaunchChipsView : UserControl {
         header.Children.Add(underline);
 
         var right = new DockPanel();
-        DockPanel.SetDock(header, Avalonia.Controls.Dock.Top);
+        DockPanel.SetDock(header, Dock.Top);
         right.Children.Add(header);
         right.Children.Add(new ScrollViewer { Height = 380, Content = rows });
 

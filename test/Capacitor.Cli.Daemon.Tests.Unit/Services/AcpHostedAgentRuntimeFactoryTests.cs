@@ -2015,7 +2015,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         // key-absence assertion would pass vacuously while the redirection leaked in.
         await Assert.That(env.Values.Any(v => v == "would-be-token")).IsFalse();
         await Assert.That(env.Values.Any(v => v is not null && v.Contains(
-            Capacitor.Cli.Daemon.Services.WorktreeManager.VendorStateSuffix, StringComparison.Ordinal))).IsFalse();
+            WorktreeManager.VendorStateSuffix, StringComparison.Ordinal))).IsFalse();
 
         if (Environment.GetEnvironmentVariable("HOME") is { Length: > 0 } ambientHome)
             await Assert.That(env["HOME"]).IsEqualTo(ambientHome);

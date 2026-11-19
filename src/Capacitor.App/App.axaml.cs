@@ -1294,7 +1294,7 @@ public partial class App : Application {
         var feedbackApi = sessionHttp is null ? null : _serverHttp!.GetRequiredService<IFeedbackApi>();
         // A local installation has no support intake, so its reports go out as email drafts.
         Func<FeedbackSubmission, FeedbackMailOutcome>? feedbackMail = isLocalServer
-            ? s => FeedbackMail.Send(s, SystemBrowser.Instance, Capacitor.Cli.Core.Auth.Clipboard.TryCopy)
+            ? s => FeedbackMail.Send(s, SystemBrowser.Instance, Clipboard.TryCopy)
             : null;
         Action<FeedbackCategory>? openFeedback = feedbackApi is null
             ? null
@@ -1517,19 +1517,19 @@ public partial class App : Application {
             _notificationAccessPrompt = new DesktopNotificationAccessPrompt(
                 notificationAccess, notificationSettings.Changes,
                 Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault())
-                    .Select(_ => System.Reactive.Unit.Default),
+                    .Select(_ => Unit.Default),
                 () => !_shutdownStarted && desktop.Windows.Any(window => window.IsActive),
-                ReactiveUI.Reactive.RxSchedulers.MainThreadScheduler);
+                RxSchedulers.MainThreadScheduler);
             _desktopNotifications = new DesktopNotificationCoordinator(
                 permissions, directory, notificationSettings.Changes, _notificationSink,
                 () => _shutdownStarted || desktop.Windows.Any(window => window.IsActive), _viewedAgent,
                 row => {
                     if (_shutdownStarted) return;
                     _coordinator.ShowMainWindow(window => (window.DataContext as MainWindowViewModel)?.OpenSession(row.Id, row.Origin));
-                }, notifier, ReactiveUI.Reactive.RxSchedulers.MainThreadScheduler);
+                }, notifier, RxSchedulers.MainThreadScheduler);
             _notificationSessions = new NotificationSessionSubscriptions(
                 directory.SessionAgents, sessionAccess.Acquire,
-                ReactiveUI.Reactive.RxSchedulers.MainThreadScheduler);
+                RxSchedulers.MainThreadScheduler);
         }
 
         Func<SettingsTab, bool>? openSettingsOn = profiles?.Resolution is { ProfileName: { Length: > 0 } profileName, ServerUrl: { Length: > 0 } serverUrl }
@@ -1699,14 +1699,14 @@ public partial class App : Application {
     // Runs on a pool thread: asking Codex starts its app-server, bounded by the probe's own deadline.
     bool CodexHooksUntrusted(HarnessRegistry harnesses, bool askTool) {
         var registry = AccountStore.Beside(_daemonStore).TryLoad();
-        var paths    = harnesses.Of<Capacitor.Cli.Core.Harness.Codex.CodexHarness>().Paths;
+        var paths    = harnesses.Of<Cli.Core.Harness.Codex.CodexHarness>().Paths;
         var trust    = askTool
-            ? Capacitor.Cli.Core.Harness.Codex.CodexHooksTrustCheck.ReadAsync(
-                  registry, paths, new Capacitor.Cli.Core.Harness.Codex.CodexHookTrustProbe(harnesses, _userHome, _time), _shutdown.Token)
+            ? Cli.Core.Harness.Codex.CodexHooksTrustCheck.ReadAsync(
+                  registry, paths, new Cli.Core.Harness.Codex.CodexHookTrustProbe(harnesses, _userHome, _time), _shutdown.Token)
                   .GetAwaiter().GetResult()
-            : Capacitor.Cli.Core.Harness.Codex.CodexHooksTrustCheck.Offline(registry, paths);
+            : Cli.Core.Harness.Codex.CodexHooksTrustCheck.Offline(registry, paths);
 
-        return trust == Capacitor.Cli.Core.Harness.Codex.CodexHooksTrust.Untrusted;
+        return trust == Cli.Core.Harness.Codex.CodexHooksTrust.Untrusted;
     }
 
     async Task<VisibilityOptionsRead?> ReadSettingsVisibilityOptionsAsync(SettingsProfileStore settings, CancellationToken ct) {
@@ -1827,7 +1827,7 @@ public partial class App : Application {
             // Snapshots arrive on the daemon client's pump thread and the trailer drives a bound
             // hint. BEFORE StartWith, so the seed still arrives synchronously on subscribe — the
             // hint would otherwise render an empty trailer for a beat.
-            .ObserveOn(ReactiveUI.Reactive.RxSchedulers.MainThreadScheduler)
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Select(s => FeedbackTrailer.Build(appVersion, service.DaemonName,
                 MainWindowViewModel.StripBuildMetadata(s.Daemon.Version), cliVersion()))
             .StartWith(FeedbackTrailer.Build(appVersion, service.DaemonName, null, cliVersion())));
@@ -2002,7 +2002,7 @@ public partial class App : Application {
             RepairClients: StaleClientRepair.ForApp(runner, probe, shimTarget, _userHome).RunAsync,
             MailSupport: report => FeedbackMail.Send(
                 new FeedbackSubmission(FeedbackCategory.Bug, report, Guid.NewGuid(), FeedbackSource.Desktop),
-                SystemBrowser.Instance, Capacitor.Cli.Core.Auth.Clipboard.TryCopy),
+                SystemBrowser.Instance, Clipboard.TryCopy),
             ResumeWebSignUp: WizardComposition.ResumesWebSignUp(await _appState.LoadAsync(), _time.GetUtcNow()),
             Prefetch: _localPrefetch,
             HeadlessHarnesses: async (name, ct) => {

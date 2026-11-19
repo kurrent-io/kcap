@@ -58,7 +58,7 @@ internal static partial class ProcessIdentity {
             // may not signal it — e.g. it changed credentials). Only ESRCH is "gone"; any other errno
             // means present-or-indeterminate → treat as ALIVE so we never free capacity or delete a
             // record for a still-running child (fail closed). ESRCH is 3 on Linux and macOS.
-            return System.Runtime.InteropServices.Marshal.GetLastPInvokeError() != Esrch;
+            return Marshal.GetLastPInvokeError() != Esrch;
         }
 
         // A ZOMBIE (exited but not yet reaped by its parent) still answers kill(pid, 0), but it is

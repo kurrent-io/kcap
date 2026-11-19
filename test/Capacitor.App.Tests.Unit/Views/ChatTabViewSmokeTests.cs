@@ -132,7 +132,7 @@ public class ChatTabViewSmokeTests {
         /// `show: false` leaves the window unshown, so the view has no template and no
         /// ScrollViewer until Show() is called — the order production takes, where the tab's
         /// first read starts before the workspace view exists.
-        public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null,
+        public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null,
                 ChatFindMemory? findMemory = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null) {
             Runs = new SessionRuns(Time);
             Terminal = new TerminalTabViewModel("a1", Daemon, Attach.Factory, () => new FakeTerminalSurface(), Time);
@@ -561,7 +561,7 @@ public class ChatTabViewSmokeTests {
     public Task The_handoff_card_sits_above_the_transcript_and_its_close_button_dismisses_it() => RunOnUiAsync(async () => {
         using var cards = new BehaviorSubject<HandoffOutcomeViewModel?>(null);
         var dismissed = 0;
-        cards.OnNext(new HandoffOutcomeViewModel(Capacitor.Cli.Core.Handoff.HandoffOutcomeDto.Refused("s1", "Old", "source_active"), () => {
+        cards.OnNext(new HandoffOutcomeViewModel(Cli.Core.Handoff.HandoffOutcomeDto.Refused("s1", "Old", "source_active"), () => {
             dismissed++;
             cards.OnNext(null);
             return Task.CompletedTask;
@@ -623,7 +623,7 @@ public class ChatTabViewSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public async Task The_strip_draws_a_danger_pill_for_a_blocked_account() {
         await RunOnUiAsync(async () => {
-            var readings = new BehaviorSubject<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>(StripReadings.Snapshot(
+            var readings = new BehaviorSubject<Cli.Core.Accounts.AccountsSnapshotDto?>(StripReadings.Snapshot(
                 StripReadings.Account("acc1", StripReadings.Blocked(TimeSpan.FromMinutes(65),
                     StripReadings.Window(300, 100, TimeSpan.FromMinutes(65)), StripReadings.Window(10080, 81, TimeSpan.FromDays(3))))));
             var host = new Host(accountReadings: readings);
@@ -652,11 +652,11 @@ public class ChatTabViewSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public async Task The_strip_shows_an_exhausted_model_limit_beside_healthy_bars() {
         await RunOnUiAsync(async () => {
-            var modelHit = new Capacitor.Cli.Core.Accounts.Readings.AccountReadingDto(1,
+            var modelHit = new Cli.Core.Accounts.Readings.AccountReadingDto(1,
                 [StripReadings.Window(300, 20, TimeSpan.FromHours(2)), new("claude_opus", 10080, 100, StripReadings.Now + TimeSpan.FromDays(2), StripReadings.Now)],
                 null, null,
                 new(StripReadings.Now.AddMinutes(-5), null, [new("claude_opus", 10080, StripReadings.Now + TimeSpan.FromDays(2), StripReadings.Now.AddMinutes(-5))]));
-            var readings = new BehaviorSubject<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>(
+            var readings = new BehaviorSubject<Cli.Core.Accounts.AccountsSnapshotDto?>(
                 StripReadings.Snapshot(StripReadings.Account("acc1", modelHit)));
             var host = new Host(accountReadings: readings);
             var path = Tmp.CreateFile("model-hit.jsonl", [UserLine]);
@@ -1432,8 +1432,8 @@ public class ChatTabViewSmokeTests {
             await Assert.That(label.Text).IsEqualTo("Published page");
             await Assert.That(label.FontFamily.Name).IsEqualTo(detail.FontFamily.Name);
             await Assert.That(label.LineHeight).IsEqualTo(detail.LineHeight);
-            await Assert.That(label.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapTextBrush"));
-            await Assert.That(detail.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapMutedBrush"));
+            await Assert.That(label.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
+            await Assert.That(detail.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
             await Assert.That(host.View.GetVisualDescendants().OfType<Control>().Any(c => c.Name == "ToolCard" && c.IsEffectivelyVisible)).IsFalse();
 
             await host.AppendLinesAndTickAsync(path, PublishResultLine);
@@ -1446,9 +1446,9 @@ public class ChatTabViewSmokeTests {
             var meta = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolCardMeta");
             await Assert.That(title.Text).IsEqualTo("Published page");
             await Assert.That(name.Text).IsEqualTo("Retention brief");
-            await Assert.That(title.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapTextBrush"));
-            await Assert.That(name.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapMutedBrush"));
-            await Assert.That(meta.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapFaintBrush"));
+            await Assert.That(title.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
+            await Assert.That(name.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
+            await Assert.That(meta.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapFaintBrush"));
             await Assert.That(name.TranslatePoint(default, host.Window)!.Value.X)
                 .IsGreaterThan(title.TranslatePoint(default, host.Window)!.Value.X);
             await Assert.That(meta.TranslatePoint(default, host.Window)!.Value.X)
@@ -1588,7 +1588,7 @@ public class ChatTabViewSmokeTests {
 
                 var pointerOffset = scroll.Offset.Y;
                 scroll.Focus();
-                await Assert.That(body.BorderBrush).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapInfoBrush"));
+                await Assert.That(body.BorderBrush).IsSameReferenceAs(Application.Current!.FindResource("KcapInfoBrush"));
                 host.Press(PhysicalKey.PageDown);
                 host.Settle();
                 await Assert.That(scroll.Offset.Y).IsGreaterThan(pointerOffset);
@@ -2357,7 +2357,7 @@ public class ChatTabViewSmokeTests {
             await Assert.That(bodyBorder.IsEffectivelyVisible).IsTrue();
             var paragraph = bodyBorder.GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.Classes.Contains("markdown-paragraph") && t.IsEffectivelyVisible);
-            await Assert.That(paragraph.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapMutedBrush"));
+            await Assert.That(paragraph.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
             await Assert.That(paragraph.FontSize).IsEqualTo(13.5);
 
             item.Toggle();
@@ -2400,15 +2400,15 @@ public class ChatTabViewSmokeTests {
             await Assert.That(call.HasDetail).IsTrue();
             var pulse = ToolRows(host.View)[0].GetVisualDescendants().OfType<Border>()
                 .Single(b => b.Classes.Contains("toolRunning") && b.IsVisible);
-            await Assert.That(pulse.Background).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapPurpleBrush"));
+            await Assert.That(pulse.Background).IsSameReferenceAs(Application.Current!.FindResource("KcapPurpleBrush"));
             await Assert.That(PulseClock.GetIsActive(pulse)).IsTrue();
             var rowLabel = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.Name == "ToolRowLabel" && t.IsEffectivelyVisible);
             var detail = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.IsEffectivelyVisible && t.Text == "ls -la");
             await Assert.That(rowLabel.Text).IsEqualTo("Ran command");
-            await Assert.That(rowLabel.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapTextBrush"));
-            await Assert.That(detail.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapMutedBrush"));
+            await Assert.That(rowLabel.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
+            await Assert.That(detail.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
             await host.CloseAsync();
         });
     }
@@ -3322,7 +3322,7 @@ public class ChatTabViewSmokeTests {
             var list = host.View.FindControl<ItemsControl>("BackgroundTasksList")!;
             await Assert.That(rows.IsVisible).IsTrue();
             await Assert.That(list.IsEffectivelyVisible).IsTrue();
-            await Assert.That(Avalonia.Automation.AutomationProperties.GetName(toggle))
+            await Assert.That(AutomationProperties.GetName(toggle))
                 .IsEqualTo("Background tasks, 1 subagent and 2 commands running, expanded");
             var shown = VisibleTexts(list);
             await Assert.That(shown).Contains("Explore");

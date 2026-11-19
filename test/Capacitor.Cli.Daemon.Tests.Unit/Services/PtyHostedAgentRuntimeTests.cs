@@ -358,7 +358,7 @@ public class PtyHostedAgentRuntimeTests {
         var pty = new RecordingPty();
         await using var runtime = new PtyHostedAgentRuntime("claude", pty, TimeProvider.System);
         var report = "\e[<64;10;5M"u8.ToArray();
-        Capacitor.Remote.Models.TerminalScrollKey.TryCreate(report, out var key);
+        Remote.Models.TerminalScrollKey.TryCreate(report, out var key);
         await runtime.SendSpecialKeyAsync(key);
         await Assert.That(pty.ByteWrites).IsEmpty();
 
@@ -1935,7 +1935,7 @@ public class PtyHostedAgentRuntimeTests {
         public Task WriteAsync(string input) {
             Writes.Add(input);
             if (input == "\r" && throwOnCrIndex == _crCount++)
-                throw new System.IO.IOException("The pipe is being closed.");
+                throw new IOException("The pipe is being closed.");
             return Task.CompletedTask;
         }
 

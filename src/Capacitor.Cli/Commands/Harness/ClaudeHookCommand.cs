@@ -528,7 +528,7 @@ public sealed class ClaudeHookCommand(
 
                 var rendered = hosted.IsRendered;
 
-                return await new Cli.Harness.Claude.ClaudePolicySeam(config, clock.Time, new HookSpool(config, clock.Time, Url), PolicyJudgeGateway.ForHook(http, Url, clock.Time))
+                return await new ClaudePolicySeam(config, clock.Time, new HookSpool(config, clock.Time, Url), PolicyJudgeGateway.ForHook(http, Url, clock.Time))
                     .HandlePreToolUseAsync(body, sessionId, rendered, stdout ?? Console.Out, JudgeShare(budget));
             } catch { return 0; }
         }
@@ -1609,7 +1609,7 @@ public sealed class ClaudeHookCommand(
     }
 
     static TimeSpan JudgeShare(HookBudget budget) =>
-        budget.Remaining < Cli.Harness.Claude.ClaudePolicySeam.JudgeBudget ? budget.Remaining : Cli.Harness.Claude.ClaudePolicySeam.JudgeBudget;
+        budget.Remaining < ClaudePolicySeam.JudgeBudget ? budget.Remaining : ClaudePolicySeam.JudgeBudget;
 
     /// <summary>Records how many tool calls ran past the policy engine unmatched, and resets the
     /// counter so a resumed session never re-reports them.</summary>

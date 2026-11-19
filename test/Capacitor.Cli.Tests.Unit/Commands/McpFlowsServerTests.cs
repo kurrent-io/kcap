@@ -278,7 +278,7 @@ public class McpFlowsServerTests {
                 {"message_id":"msg-b2","from_participant":"reviewer","text":"heads-up, migration file also touched"}
              ]}
             """;
-        var node = System.Text.Json.Nodes.JsonNode.Parse(body)!.AsObject();
+        var node = JsonNode.Parse(body)!.AsObject();
 
         var text = McpFlowsServer.FormatPolledRoundResult(node, "f1", out var pendingIds);
 

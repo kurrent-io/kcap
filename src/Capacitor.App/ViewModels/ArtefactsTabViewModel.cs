@@ -365,11 +365,11 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     DriftState Drift(DocumentRow row, string? root) {
         if (root is not { Length: > 0 } || row.Source != "declared") return DriftState.Unknown;
         var relative = row.Path.Replace('\\', '/');
-        if (relative.Length == 0 || relative.StartsWith('/') || System.IO.Path.IsPathRooted(relative)
+        if (relative.Length == 0 || relative.StartsWith('/') || Path.IsPathRooted(relative)
             || (relative.Length >= 2 && char.IsAsciiLetter(relative[0]) && relative[1] == ':')
             || relative.Split('/').Contains(".."))
             return DriftState.Unknown;
-        var full = System.IO.Path.Combine(root, relative);
+        var full = Path.Combine(root, relative);
         if (!CanonicalPath.IsWithin(full, root)) return DriftState.Unknown;
         try {
             using var stream = _openWorkingCopy(full);

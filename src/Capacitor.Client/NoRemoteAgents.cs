@@ -17,5 +17,5 @@ public sealed class NoRemoteAgents : IRemoteAgentsService {
     public Task RefreshDaemonsAsync() => Task.CompletedTask;
     public IObservable<bool> Current { get; } = Observable.Return(false);
     public Task<SessionRenameResult> RenameAsync(string agentId, string sessionId, string title, CancellationToken ct) =>
-        Task.FromResult(new SessionRenameResult(false, null, Capacitor.Cli.Core.LocalIpc.SessionRenameReasons.Unauthenticated));
+        Task.FromResult(new SessionRenameResult(false, null, Cli.Core.LocalIpc.SessionRenameReasons.Unauthenticated));
 }

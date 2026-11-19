@@ -295,7 +295,7 @@ public class ClaudeMemoryIndexLiveCertTests {
             UseShellExecute        = false,
             RedirectStandardOutput = true,
             RedirectStandardError  = true,
-            WorkingDirectory       = workingDirectory ?? Capacitor.Cli.Core.WorkingDirectory.FromProcess().Path
+            WorkingDirectory       = workingDirectory ?? WorkingDirectory.FromProcess().Path
         };
         foreach (var arg in args) psi.ArgumentList.Add(arg);
 
@@ -403,7 +403,7 @@ public class ClaudeMemoryIndexLiveCertProcessTests {
         var stillAlive  = true;
         while (DateTime.UtcNow < deadline) {
             try {
-                using var proc = System.Diagnostics.Process.GetProcessById(pid!.Value);
+                using var proc = Process.GetProcessById(pid!.Value);
                 if (proc.HasExited) { stillAlive = false; break; }
             } catch (ArgumentException) {
                 stillAlive = false; // no such process — already reaped

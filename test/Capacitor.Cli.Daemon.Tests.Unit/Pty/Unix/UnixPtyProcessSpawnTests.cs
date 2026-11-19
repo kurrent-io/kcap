@@ -42,7 +42,7 @@ public class UnixPtyProcessSpawnTests {
             // buffer size) — so the two independently-implemented code paths must ALSO produce
             // byte-identical "mac:{bootsessionuuid}:{p_uniqueid}" tokens for a healthy spawn. This
             // guards the two vendored copies of the private struct against drifting apart.
-            var liveToken = Capacitor.Cli.Core.ProcessStartToken.ForPid(proc.Pid);
+            var liveToken = Core.ProcessStartToken.ForPid(proc.Pid);
             await Assert.That(liveToken).IsEqualTo(proc.StartIdentity);
         } finally {
             await proc.DisposeAsync();

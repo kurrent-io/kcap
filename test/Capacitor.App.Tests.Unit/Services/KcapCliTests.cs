@@ -874,8 +874,8 @@ public class KcapCliTests {
     /// read from stdout whatever the exit code.</summary>
     [Test]
     public async Task LocalStatusAsync_reads_a_not_ready_status_from_stdout() {
-        var line = Capacitor.Cli.Core.LocalEdition.LocalStatusJson.From(false, "Not running.", [],
-            new(Capacitor.Cli.Core.LocalEdition.LocalServerCondition.Restarting, 9473)).Render();
+        var line = Cli.Core.LocalEdition.LocalStatusJson.From(false, "Not running.", [],
+            new(Cli.Core.LocalEdition.LocalServerCondition.Restarting, 9473)).Render();
         var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(1, line + "\n", "", false)) };
         var cli = MakeCli(runner);
 
@@ -883,7 +883,7 @@ public class KcapCliTests {
 
         await Assert.That(runner.SeenArgs).IsEquivalentTo(["local", "status", "--json"], CollectionOrdering.Matching);
         await Assert.That(runner.SeenOptions!.EnvOverlay!["KCAP_PROFILE"]).IsEqualTo("work");
-        await Assert.That(reading!.Condition).IsEqualTo(Capacitor.Cli.Core.LocalEdition.LocalServerCondition.Restarting);
+        await Assert.That(reading!.Condition).IsEqualTo(Cli.Core.LocalEdition.LocalServerCondition.Restarting);
     }
 
     /// <summary>A CLI that predates the flag prints usage, and a timed-out one may print half a line: neither is a status.</summary>

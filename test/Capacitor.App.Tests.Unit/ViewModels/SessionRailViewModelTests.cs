@@ -106,9 +106,9 @@ public class SessionRailViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var directory = new FakeAgentDirectory();
             var opened = new List<string>();
-            using var prs = new System.Reactive.Subjects.BehaviorSubject<IReadOnlyDictionary<string, RailPullRequestSummary>>(
+            using var prs = new BehaviorSubject<IReadOnlyDictionary<string, RailPullRequestSummary>>(
                 new Dictionary<string, RailPullRequestSummary> {
-                    ["published"] = new([new(Capacitor.Cli.Core.PullRequests.PullRequestWire.Subject(FakePullRequestSource.Link(42)), null, "Open")])
+                    ["published"] = new([new(Cli.Core.PullRequests.PullRequestWire.Subject(FakePullRequestSource.Link(42)), null, "Open")])
                 });
             using var rail = new SessionRailViewModel(directory, opened.Add, _ => { }, TimeProvider.System, pullRequests: prs);
             var row = AgentRow.FromLocal(Dto("a", "/repo") with { SessionId = null }, new RepoIdentity("path:/repo", "repo"));
@@ -163,7 +163,7 @@ public class SessionRailViewModelTests {
     public async Task Unrelated_pending_changes_leave_other_repository_and_session_presentations_untouched() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var directory = new FakeAgentDirectory();
-            using var pending = new System.Reactive.Subjects.BehaviorSubject<IReadOnlySet<string>>(new HashSet<string>());
+            using var pending = new BehaviorSubject<IReadOnlySet<string>>(new HashSet<string>());
             using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System, pending);
             directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto("a", "/a"), new RepoIdentity("path:/a", "a")));
             directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto("b", "/b"), new RepoIdentity("path:/b", "b")));
@@ -630,7 +630,7 @@ public class SessionRailViewModelTests {
     public async Task The_rail_publishes_the_rows_it_shows() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var directory = new FakeAgentDirectory();
-            var shown = new System.Reactive.Subjects.ReplaySubject<Func<AgentRow, bool>>(1);
+            var shown = new ReplaySubject<Func<AgentRow, bool>>(1);
             using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System, shownRows: shown);
             var ended = Server("ended");
             Func<AgentRow, bool>? current = null;

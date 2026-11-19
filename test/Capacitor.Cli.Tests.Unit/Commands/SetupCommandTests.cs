@@ -2040,7 +2040,7 @@ public class SetupCommandTests {
     public async Task Step_three_offers_what_the_tenant_can_honour(VisibilityOptionsResponse? offer, string[] keys, string preselected) {
         var choices = SetupCommand.VisibilityChoices(offer);
 
-        await Assert.That(choices.Keys).IsEquivalentTo(keys, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await Assert.That(choices.Keys).IsEquivalentTo(keys, CollectionOrdering.Matching);
         await Assert.That(choices.Preselected).IsEqualTo(preselected);
         await Assert.That(choices.Label(keys[0])).IsEqualTo(offer is null ? SetupCommand.VisibilityLabel(keys[0]) : $"label {keys[0]} [dim]— detail {keys[0]}[/]");
     }
@@ -2083,8 +2083,8 @@ public class SetupCommandTests {
             InstallRegistry.Empty.WithActive(new("0123456789abcdef0123456789abcdef", new Uri(server.Url!).Port, server.Url!, "1.3.0")));
         await using var fixture = await HandleAsyncE2EFixture.CreateAsync("acme-local-visibility", "widgets", Config.Root);
         await ConfigMutator.MutateAsync(Config.Root, c => c with {
-            Profiles = new Dictionary<string, Capacitor.Cli.Core.Config.Profile>(c.Profiles) {
-                [c.ActiveName] = (c.Profiles.GetValueOrDefault(c.ActiveName) ?? new Capacitor.Cli.Core.Config.Profile()) with { DefaultVisibility = "project" },
+            Profiles = new Dictionary<string, Core.Config.Profile>(c.Profiles) {
+                [c.ActiveName] = (c.Profiles.GetValueOrDefault(c.ActiveName) ?? new Core.Config.Profile()) with { DefaultVisibility = "project" },
             },
         });
 

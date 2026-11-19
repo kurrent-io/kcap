@@ -142,11 +142,11 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
 
     /// The chat shows a block result's text blocks one per line, where the stored result joins them with
     /// a blank line, as the server writes it.
-    static string? ChatResultText(Google.Protobuf.WellKnownTypes.Struct? slug) {
+    static string? ChatResultText(Struct? slug) {
         if (slug is null || !slug.Fields.TryGetValue(ClaudeCodeExtension.OutputRaw, out var raw) || raw.ListValue is not { } blocks) return null;
 
         // The chat's own join: no separator ahead of the first text it has kept.
-        var sb    = new System.Text.StringBuilder();
+        var sb    = new StringBuilder();
         var found = false;
         foreach (var v in blocks.Values) {
             if (v.StructValue is not { } b || SchemaExtensions.Text(b, "type") != "text" || SchemaExtensions.Text(b, "text") is not { } t) continue;

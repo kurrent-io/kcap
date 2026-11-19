@@ -411,7 +411,7 @@ public sealed class RemoteAgentsService : IRemoteAgentsService, IDisposable {
                     return new RemoteFetch(null, Unauthorized: true);
                 var url = $"{serverUrl.TrimEnd('/')}/{ApiRoutes.AgentInstances}";
                 using var response = await client.GetAsync(url, ct).ConfigureAwait(false);
-                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
                     return new RemoteFetch(null, Unauthorized: true);
                 if (!response.IsSuccessStatusCode) return new RemoteFetch(null);
                 var rows = await response.Content.ReadFromJsonAsync(

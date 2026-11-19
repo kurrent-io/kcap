@@ -57,8 +57,8 @@ public class ServerConnectionServiceTests {
         string? updateCheck = null;
         await using var host = await HubTestHost.StartAsync(inspect: request => {
             if (request.Path.Value?.EndsWith("/negotiate", StringComparison.Ordinal) != true) return;
-            negotiated  = request.Headers[Capacitor.Cli.Core.HttpClientExtensions.CliVersionHeader].ToString();
-            updateCheck = request.Headers[Capacitor.Cli.Core.HttpClientExtensions.UpdateCheckHeader].ToString();
+            negotiated  = request.Headers[Cli.Core.HttpClientExtensions.CliVersionHeader].ToString();
+            updateCheck = request.Headers[Cli.Core.HttpClientExtensions.UpdateCheckHeader].ToString();
         });
         await using var lane = new ServerConnectionService(
             TimeProvider.System, host.Url, () => Task.FromResult<string?>(null), updateCheckOff: updateCheckOff);
@@ -66,8 +66,8 @@ public class ServerConnectionServiceTests {
 
         await Next(lane.Status, s => s.State == ServerLaneState.Connected);
 
-        await Assert.That(Capacitor.Cli.Core.HttpClientExtensions.CliVersion).IsNotNull();
-        await Assert.That(negotiated).IsEqualTo(Capacitor.Cli.Core.HttpClientExtensions.CliVersion);
+        await Assert.That(Cli.Core.HttpClientExtensions.CliVersion).IsNotNull();
+        await Assert.That(negotiated).IsEqualTo(Cli.Core.HttpClientExtensions.CliVersion);
         await Assert.That(updateCheck).IsEqualTo(updateCheckOff ? "off" : "");
     }
 

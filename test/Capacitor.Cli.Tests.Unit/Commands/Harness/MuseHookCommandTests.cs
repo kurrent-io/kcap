@@ -330,8 +330,8 @@ public class MuseHookCommandTests : IDisposable {
     [Arguments("epoch-1", true)]
     public async Task A_posted_SessionEnd_that_names_no_run_is_held_once_its_session_was_resumed(string runEpoch, bool posted) {
         using var daemons = new TempDaemonStore();
-        Capacitor.Cli.Core.Resume.ResumeLedgerStore.For(daemons.Store, "d1").Write(
-            ResumeLedgerEntries.For("agent-1", Capacitor.Cli.Core.Resume.ResumeState.Running) with {
+        Core.Resume.ResumeLedgerStore.For(daemons.Store, "d1").Write(
+            ResumeLedgerEntries.For("agent-1", Core.Resume.ResumeState.Running) with {
                 LaunchEpoch = "epoch-1", RunEpoch = runEpoch, SessionId = ParentDashless
             });
         using var dir = EnvScope.Exclusive("KCAP_DAEMONS_DIR", daemons.Directory);
@@ -811,7 +811,7 @@ public class MuseHookCommandTests : IDisposable {
         }
 
         // A later hook, the lock now free.
-        await new Capacitor.Cli.Workspace.WorkspaceSpanHook(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(), time)
+        await new Workspace.WorkspaceSpanHook(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(), time)
             .CloseAsync(ParentDashless, TimeSpan.FromSeconds(30));
 
         await Assert.That(HookPosts("/hooks/workspace-changes")).IsEmpty();

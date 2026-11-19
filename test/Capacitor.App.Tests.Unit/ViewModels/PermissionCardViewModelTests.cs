@@ -76,8 +76,8 @@ public class PermissionCardViewModelTests {
             using var svc = new FakePermissionService();
             // Oversized questions payload: still ToolName AskUserQuestion, but unclassified.
             using var fallback = new PermissionCardViewModel(
-                PermissionEntries.Entry(toolName: Capacitor.Cli.Core.ClaudeElicitation.ToolName, toolInputJson: null, omitted: true),
-                svc, new System.Reactive.Subjects.BehaviorSubject<string?>(null));
+                PermissionEntries.Entry(toolName: Cli.Core.ClaudeElicitation.ToolName, toolInputJson: null, omitted: true),
+                svc, new BehaviorSubject<string?>(null));
             await Assert.That(fallback.ShowsAllowAlways).IsFalse();
         });
     }

@@ -38,7 +38,7 @@ public class MuseAssistantScopeTests {
         return await waiting.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
-    string Walk(string name, long fetchedAt, params WalkBuilder.Item[] items) => new WalkBuilder(Walks) { FetchedAtMs = fetchedAt }.AddPage(null, null, false, items).Write(name);
+    string Walk(string name, long fetchedAt, params Item[] items) => new WalkBuilder(Walks) { FetchedAtMs = fetchedAt }.AddPage(null, null, false, items).Write(name);
 
     [Test]
     public async Task Add_writes_a_grant_with_a_random_id_then_lists_the_chat_and_a_repeat_is_a_no_op() {

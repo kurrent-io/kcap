@@ -1,6 +1,6 @@
 namespace Capacitor.Cli.Tests.Unit.Policy;
 
-using Capacitor.Cli.Core;
+using Core;
 using Capacitor.Cli.Core.Policy;
 using Capacitor.Cli.Policy;
 using WireMock.Server;

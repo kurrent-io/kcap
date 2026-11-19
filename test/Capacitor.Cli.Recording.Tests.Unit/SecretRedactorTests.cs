@@ -639,7 +639,7 @@ public class SecretRedactorTests {
         var result = Redact(line);
 
         // Must still be valid JSON after redaction
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         var content = doc.RootElement
             .GetProperty("message")
             .GetProperty("content");
@@ -711,7 +711,7 @@ public class SecretRedactorTests {
         await Assert.That(result).Contains("[REDACTED]");
 
         // Result must remain valid JSON after redaction.
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         await Assert.That(doc.RootElement.GetProperty("message").GetProperty("content")[0].GetProperty("is_error").GetBoolean()).IsFalse();
     }
 
@@ -727,7 +727,7 @@ public class SecretRedactorTests {
         await Assert.That(result).DoesNotContain("opaque-token-1234567890abc");
         await Assert.That(result).Contains("[REDACTED]");
 
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         await Assert.That(doc.RootElement.GetProperty("toolUseResult").GetProperty("headers").GetProperty("Authorization").GetString()).IsEqualTo("[REDACTED]");
     }
 
@@ -952,7 +952,7 @@ public class SecretRedactorTests {
 
         var result = Redact(line);
 
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         var content = doc.RootElement
             .GetProperty("message")
             .GetProperty("content");
@@ -981,7 +981,7 @@ public class SecretRedactorTests {
         await Assert.That(result).IsEqualTo(expected_);
 
         // The sibling is outside the armed subtree, so the disarm on the closing token landed.
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         var payload = doc.RootElement.GetProperty("toolUseResult").GetProperty("payload");
         await Assert.That(payload.GetProperty("items").GetArrayLength()).IsEqualTo(2);
     }
@@ -1025,7 +1025,7 @@ public class SecretRedactorTests {
 
             var result = Redact(line);
 
-            using var doc = System.Text.Json.JsonDocument.Parse(result);
+            using var doc = JsonDocument.Parse(result);
             if (!string.Equals(result, line, StringComparison.Ordinal)) changed++;
         }
 
@@ -1127,7 +1127,7 @@ public class SecretRedactorTests {
 
         await Assert.That(result).IsEqualTo(line);
 
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         await Assert.That(doc.RootElement.GetProperty("tail").GetArrayLength()).IsEqualTo(2);
     }
 
@@ -1145,7 +1145,7 @@ public class SecretRedactorTests {
         await Assert.That(result).DoesNotContain("opaque_value_no_prefix_123456");
         await Assert.That(result).DoesNotContain("a8f3b2c91d4e7f0123456789abcdef01");
 
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         var content = doc.RootElement.GetProperty("message").GetProperty("content")[0];
         await Assert.That(content.GetProperty("is_error").GetBoolean()).IsFalse();
         // The inner document survives as text, minus the two values.
@@ -1161,7 +1161,7 @@ public class SecretRedactorTests {
 
         var result = Redact(line);
 
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         await Assert.That(doc.RootElement.GetProperty("toolUseResult").GetProperty("client_secret").GetString())
             .IsEqualTo("[REDACTED]");
     }
@@ -1198,9 +1198,9 @@ public class SecretRedactorTests {
 
         static bool Parses(string text) {
             try {
-                using var doc = System.Text.Json.JsonDocument.Parse(text);
+                using var doc = JsonDocument.Parse(text);
                 return true;
-            } catch (System.Text.Json.JsonException) {
+            } catch (JsonException) {
                 return false;
             }
         }
@@ -1263,7 +1263,7 @@ public class SecretRedactorTests {
         await Assert.That(result).DoesNotContain("ghp_abc123def456ghi789jkl012");
         await Assert.That(result).DoesNotContain("nothing sensitive");
 
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         await Assert.That(doc.RootElement.GetProperty("a").GetInt32()).IsEqualTo(1);
     }
 

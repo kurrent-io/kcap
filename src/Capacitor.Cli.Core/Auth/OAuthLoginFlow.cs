@@ -224,7 +224,7 @@ public static class OAuthLoginFlow {
                 progress.PollTick();
 
                 continue;
-            } catch (Exception ex) when (ex is System.Text.Json.JsonException or HttpRequestException) {
+            } catch (Exception ex) when (ex is JsonException or HttpRequestException) {
                 // Status distinguishes malformed success from a transient error page.
             }
 
@@ -636,7 +636,7 @@ public static class OAuthLoginFlow {
 
         try {
             device = await authorize.Content.ReadFromJsonAsync(CapacitorJsonContext.Default.DeviceCodeResponse, ct);
-        } catch (System.Text.Json.JsonException) {
+        } catch (JsonException) {
             // fall through
         }
 

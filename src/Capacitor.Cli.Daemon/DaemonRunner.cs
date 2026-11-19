@@ -78,8 +78,8 @@ public static partial class DaemonRunner {
         // launchd may carry a restricted PATH captured during setup. A live probe shares the
         // refreshed environment with child processes; other platforms keep their startup snapshot.
         var agentEnvironment = OperatingSystem.IsMacOS() ? new AgentPathEnvironment(new ProcessRunner(time), time) : null;
-        var binaries = agentEnvironment is null ? Core.Setup.BinaryProbe.FromEnvironment()
-            : Core.Setup.BinaryProbe.Tracking(() => Environment.GetEnvironmentVariable("PATH"));
+        var binaries = agentEnvironment is null ? BinaryProbe.FromEnvironment()
+            : BinaryProbe.Tracking(() => Environment.GetEnvironmentVariable("PATH"));
 
         // OriginalArgs is captured for self-respawn (detached restart-after-update) and to detect
         // the successor's --await-lock handoff flag. Paths is set here, in the initializer, so the
@@ -107,7 +107,7 @@ public static partial class DaemonRunner {
 
         // Below the carrier scrub: this reads every vendor's override variable, and the scrub above
         // must run before anything reads the environment.
-        var harnesses = Core.Harness.HarnessRegistry.FromEnvironment(userHome, binaries);
+        var harnesses = HarnessRegistry.FromEnvironment(userHome, binaries);
         config.Accounts           = Core.Accounts.AccountStore.Beside(paths);
         config.DefaultDirectories = new Dictionary<HarnessId, string> {
             [HarnessId.Claude] = harnesses.Of<Core.Harness.Claude.ClaudeHarness>().Paths.Home,
@@ -211,10 +211,10 @@ public static partial class DaemonRunner {
          && int.TryParse(envApprovalTimeout, out var approvalTimeoutSeconds) && approvalTimeoutSeconds > 0)
             config.CodexAppServerApprovalTimeoutSeconds = approvalTimeoutSeconds;
 
-        if (Harness.Codex.LegacyCodexEnvironment.Warning(Environment.GetEnvironmentVariable) is { } legacyCodexWarning)
+        if (LegacyCodexEnvironment.Warning(Environment.GetEnvironmentVariable) is { } legacyCodexWarning)
             await Console.Error.WriteLineAsync(legacyCodexWarning);
 
-        config.CodexAppServerByDefault = Harness.Codex.CodexTransportDecision.AppServerByDefault;
+        config.CodexAppServerByDefault = CodexTransportDecision.AppServerByDefault;
 
         // The per-vendor reviewer switches are opt-out: unset means enabled, matching the vendors that
         // are never gated. The reviewer vendor is a caller-chosen parameter, so where an ungated vendor
@@ -497,8 +497,8 @@ public static partial class DaemonRunner {
                 sp.GetRequiredService<ILogger<PtyHostedAgentRuntimeFactory>>(),
                 sp.GetRequiredService<TimeProvider>(),
                 config.Home);
-            return new Harness.Codex.CodexHostedAgentRuntimeFactory(
-                (Harness.Codex.CodexLauncher) codexLauncher, pty,
+            return new CodexHostedAgentRuntimeFactory(
+                (CodexLauncher) codexLauncher, pty,
                 sp.GetRequiredService<DaemonConfig>(),
                 sp.GetRequiredService<ILoggerFactory>(),
                 time,
@@ -580,12 +580,12 @@ public static partial class DaemonRunner {
         builder.Services.AddSingleton<AgentOrchestrator>();
         builder.Services.AddSingleton<EvalContextCache>();
         builder.Services.AddSingleton<EvalRunner>();
-        builder.Services.AddSingleton<IHeadlessHarness>(sp => new Harness.Claude.ClaudeHeadlessHarness(
+        builder.Services.AddSingleton<IHeadlessHarness>(sp => new ClaudeHeadlessHarness(
             sp.GetRequiredService<HarnessRegistry>(), sp.GetRequiredService<DaemonConfig>(),
-            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Harness.Claude.ClaudeHeadlessHarness>>()));
-        builder.Services.AddSingleton<IHeadlessHarness>(sp => new Harness.Codex.CodexHeadlessHarness(
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<ClaudeHeadlessHarness>>()));
+        builder.Services.AddSingleton<IHeadlessHarness>(sp => new CodexHeadlessHarness(
             sp.GetRequiredService<HarnessRegistry>(), sp.GetRequiredService<DaemonConfig>(),
-            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Harness.Codex.CodexHeadlessHarness>>()));
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<CodexHeadlessHarness>>()));
         builder.Services.AddSingleton(headlessRuns);
         builder.Services.AddSingleton<IHeadlessHarness>(sp => new PiHeadlessHarness(
             sp.GetRequiredService<HarnessRegistry>(), sp.GetRequiredService<DaemonConfig>(), sp.GetRequiredService<HeadlessRunRoot>(),
@@ -647,23 +647,23 @@ public static partial class DaemonRunner {
         builder.Services.AddHostedService(sp => sp.GetRequiredService<RepoStoreWatcher>());
 
         builder.Services.AddSingleton(sp => {
-            var log = sp.GetRequiredService<ILogger<Harness.Claude.ModAttachments>>();
+            var log = sp.GetRequiredService<ILogger<ModAttachments>>();
             var consent = sp.GetRequiredService<LaunchConsentStore>();
 
-            return new Harness.Claude.ModAttachments(
+            return new ModAttachments(
                 sp.GetRequiredService<ServerConnection>(),
-                new Harness.Claude.ModAttachmentStore(config.Store.SteeringAttachmentsPath(config.Name), log),
+                new ModAttachmentStore(config.Store.SteeringAttachmentsPath(config.Name), log),
                 () => consent.SteeringOn, time, log, sp.GetRequiredService<DaemonStatusNotifier>());
         });
 
         // Ahead of the control server, so it stops after the last SteeringSet can reach it.
         builder.Services.AddSingleton(sp => new SteeringEndpoint(
             config.Store.SteeringSocketPath(config.Name),
-            new SteeringRoutes(sp.GetRequiredService<Harness.Claude.ModAttachments>()).Table(),
+            new SteeringRoutes(sp.GetRequiredService<ModAttachments>()).Table(),
             time, sp.GetRequiredService<ILogger<SteeringEndpoint>>()));
         builder.Services.AddSingleton(sp => new SteeringSwitch(
             sp.GetRequiredService<LaunchConsentStore>(), sp.GetRequiredService<SteeringEndpoint>(),
-            attachments: sp.GetRequiredService<Harness.Claude.ModAttachments>(), time: time));
+            attachments: sp.GetRequiredService<ModAttachments>(), time: time));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<SteeringSwitch>());
 
         // Local control socket: lets `kcap agent start`/`attach`/`ls`/`stop` drive daemon-hosted
@@ -704,11 +704,11 @@ public static partial class DaemonRunner {
 
         // Both can run a vendor's --version, so they wait for the bind. The Codex transport is committed before the first
         // advertisement, which carries it to the server; the reviewer floors before any launch or capability reads them.
-        var startupCodex = Harness.Codex.CodexTransportResolution.Read(
+        var startupCodex = CodexTransportResolution.Read(
             1, config.ReadExperimentalSettings, () => ProbeCliVersion(harnesses.LaunchCommand(HarnessId.Codex, config.CodexPath)),
             problem => {
                 config.ExperimentalSettingsProblem = problem;
-                return Harness.Codex.CodexTransportResolution.Unreadable(1, problem);
+                return CodexTransportResolution.Unreadable(1, problem);
             },
             config.CodexAppServerByDefault);
         config.CodexResolution = startupCodex;
@@ -736,10 +736,10 @@ public static partial class DaemonRunner {
         // the unattended classification below — a preset is an interactive-launch feature, not a
         // reviewer one. The server refuses a preset toward a daemon that does not advertise the vendor.
         config.AcpPresetVendors = config.SupportedVendors
-            .Where(Acp.AcpPermissionPresets.RoutedVendors.Contains)
+            .Where(AcpPermissionPresets.RoutedVendors.Contains)
             .ToArray();
 
-        config.PermissionModeVendors = Harness.Claude.ClaudePermissionModePolicy.AdvertisedVendors(config.SupportedVendors);
+        config.PermissionModeVendors = ClaudePermissionModePolicy.AdvertisedVendors(config.SupportedVendors);
         config.PrReviewVendors       = AdvertisedPrReviewVendors(runtimeFactories);
 
         // Reviewer vendor override support: a strict subset of SupportedVendors — only vendors that
@@ -1459,7 +1459,7 @@ public static partial class DaemonRunner {
     /// <c>kcap daemon reviewer affirm</c> can clear. A floor is meant to exclude a build found to be
     /// bad, not to be an opt-in gate wearing a different hat.</param>
     internal static void SeedReviewerAffirmation(
-            string stateDir, string vendor, bool enabled, string binaryPath, Core.Setup.BinaryProbe binaries) {
+            string stateDir, string vendor, bool enabled, string binaryPath, BinaryProbe binaries) {
         if (!enabled) return;
 
         SeedVersionFloor(stateDir, vendor, binaryPath, binaries);
@@ -1475,7 +1475,7 @@ public static partial class DaemonRunner {
     /// the caller exists to avoid. With no boolean to flip, the asymmetry has to be read.</para>
     /// </summary>
     internal static void SeedVersionFloor(
-            string stateDir, string vendor, string binaryPath, Core.Setup.BinaryProbe binaries) {
+            string stateDir, string vendor, string binaryPath, BinaryProbe binaries) {
         try {
             if (!ReviewerVersionStore.RecordExists(stateDir, vendor)
              && new VendorVersionResolver(binaries).Resolve(binaryPath) is { Length: > 0 } installed) {
@@ -1604,7 +1604,7 @@ public static partial class DaemonRunner {
     /// recomputes, which is what the tests and any other caller want.</param>
     internal static IReadOnlyList<UnattendedVendorCapability> ComputeUnattendedVendorCapabilities(
             IEnumerable<IHostedAgentRuntimeFactory> factories, DaemonConfig config,
-            Harness.Codex.CodexTransportResolution codex, IEnumerable<string>? advertised = null) {
+            CodexTransportResolution codex, IEnumerable<string>? advertised = null) {
         var unattended = advertised?.ToArray() ?? ComputeUnattendedVendors(factories, config);
         var byVendor   = factories.ToDictionary(f => f.Vendor, StringComparer.Ordinal);
 
@@ -1676,7 +1676,7 @@ public static partial class DaemonRunner {
     /// <summary>Fingerprints each advertised vendor's binary through the factory that launches it —
     /// the same path the version probe runs. A vendor with no locatable binary maps to null.</summary>
     internal static IReadOnlyDictionary<string, CliBinaryStat?> FingerprintUnattendedVendors(
-            Core.Setup.BinaryProbe binaries, IEnumerable<IHostedAgentRuntimeFactory> factories, IEnumerable<string> vendors) {
+            BinaryProbe binaries, IEnumerable<IHostedAgentRuntimeFactory> factories, IEnumerable<string> vendors) {
         var byVendor = factories.ToDictionary(f => f.Vendor, StringComparer.Ordinal);
         return vendors.ToDictionary(
             vendor => vendor,
@@ -1693,7 +1693,7 @@ public static partial class DaemonRunner {
     /// it was probed with the policy and transport beside it, and an older version would misdescribe them.</param>
     internal static IReadOnlyList<UnattendedVendorCapability> RetainAdvertisedVersions(
             IReadOnlyList<UnattendedVendorCapability>? current, IReadOnlyList<UnattendedVendorCapability> fresh,
-            Harness.Codex.CodexTransportResolution codex) {
+            CodexTransportResolution codex) {
         if (current is null) return fresh;
         return fresh.Select(capability => {
             if (!string.IsNullOrEmpty(capability.CliVersion) || (codex.Probed && IsCodex(capability.Vendor))) return capability;

@@ -2,10 +2,10 @@ namespace Capacitor.Cli.Harness.Claude;
 
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Capacitor.Cli.Core;
+using Core;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Policy;
-using Capacitor.Cli.Policy;
+using Policy;
 
 /// <summary>Whether the seam produced the vendor's answer. <c>NotAnswered</c> leaves the caller's
 /// own handling — the prompt, the record-only post — exactly as it would be without the seam.</summary>

@@ -430,7 +430,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     public NextWork.NextWorkBandViewModel? NextWork { get; init; }
 
     NextWork.NextWorkFill? _nextWorkSource;
-    readonly System.Reactive.Subjects.Subject<Unit> _composerFills = new();
+    readonly Subject<Unit> _composerFills = new();
 
     /// The next-work task picked for the next launch, named on the chip above the goal; null once it is cleared or
     /// launched. While one is picked the composer is for anything to add to it, and may stay empty.

@@ -193,7 +193,7 @@ public class FlowsDriverSchemaConformanceTests {
             """;
 
         var text = McpFlowsServer.FormatPolledRoundResult(
-            System.Text.Json.Nodes.JsonNode.Parse(roundJson)!.AsObject(), "f1");
+            JsonNode.Parse(roundJson)!.AsObject(), "f1");
 
         await Assert.That(text).Contains("applied_reviewer_vendor: cursor");
         await Assert.That(text).Contains("applied_reviewer_model: composer");

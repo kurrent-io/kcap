@@ -1016,7 +1016,7 @@ public class AgentOrchestratorResumeOnBootTests {
     }
 
     [Test]
-    [ExcludeOn(TUnit.Core.Enums.OS.Windows), System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    [ExcludeOn(OS.Windows), System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
     public async Task A_discard_whose_delete_fails_keeps_the_candidate_listed() {
         var f = Build();
         await using var _ = f.Orch;

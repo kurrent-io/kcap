@@ -111,7 +111,7 @@ internal partial class AgentOrchestrator {
     }
 
     /// <summary>No repository, worktree or terminal: the daemon knows the session and nothing it would host.</summary>
-    static AgentStatusDto AttachedStatusRow(Harness.Claude.ModAttachmentRecord attached) => new(
+    static AgentStatusDto AttachedStatusRow(ModAttachmentRecord attached) => new(
         attached.AgentId, AttachedKind, "claude", null, "Running", null, null, null, attached.AttachedAt.UtcDateTime, null, null,
         HasTerminal: false, SessionId: SessionIds.Canonical(attached.SessionId), TranscriptFormat: TranscriptFormats.Vendor);
 

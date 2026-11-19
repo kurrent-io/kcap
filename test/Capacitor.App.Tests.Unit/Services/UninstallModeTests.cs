@@ -97,7 +97,7 @@ public class UninstallModeTests {
     /// an AppImage, or a Velopack install on Windows.</summary>
     [Test]
     public async Task Each_platform_offers_the_uninstall_from_its_own_install_only() {
-        static string? Root(OSPlatform os, string? found) => Capacitor.App.App.UninstallRoot(os,
+        static string? Root(OSPlatform os, string? found) => App.UninstallRoot(os,
             () => os == OSPlatform.OSX ? found : throw new InvalidOperationException("mac bundle read"),
             () => os == OSPlatform.Linux ? found : throw new InvalidOperationException("appimage read"),
             () => os == OSPlatform.Windows ? found : throw new InvalidOperationException("velopack read"));

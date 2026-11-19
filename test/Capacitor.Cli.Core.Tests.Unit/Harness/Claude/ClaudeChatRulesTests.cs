@@ -244,7 +244,7 @@ public class ClaudeChatRulesTests {
     [Test]
     public async Task Unmatched_paste_openings_stay_in_the_message() {
         var opens = string.Concat(Enumerable.Repeat("<pasted_content id=\"a\">", 64));
-        var shown = P("{\"type\":\"user\",\"message\":{\"content\":" + System.Text.Json.JsonSerializer.Serialize(opens + " tail") + "}}");
+        var shown = P("{\"type\":\"user\",\"message\":{\"content\":" + JsonSerializer.Serialize(opens + " tail") + "}}");
         await Assert.That(shown.Single().Text).IsEqualTo(opens + " tail");
     }
 

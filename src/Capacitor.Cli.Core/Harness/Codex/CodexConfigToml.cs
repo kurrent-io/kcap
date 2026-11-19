@@ -73,7 +73,7 @@ public static partial class CodexConfigToml {
     public static Change RegisterKcapMcpServers(string configPath,
                                                 Func<string?>? resolveBinaryPath = null) =>
         UpdateMcpRegistration(configPath, remove: false,
-                              Mcp.KcapBinaryCommand.Resolve(resolveBinaryPath));
+                              KcapBinaryCommand.Resolve(resolveBinaryPath));
 
     /// <summary>Whether kcap previously registered MCP servers here, independently of recording hooks.</summary>
     public static bool HasMcpInstallRecord(string configPath) {

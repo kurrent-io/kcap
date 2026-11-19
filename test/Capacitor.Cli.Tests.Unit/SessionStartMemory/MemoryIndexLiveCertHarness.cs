@@ -633,7 +633,7 @@ internal static partial class MemoryIndexLiveCertHarness {
             RedirectStandardOutput = true,
             RedirectStandardError  = true,
             RedirectStandardInput  = stdin is not null,
-            WorkingDirectory       = workingDirectory ?? Capacitor.Cli.Core.WorkingDirectory.FromProcess().Path
+            WorkingDirectory       = workingDirectory ?? WorkingDirectory.FromProcess().Path
         };
         foreach (var arg in args) psi.ArgumentList.Add(arg);
 

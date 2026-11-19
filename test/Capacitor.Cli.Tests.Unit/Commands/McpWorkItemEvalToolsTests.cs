@@ -289,7 +289,7 @@ public class McpWorkItemEvalToolsTests {
     }
 
     sealed class StalledContent : HttpContent {
-        protected override Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context) => Task.Delay(Timeout.Infinite);
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => Task.Delay(Timeout.Infinite);
         protected override Task<Stream> CreateContentReadStreamAsync() => Task.FromResult<Stream>(new StalledStream());
         protected override bool TryComputeLength(out long length) { length = 0; return false; }
     }

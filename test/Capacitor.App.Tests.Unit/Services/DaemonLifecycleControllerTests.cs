@@ -2619,8 +2619,8 @@ sealed class FakeKcapCli : IKcapCli {
     public Task<ProcessResult> LocalStartAsync(CancellationToken ct) =>
         Task.FromResult(new ProcessResult(0, "", "", false));
 
-    public Task<Capacitor.Cli.Core.LocalEdition.LocalServerReading?> LocalStatusAsync(CancellationToken ct) =>
-        Task.FromResult<Capacitor.Cli.Core.LocalEdition.LocalServerReading?>(null);
+    public Task<Cli.Core.LocalEdition.LocalServerReading?> LocalStatusAsync(CancellationToken ct) =>
+        Task.FromResult<Cli.Core.LocalEdition.LocalServerReading?>(null);
 
     public Task<ProcessResult> HideSessionAsync(string sessionId, CancellationToken ct) =>
         Task.FromResult(new ProcessResult(0, "", "", false));

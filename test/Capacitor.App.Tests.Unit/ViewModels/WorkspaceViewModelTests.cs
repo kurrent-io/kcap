@@ -103,7 +103,7 @@ public class WorkspaceViewModelTests {
     public async Task The_handoff_outcome_is_read_once_when_the_live_session_id_arrives() {
         await RunOnUiAsync(async () => {
             var daemon = new FakeDaemonClientService();
-            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [Cli.Core.LocalIpc.HandoffWire.Capability]));
+            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [HandoffWire.Capability]));
             var asked = new List<string>();
             var ops = new ScriptedLocalControlOps {
                 ReadHandoffOutcome = id => {
@@ -140,7 +140,7 @@ public class WorkspaceViewModelTests {
         await RunOnUiAsync(async () => {
             var path = Tmp.PathTo("app-state.json");
             var daemon = new FakeDaemonClientService();
-            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [Cli.Core.LocalIpc.HandoffWire.Capability]));
+            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [HandoffWire.Capability]));
             var asked = new List<string>();
             var ops = new ScriptedLocalControlOps {
                 ReadHandoffOutcome = id => {
@@ -183,7 +183,7 @@ public class WorkspaceViewModelTests {
         await RunOnUiAsync(async () => {
             const string next = "fedcba9876543210fedcba9876543210";
             var daemon = new FakeDaemonClientService();
-            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [Cli.Core.LocalIpc.HandoffWire.Capability]));
+            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [HandoffWire.Capability]));
             var ops = new ScriptedLocalControlOps {
                 ReadHandoffOutcome = id => Task.FromResult<Cli.Core.Handoff.HandoffOutcomeDto?>(
                     id == Session ? new("s1", "Old", "done", null, []) : null),

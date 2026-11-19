@@ -241,7 +241,7 @@ public class SessionTakeoverTests {
         var o = Outcome(await Run(routes));
 
         await Assert.That(routes.Posts.Select(p => p.Path).Where(p => p.StartsWith("/api/plans/", StringComparison.Ordinal)).ToList())
-            .IsEquivalentTo(new[] { "/api/plans/p1/tasks/t1", "/api/plans/p2/tasks/t2" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            .IsEquivalentTo(new[] { "/api/plans/p1/tasks/t1", "/api/plans/p2/tasks/t2" }, CollectionOrdering.Matching);
         await Assert.That(o["current_plan_id"]!.GetValue<string>()).IsEqualTo("p2");
     }
 

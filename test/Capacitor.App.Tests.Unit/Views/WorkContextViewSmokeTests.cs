@@ -582,9 +582,9 @@ public class WorkContextViewSmokeTests {
             await Assert.That(host.Find<TextBlock>("PartsHeaderText").IsEffectivelyVisible).IsFalse();
             await Assert.That(VisibleTexts(counts)).IsEquivalentTo(new[] { "2", "1", "1" }, CollectionOrdering.Matching);
 
-            var border = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapBorderBrush")!).Color;
-            var purple = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapPurpleBrush")!).Color;
-            var success = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapSuccessBrush")!).Color;
+            var border = ((ISolidColorBrush)Application.Current!.FindResource("KcapBorderBrush")!).Color;
+            var purple = ((ISolidColorBrush)Application.Current!.FindResource("KcapPurpleBrush")!).Color;
+            var success = ((ISolidColorBrush)Application.Current!.FindResource("KcapSuccessBrush")!).Color;
             var marks = counts.GetVisualDescendants().OfType<AppIcon>().Where(e => e.IsEffectivelyVisible).ToList();
             await Assert.That(marks.Select(e => ((ISolidColorBrush)e.Foreground!).Color))
                 .IsEquivalentTo(new[] { border, purple, success }, CollectionOrdering.Matching);
@@ -865,7 +865,7 @@ public class WorkContextViewSmokeTests {
             await Assert.That(texts).Contains("failed · 48s");
 
             var failed = section.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "failed · 48s");
-            var danger = (ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapDangerBrush")!;
+            var danger = (ISolidColorBrush)Application.Current!.FindResource("KcapDangerBrush")!;
             await Assert.That(((ISolidColorBrush)failed.Foreground!).Color).IsEqualTo(danger.Color);
             await Assert.That(section.GetVisualDescendants().OfType<Border>().Count(b => b.Classes.Contains("toolRunning") && b.IsEffectivelyVisible)).IsEqualTo(1);
 
@@ -903,8 +903,8 @@ public class WorkContextViewSmokeTests {
             await Assert.That(numbers).IsEquivalentTo(new[] { "1", "2" }, CollectionOrdering.Matching);
 
             var marks = summary.GetVisualDescendants().OfType<AppIcon>().Where(e => e.IsEffectivelyVisible).ToList();
-            var inflight = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapPurpleBrush")!).Color;
-            var danger = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapDangerBrush")!).Color;
+            var inflight = ((ISolidColorBrush)Application.Current!.FindResource("KcapPurpleBrush")!).Color;
+            var danger = ((ISolidColorBrush)Application.Current!.FindResource("KcapDangerBrush")!).Color;
             await Assert.That(marks.Select(e => ((ISolidColorBrush)e.Foreground!).Color))
                 .IsEquivalentTo(new[] { inflight, danger }, CollectionOrdering.Matching);
             await Assert.That(summary.GetVisualDescendants().OfType<Border>().Count(b => b.Classes.Contains("toolRunning") && b.IsEffectivelyVisible)).IsEqualTo(1);
@@ -1161,9 +1161,9 @@ public class WorkContextViewSmokeTests {
             await Assert.That(host.Find<TextBlock>("PlanHeaderText").IsEffectivelyVisible).IsFalse();
             await Assert.That(VisibleTexts(counts)).IsEquivalentTo(new[] { "2", "1", "2" }, CollectionOrdering.Matching);
 
-            var faint = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapFaintBrush")!).Color;
-            var purple = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapPurpleBrush")!).Color;
-            var success = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapSuccessBrush")!).Color;
+            var faint = ((ISolidColorBrush)Application.Current!.FindResource("KcapFaintBrush")!).Color;
+            var purple = ((ISolidColorBrush)Application.Current!.FindResource("KcapPurpleBrush")!).Color;
+            var success = ((ISolidColorBrush)Application.Current!.FindResource("KcapSuccessBrush")!).Color;
             var marks = counts.GetVisualDescendants().OfType<AppIcon>().Where(e => e.IsEffectivelyVisible).ToList();
             await Assert.That(marks.Select(e => ((ISolidColorBrush)e.Foreground!).Color))
                 .IsEquivalentTo(new[] { faint, purple, success }, CollectionOrdering.Matching);
@@ -1228,8 +1228,8 @@ public class WorkContextViewSmokeTests {
             await Assert.That(texts).Contains("Pin the order");
             await Assert.That(texts).Contains("Animate the fold");
 
-            var muted = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapMutedBrush")!).Color;
-            var text = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapTextBrush")!).Color;
+            var muted = ((ISolidColorBrush)Application.Current!.FindResource("KcapMutedBrush")!).Color;
+            var text = ((ISolidColorBrush)Application.Current!.FindResource("KcapTextBrush")!).Color;
             TextBlock Title(string title) => section.GetVisualDescendants().OfType<TextBlock>().Single(t => t.IsEffectivelyVisible && t.Text == title);
             await Assert.That(((ISolidColorBrush)Title("Read the route").Foreground!).Color).IsEqualTo(muted);
             await Assert.That(((ISolidColorBrush)Title("Animate the fold").Foreground!).Color).IsEqualTo(muted);

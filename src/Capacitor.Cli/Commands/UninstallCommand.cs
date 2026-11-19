@@ -502,7 +502,7 @@ sealed class UninstallCommand(
         File.Exists(root.RegistryPath) || StackDirectories.Any(name => Directory.Exists(Path.Combine(root.Directory, name)));
 
     /// <summary>The user-wide retired-ports record when it lies inside <paramref name="configDir"/>, whose delete keeps it.</summary>
-    string? RetiredPortsIn(string configDir) => Inside(configDir, Core.LocalEdition.RetiredPorts.PathFor(home));
+    string? RetiredPortsIn(string configDir) => Inside(configDir, RetiredPorts.PathFor(home));
 
     /// <summary>The user-wide unit lock when it lies inside <paramref name="configDir"/>, whose delete keeps it.</summary>
     string? UnitLockIn(string configDir) => Inside(configDir, LocalUnitLock.PathFor(home));

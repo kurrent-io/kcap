@@ -256,7 +256,7 @@ public class PullRequestToneCacheTests {
     static AgentRow Ended(string sessionId) => ServerRow(sessionId, "ended");
 
     /// The viewer's own listed session, as the directory marks it once the owners read has landed.
-    static AgentRow ServerRow(string sessionId, string status) => AgentRow.FromServer(new Capacitor.Remote.Models.RepoSessionDto {
+    static AgentRow ServerRow(string sessionId, string status) => AgentRow.FromServer(new RepoSessionDto {
         SessionId = sessionId, Status = status, AccessLevel = "full", Vendor = "claude", Title = "Session",
         Owner = new() { UserId = "u1", DisplayName = "Alexey" },
         StartedAt = DateTimeOffset.UnixEpoch, LastActivityAt = DateTimeOffset.UnixEpoch.AddHours(1),

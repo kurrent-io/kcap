@@ -431,11 +431,11 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         StubSessionEnd();
         var end   = EndBody.Replace("\"session_id\":\"s\"", $"\"session_id\":\"{sessionId}\"");
         var paths = WatcherPaths.FromEnvironment(Config.Root);
-        Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Record(paths, sessionId, _server.Url, end);
+        Recording.Harness.Copilot.CopilotSpanClose.Record(paths, sessionId, _server.Url, end);
 
         await RunQuickly(sessionId, NewTranscript(tmp, ShutdownLine + "\n"), endBody: end);
 
-        await Assert.That(Capacitor.Cli.Recording.Harness.Copilot.CopilotSpanClose.Pending(paths, _server.Url)).DoesNotContain(sessionId);
+        await Assert.That(Recording.Harness.Copilot.CopilotSpanClose.Pending(paths, _server.Url)).DoesNotContain(sessionId);
     }
 
     [Test]

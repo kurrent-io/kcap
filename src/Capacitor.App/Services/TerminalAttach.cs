@@ -1,6 +1,6 @@
 namespace Capacitor.App.Services;
 
-using Capacitor.Cli.Core.LocalIpc;
+using Cli.Core.LocalIpc;
 
 /// App-side seam over Core's AgentAttachClient so VM tests script attachment.
 public interface ITerminalAttachClient : IAsyncDisposable {

@@ -108,7 +108,7 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.Vm.Chat.Items.Count).IsEqualTo(count);
                 await Assert.That(host.Vm.WorkContext.IsReady).IsTrue();
                 CaptureLoading(host, "session-reconnecting");
-                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Capacitor.Cli.Core.Http.ConnectionFailure.Refused));
+                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Cli.Core.Http.ConnectionFailure.Refused));
                 host.Settle();
                 await Assert.That(host.View.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Couldn’t reconnect to this session")).IsTrue();
                 CaptureLoading(host, "session-connection-failed");
@@ -143,10 +143,10 @@ public class RemoteSessionViewSmokeTests {
         await AvaloniaSession.DispatchAsync(async () => {
             var starts = 0;
             using var host = new Host(localServer: lane => new LocalServerRecoveryViewModel(lane.Status, isLocalServer: true,
-                _ => { starts++; return Task.FromResult(new Capacitor.Cli.Core.ProcessResult(0, "", "", false)); }, () => Task.CompletedTask, CancellationToken.None));
+                _ => { starts++; return Task.FromResult(new Cli.Core.ProcessResult(0, "", "", false)); }, () => Task.CompletedTask, CancellationToken.None));
             try {
                 await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "connected");
-                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Capacitor.Cli.Core.Http.ConnectionFailure.Refused));
+                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Cli.Core.Http.ConnectionFailure.Refused));
                 await host.SettleUntilAsync(() => host.Vm.ConnectionNotice?.Title == "Your kcap server is stopped", "stopped notice");
                 var start = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Start server"));
                 await Assert.That(start.Classes.Contains("kcapPrimary")).IsTrue();
@@ -168,12 +168,12 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.View.FindControl<WorkContextView>("WorkContextHost")!.IsEffectivelyVisible).IsTrue();
                 await Assert.That(host.Vm.WorkContext.Phase).IsEqualTo(WorkContextPhase.Loading);
                 CaptureLoading(host, "work-context-loading");
-                gate.SetResult(Capacitor.Cli.Core.WorkItems.WorkContextRead.Of(Capacitor.Cli.Core.WorkItems.WorkContextReadKind.Unreachable));
+                gate.SetResult(WorkContextRead.Of(WorkContextReadKind.Unreachable));
                 await host.SettleUntilAsync(() => host.Vm.WorkContext.ShowsRetry, "context failure");
                 await Assert.That(host.View.GetVisualDescendants().OfType<SessionConnectionNotice>()
                     .Any(n => n.IsEffectivelyVisible && n.DataContext is SessionConnectionPresentation { Title: "Waiting for chat…" })).IsTrue();
                 CaptureLoading(host, "work-context-failed");
-                source.Enqueue(Capacitor.Cli.Core.WorkItems.WorkContextRead.Of(Capacitor.Cli.Core.WorkItems.WorkContextReadKind.Ready));
+                source.Enqueue(WorkContextRead.Of(WorkContextReadKind.Ready));
                 await host.Vm.WorkContext.RefreshCommand.Execute();
                 await host.SettleUntilAsync(() => host.Vm.WorkContext.Phase == WorkContextPhase.NoWorkItem, "context retry");
                 await Assert.That(host.Vm.WorkContext.PhaseNote).IsNotEmpty();

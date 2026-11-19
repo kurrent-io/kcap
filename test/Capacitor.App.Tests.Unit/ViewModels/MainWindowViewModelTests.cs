@@ -1239,7 +1239,7 @@ public class MainWindowViewModelTests {
     public async Task A_connect_resets_the_banner_to_the_standing_identity_report(bool reportFirst) {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var identity = new System.Reactive.Subjects.BehaviorSubject<string?>(null);
+            var identity = new BehaviorSubject<string?>(null);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
                 identityReport: identity);
             using var activation = vm.Activator.Activate();

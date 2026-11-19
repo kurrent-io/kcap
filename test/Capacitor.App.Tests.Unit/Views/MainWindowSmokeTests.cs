@@ -750,7 +750,7 @@ public class MainWindowSmokeTests {
         parts.SetValue(decorations, Enum.ToObject(parts.PropertyType, 0xFF));
         var host = new Panel();
         var window = new Window { Title = "kcap Desktop", Content = host };
-        ((Avalonia.Controls.ISetLogicalParent)decorations).SetParent(window);
+        ((ISetLogicalParent)decorations).SetParent(window);
         typeof(Avalonia.Controls.Chrome.WindowDrawnDecorations).GetMethod("ApplyTemplate", Members)!.Invoke(decorations, null);
         host.Children.Add(decorations.Content!.Overlay!);
         try {
@@ -1208,7 +1208,7 @@ public class MainWindowSmokeTests {
 
                 var selected = RailRow(window, "Fix the flaky test");
                 var sibling = RailRow(window, "Leave this one alone");
-                var hover = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapSurfaceRaisedBrush")!).Color;
+                var hover = ((ISolidColorBrush)Application.Current!.FindResource("KcapSurfaceRaisedBrush")!).Color;
                 static TextBlock Title(Button row) => row.GetVisualDescendants().OfType<TextBlock>().First(t => t.Classes.Contains("rowTitle"));
                 var result = (
                     SelectedBackground: (selected.Background as ISolidColorBrush)?.Color,
@@ -1758,7 +1758,7 @@ public class MainWindowSmokeTests {
         var service = new FakeDaemonClientService();
         service.SnapshotsSubject.OnNext(Snap());
         var opener = new RecordingOpener();
-        var reported = new List<Capacitor.Cli.Core.Commands.FeedbackCategory>();
+        var reported = new List<Cli.Core.Commands.FeedbackCategory>();
         var setupOpened = 0;
         var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
             openFeedback: reported.Add, opener: opener, requestSetup: () => setupOpened++);
@@ -1787,13 +1787,13 @@ public class MainWindowSmokeTests {
 
             OpenAndClick("RailHelpBugButton");
             await Assert.That(flyout.IsOpen).IsFalse();
-            await Assert.That(reported).IsEquivalentTo([Capacitor.Cli.Core.Commands.FeedbackCategory.Bug]);
+            await Assert.That(reported).IsEquivalentTo([Cli.Core.Commands.FeedbackCategory.Bug]);
 
             OpenAndClick("RailHelpFeedbackButton");
             await Assert.That(flyout.IsOpen).IsFalse();
             await Assert.That(reported).IsEquivalentTo([
-                Capacitor.Cli.Core.Commands.FeedbackCategory.Bug,
-                Capacitor.Cli.Core.Commands.FeedbackCategory.Feedback,
+                Cli.Core.Commands.FeedbackCategory.Bug,
+                Cli.Core.Commands.FeedbackCategory.Feedback,
             ]);
         } finally {
             window.Close();
