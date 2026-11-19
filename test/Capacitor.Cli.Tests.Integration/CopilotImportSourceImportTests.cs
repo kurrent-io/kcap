@@ -129,9 +129,12 @@ public class CopilotImportSourceImportTests : IDisposable {
     }
 
     /// <summary>A chat VS Code moved from Local is imported with the marker naming the Local chat whose request has its
-    /// first copied prompt's time and text, so the server links the two as the live watcher's marker does.</summary>
+    /// first copied prompt's time and text, so the server links the two as the live watcher's marker does. The marker
+    /// ends the copied history on the server, so it goes only once the server holds the resume that ends it.</summary>
     [Test]
-    public async Task An_import_of_a_chat_moved_from_local_names_its_local_chat() {
+    [Arguments(2, true)]
+    [Arguments(1, false)]
+    public async Task An_import_of_a_chat_moved_from_local_names_its_local_chat(int serverLastLine, bool marked) {
         const string localId = "fa0d6e8d-7c9d-446f-a93c-5a2a89e011b4";
         var cwd = Path.Combine(_tempDir, "work", "a");
         var dir = Path.Combine(CopilotLayout.SessionStateDir, DashedSid);
@@ -151,24 +154,29 @@ public class CopilotImportSourceImportTests : IDisposable {
         await File.WriteAllTextAsync(Path.Combine(workspace, "chatSessions", localId + ".jsonl"),
             $$$"""{"kind":0,"v":{"version":3,"sessionId":"{{{localId}}}","requests":[{"requestId":"request_1","timestamp":1795024287408,"message":{"text":"Add multiply."}}]}}""" + "\n");
 
-        StubServerHoldingEveryLine();
-        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost()).RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
+        _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody($$"""{"last_line_number":{{serverLastLine}}}"""));
+        foreach (var route in new[] { "/hooks/session-start/copilot", "/hooks/harness-title", "/hooks/set-title", "/hooks/session-end/copilot", "/hooks/transcript" })
+            _server.Given(Request.Create().WithPath(route).UsingPost()).RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
 
         using var client = new HttpClient();
         var source     = new CopilotImportSource(Config.Root, CopilotLayout, [storage], new GitProviderRouter(), TimeProvider.System);
         var discovered = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None);
         var classified = await source.ClassifyAsync(discovered, new ClassifyContext(client, _server.Url!, MinLines: 0, Home: Home), CancellationToken.None);
 
-        await source.ImportSessionAsync(classified.Single(), new ImportContext(client, _server.Url!, ForcePrivate: false), CancellationToken.None);
+        var outcome = await source.ImportSessionAsync(classified.Single(), new ImportContext(client, _server.Url!, ForcePrivate: false), CancellationToken.None);
 
+        await Assert.That(outcome.Outcome == ImportOutcome.Failed).IsEqualTo(!marked);
         var markers = _server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost())
             .Select(e => e.RequestMessage.Body ?? "")
             .Where(b => b.Contains(CopilotMovedChat.MarkerType, StringComparison.Ordinal))
             .ToList();
 
-        await Assert.That(markers.Count).IsEqualTo(1);
-        await Assert.That(markers[0]).Contains(localId);
-        await Assert.That(markers[0]).Contains(CopilotMovedChat.MarkerLineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        await Assert.That(markers.Count).IsEqualTo(marked ? 1 : 0);
+        if (marked) {
+            await Assert.That(markers[0]).Contains(localId);
+            await Assert.That(markers[0]).Contains(CopilotMovedChat.MarkerLineNumber.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
     }
 
     /// <summary>The import reads Copilot's name through the same store the live watcher polls, so a name that only

@@ -279,9 +279,6 @@ internal sealed class CopilotImportSource : IImportSource {
             _                                                => 0,
         };
 
-        // Read before the send, so the resume it names is one the send delivers.
-        var movedHistory = classification.SourceMeta.ContainsKey(ChatSessionLogKey) ? null : ReadMovedHistory(transcriptPath);
-
         int sent;
         try {
             sent = await SessionImporter.SendTranscriptBatches(
@@ -304,7 +301,7 @@ internal sealed class CopilotImportSource : IImportSource {
 
         var usageOk = classification.SourceMeta.GetValueOrDefault(ChatSessionLogKey) is string chatLog
             ? await PostVsCodeLocalAsync(ctx, classification.SessionId, transcriptPath, chatLog, ct)
-            : await PostMovedFromAsync(ctx, classification.SessionId, movedHistory, ct);
+            : await PostMovedFromAsync(ctx, classification, transcriptPath, ct);
 
         // Best-effort: a title miss must not fail the import.
         if (classification.SourceMeta.GetValueOrDefault(WorkspaceYamlKey) is string workspaceYaml) {
@@ -358,6 +355,18 @@ internal sealed class CopilotImportSource : IImportSource {
         return delivered;
     }
 
+    async Task<int?> ServerLastLineAsync(ImportContext ctx, string sessionId, CancellationToken ct) {
+        try {
+            using var resp = await ctx.HttpClient.GetWithRetryAsync($"{ctx.BaseUrl}/api/sessions/{sessionId}/last-line", _time, ct: ct);
+            if (!resp.IsSuccessStatusCode) return null;
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            return doc.RootElement.Num("last_line_number") is { } line ? (int)line : null;
+        } catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException) {
+            return null;
+        }
+    }
+
     static CopilotMovedChat.History? ReadMovedHistory(string transcriptPath) {
         try {
             return CopilotMovedChat.Read(File.ReadLinesShared(transcriptPath));
@@ -367,10 +376,18 @@ internal sealed class CopilotImportSource : IImportSource {
     }
 
     /// <summary>For a chat moved from Local, the marker naming the Local chat it came from, posted on every
-    /// classification as the usage lines are: it sits above the transcript watermark and dedupes by id. False only when
-    /// the server refused it; a transcript of any other chat, or a Local chat not found, posts nothing.</summary>
-    async Task<bool> PostMovedFromAsync(ImportContext ctx, string sessionId, CopilotMovedChat.History? history, CancellationToken ct) {
-        if (history is null || CopilotMovedChat.FindLocalChat(_vsCodeWorkspaceStorageDirs, history).Found is not { } local) return true;
+    /// classification as the usage lines are: it sits above the transcript watermark and dedupes by id. It goes only once
+    /// the server holds the resume that ends the copied history, as the file still has it: the server ends the history
+    /// at the marker. False when that resume is not held, or the server refused the marker, so the import can be run
+    /// again; a transcript of any other chat, or a Local chat not found, posts nothing.</summary>
+    async Task<bool> PostMovedFromAsync(ImportContext ctx, ImportCommand.SessionClassification classification, string transcriptPath, CancellationToken ct) {
+        var sessionId = classification.SessionId;
+
+        if (ReadMovedHistory(transcriptPath) is not { } history
+         || CopilotMovedChat.FindLocalChat(_vsCodeWorkspaceStorageDirs, history).Found is not { } local) return true;
+
+        var resumeAs = classification.SourceMeta?.GetValueOrDefault(NumberingKey) is Func<int, int?> numbering ? numbering(history.ResumeLine) : history.ResumeLine;
+        if (resumeAs is not { } sentAs || await ServerLastLineAsync(ctx, sessionId, ct) is not { } held || held < sentAs) return false;
 
         var batch = new TranscriptBatch {
             SessionId   = sessionId,
