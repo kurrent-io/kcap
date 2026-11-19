@@ -27,9 +27,10 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     int _first = -1;
     int _last = -1;
     /// After rows go in above the ones on screen: the row the reader was at, how far into it the viewport's
-    /// top was, and the offset's distance from the viewport's top. The offset follows that row once layout
-    /// has measured it, since rows measured around it move it from where the estimates put it.
-    (object Item, double Within, double Inset)? _insertAnchor;
+    /// top was, the offset's distance from the viewport's top, and the offset when this was set. The offset
+    /// follows that row once layout has measured it, since rows measured around it move it from where the
+    /// estimates put it; a scroll the reader made before then is carried along rather than overwritten.
+    (object Item, double Within, double Inset, double Offset)? _insertAnchor;
     bool _insertArranged;
     /// How far the viewport moved for an insertion, until a viewport reflecting it arrives: one reported
     /// from before would measure the inserted rows at the top and move every row below them.
@@ -164,17 +165,19 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     protected override Size ArrangeOverride(Size finalSize) {
         if (_insertAnchor is not null && !_insertArranged && this.FindAncestorOfType<ScrollViewer>() is { } scroll) {
             _insertArranged = true;
+            // Only input moves the offset between the insertion and here; the presenter's own anchoring runs later in this pass.
+            var moved = scroll.Offset.Y - _insertAnchor.Value.Offset;
             // The presenter takes the grown extent only after this pass; an offset set now is clamped to the old one.
             void Apply(object? sender, EventArgs e) {
                 scroll.LayoutUpdated -= Apply;
                 _insertArranged = false;
-                if (_insertAnchor is not var (item, within, inset)) return;
+                if (_insertAnchor is not var (item, within, inset, _)) return;
                 _insertAnchor = null;
                 var index = -1;
                 for (var i = 0; i < Items.Count && index < 0; i++)
                     if (ReferenceEquals(Items[i], item)) index = i;
                 if (index < 0 || _starts.Length != Items.Count + 1) return;
-                scroll.Offset = new Vector(scroll.Offset.X, _starts[index] + within + inset);
+                scroll.Offset = new Vector(scroll.Offset.X, _starts[index] + within + inset + moved);
             }
             scroll.LayoutUpdated += Apply;
         }
@@ -253,10 +256,11 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         if (inserted > 0 && reading + inserted < items.Count && this.FindAncestorOfType<ScrollViewer>() is { } scroll
             && items[reading + inserted] is { } readingItem) {
             var inset = _insertAnchor?.Inset ?? scroll.Offset.Y - _viewport.Top;
+            var offset = _insertAnchor?.Offset ?? scroll.Offset.Y;
             var top = _starts[reading + inserted] + within;
             _shiftInFlight += top - _viewport.Top;
             _viewport = new Rect(_viewport.X, top, _viewport.Width, _viewport.Height);
-            _insertAnchor = (readingItem, within, inset);
+            _insertAnchor = (readingItem, within, inset, offset);
         }
         InvalidateMeasure();
     }
@@ -276,7 +280,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
             var target = _starts[index] + inset;
             scroll.Offset = new Vector(scroll.Offset.X, target);
             // Past the extent the presenter has laid out, the offset was clamped; arrange applies it once the extent grows.
-            if (scroll.Offset.Y < target - 0.5) _insertAnchor = (row.Item, 0, inset);
+            if (scroll.Offset.Y < target - 0.5) _insertAnchor = (row.Item, 0, inset, scroll.Offset.Y);
         }
         return row.Container;
     }

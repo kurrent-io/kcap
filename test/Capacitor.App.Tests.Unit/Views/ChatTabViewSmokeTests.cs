@@ -320,6 +320,23 @@ public class ChatTabViewSmokeTests {
             var last = list.ContainerFromIndex(rows.Count - 1)?.TranslatePoint(default, Scroll())?.Y;
             await Assert.That(last).IsNotNull();
             await Assert.That(last!.Value).IsBetween(-1, Scroll().Viewport.Height);
+
+            // A scroll the reader makes before an insertion's correction lands is kept, measured from the reading row.
+            var middle = list.TranslatePoint(new Point(list.Bounds.Width / 2, list.Bounds.Height / 2), window)!.Value;
+            window.MouseWheel(middle, new Vector(0, 100_000));
+            Settle();
+            list.ScrollIntoView(rows.Count / 2);
+            Settle();
+            var reading = list.GetRealizedContainers()
+                .Select(container => (container, top: container.TranslatePoint(default, Scroll())!.Value.Y))
+                .Where(row => row.top + row.container.Bounds.Height > 1)
+                .MinBy(row => row.top);
+            rows.InsertRange(0, [new AssistantTextItem("extra 3", null), new AssistantTextItem("extra 4", null)]);
+            Scroll().Offset = new Vector(0, Scroll().Offset.Y - 60);
+            Settle();
+            var moved = list.ContainerFromItem(reading.container.DataContext!)?.TranslatePoint(default, Scroll())?.Y;
+            await Assert.That(moved).IsNotNull();
+            await Assert.That(Math.Abs(moved!.Value - (reading.top + 60))).IsLessThan(2);
         } finally {
             window.Close();
             Dispatcher.UIThread.RunJobs();
