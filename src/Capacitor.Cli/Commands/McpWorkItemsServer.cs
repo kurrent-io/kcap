@@ -115,8 +115,9 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
         "merge_work_item into it. A wrong attach: detach_work_item, never a breakdown. ";
 
     const string PartsInstructions =
-        "Add this session to its work item or part with declare_work_item. Only a person creates a work item, " +
-        "so ask the user for one rather than inventing it. When the user asks, split a work item with " +
+        "Add this session to its work item or part with declare_work_item. When the user asks you to create a " +
+        "work item, declare_work_item with new_title; never create one unasked or invent an id. When the user " +
+        "asks, split a work item with " +
         "create_work_item_part (a part can't have parts), add its PRs and issues with add_work_item_link, and " +
         "say what a part waits on with wait_on_part (stop_waiting_on_part undoes it); get_work_item_parts " +
         "reads it back. A wrong attach: detach_work_item. ";

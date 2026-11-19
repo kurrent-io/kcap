@@ -28,8 +28,10 @@ no breakdown.
 When your tools include `create_work_item_part`, the server runs work items version 2,
 and this section replaces the breakdown, relation and merge guidance below:
 
-- Only a person creates a work item. `declare_work_item` takes only `work_item_id`, a work
-  item or part that exists; ask the user for it, or find it with `get_session_work_items`.
+- `declare_work_item` takes `work_item_id`, a work item or part that exists; ask the user
+  for it, or find it with `get_session_work_items`. When the user asks you to create a work
+  item, pass `new_title` instead; it lands in the session's project. Never create one
+  unasked. `issue_key` and `pr_number` are refused.
 - When the user asks to split a work item, `create_work_item_part` (`work_item_id`,
   `title`) under it. A part can't have parts.
 - `add_work_item_link` (`work_item_id`, `reference`) adds a PR or issue to a work item or

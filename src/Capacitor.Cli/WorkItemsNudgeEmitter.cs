@@ -67,7 +67,8 @@ static class WorkItemsNudgeEmitter {
                 "## Work items\n" +
                 $"You are in a recorded kcap session (id: `{id}`). When you start work on a work item or one of " +
                 "its parts, add this session to it by its id with the kcap-workitems MCP tool `declare_work_item`. " +
-                "Only a person creates a work item: never create one or invent an id, ask the user. When the user " +
+                "Never invent a work item id. When the user asks you to create a work item, call `declare_work_item` " +
+                "with `new_title`; never create one unasked. When the user " +
                 "asks, split a work item with `create_work_item_part` (a part can't have parts), add its PRs and " +
                 "issues with `add_work_item_link`, and say what a part waits on with `wait_on_part`. Undo a wrong " +
                 "attach with `detach_work_item`. If a tool cannot resolve the session automatically, pass " +
