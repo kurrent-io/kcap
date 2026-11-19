@@ -8,12 +8,20 @@
 set -euo pipefail
 source "$(dirname "$0")/common.sh"
 runs=${1:?runs}; secs=${2:?seconds}; shift 2
-[ -e "$APP" ] && { echo "move $APP out of the way first" >&2; exit 1; }
+{ [ -e "$APP" ] || [ -L "$APP" ]; } && { echo "move $APP out of the way first" >&2; exit 1; }
+# A symlink would run the app from its target, not /Applications, and a move across volumes copies the whole bundle.
+apps_dev=$(stat -f %d "$(dirname "$APP")")
+for pair in "$@"; do
+  bundle=${pair#*=}
+  if [ -L "$bundle" ] || [ ! -d "$bundle" ] || [ "$(stat -f %d "$bundle")" != "$apps_dev" ]; then
+    echo "$bundle: needs a real bundle directory on the same volume as $(dirname "$APP")" >&2; exit 1
+  fi
+done
 
 moved=
 restore() {
   stop_shooter
-  [ -n "$moved" ] && [ -e "$APP" ] || { moved=; return 0; }
+  [ -n "$moved" ] && { [ -e "$APP" ] || [ -L "$APP" ]; } || { moved=; return 0; }
   quit_app
   mv "$APP" "$moved"; moved=
 }

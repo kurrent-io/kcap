@@ -48,6 +48,8 @@ def tcp_segments(path, port):
 
 
 REQUEST = re.compile(rb"([!#$%&'*+.^_`|~0-9A-Za-z-]+) (\S+) HTTP/1\.1\r\n((?:[^\r\n]+\r\n)*)\r\n")
+# int(..., 16) also takes a sign, "0x" and "_"; a negative size would never advance the cursor.
+CHUNK_SIZE = re.compile(rb"[0-9A-Fa-f]+")
 RESPONSE = re.compile(rb"HTTP/1\.1 (\d{3})[^\r\n]*\r\n((?:[^\r\n]+\r\n)*)\r\n")
 
 
@@ -62,10 +64,10 @@ def chunked_end(data, pos):
         eol = data.find(b"\r\n", pos)
         if eol < 0:
             return len(data)
-        try:
-            size = int(data[pos:eol].split(b";")[0], 16)
-        except ValueError:
+        token = data[pos:eol].split(b";")[0].strip(b" \t")
+        if not CHUNK_SIZE.fullmatch(token):
             return len(data)
+        size = int(token, 16)
         pos = eol + 2
         if size == 0:
             end = data.find(b"\r\n\r\n", pos - 2)
