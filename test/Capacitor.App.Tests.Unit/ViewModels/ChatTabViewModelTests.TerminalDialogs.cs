@@ -168,7 +168,7 @@ public partial class ChatTabViewModelTests {
                 await Assert.That(await h.Chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
 
                 await h.Chat.TerminalMenuChoices[0].Choose.Execute().ToTask();
-                await Assert.That(input.Writes).IsEquivalentTo(new[] { "\x1b[A\x1b[A\r" }, CollectionOrdering.Matching);
+                await Assert.That(input.Writes).IsEquivalentTo(new[] { "\e[A\e[A\r" }, CollectionOrdering.Matching);
 
                 var redrawn = new TerminalDialogDto(dialog.Heading, dialog.Body, dialog.Options, selected: 0, screen: "");
                 await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with { Status = "Running", TerminalDialog = redrawn });
@@ -330,7 +330,7 @@ public partial class ChatTabViewModelTests {
             var close = h.Chat.TerminalMenuChoices.Single();
             await Assert.That(close.Label).IsEqualTo("Close");
             await close.Choose.Execute().ToTask();
-            await Assert.That(input.Writes).IsEquivalentTo(new[] { "\x1b" }, CollectionOrdering.Matching);
+            await Assert.That(input.Writes).IsEquivalentTo(new[] { "\e" }, CollectionOrdering.Matching);
             await Assert.That(await close.Choose.CanExecute.FirstAsync()).IsFalse();
         } finally { await h.TeardownAsync(); }
     });
@@ -500,7 +500,7 @@ public partial class ChatTabViewModelTests {
                 await h.PushAsync(agent);
                 await Assert.That(await h.Chat.TerminalMenuChoices[1].Choose.CanExecute.FirstAsync()).IsTrue();
                 await h.Chat.TerminalMenuChoices[1].Choose.Execute().ToTask();
-                await Assert.That(input.Writes).IsEquivalentTo(new[] { "\r", "\x1b[B\r" }, CollectionOrdering.Matching);
+                await Assert.That(input.Writes).IsEquivalentTo(new[] { "\r", "\e[B\r" }, CollectionOrdering.Matching);
             } finally { await h.TeardownAsync(); }
         });
     }

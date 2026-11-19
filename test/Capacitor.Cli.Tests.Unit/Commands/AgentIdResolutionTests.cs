@@ -111,11 +111,11 @@ public class AgentIdResolutionTests {
     [Test]
     public async Task Table_strips_control_characters_from_free_form_cells() {
         string[] lines = [.. AgentCommand.FormatAgentTable([
-            new AgentRow("a1", "Running", "/r\u001b[2J", "agent", "", "", "\u001b]0;pwned\u0007Fix it"),
+            new AgentRow("a1", "Running", "/r\e[2J", "agent", "", "", "\e]0;pwned\aFix it"),
         ])];
 
-        await Assert.That(lines[1]).DoesNotContain("\u001b");
-        await Assert.That(lines[1]).DoesNotContain("\u0007");
+        await Assert.That(lines[1]).DoesNotContain("\e");
+        await Assert.That(lines[1]).DoesNotContain("\a");
         await Assert.That(lines[1]).EndsWith("]0;pwnedFix it");
     }
 

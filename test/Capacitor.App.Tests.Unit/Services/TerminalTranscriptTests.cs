@@ -29,8 +29,8 @@ public class TerminalTranscriptTests {
                 // transcript, split at the alt-screen boundary so ENTRY can be pinned (not just
                 // exit): prefix ends with \x1b[?1049h; suffix carries the alt-only text, the
                 // \x1b[?1049l exit, and the post-exit text.
-                var prefix = "\x1b[2J\x1b[H\x1b[1;31mRED\x1b[0m\x1b[10;5Hmid\x1b[?1049h"u8.ToArray();
-                var suffix = " alt \x1b[?1049l back"u8.ToArray();
+                var prefix = "\e[2J\e[H\e[1;31mRED\e[0m\e[10;5Hmid\e[?1049h"u8.ToArray();
+                var suffix = " alt \e[?1049l back"u8.ToArray();
 
                 foreach (var chunk in Chunk(prefix, 7)) // deliberately ugly boundaries
                     model.Feed(decoder.Decode(chunk));
@@ -85,7 +85,7 @@ public class TerminalTranscriptTests {
             var replies = new List<byte[]>();
             surface.InputProduced += replies.Add;
 
-            surface.Feed("\x1b[6n"); // DSR: report cursor position
+            surface.Feed("\e[6n"); // DSR: report cursor position
 
             return replies.Any(r => System.Text.Encoding.ASCII.GetString(r).Contains(";1R"));
         });
@@ -126,7 +126,7 @@ public class TerminalTranscriptTests {
             var engine = surface.Model.Terminal.Engine;
             var first  = (engine.GetLine(0), engine.GetLine(1));
 
-            surface.Feed("\u001bc");
+            surface.Feed("\ec");
             var cleared = (engine.GetLine(0).Trim(), engine.GetLine(1).Trim());
 
             surface.Feed("fresh");

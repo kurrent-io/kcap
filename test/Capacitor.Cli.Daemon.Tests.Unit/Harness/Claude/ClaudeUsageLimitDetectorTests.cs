@@ -34,7 +34,7 @@ public class ClaudeUsageLimitDetectorTests {
 
     [Test]
     public async Task Cursor_and_color_around_the_same_menu_still_match() {
-        var framed = "\x1b[31m" + Menu.Replace("1. ", "\x1b[0m❯ 1. ") + "\x1b[0m";
+        var framed = "\e[31m" + Menu.Replace("1. ", "\e[0m❯ 1. ") + "\e[0m";
         var notice = new ClaudeScreenWatcher().Observe(Utf8(framed)).UsageLimit;
 
         await Assert.That(notice).IsNotNull();
@@ -58,7 +58,7 @@ public class ClaudeUsageLimitDetectorTests {
         var detector = new ClaudeScreenWatcher();
         detector.Observe(Utf8(Menu));
 
-        var notice = detector.Observe(Utf8("\x1b[2Jready\r\n")).UsageLimit;
+        var notice = detector.Observe(Utf8("\e[2Jready\r\n")).UsageLimit;
 
         await Assert.That(notice).IsNull();
     }

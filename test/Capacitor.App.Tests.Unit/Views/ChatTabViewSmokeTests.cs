@@ -1678,7 +1678,7 @@ public class ChatTabViewSmokeTests {
             host.Time.Advance(CrDelay);
             await host.Terminal.PendingDeliveryForTesting!;
             await Assert.That(client.SentInput.Select(Encoding.UTF8.GetString))
-                .IsEquivalentTo(["\x1b[200~hi\x1b[201~", "\r"], CollectionOrdering.Matching);
+                .IsEquivalentTo(["\e[200~hi\e[201~", "\r"], CollectionOrdering.Matching);
             await host.CloseAsync();
         });
     }

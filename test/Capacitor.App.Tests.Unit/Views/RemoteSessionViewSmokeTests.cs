@@ -488,7 +488,7 @@ public class RemoteSessionViewSmokeTests {
                 await host.SettleUntilAsync(() => host.Vm.Terminal!.Phase == RemoteTerminalPhase.Live, "live terminal");
                 host.Lane.TerminalDimensionsSubject.OnNext(new TerminalSize("a1", 130, 54));
                 var feed = string.Concat(Enumerable.Range(0, 120).Select(i => $"line {i}\r\n"))
-                    + "prompt\x1b[?1h";
+                    + "prompt\e[?1h";
                 host.Lane.TerminalOutputSubject.OnNext(new TerminalOutputFrame("a1", Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(feed))));
                 host.Window.Height = 450;
                 host.Settle();
@@ -562,7 +562,7 @@ public class RemoteSessionViewSmokeTests {
                 await host.SettleUntilAsync(() => host.Vm.Terminal!.Phase == RemoteTerminalPhase.Live, "live terminal");
                 host.Lane.TerminalDimensionsSubject.OnNext(new TerminalSize("a1", 103, 38));
                 var feed = string.Concat(Enumerable.Range(0, 90).Select(i => $"redraw {i}\r\n"));
-                feed += (alternate ? "\x1b[?1049h" : "") + "\x1b[?1000h\x1b[?1006hfull-screen conversation";
+                feed += (alternate ? "\e[?1049h" : "") + "\e[?1000h\e[?1006hfull-screen conversation";
                 var bytes = System.Text.Encoding.UTF8.GetBytes(feed);
                 host.Lane.TerminalOutputSubject.OnNext(new TerminalOutputFrame("a1", Convert.ToBase64String(bytes)));
                 host.Settle();
@@ -580,14 +580,14 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(viewport.VerticalScrollBarVisibility).IsEqualTo(ScrollBarVisibility.Hidden);
                 foreach (var (_, key) in host.Lane.SpecialKeys) {
                     await Assert.That(TerminalScrollKey.TryDecode(key, out var report)).IsTrue();
-                    await Assert.That(report.AsSpan().StartsWith("\x1b[<64;"u8)).IsTrue();
+                    await Assert.That(report.AsSpan().StartsWith("\e[<64;"u8)).IsTrue();
                 }
                 await Assert.That(terminal.Model.ScrollOffset).IsEqualTo(scrollback);
                 host.Window.Height = 450;
                 host.Lane.TerminalDimensionsSubject.OnNext(new TerminalSize("a1", 100, 30));
                 host.Settle();
                 host.Lane.TerminalOutputSubject.OnNext(new TerminalOutputFrame("a1",
-                    Convert.ToBase64String("\x1b[2J\x1b[Hredrawn history\x1b[30;1Hdraft"u8.ToArray())));
+                    Convert.ToBase64String("\e[2J\e[Hredrawn history\e[30;1Hdraft"u8.ToArray())));
                 host.Settle();
                 // Resizing scrolls the terminal top out of view; aim inside the visible viewport
                 point = viewport.TranslatePoint(new Point(30, 30), host.Window)!.Value;
@@ -596,7 +596,7 @@ public class RemoteSessionViewSmokeTests {
                 host.Window.MouseWheel(point, new Vector(0, -0.5));
                 await host.SettleUntilAsync(() => host.Lane.SpecialKeys.Count == 9, "one downward step after resize");
                 await Assert.That(TerminalScrollKey.TryDecode(host.Lane.SpecialKeys[^1].Key, out var down)).IsTrue();
-                await Assert.That(down.AsSpan().StartsWith("\x1b[<65;"u8)).IsTrue();
+                await Assert.That(down.AsSpan().StartsWith("\e[<65;"u8)).IsTrue();
                 await Assert.That(terminal.Model.ScrollOffset).IsEqualTo(before);
                 var buffer = terminal.Model.Terminal.Buffer;
                 await Assert.That(buffer.GetLine(buffer.BaseY)!.TranslateToString(true)).IsEqualTo("redrawn history");

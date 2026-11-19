@@ -133,7 +133,7 @@ public class ArtefactCommandTests {
 
     [Test]
     public async Task A_terminal_is_shown_a_pages_control_characters_rather_than_sent_them() =>
-        await Assert.That(ArtefactCommand.ForTerminal("ok\u001b[2Jcleared\r\nnext\tcell"))
+        await Assert.That(ArtefactCommand.ForTerminal("ok\e[2Jcleared\r\nnext\tcell"))
                     .IsEqualTo("ok\\u001b[2Jcleared\\u000d\nnext\tcell");
 
     static PageSearchHitDto Hit(string id, string title, string excerpt = "", string? name = "Ada Lovelace",
@@ -190,12 +190,12 @@ public class ArtefactCommandTests {
     [Test]
     public async Task Search_neutralises_control_characters_in_author_text() {
         var api = new RecordingArtefactsApi {
-            SearchResult = new ArtefactSearchResult.Found([Hit("p1", "Q3\u001b[31m", excerpt: "a\nb", name: "Eve\r\nRoot")])
+            SearchResult = new ArtefactSearchResult.Found([Hit("p1", "Q3\e[31m", excerpt: "a\nb", name: "Eve\r\nRoot")])
         };
 
         var (_, output, _) = await SearchAsync(api, "q3");
 
-        await Assert.That(output).DoesNotContain("\u001b");
+        await Assert.That(output).DoesNotContain("\e");
         await Assert.That(output).Contains("a b");
         await Assert.That(output).Contains("Eve Root");
         await Assert.That(output.TrimEnd().Split(Environment.NewLine)).Count().IsEqualTo(3);

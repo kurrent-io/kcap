@@ -194,5 +194,5 @@ public class HeadlessProcessTests {
 
     [Test]
     public async Task ForLog_folds_lines_and_drops_control_characters() =>
-        await Assert.That(HeadlessProcess.ForLog("a\r\nb\u0007c")).IsEqualTo("a\\n\\nbc");
+        await Assert.That(HeadlessProcess.ForLog("a\r\nb\ac")).IsEqualTo("a\\n\\nbc");
 }

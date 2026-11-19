@@ -264,14 +264,14 @@ public class TerminalTabViewModelTests {
             Dispatcher.UIThread.RunJobs();
             await (vm.PendingResolveWorkForTesting ?? Task.CompletedTask);
             var client = factory.Created.Single();
-            await client.TriggerAttached(System.Text.Encoding.ASCII.GetBytes("hello\u001b[6n"));
+            await client.TriggerAttached(System.Text.Encoding.ASCII.GetBytes("hello\e[6n"));
             await client.TriggerOutput("!"u8.ToArray());
             time.Advance(TerminalTabViewModel.HiddenFeedInterval);
             await Assert.That(client.SentInput).IsEmpty();
 
-            await client.TriggerOutput(System.Text.Encoding.ASCII.GetBytes("\u001b[6n"));
+            await client.TriggerOutput(System.Text.Encoding.ASCII.GetBytes("\e[6n"));
             time.Advance(TerminalTabViewModel.HiddenFeedInterval);
-            await Assert.That(client.SentInput.Single()).IsEquivalentTo(System.Text.Encoding.ASCII.GetBytes("\u001b[1;7R"));
+            await Assert.That(client.SentInput.Single()).IsEquivalentTo(System.Text.Encoding.ASCII.GetBytes("\e[1;7R"));
             await vm.TeardownAsync();
         });
     }
@@ -294,21 +294,21 @@ public class TerminalTabViewModelTests {
             Dispatcher.UIThread.RunJobs();
             await (vm.PendingResolveWorkForTesting ?? Task.CompletedTask);
             var first = factory.Created.Single();
-            await first.TriggerAttached("\u001b[6n"u8.ToArray());
+            await first.TriggerAttached("\e[6n"u8.ToArray());
             time.Advance(TerminalTabViewModel.HiddenFeedInterval);
-            await Assert.That(first.SentInput.Single()).IsEquivalentTo("\u001b[1;1R"u8.ToArray());
+            await Assert.That(first.SentInput.Single()).IsEquivalentTo("\e[1;1R"u8.ToArray());
 
             first.Result.SetResult(new AttachOutcome.ConnectionLost());
             await vm.CurrentRunForTesting!;
             await vm.ReattachCommand.Execute();
             var second = factory.Created.Last();
-            await second.TriggerAttached("active\u001b[6n"u8.ToArray());
-            await second.TriggerOutput("\u001b["u8.ToArray());
+            await second.TriggerAttached("active\e[6n"u8.ToArray());
+            await second.TriggerOutput("\e["u8.ToArray());
             await second.TriggerOutput("6n"u8.ToArray());
             time.Advance(TerminalTabViewModel.HiddenFeedInterval);
             await Assert.That(second.SentInput.Count).IsEqualTo(2);
             foreach (var reply in second.SentInput)
-                await Assert.That(reply).IsEquivalentTo("\u001b[1;7R"u8.ToArray());
+                await Assert.That(reply).IsEquivalentTo("\e[1;7R"u8.ToArray());
             await Assert.That(vm.CanAcceptText).IsTrue();
             await vm.TeardownAsync();
         });
