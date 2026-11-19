@@ -30,8 +30,8 @@ def main():
         frames = ocr_frames(frames_dir) if os.path.isdir(frames_dir) else []
         row = {"run": name}
         for key, needle in (("window", a.window), ("rows", a.rows)):
-            seen, before = first_seen(frames, needle)
-            row[key] = [round((before or t0) - t0, 2), round(seen - t0, 2)] if seen else None
+            found, seen, before = first_seen(frames, needle)
+            row[key] = [round((before or t0) - t0, 2), round(seen - t0, 2) if seen is not None else None] if found else None
         cpu = open(os.path.join(run_dir, "cpu10")).read().strip()
         row["cpu_s_at_10s"] = float(cpu) if cpu else None
         marks = {}

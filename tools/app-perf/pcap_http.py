@@ -73,9 +73,9 @@ def main():
         for _, p in req[:-1]:
             offsets.append(offsets[-1] + len(p))
         mine = []
-        for m in re.finditer(rb"([A-Z]+) (\S+) HTTP/1\.1\r\n(.*?)\r\n\r\n", req_bytes, re.S):
+        for m in re.finditer(rb"(?:^|(?<=\n))([!#$%&'*+.^_`|~0-9A-Za-z-]+) (\S+) HTTP/1\.1\r\n(.*?)\r\n\r\n", req_bytes, re.S):
             enc = re.search(rb"(?im)^accept-encoding: *(.*)$", m.group(3))
-            sent = req[bisect.bisect_right(offsets, m.start()) - 1][0]
+            sent = req[bisect.bisect_right(offsets, m.start(1)) - 1][0]
             mine.append([client, m.group(1).decode(), m.group(2).decode(), enc.group(1).decode().strip() if enc else "-"])
             mine[-1].insert(1, round(sent - first, 2))
         statuses = list(re.finditer(rb"HTTP/1\.1 (\d{3})[^\r]*\r\n(.*?)\r\n\r\n", resp_bytes, re.S))

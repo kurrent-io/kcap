@@ -33,7 +33,7 @@ CPU from the guest.
 | `coldstart_report.py DIR` | Per run and as medians: when the window and the session rows first appeared on screen, as a range from the frame before to the frame that showed them, plus every lifecycle mark (`since_start_ms`) and the `startup_phases` durations. |
 | `view_load.sh TAG X Y SECONDS` | Clicks a rail row at (X, Y) in screen points and records a screenshot loop and the app's CPU over the run. |
 | `view_report.py DIR --transcript "re:turn 1499\D"` | When the transcript's last message appeared. A needle starting with `re:` is a regular expression; OCR misreads punctuation, so anchor on letters and digits, and pick text only the session under test shows. |
-| `capture_open.sh TAG X Y SECONDS` | `view_load.sh` under a loopback capture, then one line per HTTP request: route, Accept-Encoding, status, Content-Encoding, body bytes, and requests per route. Needs passwordless `sudo` for `tcpdump`. |
+| `capture_open.sh TAG X Y SECONDS` | `view_load.sh` under a loopback capture, then one line per HTTP request: route, Accept-Encoding, status, Content-Encoding, body bytes, and requests per route. Needs passwordless `sudo` for `sh`, `tcpdump` and `kill`. |
 | `pcap_http.py CAPTURE [PORT]` | The parser `capture_open.sh` uses, for a capture taken some other way. |
 | `idle_cpu.sh LABEL SECONDS` | CPU share of one core, idle wakeups per second (the difference between `top`'s two `idlew` samples) and memory footprint before and after. |
 

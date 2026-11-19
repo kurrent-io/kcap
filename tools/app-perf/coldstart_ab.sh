@@ -12,6 +12,7 @@ runs=${1:?runs}; secs=${2:?seconds}; shift 2
 
 moved=
 restore() {
+  stop_shooter
   [ -n "$moved" ] || return 0
   quit_app
   mv "$APP" "$moved"; moved=

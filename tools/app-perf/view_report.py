@@ -21,8 +21,8 @@ def main():
     frames = ocr_frames(os.path.join(a.dir, "frames"))
     out = {"dir": a.dir, "frames": len(frames)}
     for key, needle in (("header", a.header), ("transcript", a.transcript)):
-        seen, before = first_seen(frames, needle)
-        out[key] = [round((before or t0) - t0, 2), round(seen - t0, 2)] if seen else None
+        found, seen, before = first_seen(frames, needle)
+        out[key] = [round((before or t0) - t0, 2), round(seen - t0, 2) if seen is not None else None] if found else None
     cpu_path = os.path.join(a.dir, "cpu")
     if os.path.exists(cpu_path):
         c0, c1 = map(float, open(cpu_path).read().split())

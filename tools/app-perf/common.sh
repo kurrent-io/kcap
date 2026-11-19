@@ -39,22 +39,32 @@ shoot_loop() {
   done
 }
 
+# stop_shooter: stops the screenshot loop one_launch started, for a caller's exit trap.
+SHOOTER=
+stop_shooter() {
+  [ -n "$SHOOTER" ] || return 0
+  pkill -P "$SHOOTER" 2>/dev/null || true
+  kill "$SHOOTER" 2>/dev/null || true
+  wait "$SHOOTER" 2>/dev/null || true
+  SHOOTER=
+}
+
 # one_launch DIR SECONDS: quit, launch $APP and record one run into DIR (t0, frames, cpu10, lifecycle.jsonl).
 one_launch() {
-  local dir=$1 secs=$2 lines_before t0 shooter pid
+  local dir=$1 secs=$2 lines_before t0 pid
   quit_app; sleep 5
   mkdir -p "$dir"
   lines_before=$( [ -f "$LIFECYCLE" ] && wc -l < "$LIFECYCLE" || echo 0)
   t0=$(now); echo "$t0" > "$dir/t0"
   launch_app
   if [ "${KCAP_PERF_FRAMES:-1}" = 0 ]; then
-    sleep "$secs" & shooter=$!
+    sleep "$secs" & SHOOTER=$!
   else
-    shoot_loop "$dir/frames" "$secs" & shooter=$!
+    shoot_loop "$dir/frames" "$secs" & SHOOTER=$!
   fi
   python3 -c "import time; time.sleep(max(0, $t0 + 10 - time.time()))"
   pid=$(app_pid || true); echo "${pid:-}" > "$dir/pid"
   if [ -n "$pid" ]; then cpu_seconds "$pid" > "$dir/cpu10"; else echo "" > "$dir/cpu10"; fi
-  wait "$shooter"
+  wait "$SHOOTER"; SHOOTER=
   if [ -f "$LIFECYCLE" ]; then tail -n +"$((lines_before + 1))" "$LIFECYCLE" > "$dir/lifecycle.jsonl"; fi
 }
