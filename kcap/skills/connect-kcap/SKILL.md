@@ -37,7 +37,9 @@ Never start `kcap daemon` unless the user asks for hosted agents.
 
 1. Check what is there: `command -v kcap && kcap whoami`. A `Server:` line
    naming the workspace the user wants (or any, if they named none) plus
-   `Server:   accepts this token` means nothing to do; say so and stop.
+   `Server:   accepts this token` means kcap is connected: say so, then stop
+   unless the user asked to record their Grok Bot chats, in which case go to the
+   Grok Bot paragraph below step 4.
    No `kcap` on PATH means step 2, then step 3; anything else, step 3.
 2. Install: requires Node.js 18+ (`node -v`). `npm install -g @kurrent/kcap`,
    then `command -v kcap` must print a path (otherwise add `$(npm prefix -g)/bin`
@@ -48,12 +50,14 @@ Never start `kcap daemon` unless the user asks for hosted agents.
    code — **show both to the user** and ask them to approve on their own device;
    the command finishes once they do. Let setup detect the installed coding
    agents and install their hooks; that is what records sessions here.
-4. Confirm with `kcap status` (`Auth: … ✓ token valid`). Done.
+4. Confirm with `kcap status` (`Auth: … ✓ token valid`). Done, unless the user
+   asked to record their Grok Bot chats.
 
-If the user asked to record their Grok Bot chats and this machine has the Grok
-Bot desktop app, `kcap grok-bot watch --once --dry-run` lists the chats it finds
-and what it would send. Tell the user what C4 says about scope, and once they
-agree start it the way C4 does; it reads the app's own copy of each chat.
+**Grok Bot.** If the user asked to record their Grok Bot chats and this machine
+has the Grok Bot desktop app, `kcap grok-bot watch --once --dry-run` lists the
+chats it finds and what it would send. Tell the user what C4 says about scope,
+and once they agree start it the way C4 does; it reads the app's own copy of
+each chat.
 
 ## Part B — Muse Assistant
 
@@ -414,8 +418,12 @@ account, not once per Bot.
 
 ```bash
 command -v kcap && kcap whoami
-pgrep -af "kcap grok-bot watch"
+pgrep -af "[k]cap grok-bot watch"
 ```
+
+The bracket keeps `pgrep` from matching the shell that runs it, whose own
+command line holds the same words; without it a watcher always seems to be
+running.
 
 A `Server:` line naming the workspace the user wants plus `Server:   accepts
 this token` means C2 and C3 are done. A `pgrep` line means the watcher is
@@ -465,7 +473,8 @@ First tell the user what it records, and start it only once they agree:
 - as sessions private to them, a new one after two hours of quiet.
 
 ```bash
-pgrep -af "kcap grok-bot watch" || {
+mkdir -p ~/.config/kcap/grok-bot
+pgrep -af "[k]cap grok-bot watch" || {
   nohup kcap grok-bot watch >> ~/.config/kcap/grok-bot/watch.log 2>&1 &
 }
 sleep 10; tail -5 ~/.config/kcap/grok-bot/watch.log
@@ -474,13 +483,15 @@ sleep 10; tail -5 ~/.config/kcap/grok-bot/watch.log
 The log shows `watching …` and then `open session …` / `send N entries …`
 lines. A second watcher refuses to start, so this block is safe to run again,
 and it needs running again after the computer restarts. If `crontab -l` works
-here, offer to add this line so it restarts by itself:
+here, ask the user whether to add a line so it restarts by itself, and add it
+only once they agree. Cron reads no shell profile, so the line names `kcap` by
+the full path `command -v kcap` prints, written here as `<kcap>`:
 
 ```
-*/5 * * * * pgrep -f "kcap grok-bot watch" >/dev/null || nohup kcap grok-bot watch >> ~/.config/kcap/grok-bot/watch.log 2>&1 &
+*/5 * * * * pgrep -f "[k]cap grok-bot watch" >/dev/null || nohup <kcap> grok-bot watch >> $HOME/.config/kcap/grok-bot/watch.log 2>&1 &
 ```
 
-To stop recording: `pkill -f "kcap grok-bot watch"`, and remove that line.
+To stop recording: `pkill -f "[k]cap grok-bot watch"`, and remove that line.
 
 ### C5. Tell the user
 
