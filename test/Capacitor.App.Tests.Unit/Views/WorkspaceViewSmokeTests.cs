@@ -585,6 +585,9 @@ public class WorkspaceViewSmokeTests {
                 double RightOf(Control control) => control.TranslatePoint(new Point(control.Bounds.Width, 0), window)!.Value.X;
                 await Assert.That(RightOf(workingWord)).IsLessThanOrEqualTo(RightOf(working) + 1);
                 await Assert.That(LeftOf(path)).IsGreaterThanOrEqualTo(RightOf(working) - 1);
+                var glyph = working.FindControl<Panel>("Glyph")!;
+                var capCentre = Baseline(workingWord) - workingWord.FontSize * 0.36;
+                await Assert.That(Math.Abs(Mid(glyph) - capCentre)).IsLessThan(1);
                 var workingLines = TipLines(working);
                 await Assert.That(workingLines[0]).StartsWith("Working for ");
                 await Assert.That(workingLines[1]).IsEqualTo("Status");
@@ -604,15 +607,12 @@ public class WorkspaceViewSmokeTests {
                 await Assert.That(double.IsNaN(subtitle.LineHeight)).IsTrue();
                 double Mid(Control control) => control.TranslatePoint(new Point(0, control.Bounds.Height / 2), window)!.Value.Y;
                 double Baseline(TextBlock text) => text.TranslatePoint(new Point(0, text.TextLayout.Baseline), window)!.Value.Y;
-                var glyph = idleMark.FindControl<Panel>("Glyph")!;
                 var title = Find<TextBlock>(window, "TitleText")!;
                 double Bottom(Control control) => control.TranslatePoint(new Point(0, control.Bounds.Height), window)!.Value.Y;
                 double Top(Control control) => control.TranslatePoint(default, window)!.Value.Y;
                 await Assert.That(Top(subtitle) - Bottom(title)).IsGreaterThan(4);
                 await Assert.That(Math.Abs(Mid(idleWord) - Mid(subtitle))).IsLessThan(2);
                 await Assert.That(Math.Abs(Baseline(idleWord) - Baseline(subtitle))).IsLessThan(1);
-                var capCentre = Baseline(idleWord) - idleWord.FontSize * 0.36;
-                await Assert.That(Math.Abs(Mid(glyph) - capCentre)).IsLessThan(1);
 
                 var limit = new UsageLimitNoticeDto(
                     UsageLimitKinds.Blocked, "Weekly limit reached", "Pick one", [new UsageLimitOptionDto(1, "Stop")]);

@@ -549,7 +549,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     /// An attached agent that has gone ended nothing in its terminal, so it never reads as a finished session.
     static readonly AgentStatusPresentation SteeringEnded = new(AgentStatusKind.Done, AttachedAgentCopy.SteeringEnded,
-        AttachedAgentCopy.SteeringEnded, false, [new(AttachedAgentCopy.SteeringEnded, "Status")]) { Ended = true };
+        AttachedAgentCopy.SteeringEnded, [new(AttachedAgentCopy.SteeringEnded, "Status")]) { Ended = true };
 
     readonly ObservableAsPropertyHelper<bool> _showsInterrupt;
     public bool ShowsInterrupt => _showsInterrupt.Value;

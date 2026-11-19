@@ -84,9 +84,6 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     readonly ObservableAsPropertyHelper<bool> _isSuggested;
     /// kcap suggests a work item for this session in none.
     public bool IsSuggested => _isSuggested.Value;
-    /// A launch the daemon has not published yet: Meta carries its stage instead of an age.
-    bool _isStarting;
-    public bool IsStarting { get => _isStarting; private set => this.RaiseAndSetIfChanged(ref _isStarting, value); }
     public AgentRow Row => _row.Value;
     public ReactiveCommand<Unit, Unit> OpenCommand { get; }
     readonly ObservableAsPropertyHelper<bool> _isMarked;
@@ -108,6 +105,11 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
 
     readonly ObservableAsPropertyHelper<AgentStatusPresentation> _status;
     public AgentStatusPresentation Status => _status.Value;
+
+    // Held per row in memory, so a restart forgets what was unread.
+    readonly ObservableAsPropertyHelper<bool> _isUnread;
+    /// A turn finished and left the session waiting on the user since they last opened it.
+    public bool IsUnread => _isUnread.Value;
 
     readonly ObservableAsPropertyHelper<bool> _isStale;
     /// A remote or server row greys out while its lane is stale; a local row never does.
@@ -181,6 +183,12 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             .Select(state => SessionStatusDots.ForRow(state.Row, state.Pending, state.Asked, state.Work))
             .ToProperty(this, x => x.Status, initialValue: SessionStatusDots.ForRow(row, pending: false))
             .DisposeWith(_disposables);
+        _isUnread = this.WhenAnyValue(x => x.Status, x => x.IsSelected, (status, selected) => (status.Kind, selected))
+            .Scan((Unread: false, Kind: Status.Kind), (last, next) => (NextUnread(last.Unread, last.Kind, next.Kind, next.selected), next.Kind))
+            .Select(state => state.Unread)
+            .DistinctUntilChanged()
+            .ToProperty(this, x => x.IsUnread, initialValue: false)
+            .DisposeWith(_disposables);
 
         _isStale = _row.CombineLatest(remoteStale, (current, laneStale) =>
                 current.Origin is AgentOrigin.Remote or AgentOrigin.Server && laneStale)
@@ -217,6 +225,10 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
 
     AgentOrigin Origin() => IsServer ? AgentOrigin.Server : IsRemote ? AgentOrigin.Remote : AgentOrigin.Local;
 
+    /// Opening the row or the agent progressing again clears it; progress ending in a wait on the user sets it.
+    static bool NextUnread(bool unread, AgentStatusKind last, AgentStatusKind kind, bool selected) =>
+        !selected && !kind.IsProgressing() && (unread || last.IsProgressing() && kind.WaitsOnUser());
+
     internal void Update(AgentRow row) {
         UpdateFields(row);
         _row.OnNext(row);
@@ -233,7 +245,6 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         Vendor = row.Vendor;
         HasVendor = !string.IsNullOrEmpty(row.Vendor);
         Model = string.IsNullOrEmpty(row.Model) ? null : row.Model;
-        IsStarting = row.Origin == AgentOrigin.Pending;
         IsServer = row.Origin == AgentOrigin.Server;
         IsTerminalSession = row.IsTerminalSession;
         IsAttached = row.IsAttached;
@@ -246,7 +257,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         OwnerName = string.IsNullOrWhiteSpace(row.OwnerName) ? null : row.OwnerName;
         OwnerTooltip = row.OwnerName is { Length: > 0 } owner ? $"{owner}\nOwner" : "";
         RepoLabel = row.RepoGroupLabel;
-        RefreshMeta(row);
+        Meta = MetaFor(row);
         MachineBadge = row.MachineBadge;
         IsRemote = row.Origin == AgentOrigin.Remote;
 
@@ -261,9 +272,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    void RefreshMeta() => RefreshMeta(_row.Value);
-
-    void RefreshMeta(AgentRow row) => Meta = IsStarting ? LaunchStages.Label(row.LaunchStage) : MetaFor(row);
+    void RefreshMeta() => Meta = MetaFor(_row.Value);
 
     /// Every row shows the time the rail sorts by, in one format: when the session started under
     /// Created, when it was last active otherwise. A live row adds its kind and borrow notes, and its

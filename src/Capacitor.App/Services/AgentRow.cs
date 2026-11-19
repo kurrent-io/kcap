@@ -118,7 +118,7 @@ public sealed record AgentRow(
         var (repoPath, worktreePath, repo) = ListedCheckout(dto);
         return new(
             Key: $"server:{dto.SessionId}", Origin: AgentOrigin.Server, Id: dto.SessionId, SessionId: dto.SessionId,
-            Kind: "session", Vendor: dto.Vendor ?? "", Status: active ? "Running" : "Completed",
+            Kind: "session", Vendor: dto.Vendor ?? "", Status: !active ? "Completed" : dto.AwaitingInput == true ? "Idle" : "Running",
             CreatedAt: dto.StartedAt.UtcDateTime, RepoPath: repoPath, Title: dto.Title, Model: null, RequesterDisplay: null,
             WorktreePath: worktreePath, WorkLocation: null, BorrowedFrom: null,
             MachineBadge: null, RepoGroupKey: repo.Key, RepoGroupLabel: repo.Label,
@@ -127,6 +127,7 @@ public sealed record AgentRow(
             OwnerAvatarUrl: dto.Owner?.AvatarUrl,
             LastActivityAt: dto.LastActivityAt.UtcDateTime, EndedAt: dto.EndedAt?.UtcDateTime,
             IsTerminalSession: active && !hostedPresentation, AccessLevel: dto.AccessLevel,
+            AwaitingInput: active ? dto.AwaitingInput : null,
             ListedPullRequests: dto.PullRequests, Branch: dto.Branch, Recording: dto.Recording,
             RepoHash: dto.Repo?.Hash ?? dto.PrimaryRepoHash);
     }

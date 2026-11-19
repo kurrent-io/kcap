@@ -1139,7 +1139,6 @@ public class WorkspaceViewModelTests {
             await (monitor!.PendingReadForTesting ?? Task.CompletedTask);
             await Assert.That(latest.GetValueOrDefault("local:a1").Commands).IsEqualTo(1);
             await Assert.That(railRow.Status.Kind).IsEqualTo(AgentStatusKind.Working);
-            await Assert.That(railRow.Status.Pulses).IsTrue();
 
             if (finish == "session") daemon.Agents.AddOrUpdate(daemon.Agents.Lookup("a1").Value with { Status = "Completed" });
             else if (finish == "removed") daemon.Agents.RemoveKey("a1");

@@ -153,28 +153,18 @@ public class RailSessionViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_pending_row_reads_its_launch_stage_and_opens_locally() {
+    public async Task A_pending_row_keeps_its_launch_stage_off_the_meta_line_and_opens_locally() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var pending = AgentRow.FromPending(
                 new PendingLaunchDto("p1", "claude", "/repo", "Fix the flaky test", DateTime.UtcNow, "session_created"), Repo);
             var opened = new List<string>();
             using var row = new RailSessionViewModel(pending, new BehaviorSubject<string?>(null), NoPending, NotStale, opened.Add, _ => throw new InvalidOperationException("remote"), TimeProvider.System);
 
-            await Assert.That(row.IsStarting).IsTrue();
-            await Assert.That(row.Meta).IsEqualTo("Session created");
+            await Assert.That(row.Meta).DoesNotContain("Session created");
             await Assert.That(row.Tooltip).Contains("Starting");
             await Assert.That(row.Primary).IsEqualTo("Fix the flaky test");
             row.OpenCommand.Execute().Subscribe();
             await Assert.That(opened).IsEquivalentTo(new[] { "p1" });
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task A_published_row_is_not_starting() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            using var row = new RailSessionViewModel(Row(status: "Starting"), new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
-            await Assert.That(row.IsStarting).IsFalse();
         });
     }
 
@@ -254,12 +244,12 @@ public class RailSessionViewModelTests {
             await Assert.That(waiting.Tooltip).DoesNotContain("Waiting for input");
             await Assert.That(working.Status.Kind).IsEqualTo(AgentStatusKind.Working);
             await Assert.That(working.Status.Label).IsEqualTo("Working");
+            await Assert.That(working.Status.ShowsWorkingDots).IsTrue();
             await Assert.That(working.Tooltip).DoesNotContain("Waiting for input");
             await Assert.That(older.Status.Kind).IsEqualTo(AgentStatusKind.Other);
             await Assert.That(older.Status.Label).IsEqualTo("Running");
-            await Assert.That(older.Status.ShowsRing).IsTrue();
-            await Assert.That(older.Status.HasGlyph).IsTrue();
-            await Assert.That(older.Status.Pulses).IsFalse();
+            await Assert.That(older.Status.ShowsWorkingDots).IsFalse();
+            await Assert.That(older.Status.HasGlyph).IsFalse();
         });
     }
 
@@ -286,6 +276,29 @@ public class RailSessionViewModelTests {
             await Assert.That(row.IsSelected).IsTrue();
             selected.OnNext("remote:a1");
             await Assert.That(row.IsSelected).IsFalse();
+        });
+    }
+
+    /// A turn that ends while the row is not open marks it unread; opening it or a new turn clears it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_finished_turn_is_unread_until_the_row_is_opened() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var selected = new BehaviorSubject<string?>(null);
+            using var row = new RailSessionViewModel(Row(awaitingInput: true), selected, NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
+            await Assert.That(row.IsUnread).IsFalse();
+            row.Update(Row(awaitingInput: false));
+            await Assert.That(row.IsUnread).IsFalse();
+            row.Update(Row(awaitingInput: true));
+            await Assert.That(row.IsUnread).IsTrue();
+            selected.OnNext("local:a1");
+            await Assert.That(row.IsUnread).IsFalse();
+            selected.OnNext(null);
+            row.Update(Row(awaitingInput: false));
+            row.Update(Row(awaitingInput: true));
+            await Assert.That(row.IsUnread).IsTrue();
+            row.Update(Row(awaitingInput: false));
+            await Assert.That(row.IsUnread).IsFalse();
         });
     }
 
@@ -387,7 +400,6 @@ public class RailSessionViewModelTests {
 
             commands.OnNext(new Dictionary<string, RunningWork> { ["local:a1"] = new(2, 0) });
             await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Working);
-            await Assert.That(row.Status.Pulses).IsTrue();
             await Assert.That(row.Tooltip).Contains("2 commands running");
 
             commands.OnNext(FrozenDictionary<string, RunningWork>.Empty);
@@ -443,24 +455,23 @@ public class RailSessionViewModelTests {
     /// The daemon's count keeps the row visibly busy while only subagents run.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Live_subagents_pulse_the_dot_and_name_the_count() {
+    public async Task Live_subagents_show_the_working_dots_and_name_the_count() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var two   = new RailSessionViewModel(Row(liveSubagents: 2), new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
             using var one   = new RailSessionViewModel(Row(liveSubagents: 1), new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
             using var none  = new RailSessionViewModel(Row(liveSubagents: 0), new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
             using var older = new RailSessionViewModel(Row(liveSubagents: null), new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
 
-            await Assert.That(two.Status.Pulses).IsTrue();
             await Assert.That(two.Status.Kind).IsEqualTo(AgentStatusKind.Working);
             await Assert.That(two.Meta).EndsWith(" · 2 subagents");
             await Assert.That(two.Tooltip).Contains("2 subagents running");
-            await Assert.That(one.Status.Pulses).IsTrue();
+            await Assert.That(one.Status.ShowsWorkingDots).IsTrue();
             await Assert.That(one.Meta).EndsWith(" · 1 subagent");
             await Assert.That(one.Tooltip).Contains("1 subagent running");
-            await Assert.That(none.Status.Pulses).IsFalse();
+            await Assert.That(none.Status.ShowsWorkingDots).IsFalse();
             await Assert.That(none.Meta).DoesNotContain("subagent");
             await Assert.That(none.Tooltip).DoesNotContain("subagent");
-            await Assert.That(older.Status.Pulses).IsFalse();
+            await Assert.That(older.Status.ShowsWorkingDots).IsFalse();
             await Assert.That(older.Meta).DoesNotContain("subagent");
             await Assert.That(older.Tooltip).DoesNotContain("subagent");
         });
@@ -478,35 +489,31 @@ public class RailSessionViewModelTests {
             using var idle    = new RailSessionViewModel(Row(id: "a3", awaitingInput: true, liveSubagents: 0), new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
 
             await Assert.That(waiting.Status.Kind).IsEqualTo(AgentStatusKind.Working);
-            await Assert.That(waiting.Status.Pulses).IsTrue();
             await Assert.That(waiting.Tooltip).Contains("Waiting for input");
             await Assert.That(waiting.Tooltip).Contains("2 subagents running");
             pending.OnNext(new HashSet<string> { "a1" });
             await Assert.That(waiting.Status.Kind).IsEqualTo(AgentStatusKind.NeedsYou);
-            await Assert.That(waiting.Status.Pulses).IsFalse();
 
             await Assert.That(busy.Status.Kind).IsEqualTo(AgentStatusKind.Working);
-            await Assert.That(busy.Status.Pulses).IsTrue();
             await Assert.That(idle.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
-            await Assert.That(idle.Status.Pulses).IsFalse();
         });
     }
 
-    /// A remote row carries no count, and a pending row pulses for its start.
+    /// A remote row carries no count, and a pending row reads as starting.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_remote_row_is_unchanged_and_a_pending_row_still_pulses() {
+    public async Task A_remote_row_is_unchanged_and_a_pending_row_reads_starting() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var remote = new RailSessionViewModel(RemoteRow("r1"), new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
             var pendingRow = AgentRow.FromPending(new PendingLaunchDto("p1", "claude", "/repo", "t", DateTime.UtcNow, "spawned"), Repo);
             using var pending = new RailSessionViewModel(pendingRow, new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
 
-            await Assert.That(remote.Status.Pulses).IsFalse();
+            await Assert.That(remote.Status.ShowsWorkingDots).IsFalse();
             await Assert.That(remote.Status.Label).IsEqualTo("Running");
             await Assert.That(remote.Meta).DoesNotContain("subagent");
             await Assert.That(remote.Tooltip).DoesNotContain("subagent");
             await Assert.That(pending.Status.Kind).IsEqualTo(AgentStatusKind.Starting);
-            await Assert.That(pending.Status.Pulses).IsTrue();
+            await Assert.That(pending.Status.ShowsWorkingDots).IsTrue();
             await Assert.That(pending.Tooltip).Contains("Process started");
         });
     }
@@ -516,9 +523,11 @@ public class RailSessionViewModelTests {
     static readonly DateTime Started = new(2026, 10, 22, 13, 4, 24, DateTimeKind.Utc);
     static readonly DateTime Ended = new(2026, 10, 22, 16, 56, 41, DateTimeKind.Utc);
 
-    static AgentRow ServerRow(string status = "ended", string ownerName = "Tony Young", string? repoName = "kcap-cli", bool hosted = false) =>
+    static AgentRow ServerRow(string status = "ended", string ownerName = "Tony Young", string? repoName = "kcap-cli", bool hosted = false,
+            bool? awaitingInput = null) =>
         AgentRow.FromServer(new RepoSessionDto {
             SessionId = "s1", Status = status, AccessLevel = "full", Vendor = "claude", Title = "Desktop app RAM growth",
+            AwaitingInput = awaitingInput,
             Owner = new() { UserId = "u2", DisplayName = ownerName, AvatarUrl = "https://avatars.example/u2" },
             StartedAt = new DateTimeOffset(Started), LastActivityAt = new DateTimeOffset(status == "ended" ? Ended : Started),
             EndedAt = status == "ended" ? new DateTimeOffset(Ended) : null,
@@ -526,6 +535,24 @@ public class RailSessionViewModelTests {
         }, hostedPresentation: hosted);
 
     static Microsoft.Extensions.Time.Testing.FakeTimeProvider At(DateTime utc) => new(new DateTimeOffset(utc));
+
+    /// <summary>A terminal session's listed turn state drives the rail: working, then a finished turn reads idle and
+    /// unread; with no turn state it stays the plain "Running".</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_terminal_rows_listed_turn_state_drives_working_and_unread() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var row = new RailSessionViewModel(ServerRow("active"), new BehaviorSubject<string?>(null), NoPending, NotStale,
+                _ => { }, _ => { }, At(Started));
+            await Assert.That(row.Status.Label).IsEqualTo("Running");
+            await Assert.That(row.Status.ShowsWorkingDots).IsFalse();
+            row.Update(ServerRow("active", awaitingInput: false));
+            await Assert.That(row.Status.ShowsWorkingDots).IsTrue();
+            row.Update(ServerRow("active", awaitingInput: true));
+            await Assert.That(row.Status.Kind).IsEqualTo(AgentStatusKind.Idle);
+            await Assert.That(row.IsUnread).IsTrue();
+        });
+    }
 
     [Test]
     [NotInParallel("AvaloniaSession")]

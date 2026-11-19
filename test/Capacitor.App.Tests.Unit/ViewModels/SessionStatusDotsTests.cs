@@ -73,8 +73,7 @@ public class SessionStatusDotsTests {
         var remote = SessionStatusDots.ForRow(row, pending: false);
         var local = SessionStatusDots.ForRow(Local("a1", awaiting: true), pending: false);
         await Assert.That(remote.Kind).IsEqualTo(local.Kind);
-        await Assert.That(remote.ShowsClock).IsTrue();
-        await Assert.That(remote.HasGlyph).IsTrue();
+        await Assert.That(remote.HasGlyph).IsFalse();
         await Assert.That(remote.IsWarning).IsTrue();
         // Presentation parity does not fabricate the local daemon's input/attention facts.
         await Assert.That(row.AwaitingInput).IsNull();
@@ -139,35 +138,30 @@ public class SessionStatusDotsTests {
         await Assert.That(pending.Tip).Contains("Needs you\nStatus");
         await Assert.That(pending.Tip).Contains("Pending response");
         await Assert.That(pending.Tip).Contains("2 subagents running");
-        await Assert.That(pending.Pulses).IsFalse();
 
         var working = SessionStatusDots.ForRow(Local("a", awaiting: true, subagents: 1), pending: false);
         await Assert.That(working.Kind).IsEqualTo(AgentStatusKind.Working);
         await Assert.That(working.Tip).Contains("Waiting for input.");
-        await Assert.That(working.Pulses).IsTrue();
 
         var idle = SessionStatusDots.ForRow(Local("a", awaiting: true), pending: false);
         await Assert.That(idle.Kind).IsEqualTo(AgentStatusKind.Idle);
         await Assert.That(idle.AccessibleName).IsEqualTo("Idle");
         await Assert.That(idle.Tip).StartsWith("Idle\nStatus");
-        await Assert.That(idle.Pulses).IsFalse();
 
         var done = SessionStatusDots.ForRow(Local("a", status: "Completed"), pending: false);
         await Assert.That(done.Kind).IsEqualTo(AgentStatusKind.Done);
         await Assert.That(done.Label).IsEqualTo("Done");
         await Assert.That(done.HasGlyph).IsFalse();
-        await Assert.That(done.ShowsRing).IsFalse();
     }
 
     /// A removed remote row republishes its last word, Running, as ended: it must read settled.
     [Test]
-    public async Task An_ended_running_session_shows_no_ring() {
+    public async Task An_ended_running_session_is_not_in_flight() {
         var live = SessionStatusDots.Present("Running", null, false, null, false, null, null, null);
         var ended = SessionStatusDots.Present("Running", null, false, null, false, null, null, null, ended: true);
 
-        await Assert.That(live.ShowsRing).IsTrue();
+        await Assert.That(live.IsInFlight).IsTrue();
         await Assert.That(ended.Label).IsEqualTo("Running");
-        await Assert.That(ended.ShowsRing).IsFalse();
         await Assert.That(ended.IsInFlight).IsFalse();
         await Assert.That(ended.HasGlyph).IsFalse();
     }
@@ -242,8 +236,6 @@ public class SessionStatusDotsTests {
         await Assert.That(status.Kind).IsEqualTo(AgentStatusKind.Resuming);
         await Assert.That(status.Label).IsEqualTo("Resuming");
         await Assert.That(status.IsInFlight).IsTrue();
-        await Assert.That(status.Pulses).IsTrue();
-        await Assert.That(status.ShowsRing).IsTrue();
         await Assert.That(status.IsWarning).IsFalse();
         await Assert.That(status.Tip).Contains("Resuming after a daemon restart");
     }
@@ -262,7 +254,6 @@ public class SessionStatusDotsTests {
         await Assert.That(status.IsWarning).IsTrue();
         await Assert.That(status.ShowsPause).IsTrue();
         await Assert.That(status.IsInFlight).IsFalse();
-        await Assert.That(status.Pulses).IsFalse();
         await Assert.That(status.Facts.Select(f => (f.Text, f.Caption))).Contains(("too_old", "Reason"));
         await Assert.That(SessionStatusDots.NeedsAttention(row)).IsTrue();
     }

@@ -14,3 +14,13 @@ public enum AgentStatusKind {
     Done,
     Other,
 }
+
+public static class AgentStatusKindExtensions {
+    /// The agent is on its way to an answer: launching, resuming, or mid-turn.
+    public static bool IsProgressing(this AgentStatusKind kind) =>
+        kind is AgentStatusKind.Working or AgentStatusKind.Starting or AgentStatusKind.Resuming;
+
+    /// The agent has stopped and the next move is the user's.
+    public static bool WaitsOnUser(this AgentStatusKind kind) =>
+        kind is AgentStatusKind.Idle or AgentStatusKind.NeedsYou or AgentStatusKind.Answer;
+}

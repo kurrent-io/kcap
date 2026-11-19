@@ -31,4 +31,6 @@ public sealed record RepoSessionDto {
     [JsonPropertyName("repo")]              public RepoSessionRepositoryDto? Repo { get; init; }
     /// Null when the session sits in no work item the viewer can see, and from a server without work items version 2.
     [JsonPropertyName("work_item")]         public RepoSessionWorkItemDto? WorkItem { get; init; }
+    /// True once an active session's turn ended, false while one runs. Null when unknown, and from an older server.
+    [JsonPropertyName("awaiting_input")]    public bool? AwaitingInput { get; init; }
 }

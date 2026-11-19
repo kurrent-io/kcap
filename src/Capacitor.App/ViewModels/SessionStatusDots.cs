@@ -120,8 +120,7 @@ public static class SessionStatusDots {
         if (kind == AgentStatusKind.Starting && sentence == "Starting") Add(facts, launchStage, "Launch");
         Add(facts, requester, "Requester");
         Add(facts, borrowedFrom, "Borrowed from");
-        return new AgentStatusPresentation(kind, label, FormatTip(facts),
-            kind is AgentStatusKind.Working or AgentStatusKind.Starting or AgentStatusKind.Resuming, facts) {
+        return new AgentStatusPresentation(kind, label, FormatTip(facts), facts) {
             Ended = ended, InForegroundTurn = kind == AgentStatusKind.Working && turnAttested,
         };
     }

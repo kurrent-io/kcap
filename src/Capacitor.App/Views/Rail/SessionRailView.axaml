@@ -87,8 +87,9 @@
         <Style Selector="Button.railRow.selected TextBlock.rowTitle">
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
-        <Style Selector="Button.railRow.attention TextBlock.rowTitle">
-            <Setter Property="FontWeight" Value="Medium" />
+        <Style Selector="Button.railRow.unread TextBlock.rowTitle">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
         <Style Selector="TextBlock.railMeta">
             <Setter Property="FontSize" Value="11" />
@@ -683,7 +684,7 @@
                                                         <Button Command="{Binding OpenCommand}" HorizontalAlignment="Stretch"
                                                                 HorizontalContentAlignment="Stretch" Padding="9,4"
                                                                 AutomationProperties.Name="{Binding Primary}"
-                                                                Classes="railRow" Classes.selected="{Binding IsSelected}" Classes.marked="{Binding IsMarked}" Classes.attention="{Binding Status.IsWarning}">
+                                                                Classes="railRow" Classes.selected="{Binding IsSelected}" Classes.marked="{Binding IsMarked}" Classes.unread="{Binding IsUnread}">
                                                             <ToolTip.Tip>
                                                                 <StackPanel Spacing="10" MaxWidth="320">
                                                                     <!-- The row trims its title; the tip carries it whole. -->
