@@ -33,7 +33,7 @@ public class GrokBotWatcherTests {
         var entries = """{"kind":"message","id":"t0u","role":"user","content":"hi","timestampMs":1790595500000,"seq":1},"""
                     + """{"kind":"send-message","id":"t0s0","message":{"type":"text","content":"hello"},"timestampMs":1790595501000,"seq":2}""";
 
-        Tmp.CreateFile(["chats", GrokBotDesktopChatsTests.FileFor($"sand.client.slice.account.a.transcript.replicas.{Chat}")],
+        Tmp.CreateFile(["chats", GrokBotChatFile.NameOfChat(Chat)],
             "{\"schemaVersion\":1,\"value\":{\"entries\":[" + entries + "]}}");
 
         return new GrokBotWatchOptions(Desktop: Tmp.PathTo("chats"), Once: true, DryRun: dryRun);

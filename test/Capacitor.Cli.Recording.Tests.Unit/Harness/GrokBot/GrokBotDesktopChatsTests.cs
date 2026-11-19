@@ -1,38 +1,15 @@
-using System.Text;
 using Capacitor.Cli.Recording.Harness.GrokBot;
 
 namespace Capacitor.Cli.Recording.Tests.Unit.Harness.GrokBot;
 
-/// <summary>Pins how the desktop app's chat store is read: which files are chats, when one counts as
-/// changed, and when a copy is known to hold its chat from the first entry.</summary>
+/// <summary>Pins how the desktop app's chat store is read: that only chat files are listed, when one counts
+/// as changed, and when a copy is known to hold its chat from the first entry.</summary>
 public class GrokBotDesktopChatsTests {
     const string Chat = "4d30ec7f-1027-4a23-86d7-d70f37e5bfec";
 
     [TempDir] public required TempDir Tmp { get; init; }
 
-    /// <summary>A store file name as the app writes it: the key in unpadded lowercase base32.</summary>
-    internal static string FileFor(string key) {
-        const string alphabet = "abcdefghijklmnopqrstuvwxyz234567";
-        var name   = new StringBuilder();
-        var buffer = 0;
-        var bits   = 0;
-
-        foreach (var b in Encoding.UTF8.GetBytes(key)) {
-            buffer = (buffer << 8) | b;
-            bits  += 8;
-
-            while (bits >= 5) {
-                bits -= 5;
-                name.Append(alphabet[(buffer >> bits) & 31]);
-            }
-        }
-
-        if (bits > 0) name.Append(alphabet[(buffer << (5 - bits)) & 31]);
-
-        return name.Append(".blob").ToString();
-    }
-
-    static string ChatFile(string chatId = Chat) => FileFor($"sand.client.slice.account.github%7Cuser_01TEST.transcript.replicas.{chatId}");
+    static string ChatFile(string chatId = Chat) => GrokBotChatFile.NameOfChat(chatId);
 
     static string Replica(params int[] seqs) {
         var entries = string.Join(",", seqs.Select(s => $$"""{"kind":"message","id":"e{{s}}","role":"user","content":"m{{s}}","timestampMs":{{s}},"seq":{{s}} }"""));
@@ -43,30 +20,9 @@ public class GrokBotDesktopChatsTests {
     GrokBotDesktopChats Store() => new(Tmp.Path);
 
     [Test]
-    public async Task A_chat_file_names_its_chat() {
-        await Assert.That(GrokBotDesktopPaths.ChatIdOf(ChatFile())).IsEqualTo(Chat);
-    }
-
-    [Test]
-    [Arguments("sand.client.slice.ui-layout")]
-    [Arguments("sand.client.slice.account.github%7Cuser_01TEST.roster.last-roster")]
-    [Arguments("sand.client.slice.account.github%7Cuser_01TEST.transcript.replicas.")]
-    public async Task A_store_file_that_is_not_a_chat_names_none(string key) {
-        await Assert.That(GrokBotDesktopPaths.ChatIdOf(FileFor(key))).IsNull();
-    }
-
-    [Test]
-    [Arguments("lockfile")]
-    [Arguments("not-base32!.blob")]
-    [Arguments("UPPERCASE.blob")]
-    public async Task A_file_the_app_did_not_name_names_none(string fileName) {
-        await Assert.That(GrokBotDesktopPaths.ChatIdOf(fileName)).IsNull();
-    }
-
-    [Test]
     public async Task Only_chat_files_are_listed() {
         Tmp.CreateFile(ChatFile(), Replica(1));
-        Tmp.CreateFile(FileFor("sand.client.slice.ui-layout"), "{}");
+        Tmp.CreateFile(GrokBotChatFile.NameFor("sand.client.slice.ui-layout"), "{}");
         Tmp.CreateFile("lockfile");
 
         var agents = await Store().ListAgentsAsync(CancellationToken.None);

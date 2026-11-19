@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness.GrokBot;
 
 namespace Capacitor.Cli.Recording.Harness.GrokBot;
 

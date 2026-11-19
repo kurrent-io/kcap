@@ -45,7 +45,7 @@ using Profile = Capacitor.Cli.Core.Config.Profile;
 
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Capacitor.Cli.Recording.Harness.GrokBot;
+using Capacitor.Cli.Core.Harness.GrokBot;
 using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
 
@@ -1248,7 +1248,7 @@ sealed class SetupCommand(
         var grokBotRecord = museAssistant || machineSignedIn
             ? null
             : GrokBotSetupStep.Run(
-                detected:    GrokBotDesktopPaths.ChatStore(home) is { } chats && Directory.Exists(chats),
+                detected:    GrokBotDesktopPaths.HasChatStore(home),
                 recorded:    (await AppConfig.LoadProfileConfig(config)).Profiles.GetValueOrDefault(activeProfile)?.GrokBot?.Record,
                 noPrompt:    stepOptions.NoPrompt,
                 interactive: AnsiConsole.Profile.Capabilities.Interactive,

@@ -1,7 +1,6 @@
 using System.Text;
-using Capacitor.Cli.Core;
 
-namespace Capacitor.Cli.Recording.Harness.GrokBot;
+namespace Capacitor.Cli.Core.Harness.GrokBot;
 
 /// <summary>Where the Grok Bot desktop app keeps its own copy of each chat: one file per chat under its
 /// Electron data directory, named by the base32 of a dotted key that ends in the chat's id.</summary>
@@ -21,6 +20,9 @@ public static class GrokBotDesktopPaths {
 
         return userData is null ? null : Path.Join(userData, "Grok Bot", "sand-client-persistence");
     }
+
+    /// <summary>Whether the app has a chat store on this computer.</summary>
+    public static bool HasChatStore(UserHome home) => ChatStore(home) is { } store && Directory.Exists(store);
 
     /// <summary>The chat a store file holds, or null for a file that is not a chat.</summary>
     public static string? ChatIdOf(string fileName) {

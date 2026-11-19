@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Core.Harness.GrokBot;
 using Capacitor.Cli.Core.Http;
 
 namespace Capacitor.Cli.Recording.Harness.GrokBot;
@@ -89,7 +90,7 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
         if (options.Desktop is { } dir) return Directory.Exists(dir) ? new GrokBotDesktopChats(dir) : null;
         if (File.Exists(GatewayDescriptor)) return new GrokBotGateway(GatewayDescriptor, plain);
 
-        return GrokBotDesktopPaths.ChatStore(home) is { } store && Directory.Exists(store) ? new GrokBotDesktopChats(store) : null;
+        return GrokBotDesktopPaths.HasChatStore(home) ? new GrokBotDesktopChats(GrokBotDesktopPaths.ChatStore(home)!) : null;
     }
 
     /// <summary>One pass over every chat. Returns why the cycle stopped short, or null when it did not; a

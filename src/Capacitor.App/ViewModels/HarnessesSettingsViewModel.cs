@@ -20,17 +20,22 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
     readonly IAppStateStore? _toolsMemory;
     readonly Action<HistoryImportRun>? _showImport;
     readonly Action<Action> _post;
+    readonly Func<bool>? _grokBotFound;
     readonly CancellationTokenSource _lifetime;
     IReadOnlyList<HarnessSettingsRow> _rows = [];
     bool _busy;
     bool _scanning;
     string? _message;
+    bool _grokBotShown;
+    bool _grokBotRecording;
+    string? _grokBotMessage;
 
     public HarnessesSettingsViewModel(SettingsProfileStore store, IKcapCli cli,
             Func<CancellationToken, Task<IReadOnlyDictionary<HarnessId, DetectedAgent>>> detect,
             CancellationToken appLifetime = default, Func<HarnessId, bool>? isWired = null,
             Func<CancellationToken, Task<string?>>? ensureTerminalCommand = null, IAppStateStore? toolsMemory = null,
             Func<HarnessId, bool, bool>? isUntrusted = null, Action<HistoryImportRun>? showImport = null,
+            Func<bool>? grokBotFound = null,
             Action<Action>? post = null) {
         _store = store;
         _cli = cli;
@@ -41,6 +46,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         _toolsMemory = toolsMemory;
         _showImport = showImport;
         _post = post ?? (action => action());
+        _grokBotFound = grokBotFound;
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(appLifetime);
         var idle = this.WhenAnyValue(x => x.Busy, x => x.Scanning, (busy, scanning) => !busy && !scanning);
         RescanCommand = ReactiveCommand.CreateFromTask(RescanAsync, idle);
@@ -49,7 +55,15 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         ToggleToolsCommand = ReactiveCommand.CreateFromTask<HarnessSettingsRow>(ToggleToolsAsync, idle);
         ImportEarlierCommand = ReactiveCommand.Create<HarnessSettingsRow>(ImportEarlier);
         DeclineImportCommand = ReactiveCommand.Create<HarnessSettingsRow>(row => row.OfferImport(null));
+        ToggleGrokBotCommand = ReactiveCommand.CreateFromTask(ToggleGrokBotAsync, idle);
     }
+
+    /// The Grok Bot desktop app was found on this computer. It is no coding tool and installs nothing, so it
+    /// has a switch of its own: the attached profile's setting, which the daemon acts on.
+    public bool GrokBotShown { get => _grokBotShown; private set => this.RaiseAndSetIfChanged(ref _grokBotShown, value); }
+    public bool GrokBotRecording { get => _grokBotRecording; private set => this.RaiseAndSetIfChanged(ref _grokBotRecording, value); }
+    public string? GrokBotMessage { get => _grokBotMessage; private set => this.RaiseAndSetIfChanged(ref _grokBotMessage, value); }
+    public ReactiveCommand<Unit, Unit> ToggleGrokBotCommand { get; }
 
     public IReadOnlyList<HarnessSettingsRow> Rows {
         get => _rows;
@@ -96,11 +110,38 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
                             untrusted: Untrusted(h.Id, wired));
                     }).ToArray();
             }, _lifetime.Token);
+            (GrokBotShown, GrokBotRecording) = await Task.Run(ReadGrokBot, _lifetime.Token);
             Message = null;
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
             Message = $"Could not look for coding tools: {ex.Message}";
         } finally { Scanning = false; }
+    }
+
+    (bool Shown, bool Recording) ReadGrokBot() {
+        if (_grokBotFound?.Invoke() != true) return (false, false);
+        try {
+            return (true, _store.LoadProfile().GrokBot?.Record == true);
+        } catch (InvalidOperationException) {
+            return (true, false);
+        }
+    }
+
+    internal const string GrokBotOn  = "Recording. The daemon starts within half a minute.";
+    internal const string GrokBotOff = "Not recording. The daemon stops within half a minute.";
+
+    internal async Task ToggleGrokBotAsync() {
+        if (Busy || Scanning || !GrokBotShown) return;
+        var record = !GrokBotRecording;
+        Busy = true;
+        try {
+            await _store.SaveGrokBotRecordAsync(record, _lifetime.Token);
+            GrokBotRecording = record;
+            GrokBotMessage = record ? GrokBotOn : GrokBotOff;
+        } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
+        } catch (Exception ex) {
+            GrokBotMessage = $"Could not change Grok Bot recording: {ex.Message}";
+        } finally { Busy = false; }
     }
 
     internal const string PartlyInstalled = "Setup completed, but some parts were not installed. Check the details, then try again.";
@@ -271,6 +312,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         ToggleToolsCommand.Dispose();
         ImportEarlierCommand.Dispose();
         DeclineImportCommand.Dispose();
+        ToggleGrokBotCommand.Dispose();
         _lifetime.Dispose();
     }
 }

@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness.GrokBot;
 using Capacitor.Cli.Recording.Harness.GrokBot;
 
 namespace Capacitor.Cli.Commands.Harness;
