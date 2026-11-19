@@ -421,12 +421,6 @@ public partial class ChatTabView : UserControl {
 
     internal void ShowingAtTop(ChatItemViewModel? row) => (DataContext as ChatTabViewModel)?.Topics.ShowingAtTop(row);
 
-    // Inside the fold button, so the click is kept from folding the topic too.
-    void OnTopicUnmarkClick(object? sender, RoutedEventArgs e) {
-        e.Handled = true;
-        if (sender is Button { DataContext: ChatTopicItem topic } && DataContext is ChatTabViewModel chat) chat.Topics.Remove(topic);
-    }
-
     void OnTopicNameClick(object? sender, RoutedEventArgs e) {
         e.Handled = true;
         if (sender is Button { DataContext: ChatTopicItem topic }) topic.IsRenaming = true;
@@ -492,6 +486,9 @@ public partial class ChatTabView : UserControl {
         _scroll.LayoutUpdated -= OnAnchorLayout;
         _scroll.LayoutUpdated += OnAnchorLayout;
         Dispatcher.UIThread.Post(() => {
+            // Measured before the change is laid out, the row has not moved yet, which would
+            // read as already restored and let the anchor go.
+            ChatItems.UpdateLayout();
             _anchorLaidOut = true;
             RestoreToggleAnchor();
         }, DispatcherPriority.Render);
@@ -559,16 +556,18 @@ public partial class ChatTabView : UserControl {
         if (_anchorSummary is { } cached && ReferenceEquals(cached.DataContext, item)
             && cached.GetVisualAncestors().Any(ancestor => ReferenceEquals(ancestor, ChatItems))) return cached;
         _anchorSummary = ChatItems.ContainerFromItem(item)?.GetVisualDescendants().OfType<Button>()
-            .FirstOrDefault(button => button.Classes.Contains("toolSummary") && ReferenceEquals(button.DataContext, item));
+            .FirstOrDefault(button => KeepsPlace(button) && ReferenceEquals(button.DataContext, item));
         return _anchorSummary;
     }
 
     static Button? ToolSummaryOf(object? source) {
-        if (source is Button button && button.Classes.Contains("toolSummary")) return button;
-        return source is Visual visual
-            ? visual.GetVisualAncestors().OfType<Button>().FirstOrDefault(b => b.Classes.Contains("toolSummary"))
-            : null;
+        if (source is Button button && KeepsPlace(button)) return button;
+        return source is Visual visual ? visual.GetVisualAncestors().OfType<Button>().FirstOrDefault(KeepsPlace) : null;
     }
+
+    // A message's topic toggle adds or drops the header above it, and stays under the pointer like a
+    // fold button so a second click undoes the first.
+    static bool KeepsPlace(Button button) => button.Classes.Contains("toolSummary") || button.Classes.Contains("topicHere");
 
     void OnScrollChanged(object? sender, ScrollChangedEventArgs e) {
         if (_restoringAnchor || _anchorItem is not null) return;

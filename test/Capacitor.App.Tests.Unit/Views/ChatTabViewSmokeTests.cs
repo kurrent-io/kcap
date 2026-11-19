@@ -1215,9 +1215,8 @@ public class ChatTabViewSmokeTests {
         });
     }
 
-    /// A marked message's own toggle steps aside for its header's icon, and that icon takes the
-    /// topic away without folding it first; a click just past the chevron, or at the header's very
-    /// edge, still folds.
+    /// A marked message keeps its toggle, lit, and that toggle takes the topic away again; a click
+    /// just past the chevron, or at the header's very edge, folds.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_topic_header_icon_removes_the_topic() {
@@ -1230,7 +1229,9 @@ public class ChatTabViewSmokeTests {
                 host.Chat.Topics.ToggleChange(turn);
                 host.Settle();
                 var toggles = host.View.GetVisualDescendants().OfType<Button>().Where(b => b.Classes.Contains("topicHere")).ToList();
-                await Assert.That(toggles.Count(b => b.IsVisible)).IsEqualTo(2);
+                await Assert.That(toggles.Count(b => b.IsVisible)).IsEqualTo(3);
+                var lit = toggles.Single(b => b.Classes.Contains("on"));
+                await Assert.That(lit.DataContext).IsSameReferenceAs(turn);
 
                 var topic = host.Chat.Items.OfType<ChatTopicItem>().Single();
                 var chevron = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TopicToggle")
@@ -1254,11 +1255,44 @@ public class ChatTabViewSmokeTests {
                 topic.ToggleCommand.Execute().Subscribe();
                 host.Settle();
 
-                var unmark = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("topicUnmark"));
-                Click(host, unmark);
+                Click(host, host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("topicHere") && b.Classes.Contains("on")));
                 host.Settle();
                 await Assert.That(host.Chat.Items.OfType<ChatTopicItem>()).IsEmpty();
                 await Assert.That(turn.StartsTopic).IsFalse();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    /// The header lands above the message, so the chat scrolls by its height and the toggle stays
+    /// under the pointer for a second click; taking the topic away again leaves it there too.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_message_topic_toggle_stays_where_it_was_clicked() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                await host.LoadAsync(Tmp.CreateFile("topic-in-place.jsonl", Enumerable.Repeat(UserLine, 40).ToArray()));
+                WheelUp(host);
+                host.Settle();
+                var turn = host.Chat.Items.OfType<UserTurnItem>().ElementAt(20);
+                host.View.FindControl<ItemsControl>("ChatItems")!.ScrollIntoView(turn);
+                host.Settle();
+                // Mid-viewport: at the top the list keeps its first row still on its own.
+                host.Scroll.Offset = new Vector(0, host.Scroll.Offset.Y - host.Scroll.Viewport.Height / 2);
+                host.Settle();
+                Button Toggle() => host.View.GetVisualDescendants().OfType<Button>()
+                    .Single(b => b.Classes.Contains("topicHere") && ReferenceEquals(b.DataContext, turn));
+                var before = SummaryViewportY(host, Toggle());
+
+                Click(host, Toggle());
+                host.Settle();
+                await Assert.That(turn.StartsTopic).IsTrue();
+                await Assert.That(Math.Abs(SummaryViewportY(host, Toggle()) - before)).IsLessThan(2);
+
+                Click(host, Toggle());
+                host.Settle();
+                await Assert.That(turn.StartsTopic).IsFalse();
+                await Assert.That(Math.Abs(SummaryViewportY(host, Toggle()) - before)).IsLessThan(2);
             } finally { await host.CloseAsync(); }
         });
     }

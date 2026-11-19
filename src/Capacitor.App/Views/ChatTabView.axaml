@@ -95,9 +95,12 @@
         <Style Selector="Panel.turn:pointerover Button.bookmarkHere, Button.bookmarkHere:focus-visible">
             <Setter Property="Opacity" Value="1" />
         </Style>
-        <!-- A marked message's header carries the same icon, and that one undoes the mark. -->
+        <!-- A marked message keeps its toggle lit, so a second click in the same place undoes it. -->
         <Style Selector="Button.topicHere.on">
-            <Setter Property="IsVisible" Value="False" />
+            <Setter Property="Opacity" Value="1" />
+            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+            <Setter Property="ToolTip.Tip" Value="Remove this topic" />
+            <Setter Property="AutomationProperties.Name" Value="Remove topic" />
         </Style>
         <!-- The caret reads as half of Send, so it greys out with it while staying usable. -->
         <Style Selector="Button.kcapPrimary.sendIdle /template/ ContentPresenter#PART_ContentPresenter">
@@ -377,7 +380,7 @@
                                     </TextBlock>
                                     <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
                                                IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                                    <Button Classes="kcapGhost topicHere" Classes.on="{Binding StartsTopic}"
+                                    <Button Classes="kcapGhost topicHere" Classes.on="{Binding StartsTopic}" Click="OnToolSummaryClick"
                                             Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
                                             CommandParameter="{Binding}" />
                                     <Button Classes="kcapGhost bookmarkHere" Classes.on="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
@@ -441,7 +444,7 @@
                                            Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
                                 <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
                                            IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                                <Button Classes="kcapGhost topicHere" Classes.on="{Binding StartsTopic}"
+                                <Button Classes="kcapGhost topicHere" Classes.on="{Binding StartsTopic}" Click="OnToolSummaryClick"
                                         Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
                                         CommandParameter="{Binding}" />
                                 <Button Classes="kcapGhost bookmarkHere" Classes.on="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
@@ -666,19 +669,12 @@
                             ToolTip.Tip="{Binding ToggleTip}"
                             AutomationProperties.Name="{Binding ToggleAccessibleName}">
                         <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="8">
-                            <!-- The gap keeps a click just past the chevron from landing on the remove button. -->
-                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                <Panel Width="12" Height="12">
-                                    <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                                   Foreground="{StaticResource KcapInfoBrush}" />
-                                    <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                                   Foreground="{StaticResource KcapInfoBrush}" />
-                                </Panel>
-                                <Button Classes="kcapGhost topicUnmark" Click="OnTopicUnmarkClick" Padding="2" Margin="0,-2"
-                                        ToolTip.Tip="Remove this topic" AutomationProperties.Name="Remove topic">
-                                    <views:AppIcon Kind="Signpost" Size="14" Foreground="{StaticResource KcapInfoBrush}" />
-                                </Button>
-                            </StackPanel>
+                            <Panel Width="12" Height="12" VerticalAlignment="Center">
+                                <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
+                                               Foreground="{StaticResource KcapInfoBrush}" />
+                                <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
+                                               Foreground="{StaticResource KcapInfoBrush}" />
+                            </Panel>
                             <!-- The name is its own button inside the fold button, so a click on it renames. -->
                             <Panel Grid.Column="1" VerticalAlignment="Center">
                                 <Button Classes="kcapGhost topicName" IsVisible="{Binding !IsRenaming}" Click="OnTopicNameClick"
