@@ -284,7 +284,7 @@ public class AntigravityContainmentTests {
             }
 
             return new(conversationId, sawResult, status, proc.HasExited ? proc.ExitCode : null, processes, null,
-                       await ChildrenOfAsync(proc.Id));
+                       await ChildrenOfAsync(proc));
         } catch (OperationCanceledException) {
             // stderr is where agy reports an auth/project misconfiguration, which is by far the
             // likeliest reason this times out on a fresh machine.
@@ -298,15 +298,39 @@ public class AntigravityContainmentTests {
         }
     }
 
-    /// <summary>The processes still naming an exited <paramref name="pid"/> as their parent. Windows
+    /// <summary>The processes an exited <paramref name="parent"/> started that are still running. Windows
     /// only: it keeps a dead parent's pid on the child, where POSIX reparents the child and loses the
-    /// link, so elsewhere this reports nothing.</summary>
-    static async Task<List<string>> ChildrenOfAsync(int pid) {
+    /// link, so elsewhere this reports nothing.
+    ///
+    /// <para>Windows reuses pids, so a child counts only when it was created while the parent was alive;
+    /// one created later belongs to whatever took the pid. The set gets a few seconds to empty, because
+    /// the console host of a hidden-console process leaves a moment after it.</para></summary>
+    static async Task<List<string>> ChildrenOfAsync(Process parent) {
         if (!OperatingSystem.IsWindows()) return [];
 
-        var lister = new ProcessStartInfo("powershell.exe",
-            ["-NoProfile", "-NonInteractive", "-Command",
-             $"Get-CimInstance Win32_Process -Filter 'ParentProcessId={pid}' | ForEach-Object {{ $_.Name }}"]) {
+        var born = parent.StartTime.ToUniversalTime().Ticks;
+        var died = parent.ExitTime.ToUniversalTime().Ticks;
+
+        var query =
+            $"Get-CimInstance Win32_Process -Filter 'ParentProcessId={parent.Id}' | "
+          + $"Where-Object {{ $t = $_.CreationDate.ToUniversalTime().Ticks; $t -ge {born} -and $t -le {died} }} | "
+          + "ForEach-Object { $_.Name }";
+
+        List<string> survivors = [];
+
+        for (var attempt = 0; attempt < 5; attempt++) {
+            survivors = await ProcessNamesAsync(query);
+
+            if (survivors.Count == 0) break;
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        }
+
+        return survivors;
+    }
+
+    static async Task<List<string>> ProcessNamesAsync(string query) {
+        var lister = new ProcessStartInfo("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", query]) {
             RedirectStandardOutput = true,
             RedirectStandardError  = true,
             UseShellExecute        = false,
