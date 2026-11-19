@@ -565,6 +565,13 @@
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
+        <!-- The progressive disclosure toggle: muted while off, info while on. -->
+        <Style Selector="Button.kcapGhost.progressiveDisclosure views|AppIcon">
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Button.kcapGhost.progressiveDisclosure.on views|AppIcon">
+            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+        </Style>
         <Style Selector="Button.kcapGhost.kcapQuiet">
             <Setter Property="Padding" Value="8,5" />
             <Setter Property="FontSize" Value="12.5" />

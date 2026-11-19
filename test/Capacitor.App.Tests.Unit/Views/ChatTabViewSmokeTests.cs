@@ -3197,39 +3197,6 @@ public class ChatTabViewSmokeTests {
         });
     }
 
-    /// The toggle waits for a graded reply, then a click flips the shared basis between faded and normal.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_progressive_disclosure_button_shows_for_a_graded_reply_and_toggles_the_fade() {
-        await RunOnUiAsync(async () => {
-            var basis = NeedToKnowBasisViewModel.Shared;
-            var was = basis.Enabled;
-            try {
-                var plain = new Host();
-                await plain.AttachAsync(Tmp.CreateFile("ungraded.jsonl", UserLine));
-                await Assert.That(plain.View.FindControl<Button>("ProgressiveDisclosureButton")!.IsEffectivelyVisible).IsFalse();
-                await plain.CloseAsync();
-
-                var host = new Host();
-                await host.AttachAsync(Tmp.CreateFile("graded.jsonl", [UserLine,
-                    """{"type":"assistant","message":{"content":[{"type":"text","text":"Done. ⌞It took a while.⌟"}]}}"""]));
-                var button = host.View.FindControl<Button>("ProgressiveDisclosureButton")!;
-                await Assert.That(button.IsEffectivelyVisible).IsTrue();
-                await Assert.That(ToolTip.GetTip(button)).IsEqualTo("Progressive disclosure");
-
-                basis.Enabled = true;
-                Click(host, button);
-                await Assert.That(basis.Enabled).IsFalse();
-                await Assert.That(button.Classes.Contains("on")).IsFalse();
-                Click(host, button);
-                await Assert.That(basis.Enabled).IsTrue();
-                await host.CloseAsync();
-            } finally {
-                basis.Enabled = was;
-            }
-        });
-    }
-
     static List<StagedAttachmentViewModel> Chips(Host host) => host.View.GetVisualDescendants()
         .OfType<TextBlock>().Where(t => t.Name == "ChipName").Select(t => (StagedAttachmentViewModel)t.DataContext!).ToList();
 

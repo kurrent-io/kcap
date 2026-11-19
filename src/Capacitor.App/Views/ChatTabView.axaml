@@ -11,16 +11,6 @@
                          Button#AttachButton.kcapGhost:not(:disabled):pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
         </Style>
-        <Style Selector="Button#ProgressiveDisclosureButton.kcapGhost:not(:disabled):pointerover /template/ ContentPresenter#PART_ContentPresenter,
-                         Button#ProgressiveDisclosureButton.kcapGhost:not(:disabled):pressed /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
-        </Style>
-        <Style Selector="Button#ProgressiveDisclosureButton views|AppIcon">
-            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-        </Style>
-        <Style Selector="Button#ProgressiveDisclosureButton.on views|AppIcon">
-            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
-        </Style>
         <!-- The bubble's fill is set here, not on the Border, so the undelivered style can replace it. -->
         <Style Selector="Border.userTurn">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
@@ -988,7 +978,7 @@
                         <TextBox x:Name="ComposerInput" Classes="kcapEmbedded" Text="{Binding ComposerText}" AcceptsReturn="True" TextWrapping="Wrap"
                                  AutomationProperties.Name="Message the agent" MinHeight="44" MaxHeight="160" Padding="0" PlaceholderText="Write a message" IsVisible="{Binding ShowsComposer}"
                                  IsEnabled="{Binding !HasTerminalMenu}" />
-                        <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                             <!-- The hint exists only while the gate is shut, which is exactly when a tooltip
                                  is suppressed by default. -->
                             <Button x:Name="AttachButton" Classes="kcapGhost" IsVisible="{Binding ShowsComposer}"
@@ -998,25 +988,14 @@
                                     Margin="0,0,10,0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
                                 <views:AppIcon Kind="Paperclip" Size="16" />
                             </Button>
-                            <!-- Shown once the chat has a graded reply; the panel carries that, since the button's context is the shared basis. -->
-                            <Panel Grid.Column="1" IsVisible="{Binding HasNeedToKnowMarks}" Margin="0,0,10,0">
-                                <Button x:Name="ProgressiveDisclosureButton" Classes="kcapGhost progressiveDisclosure"
-                                        x:DataType="vm:NeedToKnowBasisViewModel" DataContext="{x:Static vm:NeedToKnowBasisViewModel.Shared}"
-                                        Classes.on="{Binding Enabled}" Command="{Binding ToggleCommand}"
-                                        ToolTip.Tip="Progressive disclosure" AutomationProperties.Name="Progressive disclosure"
-                                        Width="24" Height="24" Padding="0" Cursor="Hand"
-                                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
-                                    <views:AppIcon Kind="Focus" Size="16" />
-                                </Button>
-                            </Panel>
-                            <TextBlock Grid.Column="2" Text="{Binding ComposerHint}" FontSize="12.5" Foreground="{StaticResource KcapFaintBrush}"
+                            <TextBlock Grid.Column="1" Text="{Binding ComposerHint}" FontSize="12.5" Foreground="{StaticResource KcapFaintBrush}"
                                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                            <Button x:Name="InterruptButton" Grid.Column="3" Classes="kcapChip" Content="{Binding InterruptLabel}"
+                            <Button x:Name="InterruptButton" Grid.Column="2" Classes="kcapChip" Content="{Binding InterruptLabel}"
                                     Command="{Binding InterruptCommand}" IsVisible="{Binding ShowsInterrupt}"
                                     ToolTip.Tip="{Binding InterruptTip}" ToolTip.ShowOnDisabled="True" Margin="12,0,0,0"
                                     BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
                                     FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand" />
-                            <Button x:Name="SendButton" Grid.Column="4" Classes="kcapPrimary" Content="Send" Command="{Binding SendCommand}" Margin="8,0,0,0"
+                            <Button x:Name="SendButton" Grid.Column="3" Classes="kcapPrimary" Content="Send" Command="{Binding SendCommand}" Margin="8,0,0,0"
                                     Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="13" FontWeight="SemiBold" CornerRadius="7"
                                     Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
                                     IsVisible="{Binding ShowsComposer}" />
