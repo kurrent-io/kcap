@@ -14,7 +14,7 @@ public sealed class NeedToKnowBasisViewModel : ReactiveObject {
 
     // Opacity percent of the text colour; the defaults match the brushes App.axaml starts with.
     const double DefaultDetailFade = 60;
-    const double DefaultFootnoteFade = 40;
+    const double DefaultFootnoteFade = 30;
     const double MinFade = 5;
     const double MaxFade = 95;
 

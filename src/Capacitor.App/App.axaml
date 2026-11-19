@@ -21,11 +21,11 @@
             <!-- Secondary / tertiary body text: both clear AA (≥4.5:1) on Canvas→Border. -->
             <SolidColorBrush x:Key="KcapMutedBrush" Color="#B0B7C6" />
             <SolidColorBrush x:Key="KcapFaintBrush" Color="#949BAA" />
-            <!-- Faded need-to-know text and its inline-code background, at 60% and 40% opacity, until the right bar's sliders replace them. -->
+            <!-- Faded need-to-know text and its inline-code background, at 60% and 30% opacity, until the right bar's sliders replace them. -->
             <SolidColorBrush x:Key="NeedToKnowDetailFadeBrush" Color="#99F1F3F7" />
-            <SolidColorBrush x:Key="NeedToKnowFootnoteFadeBrush" Color="#66F1F3F7" />
+            <SolidColorBrush x:Key="NeedToKnowFootnoteFadeBrush" Color="#4CF1F3F7" />
             <SolidColorBrush x:Key="NeedToKnowDetailCodeFadeBrush" Color="#99191D27" />
-            <SolidColorBrush x:Key="NeedToKnowFootnoteCodeFadeBrush" Color="#66191D27" />
+            <SolidColorBrush x:Key="NeedToKnowFootnoteCodeFadeBrush" Color="#4C191D27" />
             <!-- Primary CTAs stay on the light ramp. Hover lifts toward white and press steps
                  to a light off-white; a text grey as the fill drops the near-black label's contrast.
                  Green is status only; a selection uses info blue. -->

@@ -50,7 +50,7 @@ public class NeedToKnowBasisViewModelTests {
 
         await Assert.That(NeedToKnowBasis.Current).IsEqualTo(new NeedToKnowBasis(NeedToKnowDisplay.Faded, NeedToKnowDisplay.Faded));
         await Assert.That(Model.DetailFade).IsEqualTo(95);
-        await Assert.That(Model.FootnoteFade).IsEqualTo(40);
+        await Assert.That(Model.FootnoteFade).IsEqualTo(30);
     });
 
     [Test]
