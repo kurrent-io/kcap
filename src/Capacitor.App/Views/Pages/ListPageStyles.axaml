@@ -8,29 +8,36 @@
             <Setter Property="Template">
                 <ControlTemplate>
                     <Border Background="{TemplateBinding Background}">
-                        <!-- The same column as the launcher: 680 wide inside a 24px gutter, the scrollbar at the window's edge. -->
-                        <DockPanel Margin="0,20,0,0" XYFocus.NavigationModes="Keyboard">
-                            <StackPanel DockPanel.Dock="Top" MaxWidth="680" Spacing="4" Margin="24,0,24,16">
-                                <TextBlock Name="PART_Heading" Text="{TemplateBinding Heading}" FontSize="18" FontWeight="SemiBold"
-                                           TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{TemplateBinding Count}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" />
-                                <DockPanel Margin="0,12,0,0">
+                        <!-- The session and work item pages' frame: a bordered header bar, then their *,6*,* body column. -->
+                        <DockPanel XYFocus.NavigationModes="Keyboard">
+                            <Border DockPanel.Dock="Top" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
+                                    Padding="20,16,16,16">
+                                <StackPanel Spacing="6">
+                                    <TextBlock Name="PART_Heading" Text="{TemplateBinding Heading}" FontSize="16" FontWeight="SemiBold"
+                                               Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{TemplateBinding Count}" FontSize="13" Foreground="{StaticResource KcapMutedBrush}" />
+                                </StackPanel>
+                            </Border>
+                            <Grid DockPanel.Dock="Top" ColumnDefinitions="*,6*,*" Margin="0,16,0,8">
+                                <DockPanel Grid.Column="1">
                                     <ContentPresenter DockPanel.Dock="Right" Margin="8,0,0,0" Content="{TemplateBinding Filters}"
                                                       IsVisible="{TemplateBinding Filters, Converter={x:Static ObjectConverters.IsNotNull}}" />
                                     <TextBox Name="PART_Search" Classes="kcapField" Padding="10,7" MinHeight="34" FontSize="13"
                                              PlaceholderText="{TemplateBinding SearchPlaceholder}" Text="{TemplateBinding Search, Mode=TwoWay}"
                                              AutomationProperties.Name="{TemplateBinding SearchPlaceholder}" />
                                 </DockPanel>
-                            </StackPanel>
+                            </Grid>
                             <ScrollViewer>
-                                <StackPanel MaxWidth="680" Spacing="8" Margin="24,0,24,24">
-                                    <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}"
-                                                      ContentTemplate="{TemplateBinding ContentTemplate}" />
-                                    <TextBlock Name="PART_Message" Text="{TemplateBinding Message}" FontSize="13"
-                                               Foreground="{StaticResource KcapMutedBrush}"
-                                               IsVisible="{TemplateBinding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                    <ContentPresenter Content="{TemplateBinding Footer}" />
-                                </StackPanel>
+                                <Grid ColumnDefinitions="*,6*,*" Margin="0,8,0,24">
+                                    <StackPanel Grid.Column="1" Spacing="8">
+                                        <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}"
+                                                          ContentTemplate="{TemplateBinding ContentTemplate}" />
+                                        <TextBlock Name="PART_Message" Text="{TemplateBinding Message}" FontSize="13"
+                                                   Foreground="{StaticResource KcapMutedBrush}"
+                                                   IsVisible="{TemplateBinding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                        <ContentPresenter Content="{TemplateBinding Footer}" />
+                                    </StackPanel>
+                                </Grid>
                             </ScrollViewer>
                         </DockPanel>
                     </Border>
