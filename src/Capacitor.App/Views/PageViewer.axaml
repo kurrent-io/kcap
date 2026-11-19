@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
              x:Class="Capacitor.App.Views.PageViewer"
              x:DataType="vm:PageViewerViewModel"
              Background="{StaticResource KcapCanvasBrush}">
@@ -25,12 +26,18 @@
                         Command="{Binding DismissPendingCommand}" />
             </Grid>
         </Border>
-        <StackPanel Grid.Row="2" IsVisible="{Binding !IsReady}" Margin="24,20" Spacing="12">
+        <StackPanel Grid.Row="2" IsVisible="{Binding Notice, Converter={x:Static ObjectConverters.IsNotNull}}" Margin="24,20" Spacing="12">
             <TextBlock x:Name="PageNotice" Text="{Binding Notice}"
                        FontSize="13" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" />
             <Button x:Name="Retry" Classes="kcapGhost" Content="Retry" HorizontalAlignment="Left"
                     IsVisible="{Binding CanRetry}" Command="{Binding ReloadCommand}" />
         </StackPanel>
-        <ContentControl x:Name="WebHost" Grid.Row="2" IsVisible="{Binding IsReady}" />
+        <StackPanel x:Name="PageLoading" Grid.Row="2" IsVisible="False" Spacing="10"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+            <views:AppIcon Kind="LoaderCircle" Size="20" Classes="kcapSpinning" HorizontalAlignment="Center"
+                           Foreground="{StaticResource KcapMutedBrush}" />
+            <TextBlock Text="Loading page…" FontSize="13" Foreground="{StaticResource KcapMutedBrush}" />
+        </StackPanel>
+        <Decorator x:Name="WebHost" Grid.Row="2" IsVisible="False" />
     </Grid>
 </UserControl>

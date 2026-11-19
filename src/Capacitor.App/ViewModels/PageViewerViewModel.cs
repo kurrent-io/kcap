@@ -58,7 +58,6 @@ public sealed class PageViewerViewModel : ReactiveObject {
     public bool CanRetry => State is PageViewerState.Unreachable or PageViewerState.SignedOut;
 
     public string? Notice => State switch {
-        PageViewerState.Loading     => "Loading page…",
         PageViewerState.NotFound    => "This page is gone, or you can't see it.",
         PageViewerState.SignedOut   => "Sign in to see this page.",
         PageViewerState.Unreachable => "Couldn't reach the server for this page.",

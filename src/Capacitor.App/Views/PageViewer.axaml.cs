@@ -23,6 +23,7 @@ public partial class PageViewer : UserControl {
     PageBridge? _bridge;
     bool _attached;
     bool _webViewSafe;
+    bool _rendered;
 
     public PageViewer() {
         InitializeComponent();
@@ -65,13 +66,24 @@ public partial class PageViewer : UserControl {
                 return;
             }
             ReplaceBridge(vm.CreateBridge(json => DeliverAsync(webView, json)));
+            ShowRendered(false);
             webView.NavigateToString(html, PageViewerViewModel.HostBase);
             return;
         }
         ReplaceBridge(null);
-        WebHost.Content = null;
+        WebHost.Child = null;
         _webView = null;
         _webViewSafe = false;
+        ShowRendered(false);
+    }
+
+    /// The native view draws over anything Avalonia puts on top of it, so it stays hidden behind the
+    /// spinner until its first load has painted.
+    void ShowRendered(bool rendered) {
+        _rendered = rendered;
+        var ready = _vm?.State == PageViewerState.Ready;
+        PageLoading.IsVisible = _vm?.State == PageViewerState.Loading || (ready && !rendered);
+        WebHost.IsVisible = ready && rendered;
     }
 
     void ReplaceBridge(PageBridge? next) {
@@ -144,6 +156,13 @@ public partial class PageViewer : UserControl {
                 Console.Error.WriteLine($"kcap: page navigation check failed: {ex.Message}");
             }
         };
+        webView.NavigationCompleted += (_, _) => {
+            try {
+                if (ReferenceEquals(webView, _webView) && _webViewSafe && !_rendered) ShowRendered(true);
+            } catch (Exception ex) {
+                Console.Error.WriteLine($"kcap: page load failed: {ex.Message}");
+            }
+        };
         webView.NewWindowRequested += (_, e) => {
             e.Handled = true;
             try {
@@ -160,7 +179,7 @@ public partial class PageViewer : UserControl {
             }
         };
         _webView = webView;
-        WebHost.Content = webView;
+        WebHost.Child = webView;
         return webView;
     }
 

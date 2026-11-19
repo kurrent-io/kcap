@@ -32,6 +32,10 @@ public static class PageHostDocument {
         "if(!id){scrollTo(0,0);return;}var el=document.getElementById(id)||document.getElementsByName(id)[0];if(!el)return;if(!el.hasAttribute('tabindex')&&el.tabIndex<0)el.setAttribute('tabindex','-1');el.scrollIntoView();el.focus({preventScroll:true});});</script>";
     const string PolicyMeta = $"<meta http-equiv=\"Content-Security-Policy\" content=\"{ContentPolicy}\">{DnsPrefetchOff}{FragmentLinks}";
 
+    /// Animation frames wait until the view is on screen, so the page fades in as it is shown.
+    const string FadeIn = ";addEventListener('load',function(){requestAnimationFrame(function(){requestAnimationFrame(function(){" +
+        "document.documentElement.classList.add('kcap-shown')})})});";
+
     static readonly Lazy<string> HostScript = new(() => {
         using var stream = typeof(PageHostDocument).Assembly.GetManifestResourceStream("Capacitor.App.Assets.page-host.js")
             ?? throw new InvalidOperationException("page-host.js is not embedded");
@@ -47,8 +51,9 @@ public static class PageHostDocument {
             throw new ArgumentException("The nonce must be base64url.", nameof(nonce));
 
         return $"<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"{HostPolicy}\">" + DnsPrefetchOff +
-            "<style>html,body{margin:0;height:100%;background:transparent}iframe{display:block;border:0;width:100%;height:100%}</style>" +
-            "</head><body><script>" + HostScript.Value.Replace(NoncePlaceholder, $"\"{nonce}\"", StringComparison.Ordinal) + "</script>" +
+            "<style>html,body{margin:0;height:100%}html{background:#0B0D12}" +
+            "iframe{display:block;border:0;width:100%;height:100%;opacity:0;transition:opacity .25s ease-out}.kcap-shown iframe{opacity:1}</style>" +
+            "</head><body><script>" + HostScript.Value.Replace(NoncePlaceholder, $"\"{nonce}\"", StringComparison.Ordinal) + FadeIn + "</script>" +
             $"<iframe id=\"kcap-page\" sandbox=\"{FrameSandbox}\" srcdoc=\"{EscapeAttribute(WithPolicy(pageHtml))}\"></iframe></body></html>";
     }
 
