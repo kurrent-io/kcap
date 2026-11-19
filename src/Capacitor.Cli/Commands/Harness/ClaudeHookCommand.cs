@@ -1464,7 +1464,7 @@ public sealed class ClaudeHookCommand(
 
         // Deferred even when the append fails: posting live ahead of the backlog breaks its order.
         if (spools && CurrentSessionHasBacklog(spool, genericSessionId)) {
-            await ReportSpoolAsync(spool.Append(genericSessionId!, command!, body), command!, genericSessionId!, "ordering guard", unusableUrl: false);
+            await ReportSpoolAsync(spool.Append(genericSessionId!, command, body), command, genericSessionId!, "ordering guard", unusableUrl: false);
             deferred = true;
         }
 
@@ -1492,7 +1492,7 @@ public sealed class ClaudeHookCommand(
             }
 
             if (spools) {
-                await ReportSpoolAsync(spool.Append(genericSessionId!, command!, body), command!, genericSessionId!, FailureReason(code), unusableUrl: false);
+                await ReportSpoolAsync(spool.Append(genericSessionId!, command, body), command, genericSessionId!, FailureReason(code), unusableUrl: false);
             } else {
                 await Console.Error.WriteLineAsync($"[kcap] {command} dropped ({FailureReason(code)})");
             }

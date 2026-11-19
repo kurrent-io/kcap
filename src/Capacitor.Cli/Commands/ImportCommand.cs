@@ -3184,7 +3184,7 @@ class ImportCommand(
             if (CaptureScope.ExcludesRecorded(profile, home, cwd, rawRepo)) beyondRemap.Add(sessionId);
 
             if (CaptureScope.ExcludesDiscovered(profile, home, cwd, repo, rawRepo)
-             || excludesRepo && checkout is not null && RepoScope.Names(profile.ExcludedRepos!, checkout)) {
+             || excludesRepo && checkout is not null && RepoScope.Names(profile.ExcludedRepos, checkout)) {
                 all.Add(sessionId);
                 if (cwd is not null) folders[sessionId] = cwd;
             }

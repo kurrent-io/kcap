@@ -43,7 +43,7 @@ public class OpenCodeCliRunnerLiveTests {
         var opencode = BinaryProbe.FromEnvironment().Resolve("opencode");
         Skip.When(opencode is null, "opencode is not on PATH");
 
-        return opencode!;
+        return opencode;
     }
 
     /// <summary><paramref name="before"/> runs in the run's working directory ahead of the real binary, and

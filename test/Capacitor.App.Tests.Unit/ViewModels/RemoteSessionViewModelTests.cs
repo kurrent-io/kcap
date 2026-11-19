@@ -1371,7 +1371,7 @@ public class RemoteSessionViewModelTests {
             await WaitUntilAsync(() => h.Lane.Tails.Count == 2, what: "background monitor tail");
             h.Time.Advance(ChatTabViewModel.PollInterval);
             await Task.Yield();
-            await (monitor!.PendingReadForTesting ?? Task.CompletedTask);
+            await (monitor.PendingReadForTesting ?? Task.CompletedTask);
             await Assert.That(latest.GetValueOrDefault("remote:a1").Commands).IsEqualTo(1);
 
             if (sessionEnds) h.Directory.Rows.AddOrUpdate(row with { Status = "Completed" });

@@ -638,10 +638,10 @@ public class SessionRailViewModelTests {
             await Assert.That(current!(ended)).IsTrue();
 
             rail.State = RailState.Live;
-            await Assert.That(current!(ended)).IsFalse();
+            await Assert.That(current(ended)).IsFalse();
 
             rail.SelectedSessionKey = ended.Key;
-            await Assert.That(current!(ended)).IsTrue();
+            await Assert.That(current(ended)).IsTrue();
         });
     }
 

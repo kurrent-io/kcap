@@ -1329,7 +1329,7 @@ public class CursorImportSourceTests {
         var repo      = startNode["repository"];
         await Assert.That(repo).IsNotNull();
         await Assert.That(repo!["owner"]!.GetValue<string>()).IsEqualTo("kurrent-io");
-        await Assert.That(repo!["repo_name"]!.GetValue<string>()).IsEqualTo("kcap-server");
+        await Assert.That(repo["repo_name"]!.GetValue<string>()).IsEqualTo("kcap-server");
     }
 
     [Test]

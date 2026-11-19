@@ -74,7 +74,7 @@ public class JoinChainLiveTests {
         // Stand in for the browser: carry the site's cookies, and follow redirects the way a
         // navigation would. $device_id only — see the class doc on firing no event.
         var jar = new CookieContainer();
-        var web = new Uri(baseUrl!);
+        var web = new Uri(baseUrl);
         jar.Add(web, new Cookie("kcap_consent", "accepted"));
         jar.Add(web, new Cookie("kcap_ab", "redesign"));
         jar.Add(web, new Cookie(PhCookie,

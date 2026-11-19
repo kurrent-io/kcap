@@ -1466,7 +1466,7 @@ public class MainWindowSmokeTests {
                 var ctrl = Bound(KeyModifiers.Control);
 
                 var newSession = window.KeyBindings
-                    .First(k => k.Gesture is { Key: Key.N } g && g.KeyModifiers.HasFlag(KeyModifiers.Meta)).Command!;
+                    .First(k => k.Gesture is { Key: Key.N } g && g.KeyModifiers.HasFlag(KeyModifiers.Meta)).Command;
                 newSession.Execute(null);
                 Dispatcher.UIThread.RunJobs();
                 var after = vm.CurrentWorkspace;
@@ -1519,17 +1519,17 @@ public class MainWindowSmokeTests {
             Dispatcher.UIThread.RunJobs();
             try {
                 var bindings = window.KeyBindings.Where(k => k.Gesture is { Key: Key.R }).ToArray();
-                bool Bound(KeyModifiers mod) => bindings.Any(k => k.Gesture!.KeyModifiers == mod);
-                bool Can() => bindings.Single(k => k.Gesture!.KeyModifiers == KeyModifiers.Meta).Command!.CanExecute(null);
+                bool Bound(KeyModifiers mod) => bindings.Any(k => k.Gesture.KeyModifiers == mod);
+                bool Can() => bindings.Single(k => k.Gesture.KeyModifiers == KeyModifiers.Meta).Command.CanExecute(null);
                 var yield = new UnlessTerminalFocused(window, m => m.RefreshWorkCommand);
 
                 await Assert.That(Bound(KeyModifiers.Meta)).IsTrue();
                 await Assert.That(Bound(KeyModifiers.Control)).IsEqualTo(RefreshShortcut.UsesControl);
                 await Assert.That(Bound(KeyModifiers.Control | KeyModifiers.Shift)).IsEqualTo(RefreshShortcut.UsesControl);
-                await Assert.That(bindings.Where(k => k.Gesture!.KeyModifiers != KeyModifiers.Control)
+                await Assert.That(bindings.Where(k => k.Gesture.KeyModifiers != KeyModifiers.Control)
                     .All(k => ReferenceEquals(k.Command, vm.RefreshWorkCommand))).IsTrue();
                 if (RefreshShortcut.UsesControl) {
-                    await Assert.That(bindings.Single(k => k.Gesture!.KeyModifiers == KeyModifiers.Control).Command)
+                    await Assert.That(bindings.Single(k => k.Gesture.KeyModifiers == KeyModifiers.Control).Command)
                         .IsNotSameReferenceAs(vm.RefreshWorkCommand);
                 }
                 await Assert.That(refreshItem.Command).IsSameReferenceAs(vm.RefreshWorkCommand);
@@ -1578,7 +1578,7 @@ public class MainWindowSmokeTests {
                 await Assert.That(Can()).IsTrue();
                 await Assert.That(source.Requested.Count).IsEqualTo(beforePoll + 1);
 
-                bindings[0].Command!.Execute(null);
+                bindings[0].Command.Execute(null);
                 await Assert.That(work.IsRefreshing).IsTrue();
                 await Assert.That(source.Requested.Count).IsEqualTo(beforePoll + 1);
                 await Assert.That(Can()).IsFalse();
@@ -2287,10 +2287,10 @@ public class MainWindowSmokeTests {
         var bindings = host.Window.KeyBindings.Where(k => k.Gesture is { Key: Key.K }).ToArray();
         var yield = new UnlessTerminalFocused(host.Window, m => m.OpenSearchCommand);
 
-        await Assert.That(bindings.Single(k => k.Gesture!.KeyModifiers == KeyModifiers.Meta).Command).IsSameReferenceAs(host.Vm.OpenSearchCommand);
-        await Assert.That(bindings.Any(k => k.Gesture!.KeyModifiers == KeyModifiers.Control)).IsEqualTo(!ShortcutLabels.UsesCommandKey);
+        await Assert.That(bindings.Single(k => k.Gesture.KeyModifiers == KeyModifiers.Meta).Command).IsSameReferenceAs(host.Vm.OpenSearchCommand);
+        await Assert.That(bindings.Any(k => k.Gesture.KeyModifiers == KeyModifiers.Control)).IsEqualTo(!ShortcutLabels.UsesCommandKey);
         if (!ShortcutLabels.UsesCommandKey) {
-            await Assert.That(bindings.Single(k => k.Gesture!.KeyModifiers == KeyModifiers.Control).Command).IsNotSameReferenceAs(host.Vm.OpenSearchCommand);
+            await Assert.That(bindings.Single(k => k.Gesture.KeyModifiers == KeyModifiers.Control).Command).IsNotSameReferenceAs(host.Vm.OpenSearchCommand);
         }
 
         const string id = "0123456789abcdef0123456789abcdef";

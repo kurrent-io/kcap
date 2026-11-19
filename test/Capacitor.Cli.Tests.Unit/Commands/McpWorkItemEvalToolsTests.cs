@@ -38,7 +38,7 @@ public class McpWorkItemEvalToolsTests {
             ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = JsonNode.Parse(argsJson) }
         };
 
-        var response = await Server().HandleToolCallAsync(JsonValue.Create(1)!, request, client, "http://x", () => ValueTask.FromResult<string?>(null));
+        var response = await Server().HandleToolCallAsync(JsonValue.Create(1), request, client, "http://x", () => ValueTask.FromResult<string?>(null));
         var result   = JsonNode.Parse(response)!["result"]!;
         return (handler, result["content"]![0]!["text"]!.GetValue<string>(), result["isError"]?.GetValue<bool>() is true);
     }
@@ -270,7 +270,7 @@ public class McpWorkItemEvalToolsTests {
             ["params"] = new JsonObject { ["name"] = "get_work_item_eval", ["arguments"] = JsonNode.Parse($$"""{"work_item_id":"wi-1","run_id":"{{RunId}}"}""") }
         };
 
-        var call = Server(time).HandleToolCallAsync(JsonValue.Create(1)!, request, client, "http://x", () => ValueTask.FromResult<string?>(null));
+        var call = Server(time).HandleToolCallAsync(JsonValue.Create(1), request, client, "http://x", () => ValueTask.FromResult<string?>(null));
         await sent.Task;
         time.Advance(McpWorkItemsServer.NextWorkRequestDeadline - TimeSpan.FromSeconds(1));
         await Assert.That(call.IsCompleted).IsFalse();

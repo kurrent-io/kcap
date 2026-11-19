@@ -175,7 +175,7 @@ public class SessionTakeoverTests {
 
         var declared = routes.Posts.Where(p => p.Path == "/api/work-items/declare").Select(p => p.Body!["work_item_id"]!.GetValue<string>()).ToList();
         await Assert.That(declared).IsEquivalentTo(new[] { "w2" });
-        await Assert.That(o["work_items"]!["items"]!.AsArray().Select(i => (Str(i!["work_item_id"]), i!["attached"]!.GetValue<bool>())))
+        await Assert.That(o["work_items"]!["items"]!.AsArray().Select(i => (Str(i!["work_item_id"]), i["attached"]!.GetValue<bool>())))
             .IsEquivalentTo(new (string?, bool)[] { ("w1", true), ("w2", true) });
     }
 
@@ -206,7 +206,7 @@ public class SessionTakeoverTests {
 
         await Assert.That(routes.Posts.Count(p => p.Path == "/api/work-items/declare")).IsEqualTo(1);
         await Assert.That(routes.Posts.Single(p => p.Path == "/api/work-items/declare").Body!["work_item_id"]!.GetValue<string>()).IsEqualTo("w2");
-        await Assert.That(Outcome(r)["work_items"]!["items"]!.AsArray().Select(i => (Str(i!["work_item_id"]), i!["attached"]!.GetValue<bool>())))
+        await Assert.That(Outcome(r)["work_items"]!["items"]!.AsArray().Select(i => (Str(i!["work_item_id"]), i["attached"]!.GetValue<bool>())))
             .IsEquivalentTo(new (string?, bool)[] { ("w1", false), ("w2", true), ("w3", true) });
         await Assert.That(((TakeoverResult.Completed)r).Unsuccessful).IsTrue();
     }
@@ -224,7 +224,7 @@ public class SessionTakeoverTests {
 
         await Assert.That(routes.Posts.Any(p => p.Path.StartsWith("/api/plans/", StringComparison.Ordinal))).IsFalse();
         await Assert.That(Outcome(r)["current_plan_id"]).IsNull();
-        await Assert.That(Outcome(r)["plans"]!.AsArray().Select(e => (Str(e!["plan_id"]), e!["attached"]!.GetValue<bool>())))
+        await Assert.That(Outcome(r)["plans"]!.AsArray().Select(e => (Str(e!["plan_id"]), e["attached"]!.GetValue<bool>())))
             .IsEquivalentTo(new (string?, bool)[] { ("p1", false), ("p2", true) });
         await Assert.That(((TakeoverResult.Completed)r).Unsuccessful).IsTrue();
     }
@@ -273,7 +273,7 @@ public class SessionTakeoverTests {
 
         await Assert.That(routes.Posts.Select(p => p.Path).Where(p => p.StartsWith("/api/plans/", StringComparison.Ordinal)).ToList()).IsEquivalentTo(new[] { "/api/plans/p2/tasks/t2" });
         await Assert.That(o["current_plan_id"]!.GetValue<string>()).IsEqualTo("p2");
-        await Assert.That(o["plans"]!.AsArray().Select(e => (Str(e!["plan_id"]), e!["attached"]!.GetValue<bool>())))
+        await Assert.That(o["plans"]!.AsArray().Select(e => (Str(e!["plan_id"]), e["attached"]!.GetValue<bool>())))
             .IsEquivalentTo(new (string?, bool)[] { ("p1", true), ("p2", true) });
     }
 

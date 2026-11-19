@@ -505,7 +505,7 @@ public class EvalServiceTests {
         var rf = EvalService.ExtractRetainFact(response);
         await Assert.That(rf?.Fact).IsEqualTo("A plain string fact.");
         await Assert.That(rf!.Value.AppliesToVendors).IsNull();
-        await Assert.That(rf!.Value.AppliesToSessionKinds).IsNull();
+        await Assert.That(rf.Value.AppliesToSessionKinds).IsNull();
     }
 
     [Test]
@@ -516,7 +516,7 @@ public class EvalServiceTests {
         var rf = EvalService.ExtractRetainFact(response);
         await Assert.That(rf?.Fact).IsEqualTo("Codex apply_patch rejects fuzzy hunks.");
         await Assert.That(rf!.Value.AppliesToVendors).IsEquivalentTo(["codex"]);
-        await Assert.That(rf!.Value.AppliesToSessionKinds).IsEquivalentTo(["flow_participant"]);
+        await Assert.That(rf.Value.AppliesToSessionKinds).IsEquivalentTo(["flow_participant"]);
     }
 
     [Test]
@@ -525,7 +525,7 @@ public class EvalServiceTests {
         var rf = EvalService.ExtractRetainFact(response);
         await Assert.That(rf?.Fact).IsEqualTo("F");
         await Assert.That(rf!.Value.AppliesToVendors).IsEquivalentTo(["claude", "codex"]);
-        await Assert.That(rf!.Value.AppliesToSessionKinds).IsNull(); // omitted axis = null
+        await Assert.That(rf.Value.AppliesToSessionKinds).IsNull(); // omitted axis = null
     }
 
     [Test]
@@ -542,7 +542,7 @@ public class EvalServiceTests {
         var rf = EvalService.ExtractRetainFact(response);
         await Assert.That(rf?.Fact).IsEqualTo("F");
         await Assert.That(rf!.Value.AppliesToVendors).IsNull(); // non-string element → whole axis dropped
-        await Assert.That(rf!.Value.AppliesToSessionKinds).IsEquivalentTo(["interactive"]); // other axis survives
+        await Assert.That(rf.Value.AppliesToSessionKinds).IsEquivalentTo(["interactive"]); // other axis survives
     }
 
     [Test]

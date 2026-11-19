@@ -420,7 +420,7 @@ public class McpSessionsServerTests {
     public async Task BuildTranscriptUrl_throws_when_session_id_missing() {
         var ex = Assert.Throws<ArgumentException>(() => InvokeBuildTranscriptUrl("http://srv", new JsonObject()));
 
-        await Assert.That(ex!.Message).Contains("session_id");
+        await Assert.That(ex.Message).Contains("session_id");
     }
 
     [Test]
@@ -505,7 +505,7 @@ public class McpSessionsServerTests {
     public async Task BuildTurnsUrl_throws_when_session_id_missing() {
         var ex = Assert.Throws<ArgumentException>(() => McpSessionsServer.BuildTurnsUrl("http://srv", new JsonObject()));
 
-        await Assert.That(ex!.Message).Contains("session_id");
+        await Assert.That(ex.Message).Contains("session_id");
     }
 
     static string Body(params string[] sessionIds) {

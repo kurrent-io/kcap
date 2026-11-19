@@ -1064,7 +1064,7 @@ public class UninstallCommandTests {
         await Assert.That(local.Service.IsInstalled(local.Unit)).IsFalse();
         // Ahead of every other step, the uninstall's own daemon stop included.
         await Assert.That(local.Log.IndexOf("uninstall")).IsLessThan(local.Log.LastIndexOf("recorders:stop"));
-        await Assert.That(Directory.EnumerateFileSystemEntries(fixture.ConfigDir).Select(path => Path.GetFileName(path)!).ToArray())
+        await Assert.That(Directory.EnumerateFileSystemEntries(fixture.ConfigDir).Select(path => Path.GetFileName(path)).ToArray())
             .IsEquivalentTo(new[] { "local", "local-retired.json", "local-unit.lock" });
     }
 

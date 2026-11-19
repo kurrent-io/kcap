@@ -280,17 +280,17 @@ public class FlowsDriverSchemaConformanceTests {
     /// <summary>Mistral Vibe keeps its servers in a <c>[[mcp_servers]]</c> array of tables keyed by
     /// <c>name</c>, not Codex's table keyed by server.</summary>
     static Projection FromVibeToml(string path) {
-        var servers = (TomlTableArray)TomlSerializer.Deserialize<TomlTable>(File.ReadAllText(path))!["mcp_servers"]!;
-        var entry   = servers.Single(t => (string)t["name"]! == "kcap-flows");
-        return new("Mistral Vibe", (string)entry["command"]!,
-            [.. ((TomlArray)entry["args"]!).Select(a => (string)a!)]);
+        var servers = (TomlTableArray)TomlSerializer.Deserialize<TomlTable>(File.ReadAllText(path))!["mcp_servers"];
+        var entry   = servers.Single(t => (string)t["name"] == "kcap-flows");
+        return new("Mistral Vibe", (string)entry["command"],
+            [.. ((TomlArray)entry["args"]).Select(a => (string)a!)]);
     }
 
     static Projection FromToml(string path) {
-        var servers = (TomlTable)TomlSerializer.Deserialize<TomlTable>(File.ReadAllText(path))!["mcp_servers"]!;
-        var entry   = (TomlTable)servers["kcap-flows"]!;
-        return new("Codex", (string)entry["command"]!,
-            [.. ((TomlArray)entry["args"]!).Select(a => (string)a!)]);
+        var servers = (TomlTable)TomlSerializer.Deserialize<TomlTable>(File.ReadAllText(path))!["mcp_servers"];
+        var entry   = (TomlTable)servers["kcap-flows"];
+        return new("Codex", (string)entry["command"],
+            [.. ((TomlArray)entry["args"]).Select(a => (string)a!)]);
     }
 
     // Each arm seeds "installed but stale" so `--if-installed` takes the refresh branch and registers

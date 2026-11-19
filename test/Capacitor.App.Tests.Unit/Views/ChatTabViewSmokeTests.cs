@@ -1475,7 +1475,7 @@ public class ChatTabViewSmokeTests {
         await RunOnUiAsync(async () => {
             var host = new Host();
             try {
-                var encoded = System.Text.Json.Nodes.JsonValue.Create(path)!.ToJsonString();
+                var encoded = System.Text.Json.Nodes.JsonValue.Create(path).ToJsonString();
                 var call = ReadCallLine.Replace("\"Read\"", "\"" + name + "\"")
                     .Replace("\"/repo/x/src/a.cs\"", encoded);
                 if (name == "get_file_context") call = call.Replace("file_path", "path");
@@ -1540,7 +1540,7 @@ public class ChatTabViewSmokeTests {
             var host = new Host();
             try {
                 var output = string.Join(wrapped ? " " : "\n", Enumerable.Repeat("recorded output", 800));
-                var encoded = System.Text.Json.Nodes.JsonValue.Create(output)!.ToJsonString();
+                var encoded = System.Text.Json.Nodes.JsonValue.Create(output).ToJsonString();
                 var result = ToolResultLine.Replace("\"ok\"", encoded);
                 await host.LoadAsync(Tmp.CreateFile("large-output.jsonl", [ToolCallLine, result, UserLine]));
                 var row = ToolRows(host.View).Single();
@@ -1578,7 +1578,7 @@ public class ChatTabViewSmokeTests {
             var host = new Host();
             try {
                 var output = string.Join("\n", Enumerable.Repeat("recorded output", 800));
-                var encoded = System.Text.Json.Nodes.JsonValue.Create(output)!.ToJsonString();
+                var encoded = System.Text.Json.Nodes.JsonValue.Create(output).ToJsonString();
                 var result = ToolResultLine.Replace("\"ok\"", encoded);
                 var path = Tmp.CreateFile("return-from-output.jsonl",
                     [.. Enumerable.Repeat(UserLine, 4), ToolCallLine, result, .. Enumerable.Repeat(UserLine, 30)]);
@@ -2778,7 +2778,7 @@ public class ChatTabViewSmokeTests {
             await WaitUntilAsync(() => host.Window.FocusManager?.GetFocusedElement() is Button b
                 && b.Classes.Contains("option") && b.Classes.Contains(":focus-visible")
                 && b.DataContext is QuestionOptionViewModel { Label: "Ship it (Recommended)" }, what: "focus on the first option");
-            var first = (Button)host.Window.FocusManager!.GetFocusedElement()!;
+            var first = (Button)host.Window.FocusManager.GetFocusedElement()!;
             var second = Option(host, "Wait");
             await Assert.That(first.Classes.Contains(":focus-visible")).IsTrue();
             await Assert.That(first.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Ship it (Recommended)" && t.IsEffectivelyVisible)).IsTrue();
@@ -2787,13 +2787,13 @@ public class ChatTabViewSmokeTests {
             await Assert.That(presenter.BorderBrush).IsSameReferenceAs(host.View.FindResource("KcapPurpleBrush"));
 
             host.Window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.Shift);
-            var shifted = host.Window.FocusManager!.GetFocusedElement();
+            var shifted = host.Window.FocusManager.GetFocusedElement();
             await Assert.That(shifted is Button { Classes: var classes } && classes.Contains("option")).IsFalse();
             await Assert.That(shifted is TextBox { PlaceholderText: "Other…" }).IsFalse();
             first.Focus();
 
             host.Press(PhysicalKey.ArrowDown);
-            await Assert.That(host.Window.FocusManager!.GetFocusedElement()).IsSameReferenceAs(second);
+            await Assert.That(host.Window.FocusManager.GetFocusedElement()).IsSameReferenceAs(second);
             await Assert.That(((QuestionOptionViewModel)second.DataContext!).IsSelected).IsFalse();
             await Assert.That(host.Chat.PendingCards.Count).IsEqualTo(1);
 

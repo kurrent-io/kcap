@@ -37,9 +37,9 @@ public class KiroImportSourceTests {
         await Assert.That(s.SessionId).IsEqualTo(Dashed.Replace("-", ""));
         await Assert.That(s.Vendor).IsEqualTo(HarnessId.Kiro);
         await Assert.That(s.Cwd).IsEqualTo("/work");
-        await Assert.That(s.SourceMeta!["DashedSessionId"]).IsEqualTo(Dashed);
-        await Assert.That(s.SourceMeta!["Model"]).IsEqualTo("auto");
-        await Assert.That(s.SourceMeta!["Title"]).IsEqualTo("Hi there");
+        await Assert.That(s.SourceMeta["DashedSessionId"]).IsEqualTo(Dashed);
+        await Assert.That(s.SourceMeta["Model"]).IsEqualTo("auto");
+        await Assert.That(s.SourceMeta["Title"]).IsEqualTo("Hi there");
     }
 
     [Test]

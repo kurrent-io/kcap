@@ -49,7 +49,7 @@ public class PolicyDecisionEmitterTests : IDisposable {
         await Assert.That(SpooledPolicyEvents.Snapshots(Config.Root, "s1").Count).IsEqualTo(1);
         var partition = Path.GetFileName(new HookSpool(Config.Root, TimeProvider.System, server: null).DirectoryPath);
         await Assert.That(Directory.EnumerateFiles(Config.Root.Path("policy", "uploaded"))
-            .Select(f => Path.GetFileName(f)!)).IsEquivalentTo(new[] { $"s1-{partition}-{Snapshot.Id}" });
+            .Select(f => Path.GetFileName(f))).IsEquivalentTo(new[] { $"s1-{partition}-{Snapshot.Id}" });
     }
 
     /// <summary>A session that moves to another server mid-run spools there separately, and that

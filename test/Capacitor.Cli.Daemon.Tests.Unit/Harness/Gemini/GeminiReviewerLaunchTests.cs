@@ -260,7 +260,7 @@ public class GeminiReviewerLaunchTests {
             () => Build(isReviewFlow: true,
                         config: new DaemonConfig { GeminiUnattendedReviewerEnabled = false }));
 
-        await Assert.That(ex!.Message).Contains("gemini_unattended_reviewer_disabled");
+        await Assert.That(ex.Message).Contains("gemini_unattended_reviewer_disabled");
     }
 
     /// <summary>A build OLDER than the recorded minimum — or one that cannot be identified at all — is
@@ -277,7 +277,7 @@ public class GeminiReviewerLaunchTests {
         var ex = Assert.Throws<InvalidOperationException>(
             () => Build(isReviewFlow: true, version: version));
 
-        await Assert.That(ex!.Message).Contains("gemini_reviewer_version");
+        await Assert.That(ex.Message).Contains("gemini_reviewer_version");
     }
 
     /// <summary>The positive control the case above needs: the SAME wiring permits the launch once the
@@ -376,7 +376,7 @@ public class GeminiReviewerLaunchTests {
                 GeminiWithExtraArgv("--yolo"), EnabledConfig, Ctx(isReviewFlow),
                 resolveGeminiVersion: _ => CertifiedVersion));
 
-        await Assert.That(ex!.Message).Contains("gemini_launch_argv_not_canonical");
+        await Assert.That(ex.Message).Contains("gemini_launch_argv_not_canonical");
     }
 
     /// <summary>Even an innocuous-looking addition fails: the guard is a whole-vector template, so it does
@@ -388,7 +388,7 @@ public class GeminiReviewerLaunchTests {
                 GeminiWithExtraArgv("--telemetry-off"), EnabledConfig, Ctx(isReviewFlow: true),
                 resolveGeminiVersion: _ => CertifiedVersion));
 
-        await Assert.That(ex!.Message).Contains("gemini_launch_argv_not_canonical");
+        await Assert.That(ex.Message).Contains("gemini_launch_argv_not_canonical");
     }
 
     /// <summary>
@@ -438,7 +438,7 @@ public class GeminiReviewerLaunchTests {
             () => AcpHostedAgentRuntimeFactory.AssertGeminiArgvIsCanonical(
                 argv, true, Identity, Identity.ResultChannelWireName));
 
-        await Assert.That(ex!.Message).Contains("not_canonical");
+        await Assert.That(ex.Message).Contains("not_canonical");
     }
 
     /// <summary>And a swapped allowlist value — the impersonation shape — is rejected.</summary>
@@ -454,7 +454,7 @@ public class GeminiReviewerLaunchTests {
             () => AcpHostedAgentRuntimeFactory.AssertGeminiArgvIsCanonical(
                 argv, true, Identity, Identity.ResultChannelWireName));
 
-        await Assert.That(ex!.Message).Contains("not_canonical");
+        await Assert.That(ex.Message).Contains("not_canonical");
     }
 
     /// <summary>A review launch whose gate the caller failed to compute cannot be asserted canonical —
@@ -465,6 +465,6 @@ public class GeminiReviewerLaunchTests {
             () => AcpHostedAgentRuntimeFactory.AssertGeminiArgvIsCanonical(
                 ["--experimental-acp"], isReviewFlow: true, Identity, reviewGate: null));
 
-        await Assert.That(ex!.Message).Contains("gemini_review_gate_missing");
+        await Assert.That(ex.Message).Contains("gemini_review_gate_missing");
     }
 }

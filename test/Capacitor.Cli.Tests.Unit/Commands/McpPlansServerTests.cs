@@ -523,7 +523,7 @@ public class McpPlansServerTests {
             ["params"] = new JsonObject { ["name"] = toolName, ["arguments"] = JsonNode.Parse(argsJson) }
         };
 
-        var response = await (server ?? Server()).HandleToolCallAsync(JsonValue.Create(1)!, request, client, "http://x", cwd ?? Tmp.Path, repoRoot);
+        var response = await (server ?? Server()).HandleToolCallAsync(JsonValue.Create(1), request, client, "http://x", cwd ?? Tmp.Path, repoRoot);
 
         return (handler, response);
     }

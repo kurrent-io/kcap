@@ -677,7 +677,7 @@ internal sealed partial class LocalPermissionBridge(
                     LogReservedChannelToolAutoApproved(logger, toolName, sessionId, vendor);
                     decision = new PermissionDecision("allow", null, null);
                 } else if (IsReviewerToolAllowed(
-                               vendor, toolName, reviewerGrant!.AllowlistServers)) {
+                               vendor, toolName, reviewerGrant.AllowlistServers)) {
                     // Auto-approve its bound kcap tools; DENY an out-of-allowlist (or
                     // non-config-locked-vendor bare) call outright rather than defer to a prompt
                     // no human can answer.

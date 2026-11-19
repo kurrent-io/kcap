@@ -850,8 +850,8 @@ public static class OAuthLoginFlow {
     /// <summary>Human display name from a WorkOS user (first+last, else email, else "unknown").</summary>
     internal static string WorkOSDisplayName(WorkOSUserInfo? user) {
         var parts = new List<string>();
-        if (!string.IsNullOrEmpty(user?.FirstName)) parts.Add(user!.FirstName!);
-        if (!string.IsNullOrEmpty(user?.LastName))  parts.Add(user!.LastName!);
+        if (!string.IsNullOrEmpty(user?.FirstName)) parts.Add(user.FirstName!);
+        if (!string.IsNullOrEmpty(user?.LastName))  parts.Add(user.LastName!);
 
         return parts.Count > 0 ? string.Join(' ', parts) : user?.Email ?? "unknown";
     }

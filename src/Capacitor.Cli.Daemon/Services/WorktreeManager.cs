@@ -262,7 +262,7 @@ public partial class WorktreeManager(
                     await RunGit(repoPath, GitTimeout, time, noHooks,
                         "worktree", "add", "--no-checkout", "--detach", worktreePath, commit);
                 });
-                LogWorktreeBase(worktreePath, baseRef!, source);
+                LogWorktreeBase(worktreePath, baseRef, source);
                 var added = Detached(worktreePath, repoPath);
                 await StripOrRollBackAsync(added, pinned, commonDir);
 

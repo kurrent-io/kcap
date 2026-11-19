@@ -379,7 +379,7 @@ public class OpenCodeImportSourceTests {
 
         var probedAgentIds = server.LogEntries
             .Where(e => e.RequestMessage.Path.EndsWith("/last-line", StringComparison.Ordinal) && !string.IsNullOrEmpty(e.RequestMessage.RawQuery))
-            .SelectMany(e => HttpUtility.ParseQueryString(e.RequestMessage.RawQuery!).GetValues("agentId") ?? [])
+            .SelectMany(e => HttpUtility.ParseQueryString(e.RequestMessage.RawQuery).GetValues("agentId") ?? [])
             .ToArray();
 
         await Assert.That(probedAgentIds).IsEquivalentTo(new[] { OpenCodeSubagentDiscovery.CanonicalAgentId(childId) });

@@ -135,7 +135,7 @@ public class MuseImportSourceTests : IDisposable {
             var found = await Source().DiscoverAsync(NoFilters, CancellationToken.None);
 
             await Assert.That(found.Count).IsEqualTo(1);
-            await Assert.That((string?)found[0].SourceMeta!["LogPath"]).IsEqualTo(readable);
+            await Assert.That((string?)found[0].SourceMeta["LogPath"]).IsEqualTo(readable);
         }
     }
 

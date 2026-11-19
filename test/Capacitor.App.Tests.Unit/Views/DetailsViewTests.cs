@@ -165,7 +165,7 @@ public class DetailsViewTests {
                 window.UpdateLayout();
                 await Assert.That(Header(root, 0).IsChecked).IsTrue();
                 await Assert.That(SelectedText(root)).Contains("hidden body");
-                await Assert.That(TopLevel.GetTopLevel(root)!.FocusManager!.GetFocusedElement()).IsEqualTo(Header(root, 0));
+                await Assert.That(TopLevel.GetTopLevel(root)!.FocusManager.GetFocusedElement()).IsEqualTo(Header(root, 0));
             } finally { window.Close(); }
         });
     }

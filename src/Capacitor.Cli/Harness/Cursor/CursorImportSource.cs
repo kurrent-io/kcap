@@ -272,7 +272,7 @@ internal sealed class CursorImportSource : IImportSource {
         }
 
         var sanitizedDirs = sessions
-            .Select(s => s.SourceMeta!.TryGetValue("SanitizedDir", out var sd) ? sd as string : null)
+            .Select(s => s.SourceMeta.TryGetValue("SanitizedDir", out var sd) ? sd as string : null)
             .Where(sd => sd is not null)
             .Select(sd => sd!)
             .Distinct(StringComparer.Ordinal);
@@ -291,11 +291,11 @@ internal sealed class CursorImportSource : IImportSource {
         // session's own SanitizedDir so correlation stays workspace-scoped; a session with no
         // SanitizedDir gets an isolated per-session bucket since its true peer set is unknown.
         foreach (var s in sessions) {
-            if (!s.SourceMeta!.TryGetValue("TranscriptPath", out var tp) || tp is not string p || p.Length == 0)
+            if (!s.SourceMeta.TryGetValue("TranscriptPath", out var tp) || tp is not string p || p.Length == 0)
                 continue;
 
             (string? SanitizedDir, string? SessionId) workspaceKey =
-                s.SourceMeta!.TryGetValue("SanitizedDir", out var sd) && sd is string sdStr
+                s.SourceMeta.TryGetValue("SanitizedDir", out var sd) && sd is string sdStr
                     ? (sdStr, null)
                     : (null, s.SessionId);
 
@@ -317,7 +317,7 @@ internal sealed class CursorImportSource : IImportSource {
         }
 
         foreach (var s in sessions) {
-            var transcriptPath = (string)s.SourceMeta!["TranscriptPath"]!;
+            var transcriptPath = (string)s.SourceMeta["TranscriptPath"]!;
 
             var meta = new SessionMetadata {
                 SessionId      = s.SessionId,
@@ -426,7 +426,7 @@ internal sealed class CursorImportSource : IImportSource {
                 Vendor          = Vendor,
                 ResumeFromLine  = resumeFromLn,
                 TotalLines      = nonBlankCount,
-                SourceMeta      = StampSubagentMeta(s.SourceMeta!, s.SessionId, quarantineIdentity, subagentLinks, childrenByParent, resumeMark),
+                SourceMeta      = StampSubagentMeta(s.SourceMeta, s.SessionId, quarantineIdentity, subagentLinks, childrenByParent, resumeMark),
             });
         }
 

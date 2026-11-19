@@ -57,7 +57,7 @@ public class MuseModelCatalogTests {
 
         await Assert.That(options.Select(o => o.Value)).IsEquivalentTo(["only-a", "shared"], CollectionOrdering.Matching);
         await Assert.That(options.Single(o => o.Value == "shared").Label).IsEqualTo("From a");
-        await Assert.That(MuseModelCatalog.Files(Dir).Select(f => Path.GetFileName(f)!)).IsEquivalentTo(["a.json", "b.json"], CollectionOrdering.Matching);
+        await Assert.That(MuseModelCatalog.Files(Dir).Select(f => Path.GetFileName(f))).IsEquivalentTo(["a.json", "b.json"], CollectionOrdering.Matching);
     }
 
     /// <summary>Every hosted launch names the meta provider, so a catalog cached for another provider

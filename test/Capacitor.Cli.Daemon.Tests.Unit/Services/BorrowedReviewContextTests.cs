@@ -242,7 +242,7 @@ public class BorrowedReviewContextTests {
             var ex = Assert.Throws<InvalidOperationException>(() =>
                 WorktreeManager.ValidateReviewContextManifest(
                     OmissionManifest(omission), "g", "h", paths));
-            await Assert.That(ex!.Message)
+            await Assert.That(ex.Message)
                 .StartsWith("borrowed_snapshot_review_context_invalid_manifest")
                 .Because(label);
         }
@@ -254,7 +254,7 @@ public class BorrowedReviewContextTests {
         var dup = Assert.Throws<InvalidOperationException>(() =>
             WorktreeManager.ValidateReviewContextManifest(
                 OmissionManifest(validOmission) with { Entries = [entry] }, "g", "h", matched));
-        await Assert.That(dup!.Message)
+        await Assert.That(dup.Message)
             .StartsWith("borrowed_snapshot_review_context_invalid_manifest");
 
         // Every matched path must be REPRESENTED, not merely every representation matched: a
@@ -264,7 +264,7 @@ public class BorrowedReviewContextTests {
             WorktreeManager.ValidateReviewContextManifest(
                 OmissionManifest(validOmission), "g", "h",
                 new HashSet<string>(StringComparer.Ordinal) { ".mcp.json", ".cursor/mcp.json" }));
-        await Assert.That(incomplete!.Message)
+        await Assert.That(incomplete.Message)
             .StartsWith("borrowed_snapshot_review_context_invalid_manifest");
     }
 

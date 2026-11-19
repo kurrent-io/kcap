@@ -933,7 +933,7 @@ public class HistoryStepViewModelTests {
             var box = window.GetVisualDescendants().OfType<CheckBox>()
                 .First(c => c.Name == "OwnerOnlyMeCheck" && c.DataContext is HistoryOwnerGroup { Owner: "acme" });
             var mixedShown = box.IsChecked;
-            ((IToggleProvider)ControlAutomationPeer.CreatePeerForElement(box)!).Toggle();
+            ((IToggleProvider)ControlAutomationPeer.CreatePeerForElement(box)).Toggle();
             Dispatcher.UIThread.RunJobs();
             var result = (Mixed: mixedShown, Clicked: box.IsChecked,
                 Levels: h.Vm.Groups.Single(g => g.Owner == "acme").Repos.Select(r => r.Level).ToList());

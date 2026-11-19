@@ -197,7 +197,7 @@ public class AcpInteractionMessagesTests {
         await Assert.That(json).Contains(@"""requested_schema""");
         await Assert.That(json).Contains(@"""option_id""");
 
-        var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.AcpInteractionRequest)!;
+        var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.AcpInteractionRequest);
         await Assert.That(back.AgentId).IsEqualTo("agent-1");
         await Assert.That(back.Options![0].OptionId).IsEqualTo("opt-1");
         await Assert.That(back.RequestedSchema!.Value.GetProperty("type").GetString()).IsEqualTo("object");
@@ -222,7 +222,7 @@ public class AcpInteractionMessagesTests {
         await Assert.That(json).Contains(@"""selected_option_label""");
         await Assert.That(json).Contains(@"""updated_tool_input""");
 
-        var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.AcpInteractionResolution)!;
+        var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.AcpInteractionResolution);
         await Assert.That(back.RequestId).IsEqualTo("req-1");
         await Assert.That(back.Decision.SelectedOptionId).IsEqualTo("opt-1");
         await Assert.That(back.Decision.UpdatedToolInput!.Value.GetProperty("command").GetString()).IsEqualTo("ls -la");

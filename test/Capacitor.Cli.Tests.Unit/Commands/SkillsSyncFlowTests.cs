@@ -924,7 +924,7 @@ public class SkillsSyncFlowTests {
     };
 
     static IEnumerable<string> Materialized(string root) =>
-        Directory.GetDirectories(root).Select(d => Path.GetFileName(d)!);
+        Directory.GetDirectories(root).Select(d => Path.GetFileName(d));
 
     internal static string Exclude(SkillsSyncFixture fx) {
         var path = Path.Combine(fx.GitDir, "info", "exclude");

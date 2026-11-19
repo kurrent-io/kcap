@@ -21,8 +21,8 @@ public class EvalServiceParseRetrospectiveV2Tests {
 
         await Assert.That(retro).IsNotNull();
         await Assert.That(retro!.Suggestions[0].Text).IsEqualTo("Run tests");
-        await Assert.That(retro!.Suggestions[0].Audience).IsEqualTo("agent");
-        await Assert.That(retro!.Suggestions[1].Audience).IsEqualTo("human");
+        await Assert.That(retro.Suggestions[0].Audience).IsEqualTo("agent");
+        await Assert.That(retro.Suggestions[1].Audience).IsEqualTo("human");
     }
 
     [Test]
@@ -53,7 +53,7 @@ public class EvalServiceParseRetrospectiveV2Tests {
             """;
         var retro = EvalService.ParseRetrospectiveV2(json);
         await Assert.That(retro!.Suggestions[0].Text).IsEqualTo("Run tests");
-        await Assert.That(retro!.Suggestions[0].Audience).IsEqualTo("human");
+        await Assert.That(retro.Suggestions[0].Audience).IsEqualTo("human");
     }
 
     [Test]
@@ -155,8 +155,8 @@ public class EvalServiceParseRetrospectiveV2Tests {
 
         await Assert.That(retro).IsNotNull();
         await Assert.That(retro!.Suggestions.Count).IsEqualTo(3);
-        await Assert.That(retro!.Suggestions[0].Audience).IsEqualTo("human"); // legacy
-        await Assert.That(retro!.Suggestions[1].Audience).IsEqualTo("agent"); // tagged
-        await Assert.That(retro!.Suggestions[2].Audience).IsEqualTo("human"); // unknown → human
+        await Assert.That(retro.Suggestions[0].Audience).IsEqualTo("human"); // legacy
+        await Assert.That(retro.Suggestions[1].Audience).IsEqualTo("agent"); // tagged
+        await Assert.That(retro.Suggestions[2].Audience).IsEqualTo("human"); // unknown → human
     }
 }
