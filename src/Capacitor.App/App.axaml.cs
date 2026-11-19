@@ -1445,7 +1445,7 @@ public partial class App : Application {
                 nextWork: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new NextWorkApi(sessionHttp, profiles),
                 openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers, sessionCli: lifecycleCli,
                 nextWorkEnabled: () => launcherNextWork.IsOn,
-                nextWorkSwitchMayChange: Observable.Merge(_experimentalSaved,
+                nextWorkSwitchMayChange: _experimentalSaved.Merge(
                     Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default))))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
@@ -2399,7 +2399,8 @@ public partial class App : Application {
                 (lane?.Status ?? Observable.Never<ServerLaneStatus>()).Select(s => s.State).DistinctUntilChanged()
                     .Where(s => s == ServerLaneState.Connected).Select(_ => Unit.Default),
                 Observable.Interval(TimeSpan.FromMinutes(2)).Select(_ => Unit.Default),
-                ExperimentalSwitch.Flips(enabled, nextWorkSwitchMayChange ?? Observable.Never<Unit>(), TaskPoolScheduler.Default))
+                ExperimentalSwitch.Flips(enabled, () => nextWorkBand.SwitchShown, nextWorkSwitchMayChange ?? Observable.Never<Unit>(),
+                    TaskPoolScheduler.Default))
             .ObserveOn(RxSchedulers.MainThreadScheduler));
         var home = new HomeViewModel(
             service, appState,

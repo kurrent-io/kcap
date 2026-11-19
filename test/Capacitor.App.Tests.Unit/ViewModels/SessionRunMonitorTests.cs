@@ -15,10 +15,10 @@ public class SessionRunMonitorTests {
 
     sealed class Rig : IDisposable {
         public FakeDaemonClientService Daemon { get; } = new();
-        public FakeAgentDirectory Directory { get; } = new();
-        public FakeTimeProvider Time { get; } = new();
-        public FakeServerLane Lane { get; } = new();
-        public SessionAccessService Access { get; }
+        FakeAgentDirectory Directory { get; } = new();
+        FakeTimeProvider Time { get; } = new();
+        FakeServerLane Lane { get; } = new();
+        SessionAccessService Access { get; }
         public RunningWork Latest;
         public bool Ended;
 

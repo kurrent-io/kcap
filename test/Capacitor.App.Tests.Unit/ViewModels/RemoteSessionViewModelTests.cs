@@ -1425,7 +1425,8 @@ public class RemoteSessionViewModelTests {
             var before = monitor.WakesPostedForTesting;
 
             // Pushed off the UI thread, which stays busy meanwhile: the first wake cannot run, so every
-            // later event finds it posted.
+            // later event finds it posted. The fake lane resumes the feed inside each push, so every
+            // event has signalled by the time pushing completes.
             var pushing = Task.Run(() => {
                 for (var i = 0UL; i < 50; i++)
                     h.Lane.PushStreamEvent(Envelope("s1", i, CanonicalEventTypes.UserMessageReceived, $$"""{"content":"m{{i}}"}"""));

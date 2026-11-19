@@ -244,9 +244,10 @@ public sealed class PullRequestToneCache : IDisposable {
     void ScheduleNext(DateTime now, long stamp) {
         TimeSpan? next = null;
         void Consider(TimeSpan at) { if (next is not { } current || at < current) next = at; }
-        foreach (var entry in _entries.Values)
+        foreach (var entry in _entries.Values) {
             if (entry.Access is { } access)
                 Consider(TimeSpan.FromSeconds(access.Seconds - 5) - _time.GetElapsedTime(access.Started, stamp));
+        }
         if (now < _heldUntil) Consider(_heldUntil - now);
         else
             foreach (var session in _sessions) {

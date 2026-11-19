@@ -12,15 +12,15 @@ public sealed class ExperimentalSwitch(ExperimentalSettingsStore store, string? 
     (bool Exists, DateTime Written, long Length)? _fingerprint;
     bool _on;
 
-    /// Signals each time <paramref name="read"/> returns other than it last did, reading once on
-    /// subscribe and again on every <paramref name="mayChange"/>. Reads run on <paramref name="worker"/>:
-    /// a changed file is read and parsed, which must not hold up a window gaining focus.
-    public static IObservable<Unit> Flips(Func<bool> read, IObservable<Unit> mayChange, IScheduler worker) =>
-        Observable.Defer(() => Observable.Return(Unit.Default).Concat(mayChange))
+    /// Signals each <paramref name="mayChange"/> on which <paramref name="read"/> differs from
+    /// <paramref name="shown"/>, the switch as its consumer last applied it. Comparing with an earlier
+    /// read instead would miss a change the consumer picked up some other way and then saw undone.
+    /// Reads run on <paramref name="worker"/>: a changed file is read and parsed, which must not hold
+    /// up a window gaining focus.
+    public static IObservable<Unit> Flips(Func<bool> read, Func<bool> shown, IObservable<Unit> mayChange, IScheduler worker) =>
+        mayChange
             .ObserveOn(worker)
-            .Select(_ => read())
-            .DistinctUntilChanged()
-            .Skip(1)
+            .Where(_ => read() != shown())
             .Select(_ => Unit.Default);
 
     public bool IsOn {
