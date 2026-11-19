@@ -1395,7 +1395,13 @@ mkdir -p ~/.config/kcap/grok-bot
 nohup kcap grok-bot watch >> ~/.config/kcap/grok-bot/watch.log 2>&1 &
 ```
 
-On a computer with the desktop app, `kcap grok-bot watch` is the whole of it once kcap is signed in. The watcher reads the gateway where the computer has one and the desktop app's chats otherwise; `--gateway <gateway.json>` and `--desktop <dir>` name one explicitly.
+On a computer with the desktop app, `kcap setup` finds the app and asks once whether to record its chats; the answer is the profile's `grok_bot.record` setting. While it is on, the kcap daemon runs the watcher itself, so recording starts with the daemon at login and needs no terminal:
+
+```bash
+kcap config set grok_bot.record true    # or false to stop; the running daemon follows within half a minute
+```
+
+A setup run with `--no-prompt` asks nothing and prints that command instead. `kcap grok-bot watch` remains for running the watcher by hand, and `kcap grok-bot watch --once --dry-run` shows what it would send even while the daemon's watcher is running. The watcher reads the gateway where the computer has one and the desktop app's chats otherwise; `--gateway <gateway.json>` and `--desktop <dir>` name one explicitly.
 
 - **Both at once is safe.** The two read the same entries and cut them into the same sessions under the same ids, so a chat recorded from both places is stored once.
 
@@ -1404,7 +1410,7 @@ On a computer with the desktop app, `kcap grok-bot watch` is the whole of it onc
 - **Privacy.** Every session is private to you, whatever your profile's default visibility.
 - **History.** The first run backfills every chat. A chat whose beginning the source no longer holds — a long chat in the desktop app, which keeps the newest entries only — is recorded from its next quiet gap on. Delivery state lives under `~/.config/kcap/grok-bot/`, kept apart per server and profile, and advances only once the server accepts each call, so a restarted watcher resends nothing and loses nothing.
 - **Failures back off.** A failed cycle — gateway unreachable, server refusing a call, a lapsed sign-in (`kcap login --device` fixes it) — is retried with a doubling wait up to five minutes and logged once, not on every retry; nothing advances until the server accepts, so recovery loses nothing.
-- **One per computer.** A second `kcap grok-bot watch` refuses to start. `--once` runs a single polling cycle and exits, 1 if it failed; `--dry-run` logs the calls it would make and sends and saves nothing.
+- **One per computer.** A second watcher refuses to start, whether the first is the daemon's or a `kcap grok-bot watch`. `--once` runs a single polling cycle and exits, 1 if it failed; `--dry-run` logs the calls it would make and sends and saves nothing.
 
 The gateway and the desktop app's chat files are internal, undocumented Grok Bot formats; a Grok Bot update can change them. The watcher logs and retries rather than guessing at an unfamiliar shape. It requires a server that knows the `grok-bot` vendor: an older server refuses each batch and nothing advances.
 

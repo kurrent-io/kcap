@@ -45,6 +45,7 @@ using Profile = Capacitor.Cli.Core.Config.Profile;
 
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Capacitor.Cli.Recording.Harness.GrokBot;
 using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
 
@@ -1242,6 +1243,18 @@ sealed class SetupCommand(
         new AccountSetupStep(accounts, pluginEnv, time).Run(
             stepOptions, AnsiConsole.Profile.Capabilities.Interactive, PromptYesNo, WriteLine);
 
+        // Only where a daemon will run to do the recording. The default answer is no: this one starts
+        // sending chats that were never recorded before.
+        var grokBotRecord = museAssistant || machineSignedIn
+            ? null
+            : GrokBotSetupStep.Run(
+                detected:    GrokBotDesktopPaths.ChatStore(home) is { } chats && Directory.Exists(chats),
+                recorded:    (await AppConfig.LoadProfileConfig(config)).Profiles.GetValueOrDefault(activeProfile)?.GrokBot?.Record,
+                noPrompt:    stepOptions.NoPrompt,
+                interactive: AnsiConsole.Profile.Capabilities.Interactive,
+                promptYesNo: text => AnsiConsole.Prompt(new ConfirmationPrompt(text) { DefaultValue = false }),
+                writeLine:   WriteLine);
+
         _json?.Completed(harnesses: InstalledHarnesses(installResult));
 
         var installedPaths = CodingAgentsStep.InstalledPaths(installResult, stepPaths).ToList();
@@ -1387,6 +1400,7 @@ sealed class SetupCommand(
                 ServerUrl          = serverUrl,
                 DefaultVisibility  = defaultVisibility,
                 UseProviderApiKey  = useProviderApiKey,
+                GrokBot            = grokBotRecord is { } record ? (defaultProfile.GrokBot ?? new GrokBotSettings()) with { Record = record } : defaultProfile.GrokBot,
                 Daemon             = (defaultProfile.Daemon ?? new DaemonSettings()) with { Name = daemonName }
             };
 

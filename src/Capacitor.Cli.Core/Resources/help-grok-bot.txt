@@ -17,10 +17,17 @@ each chat. The gateway is used where the computer has one, the desktop app's
 chats otherwise. Both give the same sessions under the same ids, so a chat
 recorded from both places is stored once.
 
-One watcher runs per computer. Delivery state lives under the kcap config
-directory, kept apart per server and profile, so a restarted watcher resumes
-where it stopped and a change of server starts from the beginning there. Sessions are always
-private to you. A chat whose beginning is no longer available — a long chat in
+The kcap daemon runs this watcher itself while the profile's grok_bot.record
+setting is on (kcap config set grok_bot.record true; kcap setup asks once on a
+computer with the desktop app), so recording starts with the daemon and needs
+no terminal. This command runs the same watcher by hand.
+
+One watcher runs per computer, the daemon's or this one; --dry-run is the
+exception, since it sends and saves nothing. Delivery state lives under the kcap
+config directory, kept apart per server and profile, so a restarted watcher
+resumes where it stopped and a change of server starts from the beginning
+there. Sessions are always private to you. A chat whose beginning is no longer
+available — a long chat in
 the desktop app — is recorded from its next quiet gap on.
 
 A failed cycle — the gateway unreachable, the server refusing a call, a

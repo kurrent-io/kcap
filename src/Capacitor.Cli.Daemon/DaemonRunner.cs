@@ -18,6 +18,7 @@ using Capacitor.Cli.Core.Policy;
 using Capacitor.Cli.Daemon.Harness.Antigravity;
 using Capacitor.Cli.Daemon.Harness.Claude;
 using Capacitor.Cli.Daemon.Harness.Codex;
+using Capacitor.Cli.Daemon.Harness.GrokBot;
 using Capacitor.Cli.Daemon.Harness.Kiro;
 using Capacitor.Cli.Daemon.Harness.OpenCode;
 using Capacitor.Cli.Daemon.Harness.Pi;
@@ -26,6 +27,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Capacitor.Cli.Core.Setup;
+using Capacitor.Cli.Recording.Harness.GrokBot;
 
 namespace Capacitor.Cli.Daemon;
 
@@ -677,6 +679,19 @@ public static partial class DaemonRunner {
             config.Store.StateDirectory(config.Name), time, sp.GetRequiredService<ILogger<TranscriptJournalSweep>>(),
             isLive: sp.GetRequiredService<AgentOrchestrator>().IsLiveJournalStem));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<TranscriptJournalSweep>());
+
+        builder.Services.AddSingleton<GrokBotWatcher>();
+        builder.Services.AddSingleton(sp => new GrokBotWatcherService(
+            record: async () => {
+                var (outcome, snapshot) = await AppConfig.TryLoadProfileConfig(configRoot);
+
+                return outcome == ProfileConfigLoad.Unreadable
+                    ? null
+                    : (snapshot.Profiles.GetValueOrDefault(config.Profiles.Name) ?? config.Profiles.Effective)?.GrokBot?.Record == true;
+            },
+            watch: (log, ct) => sp.GetRequiredService<GrokBotWatcher>().RunAsync(new GrokBotWatchOptions(), log, ct),
+            time, sp.GetRequiredService<ILogger<GrokBotWatcherService>>()));
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<GrokBotWatcherService>());
 
         var host   = builder.Build();
         var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("kcap.Daemon");
