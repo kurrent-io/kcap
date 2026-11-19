@@ -97,20 +97,18 @@ public class WorkContextViewSmokeTests {
         });
     }
 
-    /// The section asks for graded replies until one arrives, then shows the controls bound to the shared
-    /// basis; its header folds it.
+    /// The section stays hidden until the session has a graded reply, then shows the controls bound to the
+    /// shared basis; its header folds it.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_need_to_know_section_asks_for_graded_replies_until_one_arrives_and_folds() {
+    public async Task The_need_to_know_section_shows_once_the_session_has_a_graded_reply_and_folds() {
         await RunOnUiAsync(async () => {
             await using var host = new Host();
             await host.ShowAsync(KeyOnlyRead());
-            await Assert.That(host.Find<Control>("NeedToKnowHint").IsEffectivelyVisible).IsTrue();
-            await Assert.That(host.Find<Control>("NeedToKnowControls").IsEffectivelyVisible).IsFalse();
+            await Assert.That(host.Find<Control>("NeedToKnowSection").IsEffectivelyVisible).IsFalse();
 
             host.Vm.ShowsNeedToKnow = true;
             Dispatcher.UIThread.RunJobs();
-            await Assert.That(host.Find<Control>("NeedToKnowHint").IsEffectivelyVisible).IsFalse();
             await Assert.That(host.Find<Control>("NeedToKnowControls").IsEffectivelyVisible).IsTrue();
 
             host.Find<Button>("NeedToKnowToggle").Command!.Execute(null);

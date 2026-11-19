@@ -971,7 +971,7 @@
                     </StackPanel>
                 </StackPanel>
 
-                <StackPanel x:Name="NeedToKnowSection" Margin="0,18,0,0">
+                <StackPanel x:Name="NeedToKnowSection" Margin="0,18,0,0" IsVisible="{Binding ShowsNeedToKnow}">
                     <Button x:Name="NeedToKnowToggle" Command="{Binding ToggleNeedToKnowCommand}" Classes="sectionHeader expandable"
                             AutomationProperties.Name="{Binding NeedToKnowToggleName}">
                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
@@ -983,11 +983,7 @@
                         </Grid>
                     </Button>
                     <Border Classes="sectionBody" IsVisible="{Binding NeedToKnowExpanded}">
-                        <Panel>
-                        <TextBlock x:Name="NeedToKnowHint" Text="Ask the agent to enable need-to-know formatting."
-                                   FontSize="13" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
-                                   IsVisible="{Binding !ShowsNeedToKnow}" />
-                        <StackPanel x:Name="NeedToKnowControls" Spacing="6" IsVisible="{Binding $parent[UserControl].((vm:WorkContextViewModel)DataContext).ShowsNeedToKnow, FallbackValue=False}"
+                        <StackPanel x:Name="NeedToKnowControls" Spacing="6"
                                     x:DataType="vm:NeedToKnowBasisViewModel" DataContext="{x:Static vm:NeedToKnowBasisViewModel.Shared}">
                             <StackPanel.Styles>
                                 <Style Selector="Button.kcapSegmentItem.needToKnow">
@@ -1048,7 +1044,6 @@
                                 </StackPanel>
                             </Border>
                         </StackPanel>
-                        </Panel>
                     </Border>
                 </StackPanel>
             </StackPanel>
