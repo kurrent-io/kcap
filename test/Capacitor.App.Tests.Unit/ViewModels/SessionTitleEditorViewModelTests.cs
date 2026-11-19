@@ -18,11 +18,11 @@ public class SessionTitleEditorViewModelTests {
         public TaskCompletionSource<SessionRenameResult> Reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public readonly SessionTitleEditorViewModel Vm;
 
-        public Harness() {
+        public Harness(string subject = "session") {
             Vm = new SessionTitleEditorViewModel(Title, CanRename, (title, _) => {
                 Calls.Add(title);
                 return Reply.Task;
-            }, Notifier);
+            }, Notifier, subject);
         }
 
         public static bool CanExecute(System.Windows.Input.ICommand command) => command.CanExecute(null);
@@ -77,15 +77,16 @@ public class SessionTitleEditorViewModelTests {
     }
 
     [Test]
-    [Arguments(SessionRenameReasons.NotOwned, "You can't rename a session you don't own")]
-    [Arguments(SessionRenameReasons.Refused, "The server kept a newer title")]
-    [Arguments(SessionRenameReasons.Transport, "Couldn't rename the session. Check your connection and try again")]
-    [Arguments(SessionRenameReasons.Unauthenticated, "Couldn't rename the session. Check your connection and try again")]
-    [Arguments(SessionRenameReasons.ServerError, "Couldn't rename the session. Check your connection and try again")]
-    [Arguments(SessionRenameReasons.IdentityMismatch, "Couldn't rename the session")]
-    public async Task Failed_save_notifies_and_keeps_the_draft(string reason, string copy) {
+    [Arguments(SessionRenameReasons.NotOwned, "session", "You can't rename a session you don't own")]
+    [Arguments(SessionRenameReasons.Refused, "session", "The server kept a newer title")]
+    [Arguments(SessionRenameReasons.Transport, "session", "Couldn't rename the session. Check your connection and try again")]
+    [Arguments(SessionRenameReasons.Unauthenticated, "session", "Couldn't rename the session. Check your connection and try again")]
+    [Arguments(SessionRenameReasons.ServerError, "session", "Couldn't rename the session. Check your connection and try again")]
+    [Arguments(SessionRenameReasons.IdentityMismatch, "session", "Couldn't rename the session")]
+    [Arguments(null, "work item", "Couldn't rename the work item")]
+    public async Task Failed_save_notifies_and_keeps_the_draft(string? reason, string subject, string copy) {
         await RunOnUiAsync(async () => {
-            using var h = new Harness();
+            using var h = new Harness(subject);
             await h.Vm.BeginEditCommand.Execute();
             h.Vm.Draft = "New name";
             h.Reply.SetResult(new SessionRenameResult(false, null, reason));

@@ -72,6 +72,25 @@
         <Style Selector="Button#RailWorkItemToggle:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button#RailWorkItemToggle:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="Transparent" />
         </Style>
+        <!-- A rename reads as the title itself turning editable: no box, no buttons. -->
+        <Style Selector="TextBox.railRename">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+            <Setter Property="CaretBrush" Value="{StaticResource KcapTextBrush}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="FontSize" Value="14" />
+        </Style>
+        <Style Selector="TextBox.railRename /template/ Border#PART_BorderElement,
+                         TextBox.railRename:focus /template/ Border#PART_BorderElement,
+                         TextBox.railRename:pointerover /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <Style Selector="TextBlock.rowTitle.renaming, DockPanel.renaming">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
         <Style Selector="TextBlock.rowTitle">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
@@ -652,7 +671,8 @@
                             <DataTemplate x:DataType="vm:RailGroupViewModel">
                                 <Border Classes="railGroup" Classes.workItem="{Binding IsWorkItem}" Classes.expanded="{Binding IsExpanded}">
                                     <StackPanel>
-                                        <Button x:Name="RailWorkItemHeader" Classes="railRow" Classes.selected="{Binding IsSelected}" IsVisible="{Binding IsWorkItem}"
+                                        <Panel IsVisible="{Binding IsWorkItem}">
+                                        <Button x:Name="RailWorkItemHeader" Classes="railRow" Classes.selected="{Binding IsSelected}"
                                                 Command="{Binding $parent[rail:SessionRailView].((vm:MainWindowViewModel)DataContext).OpenWorkItemCommand, FallbackValue={x:Null}}"
                                                 CommandParameter="{Binding WorkItemId}" Click="OnWorkItemHeaderClick"
                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
@@ -663,7 +683,8 @@
                                                 <Button x:Name="RailWorkItemToggle" Grid.Column="1" Grid.ColumnSpan="2" Command="{Binding ToggleCommand}"
                                                         HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                                         AutomationProperties.Name="{Binding ToggleAccessibleName}" />
-                                                <DockPanel Grid.Column="1" HorizontalAlignment="Left" Margin="0,0,10,0">
+                                                <DockPanel Grid.Column="1" HorizontalAlignment="Left" Margin="0,0,10,0"
+                                                           Classes.renaming="{Binding TitleEditor, Converter={x:Static ObjectConverters.IsNotNull}}">
                                                     <views:FoldChevron DockPanel.Dock="Right" Margin="5,0,0,0" VerticalAlignment="Center"
                                                                        Classes="chevron headerCaret" IsOpen="{Binding IsExpanded}" />
                                                     <Panel Background="Transparent">
@@ -679,6 +700,11 @@
                                                 <views:AppIcon Kind="Folder" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
                                             </Grid>
                                         </Button>
+                                        <views:InlineRenameBox x:Name="RailWorkItemRename" Classes="railRename" Margin="30,0,34,0" VerticalAlignment="Center"
+                                                               DataContext="{Binding TitleEditor}" Text="{Binding Draft}" IsReadOnly="{Binding IsSaving}"
+                                                               MaxLength="120" AutomationProperties.Name="{Binding InputName}"
+                                                               IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                        </Panel>
                                         <Button Classes="sectionHeader expandable railRepoHeader" Command="{Binding ToggleCommand}" IsVisible="{Binding ShowsHeader}"
                                                 Margin="0" Padding="9,0" ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding ToggleAccessibleName}">
                                             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
@@ -699,6 +725,7 @@
                                                 <DataTemplate x:DataType="vm:RailSessionViewModel">
                                                     <Border Margin="0,0,0,4"
                                                             Opacity="{Binding IsStale, Converter={x:Static views:StaleOpacityConverter.Instance}}">
+                                                        <Panel>
                                                         <Button Command="{Binding OpenCommand}" HorizontalAlignment="Stretch"
                                                                 HorizontalContentAlignment="Stretch" Padding="9,4" AttachedToVisualTree="OnSessionRowAttached"
                                                                 AutomationProperties.Name="{Binding Primary}"
@@ -723,6 +750,7 @@
                                                                 <views:SessionStatusSlot Height="20" DataContext="{Binding Status}" />
                                                                 <StackPanel Grid.Column="1" Spacing="1">
                                                                     <TextBlock Text="{Binding Primary}" FontSize="14" Classes="rowTitle"
+                                                                               Classes.renaming="{Binding TitleEditor, Converter={x:Static ObjectConverters.IsNotNull}}"
                                                                                TextTrimming="CharacterEllipsis" />
                                                                     <StackPanel Orientation="Horizontal" Spacing="5">
                                                                         <Border Classes="vendorMark" Width="12" Height="12"
@@ -743,6 +771,11 @@
                                                                 </StackPanel>
                                                             </Grid>
                                                         </Button>
+                                                        <views:InlineRenameBox x:Name="RailSessionRename" Classes="railRename" Margin="29,4,9,0" VerticalAlignment="Top"
+                                                                               DataContext="{Binding TitleEditor}" Text="{Binding Draft}" IsReadOnly="{Binding IsSaving}"
+                                                                               MaxLength="120" AutomationProperties.Name="{Binding InputName}"
+                                                                               IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                                        </Panel>
                                                     </Border>
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>

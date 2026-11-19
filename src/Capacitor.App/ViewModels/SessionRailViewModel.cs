@@ -49,6 +49,12 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     // Drops shown ahead of the server: session id → the work item it was dropped on, null when dropped out. Each holds
     // until a listing agrees or the server refuses it.
     readonly Dictionary<string, string?> _dropped = new(StringComparer.Ordinal);
+    // Renames shown ahead of the server: work item id → its new title, until a listing agrees.
+    readonly Dictionary<string, string> _retitled = new(StringComparer.Ordinal);
+    readonly Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? _renameSession;
+    readonly Func<string, string, Task<bool>>? _renameWorkItem;
+    SessionTitleEditorViewModel? _renaming;
+    Action? _endRename;
     readonly IAppNotifier? _notifier;
     readonly BehaviorSubject<IReadOnlySet<string>> _marked = new(FrozenSet<string>.Empty);
     string? _markAnchor;
@@ -353,8 +359,13 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Action<AgentRow>? stopSession = null, Action? closeWorkspace = null,
             Action<Action>? afterPaint = null,
             Func<string, string, Task<bool>>? fileSession = null, Func<string, string, Task<bool>>? unfileSession = null,
-            IAppNotifier? notifier = null) {
+            IAppNotifier? notifier = null,
+            Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? renameSession = null,
+            Func<AgentRow, bool>? canRenameSession = null,
+            Func<string, string, Task<bool>>? renameWorkItem = null) {
         _directory = directory;
+        _renameSession = renameSession;
+        _renameWorkItem = renameWorkItem;
         _fileSession = fileSession;
         _unfileSession = unfileSession;
         _notifier = notifier;
@@ -364,6 +375,9 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         openRemoteSession = SelectingFirst("remote:", openRemoteSession);
         if (openServerSession is not null) openServerSession = SelectingFirst("server:", openServerSession);
         _actions = [
+            new(LucideIconKind.Pencil, _ => "Rename",
+                row => renameSession is not null && canRenameSession is not null && row.SessionId is { Length: > 0 } && canRenameSession(row),
+                rows => BeginRename(rows[0]), SingleRow: true),
             new(LucideIconKind.CircleStop, rows => rows[0].IsAttached ? AttachedAgentCopy.DisconnectSteering : "Stop",
                 row => stopSession is not null && RailSessionViewModel.Stoppable(row), rows => stopSession!(rows[0]), SingleRow: true),
             new(LucideIconKind.EyeOff, rows => rows.Count == 1 ? "Remove from sidebar" : $"Remove {rows.Count} from sidebar",
@@ -503,6 +517,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             if (_disposables.IsDisposed) return;
             _listed = snapshot;
             var items = WorkItemsIn(snapshot, _project, _time.GetUtcNow());
+            foreach (var item in items)
+                if (_retitled.GetValueOrDefault(item.Id) == item.Title) _retitled.Remove(item.Id);
             var landed = _dropped.Where(drop => drop.Value == items.FirstOrDefault(item => item.PartBySession.ContainsKey(drop.Key))?.Id).ToList();
             foreach (var drop in landed) _dropped.Remove(drop.Key);
             if (landed.Count == 0 && items.SequenceEqual(_lastWorkItems)) return;
@@ -694,6 +710,65 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         return items;
     }
 
+    /// The menu for a work item's header.
+    public IReadOnlyList<RowMenuItem> MenuFor(RailGroupViewModel group) {
+        ClearMarks();
+        if (_renameWorkItem is not { } rename || group.WorkItemId is not { } id) return [];
+        var original = group.Label;
+        // Relabels the header alone: regrouping the whole rail holds the frame that closes the field.
+        return [new(LucideIconKind.Pencil, "Rename", () => BeginRename(original, "work item", shown => {
+            if (shown is null) _retitled.Remove(id);
+            else _retitled[id] = shown;
+            group.Relabel(shown ?? original);
+        }, async title => new SessionRenameResult(await rename(id, title), null, null), editor => group.TitleEditor = editor))];
+    }
+
+    void BeginRename(AgentRow row) {
+        if (_renameSession is not { } rename || Groups.SelectMany(g => g.Sessions).FirstOrDefault(r => r.Key == row.Key) is not { } shown) return;
+        BeginRename(row.Title ?? "", "session", shown.ShowRenamed, title => rename(row, title, CancellationToken.None),
+            editor => shown.TitleEditor = editor);
+    }
+
+    /// One rename at a time: starting another ends the one open. Saving shows the new title at once and puts the old one
+    /// back only when the server refuses it.
+    void BeginRename(string title, string subject, Action<string?> showTitle, Func<string, Task<SessionRenameResult>> send,
+            Action<SessionTitleEditorViewModel?> show) {
+        if (_disposables.IsDisposed) return;
+        EndRename();
+        _renaming?.Dispose();
+        var editor = new SessionTitleEditorViewModel(Observable.Return(title), Observable.Return(true), (next, ct) => {
+            showTitle(next);
+            // Off the UI thread: the client's setup runs before its first await and would hold the frame that closes the field.
+            _ = SettleRenameAsync(Task.Run(() => send(next)), subject, () => showTitle(null));
+            return Task.FromResult(new SessionRenameResult(true, next, null));
+        }, _notifier ?? new AppNotifier(), subject);
+        _renaming = editor;
+        _endRename = () => show(null);
+        editor.PropertyChanged += (_, e) => {
+            if (e.PropertyName == nameof(SessionTitleEditorViewModel.IsEditing) && !editor.IsEditing && ReferenceEquals(editor, _renaming)) EndRename();
+        };
+        show(editor);
+        editor.BeginEditCommand.Execute().Subscribe();
+    }
+
+    async Task SettleRenameAsync(Task<SessionRenameResult> sent, string subject, Action revert) {
+        SessionRenameResult result;
+        try {
+            result = await sent;
+        } catch (Exception) {
+            result = new SessionRenameResult(false, null, null);
+        }
+        if (result.Applied || _disposables.IsDisposed) return;
+        revert();
+        _notifier?.Notify(SessionTitleEditorViewModel.FailureCopy(result.Reason, subject));
+    }
+
+    void EndRename() {
+        var end = _endRename;
+        _endRename = null;
+        end?.Invoke();
+    }
+
     /// The rows a drag starting on this one carries: the marked rows when it is one of them, else it alone.
     public IReadOnlyList<RailSessionViewModel> Picked(RailSessionViewModel row) =>
         _marked.Value.Contains(row.Key) ? [.. ShownRows().Where(r => _marked.Value.Contains(r.Key))] : [row];
@@ -801,7 +876,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         var effective = Effective(_grouping, OffersWorkItem);
         var moved = effective != _effective;
         _effective = effective;
-        var items = effective == RailGrouping.WorkItem ? _lastWorkItems : [];
+        IReadOnlyList<RailWorkItem> items = effective != RailGrouping.WorkItem ? []
+            : [.. _lastWorkItems.Select(item => _retitled.TryGetValue(item.Id, out var title) ? item with { Title = title } : item)];
         var workItemOf = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var item in items)
             foreach (var session in item.PartBySession.Keys) workItemOf.TryAdd(session, item.Id);
@@ -940,5 +1016,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     internal static string WorktreeKeyFor(AgentRow row) => row.CheckoutKey;
 
     /// A quit keeps driving the setters and commands after this, so each one ignores a disposed rail.
-    public void Dispose() => _disposables.Dispose();
+    public void Dispose() {
+        _renaming?.Dispose();
+        _disposables.Dispose();
+    }
 }

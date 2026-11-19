@@ -85,6 +85,10 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     /// kcap suggests a work item for this session in none.
     public bool IsSuggested => _isSuggested.Value;
     public AgentRow Row => _row.Value;
+
+    SessionTitleEditorViewModel? _titleEditor;
+    /// Set while the title is being renamed in place.
+    public SessionTitleEditorViewModel? TitleEditor { get => _titleEditor; internal set => this.RaiseAndSetIfChanged(ref _titleEditor, value); }
     public ReactiveCommand<Unit, Unit> OpenCommand { get; }
     readonly ObservableAsPropertyHelper<bool> _isMarked;
     /// One of the rows the sidebar's menu acts on together.
@@ -234,14 +238,23 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         _row.OnNext(row);
     }
 
+    string? _renamedTo;
+    /// A rename shown ahead of the row's source until the source carries it; null shows the source's title again.
+    internal void ShowRenamed(string? title) {
+        _renamedTo = title;
+        UpdateFields(Row);
+    }
+
     void UpdateFields(AgentRow row) {
         var oldPrimary = Primary;
         var oldMachine = MachineBadge;
         CreatedAt = row.CreatedAt;
         LastActivityAt = row.LastActivityAt;
         CheckoutPath = (row.WorkLocation == WorkLocationText.Borrowed ? row.BorrowedFrom : row.WorktreePath) ?? row.RepoPath;
-        HasTitle = !string.IsNullOrWhiteSpace(row.Title);
-        Primary = HasTitle ? row.Title! : UntitledLabel;
+        if (_renamedTo is not null && row.Title == _renamedTo) _renamedTo = null;
+        var title = _renamedTo ?? row.Title;
+        HasTitle = !string.IsNullOrWhiteSpace(title);
+        Primary = HasTitle ? title! : UntitledLabel;
         Vendor = row.Vendor;
         HasVendor = !string.IsNullOrEmpty(row.Vendor);
         Model = string.IsNullOrEmpty(row.Model) ? null : row.Model;

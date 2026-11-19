@@ -27,6 +27,7 @@ namespace Capacitor.Remote.Models;
 [JsonSerializable(typeof(ProjectWorkItemsResponseDto))]
 [JsonSerializable(typeof(WorkItemPartsDto))]
 [JsonSerializable(typeof(WorkItemStatusRequestDto))]
+[JsonSerializable(typeof(WorkItemTitleRequestDto))]
 [JsonSerializable(typeof(WorkItemPartRequestDto))]
 [JsonSerializable(typeof(WorkItemLinkRequestDto))]
 [JsonSerializable(typeof(WorkItemSessionRequestDto))]

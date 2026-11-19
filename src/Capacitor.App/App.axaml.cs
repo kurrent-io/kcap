@@ -1292,6 +1292,34 @@ public partial class App : Application {
         _menuBar?.SetFeedbackAction(openFeedback);
 
         var appSubject = SignedInSubject.From(serverLane.Status);
+        string? signedInAs = null;
+        appSubject.Subscribe(subject => signedInAs = subject);
+        // The daemon renames as its own account, so it must be the app's account on the app's server.
+        var localRenameReady = false;
+        Observable.CombineLatest(
+                service.Status.Select(s => s.State == AttachState.Connected && s.Capabilities?.Contains(RenameWire.Capability) == true),
+                directory.LocalDaemonOnAppServer,
+                service.Snapshots.Select(s => s.Daemon.UserSubject).StartWith((string?)null),
+                appSubject,
+                (capable, onAppServer, daemonSubject, viewer) => capable && onAppServer && viewer is not null && daemonSubject == viewer)
+            .Subscribe(ready => localRenameReady = ready);
+        // The server re-checks ownership; this only avoids offering a rename it would refuse.
+        bool CanRenameSession(AgentRow row) => row.Origin switch {
+            AgentOrigin.Local => localRenameReady,
+            AgentOrigin.Server => row.OwnerIsViewer == true || (signedInAs is not null && row.OwnerUserId == signedInAs),
+            AgentOrigin.Remote => signedInAs is not null && row.OwnerUserId == signedInAs,
+            _ => false,
+        };
+        // A live local agent renames through its daemon, whose title loop would otherwise put the old title back.
+        async Task<SessionRenameResult> RenameSessionAsync(AgentRow row, string title, CancellationToken ct) {
+            if (row.Origin == AgentOrigin.Local) {
+                var ack = await ops.RenameSessionAsync(new SessionRenameDto(row.Id, title, signedInAs), ct);
+                return new SessionRenameResult(ack.Ok, ack.Title, ack.Ok ? null : ack.Reason);
+            }
+            var result = await remoteAgents.RenameAsync(row.Id, row.SessionId!, title, ct);
+            if (result.Applied) sessions.ApplyRename(row.SessionId!, result.Title is { Length: > 0 } shown ? shown : title);
+            return result;
+        }
         var commands = new SessionRunActivity((key, report, ended, handoff) =>
             new SessionRunMonitor(key, report, ended, service, directory, sessionAccess, readDetail, serverLane, _time, handoff));
         _commands = commands;
@@ -1423,7 +1451,7 @@ public partial class App : Application {
                 sessions: sessions, railPreferences: railPreferences, profileName: profiles?.Name,
                 readProjects: ServerProjectsHttp.Reader(sessionHttp, profiles),
                 readWorkItems: ServerWorkItemsHttp.Reader(sessionHttp, profiles),
-                workItemPages: workItems, pageContent: planArtifacts, inAppPages: () => webView.IsAvailable && inAppPages.IsOn,
+                workItemPages: workItems, renameSession: RenameSessionAsync, canRenameSession: CanRenameSession, pageContent: planArtifacts, inAppPages: () => webView.IsAvailable && inAppPages.IsOn,
                 modelCatalog: modelCatalog.Catalog, uploader: uploader, appServerUrl: profiles?.Resolution.ServerUrl,
                 openFeedback: openFeedback, settingsAction: _appMenu.SettingsAction, checkForUpdatesAction: _appMenu.CheckForUpdatesAction,
                 uninstallAction: _appMenu.UninstallAction,
@@ -2342,7 +2370,9 @@ public partial class App : Application {
             Func<bool>? nextWorkEnabled = null,
             Func<CancellationToken, Task<IReadOnlyList<RailProject>?>>? readProjects = null,
             Func<string, CancellationToken, Task<RailWorkItems?>>? readWorkItems = null,
-            IWorkItemPageApi? workItemPages = null, IPageContentSource? pageContent = null, Func<bool>? inAppPages = null) {
+            IWorkItemPageApi? workItemPages = null, IPageContentSource? pageContent = null, Func<bool>? inAppPages = null,
+            Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? renameSession = null,
+            Func<AgentRow, bool>? canRenameSession = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
         // the VM's WhenActivated-scoped projections.
@@ -2451,7 +2481,8 @@ public partial class App : Application {
             closeWorkspace: () => vm?.CloseWorkspace(),
             fileSession: workItemPages is null ? null : (workItemId, sessionId) => workItemPages.MoveSessionAsync(workItemId, sessionId, CancellationToken.None),
             unfileSession: workItemPages is null ? null : (workItemId, sessionId) => workItemPages.RemoveSessionAsync(workItemId, sessionId, CancellationToken.None),
-            notifier: notifier);
+            notifier: notifier, renameSession: renameSession, canRenameSession: canRenameSession,
+            renameWorkItem: workItemPages is null ? null : (workItemId, title) => workItemPages.RenameAsync(workItemId, title, CancellationToken.None));
         // The page mutates on whatever thread its inputs arrive on, so every input lands on the UI thread.
         Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory =
             search is null || sessions is null ? null : open => new SessionSearchViewModel(

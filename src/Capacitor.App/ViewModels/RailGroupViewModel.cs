@@ -26,6 +26,10 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public bool ShowsHeader => Kind is not (RailGrouping.None or RailGrouping.WorkItem);
     public bool IsWorkItem => Kind == RailGrouping.WorkItem;
     public string? WorkItemId { get; }
+
+    SessionTitleEditorViewModel? _titleEditor;
+    /// Set while the title is being renamed in place.
+    public SessionTitleEditorViewModel? TitleEditor { get => _titleEditor; internal set => this.RaiseAndSetIfChanged(ref _titleEditor, value); }
     readonly ObservableAsPropertyHelper<bool> _isSelected;
     public bool IsSelected => _isSelected.Value;
     int _partsDone;

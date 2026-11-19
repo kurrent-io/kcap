@@ -29,7 +29,7 @@
 
         <Grid x:Name="TitleEditing" ColumnDefinitions="*,Auto,Auto" IsVisible="{Binding IsEditing}">
             <TextBox x:Name="TitleInput" Grid.Column="0" Text="{Binding Draft}" MaxLength="120"
-                     IsEnabled="{Binding IsInputEnabled}" AutomationProperties.Name="Session name"
+                     IsEnabled="{Binding IsInputEnabled}" AutomationProperties.Name="{Binding InputName}"
                      FontWeight="SemiBold" FontSize="16" MinHeight="0" Padding="6,2" VerticalContentAlignment="Center" />
             <Button x:Name="SaveRenameButton" Grid.Column="1" Classes="titleAction" Margin="4,0,0,0"
                     Command="{Binding SaveCommand}" AutomationProperties.Name="Save name" ToolTip.Tip="Save name">

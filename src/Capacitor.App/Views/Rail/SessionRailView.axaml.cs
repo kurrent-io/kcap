@@ -23,7 +23,11 @@ public partial class SessionRailView : UserControl {
         foreach (var anchor in new[] { RailFilterButton, RailGroupButton, RailSortButton, RailScopeButton, RailStateButton })
             KeyboardDismissible(anchor, NavigationMethod.Pointer);
         RailGroups.AddHandler(PointerPressedEvent, OnRowsPointerPressed, RoutingStrategies.Tunnel);
-        _ = new RowMenu(RailGroups, "railRow", row => row is RailSessionViewModel session && RailModel is { } rail ? rail.MenuFor(session) : []);
+        _ = new RowMenu(RailGroups, "railRow", row => (row, RailModel) switch {
+            (RailSessionViewModel session, { } rail) => rail.MenuFor(session),
+            (RailGroupViewModel group, { } rail) => rail.MenuFor(group),
+            _ => [],
+        });
         AddHandler(PointerMovedEvent, OnDragPointerMoved, RoutingStrategies.Tunnel);
         AddHandler(PointerReleasedEvent, OnDragPointerReleased, RoutingStrategies.Tunnel);
         PointerCaptureLost += (_, _) => EndDrag();

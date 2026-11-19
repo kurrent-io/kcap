@@ -13,6 +13,7 @@ public interface IWorkItemPageApi {
     Task<WorkItemPartsDto?> ReadAsync(string workItemId, CancellationToken ct);
     /// A null status shows the worked-out one again.
     Task<bool> SetStatusAsync(string workItemId, string? status, CancellationToken ct);
+    Task<bool> RenameAsync(string workItemId, string title, CancellationToken ct);
     Task<bool> MakePartAsync(string workItemId, string looseEndId, CancellationToken ct);
     /// The new part's id, or null when the server refused it.
     Task<string?> AddPartAsync(string workItemId, string title, CancellationToken ct);

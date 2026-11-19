@@ -1086,7 +1086,10 @@ public class SessionRailViewModelTests {
     };
 
     static (FakeAgentDirectory Directory, FakeServerSessionsService Sessions, SessionRailViewModel Rail) BuildWithWorkItems(
-            Func<string, string, Task<bool>>? fileSession = null, Func<string, string, Task<bool>>? unfileSession = null) {
+            Func<string, string, Task<bool>>? fileSession = null, Func<string, string, Task<bool>>? unfileSession = null,
+            Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? renameSession = null,
+            Func<AgentRow, bool>? canRenameSession = null, Func<string, string, Task<bool>>? renameWorkItem = null,
+            IAppNotifier? notifier = null) {
         var directory = new FakeAgentDirectory();
         var sessions = new FakeServerSessionsService();
         var rail = new SessionRailViewModel(directory, _ => { }, _ => { },
@@ -1094,7 +1097,8 @@ public class SessionRailViewModelTests {
             openServerSession: _ => { }, sessions: sessions,
             preferences: RailPreferences.Default with { Grouping = RailGrouping.WorkItem, Project = new RailProject("p", "P", ["h"]) },
             readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, [])),
-            fileSession: fileSession, unfileSession: unfileSession);
+            fileSession: fileSession, unfileSession: unfileSession, renameSession: renameSession, canRenameSession: canRenameSession, renameWorkItem: renameWorkItem,
+            notifier: notifier);
         return (directory, sessions, rail);
     }
 
@@ -1103,6 +1107,83 @@ public class SessionRailViewModelTests {
             (dto.Status == "active" ? sessions.LiveCache : sessions.EndedCache).AddOrUpdate(dto);
             directory.Rows.AddOrUpdate(AgentRow.FromServer(dto, hostedPresentation: false));
         }
+    }
+
+    /// A work item renamed from its header shows its new title at once and keeps it while a listing still carries the old one.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_renamed_work_item_shows_its_new_title_ahead_of_the_listing() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var calls = new List<string>();
+            var (directory, sessions, rail) = BuildWithWorkItems(
+                renameWorkItem: (item, title) => { calls.Add($"{item} {title}"); return Task.FromResult(true); });
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1)));
+                var header = rail.Groups.Single(g => g.WorkItemId == "AI-1");
+
+                rail.MenuFor(header).Single(item => item.Label == "Rename").Run();
+                var editor = header.TitleEditor!;
+                await Assert.That(editor.Draft).IsEqualTo("AI-1");
+                editor.Draft = "Checkout";
+                await editor.SaveCommand.Execute();
+                List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1)));
+
+                await Assert.That(calls).IsEquivalentTo(["AI-1 Checkout"]);
+                await Assert.That(header.TitleEditor).IsNull();
+                await Assert.That(rail.Groups.Single(g => g.WorkItemId == "AI-1").Label).IsEqualTo("Checkout");
+            }
+        });
+    }
+
+    /// A rename the server refuses puts the old title back and says so.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_refused_rename_puts_the_old_title_back() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var refusal = new TaskCompletionSource<bool>();
+            var notifier = new RecordingNotifier();
+            var (directory, sessions, rail) = BuildWithWorkItems(renameWorkItem: (_, _) => refusal.Task, notifier: notifier);
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1)));
+                RailGroupViewModel Header() => rail.Groups.Single(g => g.WorkItemId == "AI-1");
+
+                rail.MenuFor(Header()).Single(item => item.Label == "Rename").Run();
+                Header().TitleEditor!.Draft = "Checkout";
+                await Header().TitleEditor!.SaveCommand.Execute();
+                await Assert.That(Header().Label).IsEqualTo("Checkout");
+                refusal.SetResult(false);
+
+                await Assert.That(Header().Label).IsEqualTo("AI-1");
+                await Assert.That(notifier.Notified).IsEquivalentTo(["Couldn't rename the work item"]);
+            }
+        });
+    }
+
+    /// Rename is offered only on a session the app says can be renamed, and renames that row.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Rename_is_offered_only_on_a_session_that_can_be_renamed() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var calls = new List<string>();
+            var (directory, sessions, rail) = BuildWithWorkItems(renameSession: (row, title, _) => {
+                calls.Add($"{row.SessionId} {title}");
+                return Task.FromResult(new SessionRenameResult(true, title, null));
+            }, canRenameSession: row => row.SessionId == "mine");
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("mine", null, Noon.AddHours(-1)), Tracked("theirs", null, Noon.AddHours(-2)));
+                RailSessionViewModel Row(string id) => rail.Groups.SelectMany(g => g.Sessions).Single(s => s.Row.SessionId == id);
+
+                await Assert.That(rail.MenuFor(Row("theirs")).Select(item => item.Label)).DoesNotContain("Rename");
+                rail.MenuFor(Row("mine")).Single(item => item.Label == "Rename").Run();
+                var editor = Row("mine").TitleEditor!;
+                editor.Draft = "Checkout";
+                await editor.SaveCommand.Execute();
+
+                await Assert.That(calls).IsEquivalentTo(["mine Checkout"]);
+                await Assert.That(Row("mine").TitleEditor).IsNull();
+                await Assert.That(Row("mine").Primary).IsEqualTo("Checkout");
+            }
+        });
     }
 
     /// A row dropped on another work item is filed there, dropped out it leaves its work item, and where it already is nothing happens.

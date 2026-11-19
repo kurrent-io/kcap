@@ -9,11 +9,12 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// A session header's title with an in-place rename. A failed save keeps the draft so the user can
+/// A session's or work item's title with an in-place rename. A failed save keeps the draft so the user can
 /// retry; the title itself only ever follows the source, apart from showing an applied rename at once.
 public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
     readonly Func<string, CancellationToken, Task<SessionRenameResult>> _rename;
     readonly IAppNotifier _notifier;
+    readonly string _subject;
     readonly CompositeDisposable _disposables = new();
     readonly CancellationTokenSource _disposed = new();
     // Command gates go through subjects rather than this.WhenAnyValue, which needs ReactiveUI's
@@ -56,6 +57,7 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
 
     public bool ShowsPencil => CanRename && !IsEditing;
     public bool IsInputEnabled => IsEditing && !IsSaving;
+    public string InputName => $"{char.ToUpperInvariant(_subject[0])}{_subject[1..]} name";
 
     public ReactiveCommand<Unit, Unit> BeginEditCommand { get; }
     public ReactiveCommand<Unit, Unit> SaveCommand { get; }
@@ -63,9 +65,10 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
 
     public SessionTitleEditorViewModel(
             IObservable<string> title, IObservable<bool> canRename,
-            Func<string, CancellationToken, Task<SessionRenameResult>> rename, IAppNotifier notifier) {
+            Func<string, CancellationToken, Task<SessionRenameResult>> rename, IAppNotifier notifier, string subject = "session") {
         _rename = rename;
         _notifier = notifier;
+        _subject = subject;
 
         title.Subscribe(t => Title = t).DisposeWith(_disposables);
         canRename.DistinctUntilChanged().Subscribe(can => {
@@ -122,15 +125,15 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
             IsEditing = false;
             return;
         }
-        _notifier.Notify(FailureCopy(result.Reason));
+        _notifier.Notify(FailureCopy(result.Reason, _subject));
     }
 
-    internal static string FailureCopy(string? reason) => reason switch {
-        SessionRenameReasons.NotOwned => "You can't rename a session you don't own",
+    internal static string FailureCopy(string? reason, string subject) => reason switch {
+        SessionRenameReasons.NotOwned => $"You can't rename a {subject} you don't own",
         SessionRenameReasons.Refused => "The server kept a newer title",
         SessionRenameReasons.Transport or SessionRenameReasons.Unauthenticated or SessionRenameReasons.ServerError
-            => "Couldn't rename the session. Check your connection and try again",
-        _ => "Couldn't rename the session",
+            => $"Couldn't rename the {subject}. Check your connection and try again",
+        _ => $"Couldn't rename the {subject}",
     };
 
     public void Dispose() {
