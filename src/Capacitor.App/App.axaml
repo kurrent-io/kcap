@@ -39,6 +39,8 @@
             <SolidColorBrush x:Key="KcapInfoBrush" Color="#7BA7F7" />
             <SolidColorBrush x:Key="KcapInfoDimBrush" Color="#1B2740" />
             <SolidColorBrush x:Key="KcapSelectionBrush" Color="#1E2E52" />
+            <!-- Chat topics: a quieter blue than selection, since a topic is a label rather than state. -->
+            <SolidColorBrush x:Key="KcapTopicBrush" Color="#96AFDC" />
             <!-- Bookmark colours: the user's own labels, deliberately not tied to the status tokens. -->
             <SolidColorBrush x:Key="KcapBookmarkRedBrush" Color="#F87171" />
             <SolidColorBrush x:Key="KcapBookmarkOrangeBrush" Color="#FB923C" />

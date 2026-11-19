@@ -1103,7 +1103,7 @@
                                                         AutomationProperties.Name="{Binding Topic.Label, StringFormat='Go to topic {0}', FallbackValue={x:Null}}">
                                                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
                                                         <views:AppIcon Kind="Signpost" Size="12" VerticalAlignment="Center"
-                                                                       Foreground="{StaticResource KcapInfoBrush}" />
+                                                                       Foreground="{StaticResource KcapTopicBrush}" />
                                                         <TextBlock Grid.Column="1" Classes="topicName" Classes.current="{Binding Topic.IsCurrent, FallbackValue=False}"
                                                                    Text="{Binding Topic.Label, FallbackValue={x:Null}}" TextTrimming="CharacterEllipsis"
                                                                    VerticalAlignment="Center" Foreground="{StaticResource KcapTextBrush}" />

@@ -102,7 +102,7 @@
             <Setter Property="AutomationProperties.Name" Value="Remove topic" />
         </Style>
         <Style Selector="Button.topicHere.on /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTopicBrush}" />
         </Style>
         <!-- The caret reads as half of Send, so it greys out with it while staying usable. -->
         <Style Selector="Button.kcapPrimary.sendIdle /template/ ContentPresenter#PART_ContentPresenter">
@@ -673,9 +673,9 @@
                         <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="8">
                             <Panel Width="12" Height="12" VerticalAlignment="Center">
                                 <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
-                                               Foreground="{StaticResource KcapInfoBrush}" />
+                                               Foreground="{StaticResource KcapTopicBrush}" />
                                 <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
-                                               Foreground="{StaticResource KcapInfoBrush}" />
+                                               Foreground="{StaticResource KcapTopicBrush}" />
                             </Panel>
                             <!-- The name is its own button inside the fold button, so a click on it renames. -->
                             <Panel Grid.Column="1" VerticalAlignment="Center">
@@ -683,7 +683,7 @@
                                         Padding="4,1" Margin="-4,0" Cursor="Ibeam"
                                         ToolTip.Tip="Rename this topic" AutomationProperties.Name="Rename topic">
                                     <TextBlock Classes="toolKindChip" Text="{Binding Label}" MaxWidth="420" TextTrimming="CharacterEllipsis"
-                                               Foreground="{StaticResource KcapInfoBrush}" />
+                                               Foreground="{StaticResource KcapTopicBrush}" />
                                 </Button>
                                 <TextBox Classes="kcapField topicNameField" IsVisible="{Binding IsRenaming}" Text="{Binding Draft}" MinWidth="260" MaxWidth="420"
                                          Margin="-4,-2" Padding="4,2" MinHeight="0" FontSize="13"
@@ -694,7 +694,7 @@
                             <TextBlock Grid.Column="2" Text="{Binding Summary}" FontSize="12" VerticalAlignment="Center"
                                        IsVisible="{Binding !IsExpanded}" Foreground="{StaticResource KcapMutedBrush}" />
                             <Rectangle Grid.Column="3" Height="1" VerticalAlignment="Center" Opacity="0.45"
-                                       Fill="{StaticResource KcapInfoBrush}" />
+                                       Fill="{StaticResource KcapTopicBrush}" />
                         </Grid>
                     </Button>
                 </DataTemplate>
