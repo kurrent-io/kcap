@@ -332,7 +332,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             actions.OpenWorkItemInWeb, plans, planActivity, artefacts: Artefacts, serverLane: serverLane,
             canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
             sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout,
-            workItems: workItems, sessionTitle: () => Title, notifier: notifier);
+            workItems: workItems, notifier: notifier);
         WorkContext.HasWorkspaceNotice = HasConnectionNotice;
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));

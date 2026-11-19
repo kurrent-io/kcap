@@ -374,7 +374,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             artefacts: Artefacts, isRemote: true, serverLane: lane.Status,
             canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
             sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout,
-            workItems: workItems, sessionTitle: () => Title, notifier: notifier);
+            workItems: workItems, notifier: notifier);
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));
         // An open subagent belongs to the session it was opened from.

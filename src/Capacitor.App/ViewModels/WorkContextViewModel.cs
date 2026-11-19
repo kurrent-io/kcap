@@ -74,6 +74,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     readonly SessionRuns _runs;
     readonly Func<bool> _canSendToAgent;
     readonly Func<string, Task<bool>> _sendToAgent;
+    readonly IWorkItemPageApi? _workItems;
+    readonly IAppNotifier? _notifier;
     readonly BehaviorSubject<bool> _canOpenWorkItem = new(false);
     readonly CompositeDisposable _disposables = new();
     ITimer? _timer;
@@ -358,7 +360,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             ArtefactsTabViewModel? artefacts = null, bool isRemote = false,
             IObservable<ServerLaneStatus>? serverLane = null, Func<bool>? canSendToAgent = null,
             Func<string, Task<bool>>? sendToAgent = null, WorkContextLayout? layout = null,
-            IWorkItemPageApi? workItems = null, Func<string>? sessionTitle = null, IAppNotifier? notifier = null) {
+            IWorkItemPageApi? workItems = null, IAppNotifier? notifier = null) {
         _isRemote = isRemote;
         _canSendToAgent = canSendToAgent ?? (() => false);
         _sendToAgent = sendToAgent ?? (_ => Task.FromResult(false));
@@ -388,8 +390,12 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         _openWorkItem = openWorkItem;
         _runs = runs;
         _runs.Changed += RefreshRuns;
+        _workItems = workItems;
+        _notifier = notifier;
+        workItems?.Changed.ObserveOn(RxSchedulers.MainThreadScheduler)
+            .Subscribe(_ => { if (!_tornDown && _reader.HasCurrent) _reader.Refresh(); })
+            .DisposeWith(_disposables);
         InitializeProjections();
-        InitializePartChip(workItems, sessionTitle, notifier);
         InitializeSuggestion();
         OpenRunCommand = ReactiveCommand.Create<RunRow>(row => { if (row.CanOpen) RunOpened?.Invoke(row); });
         _disposables.Add(OpenRunCommand);

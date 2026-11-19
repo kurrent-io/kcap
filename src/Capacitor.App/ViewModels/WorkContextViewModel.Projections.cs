@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Reactive;
 using Avalonia.Collections;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.PullRequests;
 using Capacitor.Cli.Core.WorkItems;
@@ -347,7 +348,6 @@ public sealed partial class WorkContextViewModel {
         Overview = null;
         ApplyState(null);
         _parts.Clear();
-        _partsRead = null;
         _waitingOnThisPart.Clear();
         _issues.Clear();
         IssuesExpanded = false;
@@ -367,7 +367,6 @@ public sealed partial class WorkContextViewModel {
 
     void RaiseCardCounts() {
         SyncPartsFold();
-        RebuildPartChip();
         this.RaisePropertyChanged(nameof(PartsHeader));
         this.RaisePropertyChanged(nameof(PartsAccessibleName));
         this.RaisePropertyChanged(nameof(HasParts));
@@ -444,7 +443,6 @@ public sealed partial class WorkContextViewModel {
         ApplyLinks(read);
         Phase = WorkContextPhase.Ready;
         IsStale = read.ItemFailed || read.TopologyFailed || read.SummaryFailed || read.PartsFailed;
-        RebuildPartChip();
     }
 
     bool _hasSessionFacts;
@@ -539,8 +537,13 @@ public sealed partial class WorkContextViewModel {
         return true;
     }
 
+    /// The part whose visible sessions list this session. A session on the work item itself is in none.
+    WorkContextPartDto? SessionPart(WorkContextPartsDto read) {
+        var session = SessionIds.Canonical(_reader.CurrentState);
+        return read.Parts.FirstOrDefault(p => session is not null && p.SessionIds.Any(id => SessionIds.Canonical(id) == session));
+    }
+
     void ApplyParts(WorkContextPartsDto read) {
-        _partsRead = read;
         Title = read.WorkItem.Title;
         var mine = SessionPart(read);
         var parts = read.Parts.Select(p => {
