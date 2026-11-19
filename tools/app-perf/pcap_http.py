@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Usage: pcap_http.py CAPTURE.pcap [PORT]
 Reassembles plain HTTP/1.1 on a loopback capture and prints one line per request: seconds from the first packet,
-method, path, the request's Accept-Encoding, response status, Content-Encoding and body bytes on the wire. Then the
-totals: requests per route and bytes received. Standard library only; reads classic pcap with the BSD loopback
-link type."""
+method, path, the request's Accept-Encoding, response status, Content-Encoding and body bytes on the wire (chunk
+framing included). Then the totals: requests per route and bytes received. Messages are split by their framing
+(Content-Length, chunked, or a response running to the end of the connection), never by text inside a body.
+Standard library only; reads classic pcap with the BSD loopback link type."""
 import bisect
 import collections
 import re
@@ -46,6 +47,54 @@ def tcp_segments(path, port):
             yield ts, sport, dport, seq, payload
 
 
+REQUEST = re.compile(rb"([!#$%&'*+.^_`|~0-9A-Za-z-]+) (\S+) HTTP/1\.1\r\n((?:[^\r\n]+\r\n)*)\r\n")
+RESPONSE = re.compile(rb"HTTP/1\.1 (\d{3})[^\r\n]*\r\n((?:[^\r\n]+\r\n)*)\r\n")
+
+
+def header(headers, name):
+    m = re.search(rb"(?im)^" + name + rb": *(.*?) *$", headers)
+    return m.group(1).decode().strip() if m else None
+
+
+def chunked_end(data, pos):
+    """End of a chunked body starting at pos, trailers included; the end of data when it is cut short."""
+    while True:
+        eol = data.find(b"\r\n", pos)
+        if eol < 0:
+            return len(data)
+        try:
+            size = int(data[pos:eol].split(b";")[0], 16)
+        except ValueError:
+            return len(data)
+        pos = eol + 2
+        if size == 0:
+            end = data.find(b"\r\n\r\n", pos - 2)
+            return len(data) if end < 0 else end + 4
+        pos += size + 2
+
+
+def messages(data, head, headers_group, bodyless=lambda i, m: False, to_close=False):
+    """(match, body end) for each message in data, in order. A start that does not parse is skipped to the next
+    message head, so a capture that begins mid-connection still lines up from its first whole message."""
+    pos, i = 0, 0
+    while True:
+        m = head.match(data, pos) or head.search(data, pos)
+        if not m:
+            return
+        hdrs = m.group(headers_group)
+        length = header(hdrs, rb"content-length")
+        if bodyless(i, m):
+            end = m.end()
+        elif (header(hdrs, rb"transfer-encoding") or "").lower().endswith("chunked"):
+            end = chunked_end(data, m.end())
+        elif length is not None and length.isdigit():
+            end = min(len(data), m.end() + int(length))
+        else:
+            end = len(data) if to_close else m.end()
+        yield m, end
+        pos, i = max(end, m.end()), i + 1
+
+
 def main():
     path = sys.argv[1]
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 9473
@@ -73,20 +122,25 @@ def main():
         for _, p in req[:-1]:
             offsets.append(offsets[-1] + len(p))
         mine = []
-        for m in re.finditer(rb"(?:^|(?<=\n))([!#$%&'*+.^_`|~0-9A-Za-z-]+) (\S+) HTTP/1\.1\r\n(.*?)\r\n\r\n", req_bytes, re.S):
-            enc = re.search(rb"(?im)^accept-encoding: *(.*)$", m.group(3))
-            sent = req[bisect.bisect_right(offsets, m.start(1)) - 1][0]
-            mine.append([client, m.group(1).decode(), m.group(2).decode(), enc.group(1).decode().strip() if enc else "-"])
-            mine[-1].insert(1, round(sent - first, 2))
-        statuses = list(re.finditer(rb"HTTP/1\.1 (\d{3})[^\r]*\r\n(.*?)\r\n\r\n", resp_bytes, re.S))
+        for m, _ in messages(req_bytes, REQUEST, 3):
+            sent = req[bisect.bisect_right(offsets, m.start()) - 1][0]
+            mine.append([client, round(sent - first, 2), m.group(1).decode(), m.group(2).decode(),
+                         header(m.group(3), rb"accept-encoding") or "-"])
+        methods, final = [r[2] for r in mine], []
+
+        def bodyless(_, m):
+            if m.group(1).startswith(b"1"):
+                return True
+            final.append(m)
+            return m.group(1) in (b"204", b"304") or (len(final) <= len(methods) and methods[len(final) - 1] == "HEAD")
+
+        statuses = [s for s in messages(resp_bytes, RESPONSE, 2, bodyless, to_close=True) if not s[0].group(1).startswith(b"1")]
         rows += mine
         for i, r in enumerate(mine):
             if i < len(statuses):
-                hdrs = statuses[i].group(2)
-                ce = re.search(rb"(?im)^content-encoding: *(.*)$", hdrs)
-                end = statuses[i + 1].start() if i + 1 < len(statuses) else len(resp_bytes)
-                body = end - statuses[i].end()
-                r += [statuses[i].group(1).decode(), ce.group(1).decode().strip() if ce else "-", body]
+                m, end = statuses[i]
+                body = end - m.end()
+                r += [m.group(1).decode(), header(m.group(2), rb"content-encoding") or "-", body]
                 received += body
             else:
                 r += ["?", "-", 0]

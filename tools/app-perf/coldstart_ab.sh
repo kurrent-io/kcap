@@ -13,7 +13,7 @@ runs=${1:?runs}; secs=${2:?seconds}; shift 2
 moved=
 restore() {
   stop_shooter
-  [ -n "$moved" ] || return 0
+  [ -n "$moved" ] && [ -e "$APP" ] || { moved=; return 0; }
   quit_app
   mv "$APP" "$moved"; moved=
 }
@@ -22,7 +22,7 @@ trap 'exit 130' INT TERM
 
 with_bundle() {
   local bundle=$1; shift
-  mv "$bundle" "$APP"; moved=$bundle
+  moved=$bundle; mv "$bundle" "$APP"
   "$@"
   restore
 }
