@@ -435,37 +435,6 @@
                                                 </Flyout>
                                             </Button.Flyout>
                                         </Button>
-                                        <StackPanel x:Name="RailAppMenuItems" Spacing="2" IsVisible="{Binding AppMenuInWindow}">
-                                            <Border Height="1" Margin="8,4" Background="{StaticResource KcapBorderBrush}" />
-                                            <Button x:Name="RailHelpAboutButton" Classes="kcapGhost" Content="About kcap"
-                                                    Click="OnAboutClick" IsVisible="{Binding ShowsAbout}"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="10,8" FontSize="13.5" />
-                                            <Button x:Name="RailHelpCheckForUpdatesButton" Classes="kcapGhost" Content="Check for Updates…"
-                                                    Command="{Binding CheckForUpdatesCommand}" Click="OnHelpFlyoutItemClick"
-                                                    IsVisible="{Binding ShowsCheckForUpdates}"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="10,8" FontSize="13.5" />
-                                            <Button x:Name="RailLaunchApprovalsButton" Classes="kcapGhost" Content="Launch approvals…"
-                                                    Command="{Binding OpenLaunchApprovalsCommand}" Click="OnHelpFlyoutItemClick"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="10,8" FontSize="13.5" />
-                                            <Button x:Name="RailHelpSettingsButton" Classes="kcapGhost" Content="Settings…"
-                                                    Command="{Binding OpenSettingsCommand}" Click="OnHelpFlyoutItemClick"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="10,8" FontSize="13.5" />
-                                            <Button x:Name="RailHelpUninstallButton" Classes="kcapGhost" Content="Uninstall kcap…"
-                                                    Command="{Binding UninstallCommand}" Click="OnHelpFlyoutItemClick"
-                                                    IsVisible="{Binding ShowsUninstall}"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="10,8" FontSize="13.5" />
-                                            <Button x:Name="RailHelpChangelogButton" Classes="kcapGhost" Content="Changelog"
-                                                    Command="{Binding OpenChangelogCommand}" Click="OnHelpFlyoutItemClick"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="10,8" FontSize="13.5" />
-                                            <TextBlock x:Name="RailAppVersionText" Text="{Binding AppVersionLabel}"
-                                                       Foreground="{StaticResource KcapFaintBrush}" FontSize="12" Margin="10,6,10,4" />
-                                        </StackPanel>
                                     </StackPanel>
                                 </Flyout>
                             </Button.Flyout>

@@ -1797,76 +1797,6 @@ public class MainWindowSmokeTests {
         }
     });
 
-    /// Off macOS the help flyout carries the app menu's Settings, Changelog and version — the only
-    /// in-window route to Settings where no native menu bar is drawn. Settings stays inert until the
-    /// app hands it an action, and Uninstall is not shown until the app can remove itself.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    [Arguments(true)]
-    [Arguments(false)]
-    public Task Rail_help_carries_the_app_menu_when_no_native_menu_is_drawn(bool inWindow) => AvaloniaSession.RunOnUiAsync(async () => {
-        var service = new FakeDaemonClientService();
-        service.SnapshotsSubject.OnNext(Snap());
-        var settings = new System.Reactive.Subjects.BehaviorSubject<Action?>(null);
-        var uninstall = new System.Reactive.Subjects.BehaviorSubject<Action?>(null);
-        var opener = new RecordingOpener();
-        var opened = 0;
-        var uninstalls = 0;
-        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
-            opener: opener, settingsAction: settings, uninstallAction: uninstall, appMenuInWindow: inWindow);
-        var window = new MainWindow { DataContext = vm };
-        try {
-            window.Show();
-            Dispatcher.UIThread.RunJobs();
-
-            var rail = window.FindDescendantOfType<SessionRailView>()!;
-            var help = rail.FindControl<Button>("RailHelpButton")!;
-            var flyout = (Flyout)help.Flyout!;
-            flyout.ShowAt(help);
-            Dispatcher.UIThread.RunJobs();
-
-            var items = rail.FindControl<StackPanel>("RailAppMenuItems")!;
-            var settingsButton = rail.FindControl<Button>("RailHelpSettingsButton")!;
-            var changelogButton = rail.FindControl<Button>("RailHelpChangelogButton")!;
-            await Assert.That(items.IsVisible).IsEqualTo(inWindow);
-            await Assert.That(settingsButton.Content).IsEqualTo("Settings…");
-            await Assert.That(changelogButton.Content).IsEqualTo("Changelog");
-            await Assert.That(rail.FindControl<TextBlock>("RailAppVersionText")!.Text).StartsWith("Desktop app ");
-            await Assert.That(settingsButton.IsEffectivelyEnabled).IsFalse();
-            var uninstallButton = rail.FindControl<Button>("RailHelpUninstallButton")!;
-            await Assert.That(uninstallButton.IsVisible).IsFalse();
-
-            settings.OnNext(() => opened++);
-            uninstall.OnNext(() => uninstalls++);
-            Dispatcher.UIThread.RunJobs();
-            await Assert.That(settingsButton.IsEffectivelyEnabled).IsTrue();
-            await Assert.That(uninstallButton.IsEffectivelyVisible).IsEqualTo(inWindow);
-            if (inWindow) {
-                ClickFlyoutButton(settingsButton);
-                await Assert.That(flyout.IsOpen).IsFalse();
-                await Assert.That(opened).IsEqualTo(1);
-
-                flyout.ShowAt(help);
-                Dispatcher.UIThread.RunJobs();
-                ClickFlyoutButton(changelogButton);
-                await Assert.That(flyout.IsOpen).IsFalse();
-                await Assert.That(opener.Opened).IsEquivalentTo([AppMenuBar.ChangelogUrl]);
-
-                flyout.ShowAt(help);
-                Dispatcher.UIThread.RunJobs();
-                ClickFlyoutButton(uninstallButton);
-                await Assert.That(flyout.IsOpen).IsFalse();
-                await Assert.That(uninstalls).IsEqualTo(1);
-            } else {
-                flyout.Hide();
-                Dispatcher.UIThread.RunJobs();
-            }
-        } finally {
-            window.Close();
-            Dispatcher.UIThread.RunJobs();
-        }
-    });
-
     /// A help item closes the flyout from its Click handler, which runs before the button's command.
     /// The command must still run: a flyout that detached its content first would leave every item dead.
     [Test]
@@ -1885,60 +1815,12 @@ public class MainWindowSmokeTests {
             var rail = window.FindDescendantOfType<SessionRailView>()!;
             var help = rail.FindControl<Button>("RailHelpButton")!;
             var onClick = typeof(Button).GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-            foreach (var name in new[] { "RailHelpDocsButton", "RailHelpChangelogButton" }) {
-                help.Flyout!.ShowAt(help);
-                Dispatcher.UIThread.RunJobs();
-                onClick.Invoke(rail.FindControl<Button>(name)!, null);
-                Dispatcher.UIThread.RunJobs();
-            }
-
-            await Assert.That(opener.Opened).IsEquivalentTo([AppMenuBar.DocsUrl, AppMenuBar.ChangelogUrl]);
-        } finally {
-            window.Close();
+            help.Flyout!.ShowAt(help);
             Dispatcher.UIThread.RunJobs();
-        }
-    });
-
-    /// Windows has no native About panel, so the rail's help flyout opens the app's own, and a
-    /// second click brings that one forward rather than stacking another.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public Task Rail_help_opens_one_About_window_on_Windows() => AvaloniaSession.RunOnUiAsync(async () => {
-        var service = new FakeDaemonClientService();
-        service.SnapshotsSubject.OnNext(Snap());
-        var opener = new RecordingOpener();
-        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
-            appMenuInWindow: true, opener: opener);
-        var window = new MainWindow { DataContext = vm };
-        try {
-            window.Show();
+            onClick.Invoke(rail.FindControl<Button>("RailHelpDocsButton")!, null);
             Dispatcher.UIThread.RunJobs();
 
-            var rail = window.FindDescendantOfType<SessionRailView>()!;
-            // Opened first: the flyout's rows only bind once they join a tree.
-            var help = rail.FindControl<Button>("RailHelpButton")!;
-            ((Flyout)help.Flyout!).ShowAt(help);
-            Dispatcher.UIThread.RunJobs();
-            var about = rail.FindControl<Button>("RailHelpAboutButton")!;
-            await Assert.That(about.IsVisible).IsEqualTo(OperatingSystem.IsWindows());
-            if (!OperatingSystem.IsWindows()) return;
-
-            about.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-            about.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-            Dispatcher.UIThread.RunJobs();
-
-            var opened = window.OwnedWindows.OfType<AboutWindow>().ToArray();
-            await Assert.That(opened.Length).IsEqualTo(1);
-            await Assert.That(opened[0].FindControl<TextBlock>("AboutVersionText")!.Text).StartsWith("Version ");
-
-            var docs = opened[0].FindControl<Button>("AboutDocsButton")!;
-            var changelog = opened[0].FindControl<Button>("AboutChangelogButton")!;
-            await Assert.That(docs.IsEffectivelyEnabled).IsTrue();
-            await Assert.That(changelog.IsEffectivelyEnabled).IsTrue();
-            docs.Command!.Execute(null);
-            changelog.Command!.Execute(null);
-            Dispatcher.UIThread.RunJobs();
-            await Assert.That(opener.Opened).IsEquivalentTo([AppMenuBar.DocsUrl, AppMenuBar.ChangelogUrl]);
+            await Assert.That(opener.Opened).IsEquivalentTo([AppMenuBar.DocsUrl]);
         } finally {
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -2463,10 +2345,10 @@ public class MainWindowSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public Task Search_menu_item_runs_the_open_search_command() => AvaloniaSession.RunOnUiAsync(async () => {
         using var host = new SearchWindowHost();
-        var windowMenu = new AppMenuBar(new RecordingOpener(), () => [], () => null).Build(host.Window)
+        var windowMenu = new AppMenuBar(new RecordingOpener(), () => [], () => null, inWindow: false).Build(host.Window)
             .Items.OfType<NativeMenuItem>().Single(i => i.Header == "Window").Menu!;
         var items = windowMenu.Items.OfType<NativeMenuItem>().ToList();
-        var search = items.Single(i => i.Header == "Search Sessions");
+        var search = items.Single(i => i.Header == "Search Sessions…");
 
         await Assert.That(search.Command).IsSameReferenceAs(host.Vm.OpenSearchCommand);
         await Assert.That(search.Gesture).IsEqualTo(new KeyGesture(Key.K, KeyModifiers.Meta));

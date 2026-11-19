@@ -10,8 +10,9 @@ using TUnit.Core.Enums;
 namespace Capacitor.App.Tests.Unit.Views;
 
 public class AppMenuBarTests {
-    static AppMenuBar NewBar(RecordingOpener? opener = null, Action? showMainWindow = null, IReadOnlyList<Window>? windows = null) =>
-        new(opener ?? new RecordingOpener(), () => windows ?? [], () => showMainWindow);
+    static AppMenuBar NewBar(RecordingOpener? opener = null, Action? showMainWindow = null, IReadOnlyList<Window>? windows = null,
+        bool inWindow = false) =>
+        new(opener ?? new RecordingOpener(), () => windows ?? [], () => showMainWindow, inWindow);
 
     static NativeMenu Submenu(NativeMenu bar, string header) => Item(bar, header).Menu!;
 
@@ -21,8 +22,11 @@ public class AppMenuBarTests {
     static string Layout(NativeMenu menu) =>
         string.Join("|", menu.Items.Select(i => i is NativeMenuItem item ? item.Header : "-"));
 
-    static readonly string AppMenuLayout =
-        "About kcap|Check for Updates…|-|Settings…|Set up kcap…" + (OperatingSystem.IsMacOS() ? "|-|Uninstall kcap…" : "");
+    const string AppMenuLayout = "About kcap|Check for Updates…|-|Settings…|Set up kcap…|-|Uninstall kcap…";
+
+    static string VisibleLayout(NativeMenu menu) =>
+        string.Join("|", menu.Items.Where(i => i is not NativeMenuItem { IsVisible: false })
+            .Select(i => i is NativeMenuItem item ? item.Header : "-"));
 
     static void Click(NativeMenuItem item) => ((INativeMenuItemExporterEventsImplBridge)item).RaiseClicked();
 
@@ -92,7 +96,7 @@ public class AppMenuBarTests {
             return (Layout(menu), refresh.Gesture, refresh.IsEnabled);
         });
 
-        await Assert.That(layout).IsEqualTo("Minimize|Zoom|Toggle Full Screen|Refresh|Search Sessions|Back|Forward|-|kcap|Launch approvals…|-|Bring All to Front");
+        await Assert.That(layout).IsEqualTo("Minimize|Zoom|Toggle Full Screen|Refresh|Search Sessions…|Back|Forward|-|kcap|Launch approvals…|-|Bring All to Front");
         await Assert.That(gesture).IsEqualTo(RefreshShortcut.Primary);
         await Assert.That(enabled).IsFalse();
     }
@@ -265,7 +269,7 @@ public class AppMenuBarTests {
     public async Task The_app_menu_opens_About() {
         var opened = 0;
         var layout = await AvaloniaSession.DispatchAsync(() => {
-            var menu = new AppMenu(() => opened++).Menu;
+            var menu = new AppMenu(() => opened++, inWindow: false).Menu;
             Click(Item(menu, "About kcap"));
             return Layout(menu);
         });
@@ -324,7 +328,7 @@ public class AppMenuBarTests {
     public async Task Settings_has_Command_comma_and_is_enabled_only_after_composition() {
         var opened = 0;
         var (before, after, gesture) = await AvaloniaSession.DispatchAsync(() => {
-            var appMenu = new AppMenu(() => { });
+            var appMenu = new AppMenu(() => { }, inWindow: false);
             var settings = Item(appMenu.Menu, "Settings…");
             var before = settings.IsEnabled;
             appMenu.SetSettingsAction(() => opened++);
@@ -424,5 +428,74 @@ public class AppMenuBarTests {
 
         await Assert.That(liveEnabled).IsTrue();
         await Assert.That(closedEnabled).IsFalse();
+    }
+
+    /// Drawn in the window, the menu leaves minimizing, zooming and switching windows to the caption
+    /// buttons and the taskbar, and offers Search with the Ctrl+K the main window binds.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task In_window_Window_menu_on_the_main_window_keeps_navigation_full_screen_and_approvals() {
+        var (layout, search, fullScreen) = await AvaloniaSession.DispatchAsync(() => {
+            var vm = new MainWindowViewModel(
+                new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System);
+            var menu = Submenu(NewBar(showMainWindow: () => { }, inWindow: true).Build(new MainWindow { DataContext = vm }), "Window");
+            return (Layout(menu), Item(menu, "Search Sessions…").Gesture, Item(menu, "Toggle Full Screen").Gesture);
+        });
+
+        await Assert.That(layout).IsEqualTo("Refresh|Search Sessions…|Back|Forward|-|Toggle Full Screen|-|Launch approvals…");
+        await Assert.That(search).IsEqualTo(new KeyGesture(Key.K, KeyModifiers.Control));
+        await Assert.That(fullScreen).IsEqualTo(OperatingSystem.IsWindows() ? new KeyGesture(Key.F11) : null);
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task In_window_Window_menu_on_any_other_window_has_full_screen_and_approvals_only() {
+        var layout = await AvaloniaSession.DispatchAsync(() =>
+            Layout(Submenu(NewBar(inWindow: true).Build(new SettingsWindow()), "Window")));
+
+        await Assert.That(layout).IsEqualTo("Toggle Full Screen|-|Launch approvals…");
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task In_window_Toggle_Full_Screen_on_the_main_window_restores_the_state_it_left() {
+        var states = await AvaloniaSession.DispatchAsync(() => {
+            var vm = new MainWindowViewModel(
+                new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System);
+            var window = new MainWindow { DataContext = vm, WindowState = WindowState.Maximized };
+            var fullScreen = Item(Submenu(NewBar(inWindow: true).Build(window), "Window"), "Toggle Full Screen");
+            Click(fullScreen);
+            var entered = window.WindowState;
+            Click(fullScreen);
+            return (entered, window.WindowState);
+        });
+
+        await Assert.That(states).IsEqualTo((WindowState.FullScreen, WindowState.Maximized));
+    }
+
+    /// Drawn in the window, an item with nothing to run is hidden rather than shown disabled, and
+    /// About shows only where there is an About to open.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task In_window_app_menu_shows_updates_and_uninstall_only_once_they_can_run() {
+        var (before, after, withoutAbout) = await AvaloniaSession.DispatchAsync(() => {
+            var appMenu = new AppMenu(() => { }, inWindow: true);
+            var before = VisibleLayout(appMenu.Menu);
+            appMenu.SetCheckForUpdatesAction(() => Task.CompletedTask);
+            appMenu.SetUninstallAction(() => { });
+            return (before, VisibleLayout(appMenu.Menu), VisibleLayout(new AppMenu(null, inWindow: true).Menu));
+        });
+
+        await Assert.That(before).IsEqualTo("About kcap|-|Settings…|Set up kcap…|-");
+        await Assert.That(after).IsEqualTo(AppMenuLayout);
+        await Assert.That(withoutAbout).IsEqualTo("-|Settings…|Set up kcap…|-");
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task In_window_Settings_shows_Ctrl_comma_only_where_the_main_window_binds_it() {
+        var gesture = await AvaloniaSession.DispatchAsync(() => Item(new AppMenu(null, inWindow: true).Menu, "Settings…").Gesture);
+
+        await Assert.That(gesture).IsEqualTo(OperatingSystem.IsWindows() ? new KeyGesture(Key.OemComma, KeyModifiers.Control) : null);
     }
 }

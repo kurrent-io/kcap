@@ -1846,7 +1846,25 @@ public class CodingAgentsStepTests {
         await Assert.That(result.CopilotHooksInstalled).IsTrue();
         await Assert.That(calls.CopilotHooksArg).IsEqualTo("/fake/.copilot/hooks/kcap.json");
         await Assert.That(sink.Lines).Contains(l => l.Contains("Copilot hooks installed"));
-        await Assert.That(sink.Lines).Contains(l => l.Contains("restart any running copilot session, and quit and reopen VS Code"));
+    }
+
+    /// <summary>VS Code runs new hooks at once, so the hooks note asks a restart only of a terminal Copilot session; the
+    /// VS Code restart is asked whenever the MCP servers are newly registered, even beside hooks already in place.</summary>
+    [Test]
+    [Arguments(SettingsEdit.Changed, JsonMcpConfigWriter.Change.Updated, true, true)]
+    [Arguments(SettingsEdit.Unchanged, JsonMcpConfigWriter.Change.Updated, false, true)]
+    [Arguments(SettingsEdit.Changed, JsonMcpConfigWriter.Change.Unchanged, true, false)]
+    public async Task Copilot_notes_ask_a_restart_only_for_what_changed(
+            SettingsEdit hooks, JsonMcpConfigWriter.Change mcp, bool hooksNote, bool mcpNote) {
+        var sink     = new Sink();
+        var options  = new Options(SkipClaude: true, SkipCodex: true, SkipCursor: true, SkipCopilot: false, NoPrompt: false);
+        var detected = new DetectedAgents(Claude: false, Codex: false, Cursor: false, Copilot: true);
+        var installers = new InstallerCalls().AsInstallers() with { InstallCopilotHooks = _ => hooks, RegisterCopilotMcp = () => mcp };
+
+        await RunAsync(options, detected, TestPaths(), installers, prompt: _ => true, writeLine: sink.Write);
+
+        await Assert.That(sink.Lines.Contains(CopilotHooksNote)).IsEqualTo(hooksNote);
+        await Assert.That(sink.Lines.Contains(CopilotMcpNote)).IsEqualTo(mcpNote);
     }
 
     [Test]

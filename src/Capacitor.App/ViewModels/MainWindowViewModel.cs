@@ -267,32 +267,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public ReactiveCommand<Unit, Unit> OpenSettingsCommand { get; }
     volatile Action? _openSettings;
 
-    /// Off macOS, the in-window menu's way to the uninstall; shown only where the app can remove itself.
-    public ReactiveCommand<Unit, Unit> CheckForUpdatesCommand { get; }
-    volatile Func<Task>? _checkForUpdates;
-
-    public bool ShowsCheckForUpdates {
-        get;
-        private set => this.RaiseAndSetIfChanged(ref field, value);
-    }
-
-    public ReactiveCommand<Unit, Unit> UninstallCommand { get; }
-    volatile Action? _uninstall;
-
-    public bool ShowsUninstall {
-        get;
-        private set => this.RaiseAndSetIfChanged(ref field, value);
-    }
-
-    /// Off macOS no native app menu is drawn, so Settings, the changelog and the version ride the
-    /// rail's help flyout instead.
+    /// Off macOS no native menu bar is drawn, so the window carries its own menu button.
     public bool AppMenuInWindow { get; }
 
     public string AppVersionLabel { get; } = $"Desktop app {AppVersion.Display}";
-
-    /// macOS opens its About panel from the native app menu; Windows has none, so the rail's help
-    /// flyout opens the app's own.
-    public bool ShowsAbout { get; } = OperatingSystem.IsWindows();
 
     /// Opens the bug/feedback window for one category; inert without an action to route it to.
     public ReactiveCommand<FeedbackCategory, Unit> OpenFeedbackCommand { get; }
@@ -304,7 +282,15 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public ReactiveCommand<Unit, Unit> SignInCommand { get; }
     public ReactiveCommand<Unit, Unit> SetupCommand { get; }
     public bool CanOpenSetup { get; }
-    public HistoryImportBannerViewModel? HistoryImportBanner { get; }
+    HistoryImportBannerViewModel? _historyImportBanner;
+    readonly Action? _requestSetup;
+    public HistoryImportBannerViewModel? HistoryImportBanner {
+        get => _historyImportBanner;
+        private set => this.RaiseAndSetIfChanged(ref _historyImportBanner, value);
+    }
+
+    /// Puts an import started outside setup in the launcher's banner, in place of any earlier one.
+    public void ShowHistoryImport(HistoryImportRun run) => HistoryImportBanner = new HistoryImportBannerViewModel(run, _requestSetup);
 
     ObservableAsPropertyHelper<bool>? _signInVisible;
     /// True while the rail reads Signed out and a sign-in action exists — the help flyout
@@ -414,8 +400,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             IAgentDirectory? directory = null,
             Action<FeedbackCategory>? openFeedback = null, IUrlOpener? opener = null,
             Action? requestSignIn = null, IObservable<Action?>? settingsAction = null,
-            IObservable<Func<Task>?>? checkForUpdatesAction = null,
-            IObservable<Action?>? uninstallAction = null, bool? appMenuInWindow = null, Action? requestSetup = null,
+            bool? appMenuInWindow = null, Action? requestSetup = null,
             HistoryImportRun? historyImport = null,
             IObservable<bool>? backgroundPriority = null, IObservable<ReloadState?>? reloadState = null,
             IObservable<bool>? isReloading = null, Func<CancellationToken, Task>? reloadDaemon = null, Action? openLaunchApprovals = null,
@@ -465,22 +450,11 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         OpenSettingsCommand = ReactiveCommand.Create(
             () => _openSettings?.Invoke(),
             settings.Select(open => open is not null).ObserveOn(RxSchedulers.MainThreadScheduler));
-        var checkForUpdates = (checkForUpdatesAction ?? Observable.Return<Func<Task>?>(null)).ObserveOn(RxSchedulers.MainThreadScheduler);
-        checkForUpdates.Subscribe(check => {
-            _checkForUpdates     = check;
-            ShowsCheckForUpdates = check is not null;
-        });
-        CheckForUpdatesCommand = ReactiveCommand.Create(() => { _ = _checkForUpdates?.Invoke(); }, checkForUpdates.Select(check => check is not null));
-        var uninstall       = (uninstallAction ?? Observable.Return<Action?>(null)).ObserveOn(RxSchedulers.MainThreadScheduler);
-        uninstall.Subscribe(run => {
-            _uninstall     = run;
-            ShowsUninstall = run is not null;
-        });
-        UninstallCommand    = ReactiveCommand.Create(() => _uninstall?.Invoke(), uninstall.Select(run => run is not null));
         SignInCommand       = ReactiveCommand.Create(() => { requestSignIn?.Invoke(); });
         CanOpenSetup = requestSetup is not null;
         SetupCommand = ReactiveCommand.Create(() => requestSetup?.Invoke());
-        HistoryImportBanner = historyImport is null ? null : new HistoryImportBannerViewModel(historyImport, requestSetup);
+        _requestSetup = requestSetup;
+        _historyImportBanner = historyImport is null ? null : new HistoryImportBannerViewModel(historyImport, requestSetup);
         var offersSignIn    = requestSignIn is not null;
 
         // ReactiveCommand's own CanExecute observable already ANDs the supplied canExecute with
@@ -533,7 +507,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             canStart.CombineLatest(canRetry, (startVisible, retryVisible) => startVisible || retryVisible)
                 .Subscribe(available => _localDaemonRecoveryAvailable = available)
                 .DisposeWith(disposables);
-            HistoryImportBanner?.Watch().DisposeWith(disposables);
+            var historyWatch = new SerialDisposable().DisposeWith(disposables);
+            this.WhenAnyValue(x => x.HistoryImportBanner)
+                .Subscribe(banner => historyWatch.Disposable = banner?.Watch())
+                .DisposeWith(disposables);
             var status    = service.Status.ObserveOn(RxSchedulers.MainThreadScheduler);
             var snapshots = service.Snapshots.ObserveOn(RxSchedulers.MainThreadScheduler);
 
