@@ -1068,7 +1068,9 @@ public class WorkContextViewSmokeTests {
             host.Window.MouseDown(onTopic, MouseButton.Right);
             host.Window.MouseUp(onTopic, MouseButton.Right);
             Settle();
-            Press(host.Window.GetVisualDescendants().OfType<Button>().First(b => b.Classes.Contains("topicAsk")));
+            var fileAll = host.Window.GetVisualDescendants().OfType<Button>().First(b => b.Classes.Contains("topicAsk"));
+            await Assert.That(fileAll.Content).IsEqualTo("File 2 bookmarks as loose ends");
+            Press(fileAll);
             await Assert.That(host.Sent).Count().IsEqualTo(2);
             await Assert.That(host.Sent[1]).Contains("\"Locks\"").And.Contains("> Lock order").And.Contains("> Retry jitter");
 

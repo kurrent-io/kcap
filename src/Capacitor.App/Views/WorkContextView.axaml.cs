@@ -38,9 +38,12 @@ public partial class WorkContextView : UserControl {
     void OnTopicMenuOpening(object? sender, EventArgs e) {
         _topicMenu = sender as Flyout;
         if (_topicMenu?.Content is not Panel rows) return;
-        var can = DataContext is WorkContextViewModel { CanAskAgent: true }
-            && _topicMenu.Target?.DataContext is ChatBookmarkGroup { Bookmarks.Count: > 0 };
-        foreach (var row in rows.Children) row.IsEnabled = can;
+        var section = _topicMenu.Target?.DataContext as ChatBookmarkGroup;
+        var can = DataContext is WorkContextViewModel { CanAskAgent: true } && section is { Bookmarks.Count: > 0 };
+        foreach (var row in rows.Children) {
+            row.IsEnabled = can;
+            if (row is Button { Classes: var classes } ask && classes.Contains("topicAsk") && section is not null) ask.Content = section.LooseEndsLabel;
+        }
     }
 
     Flyout? _topicMenu;
