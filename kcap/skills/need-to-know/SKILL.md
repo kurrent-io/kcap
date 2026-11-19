@@ -3,7 +3,7 @@ name: need-to-know
 description: >-
   This skill should be used when the user asks for need-to-know formatting,
   need-to-know marks or graded replies — "use need to know formatting",
-  "grade your replies", "mark the detail" — or asks to stop using it. It says
+  "enable need-to-know formatting", "grade your replies", "mark the detail" — or asks to stop using it. It says
   how to mark the detail and footnote parts of a chat reply with corner
   brackets, which the kcap desktop app can fade or hide.
 ---

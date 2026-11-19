@@ -451,63 +451,63 @@
                     </Button>
                     <Border Classes="sectionBody">
                         <Panel>
-                            <StackPanel Spacing="8" IsVisible="{Binding HasContributors}">
-                                <ItemsControl x:Name="ContributorStack" ItemsSource="{Binding Contributors}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <WrapPanel ItemSpacing="6" LineSpacing="6" />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:WorkContextPersonViewModel">
-                                            <Border Classes="avatar" Classes.folded="{Binding !$parent[views:WorkContextView].((vm:WorkContextViewModel)DataContext).PeopleExpanded}" ToolTip.Tip="{Binding Name}" AutomationProperties.Name="{Binding Name}">
-                                                <Panel>
-                                                    <TextBlock Text="{Binding Initial}" />
-                                                    <views:RemoteAvatar Url="{Binding AvatarUrl}" />
-                                                </Panel>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                <ItemsControl x:Name="ContributorList" ItemsSource="{Binding Contributors}" IsVisible="{Binding PeopleExpanded}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <StackPanel Spacing="8" />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:WorkContextPersonViewModel">
-                                            <Button Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Name}"
-                                                    HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Name}" AutomationProperties.Name="{Binding Name, StringFormat='Copy {0}'}">
-                                                <StackPanel>
-                                                    <TextBlock x:Name="ContributorNameText" Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
-                                                               Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
-                                                    <TextBlock Text="{Binding LastActivityText}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" Margin="0,1,0,0"
-                                                               IsVisible="{Binding LastActivityText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                </StackPanel>
-                                            </Button>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
-                            <Grid x:Name="RequesterRow" RowDefinitions="Auto,Auto" RowSpacing="8" IsVisible="{Binding !HasContributors}">
-                                <Border Classes="avatar" Classes.folded="{Binding !PeopleExpanded}" VerticalAlignment="Top" HorizontalAlignment="Left"
-                                        ToolTip.Tip="{Binding Requester}" AutomationProperties.Name="{Binding Requester}">
-                                    <Panel>
-                                        <TextBlock Text="{Binding RequesterInitial}" />
-                                        <views:RemoteAvatar Url="{Binding RequesterAvatarUrl}" />
-                                    </Panel>
-                                </Border>
-                                <Button x:Name="RequesterName" Grid.Row="1" Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Requester}"
-                                        HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Requester}" IsVisible="{Binding PeopleExpanded}"
-                                        AutomationProperties.Name="{Binding Requester, StringFormat='Copy {0}'}">
-                                    <StackPanel>
-                                        <TextBlock Text="{Binding Requester}" FontSize="13" FontWeight="SemiBold"
-                                                   Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding RequesterRole}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" Margin="0,1,0,0" />
-                                    </StackPanel>
-                                </Button>
-                            </Grid>
+                                <StackPanel Spacing="8" IsVisible="{Binding HasContributors}">
+                                    <ItemsControl x:Name="ContributorStack" ItemsSource="{Binding Contributors}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel ItemSpacing="6" LineSpacing="6" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:WorkContextPersonViewModel">
+                                                <Border Classes="avatar" Classes.folded="{Binding !$parent[views:WorkContextView].((vm:WorkContextViewModel)DataContext).PeopleExpanded}" ToolTip.Tip="{Binding Name}" AutomationProperties.Name="{Binding Name}">
+                                                    <Panel>
+                                                        <TextBlock Text="{Binding Initial}" />
+                                                        <views:RemoteAvatar Url="{Binding AvatarUrl}" />
+                                                    </Panel>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <ItemsControl x:Name="ContributorList" ItemsSource="{Binding Contributors}" IsVisible="{Binding PeopleExpanded}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Spacing="8" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:WorkContextPersonViewModel">
+                                                <Button Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Name}"
+                                                        HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Name}" AutomationProperties.Name="{Binding Name, StringFormat='Copy {0}'}">
+                                                    <StackPanel>
+                                                        <TextBlock x:Name="ContributorNameText" Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
+                                                                   Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                                        <TextBlock Text="{Binding LastActivityText}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" Margin="0,1,0,0"
+                                                                   IsVisible="{Binding LastActivityText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                                    </StackPanel>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                                <Grid x:Name="RequesterRow" RowDefinitions="Auto,Auto" RowSpacing="8" IsVisible="{Binding !HasContributors}">
+                                    <Border Classes="avatar" Classes.folded="{Binding !PeopleExpanded}" VerticalAlignment="Top" HorizontalAlignment="Left"
+                                            ToolTip.Tip="{Binding Requester}" AutomationProperties.Name="{Binding Requester}">
+                                        <Panel>
+                                            <TextBlock Text="{Binding RequesterInitial}" />
+                                            <views:RemoteAvatar Url="{Binding RequesterAvatarUrl}" />
+                                        </Panel>
+                                    </Border>
+                                    <Button x:Name="RequesterName" Grid.Row="1" Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Requester}"
+                                            HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Requester}" IsVisible="{Binding PeopleExpanded}"
+                                            AutomationProperties.Name="{Binding Requester, StringFormat='Copy {0}'}">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Requester}" FontSize="13" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding RequesterRole}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" Margin="0,1,0,0" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
                         </Panel>
                     </Border>
                 </StackPanel>
@@ -971,14 +971,24 @@
                     </StackPanel>
                 </StackPanel>
 
-                <StackPanel x:Name="NeedToKnowSection" Margin="0,18,0,0" x:DataType="vm:NeedToKnowBasisViewModel"
-                            DataContext="{x:Static vm:NeedToKnowBasisViewModel.Shared}"
-                            IsVisible="{Binding $parent[UserControl].((vm:WorkContextViewModel)DataContext).ShowsNeedToKnow, FallbackValue=False}">
-                    <Button x:Name="NeedToKnowHeader" Classes="sectionHeader" AutomationProperties.Name="Need to know basis">
-                        <TextBlock Text="NEED TO KNOW BASIS" Classes="eyebrow" />
+                <StackPanel x:Name="NeedToKnowSection" Margin="0,18,0,0">
+                    <Button x:Name="NeedToKnowToggle" Command="{Binding ToggleNeedToKnowCommand}" Classes="sectionHeader expandable"
+                            AutomationProperties.Name="{Binding NeedToKnowToggleName}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <TextBlock Text="NEED TO KNOW BASIS" Classes="eyebrow" />
+                            <Panel Grid.Column="1" Width="12" Height="12" VerticalAlignment="Center">
+                                <views:AppIcon Kind="ChevronDown" Size="12" Classes="chevron" IsVisible="{Binding NeedToKnowExpanded}" />
+                                <views:AppIcon Kind="ChevronRight" Size="12" Classes="chevron" IsVisible="{Binding !NeedToKnowExpanded}" />
+                            </Panel>
+                        </Grid>
                     </Button>
-                    <Border Classes="sectionBody">
-                        <StackPanel Spacing="6">
+                    <Border Classes="sectionBody" IsVisible="{Binding NeedToKnowExpanded}">
+                        <Panel>
+                        <TextBlock x:Name="NeedToKnowHint" Text="Ask the agent to enable need-to-know formatting."
+                                   FontSize="13" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
+                                   IsVisible="{Binding !ShowsNeedToKnow}" />
+                        <StackPanel x:Name="NeedToKnowControls" Spacing="6" IsVisible="{Binding $parent[UserControl].((vm:WorkContextViewModel)DataContext).ShowsNeedToKnow, FallbackValue=False}"
+                                    x:DataType="vm:NeedToKnowBasisViewModel" DataContext="{x:Static vm:NeedToKnowBasisViewModel.Shared}">
                             <StackPanel.Styles>
                                 <Style Selector="Button.kcapSegmentItem.needToKnow">
                                     <Setter Property="Padding" Value="8,5" />
@@ -1038,6 +1048,7 @@
                                 </StackPanel>
                             </Border>
                         </StackPanel>
+                        </Panel>
                     </Border>
                 </StackPanel>
             </StackPanel>

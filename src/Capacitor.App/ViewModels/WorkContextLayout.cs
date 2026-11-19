@@ -13,4 +13,7 @@ public sealed class WorkContextLayout : ReactiveObject {
 
     bool _sessionExpanded;
     public bool SessionExpanded { get => _sessionExpanded; set => this.RaiseAndSetIfChanged(ref _sessionExpanded, value); }
+
+    bool _needToKnowExpanded = true;
+    public bool NeedToKnowExpanded { get => _needToKnowExpanded; set => this.RaiseAndSetIfChanged(ref _needToKnowExpanded, value); }
 }
