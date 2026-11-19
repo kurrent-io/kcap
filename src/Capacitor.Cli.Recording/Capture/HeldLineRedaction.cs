@@ -127,7 +127,7 @@ public sealed class HeldLineRedaction(HeldLineStore store, TimeProvider time, Ti
         if (_attempt is null && time.GetUtcNow() >= held.NextAttemptAt) {
             var budget = new RedactionBudget(redactionClock, BudgetFor(held.Attempts + 1));
             _attemptSha256 = held.LineSha256;
-            _attempt       = Task.Run(() => SecretRedactor.RedactLineWithOutcome(raw, budget, SecretRedactor.OutOfProcessPatterns.Value));
+            _attempt       = Task.Run(() => SecretRedactor.RedactLineWithOutcome(raw, budget, SecretRedactor.OutOfProcessPatterns));
         }
 
         return null;

@@ -1,6 +1,5 @@
 using Capacitor.Cli.Recording;
 using System.Net;
-using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Core.Harness.Cursor;
@@ -10,8 +9,7 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.Cli.Tests.Unit.Harness.Cursor;
 
 public class CursorTranscriptBackfillTests {
-    static readonly SecretPatterns UnboundedPatterns =
-        SecretRedactor.WatcherPatterns.WithMatchTimeout(Regex.InfiniteMatchTimeout);
+    static readonly SecretPatterns LongDeadlinePatterns = SecretRedactor.OutOfProcessPatterns;
 
     [Test]
     [Arguments(false, 2, 2)]
@@ -25,7 +23,7 @@ public class CursorTranscriptBackfillTests {
             (_, body) => { posted.Add(body); return new HttpResponseMessage(HttpStatusCode.OK); });
         using var client = new HttpClient(handler);
         var stats = await CursorTranscriptBackfill.RunAsync(Markers, client, "http://s", NewSessionId(), path,
-            () => posted.Count > 0, Frozen, CancellationToken.None, UnboundedPatterns, finalDrain: finalDrain);
+            () => posted.Count > 0, Frozen, CancellationToken.None, LongDeadlinePatterns, finalDrain: finalDrain);
         await Assert.That(stats.LinesPosted).IsEqualTo(expectedLines);
         await Assert.That(stats.Failed).IsFalse();
         await Assert.That(stats.FirstUnsentLine).IsEqualTo(firstUnsent);
@@ -42,7 +40,7 @@ public class CursorTranscriptBackfillTests {
         using var client = new HttpClient(handler);
 
         var stats = await CursorTranscriptBackfill.RunAsync(Markers, client, "http://s", NewSessionId(),
-            path, () => false, Frozen, CancellationToken.None, UnboundedPatterns);
+            path, () => false, Frozen, CancellationToken.None, LongDeadlinePatterns);
 
         await Assert.That(stats.Failed).IsFalse();
         await Assert.That(stats.LinesPosted).IsEqualTo(3);
@@ -93,7 +91,7 @@ public class CursorTranscriptBackfillTests {
         redactionClock.StallOnReading(ReadingsOfALine(line) + MidFirstTry, TimeSpan.FromSeconds(1.2));
 
         var stats = await CursorTranscriptBackfill.RunAsync(Markers, client, "http://s", NewSessionId(), path,
-            () => false, redactionClock, CancellationToken.None, UnboundedPatterns, finalDrain: true);
+            () => false, redactionClock, CancellationToken.None, LongDeadlinePatterns, finalDrain: true);
 
         await Assert.That(stats.FirstUnsentLine).IsEqualTo(1);
         await Assert.That(stats.LinesPosted).IsEqualTo(1);
@@ -105,7 +103,7 @@ public class CursorTranscriptBackfillTests {
 
     static int ReadingsOfALine(string line) {
         var clock = new StallingRedactionClock();
-        TranscriptCapture.EncodeUntilHeld([line], static () => false, clock, static (_, _) => { }, UnboundedPatterns);
+        TranscriptCapture.EncodeUntilHeld([line], static () => false, clock, static (_, _) => { }, LongDeadlinePatterns);
 
         return clock.Readings;
     }

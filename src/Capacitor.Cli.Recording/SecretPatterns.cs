@@ -22,26 +22,6 @@ public sealed class SecretPatterns {
     public required Regex UrlQuerySecretRegex { get; init; }
     public required Regex UrlUserinfoRegex { get; init; }
 
-    public SecretPatterns WithMatchTimeout(TimeSpan timeout) => new() {
-        SecretKeyNameRegex       = Rebuild(SecretKeyNameRegex, timeout),
-        PemBlockRegex            = Rebuild(PemBlockRegex, timeout),
-        AwsUniqueIdRegex         = Rebuild(AwsUniqueIdRegex, timeout),
-        VendorTokenRegex         = Rebuild(VendorTokenRegex, timeout),
-        JsonKeySecretRegex       = Rebuild(JsonKeySecretRegex, timeout),
-        EnvVarSecretRegex        = Rebuild(EnvVarSecretRegex, timeout),
-        YamlStyleSecretRegex     = Rebuild(YamlStyleSecretRegex, timeout),
-        ConnectionStringPwdRegex = Rebuild(ConnectionStringPwdRegex, timeout),
-        AuthHeaderRegex          = Rebuild(AuthHeaderRegex, timeout),
-        LabeledSecretRegex       = Rebuild(LabeledSecretRegex, timeout),
-        UrlQuerySecretRegex      = Rebuild(UrlQuerySecretRegex, timeout),
-        UrlUserinfoRegex         = Rebuild(UrlUserinfoRegex, timeout)
-    };
-
-    // Compiled is ignored under NativeAOT, which interprets a rebuilt set; elsewhere the
-    // interpreter would scan a recording several times slower than the generated code does.
-    static Regex Rebuild(Regex generated, TimeSpan timeout) =>
-        new(generated.ToString(), generated.Options | RegexOptions.Compiled, timeout);
-
     public bool IsSecretKey(ReadOnlySpan<char> propertyName, RedactionBudget budget) =>
         Matches(SecretKeyNameRegex, propertyName, budget);
 

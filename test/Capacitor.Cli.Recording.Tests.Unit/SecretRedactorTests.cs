@@ -13,7 +13,7 @@ public class SecretRedactorTests {
     // The watcher's per-pattern deadline is short enough for a loaded runner to reach on a small line, which turns a
     // vocabulary check into a timing one. Its own vocabulary is the out-of-process set, under a longer deadline.
     static string Redact(string line) =>
-        SecretRedactor.RedactLineWithOutcome(line, RedactionBudget.Unlimited, SecretRedactor.OutOfProcessPatterns.Value).Line;
+        SecretRedactor.RedactLineWithOutcome(line, RedactionBudget.Unlimited, SecretRedactor.OutOfProcessPatterns).Line;
 
     [Test]
     public async Task UnchangedUnicodeRecord_DoesNotNeedAnExpandedRewrite() {
@@ -123,28 +123,34 @@ public class SecretRedactorTests {
     }
 
     [Test]
-    public async Task OutOfProcessPatterns_AreTheWatcherVocabulary_UnderALongerDeadline() {
+    public async Task EachSet_IsTheWatcherVocabulary_UnderItsOwnDeadline() {
+        (SecretPatterns Patterns, int TimeoutMs)[] sets = [
+            (SecretRedactor.WatcherPatterns, SecretRedactor.WatcherMatchTimeoutMs),
+            (SecretRedactor.InlineRetryPatterns, SecretRedactor.InlineRetryMatchTimeoutMs),
+            (SecretRedactor.OutOfProcessPatterns, SecretRedactor.OutOfProcessMatchTimeoutMs)
+        ];
         var slots = typeof(SecretPatterns).GetProperties().Where(p => p.PropertyType == typeof(Regex)).ToList();
         await Assert.That(slots).IsNotEmpty();
+        await Assert.That(slots.Select(s => s.GetValue(SecretRedactor.WatcherPatterns)!.ToString()).Distinct().Count()).IsEqualTo(slots.Count);
 
         foreach (var slot in slots) {
-            var watcher      = (Regex)slot.GetValue(SecretRedactor.WatcherPatterns)!;
-            var outOfProcess = (Regex)slot.GetValue(SecretRedactor.OutOfProcessPatterns.Value)!;
-            await Assert.That(watcher.MatchTimeout).IsLessThan(SecretRedactor.OutOfProcessMatchTimeout);
-            await Assert.That(outOfProcess.MatchTimeout).IsEqualTo(SecretRedactor.OutOfProcessMatchTimeout);
-            await Assert.That(outOfProcess.ToString()).IsEqualTo(watcher.ToString());
-            await Assert.That(outOfProcess.Options & ~RegexOptions.Compiled).IsEqualTo(watcher.Options);
+            var watcher = (Regex)slot.GetValue(SecretRedactor.WatcherPatterns)!;
+            foreach (var (patterns, timeoutMs) in sets) {
+                var regex = (Regex)slot.GetValue(patterns)!;
+                await Assert.That(regex.MatchTimeout).IsEqualTo(TimeSpan.FromMilliseconds(timeoutMs)).Because(slot.Name);
+                await Assert.That(regex.ToString()).IsEqualTo(watcher.ToString()).Because(slot.Name);
+                await Assert.That(regex.Options).IsEqualTo(watcher.Options).Because(slot.Name);
+            }
         }
     }
 
     [Test]
-    public async Task ASuperLinearScan_StillMeetsItsDeadline_OnARebuiltSet() {
+    public async Task ASuperLinearScan_StillMeetsTheWatcherDeadline() {
         // A quote-less run of keywords sends the JSON-key pattern into quadratic backtracking, so
         // the deadline is the only thing that ends this scan.
-        var patterns = SecretRedactor.WatcherPatterns.WithMatchTimeout(TimeSpan.FromMilliseconds(50));
-        var value    = "\"" + string.Concat(Enumerable.Repeat("secret", 200_000)) + ":\n";
+        var value = "\"" + string.Concat(Enumerable.Repeat("secret", 200_000)) + ":\n";
 
-        await Assert.That(() => patterns.Redact(value, keyIsSecret: false, RedactionBudget.Unlimited))
+        await Assert.That(() => SecretRedactor.WatcherPatterns.Redact(value, keyIsSecret: false, RedactionBudget.Unlimited))
             .Throws<RegexMatchTimeoutException>();
     }
 
@@ -1280,7 +1286,7 @@ public class SecretRedactorTests {
     }
 
     static RedactionLossReason? LossOf(string line) =>
-        SecretRedactor.RedactLineWithOutcome(line, new RedactionBudget(TimeProvider.System, TimeSpan.FromMinutes(1)), SecretRedactor.OutOfProcessPatterns.Value).Loss;
+        SecretRedactor.RedactLineWithOutcome(line, new RedactionBudget(TimeProvider.System, TimeSpan.FromMinutes(1)), SecretRedactor.OutOfProcessPatterns).Loss;
 
     /// The largest growth a rewrite gives a line of <paramref name="bytes"/>: a redacted secret beside a value of DEL
     /// characters, each re-escaped at six bytes.
