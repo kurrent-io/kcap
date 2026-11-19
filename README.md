@@ -1778,24 +1778,27 @@ still never reads a credential location of its own accord — it only forwards w
 
 On Windows nothing is derived unless you ask for it. A gcloud credentials file that merely exists does not
 set `AGY_ADC_AUTH=1` there: that flag turns `agy` away from its own sign-in, and with it set and no project
-`agy` fails with `plan model not specified`. To use ADC there, log gcloud in, give it a project, and set
-the flag for the start command alone; `kcap daemon start`/`-d` then fills in the other two as above:
+`agy` fails with `plan model not specified`. ADC on Windows is therefore for a daemon you start yourself
+from a shell: log gcloud in, give it a project, stop the daemon that is running, and set the flag for the
+start command alone; `kcap daemon start`/`-d` then fills in the other two as above:
 
 ```powershell
 gcloud auth application-default login
 gcloud config set project <id>
+kcap daemon stop --name $env:USERNAME      # a service-managed one: kcap daemon service stop --name $env:USERNAME
 $env:AGY_ADC_AUTH = '1'; kcap daemon start -d --name $env:USERNAME; Remove-Item Env:AGY_ADC_AUTH
 ```
 
-Removing it afterwards matters: left set in your shell, it is the export the end of this section warns
-against. The desktop app does not do this for you. With no service installed it runs `kcap daemon start -d`
-from its own environment, where the flag is normally unset; with a service installed it starts that
-service, which derives nothing. Start the daemon from a shell as above when you want ADC. `service install`
-derives nothing either way and never carries the credential path, as it carries no secret-capable value
-into a Windows unit.
+The stop comes first because a start under the name of a running daemon is refused. Removing the flag
+afterwards matters too: left set in your shell, it is the export the end of this section warns against.
+Neither the desktop app nor a service does this for you. With no service installed the app runs
+`kcap daemon start -d` from its own environment, where the flag is normally unset; with one installed it
+starts that service, and `service install` derives nothing on Windows and never carries the credential
+path, as it carries no secret-capable value into a Windows unit. A service-managed daemon on Windows
+therefore has no ADC.
 
 A daemon already running from before you logged in needs a fresh start to pick the trio up — `kcap daemon
-stop` then `kcap daemon start`/`-d` (or re-run `service install`). `kcap daemon restart` reuses the running
+stop` then `kcap daemon start`/`-d` (or, on macOS and Linux, re-run `service install`). `kcap daemon restart` reuses the running
 process's own environment rather than re-deriving, so it will not.
 
 Deliberately unit-only: do **not** export `AGY_ADC_AUTH=1` in your interactive shell — under ADC auth agy
