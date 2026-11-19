@@ -132,9 +132,10 @@ public class CopilotImportSourceImportTests : IDisposable {
     /// first copied prompt's time and text, so the server links the two as the live watcher's marker does. The marker
     /// ends the copied history on the server, so it goes only once the server holds the resume that ends it.</summary>
     [Test]
-    [Arguments(2, true)]
-    [Arguments(1, false)]
-    public async Task An_import_of_a_chat_moved_from_local_names_its_local_chat(int serverLastLine, bool marked) {
+    [Arguments(2, 200, true)]
+    [Arguments(1, 200, false)]
+    [Arguments(2, 422, false)]
+    public async Task An_import_of_a_chat_moved_from_local_names_its_local_chat(int serverLastLine, int transcriptStatus, bool marked) {
         const string localId = "fa0d6e8d-7c9d-446f-a93c-5a2a89e011b4";
         var cwd = Path.Combine(_tempDir, "work", "a");
         var dir = Path.Combine(CopilotLayout.SessionStateDir, DashedSid);
@@ -156,8 +157,11 @@ public class CopilotImportSourceImportTests : IDisposable {
 
         _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody($$"""{"last_line_number":{{serverLastLine}}}"""));
-        foreach (var route in new[] { "/hooks/session-start/copilot", "/hooks/harness-title", "/hooks/set-title", "/hooks/session-end/copilot", "/hooks/transcript" })
+        foreach (var route in new[] { "/hooks/session-start/copilot", "/hooks/harness-title", "/hooks/set-title", "/hooks/session-end/copilot" })
             _server.Given(Request.Create().WithPath(route).UsingPost()).RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
+        // A rejected transcript batch stops a moved chat's send before its marker.
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(transcriptStatus).WithBody("{}"));
 
         using var client = new HttpClient();
         var source     = new CopilotImportSource(Config.Root, CopilotLayout, [storage], new GitProviderRouter(), TimeProvider.System);

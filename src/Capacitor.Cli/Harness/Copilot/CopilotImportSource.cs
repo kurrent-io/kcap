@@ -279,6 +279,9 @@ internal sealed class CopilotImportSource : IImportSource {
             _                                                => 0,
         };
 
+        // A moved chat's marker needs the resume that ends its copied history delivered, so a lost batch stops its send.
+        var movedBefore = classification.SourceMeta!.ContainsKey(ChatSessionLogKey) ? null : ReadMovedHistory(transcriptPath);
+
         int sent;
         try {
             sent = await SessionImporter.SendTranscriptBatches(
@@ -290,7 +293,7 @@ internal sealed class CopilotImportSource : IImportSource {
                 startLine:  startLine,
                 time:       _time,
                 vendor:     Vendor,
-                stopAtLoss: ctx.StopAtLoss,
+                stopAtLoss: ctx.StopAtLoss || movedBefore is not null,
                 progress:   ctx.Progress,
                 lineNumberFor: startLine > 0 && classification.SourceMeta.TryGetValue(NumberingKey, out var numbering)
                     ? numbering as Func<int, int?>
@@ -301,7 +304,7 @@ internal sealed class CopilotImportSource : IImportSource {
 
         var usageOk = classification.SourceMeta.GetValueOrDefault(ChatSessionLogKey) is string chatLog
             ? await PostVsCodeLocalAsync(ctx, classification.SessionId, transcriptPath, chatLog, ct)
-            : await PostMovedFromAsync(ctx, classification, transcriptPath, ct);
+            : await PostMovedFromAsync(ctx, classification, transcriptPath, movedBefore, ct);
 
         // Best-effort: a title miss must not fail the import.
         if (classification.SourceMeta.GetValueOrDefault(WorkspaceYamlKey) is string workspaceYaml) {
@@ -376,15 +379,21 @@ internal sealed class CopilotImportSource : IImportSource {
     }
 
     /// <summary>For a chat moved from Local, the marker naming the Local chat it came from, posted on every
-    /// classification as the usage lines are: it sits above the transcript watermark and dedupes by id. It goes only once
-    /// the server holds the resume that ends the copied history, as the file still has it: the server ends the history
-    /// at the marker. False when that resume is not held, or the server refused the marker, so the import can be run
-    /// again; a transcript of any other chat, or a Local chat not found, posts nothing.</summary>
-    async Task<bool> PostMovedFromAsync(ImportContext ctx, ImportCommand.SessionClassification classification, string transcriptPath, CancellationToken ct) {
+    /// classification as the usage lines are: it sits above the transcript watermark and dedupes by id. The server ends
+    /// the copied history at the marker, so it goes only when the send, which stops at a lost batch for a moved chat,
+    /// read the same history as <paramref name="before"/>, taken ahead of it, and the server holds the resume that ends
+    /// it. False when it does not, or the server refused the marker, so the import can be run again; a transcript of any
+    /// other chat, or a Local chat not found, posts nothing.</summary>
+    async Task<bool> PostMovedFromAsync(
+            ImportContext ctx, ImportCommand.SessionClassification classification, string transcriptPath, CopilotMovedChat.History? before,
+            CancellationToken ct
+        ) {
         var sessionId = classification.SessionId;
 
-        if (ReadMovedHistory(transcriptPath) is not { } history
-         || CopilotMovedChat.FindLocalChat(_vsCodeWorkspaceStorageDirs, history).Found is not { } local) return true;
+        if (before is null || CopilotMovedChat.FindLocalChat(_vsCodeWorkspaceStorageDirs, before).Found is not { } local) return true;
+        if (ReadMovedHistory(transcriptPath) != before) return false;
+
+        var history = before;
 
         var resumeAs = classification.SourceMeta?.GetValueOrDefault(NumberingKey) is Func<int, int?> numbering ? numbering(history.ResumeLine) : history.ResumeLine;
         if (resumeAs is not { } sentAs || await ServerLastLineAsync(ctx, sessionId, ct) is not { } held || held < sentAs) return false;
