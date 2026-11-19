@@ -2109,9 +2109,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 call.SessionOver = _ended;
             }
         }
+        // Kept until the feed changes or resets: the feed can reach the stream's start while a page this
+        // read has not applied yet still holds the calls these results settle.
+        foreach (var (id, result) in older.Orphans) _orphanResults.TryAdd(id, result);
         var hasOlder = _lease?.Feed is RemoteTranscriptFeed { HasOlder: true };
-        if (!hasOlder) _orphanResults.Clear();
-        else foreach (var (id, result) in older.Orphans) _orphanResults.TryAdd(id, result);
         _settledTools.UnionWith(older.Settled);
         _questionAsks.InsertRange(0, older.Questions);
         _planActivity?.Apply(older.Restored.Append(new ChatProjectionResult(matched, [], [])));
@@ -2121,6 +2122,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (older.OpenShell is { HasOutput: false } shell && _items.Count > 0 && _items[0] is ShellCommandItem { HasCommand: false } output) {
             shell.Output = output.Output;
             _items.RemoveAt(0);
+        }
+        // With no rows shown, the page's open group or command is the newest row, which live events continue.
+        if (_items.Count == 0) {
+            _openGroup = older.OpenGroup;
+            _openShell = older.OpenShell;
         }
         if (older.Fresh.Count > 0) {
             foreach (var call in older.Fresh.OfType<ToolGroupItem>().SelectMany(static group => group.Calls))

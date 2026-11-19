@@ -96,7 +96,8 @@ public sealed class SessionRuns(TimeProvider time) {
         Reset();
         foreach (var projection in log) Fold(projection);
         _history = log;
-        Refresh();
+        // The rows are new objects even when their counts are not, and a listener holding the old ones must re-read.
+        if (!Refresh()) Changed?.Invoke();
     }
 
     /// The run signals and tool-result keys: the only parts Fold reads.
@@ -346,7 +347,8 @@ public sealed class SessionRuns(TimeProvider time) {
         iso is not null && DateTimeOffset.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at)
             ? at : time.GetUtcNow();
 
-    void Refresh() {
+    /// True when it raised Changed.
+    bool Refresh() {
         var now = time.GetUtcNow();
         Span<int> counts = stackalloc int[_counts.Length];
         foreach (var row in _rows) {
@@ -357,9 +359,10 @@ public sealed class SessionRuns(TimeProvider time) {
         StableRows.Sync(_agents, _rows.Where(row => !row.IsShell));
         StableRows.Sync(_runningAgents, _running.Where(row => !row.IsShell));
         var runningBackground = _running.Count(row => row.IsBackground);
-        if (counts.SequenceEqual(_counts) && runningBackground == _runningBackground) return;
+        if (counts.SequenceEqual(_counts) && runningBackground == _runningBackground) return false;
         counts.CopyTo(_counts);
         _runningBackground = runningBackground;
         Changed?.Invoke();
+        return true;
     }
 }

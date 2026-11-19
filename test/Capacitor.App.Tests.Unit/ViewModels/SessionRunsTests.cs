@@ -1256,4 +1256,19 @@ public class SessionRunsTests {
         await Assert.That(changes).IsEqualTo(0);
         await Assert.That(runs.RunningCount).IsEqualTo(1);
     }
+
+    /// A rebuild that leaves the counts as they were still says so: its rows are new objects.
+    [Test]
+    public async Task A_prepend_that_rebuilds_rows_raises_changed_with_unchanged_counts() {
+        var runs = new SessionRuns(Clock()) { KeepsHistory = true };
+        runs.ApplyAll([Signals(Started("a1"))]);
+        var before = runs.Running.Single();
+        var changes = 0;
+        runs.Changed += () => changes++;
+
+        runs.Prepend([Result("unrelated")]);
+
+        await Assert.That(changes).IsEqualTo(1);
+        await Assert.That(runs.Running.Single()).IsNotSameReferenceAs(before);
+    }
 }

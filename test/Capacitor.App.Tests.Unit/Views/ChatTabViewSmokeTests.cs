@@ -298,6 +298,16 @@ public class ChatTabViewSmokeTests {
             await Assert.That(TextOf(chat.Items[0])).IsEqualTo("message 0");
             await Assert.That(feed!.HasOlder).IsFalse();
 
+            // A scroll asked for right after rows go in above lands where it was asked to, not where the
+            // insertion's pending correction would put it.
+            var rows = (Avalonia.Collections.AvaloniaList<ChatItemViewModel>)chat.Items;
+            rows.InsertRange(0, [new AssistantTextItem("extra 1", null), new AssistantTextItem("extra 2", null)]);
+            list.ScrollIntoView(500);
+            Settle();
+            var target = list.ContainerFromIndex(500)?.TranslatePoint(default, Scroll())?.Y;
+            await Assert.That(target).IsNotNull();
+            await Assert.That(target!.Value).IsBetween(-1, Scroll().Viewport.Height);
+
             // A jump straight back to where the reader was before the insert realizes the rows there.
             Scroll().Offset = new Vector(0, 0);
             Settle();

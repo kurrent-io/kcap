@@ -238,23 +238,34 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     /// Pages forward from a count to the stream's end, returning the last fetch, or the first that failed,
     /// and the number of the first event read.
+    /// Each later page starts one event early: that event coming back first shows the count still lines up.
+    /// When it does not, events aged out between pages, and the page is asked for again that much earlier.
     async Task<(StreamEventsFetch Fetch, long? First)> ReadForwardAsync(long from, List<ProjectedLine> lines, ScheduledPrompts scheduled, CancellationToken ct) {
         long? first = null;
+        long? last = null;
+        var realigned = false;
         while (true) {
             var fetch = await _readEvents(_sessionId, from, MaxPage, ct).ConfigureAwait(false);
             if (fetch.Page is not { } page) return (fetch, first);
-            var number = ProjectInto(page, lines, scheduled);
+            if (last is { } seen && !realigned && from > 0 && page.Events is [var lead, ..] && lead.EventNumber > seen) {
+                from = Math.Max(0, from - (lead.EventNumber - seen));
+                realigned = true;
+                continue;
+            }
+            realigned = false;
+            var number = ProjectInto(page, lines, scheduled, above: last ?? long.MinValue);
             first ??= number;
+            if (page.Events is [.., var tail]) last = Math.Max(last ?? tail.EventNumber, tail.EventNumber);
             if (page.NextFrom is not { } next || next <= from) return (fetch, first);
-            from = next;
+            from = next - 1;
         }
     }
 
     /// The number of the page's first event, if it has one.
-    long? ProjectInto(StreamEventsPage page, List<ProjectedLine> lines, ScheduledPrompts scheduled, long below = long.MaxValue) {
+    long? ProjectInto(StreamEventsPage page, List<ProjectedLine> lines, ScheduledPrompts scheduled, long below = long.MaxValue, long above = long.MinValue) {
         long? first = null;
         foreach (var evt in page.Events ?? []) {
-            if (evt.EventNumber >= below) continue;
+            if (evt.EventNumber >= below || evt.EventNumber <= above) continue;
             first ??= evt.EventNumber;
             if (evt.Body is { } body && Project(evt.EventType, body.GetRawText(), evt.Vendors, null, evt.EventNumber, evt.Timestamp, scheduled) is { } line)
                 lines.Add(line);
@@ -273,20 +284,29 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             var oldest = _oldest;
             var run = Task.Run(() => LoadOlderAsync(earliest, oldest, token));
             _olderRun = run;
-            PendingOlderForTesting = run.ContinueWith(_ => { lock (_lock) _olderRun = null; }, TaskScheduler.Default);
+            PendingOlderForTesting = run.ContinueWith(_ => { lock (_lock) if (ReferenceEquals(_olderRun, run)) _olderRun = null; }, TaskScheduler.Default);
         }
         return true;
     }
 
     /// Events past the oldest loaded one in the reply mean the stream's oldest events aged out since it
     /// was counted: the count is worked out again from the reply and the page read once more.
+    /// A failed read waits on the tail's ladder and tries again while the feed lives; a refusal stops it.
     async Task LoadOlderAsync(long earliest, long? oldest, CancellationToken ct) {
-        try {
-            // A page that projects nothing leaves the pane nothing to scroll for, so the next one follows.
-            while (await LoadOlderPageAsync(earliest, oldest, ct).ConfigureAwait(false) is { } next) (earliest, oldest) = next;
-        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
-        } catch (Exception ex) {
-            _log($"remote transcript: older events: {ex.Message}");
+        var failures = 0;
+        while (!ct.IsCancellationRequested) {
+            try {
+                // A page that projects nothing leaves the pane nothing to scroll for, so the next one follows.
+                while (await LoadOlderPageAsync(earliest, oldest, ct).ConfigureAwait(false) is { } next) (earliest, oldest) = next;
+                return;
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                return;
+            } catch (Exception ex) {
+                if (failures == 0) _log($"remote transcript: older events: {ex.Message}");
+            }
+            lock (_lock) if (_disposed || _earliest != earliest) return;
+            try { await Task.Delay(Retry[Math.Min(failures++, Retry.Length - 1)], _time, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) { return; }
         }
     }
 
@@ -297,10 +317,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         for (var tries = 0; ; tries++) {
             var from = Math.Max(0, count - window);
             var fetch = await _readEvents(_sessionId, from, (int)(count - from), ct).ConfigureAwait(false);
-            if (fetch.Page is not { } page) {
-                LogOlder(fetch);
-                return null;
-            }
+            if (fetch.Page is not { } page) return Refused(fetch);
             if (tries == 0 && oldest is { } known && page.Events is [var first, ..] && page.Events.Any(e => e.EventNumber >= known)) {
                 count = Math.Max(0, known - (first.EventNumber - from));
                 if (count > 0) continue;
@@ -312,34 +329,45 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             var firstNumber = ProjectInto(page, lines, scheduled, below: oldest ?? long.MaxValue);
             ScheduledPrompts current;
             lock (_lock) current = _scheduled;
+            // One lock for the check and the merge: a live line asked about between them would miss both.
             bool reclassifies;
-            lock (current) reclassifies = scheduled.AwaitsCompactEcho || scheduled.Prompts.Any(current.Declined!.Contains);
+            lock (current) {
+                reclassifies = scheduled.AwaitsCompactEcho || scheduled.Prompts.Any(current.Declined!.Contains);
+                if (!reclassifies) {
+                    current.Include(scheduled);
+                    current.Declined!.UnionWith(scheduled.Declined!);
+                }
+            }
             if (reclassifies) {
                 await RereadAsync(earliest, from, ct).ConfigureAwait(false);
                 return null;
-            }
-            lock (current) {
-                current.Include(scheduled);
-                current.Declined!.UnionWith(scheduled.Declined!);
             }
             if (!Commit(earliest, from, firstNumber ?? oldest, lines) || lines.Count > 0 || from == 0) return null;
             return (from, firstNumber ?? oldest);
         }
     }
 
+    /// A commit that ends the run frees the next request before the pane hears of it, so a request made
+    /// while handling the change is not turned away.
     bool Commit(long earliest, long from, long? oldest, List<ProjectedLine> lines) {
+        var ends = lines.Count > 0 || from == 0;
         lock (_lock) {
             if (_disposed || _earliest != earliest) return false;
             _earliest = from;
             _oldest = oldest;
             _older.InsertRange(0, lines);
+            if (ends) _olderRun = null;
         }
-        if (lines.Count > 0 || from == 0) Changed?.Invoke();
+        if (ends) Changed?.Invoke();
         return true;
     }
 
-    void LogOlder(StreamEventsFetch fetch) =>
-        _log($"remote transcript: older events: {fetch.Failure ?? (fetch.NotFound ? "not found" : "not signed in")}");
+    /// Null for a refusal, which stops paging; any other failure throws, for the retry.
+    (long Earliest, long? Oldest)? Refused(StreamEventsFetch fetch) {
+        if (!fetch.NotFound && !fetch.Unauthorized) throw new InvalidOperationException(fetch.Failure ?? "could not read older events");
+        _log($"remote transcript: older events: {(fetch.NotFound ? "not found" : "not signed in")}");
+        return null;
+    }
 
     /// Everything loaded, read again from the new oldest event under the prompts it schedules, and
     /// delivered as a seed. Lines the pane has not drained yet stay out of that history and follow it,
@@ -358,7 +386,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         }
         if (fetch.Page is not { } page) {
             lock (_lock) _liveDuringReread = null;
-            LogOlder(fetch);
+            Refused(fetch);
             return;
         }
         lock (_lock) {
@@ -372,7 +400,13 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             var later = undrained.Where(line => line.Offset > reached).ToList();
             var boundary = _delivered;
             var history = lines.Where(line => line.Offset <= boundary).ToList();
+            // Live events past the reply were read under the state being replaced; what they scheduled stays.
+            lock (_scheduled) {
+                scheduled.Include(_scheduled);
+                scheduled.Declined!.UnionWith(_scheduled.Declined!);
+            }
             _scheduled = scheduled;
+            _olderRun = null;
             _earliest = from;
             _oldest = oldest;
             _position = Math.Max(position, reached);

@@ -257,6 +257,31 @@ public partial class ChatTabViewModelTests {
         } finally { await chat.TeardownAsync(); }
     });
 
+    /// With no rows shown, a `!` command on an older page is still the row live output lands in.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Live_output_joins_a_shell_command_paged_in_behind_rowless_events() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var lane = new FakeServerLane();
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 400).Select(i => i switch {
+            99 => RemoteFixtures.Event(i, CanonicalEventTypes.UserMessageReceived, """{"content":"<bash-input>ls</bash-input>"}"""),
+            < 99 => TextEvent(i),
+            _ => ResultEvent(i, $"x{i}"),
+        })]);
+        var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, Observable.Return(Ended("s1")), Observable.Return<string[]?>(null),
+            new AcceptingChatInput(), new NoAttachmentUploader(), key => new RemoteTranscriptFeed(key, "claude", access, server.Reader, lane, time, _ => { }),
+            new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time));
+        try {
+            await WaitUntilAsync(() => chat.Items.OfType<ShellCommandItem>().Any(), what: "the paged-in command");
+            lane.PushStreamEvent(RemoteFixtures.Envelope("s1", 400, CanonicalEventTypes.UserMessageReceived,
+                """{"content":"<bash-stdout>a.txt</bash-stdout><bash-stderr></bash-stderr>"}"""));
+            await WaitUntilAsync(() => chat.Items.OfType<ShellCommandItem>().Single().HasOutput, what: "the output on the command");
+
+            await Assert.That(chat.Items.OfType<ShellCommandItem>().Count()).IsEqualTo(1);
+        } finally { await chat.TeardownAsync(); }
+    });
+
     sealed class HeldFeed(ManualResetEventSlim entered, ManualResetEventSlim release) : IChatTranscriptFeed {
         public long? CurrentOffset => 0;
         public FeedRead ReadAppended() {

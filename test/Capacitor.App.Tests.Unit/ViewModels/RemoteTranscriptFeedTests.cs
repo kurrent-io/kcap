@@ -698,18 +698,123 @@ public class RemoteTranscriptFeedTests {
             entered.TrySetResult();
             return held.Task;
         };
-
-        await Assert.That(feed.RequestOlder()).IsTrue();
-        await entered.Task;
-        lane.PushStreamEvent(Envelope("s1", 400, CanonicalEventTypes.AssistantTextGenerated, """{"content":"live"}"""));
-        await WaitUntilAsync(() => feed.CurrentOffset == 401, what: "the live line");
-        await Assert.That(feed.ReadAppended().Lines.Single().Offset).IsEqualTo(400);
-        held.SetResult();
+        try {
+            await Assert.That(feed.RequestOlder()).IsTrue();
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            lane.PushStreamEvent(Envelope("s1", 400, CanonicalEventTypes.AssistantTextGenerated, """{"content":"live"}"""));
+            await WaitUntilAsync(() => feed.CurrentOffset == 401, what: "the live line");
+            await Assert.That(feed.ReadAppended().Lines.Single().Offset).IsEqualTo(400);
+        } finally {
+            held.TrySetResult();
+        }
         await feed.PendingOlderForTesting!;
 
         var reread = feed.ReadAppended();
         await Assert.That(reread.Status).IsEqualTo(FeedStatus.Reset);
         await Assert.That(reread.Lines[^1].Offset).IsEqualTo(400);
         await Assert.That(reread.SnapshotOffset).IsEqualTo(401);
+    }
+
+    static List<SessionEventDto> WakeUpBeforeWindow() {
+        var events = new List<SessionEventDto> {
+            Event(0, CanonicalEventTypes.AssistantToolCallsGenerated,
+                """{"tool_calls":[{"call_id":"t1","tool_name":"ScheduleWakeup","arguments":{"prompt":"check CI"}}]}"""),
+        };
+        events.AddRange(Enumerable.Range(1, 398).Select(i => Text(i, $"m{i}")));
+        events.Add(Event(399, CanonicalEventTypes.UserMessageReceived, """{"content":"check CI"}"""));
+        return events;
+    }
+
+    /// A wake-up a live event scheduled while a re-read was out still hides the prompt it schedules.
+    [Test]
+    public async Task A_wake_up_scheduled_live_during_a_reread_still_hides_its_prompt() {
+        var server = new FakeSessionEvents([.. WakeUpBeforeWindow()]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = Open(server, lane, access, vendor: "claude");
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+        feed.ReadAppended();
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        server.Gate = () => {
+            if (Interlocked.Increment(ref calls) < 2) return Task.CompletedTask;
+            entered.TrySetResult();
+            return held.Task;
+        };
+        try {
+            await Assert.That(feed.RequestOlder()).IsTrue();
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            lane.PushStreamEvent(Envelope("s1", 400, CanonicalEventTypes.AssistantToolCallsGenerated,
+                """{"tool_calls":[{"call_id":"t2","tool_name":"ScheduleWakeup","arguments":{"prompt":"recheck"}}]}"""));
+            await WaitUntilAsync(() => feed.CurrentOffset == 401, what: "the live schedule");
+        } finally {
+            held.TrySetResult();
+        }
+        await feed.PendingOlderForTesting!;
+        feed.ReadAppended();
+        feed.ReadAppended();
+
+        lane.PushStreamEvent(Envelope("s1", 401, CanonicalEventTypes.UserMessageReceived, """{"content":"recheck"}"""));
+        await WaitUntilAsync(() => feed.CurrentOffset == 402, what: "the prompt");
+        await Assert.That(feed.ReadAppended().Lines.Single().Projection.Envelopes).IsEmpty();
+    }
+
+    /// Events that age out between two pages of a forward read move the count; the next page is asked for
+    /// again so none of the events after the first page is skipped.
+    [Test]
+    public async Task A_forward_read_across_events_aging_out_skips_nothing() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 2500).Select(i => Text(i, $"m{i}"))]);
+        var calls = 0;
+        server.Gate = () => {
+            if (Interlocked.Increment(ref calls) == 2) server.Events.RemoveRange(0, 50);
+            return Task.CompletedTask;
+        };
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, window: null);
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+
+        await Assert.That(feed.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 2500).Select(i => (long)i));
+    }
+
+    /// The pane's request for the next page, made while it handles the one that just landed, is taken.
+    [Test]
+    public async Task A_request_made_while_handling_a_page_is_taken() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 1000).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = Open(server, lane, access);
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+        feed.ReadAppended();
+        var taken = new List<bool>();
+        feed.Changed += () => { lock (taken) if (taken.Count == 0) taken.Add(feed.RequestOlder()); };
+
+        await Assert.That(feed.RequestOlder()).IsTrue();
+        await WaitUntilAsync(() => { lock (taken) return taken.Count == 1; }, what: "the handler's request");
+
+        await Assert.That(taken[0]).IsTrue();
+    }
+
+    /// An older page that fails as an unreachable server would is read again after the retry gap.
+    [Test]
+    public async Task A_failed_older_page_is_read_again() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        var time = new FakeTimeProvider();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, time, _ => { });
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+        feed.ReadAppended();
+        server.FailNext = 1;
+
+        await Assert.That(feed.RequestOlder()).IsTrue();
+        // The retry gap is a timer on the fake clock, which may not be registered yet when the failure lands.
+        await WaitUntilAsync(() => {
+            time.Advance(RemoteTranscriptFeed.Retry[0]);
+            return feed.PendingOlderForTesting!.IsCompleted;
+        }, what: "the retried page");
+
+        await Assert.That(feed.ReadAppended().Older.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(100, 300).Select(i => (long)i));
     }
 }

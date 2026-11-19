@@ -13,6 +13,8 @@ sealed class FakeSessionEvents(params SessionEventDto[] events) {
     public long EmptyLastEventNumber { get; set; } = -1;
     public bool NotFound { get; set; }
     public bool Unauthorized { get; set; }
+    /// How many of the next requests fail as an unreachable server would.
+    public int FailNext { get; set; }
     /// Each request waits for this before answering, when set.
     public Func<Task>? Gate { get; set; }
 
@@ -21,6 +23,12 @@ sealed class FakeSessionEvents(params SessionEventDto[] events) {
         var limit = asked ?? 1000;
         lock (_lock) Requests.Add((from, limit));
         if (Gate is { } gate) await gate();
+        lock (_lock) {
+            if (FailNext > 0) {
+                FailNext--;
+                return new(null, Failure: "HTTP 503");
+            }
+        }
         if (NotFound) return new(null, NotFound: true);
         if (Unauthorized) return new(null, Unauthorized: true);
         lock (_lock) return new(Page(Events, Events.Count == 0 ? EmptyLastEventNumber : Events[^1].EventNumber, from, limit));

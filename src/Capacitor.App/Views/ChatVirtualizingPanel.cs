@@ -167,9 +167,9 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
             // The presenter takes the grown extent only after this pass; an offset set now is clamped to the old one.
             void Apply(object? sender, EventArgs e) {
                 scroll.LayoutUpdated -= Apply;
+                _insertArranged = false;
                 if (_insertAnchor is not var (item, within, inset)) return;
                 _insertAnchor = null;
-                _insertArranged = false;
                 var index = -1;
                 for (var i = 0; i < Items.Count && index < 0; i++)
                     if (ReferenceEquals(Items[i], item)) index = i;
@@ -263,12 +263,17 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
 
     protected override Control? ScrollIntoView(int index) {
         if (index < 0 || index >= Items.Count) return null;
+        // An explicit scroll outranks the correction a recent insertion still has pending. Until that
+        // correction lands the viewport has moved and the offset has not, so the offset is set outright.
+        var pending = _insertAnchor;
+        _insertAnchor = null;
+        _shiftInFlight = 0;
         if (_starts.Length != Items.Count + 1) RebuildStarts();
         var row = Realize(index);
         InvalidateMeasure();
         if (this.FindAncestorOfType<ScrollViewer>() is { } scroll) {
-            var delta = _starts[index] - _viewport.Top;
-            scroll.Offset = new Vector(scroll.Offset.X, scroll.Offset.Y + delta);
+            var target = pending is { Inset: var inset } ? _starts[index] + inset : scroll.Offset.Y + _starts[index] - _viewport.Top;
+            scroll.Offset = new Vector(scroll.Offset.X, target);
         }
         return row.Container;
     }
