@@ -6,6 +6,8 @@
                      xmlns:svc="clr-namespace:Capacitor.App.Services"
                      xmlns:onboarding="clr-namespace:Capacitor.App.Views.Onboarding"
                      xmlns:rail="clr-namespace:Capacitor.App.Views.Rail"
+                     xmlns:pages="clr-namespace:Capacitor.App.ViewModels.Pages"
+                     xmlns:pageViews="clr-namespace:Capacitor.App.Views.Pages"
                      x:Class="Capacitor.App.Views.MainWindow"
                      x:TypeArguments="vm:MainWindowViewModel"
                      x:DataType="vm:MainWindowViewModel"
@@ -56,8 +58,7 @@
                             <Grid.IsVisible>
                                 <MultiBinding Converter="{x:Static BoolConverters.And}">
                                     <Binding Path="CurrentWorkspace" Converter="{x:Static ObjectConverters.IsNull}" />
-                                    <Binding Path="WorkItemPage" Converter="{x:Static ObjectConverters.IsNull}" />
-                                    <Binding Path="AllSessionsPage" Converter="{x:Static ObjectConverters.IsNull}" />
+                                    <Binding Path="Page" Converter="{x:Static ObjectConverters.IsNull}" />
                                 </MultiBinding>
                             </Grid.IsVisible>
                             <Grid x:Name="LauncherHeader" Grid.Row="0" ColumnDefinitions="*,Auto" Background="Transparent"
@@ -84,8 +85,7 @@
                             <ContentControl.IsVisible>
                                 <MultiBinding Converter="{x:Static BoolConverters.And}">
                                     <Binding Path="CurrentWorkspace" Converter="{x:Static ObjectConverters.IsNotNull}" />
-                                    <Binding Path="WorkItemPage" Converter="{x:Static ObjectConverters.IsNull}" />
-                                    <Binding Path="AllSessionsPage" Converter="{x:Static ObjectConverters.IsNull}" />
+                                    <Binding Path="Page" Converter="{x:Static ObjectConverters.IsNull}" />
                                 </MultiBinding>
                             </ContentControl.IsVisible>
                             <ContentControl.DataTemplates>
@@ -98,11 +98,20 @@
                             </ContentControl.DataTemplates>
                         </ContentControl>
 
-                        <views:WorkItemPageView x:Name="WorkItemCover" DataContext="{Binding WorkItemPage}"
-                                                IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
-
-                        <views:AllSessionsPageView x:Name="AllSessionsCover" DataContext="{Binding AllSessionsPage}"
-                                                   IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                        <ContentControl x:Name="PageHost" Content="{Binding Page}"
+                                        IsVisible="{Binding Page, Converter={x:Static ObjectConverters.IsNotNull}}">
+                            <ContentControl.DataTemplates>
+                                <DataTemplate x:DataType="pages:SessionsPageViewModel">
+                                    <pageViews:SessionsPageView />
+                                </DataTemplate>
+                                <DataTemplate x:DataType="pages:WorkItemsPageViewModel">
+                                    <pageViews:WorkItemsPageView />
+                                </DataTemplate>
+                                <DataTemplate x:DataType="pages:WorkItemPageViewModel">
+                                    <pageViews:WorkItemPageView />
+                                </DataTemplate>
+                            </ContentControl.DataTemplates>
+                        </ContentControl>
 
                         <Border x:Name="SwitchCover" Background="{StaticResource KcapCanvasBrush}" IsVisible="False">
                             <views:StillImage x:Name="SwitchCoverStill" />

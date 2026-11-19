@@ -3,7 +3,7 @@ using System.Reactive;
 using Lucide.Avalonia;
 using ReactiveUI.Reactive;
 
-namespace Capacitor.App.ViewModels;
+namespace Capacitor.App.ViewModels.Pages;
 
 /// One slice's row. <see cref="Tip"/> names what a blocked slice waits on. <see cref="NeedsYou"/> comes from the
 /// viewer's own sessions, so it never moves the slice between groups.

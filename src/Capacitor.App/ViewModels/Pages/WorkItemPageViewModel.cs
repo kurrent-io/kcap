@@ -9,11 +9,11 @@ using Capacitor.Remote.Models;
 using Lucide.Avalonia;
 using ReactiveUI.Reactive;
 
-namespace Capacitor.App.ViewModels;
+namespace Capacitor.App.ViewModels.Pages;
 
 /// A work item's page in the main area: its goal and slices grouped by status, with its links and Pages beside them. Statuses and progress
 /// are the server's, the same for every viewer; sessions and "Needs you" cover only what this viewer can see.
-public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
+public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     const string LooseEndsKey = "loose_ends";
     const string OnWorkItemKey = "on_work_item";
 
@@ -28,6 +28,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IDisposable {
     IReadOnlySet<string> _needsYou = FrozenSet<string>.Empty;
 
     public string WorkItemId { get; }
+    public PageKey Key => new PageKey.WorkItem(WorkItemId);
 
     string _title = "";
     public string Title { get => _title; private set => this.RaiseAndSetIfChanged(ref _title, value); }

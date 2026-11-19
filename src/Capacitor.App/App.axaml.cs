@@ -29,6 +29,7 @@ using Capacitor.Cli.Core.Install;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.NextWork;
 using Capacitor.App.ViewModels.Onboarding;
+using Capacitor.App.ViewModels.Pages;
 using ReactiveUI.Reactive;
 using Capacitor.App.Views;
 using Capacitor.Cli.Core;
@@ -2461,21 +2462,26 @@ public partial class App : Application {
                 openSidebar: row => vm?.OpenSession(row.Id, row.IsServer ? AgentOrigin.Server : row.IsRemote ? AgentOrigin.Remote : AgentOrigin.Local) == true,
                 viewerUserId: sessions.ViewerUserId.ObserveOn(RxSchedulers.MainThreadScheduler));
         var flippedWorkItemGroups = new HashSet<string>(StringComparer.Ordinal);
-        Func<string, WorkItemPageViewModel>? workItemPageFactory = workItemPages is null || sessions is null ? null : id => new WorkItemPageViewModel(
-            id, workItemPages, resolvedDirectory, time, flippedWorkItemGroups,
-            needsYou: (agentsWithPending ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty))
-                .CombineLatest(agentsAwaitingAnswer ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty),
-                    (permissions, answers) => (IReadOnlySet<string>)permissions.Union(answers).ToFrozenSet(StringComparer.Ordinal)),
-            changed: sessions.Snapshots.Select(_ => Unit.Default).Merge(workItemPages.Changed),
-            openSession: sessionId => _ = vm?.OpenWorkItemSessionAsync(sessionId),
-            openUrl: openUrl,
-            openInWeb: openUrl is null || string.IsNullOrEmpty(appServerUrl) ? null
-                : () => openUrl($"{appServerUrl.TrimEnd('/')}/work-items/{Uri.EscapeDataString(id)}"),
-            viewPage: pageContent is null || inAppPages is null ? null : (pageId, url) => inAppPages()
-                ? new PageViewerViewModel(pageContent, pageId, url, new ShellUrlOpener(), time, webViewAvailable: true) : null);
-        Func<AllSessionsPageViewModel>? allSessionsPageFactory = sessions is null ? null : () => new AllSessionsPageViewModel(
-            sessions, rail.WhenAnyValue(r => r.Scope, r => r.Project, (scope, project) => (scope, project)), time,
-            openSession: sessionId => _ = vm?.OpenAllSessionsSessionAsync(sessionId));
+        Func<PageKey, IPage?>? pages = sessions is null ? null : key => key switch {
+            PageKey.WorkItem { Id: var id } when workItemPages is not null => new WorkItemPageViewModel(
+                id, workItemPages, resolvedDirectory, time, flippedWorkItemGroups,
+                needsYou: (agentsWithPending ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty))
+                    .CombineLatest(agentsAwaitingAnswer ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty),
+                        (permissions, answers) => (IReadOnlySet<string>)permissions.Union(answers).ToFrozenSet(StringComparer.Ordinal)),
+                changed: sessions.Snapshots.Select(_ => Unit.Default).Merge(workItemPages.Changed),
+                openSession: sessionId => _ = vm?.OpenPageSessionAsync(sessionId),
+                openUrl: openUrl,
+                openInWeb: openUrl is null || string.IsNullOrEmpty(appServerUrl) ? null
+                    : () => openUrl($"{appServerUrl.TrimEnd('/')}/work-items/{Uri.EscapeDataString(id)}"),
+                viewPage: pageContent is null || inAppPages is null ? null : (pageId, url) => inAppPages()
+                    ? new PageViewerViewModel(pageContent, pageId, url, new ShellUrlOpener(), time, webViewAvailable: true) : null),
+            PageKey.SessionsKey => new SessionsPageViewModel(
+                sessions, rail.WhenAnyValue(r => r.Scope, r => r.Project, (scope, project) => (scope, project)), time,
+                openSession: sessionId => _ = vm?.OpenPageSessionAsync(sessionId)),
+            PageKey.WorkItemsKey when readWorkItems is not null => new WorkItemsPageViewModel(
+                readWorkItems, rail.WhenAnyValue(r => r.Project), openWorkItem: id => vm?.OpenWorkItemCommand.Execute(id).Subscribe()),
+            _ => null,
+        };
         vm = new MainWindowViewModel(
             service, shutdownToken, activity, time, startAction, lifecycleStatus, home: home,
             navigation: navigation, trackWorkspaceTeardown: trackWorkspaceTeardown, workspaceFactory: workspaceFactory,
@@ -2483,8 +2489,7 @@ public partial class App : Application {
             laneStatus: lane?.Status, restartPending: restartPending, daemonOnOtherInstall: daemonOnOtherInstall,
             originOf: originOf, remoteWorkspaceFactory: remoteWorkspaceFactory, directory: resolvedDirectory,
             serverWorkspaceFactory: serverWorkspaceFactory, sessions: sessions,
-            searchFactory: searchFactory, appServerUrl: appServerUrl, workItemPageFactory: workItemPageFactory,
-            allSessionsPageFactory: allSessionsPageFactory,
+            searchFactory: searchFactory, appServerUrl: appServerUrl, pages: pages,
             openFeedback: openFeedback, opener: new ShellUrlOpener(), requestSignIn: requestSignIn,
             settingsAction: settingsAction, checkForUpdatesAction: checkForUpdatesAction,
             uninstallAction: uninstallAction, requestSetup: requestSetup, historyImport: historyImport,
@@ -2497,8 +2502,7 @@ public partial class App : Application {
         window.DataContext = vm;
         window.Closed += (_, _) => {
             vm.Search?.Dispose();
-            vm.WorkItemPage?.Dispose();
-            vm.AllSessionsPage?.Dispose();
+            vm.Page?.Dispose();
         };
         // An adopted window still holds the labels over the directory it was built with.
         window.GetValue(MarkdownView.AgentLinksProperty)?.Dispose();

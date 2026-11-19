@@ -2,9 +2,9 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
-using Capacitor.App.ViewModels;
+using Capacitor.App.ViewModels.Pages;
 
-namespace Capacitor.App.Views;
+namespace Capacitor.App.Views.Pages;
 
 /// A work item's page drawn over the main area. DataContext is its WorkItemPageViewModel.
 public partial class WorkItemPageView : UserControl {

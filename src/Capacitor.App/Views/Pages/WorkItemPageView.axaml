@@ -2,8 +2,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              xmlns:views="clr-namespace:Capacitor.App.Views"
-             x:Class="Capacitor.App.Views.WorkItemPageView"
-             x:DataType="vm:WorkItemPageViewModel">
+             xmlns:pages="clr-namespace:Capacitor.App.ViewModels.Pages"
+             xmlns:local="clr-namespace:Capacitor.App.Views.Pages"
+             x:Class="Capacitor.App.Views.Pages.WorkItemPageView"
+             x:DataType="pages:WorkItemPageViewModel">
     <UserControl.Styles>
         <Style Selector="TextBlock.bar">
             <Setter Property="FontSize" Value="15" />
@@ -80,7 +82,7 @@
     </UserControl.Styles>
 
     <UserControl.Resources>
-        <DataTemplate x:Key="LinkRow" x:DataType="vm:WorkItemPageLink">
+        <DataTemplate x:Key="LinkRow" x:DataType="pages:WorkItemPageLink">
             <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="8">
                 <views:AppIcon Kind="{Binding Icon}" Size="14" Foreground="{StaticResource KcapFaintBrush}"
                                IsVisible="{Binding !IsMerged}" />
@@ -94,15 +96,15 @@
             </Grid>
         </DataTemplate>
 
-        <DataTemplate x:Key="LinkButton" x:DataType="vm:WorkItemPageLink">
+        <DataTemplate x:Key="LinkButton" x:DataType="pages:WorkItemPageLink">
             <Button Classes="kcapGhost rowButton" ToolTip.Tip="{Binding Title}" AutomationProperties.Name="{Binding ShortKey}"
-                    Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).OpenLinkCommand}"
+                    Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OpenLinkCommand}"
                     CommandParameter="{Binding}" Content="{Binding}" ContentTemplate="{StaticResource LinkRow}" Click="OnFlyoutItemClick" />
         </DataTemplate>
 
-        <DataTemplate x:Key="SessionRow" x:DataType="vm:WorkItemPageSession">
+        <DataTemplate x:Key="SessionRow" x:DataType="pages:WorkItemPageSession">
             <Button Classes="kcapGhost rowButton sessionRow"
-                    Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).OpenSessionCommand}"
+                    Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OpenSessionCommand}"
                     CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                     <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
@@ -112,7 +114,7 @@
             </Button>
         </DataTemplate>
 
-        <DataTemplate x:Key="Part" x:DataType="vm:WorkItemPagePart">
+        <DataTemplate x:Key="Part" x:DataType="pages:WorkItemPagePart">
             <StackPanel>
                 <Border Classes="row" ToolTip.Tip="{Binding Tip}">
                     <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="4" MinHeight="34" Margin="4,0,6,0">
@@ -196,7 +198,7 @@
             </StackPanel>
         </DataTemplate>
 
-        <DataTemplate x:Key="Group" x:DataType="vm:WorkItemPageGroupViewModel">
+        <DataTemplate x:Key="Group" x:DataType="pages:WorkItemPageGroupViewModel">
             <StackPanel>
                 <Button Classes="kcapGhost groupHead" Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Label}">
                     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -212,12 +214,12 @@
                         <ItemsControl ItemsSource="{Binding Parts}" ItemTemplate="{StaticResource Part}" />
                         <ItemsControl ItemsSource="{Binding LooseEnds}">
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="vm:WorkItemPageLooseEnd">
+                                <DataTemplate x:DataType="pages:WorkItemPageLooseEnd">
                                     <Border Classes="row" Padding="10,4,6,4">
                                         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                             <TextBlock Text="{Binding Text}" FontSize="15" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                             <Button Grid.Column="1" Classes="kcapChip makePart" Content="Make slice"
-                                                    Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).MakePartCommand}"
+                                                    Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).MakePartCommand}"
                                                     CommandParameter="{Binding}" AutomationProperties.Name="{Binding Text, StringFormat='Make {0} a slice'}" />
                                         </Grid>
                                     </Border>
@@ -360,9 +362,9 @@
                         <Border Margin="0,4,0,0" IsVisible="{Binding Links.Count, Converter={x:Static views:CountIsNotZeroConverter.Instance}}">
                             <ItemsControl x:Name="WorkItemLinks" ItemsSource="{Binding Links}">
                                 <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:WorkItemPageLink">
+                                    <DataTemplate x:DataType="pages:WorkItemPageLink">
                                         <Button Classes="kcapGhost detailRow" ToolTip.Tip="{Binding Url}" AutomationProperties.Name="{Binding ShortKey}"
-                                                Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).OpenLinkCommand}"
+                                                Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OpenLinkCommand}"
                                                 CommandParameter="{Binding}">
                                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                                                 <Panel VerticalAlignment="Top" Margin="0,1,0,0">
@@ -399,9 +401,9 @@
                         <Border Margin="0,4,0,0">
                             <ItemsControl x:Name="WorkItemPages" ItemsSource="{Binding Pages}">
                                 <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:WorkItemPublishedPage">
+                                    <DataTemplate x:DataType="pages:WorkItemPublishedPage">
                                         <Button Classes="kcapGhost detailRow" ToolTip.Tip="{Binding Url}" AutomationProperties.Name="{Binding Title}"
-                                                Command="{Binding $parent[views:WorkItemPageView].((vm:WorkItemPageViewModel)DataContext).OpenPageCommand}"
+                                                Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OpenPageCommand}"
                                                 CommandParameter="{Binding}">
                                             <StackPanel Spacing="2">
                                                 <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"

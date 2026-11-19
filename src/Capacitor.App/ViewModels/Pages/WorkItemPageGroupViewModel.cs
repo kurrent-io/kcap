@@ -2,7 +2,7 @@ using System.Reactive;
 using Lucide.Avalonia;
 using ReactiveUI.Reactive;
 
-namespace Capacitor.App.ViewModels;
+namespace Capacitor.App.ViewModels.Pages;
 
 /// A collapsible group of a work item page: the parts of one status, the viewer's loose
 /// ends, or the sessions on no part. <see cref="Status"/> is null except on a status group.

@@ -14,7 +14,9 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
+using Capacitor.App.ViewModels.Pages;
 using Capacitor.App.Views;
+using Capacitor.App.Views.Pages;
 using Capacitor.App.Views.Rail;
 using SvcSystems.UI.Terminal;
 using Capacitor.Cli.Core.LocalIpc;
@@ -761,35 +763,45 @@ public class MainWindowSmokeTests {
         }
     });
 
+    /// The sidebar's Sessions row opens the page in the page host, over the launcher; the paged list's
+    /// View all sessions link appears once the list is cut and opens the same page.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task View_all_sessions_opens_the_page_over_the_main_area() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task The_sidebar_opens_the_sessions_page_over_the_main_area() => AvaloniaSession.RunOnUiAsync(async () => {
         var service = new FakeDaemonClientService();
         using var directory = new FakeAgentDirectory();
         using var sessions = new FakeServerSessionsService();
         using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System, sessions: sessions);
         var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, rail: rail,
-            allSessionsPageFactory: () => new AllSessionsPageViewModel(
-                sessions, Observable.Return((RailScope.Mine, (RailProject?)null)), TimeProvider.System, _ => { }));
+            pages: key => key == PageKey.Sessions ? new SessionsPageViewModel(
+                sessions, Observable.Return((RailScope.Mine, (RailProject?)null)), TimeProvider.System, _ => { }) : null);
         var window = new MainWindow { DataContext = vm };
         try {
             window.Show();
             Dispatcher.UIThread.RunJobs();
-            var link = window.FindDescendantOfType<SessionRailView>()!.FindControl<Button>("RailViewAllButton")!;
-            var cover = window.FindControl<AllSessionsPageView>("AllSessionsCover")!;
+            var railView = window.FindDescendantOfType<SessionRailView>()!;
+            var host = window.FindControl<ContentControl>("PageHost")!;
+            var link = railView.FindControl<Button>("RailViewAllButton")!;
+            await Assert.That(host.IsVisible).IsFalse();
             await Assert.That(link.IsVisible).IsFalse();
-            await Assert.That(cover.IsVisible).IsFalse();
+            await Assert.That(railView.FindControl<Button>("RailWorkItemsPageButton")!.IsVisible).IsFalse();
 
+            railView.FindControl<Button>("RailSessionsPageButton")!.Command!.Execute(PageKey.Sessions);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(host.IsVisible).IsTrue();
+            await Assert.That(window.FindControl<Grid>("LauncherPane")!.IsVisible).IsFalse();
+            await Assert.That(host.FindDescendantOfType<SessionsPageView>()!.FindDescendantOfType<ListPage>()!.Heading).IsEqualTo("Sessions");
+
+            vm.DismissSearchCommand.Execute().Subscribe();
             sessions.PagingSubject.OnNext(new ServerSessionsPaging(20, 84, 1, true, false));
             Dispatcher.UIThread.RunJobs();
+            await Assert.That(host.IsVisible).IsFalse();
             await Assert.That(link.IsVisible).IsTrue();
-
-            link.Command!.Execute(null);
+            link.Command!.Execute(link.CommandParameter);
             Dispatcher.UIThread.RunJobs();
-            await Assert.That(cover.IsVisible).IsTrue();
-            await Assert.That(cover.FindControl<TextBlock>("AllSessionsHeading")!.Text).IsEqualTo("Sessions");
+            await Assert.That(vm.Page).IsTypeOf<SessionsPageViewModel>();
         } finally {
-            vm.AllSessionsPage?.Dispose();
+            vm.Page?.Dispose();
             window.Close();
             Dispatcher.UIThread.RunJobs();
         }
@@ -1813,8 +1825,8 @@ public class MainWindowSmokeTests {
         using var host = new SearchWindowHost();
         var field = host.Named<Button>("RailSearchButton");
         var filter = host.Named<Button>("RailFilterButton");
-        var placeholder = host.Named<TextBlock>("RailSearchText").Text;
-        var shortcut = host.Named<TextBlock>("RailSearchShortcut");
+        var placeholder = host.Named<RailNavRow>("RailSearchButton").Label;
+        var shortcut = host.Named<RailNavRow>("RailSearchButton").Shortcut;
         var collapsed = filter.Flyout!.IsOpen;
 
         Click(host, filter);
@@ -1824,9 +1836,8 @@ public class MainWindowSmokeTests {
 
         await Assert.That(field.IsEffectivelyVisible).IsTrue();
         await Assert.That(AutomationProperties.GetName(field)).IsEqualTo("Search sessions");
-        await Assert.That(placeholder).IsEqualTo("Search…");
-        await Assert.That(shortcut.Text).IsEqualTo(ShortcutLabels.Search);
-        await Assert.That(shortcut.IsVisible).IsTrue();
+        await Assert.That(placeholder).IsEqualTo("Search");
+        await Assert.That(shortcut).IsEqualTo(ShortcutLabels.Search);
         await Assert.That(collapsed).IsFalse();
         await Assert.That(expanded).IsTrue();
         await Assert.That(active).IsTrue();
@@ -1930,13 +1941,13 @@ public class MainWindowSmokeTests {
         Click(host, field);
         host.Window.KeyTextInput("auth");
         host.Settle();
-        var label = host.Named<TextBlock>("RailSearchText").Text;
+        var label = host.Named<RailNavRow>("RailSearchButton").Label;
         var query = host.Named<TextBox>("SearchQueryBox");
         query.SelectionStart = query.SelectionEnd = query.Text!.Length;
 
         Click(host, field);
 
-        await Assert.That(label).IsEqualTo("Search…");
+        await Assert.That(label).IsEqualTo("Search");
         await Assert.That(host.Vm.Search!.Query).IsEqualTo("auth");
         await Assert.That(host.Focused).IsSameReferenceAs(query);
         await Assert.That(query.SelectedText).IsEqualTo("auth");

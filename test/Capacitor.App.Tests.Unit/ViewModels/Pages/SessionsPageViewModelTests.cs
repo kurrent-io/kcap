@@ -2,13 +2,14 @@ using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
+using Capacitor.App.ViewModels.Pages;
 using Capacitor.Remote.Models;
 using Microsoft.Extensions.Time.Testing;
 using TUnit.Assertions.Enums;
 
-namespace Capacitor.App.Tests.Unit.ViewModels;
+namespace Capacitor.App.Tests.Unit.ViewModels.Pages;
 
-public class AllSessionsPageViewModelTests {
+public class SessionsPageViewModelTests {
     static readonly DateTimeOffset Now = new(2026, 1, 10, 12, 0, 0, TimeSpan.Zero);
     static readonly RailProject Kcap = new("p1", "kcap", ["h"]);
 
@@ -19,7 +20,7 @@ public class AllSessionsPageViewModelTests {
         Repo = new() { Hash = "h", Owner = "kurrent-io", Name = "kcap-cli" },
     })];
 
-    static Task Run(Func<FakeServerSessionsService, BehaviorSubject<(RailScope, RailProject?)>, List<string>, AllSessionsPageViewModel, Task> body,
+    static Task Run(Func<FakeServerSessionsService, BehaviorSubject<(RailScope, RailProject?)>, List<string>, SessionsPageViewModel, Task> body,
             RepoSessionDto[]? listed = null) =>
         AvaloniaSession.WithImmediateRxScheduler(async () => {
             var all = listed ?? Sessions();
@@ -28,7 +29,7 @@ public class AllSessionsPageViewModelTests {
             };
             using var filter = new BehaviorSubject<(RailScope, RailProject?)>((RailScope.Mine, Kcap));
             var opened = new List<string>();
-            using var page = new AllSessionsPageViewModel(sessions, filter, new FakeTimeProvider(Now), opened.Add);
+            using var page = new SessionsPageViewModel(sessions, filter, new FakeTimeProvider(Now), opened.Add);
             await body(sessions, filter, opened, page);
         });
 
@@ -77,7 +78,7 @@ public class AllSessionsPageViewModelTests {
         filter.OnNext((RailScope.Team, null));
 
         await Assert.That(page.Heading).IsEqualTo("Sessions");
-        await Assert.That(page.Owner).IsEqualTo(AllSessionsPageViewModel.AnyOwner);
+        await Assert.That(page.Owner).IsEqualTo(SessionsPageViewModel.AnyOwner);
         await Assert.That(sessions.PageCalls[^1]).IsEqualTo(new ServerSessionsQuery("all", null, 20, 0, null));
         await Assert.That(page.Days.Sum(day => day.Rows.Count)).IsEqualTo(20);
     });
@@ -108,7 +109,7 @@ public class AllSessionsPageViewModelTests {
 
         page.WorkItem = page.WorkItems[2];
         await Assert.That(page.Days.SelectMany(day => day.Rows).Select(row => row.SessionId)).IsEquivalentTo(["s2"]);
-        page.WorkItem = AllSessionsPageViewModel.NoWorkItem;
+        page.WorkItem = SessionsPageViewModel.NoWorkItem;
         page.Search = "session 3";
         await Assert.That(page.Days.SelectMany(day => day.Rows).Select(row => row.SessionId)).IsEquivalentTo(["s3"]);
         await Assert.That(page.Count).IsEqualTo("1 of 3 loaded");
@@ -134,6 +135,6 @@ public class AllSessionsPageViewModelTests {
     [Arguments(31, "December 2025")]
     public async Task Rows_group_by_how_long_ago_they_ran(int daysAgo, string label) {
         var today = new DateOnly(2026, 1, 10);
-        await Assert.That(AllSessionsPageViewModel.DateGroup(today.AddDays(-daysAgo), today)).IsEqualTo(label);
+        await Assert.That(SessionsPageViewModel.DateGroup(today.AddDays(-daysAgo), today)).IsEqualTo(label);
     }
 }

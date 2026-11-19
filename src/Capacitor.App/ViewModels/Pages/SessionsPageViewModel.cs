@@ -9,24 +9,25 @@ using Capacitor.App.Services;
 using Capacitor.Remote.Models;
 using ReactiveUI.Reactive;
 
-namespace Capacitor.App.ViewModels;
+namespace Capacitor.App.ViewModels.Pages;
 
 /// Every session the rail's project admits, most recent first under date sections, read a page at a time. The
 /// owner filter is the server's; search and the work-item filter narrow the rows already read, and Show more
 /// reads further.
-public sealed class AllSessionsPageViewModel : ReactiveObject, IDisposable {
+public sealed class SessionsPageViewModel : ReactiveObject, IPage {
     public const int PageSize = 20;
+    public PageKey Key => PageKey.Sessions;
 
-    public static readonly AllSessionsChoice AnyOwner = new(null, "Anyone");
-    public static readonly AllSessionsChoice You = new("me", "You");
-    public static readonly AllSessionsChoice AnyWorkItem = new(null, "Any work item");
-    public static readonly AllSessionsChoice NoWorkItem = new("-", "No work item");
+    public static readonly SessionsPageChoice AnyOwner = new(null, "Anyone");
+    public static readonly SessionsPageChoice You = new("me", "You");
+    public static readonly SessionsPageChoice AnyWorkItem = new(null, "Any work item");
+    public static readonly SessionsPageChoice NoWorkItem = new("-", "No work item");
 
     readonly CompositeDisposable _disposables = new();
     readonly IServerSessionsService _sessions;
     readonly TimeProvider _time;
     readonly HashSet<string> _seen = new(StringComparer.Ordinal);
-    readonly List<(RepoSessionDto Session, AllSessionsRow Row)> _loaded = [];
+    readonly List<(RepoSessionDto Session, SessionsPageRow Row)> _loaded = [];
     IReadOnlySet<string> _viewer = FrozenSet<string>.Empty;
     RailProject? _project;
     int _offset;
@@ -34,9 +35,9 @@ public sealed class AllSessionsPageViewModel : ReactiveObject, IDisposable {
     int _generation;
     bool _failed;
 
-    public ObservableCollection<AllSessionsDay> Days { get; } = [];
-    public ObservableCollection<AllSessionsChoice> Owners { get; } = [AnyOwner, You];
-    public ObservableCollection<AllSessionsChoice> WorkItems { get; } = [AnyWorkItem, NoWorkItem];
+    public ObservableCollection<SessionsPageDay> Days { get; } = [];
+    public ObservableCollection<SessionsPageChoice> Owners { get; } = [AnyOwner, You];
+    public ObservableCollection<SessionsPageChoice> WorkItems { get; } = [AnyWorkItem, NoWorkItem];
 
     string _heading = "Sessions";
     public string Heading { get => _heading; private set => this.RaiseAndSetIfChanged(ref _heading, value); }
@@ -60,8 +61,8 @@ public sealed class AllSessionsPageViewModel : ReactiveObject, IDisposable {
     }
 
     // A ComboBox writes null while its items change; that is not a pick.
-    AllSessionsChoice _owner = AnyOwner;
-    public AllSessionsChoice Owner {
+    SessionsPageChoice _owner = AnyOwner;
+    public SessionsPageChoice Owner {
         get => _owner;
         set {
             if (value is null || value == _owner) return;
@@ -70,8 +71,8 @@ public sealed class AllSessionsPageViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    AllSessionsChoice _workItem = AnyWorkItem;
-    public AllSessionsChoice WorkItem {
+    SessionsPageChoice _workItem = AnyWorkItem;
+    public SessionsPageChoice WorkItem {
         get => _workItem;
         set {
             if (value is null || value == _workItem) return;
@@ -81,15 +82,15 @@ public sealed class AllSessionsPageViewModel : ReactiveObject, IDisposable {
     }
 
     public ReactiveCommand<Unit, Unit> ShowMoreCommand { get; }
-    public ReactiveCommand<AllSessionsRow, Unit> OpenSessionCommand { get; }
+    public ReactiveCommand<SessionsPageRow, Unit> OpenSessionCommand { get; }
 
-    public AllSessionsPageViewModel(IServerSessionsService sessions, IObservable<(RailScope Scope, RailProject? Project)> filter,
+    public SessionsPageViewModel(IServerSessionsService sessions, IObservable<(RailScope Scope, RailProject? Project)> filter,
             TimeProvider time, Action<string> openSession) {
         _sessions = sessions;
         _time = time;
         ShowMoreCommand = ReactiveCommand.CreateFromTask(LoadAsync,
             this.WhenAnyValue(x => x.CanShowMore, x => x.IsLoading, (more, loading) => more && !loading)).DisposeWith(_disposables);
-        OpenSessionCommand = ReactiveCommand.Create<AllSessionsRow>(row => openSession(row.SessionId)).DisposeWith(_disposables);
+        OpenSessionCommand = ReactiveCommand.Create<SessionsPageRow>(row => openSession(row.SessionId)).DisposeWith(_disposables);
         sessions.ViewerIds.Subscribe(ids => _viewer = ids).DisposeWith(_disposables);
         filter.DistinctUntilChanged().Subscribe(next => {
             if (next.Project?.Id != _project?.Id) {
@@ -162,7 +163,7 @@ public sealed class AllSessionsPageViewModel : ReactiveObject, IDisposable {
         Message = shown > 0 ? null : _loaded.Count > 0 ? "No sessions match" : "No sessions yet";
     }
 
-    bool Matches(RepoSessionDto session, AllSessionsRow row) {
+    bool Matches(RepoSessionDto session, SessionsPageRow row) {
         var workItem = session.WorkItem?.WorkItemId;
         if (_workItem.Key == NoWorkItem.Key ? workItem is not null : _workItem.Key is { } key && workItem != key) return false;
         var q = _search.Trim();
@@ -179,7 +180,7 @@ public sealed class AllSessionsPageViewModel : ReactiveObject, IDisposable {
             WorkItems.Add(new(item, title));
     }
 
-    void Place(RepoSessionDto session, AllSessionsRow row, DateTimeOffset now) {
+    void Place(RepoSessionDto session, SessionsPageRow row, DateTimeOffset now) {
         var zone = _time.LocalTimeZone;
         var label = DateGroup(DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(At(session), zone).DateTime),
             DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, zone).DateTime));
@@ -187,7 +188,7 @@ public sealed class AllSessionsPageViewModel : ReactiveObject, IDisposable {
         Days[^1].Rows.Add(row);
     }
 
-    AllSessionsRow RowFor(RepoSessionDto session, AgentRow agent, DateTimeOffset now) {
+    SessionsPageRow RowFor(RepoSessionDto session, AgentRow agent, DateTimeOffset now) {
         string?[] meta = [session.Repo?.Name, session.WorkItem?.Title, session.WorkItem?.Part?.Title];
         var owner = agent.OwnerUserId is { } id && _viewer.Contains(id) || string.IsNullOrWhiteSpace(agent.OwnerName) ? null : agent.OwnerName;
         return new(session.SessionId, agent.Title is { Length: > 0 } title ? title : RailSessionViewModel.UntitledLabel,

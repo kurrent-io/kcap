@@ -1,0 +1,49 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Capacitor.App.Views.Pages">
+    <Styles.Resources>
+        <!-- The arrow keys move between the search box and the rows. -->
+        <ControlTheme x:Key="{x:Type local:ListPage}" TargetType="local:ListPage">
+            <Setter Property="Background" Value="{StaticResource KcapCanvasBrush}" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="{TemplateBinding Background}">
+                        <DockPanel Margin="24,20,24,0" XYFocus.NavigationModes="Keyboard">
+                            <!-- The right margin keeps the list's text clear of its scrollbar, and the header in line with it. -->
+                            <StackPanel DockPanel.Dock="Top" MaxWidth="860" Spacing="4" Margin="0,0,14,16">
+                                <TextBlock Name="PART_Heading" Text="{TemplateBinding Heading}" FontSize="18" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{TemplateBinding Count}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" />
+                                <DockPanel Margin="0,12,0,0">
+                                    <ContentPresenter DockPanel.Dock="Right" Margin="8,0,0,0" Content="{TemplateBinding Filters}"
+                                                      IsVisible="{TemplateBinding Filters, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <TextBox Name="PART_Search" Classes="kcapField" Padding="10,7" MinHeight="34" FontSize="13"
+                                             PlaceholderText="{TemplateBinding SearchPlaceholder}" Text="{TemplateBinding Search, Mode=TwoWay}"
+                                             AutomationProperties.Name="{TemplateBinding SearchPlaceholder}" />
+                                </DockPanel>
+                            </StackPanel>
+                            <ScrollViewer>
+                                <StackPanel MaxWidth="860" Spacing="8" Margin="0,0,14,24">
+                                    <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}"
+                                                      ContentTemplate="{TemplateBinding ContentTemplate}" />
+                                    <TextBlock Name="PART_Message" Text="{TemplateBinding Message}" FontSize="13"
+                                               Foreground="{StaticResource KcapMutedBrush}"
+                                               IsVisible="{TemplateBinding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <ContentPresenter Content="{TemplateBinding Footer}" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </ControlTheme>
+    </Styles.Resources>
+
+    <!-- A list row: full width, its hover background reaching past the text on both sides. -->
+    <Style Selector="local|ListPage Button.listRow">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="Margin" Value="-10,0" />
+    </Style>
+</Styles>

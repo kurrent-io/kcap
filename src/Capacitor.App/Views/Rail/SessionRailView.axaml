@@ -3,6 +3,7 @@
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              xmlns:views="clr-namespace:Capacitor.App.Views"
              xmlns:rail="clr-namespace:Capacitor.App.Views.Rail"
+             xmlns:pages="clr-namespace:Capacitor.App.ViewModels.Pages"
              xmlns:svc="clr-namespace:Capacitor.App.Services"
              xmlns:cmd="clr-namespace:Capacitor.Cli.Core.Commands;assembly=Capacitor.Cli.Core"
              x:Class="Capacitor.App.Views.Rail.SessionRailView"
@@ -156,8 +157,27 @@
         <Style Selector="Button#RailFilterButton.custom views|AppIcon">
             <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
         </Style>
-        <Style Selector="TextBlock#RailSearchText">
-            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        <!-- New session, Search and the pages read as one list: icon, label, and the shortcut only on hover or focus. -->
+        <Style Selector="Button.railNav">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="0,0,9,0" />
+            <Setter Property="MinHeight" Value="32" />
+        </Style>
+        <Style Selector="Button.railNav views|AppIcon">
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <Style Selector="Button.railNav TextBlock.navLabel">
+            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <Style Selector="Button.railNav TextBlock.navShortcut">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector="Button.railNav:pointerover TextBlock.navShortcut, Button.railNav:focus-visible TextBlock.navShortcut">
+            <Setter Property="Opacity" Value="1" />
         </Style>
         <Style Selector="TextBlock.footerValue">
             <Setter Property="FontSize" Value="12" />
@@ -389,12 +409,12 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="5,0,5,8">
                 <StackPanel>
                     <Button x:Name="RailProjectButton" Classes="kcapGhost" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                            Margin="5,0,5,8" Padding="6,5" CornerRadius="7"
+                            Margin="0,0,0,8" Padding="0,5,9,5" CornerRadius="7"
                             DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
                             IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}"
                             AutomationProperties.Name="{Binding ProjectLabel, StringFormat='Project: {0}'}">
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                            <Border Width="20" Height="20" CornerRadius="5" Background="{StaticResource KcapSurfaceRaisedBrush}"
+                        <Grid ColumnDefinitions="30,*,Auto">
+                            <Border Width="20" Height="20" CornerRadius="5" HorizontalAlignment="Center" Background="{StaticResource KcapSurfaceRaisedBrush}"
                                     BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
                                 <Panel>
                                     <TextBlock x:Name="RailProjectInitial" Text="{Binding ProjectInitial}" FontSize="11" FontWeight="SemiBold"
@@ -438,36 +458,26 @@
                             </Flyout>
                         </Button.Flyout>
                     </Button>
-                    <!-- Deselects the workspace (the pane's empty state IS the launcher), or nudges the launcher already showing. -->
-                    <Button x:Name="RailNewSessionButton" Classes="kcapChip" HorizontalAlignment="Stretch" Margin="5,0,5,10"
-                            Command="{Binding NewSessionCommand}"
-                            Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
-                            BorderThickness="1" CornerRadius="7" Padding="11,7" AutomationProperties.Name="New session">
-                        <DockPanel>
-                            <TextBlock x:Name="RailNewSessionShortcut" DockPanel.Dock="Right" Text="{x:Static views:ShortcutLabels.NewSession}" FontSize="11"
-                                       Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <views:AppIcon Kind="Plus" Size="14" Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
-                                <TextBlock Text="New session" FontSize="13" FontWeight="SemiBold"
-                                           Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </DockPanel>
-                    </Button>
-
-                    <Button x:Name="RailSearchButton" Classes="kcapChip" HorizontalAlignment="Stretch" Margin="5,0,5,8"
-                            Command="{Binding OpenSearchCommand}"
-                            Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
-                            BorderThickness="1" CornerRadius="7" Padding="11,7" AutomationProperties.Name="Search sessions">
-                        <DockPanel>
-                            <TextBlock x:Name="RailSearchShortcut" DockPanel.Dock="Right" Text="{x:Static views:ShortcutLabels.Search}" FontSize="11"
-                                       Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <views:AppIcon Kind="Search" Size="14" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
-                                <TextBlock x:Name="RailSearchText" Text="Search…" FontSize="13"
-                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                            </StackPanel>
-                        </DockPanel>
-                    </Button>
+                    <StackPanel x:Name="RailNav" Margin="0,0,0,10" Spacing="1">
+                        <!-- Deselects the workspace (the pane's empty state IS the launcher), or nudges the launcher already showing. -->
+                        <rail:RailNavRow x:Name="RailNewSessionButton" Icon="Plus" Label="New session"
+                                         Shortcut="{x:Static views:ShortcutLabels.NewSession}" Command="{Binding NewSessionCommand}" />
+                        <rail:RailNavRow x:Name="RailSearchButton" Icon="Search" Label="Search" AutomationProperties.Name="Search sessions"
+                                         Shortcut="{x:Static views:ShortcutLabels.Search}" Command="{Binding OpenSearchCommand}" />
+                        <rail:RailNavRow x:Name="RailSessionsPageButton" Icon="MessagesSquare" Label="Sessions" IsVisible="{Binding OffersPages}"
+                                         Command="{Binding OpenPageCommand}" CommandParameter="{x:Static pages:PageKey.Sessions}"
+                                         Classes.selected="{Binding Page.Key, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static pages:PageKey.Sessions}}" />
+                        <rail:RailNavRow x:Name="RailWorkItemsPageButton" Icon="Folder" Label="Work items"
+                                         Command="{Binding OpenPageCommand}" CommandParameter="{x:Static pages:PageKey.WorkItems}"
+                                         Classes.selected="{Binding Page.Key, Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static pages:PageKey.WorkItems}}">
+                            <rail:RailNavRow.IsVisible>
+                                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                    <Binding Path="OffersPages" />
+                                    <Binding Path="Rail.OffersWorkItem" FallbackValue="False" />
+                                </MultiBinding>
+                            </rail:RailNavRow.IsVisible>
+                        </rail:RailNavRow>
+                    </StackPanel>
                     <Grid ColumnDefinitions="*,Auto" Margin="11,4,5,2">
                         <TextBlock x:Name="RailRecentHeading" Text="Recent sessions" FontSize="13" FontWeight="Medium"
                                    Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
@@ -689,11 +699,7 @@
                                                                 </StackPanel>
                                                             </ToolTip.Tip>
                                                             <Grid ColumnDefinitions="20,*,Auto">
-                                                                <Panel Height="20" VerticalAlignment="Top" HorizontalAlignment="Left">
-                                                                    <views:AgentStatusMark DataContext="{Binding Status}" VerticalAlignment="Center" />
-                                                                    <Ellipse Width="4" Height="4" Margin="4,0,0,0" Fill="{StaticResource KcapFaintBrush}" VerticalAlignment="Center"
-                                                                             IsVisible="{Binding !Status.HasGlyph}" />
-                                                                </Panel>
+                                                                <views:SessionStatusSlot Height="20" DataContext="{Binding Status}" />
                                                                 <StackPanel Grid.Column="1" Spacing="1">
                                                                     <TextBlock Text="{Binding Primary}" FontSize="14" Classes="rowTitle"
                                                                                TextTrimming="CharacterEllipsis" />
@@ -710,17 +716,9 @@
                                                                     </StackPanel>
                                                                 </StackPanel>
                                                                 <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" Margin="8,2,0,0" VerticalAlignment="Top">
-                                                                    <!-- Another user's row shows their picture, or their initials until it loads or when it never does. -->
-                                                                    <Border Width="16" Height="16" CornerRadius="8" VerticalAlignment="Center" ClipToBounds="True"
-                                                                            Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
-                                                                            IsVisible="{Binding ShowsOwner}" ToolTip.Tip="{Binding OwnerTooltip}"
-                                                                            AutomationProperties.Name="{Binding OwnerName}" AutomationProperties.AccessibilityView="Content">
-                                                                        <Panel>
-                                                                            <TextBlock Text="{Binding OwnerInitials}" FontSize="8" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                                                       Foreground="{StaticResource KcapMutedBrush}" AutomationProperties.AccessibilityView="Raw" />
-                                                                            <views:RemoteAvatar Url="{Binding OwnerAvatarUrl}" AutomationProperties.AccessibilityView="Raw" />
-                                                                        </Panel>
-                                                                    </Border>
+                                                                    <views:OwnerAvatar VerticalAlignment="Center" Initials="{Binding OwnerInitials}" Url="{Binding OwnerAvatarUrl}"
+                                                                                       IsVisible="{Binding ShowsOwner}" ToolTip.Tip="{Binding OwnerTooltip}"
+                                                                                       AutomationProperties.Name="{Binding OwnerName}" AutomationProperties.AccessibilityView="Content" />
                                                                 </StackPanel>
                                                             </Grid>
                                                         </Button>
@@ -751,7 +749,8 @@
                     <StackPanel x:Name="RailPaging" DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
                                 Margin="0,4,0,6" Spacing="4" IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}">
                         <Button x:Name="RailViewAllButton" Classes="kcapGhost kcapQuiet" Content="View all sessions"
-                                Command="{Binding $parent[rail:SessionRailView].((vm:MainWindowViewModel)DataContext).OpenAllSessionsCommand, FallbackValue={x:Null}}"
+                                Command="{Binding $parent[rail:SessionRailView].((vm:MainWindowViewModel)DataContext).OpenPageCommand, FallbackValue={x:Null}}"
+                                CommandParameter="{x:Static pages:PageKey.Sessions}"
                                 IsVisible="{Binding ShowsViewAll}" HorizontalAlignment="Left" Padding="9,5" />
                         <TextBlock x:Name="RailLiveNotShownText" Text="{Binding LiveNotShownText}" Classes="railMeta"
                                    Foreground="{StaticResource KcapFaintBrush}" Margin="9,0" TextWrapping="Wrap"

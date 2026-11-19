@@ -1,0 +1,29 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             xmlns:pages="clr-namespace:Capacitor.App.ViewModels.Pages"
+             xmlns:local="clr-namespace:Capacitor.App.Views.Pages"
+             x:Class="Capacitor.App.Views.Pages.WorkItemsPageView"
+             x:DataType="pages:WorkItemsPageViewModel">
+    <local:ListPage x:Name="WorkItemsPage" Heading="{Binding Heading}" Count="{Binding Count}" Search="{Binding Search}"
+                    SearchPlaceholder="Search work items" Message="{Binding Message}">
+        <ItemsControl ItemsSource="{Binding Rows}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="pages:WorkItemsPageRow">
+                    <Button Classes="kcapGhost listRow" CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}"
+                            Command="{Binding $parent[local:WorkItemsPageView].((pages:WorkItemsPageViewModel)DataContext).OpenWorkItemCommand}">
+                        <Grid ColumnDefinitions="20,*">
+                            <views:AppIcon Kind="Folder" Margin="0,2,0,0" VerticalAlignment="Top" HorizontalAlignment="Left"
+                                           Foreground="{StaticResource KcapMutedBrush}" />
+                            <StackPanel Grid.Column="1" Spacing="2">
+                                <TextBlock Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Meta}" FontSize="12" TextTrimming="CharacterEllipsis"
+                                           Foreground="{StaticResource KcapMutedBrush}" />
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </local:ListPage>
+</UserControl>

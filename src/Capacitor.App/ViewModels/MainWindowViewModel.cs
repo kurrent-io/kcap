@@ -12,6 +12,7 @@ using Capacitor.App.Services;
 using Capacitor.App.Services.Update;
 using Capacitor.App.Views;
 using Capacitor.App.ViewModels.Onboarding;
+using Capacitor.App.ViewModels.Pages;
 using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.PullRequests;
 using DynamicData;
@@ -248,26 +249,21 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public ReactiveCommand<Unit, Unit> OpenSearchCommand { get; }
     public ReactiveCommand<Unit, Unit> DismissSearchCommand { get; }
 
-    /// A work item's page, drawn over the main area like the search page. Null while none is open.
-    public WorkItemPageViewModel? WorkItemPage {
+    /// The page drawn over the main area, the workspace open beneath it. Null while none is open.
+    public IPage? Page {
         get;
         private set {
             this.RaiseAndSetIfChanged(ref field, value);
-            if (Rail is not null) Rail.OpenWorkItemId = value?.WorkItemId;
+            if (Rail is not null) Rail.OpenWorkItemId = (value?.Key as PageKey.WorkItem)?.Id;
         }
     }
 
+    /// Null without a server sessions service; null for a page the server cannot serve.
+    readonly Func<PageKey, IPage?>? _pages;
+    public bool OffersPages => _pages is not null;
+
+    public ReactiveCommand<PageKey, Unit> OpenPageCommand { get; }
     public ReactiveCommand<string, Unit> OpenWorkItemCommand { get; }
-    readonly Func<string, WorkItemPageViewModel>? _workItemPageFactory;
-
-    /// Every session of the rail's scope and project, drawn over the main area like the search page. Null while closed.
-    public AllSessionsPageViewModel? AllSessionsPage {
-        get;
-        private set => this.RaiseAndSetIfChanged(ref field, value);
-    }
-
-    public ReactiveCommand<Unit, Unit> OpenAllSessionsCommand { get; }
-    readonly Func<AllSessionsPageViewModel>? _allSessionsPageFactory;
 
     readonly Subject<Unit> _searchFocusRequests = new();
     /// The shortcut or the rail field while the page is already open: focus the query, keep its state.
@@ -444,8 +440,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             Func<string, RemoteSessionViewModel?>? serverWorkspaceFactory = null,
             Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory = null,
             IServerSessionsService? sessions = null, string? appServerUrl = null,
-            Func<string, WorkItemPageViewModel>? workItemPageFactory = null,
-            Func<AllSessionsPageViewModel>? allSessionsPageFactory = null) {
+            Func<PageKey, IPage?>? pages = null) {
         _service = service;
         _appServerUrl = appServerUrl ?? "";
         _serverFactory = serverWorkspaceFactory;
@@ -474,10 +469,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         if (Search is { } page) page.WhenAnyValue(x => x.ListState).Subscribe(_ => this.RaisePropertyChanged(nameof(SearchShowsSignIn)));
         OpenSearchCommand = ReactiveCommand.Create(OpenSearch);
         DismissSearchCommand = ReactiveCommand.Create(ClosePages);
-        _workItemPageFactory = workItemPageFactory;
-        OpenWorkItemCommand = ReactiveCommand.Create<string>(OpenWorkItem);
-        _allSessionsPageFactory = allSessionsPageFactory;
-        OpenAllSessionsCommand = ReactiveCommand.Create(OpenAllSessions);
+        _pages = pages;
+        OpenPageCommand = ReactiveCommand.Create<PageKey>(OpenPage);
+        OpenWorkItemCommand = ReactiveCommand.Create<string>(id => OpenPage(new PageKey.WorkItem(id)));
         var canRefreshWork = Observable.Switch(this.WhenAnyValue(x => x.CurrentWorkspace)
             .Select(CanRefreshOpenWork))
             .ObserveOn(RxSchedulers.MainThreadScheduler);
@@ -867,60 +861,36 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             _searchFocusRequests.OnNext(Unit.Default);
             return;
         }
-        CloseWorkItem();
-        CloseAllSessions();
+        ClosePage();
         Search?.Reset();
         Search?.Refresh();
         IsSearchOpen = true;
         _navigation.Bump();
     }
 
-    /// The current workspace stays open beneath the page.
-    void OpenWorkItem(string workItemId) {
-        if (_workItemPageFactory is null || WorkItemPage?.WorkItemId == workItemId) return;
+    void OpenPage(PageKey key) {
+        if (_pages is null || Page?.Key == key || _pages(key) is not { } page) return;
         ClosePages();
-        WorkItemPage = _workItemPageFactory(workItemId);
+        Page = page;
         _navigation.Bump();
     }
 
-    /// The current workspace stays open beneath the page.
-    void OpenAllSessions() {
-        if (_allSessionsPageFactory is null || AllSessionsPage is not null) return;
-        ClosePages();
-        AllSessionsPage = _allSessionsPageFactory();
-        _navigation.Bump();
-    }
-
-    void CloseAllSessions() {
-        var page = AllSessionsPage;
-        AllSessionsPage = null;
+    void ClosePage() {
+        var page = Page;
+        Page = null;
         page?.Dispose();
     }
 
     /// Opens what a rail click on the session would, pinning a session the rail does not list.
-    public Task<SearchOpenOutcome> OpenAllSessionsSessionAsync(string sessionId) {
-        var page = AllSessionsPage;
+    public Task<SearchOpenOutcome> OpenPageSessionAsync(string sessionId) {
+        var page = Page;
         return OpenServerSessionAsync(sessionId, new PinPresentation(null, null, null),
-            () => page is not null && AllSessionsPage == page, CancellationToken.None);
-    }
-
-    void CloseWorkItem() {
-        var page = WorkItemPage;
-        WorkItemPage = null;
-        page?.Dispose();
-    }
-
-    /// Opens what a rail click on the session would, pinning a session the rail does not list.
-    public Task<SearchOpenOutcome> OpenWorkItemSessionAsync(string sessionId) {
-        var page = WorkItemPage;
-        return OpenServerSessionAsync(sessionId, new PinPresentation(null, null, null),
-            () => page is not null && WorkItemPage == page, CancellationToken.None);
+            () => page is not null && Page == page, CancellationToken.None);
     }
 
     /// A closed search page keeps no query, so a reconnect or an access change has nothing to ask again.
     void ClosePages() {
-        CloseWorkItem();
-        CloseAllSessions();
+        ClosePage();
         IsSearchOpen = false;
         Search?.Reset();
         if (CurrentWorkspace is null) ReleasePinUnless(null);

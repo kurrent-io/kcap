@@ -1,0 +1,14 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.SessionStatusSlot"
+             x:DataType="vm:AgentStatusPresentation"
+             VerticalAlignment="Top" HorizontalAlignment="Left">
+    <!-- A session row's leading slot: its status mark, or a faint dot while it has none. -->
+    <Panel>
+        <views:AgentStatusMark VerticalAlignment="Center" />
+        <Ellipse Width="4" Height="4" Margin="4,0,0,0" Fill="{StaticResource KcapFaintBrush}" VerticalAlignment="Center"
+                 IsVisible="{Binding !HasGlyph}" />
+    </Panel>
+</UserControl>

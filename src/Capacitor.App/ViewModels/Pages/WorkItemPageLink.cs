@@ -1,6 +1,6 @@
 using Lucide.Avalonia;
 
-namespace Capacitor.App.ViewModels;
+namespace Capacitor.App.ViewModels.Pages;
 
 /// A PR or issue row: its key, the tracker's title and state.
 public sealed record WorkItemPageLink(string ShortKey, string? Title, string? State, string? Url, bool IsPr) {
