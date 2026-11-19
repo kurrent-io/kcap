@@ -1992,6 +1992,30 @@ public class ChatTabViewSmokeTests {
         });
     }
 
+    /// A request drafted from elsewhere, such as a sidebar menu, follows what the user typed and takes
+    /// the focus with the caret at its end, so Enter sends it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_drafted_request_takes_the_focus_so_Enter_sends_it() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            var client = await host.AttachAsync(Tmp.CreateFile("draft.jsonl", UserLine));
+            host.Type("note");
+            host.View.GetVisualDescendants().OfType<Button>().First(b => b.Focusable && b.IsEffectivelyVisible).Focus();
+            host.Settle();
+
+            host.Chat.Draft("File it");
+            host.Settle();
+            await Assert.That(host.Composer.IsFocused).IsTrue();
+            await Assert.That(host.Composer.CaretIndex).IsEqualTo("note\n\nFile it".Length);
+
+            host.PressEnter(RawInputModifiers.None);
+            await WaitUntilAsync(() => client.SentInput.Count == 1, what: "paste written");
+            await Assert.That(client.SentInput[0]).IsEquivalentTo(TerminalInputEncoder.Paste("note\n\nFile it"));
+            await host.CloseAsync();
+        });
+    }
+
     [Test]
     [Arguments(false)]
     [Arguments(true)]

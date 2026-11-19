@@ -373,6 +373,20 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         }
     }
 
+    /// Adds a prompt to the composer for the user to read and send.
+    public void Draft(string prompt) {
+        ComposerText = WithDraft(_composerText, prompt);
+        Drafted?.Invoke();
+    }
+
+    /// The draft the user has not sent stays, with the prompt after it; a draft already holding the prompt is left as is.
+    internal static string WithDraft(string draft, string prompt) =>
+        string.IsNullOrWhiteSpace(draft) ? prompt
+        : draft.Contains(prompt, StringComparison.Ordinal) ? draft
+        : draft.TrimEnd() + "\n\n" + prompt;
+
+    public event Action? Drafted;
+
     readonly ComposerDrafts? _drafts;
     readonly AgentOrigin _origin;
     readonly string _agentId;

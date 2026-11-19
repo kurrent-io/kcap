@@ -100,7 +100,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     public bool ShowsSurfaceSwitch => ShowsTerminalTab || ShowsPullRequestTab || ShowsArtefactsTab;
 
     void PrefillComposer(string prompt) {
-        Chat.ComposerText = PullRequestContextViewModel.WithFixPrompt(Chat.ComposerText, prompt);
+        Chat.Draft(prompt);
         // The prompt is in the session's own composer, which an open subagent pane would hide.
         CloseSubagent();
         ActiveTab = RemoteTab.Chat;
@@ -373,7 +373,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             requestSignIn, signInCompleted, actions.OpenWorkItemInWeb, plans, planActivity,
             artefacts: Artefacts, isRemote: true, serverLane: lane.Status,
             canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
-            sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout);
+            sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false),
+            canDraftForAgent: CanPrefillComposer, draftForAgent: PrefillComposer, layout: workContextLayout);
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));
         // An open subagent belongs to the session it was opened from.

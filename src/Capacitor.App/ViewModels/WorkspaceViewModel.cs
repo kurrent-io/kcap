@@ -192,7 +192,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
 
     void PrefillComposer(string prompt) {
         if (Chat is not { } chat) return;
-        chat.ComposerText = PullRequestContextViewModel.WithFixPrompt(chat.ComposerText, prompt);
+        chat.Draft(prompt);
         // The prompt is in the session's own composer, which an open subagent pane would hide.
         CloseSubagent();
         ActiveTab = WorkspaceTab.Chat;
@@ -331,7 +331,8 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         WorkContext = new WorkContextViewModel(presence.Select(p => p.Dto), workContext, time, opener, runs, requestSignIn, signInCompleted,
             actions.OpenWorkItemInWeb, plans, planActivity, artefacts: Artefacts, serverLane: serverLane,
             canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
-            sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout);
+            sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false),
+            canDraftForAgent: () => Chat is { ShowsComposer: true }, draftForAgent: PrefillComposer, layout: workContextLayout);
         WorkContext.HasWorkspaceNotice = HasConnectionNotice;
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));

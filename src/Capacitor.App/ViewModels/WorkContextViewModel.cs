@@ -74,6 +74,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     readonly SessionRuns _runs;
     readonly Func<bool> _canSendToAgent;
     readonly Func<string, Task<bool>> _sendToAgent;
+    readonly Func<bool> _canDraftForAgent;
+    readonly Action<string> _draftForAgent;
     readonly BehaviorSubject<bool> _canOpenWorkItem = new(false);
     readonly CompositeDisposable _disposables = new();
     ITimer? _timer;
@@ -359,10 +361,13 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             Action<string>? openWorkItem = null, IPlanSource? plans = null, PlanActivity? planActivity = null,
             ArtefactsTabViewModel? artefacts = null, bool isRemote = false,
             IObservable<ServerLaneStatus>? serverLane = null, Func<bool>? canSendToAgent = null,
-            Func<string, Task<bool>>? sendToAgent = null, WorkContextLayout? layout = null) {
+            Func<string, Task<bool>>? sendToAgent = null, Func<bool>? canDraftForAgent = null,
+            Action<string>? draftForAgent = null, WorkContextLayout? layout = null) {
         _isRemote = isRemote;
         _canSendToAgent = canSendToAgent ?? (() => false);
         _sendToAgent = sendToAgent ?? (_ => Task.FromResult(false));
+        _canDraftForAgent = canDraftForAgent ?? (() => false);
+        _draftForAgent = draftForAgent ?? (_ => { });
         _layout = layout ?? new WorkContextLayout();
         _source = source;
         _branchReader = new SingleFlightReader<(string? Path, string? Reported), string>(
@@ -480,25 +485,21 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         this.RaisePropertyChanged(nameof(CanAskAgent));
     }
 
-    /// Whether the session's agent can take a request right now, such as one about a bookmark.
-    public bool CanAskAgent => _canSendToAgent();
+    /// Whether a request to the session's agent, such as one about a bookmark, can be drafted in its composer.
+    public bool CanAskAgent => _canDraftForAgent();
 
-    /// Asks the session's agent to act on a bookmark; false means nothing was sent.
-    public Task<bool> AskAboutAsync(ChatBookmark bookmark, ChatBookmarkAsk ask) => AskAsync(ask.For(bookmark));
+    // Requests are drafted rather than sent: the user reads them, can add what the bookmark leaves out, and sends.
+    /// Drafts a request about a bookmark; false means nothing was drafted.
+    public bool AskAbout(ChatBookmark bookmark, ChatBookmarkAsk ask) => Ask(ask.For(bookmark));
 
-    /// Asks the agent to file every bookmark under a topic, in one message.
-    public Task<bool> FileLooseEndsAsync(ChatBookmarkGroup section) =>
-        section is { Topic: { } topic, Bookmarks.Count: > 0 }
-            ? AskAsync(ChatBookmarkAskText.LooseEnds(topic.Label, section.Bookmarks))
-            : Task.FromResult(false);
+    /// Drafts one request to file every bookmark under a topic.
+    public bool FileLooseEnds(ChatBookmarkGroup section) =>
+        section is { Topic: { } topic, Bookmarks.Count: > 0 } && Ask(ChatBookmarkAskText.LooseEnds(topic.Label, section.Bookmarks));
 
-    async Task<bool> AskAsync(string text) {
+    bool Ask(string text) {
         if (_tornDown || !CanAskAgent) return false;
-        try { return await _sendToAgent(text); }
-        catch (Exception ex) {
-            Console.Error.WriteLine($"kcap: bookmark request failed: {ex.Message}");
-            return false;
-        }
+        _draftForAgent(text);
+        return true;
     }
 
     void RaiseCompactState() {

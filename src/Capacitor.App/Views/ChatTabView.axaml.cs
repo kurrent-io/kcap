@@ -1,3 +1,4 @@
+using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Windows.Input;
 using Avalonia;
@@ -192,10 +193,17 @@ public partial class ChatTabView : UserControl {
     void ObserveSending() {
         _sendSubscription?.Dispose();
         _sendSubscription = DataContext is ChatTabViewModel vm
-            ? Observable.FromEvent(h => vm.TurnSubmitted += h, h => vm.TurnSubmitted -= h)
-                .Subscribe(_ => ResumeFollowing())
+            ? new CompositeDisposable(
+                Observable.FromEvent(h => vm.TurnSubmitted += h, h => vm.TurnSubmitted -= h).Subscribe(_ => ResumeFollowing()),
+                Observable.FromEvent(h => vm.Drafted += h, h => vm.Drafted -= h).Subscribe(_ => FocusDraft()))
             : null;
     }
+
+    // Posted, so a draft made from a menu is focused after the menu hands focus back.
+    void FocusDraft() => Dispatcher.UIThread.Post(() => {
+        ComposerInput.Focus();
+        ComposerInput.CaretIndex = ComposerInput.Text?.Length ?? 0;
+    }, DispatcherPriority.Input);
 
     void ResumeFollowing() {
         DropToggleAnchor();

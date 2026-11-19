@@ -45,14 +45,14 @@ public class WorkContextViewSmokeTests {
         public FakePlanArtifactSource Artefacts { get; } = new();
         public WorkContextViewModel Vm { get; }
         public Window Window { get; }
-        public List<string> Sent { get; } = [];
-        public bool CanSend { get; set; } = true;
+        public List<string> Drafted { get; } = [];
+        public bool CanDraft { get; set; } = true;
 
         public Host() {
             Runs = new SessionRuns(Time);
             Vm = new WorkContextViewModel(Presence, Source, Time, Opener, Runs, plans: Plans, planActivity: PlanActivity,
                 artefacts: new ArtefactsTabViewModel(Artefacts, PlanActivity, Time, opener: Opener),
-                canSendToAgent: () => CanSend, sendToAgent: text => { Sent.Add(text); return Task.FromResult(true); });
+                canDraftForAgent: () => CanDraft, draftForAgent: Drafted.Add);
             Window = new Window { Content = new WorkContextView { DataContext = Vm }, Width = 320, Height = 900 };
         }
 
@@ -1060,8 +1060,8 @@ public class WorkContextViewSmokeTests {
             }
 
             Press(Ask(ChatBookmarkAsk.FileLooseEnd));
-            await Assert.That(host.Sent).Count().IsEqualTo(1);
-            await Assert.That(host.Sent[0]).Contains("declare_loose_end").And.Contains("> Retry jitter");
+            await Assert.That(host.Drafted).Count().IsEqualTo(1);
+            await Assert.That(host.Drafted[0]).Contains("declare_loose_end").And.Contains("> Retry jitter");
 
             var topicRow = (Control)topicLinks[0].GetVisualParent()!;
             var onTopic = At(topicRow, topicRow.Bounds.Width / 2, topicRow.Bounds.Height / 2);
@@ -1073,14 +1073,14 @@ public class WorkContextViewSmokeTests {
             await Assert.That(AutomationProperties.GetName(fileAll)).IsEqualTo("File 2 bookmarks as loose ends");
             await Assert.That(((StackPanel)fileAll.Content!).Children[0]).IsTypeOf<Avalonia.Controls.Shapes.Path>();
             Press(fileAll);
-            await Assert.That(host.Sent).Count().IsEqualTo(2);
-            await Assert.That(host.Sent[1]).Contains("\"Locks\"").And.Contains("> Lock order").And.Contains("> Retry jitter");
+            await Assert.That(host.Drafted).Count().IsEqualTo(2);
+            await Assert.That(host.Drafted[1]).Contains("\"Locks\"").And.Contains("> Lock order").And.Contains("> Retry jitter");
 
-            host.CanSend = false;
+            host.CanDraft = false;
             var start = Ask(ChatBookmarkAsk.StartSession);
             await Assert.That(start.IsEnabled).IsFalse();
             Press(start);
-            await Assert.That(host.Sent).Count().IsEqualTo(2);
+            await Assert.That(host.Drafted).Count().IsEqualTo(2);
             row.ContextFlyout!.Hide();
             Settle();
 
