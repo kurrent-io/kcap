@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Daemon.Pty.Unix;
 using Capacitor.Cli.Daemon.Tests.Unit.Services;
 
@@ -7,7 +8,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Pty.Unix;
 /// <summary>L1-managed(b): the REAL production entry point (UnixPtyProcessFactory.Spawn) end
 /// to end — resolves PATH in the parent, builds a plan via pty_preflight, spawns via the
 /// dedicated spawner thread, and surfaces the natively-captured StartIdentity.</summary>
-public class UnixPtyProcessSpawnTests {
+public partial class UnixPtyProcessSpawnTests {
     /// <summary>Starts a helper in the leader's group that ignores SIGHUP and reports its pid as
     /// <c>CHILD:pid:DONE</c>. It reports only once the trap is set: a leader killed before then would
     /// take the helper down with the terminal's hangup. The ignore survives the exec.</summary>
@@ -125,7 +126,7 @@ public class UnixPtyProcessSpawnTests {
         var helperIdentity = "";
         try {
             var (output, ended) = await ReadToEndAsync(proc, TimeSpan.FromSeconds(10));
-            var match = System.Text.RegularExpressions.Regex.Match(output, @"CHILD:(\d+):DONE");
+            var match = ChildDone().Match(output);
             if (match.Success) {
                 helperPid      = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
                 helperIdentity = PidIdentity.Capture(helperPid);
@@ -300,7 +301,7 @@ public class UnixPtyProcessSpawnTests {
             if (read <= 0) break;
 
             buffer.Append(System.Text.Encoding.UTF8.GetString(chunk, 0, read));
-            var match = System.Text.RegularExpressions.Regex.Match(buffer.ToString(), @"CHILD:(\d+):DONE");
+            var match = ChildDone().Match(buffer.ToString());
             if (match.Success) return int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
         }
 
@@ -316,10 +317,13 @@ public class UnixPtyProcessSpawnTests {
 
         await foreach (var chunk in proc.ReadOutputAsync(cts.Token)) {
             buffer.Append(System.Text.Encoding.UTF8.GetString(chunk));
-            var match = System.Text.RegularExpressions.Regex.Match(buffer.ToString(), @"CHILD:(\d+):DONE");
+            var match = ChildDone().Match(buffer.ToString());
             if (match.Success) return int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
         }
 
         return -1;
     }
+
+    [GeneratedRegex(@"CHILD:(\d+):DONE")]
+    private static partial Regex ChildDone();
 }

@@ -1,8 +1,9 @@
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Core.Harness.Pi;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Pi;
 
-public class PiReviewerExtensionTests {
+public partial class PiReviewerExtensionTests {
     const string Ts = PiReviewerExtension.Content;
 
     [Test]
@@ -95,9 +96,12 @@ public class PiReviewerExtensionTests {
 
     [Test]
     public async Task It_carries_no_ticket_id() {
-        await Assert.That(System.Text.RegularExpressions.Regex.IsMatch(Ts, @"\b(AI|DEV)-\d+")).IsFalse();
+        await Assert.That(TicketKey().IsMatch(Ts)).IsFalse();
     }
 
     static int CountOf(string haystack, string needle) =>
         haystack.Split(needle, StringSplitOptions.None).Length - 1;
+
+    [GeneratedRegex(@"\b(AI|DEV)-\d+")]
+    private static partial Regex TicketKey();
 }

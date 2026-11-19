@@ -21,7 +21,7 @@ namespace Capacitor.SourceGuards.Tests.Unit;
 /// may name the type. A factory method, an <c>Activator</c>-style construction or reflection inside
 /// one of those files is still invisible; only a semantic model would see it.</para>
 /// </summary>
-public class LoopbackOwnershipGuardTests {
+public partial class LoopbackOwnershipGuardTests {
     /// <summary>
     /// Whitespace, line breaks and block comments — what the compiler ignores between two tokens, and
     /// therefore what this file's patterns must ignore too, at every junction. One definition for
@@ -49,9 +49,10 @@ public class LoopbackOwnershipGuardTests {
     /// the type named in the file, so it slips past the filename allowlist too — the spelling that
     /// beat both checks at once.
     /// </summary>
-    static readonly Regex Alias = new(
+    [GeneratedRegex(
         $@"^{Trivia}using{Separated}{Trivia}(?<alias>[A-Za-z_]\w*){Trivia}={Trivia}{Qualifier}LoopbackBrowser{Trivia};",
-        RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.Singleline);
+        RegexOptions.Multiline | RegexOptions.Singleline)]
+    private static partial Regex Alias();
 
     /// <summary>Walks up from this file's own compile-time path, so it is independent of the
     /// runner's working directory.</summary>
@@ -83,7 +84,7 @@ public class LoopbackOwnershipGuardTests {
 
             // The type's own name, plus every local alias for it.
             var patterns = new List<Regex> { Construction };
-            foreach (var alias in Alias.Matches(source).Cast<Match>())
+            foreach (var alias in Alias().Matches(source).Cast<Match>())
                 patterns.Add(ConstructionOf(alias.Groups["alias"].Value));
 
             foreach (var match in patterns.SelectMany(p => p.Matches(source))) {

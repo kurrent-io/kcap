@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Http;
 using WireMock.RequestBuilders;
@@ -21,7 +22,7 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 /// <c>ClaudeHookStdoutTests</c>: the SUT writes to the process-global <see cref="Console.Out"/>,
 /// and a group key alone would not stop a different file's test from leaking into the capture.
 /// </summary>
-public class ValidatePlanCommandTests : IDisposable {
+public partial class ValidatePlanCommandTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
     const string SessionId = "9dc2775376454e4691ecc2d69973c152";
@@ -673,7 +674,7 @@ public class ValidatePlanCommandTests : IDisposable {
 
         // The primary's content is rendered exactly once (not duplicated because it
         // also appears in the "artifacts" array).
-        var occurrences = System.Text.RegularExpressions.Regex.Count(stdout, "PRIMARY-CONTENT");
+        var occurrences = PrimaryContent().Count(stdout);
         await Assert.That(occurrences).IsEqualTo(1);
     }
 
@@ -775,4 +776,7 @@ public class ValidatePlanCommandTests : IDisposable {
         await Assert.That(stdout).DoesNotContain("### Summary");
         await Assert.That(stdout).Contains("- Write: docs/adr/0007-charts.md");
     }
+
+    [GeneratedRegex("PRIMARY-CONTENT")]
+    private static partial Regex PrimaryContent();
 }

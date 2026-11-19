@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
@@ -10,7 +11,7 @@ using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Recording.Tests.Unit;
 
-public class RecorderHostTests {
+public partial class RecorderHostTests {
     const string Secret = "ghp_0123456789abcdefghijklmnopqrstuvwxyz";
     const string Prompt = """{"type":"user","message":{"content":"Summarise the README"}}""";
     const string Reply  = """{"type":"assistant","message":{"content":[{"type":"text","text":"Done."}]}}""";
@@ -1070,7 +1071,7 @@ public class RecorderHostTests {
         await Eventually(() => GivenUp(source.Key), "the source to be given up", TimeSpan.FromSeconds(1));
 
         var givenUp = _log.Single(line => line.Contains("without a beat", StringComparison.Ordinal));
-        var quiet   = int.Parse(System.Text.RegularExpressions.Regex.Match(givenUp, @"went (\d+)s without a beat").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        var quiet   = int.Parse(QuietSeconds().Match(givenUp).Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
         await Assert.That(quiet).IsGreaterThan((int)(RecorderHost.WedgedAfter * 2).TotalSeconds);
     }
 
@@ -2962,4 +2963,7 @@ public class RecorderHostTests {
             return timer;
         }
     }
+
+    [GeneratedRegex(@"went (\d+)s without a beat")]
+    private static partial Regex QuietSeconds();
 }

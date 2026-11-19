@@ -29,7 +29,7 @@ namespace Capacitor.SourceGuards.Tests.Unit;
 /// documentation, not a hardcoded routing map; only CODE lines can be a real vendor→model map. Block
 /// comments (<c>/* … */</c>) are not specially unwrapped — none of today's matches live inside one.</para>
 /// </summary>
-public class ReviewerModelVendorNeutralityGuardTests {
+public partial class ReviewerModelVendorNeutralityGuardTests {
 
     /// <summary>The vendor-owned resolver IMPLEMENTATION files — the only files that legitimately own a
     /// vendor's reviewer-model aliases/ids, so never scanned. The cross-vendor coordinator
@@ -77,16 +77,16 @@ public class ReviewerModelVendorNeutralityGuardTests {
     /// the many non-model literals (<c>codex-hook</c>, <c>--skip-codex-network-access</c>,
     /// <c>codex-unattended-v1</c>, the <c>codex-reviewer-model-v1</c> policy version, etc.).</summary>
     static readonly (string Label, Regex Pattern)[] TellTales = [
-        ("claude-sonnet", new Regex("claude-sonnet", RegexOptions.Compiled)),
-        ("claude-opus",   new Regex("claude-opus",   RegexOptions.Compiled)),
-        ("claude-haiku",  new Regex("claude-haiku",  RegexOptions.Compiled)),
-        ("gpt-5",         new Regex("gpt-5",          RegexOptions.Compiled)),
-        ("gpt-4",         new Regex("gpt-4",          RegexOptions.Compiled)),
-        ("o1",            new Regex(@"\bo1\b",         RegexOptions.Compiled)),
-        ("o3",            new Regex(@"\bo3\b",         RegexOptions.Compiled)),
-        ("o4",            new Regex(@"\bo4\b",         RegexOptions.Compiled)),
-        ("codex-mini",    new Regex("codex-mini",     RegexOptions.Compiled)),
-        ("gemini-<ver>",  new Regex("gemini-[0-9]",   RegexOptions.Compiled)),
+        ("claude-sonnet", ClaudeSonnet()),
+        ("claude-opus",   ClaudeOpus()),
+        ("claude-haiku",  ClaudeHaiku()),
+        ("gpt-5",         Gpt5()),
+        ("gpt-4",         Gpt4()),
+        ("o1",            O1()),
+        ("o3",            O3()),
+        ("o4",            O4()),
+        ("codex-mini",    CodexMini()),
+        ("gemini-<ver>",  GeminiVersion()),
     ];
 
     /// <summary>Walks up from this test file's own compile-time path (baked in by
@@ -225,4 +225,34 @@ public class ReviewerModelVendorNeutralityGuardTests {
         await Assert.That(violations.Count).IsEqualTo(1);
         await Assert.That(violations[0]).Contains("claude-opus");
     }
+
+    [GeneratedRegex("claude-sonnet")]
+    private static partial Regex ClaudeSonnet();
+
+    [GeneratedRegex("claude-opus")]
+    private static partial Regex ClaudeOpus();
+
+    [GeneratedRegex("claude-haiku")]
+    private static partial Regex ClaudeHaiku();
+
+    [GeneratedRegex("gpt-5")]
+    private static partial Regex Gpt5();
+
+    [GeneratedRegex("gpt-4")]
+    private static partial Regex Gpt4();
+
+    [GeneratedRegex(@"\bo1\b")]
+    private static partial Regex O1();
+
+    [GeneratedRegex(@"\bo3\b")]
+    private static partial Regex O3();
+
+    [GeneratedRegex(@"\bo4\b")]
+    private static partial Regex O4();
+
+    [GeneratedRegex("codex-mini")]
+    private static partial Regex CodexMini();
+
+    [GeneratedRegex("gemini-[0-9]")]
+    private static partial Regex GeminiVersion();
 }

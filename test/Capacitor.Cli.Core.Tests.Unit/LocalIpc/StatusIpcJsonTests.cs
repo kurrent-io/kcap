@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Core.LocalIpc;
 
 namespace Capacitor.Cli.Core.Tests.Unit.LocalIpc;
@@ -8,7 +9,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.LocalIpc;
 /// (absent = null, never omitted), field order as declared, ISO-8601 UTC created_at.
 /// Plus the forward-compat pin: unknown members deserialize without error.
 /// </summary>
-public class StatusIpcJsonTests {
+public partial class StatusIpcJsonTests {
     [Test]
     public async Task DaemonStatus_serializes_exactly_with_nulls_present_and_pinned_field_order() {
         var dto = new DaemonStatusDto(
@@ -52,7 +53,7 @@ public class StatusIpcJsonTests {
             "a1", "agent", "claude", "/repo", "Running",
             null, null, null, DateTime.UtcNow, null, null);
         var json = JsonSerializer.Serialize(dto, StatusIpcJsonContext.Default.AgentStatusDto);
-        var stripped = System.Text.RegularExpressions.Regex.Replace(json, ",\"has_terminal\":[^,}]+", "");
+        var stripped = HasTerminalMember().Replace(json, "");
 
         var back = JsonSerializer.Deserialize(stripped, StatusIpcJsonContext.Default.AgentStatusDto);
 
@@ -65,7 +66,7 @@ public class StatusIpcJsonTests {
             "a1", "agent", "claude", "/repo", "Running",
             null, null, null, DateTime.UtcNow, null, null);
         var json = JsonSerializer.Serialize(dto, StatusIpcJsonContext.Default.AgentStatusDto);
-        var stripped = System.Text.RegularExpressions.Regex.Replace(json, ",\"title\":[^,}]+", "");
+        var stripped = TitleMember().Replace(json, "");
 
         var back = JsonSerializer.Deserialize(stripped, StatusIpcJsonContext.Default.AgentStatusDto);
 
@@ -117,7 +118,7 @@ public class StatusIpcJsonTests {
             "a1", "agent", "claude", "/repo", "Running",
             null, null, null, DateTime.UtcNow, null, null, TranscriptPath: "/x.jsonl");
         var json = JsonSerializer.Serialize(dto, StatusIpcJsonContext.Default.AgentStatusDto);
-        var stripped = System.Text.RegularExpressions.Regex.Replace(json, ",\"transcript_path\":[^,}]+", "");
+        var stripped = TranscriptPathMember().Replace(json, "");
 
         var back = JsonSerializer.Deserialize(stripped, StatusIpcJsonContext.Default.AgentStatusDto);
 
@@ -150,8 +151,7 @@ public class StatusIpcJsonTests {
             null, null, null, DateTime.UtcNow, null, null,
             WorktreePath: "/repo/.capacitor/worktrees/agent-1", WorkLocation: "owned", BorrowedFrom: "/elsewhere");
         var json = JsonSerializer.Serialize(dto, StatusIpcJsonContext.Default.AgentStatusDto);
-        var stripped = System.Text.RegularExpressions.Regex.Replace(
-            json, ",\"(worktree_path|work_location|borrowed_from)\":[^,}]+", "");
+        var stripped = WorkLocationMembers().Replace(json, "");
 
         var back = JsonSerializer.Deserialize(stripped, StatusIpcJsonContext.Default.AgentStatusDto);
 
@@ -200,7 +200,7 @@ public class StatusIpcJsonTests {
             "a1", "agent", "claude", "/repo", "Running",
             null, null, null, DateTime.UtcNow, null, null, AwaitingInput: true);
         var json = JsonSerializer.Serialize(dto, StatusIpcJsonContext.Default.AgentStatusDto);
-        var stripped = System.Text.RegularExpressions.Regex.Replace(json, ",\"awaiting_input\":[^,}]+", "");
+        var stripped = AwaitingInputMember().Replace(json, "");
 
         var back = JsonSerializer.Deserialize(stripped, StatusIpcJsonContext.Default.AgentStatusDto);
 
@@ -213,7 +213,7 @@ public class StatusIpcJsonTests {
             "a1", "agent", "claude", "/repo", "Running",
             null, null, null, DateTime.UtcNow, null, null, SessionId: "abc", Branch: "main");
         var json = JsonSerializer.Serialize(dto, StatusIpcJsonContext.Default.AgentStatusDto);
-        var stripped = System.Text.RegularExpressions.Regex.Replace(json, ",\"(session_id|branch)\":[^,}]+", "");
+        var stripped = SessionIdOrBranchMember().Replace(json, "");
 
         var back = JsonSerializer.Deserialize(stripped, StatusIpcJsonContext.Default.AgentStatusDto);
 
@@ -337,4 +337,22 @@ public class StatusIpcJsonTests {
             StatusIpcJsonContext.Default.DaemonInfoDto)!;
         await Assert.That(back.UserSubject).IsEqualTo("u1");
     }
+
+    [GeneratedRegex(",\"has_terminal\":[^,}]+")]
+    private static partial Regex HasTerminalMember();
+
+    [GeneratedRegex(",\"title\":[^,}]+")]
+    private static partial Regex TitleMember();
+
+    [GeneratedRegex(",\"transcript_path\":[^,}]+")]
+    private static partial Regex TranscriptPathMember();
+
+    [GeneratedRegex(",\"(worktree_path|work_location|borrowed_from)\":[^,}]+")]
+    private static partial Regex WorkLocationMembers();
+
+    [GeneratedRegex(",\"awaiting_input\":[^,}]+")]
+    private static partial Regex AwaitingInputMember();
+
+    [GeneratedRegex(",\"(session_id|branch)\":[^,}]+")]
+    private static partial Regex SessionIdOrBranchMember();
 }

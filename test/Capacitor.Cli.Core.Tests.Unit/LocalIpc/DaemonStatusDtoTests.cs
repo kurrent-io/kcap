@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.LocalIpc;
 
@@ -9,7 +10,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.LocalIpc;
 /// <see cref="CapacitorJsonContext"/>, and trailing fields on existing wire types stay
 /// backward-compatible (JSON without them still deserializes).
 /// </summary>
-public class DaemonStatusDtoTests {
+public partial class DaemonStatusDtoTests {
     [Test]
     public async Task DaemonStatusReport_roundtrips_through_source_gen_context() {
         var report = new DaemonStatusReport(
@@ -156,8 +157,7 @@ public class DaemonStatusDtoTests {
     [Test]
     public async Task DaemonConnect_from_an_older_daemon_reads_the_account_members_as_absent() {
         var json = JsonSerializer.Serialize(new DaemonConnect("d", "mac", [], 1, []), CapacitorJsonContext.Default.DaemonConnect);
-        var stripped = System.Text.RegularExpressions.Regex.Replace(
-            json, ",\"(supports_account_launches|accounts|vendor_models_by_account)\":(true|false|null)", "");
+        var stripped = AccountMembers().Replace(json, "");
 
         var back = JsonSerializer.Deserialize(stripped, CapacitorJsonContext.Default.DaemonConnect);
 
@@ -196,4 +196,7 @@ public class DaemonStatusDtoTests {
         await Assert.That(registeredBack).IsEqualTo(registered);
         await Assert.That(liveBack).IsEqualTo(live);
     }
+
+    [GeneratedRegex(",\"(supports_account_launches|accounts|vendor_models_by_account)\":(true|false|null)")]
+    private static partial Regex AccountMembers();
 }
