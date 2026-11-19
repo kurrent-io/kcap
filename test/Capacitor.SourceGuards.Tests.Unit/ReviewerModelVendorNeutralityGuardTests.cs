@@ -77,16 +77,16 @@ public class ReviewerModelVendorNeutralityGuardTests {
     /// the many non-model literals (<c>codex-hook</c>, <c>--skip-codex-network-access</c>,
     /// <c>codex-unattended-v1</c>, the <c>codex-reviewer-model-v1</c> policy version, etc.).</summary>
     static readonly (string Label, Regex Pattern)[] TellTales = [
-        ("claude-sonnet", new Regex(@"claude-sonnet", RegexOptions.Compiled)),
-        ("claude-opus",   new Regex(@"claude-opus",   RegexOptions.Compiled)),
-        ("claude-haiku",  new Regex(@"claude-haiku",  RegexOptions.Compiled)),
-        ("gpt-5",         new Regex(@"gpt-5",          RegexOptions.Compiled)),
-        ("gpt-4",         new Regex(@"gpt-4",          RegexOptions.Compiled)),
+        ("claude-sonnet", new Regex("claude-sonnet", RegexOptions.Compiled)),
+        ("claude-opus",   new Regex("claude-opus",   RegexOptions.Compiled)),
+        ("claude-haiku",  new Regex("claude-haiku",  RegexOptions.Compiled)),
+        ("gpt-5",         new Regex("gpt-5",          RegexOptions.Compiled)),
+        ("gpt-4",         new Regex("gpt-4",          RegexOptions.Compiled)),
         ("o1",            new Regex(@"\bo1\b",         RegexOptions.Compiled)),
         ("o3",            new Regex(@"\bo3\b",         RegexOptions.Compiled)),
         ("o4",            new Regex(@"\bo4\b",         RegexOptions.Compiled)),
-        ("codex-mini",    new Regex(@"codex-mini",     RegexOptions.Compiled)),
-        ("gemini-<ver>",  new Regex(@"gemini-[0-9]",   RegexOptions.Compiled)),
+        ("codex-mini",    new Regex("codex-mini",     RegexOptions.Compiled)),
+        ("gemini-<ver>",  new Regex("gemini-[0-9]",   RegexOptions.Compiled)),
     ];
 
     /// <summary>Walks up from this test file's own compile-time path (baked in by

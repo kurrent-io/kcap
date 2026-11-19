@@ -279,7 +279,7 @@ public class ClaudeTranscriptEventsTests {
 
     [Test]
     public async Task Malformed_lines_are_rejected_with_a_reason_and_emit_nothing() {
-        foreach (var line in new[] { "", "   ", "not json", "[1,2]", "\"s\"", $$$"""{"type":"user","uuid":"not-a-guid","message":{"content":"x"}}""" }) {
+        foreach (var line in new[] { "", "   ", "not json", "[1,2]", "\"s\"", """{"type":"user","uuid":"not-a-guid","message":{"content":"x"}}""" }) {
             var r = P(line);
             await Assert.That(r.Rejected).IsNotNull().Because(line);
             await Assert.That(r.Events).IsEmpty().Because(line);

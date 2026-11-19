@@ -662,7 +662,7 @@ public class RemoteAgentsServiceTests {
         lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 1));
         await Eventually(() => seen.Contains(true));
         lane.AgentsChangedSubject.OnNext(System.Reactive.Unit.Default);
-        await Eventually(() => seen[^1] == false);
+        await Eventually(() => !seen[^1]);
     }
 
     /// A read that outlives its connection reports on a lane that is no longer there.

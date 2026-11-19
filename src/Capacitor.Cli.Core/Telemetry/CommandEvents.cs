@@ -132,6 +132,6 @@ public static partial class CommandEvents {
             .ToArray();
     }
 
-    [GeneratedRegex(@"^--[a-z][a-z0-9-]{0,34}$")]
+    [GeneratedRegex("^--[a-z][a-z0-9-]{0,34}$")]
     private static partial Regex FlagShape();
 }

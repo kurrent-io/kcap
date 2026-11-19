@@ -127,7 +127,6 @@ internal sealed class CopilotImportSource : IImportSource {
                         }));
                 } catch {
                     // A hostile/inaccessible session subtree must not abort the whole scan.
-                    continue;
                 }
             }
 

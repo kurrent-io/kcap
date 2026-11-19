@@ -86,7 +86,7 @@ public class LoopbackOwnershipGuardTests {
             foreach (var alias in Alias.Matches(source).Cast<Match>())
                 patterns.Add(ConstructionOf(alias.Groups["alias"].Value));
 
-            foreach (var match in patterns.SelectMany(p => p.Matches(source).Cast<Match>())) {
+            foreach (var match in patterns.SelectMany(p => p.Matches(source))) {
                 var at        = match.Index;
                 var lineStart = source.LastIndexOf('\n', at) + 1;
 

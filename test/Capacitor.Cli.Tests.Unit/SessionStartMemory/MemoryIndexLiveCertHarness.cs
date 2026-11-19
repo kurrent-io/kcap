@@ -71,7 +71,7 @@ internal static partial class MemoryIndexLiveCertHarness {
         if (_indexCleanlinessUnconfirmed is { } reason) {
             throw new InvalidOperationException(
                 "Refusing to start a live cert: an earlier case in this run could not confirm its nonce "
-              + $"memory was removed, so the injected index may carry a stale nonce and a positive case "
+              + "memory was removed, so the injected index may carry a stale nonce and a positive case "
               + $"could pass on it. Clean up, then re-run. Reason: {reason}");
         }
     }

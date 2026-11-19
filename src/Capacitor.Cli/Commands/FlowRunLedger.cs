@@ -51,7 +51,7 @@ public sealed class FlowRunLedger(ConfigRoot config, TimeProvider time) {
 
     List<Entry> Load(DateTimeOffset now) {
         try {
-            if (!File.Exists(_path) || JsonNode.Parse(File.ReadAllText(_path)) is not JsonObject { } root
+            if (!File.Exists(_path) || JsonNode.Parse(File.ReadAllText(_path)) is not JsonObject root
                                     || root["runs"] is not JsonArray rows)
                 return [];
 

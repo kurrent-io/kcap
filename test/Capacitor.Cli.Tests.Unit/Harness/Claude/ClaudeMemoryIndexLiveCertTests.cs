@@ -76,8 +76,8 @@ public class ClaudeMemoryIndexLiveCertTests {
                 tmp.Path,
                 "A team-memory index may have been injected into your context under a " +
                 "'## Team memory' heading. If a memory slug looks relevant, call get_memory " +
-                $"on it and reply with ONLY the exact string it contains matching this pattern: " +
-                $"kcap-live-nonce-<32 hex chars>. Reply with nothing else.");
+                "on it and reply with ONLY the exact string it contains matching this pattern: " +
+                "kcap-live-nonce-<32 hex chars>. Reply with nothing else.");
 
             await Assert.That(answer).Contains(nonce);
         } finally {
@@ -114,7 +114,7 @@ public class ClaudeMemoryIndexLiveCertTests {
             using var tmp = new TempDir();
             var answer = await RunClaudePrintAsync(
                 tmp.Path,
-                $"Reply with ONLY the string kcap-live-nonce-<32 hex chars> if you can see it " +
+                "Reply with ONLY the string kcap-live-nonce-<32 hex chars> if you can see it " +
                 "anywhere in your context; otherwise reply NONE.");
 
             await Assert.That(answer).DoesNotContain(nonce);

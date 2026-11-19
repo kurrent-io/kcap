@@ -66,6 +66,6 @@ public static partial class HandoffFailureText {
     }
 
     // SignalR delivers a hub's refusal behind its own "… on the server. HubException: " lead.
-    [GeneratedRegex(@"(?:^|HubException: )(?<code>[a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?::|$)")]
+    [GeneratedRegex("(?:^|HubException: )(?<code>[a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?::|$)")]
     private static partial Regex CodePrefix();
 }

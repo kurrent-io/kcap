@@ -186,7 +186,7 @@ public static class OAuthLoginFlow {
             ct.ThrowIfCancellationRequested();
 
             if (time.GetUtcNow() >= deadline) {
-                progress.Error($"\nThe code expired before it was approved. Re-run to get a new one.");
+                progress.Error("\nThe code expired before it was approved. Re-run to get a new one.");
 
                 return null;
             }

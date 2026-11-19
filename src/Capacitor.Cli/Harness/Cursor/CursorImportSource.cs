@@ -213,7 +213,6 @@ internal sealed class CursorImportSource : IImportSource {
                             }));
                     } catch {
                         // A hostile/inaccessible session subtree must not abort the whole scan.
-                        continue;
                     }
                 }
             } catch {
@@ -718,7 +717,6 @@ internal sealed class CursorImportSource : IImportSource {
                     map[NormalizeCursorSessionId(sessionDirName)] = jsonl;
                 } catch (Exception ex) when (ex is not OperationCanceledException) {
                     // A hostile/inaccessible session subtree must not abort the whole scan.
-                    continue;
                 }
             }
         } catch (Exception ex) when (ex is not OperationCanceledException) {

@@ -451,7 +451,7 @@ public class ServerSessionsServiceTests {
         listing.Fail("ended", "me", 0);
         Connect(lane, "u1", 2);
         await Eventually(() => listing.Count("ended", "me", 0) == 2, "second read");
-        await Eventually(() => seen[^1] == false, "stale after a failed read");
+        await Eventually(() => !seen[^1], "stale after a failed read");
     }
 
     [Test]

@@ -138,7 +138,6 @@ public static partial class CodexConfigToml {
                                     claims[descriptor.Name] = BuildClaim(healed);
                                     ledgerChanged = true;
                                 }
-                                continue;
                             }
                             continue; // never mutate or claim a pre-existing/manual (unclaimed) entry
                         }
