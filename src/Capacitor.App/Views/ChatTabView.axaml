@@ -98,9 +98,11 @@
         <!-- A marked message keeps its toggle lit, so a second click in the same place undoes it. -->
         <Style Selector="Button.topicHere.on">
             <Setter Property="Opacity" Value="1" />
-            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
             <Setter Property="ToolTip.Tip" Value="Remove this topic" />
             <Setter Property="AutomationProperties.Name" Value="Remove topic" />
+        </Style>
+        <Style Selector="Button.topicHere.on /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
         </Style>
         <!-- The caret reads as half of Send, so it greys out with it while staying usable. -->
         <Style Selector="Button.kcapPrimary.sendIdle /template/ ContentPresenter#PART_ContentPresenter">
