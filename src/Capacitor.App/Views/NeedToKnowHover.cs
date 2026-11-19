@@ -26,7 +26,7 @@ sealed class NeedToKnowHover {
             // IsInside reads false on every wrapped line once the line height exceeds the glyphs',
             // so only the horizontal extent of the line under the point is checked.
             if (OnText(block.TextLayout, point))
-                span = FadedAt(inlines, block.TextLayout.HitTestPoint(point).TextPosition);
+                span = FadedAt(inlines, block.TextLayout.HitTestPoint(point).CharacterHit.FirstCharacterIndex);
         }
         Light(span, span is null ? null : block);
     }

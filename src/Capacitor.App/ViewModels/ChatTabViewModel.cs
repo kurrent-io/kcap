@@ -237,6 +237,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     public bool HasPendingCards => _hasPendingCards.Value;
 
     /// Stays true once a graded reply is seen, so trimming early rows never hides the controls that grade it.
+    /// A switch to another session's feed clears it, and that feed's replay raises it again if it grades.
     public bool HasNeedToKnowMarks {
         get => _hasNeedToKnowMarks;
         private set => this.RaiseAndSetIfChanged(ref _hasNeedToKnowMarks, value);
@@ -1482,6 +1483,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     void SwitchFeed(string key, Func<string, IChatTranscriptFeed> open) {
         // A released tab's runs belong to the monitor that took its feed; this tab reads nothing more.
         if (_feedReleased) return;
+        HasNeedToKnowMarks = false;
         _items.Clear();
         // A recall on screen gives way to the draft it replaced, or that draft would be stranded.
         var restore = _history.IsShowing(Recallable()) ? _history.TakeDraft() : null;

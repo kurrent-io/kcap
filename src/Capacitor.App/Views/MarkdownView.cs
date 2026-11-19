@@ -278,9 +278,7 @@ public sealed class MarkdownView : ContentControl {
         if (ToolTip.GetTip(_viewer) is not null) ToolTip.SetTip(_viewer, null);
         _find.Forget();
         if (_viewer.Markdown == Text) _viewer.Markdown = null;
-        _renderedBasis = NeedToKnowBasis.Current;
-        _hasMarks = Flavor == MarkdownFlavor.Chat && NeedToKnowMarks.HasMarks(Text);
-        _hover.Clear();
+        ReadMarks();
         try {
             _viewer.Markdown = Text;
             Content = _viewer;
@@ -291,6 +289,12 @@ public sealed class MarkdownView : ContentControl {
         ApplyFind();
         _selectionHost?.UpdateSelection(this);
         WatchTitles();
+    }
+
+    void ReadMarks() {
+        _renderedBasis = NeedToKnowBasis.Current;
+        _hasMarks = Flavor == MarkdownFlavor.Chat && NeedToKnowMarks.HasMarks(Text);
+        _hover.Clear();
     }
 
     void ApplyFind() {
@@ -402,6 +406,7 @@ public sealed class MarkdownView : ContentControl {
         _viewer.Extensions.Add(Highlighting);
         // After the highlighter, whose code block renderer this one wraps.
         _viewer.Extensions.Add(_codeActions);
+        ReadMarks();
         // Only the pipeline change re-renders, so it goes last.
         _viewer.Pipeline = Flavor switch {
             MarkdownFlavor.GitHub => GitHubPipeline.Instance,

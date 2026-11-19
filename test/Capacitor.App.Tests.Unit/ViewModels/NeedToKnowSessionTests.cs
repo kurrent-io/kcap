@@ -19,4 +19,17 @@ public class NeedToKnowSessionTests {
         await h.TickAsync();
         await Assert.That(h.Chat.HasNeedToKnowMarks).IsTrue();
     });
+
+    [Test]
+    public Task Another_sessions_feed_starts_without_the_graded_reply() => RunOnUiAsync(async () => {
+        await using var h = new ChatPromptHarness("claude");
+        await h.ReadyAsync();
+        h.Feed.Enqueue(new([new AcpEventEnvelope(Kind: AcpEventKind.AssistantText, Text: "Done. ⌞It took a while.⌟")], [], []));
+        await h.TickAsync();
+        await Assert.That(h.Chat.HasNeedToKnowMarks).IsTrue();
+
+        h.SwitchFeed("other");
+        await h.ReadyAsync();
+        await Assert.That(h.Chat.HasNeedToKnowMarks).IsFalse();
+    });
 }

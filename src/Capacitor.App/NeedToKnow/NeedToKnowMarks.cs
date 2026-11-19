@@ -24,9 +24,16 @@ public sealed class NeedToKnowMarks : IMarkdownExtension {
 
     static readonly MarkdownPipeline Plain = new MarkdownPipelineBuilder().UseSupportedExtensions().Build();
 
-    /// Whether the text grades anything: a mark outside code, which only a parse can tell.
-    public static bool Grades(string? text) =>
-        HasMarks(text) && Markdown.Parse(text!, Plain).Descendants<LeafBlock>().Any(leaf => leaf.Inline is { } root && Contains(root));
+    /// Whether the text grades anything: a mark outside code, which only a parse can tell. Text nested past
+    /// Markdig's depth limit shows as plain source, so it grades nothing.
+    public static bool Grades(string? text) {
+        if (!HasMarks(text)) return false;
+        try {
+            return Markdown.Parse(text!, Plain).Descendants<LeafBlock>().Any(leaf => leaf.Inline is { } root && Contains(root));
+        } catch (ArgumentException e) when (e.Message.Contains("too deeply nested", StringComparison.Ordinal)) {
+            return false;
+        }
+    }
 
     public static void Apply(MarkdownDocument document, NeedToKnowBasis basis) {
         foreach (var leaf in document.Descendants<LeafBlock>().ToArray())
@@ -131,28 +138,31 @@ public sealed class NeedToKnowMarks : IMarkdownExtension {
     static void DropEmptyContainers(ContainerInline container) {
         foreach (var nested in container.OfType<ContainerInline>().ToArray()) {
             DropEmptyContainers(nested);
-            if (nested.FirstChild is null) nested.Remove();
+            // An image with no alt text has no children either.
+            if (nested.FirstChild is null && nested is not LinkInline { IsImage: true }) nested.Remove();
         }
     }
 
     /// A hidden span leaves the spaces either side of it; one is kept, and none at the block's edges.
+    /// Only text that renders side by side is compared, so the space before inline code stays.
     static void TidySpaces(ContainerInline root) {
-        var literals = root.Descendants<LiteralInline>().ToList();
-        for (var i = 1; i < literals.Count; i++) {
-            var previous = literals[i - 1].Content.ToString();
-            var current = literals[i].Content.ToString();
+        var leaves = root.Descendants<Inline>().Where(static inline => inline is not ContainerInline || inline is LinkInline { IsImage: true }).ToList();
+        for (var i = 1; i < leaves.Count; i++) {
+            if (leaves[i - 1] is not LiteralInline before || leaves[i] is not LiteralInline after) continue;
+            var previous = before.Content.ToString();
+            var current = after.Content.ToString();
             if (previous.Length > 0 && char.IsWhiteSpace(previous[^1]) && current.Length > 0
                 && (char.IsWhiteSpace(current[0]) || current[0] is '.' or ',' or ';' or ':' or '!' or '?'))
-                literals[i - 1].Content = new(previous.TrimEnd());
+                before.Content = new(previous.TrimEnd());
         }
-        if (literals.Count == 0) return;
-        literals[0].Content = new(literals[0].Content.ToString().TrimStart());
-        literals[^1].Content = new(literals[^1].Content.ToString().TrimEnd());
+        if (leaves is [LiteralInline first, ..]) first.Content = new(first.Content.ToString().TrimStart());
+        if (leaves is [.., LiteralInline last]) last.Content = new(last.Content.ToString().TrimEnd());
     }
 
     static bool HasContent(ContainerInline root) =>
         root.Descendants<Inline>().Any(inline => inline switch {
             LiteralInline literal => !literal.Content.IsEmptyOrWhitespace(),
+            LinkInline { IsImage: true } => true,
             ContainerInline or LineBreakInline => false,
             _ => true,
         });

@@ -120,6 +120,25 @@ public class NeedToKnowMarksTests {
     }
 
     [Test]
+    public async Task A_hidden_span_keeps_the_space_before_inline_code() =>
+        await Assert.That(Render("Use `git status`. ⌞Extra.⌟", AllHidden)).IsEqualTo("Use `git status`.");
+
+    [Test]
+    public async Task A_hidden_span_keeps_the_space_after_leading_inline_code() =>
+        await Assert.That(Render("`x` then ⌞y.⌟ z.", AllHidden)).IsEqualTo("`x` then z.");
+
+    [Test]
+    public async Task A_hidden_span_keeps_an_image_without_alt_text() {
+        var document = Markdown.Parse("![](diagram.png) ⌞Optional.⌟", WithoutPass);
+        NeedToKnowMarks.Apply(document, AllHidden);
+        await Assert.That(document.Descendants<LinkInline>().Any(link => link.IsImage)).IsTrue();
+    }
+
+    [Test]
+    public async Task Text_nested_past_the_parser_limit_grades_nothing() =>
+        await Assert.That(NeedToKnowMarks.Grades(new string('>', 200) + " A. ⌞B.⌟")).IsFalse();
+
+    [Test]
     public async Task Text_without_marks_is_untouched() =>
         await Assert.That(Render("Plain *text* (7/7).", AllHidden)).IsEqualTo("Plain *text* (7/7).");
 }
