@@ -47,6 +47,55 @@ public class GrokBotGatewayTests {
         await Assert.That(b.Fingerprint).IsEqualTo(a.Fingerprint);
     }
 
+    /// <summary>Serves a chat of <paramref name="count"/> entries, seq 1 upward, in tail pages.</summary>
+    sealed class Paged(int count, int pageSize) : HttpMessageHandler {
+        public int Calls { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
+            Calls++;
+            using var body = System.Text.Json.JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
+            var before = body.RootElement.TryGetProperty("beforeSeq", out var b) ? b.GetInt32() : count + 1;
+            var first  = Math.Max(1, before - pageSize);
+            var page   = string.Join(",", Enumerable.Range(first, before - first).Select(seq => $$"""{"id":"e{{seq}}","seq":{{seq}},"timestampMs":{{seq}}}"""));
+            var cursor = first > 1 ? $",\"nextBeforeSeq\":{first}" : "";
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent($$"""{"entries":[{{page}}]{{cursor}}}""", Encoding.UTF8, "application/json") };
+        }
+    }
+
+    async Task<(GrokBotRead Read, int Calls)> ReadSince(int count, int lastSeq) {
+        var descriptor = Tmp.CreateFile("gateway.json", """{"scheme":"http","host":"127.0.0.1","port":1340,"token":"t"}""");
+        var handler    = new Paged(count, pageSize: 10);
+        using var http = new HttpClient(handler);
+
+        return (await new GrokBotGateway(descriptor, http).ReadSinceAsync("g1", lastSeq, CancellationToken.None), handler.Calls);
+    }
+
+    [Test]
+    public async Task A_first_read_pages_back_to_the_chats_first_entry() {
+        var (read, calls) = await ReadSince(count: 35, lastSeq: -1);
+
+        await Assert.That(read.Entries.Select(e => e.Seq).Order()).IsEquivalentTo(Enumerable.Range(1, 35));
+        await Assert.That(read.FromThreadStart).IsTrue();
+        await Assert.That(calls).IsEqualTo(4);
+    }
+
+    [Test]
+    public async Task A_later_read_pages_back_only_to_what_was_delivered() {
+        var (read, calls) = await ReadSince(count: 35, lastSeq: 20);
+
+        await Assert.That(read.Entries.Min(e => e.Seq)).IsLessThanOrEqualTo(21);
+        await Assert.That(calls).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task A_chat_longer_than_the_page_budget_is_read_without_its_beginning() {
+        var (read, calls) = await ReadSince(count: GrokBotGateway.MaxPages * 10 + 5, lastSeq: -1);
+
+        await Assert.That(read.FromThreadStart).IsFalse();
+        await Assert.That(calls).IsEqualTo(GrokBotGateway.MaxPages);
+    }
+
     [Test]
     public async Task Groups_are_listed() {
         var group = await ListOne($$"""{{{Base}}}""");

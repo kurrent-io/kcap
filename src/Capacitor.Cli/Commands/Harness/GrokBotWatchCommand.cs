@@ -9,10 +9,11 @@ using Capacitor.Cli.Harness.GrokBot;
 namespace Capacitor.Cli.Commands.Harness;
 
 /// <summary>
-/// <c>kcap grok-bot watch</c>: polls the Grok Bot gateway on its cloud computer and records every chat as
-/// kcap sessions. The gateway lists each chat as an agent: a Bot's own thread, and every new chat as a
-/// group, so groups are read like any other. One instance per computer, held by a lock file; delivery state advances
-/// only after the server accepts a call, so a restart resends nothing and loses nothing.
+/// <c>kcap grok-bot watch</c>: records every Grok Bot chat as kcap sessions, read from the gateway on a
+/// Grok Bot cloud computer or from the desktop app's own copy of each chat. The gateway lists each chat as
+/// an agent: a Bot's own thread, and every new chat as a group, so groups are read like any other. One
+/// instance per computer, held by a lock file; delivery state advances only after the server accepts a
+/// call, so a restart resends nothing and loses nothing.
 /// </summary>
 public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profiles, UserHome home, ICapacitorHttpClient http, TimeProvider time) {
     static readonly TimeSpan DefaultInterval = TimeSpan.FromSeconds(5);
@@ -23,23 +24,25 @@ public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profil
     // field that stops moving delays capture instead of stopping it.
     static readonly TimeSpan FullReadInterval = TimeSpan.FromMinutes(1);
 
-    // A thread longer than this many tail pages is not paged further back in one cycle.
-    const int MaxPagesPerCycle = 50;
+    readonly HashSet<string> _withoutBeginning = new(StringComparer.Ordinal);
 
     public async Task<int> HandleAsync(string[] args) {
         if (args.Length < 2 || args[1] != "watch") {
-            await Console.Error.WriteLineAsync("Usage: kcap grok-bot watch [--once] [--dry-run] [--gateway <gateway.json>] [--interval <seconds>] [--gap-minutes <n>]");
+            await Console.Error.WriteLineAsync("Usage: kcap grok-bot watch [--once] [--dry-run] [--gateway <gateway.json> | --desktop <dir>] [--interval <seconds>] [--gap-minutes <n>]");
             return 1;
         }
 
-        var descriptor = Option(args, "--gateway") ?? Path.Join(home.Path, "sand-data", "gateway.json");
         var interval   = int.TryParse(Option(args, "--interval"), out var s) && s > 0 ? TimeSpan.FromSeconds(s) : DefaultInterval;
         var gap        = int.TryParse(Option(args, "--gap-minutes"), out var g) && g > 0 ? TimeSpan.FromMinutes(g) : DefaultGap;
         var once       = args.Contains("--once");
         var dryRun     = args.Contains("--dry-run");
 
-        if (!File.Exists(descriptor)) {
-            await Console.Error.WriteLineAsync($"No Grok Bot gateway at {descriptor}. Run this on a Grok Bot cloud computer, or pass --gateway.");
+        using var plain = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+
+        if (Source(args, plain) is not { } source) {
+            await Console.Error.WriteLineAsync(
+                $"No Grok Bot here: no gateway at {GatewayDescriptor}, and no desktop app chats at {GrokBotDesktopPaths.ChatStore(home) ?? "(no application data directory)"}. "
+              + "Run this on a Grok Bot cloud computer or on a computer with the Grok Bot desktop app, or pass --gateway or --desktop.");
             return 1;
         }
 
@@ -52,23 +55,21 @@ public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profil
             return 1;
         }
 
-        using var _      = lockFile;
-        using var cts    = new CancellationTokenSource();
-        using var plain  = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        using var _   = lockFile;
+        using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
-        var gateway = new GrokBotGateway(descriptor, plain);
         var store   = new GrokBotStateStore(config.Path("grok-bot", "state.json"));
         var states  = store.Load();
         var seen    = new Dictionary<string, (string Fingerprint, DateTimeOffset ReadAt)>(StringComparer.Ordinal);
         var backoff = new GrokBotBackoff(interval, BackoffCeiling);
 
-        Log($"watching {descriptor}, gap {gap.TotalMinutes:0} min, {states.Count} Bot(s) in state");
+        Log($"watching {source.Description}, gap {gap.TotalMinutes:0} min, {states.Count} chat(s) in state");
 
         do {
             string? failure;
             try {
-                failure = await CycleAsync(gateway, store, states, seen, gap, dryRun, cts.Token);
+                failure = await CycleAsync(source, store, states, seen, gap, dryRun, cts.Token);
             } catch (OperationCanceledException) when (cts.IsCancellationRequested) {
                 break;
             } catch (Exception ex) {
@@ -93,10 +94,22 @@ public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profil
         return 0;
     }
 
-    /// <summary>One pass over every Bot. Returns why the cycle stopped short, or null when it did not; a
-    /// refused call ends the cycle, since a lapsed sign-in or a server outage refuses every Bot alike.</summary>
+    string GatewayDescriptor => Path.Join(home.Path, "sand-data", "gateway.json");
+
+    /// <summary>The source the flags name, else the gateway where this computer has one, else the desktop
+    /// app's chats. A cloud computer has no desktop app, so the gateway's presence settles which it is.</summary>
+    IGrokBotSource? Source(string[] args, HttpClient plain) {
+        if (Option(args, "--gateway") is { } descriptor) return File.Exists(descriptor) ? new GrokBotGateway(descriptor, plain) : null;
+        if (Option(args, "--desktop") is { } dir) return Directory.Exists(dir) ? new GrokBotDesktopChats(dir) : null;
+        if (File.Exists(GatewayDescriptor)) return new GrokBotGateway(GatewayDescriptor, plain);
+
+        return GrokBotDesktopPaths.ChatStore(home) is { } store && Directory.Exists(store) ? new GrokBotDesktopChats(store) : null;
+    }
+
+    /// <summary>One pass over every chat. Returns why the cycle stopped short, or null when it did not; a
+    /// refused call ends the cycle, since a lapsed sign-in or a server outage refuses every chat alike.</summary>
     async Task<string?> CycleAsync(
-            GrokBotGateway                       gateway,
+            IGrokBotSource                       source,
             GrokBotStateStore                    store,
             Dictionary<string, GrokBotBotState>  states,
             Dictionary<string, (string Fingerprint, DateTimeOffset ReadAt)> seen,
@@ -106,7 +119,7 @@ public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profil
         ) {
         var client = await http.ForBackgroundAsync(ct);
 
-        foreach (var agent in await gateway.ListAgentsAsync(ct)) {
+        foreach (var agent in await source.ListAgentsAsync(ct)) {
             var state   = states.GetValueOrDefault(agent.Id, GrokBotBotState.Empty);
             var now     = time.GetUtcNow();
             var changed = !seen.TryGetValue(agent.Id, out var last)
@@ -115,14 +128,18 @@ public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profil
 
             if (!changed && state.Open is null) continue;
 
-            var entries = changed ? await ReadSinceAsync(gateway, agent.Id, state.LastSeq, ct) : [];
-            var actions = GrokBotSessionizer.Plan(agent.Id, state, entries, now.ToUnixTimeMilliseconds(), agent.IsRunningTurn, gap);
+            var read    = changed ? await source.ReadSinceAsync(agent.Id, state.LastSeq, ct) : GrokBotRead.Nothing;
+            var actions = GrokBotSessionizer.Plan(agent.Id, state, read.Entries, now.ToUnixTimeMilliseconds(), agent.IsRunningTurn, gap, read.FromThreadStart);
 
             if (dryRun) {
-                Log($"{agent.Name} ({agent.Id}): {entries.Count} entries read, {actions.Count} call(s) planned");
+                var start = read.FromThreadStart ? "" : ", without the chat's beginning";
+                Log($"{(agent.Name.Length > 0 ? $"{agent.Name} ({agent.Id})" : agent.Id)}: {read.Entries.Count} entries read{start}, {actions.Count} call(s) planned");
                 foreach (var action in actions) Log("  would " + Describe(action));
                 continue;
             }
+
+            if (!read.FromThreadStart && state == GrokBotBotState.Empty && actions.Count == 0 && _withoutBeginning.Add(agent.Id))
+                Log($"chat {agent.Id}: its beginning is not available here, so recording starts at its next quiet gap");
 
             foreach (var action in actions) {
                 if (await SendAsync(client, action, ct) is { } refused) {
@@ -138,25 +155,6 @@ public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profil
         }
 
         return null;
-    }
-
-    /// <summary>The newest page, then earlier pages until one reaches <paramref name="lastSeq"/> or the
-    /// gateway stops moving backwards.</summary>
-    static async Task<List<GrokBotEntry>> ReadSinceAsync(GrokBotGateway gateway, string agentId, int lastSeq, CancellationToken ct) {
-        var (entries, before) = await gateway.TailAsync(agentId, null, ct);
-        var all = new List<GrokBotEntry>(entries);
-
-        for (var page = 1; page < MaxPagesPerCycle && before is { } cursor && all.Count > 0 && all.Min(e => e.Seq) > lastSeq + 1; page++) {
-            var oldest = all.Min(e => e.Seq);
-            var (older, next) = await gateway.TailAsync(agentId, cursor, ct);
-
-            if (older.Count == 0 || older.Min(e => e.Seq) >= oldest) break;
-
-            all.AddRange(older);
-            before = next;
-        }
-
-        return all;
     }
 
     /// <summary>Sends one call; returns why the server refused it, or null when it was accepted.</summary>

@@ -2,16 +2,23 @@ kcap grok-bot — Record Grok Bot chats
 
 Usage: kcap grok-bot watch [options]
 
-Runs on a Grok Bot cloud computer. Polls the computer's local Grok Bot gateway
-and records every chat — each Bot's own thread and every new chat, which Grok
-Bot keeps as a group — as Capacitor sessions: a new session starts after
-the thread has been quiet for the gap, and ends once the gap passes with no new
+Records every Grok Bot chat — each Bot's own thread and every new chat, which
+Grok Bot keeps as a group — as kcap sessions: a new session starts after the
+thread has been quiet for the gap, and ends once the gap passes with no new
 message. Records the conversation only — user messages, Bot messages and the
 choices made on Bot questions — not tool calls.
 
+Reads from one of two places. On a Grok Bot cloud computer it polls the
+computer's local Grok Bot gateway, and keeps recording with your own computer
+off. On a computer with the Grok Bot desktop app it reads the app's own copy of
+each chat. The gateway is used where the computer has one, the desktop app's
+chats otherwise. Both give the same sessions under the same ids, so a chat
+recorded from both places is stored once.
+
 One watcher runs per computer. Delivery state lives under the kcap config
-directory, so a restarted watcher resumes where it stopped. Sessions are private
-unless your profile's default visibility says otherwise.
+directory, so a restarted watcher resumes where it stopped. Sessions are always
+private to you. A chat whose beginning is no longer available — a long chat in
+the desktop app — is recorded from its next quiet gap on.
 
 A failed cycle — the gateway unreachable, the server refusing a call, a
 lapsed sign-in — is retried with a doubling wait up to five minutes, and the
@@ -21,6 +28,7 @@ server accepts the call, so a fixed sign-in catches up without losing entries.
 Options:
   --once                  Run one polling cycle and exit (1 if it failed)
   --dry-run               Log the calls it would make; send and save nothing
-  --gateway <path>        Gateway descriptor (default: ~/sand-data/gateway.json)
+  --gateway <path>        Read this gateway descriptor (default: ~/sand-data/gateway.json)
+  --desktop <dir>         Read the desktop app's chat store in this directory
   --interval <seconds>    Polling interval (default: 5)
   --gap-minutes <n>       Idle gap that splits sessions (default: 120)

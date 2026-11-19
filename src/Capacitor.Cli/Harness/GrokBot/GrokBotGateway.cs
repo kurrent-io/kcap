@@ -11,15 +11,18 @@ namespace Capacitor.Cli.Harness.GrokBot;
 /// <c>POST /api/{method}</c> with the bearer token from <c>gateway.json</c>. The descriptor is re-read on
 /// every call, because the gateway restarts with a new port and token.
 /// </summary>
-public sealed class GrokBotGateway(string descriptorPath, HttpClient http) {
+public sealed class GrokBotGateway(string descriptorPath, HttpClient http) : IGrokBotSource {
     public const int TailLimit = 200;
+
+    /// <summary>A chat longer than this many tail pages is not read back to its first entry.</summary>
+    public const int MaxPages = 50;
+
+    public string Description => $"the gateway at {descriptorPath}";
 
     // Fields that move when a chat gains or changes an entry. lastEntry and localActivityAt look as if they
     // should and do not: one previews how the last message opens, the other is the chat's creation time.
     static readonly string[] ChangeFields =
         ["newestEntryId", "snapshotSeq", "updatedAt", "lastActivityAt", "lastMessageId", "isRunningTurn", "awaitingUserResponse"];
-
-    public bool Available => File.Exists(descriptorPath);
 
     public async Task<IReadOnlyList<GrokBotAgent>> ListAgentsAsync(CancellationToken ct) {
         using var doc = await CallAsync("listAgents", new JsonObject(), ct);
@@ -36,6 +39,30 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) {
         }
 
         return result;
+    }
+
+    /// <summary>The newest page, then earlier pages until one reaches <paramref name="lastSeq"/> or the
+    /// chat's first entry.</summary>
+    public async Task<GrokBotRead> ReadSinceAsync(string agentId, int lastSeq, CancellationToken ct) {
+        var (entries, before) = await TailAsync(agentId, null, ct);
+        var all          = new List<GrokBotEntry>(entries);
+        var reachedStart = before is null;
+
+        for (var page = 1; !reachedStart && all.Count > 0 && all.Min(e => e.Seq) > Math.Max(lastSeq + 1, 1); page++) {
+            if (page >= MaxPages) return new(all, false);
+
+            var oldest        = all.Min(e => e.Seq);
+            var (older, next) = await TailAsync(agentId, before, ct);
+
+            // A page that does not move backwards is the gateway's way of saying there is none earlier.
+            if (older.Count == 0 || older.Min(e => e.Seq) >= oldest) break;
+
+            all.AddRange(older);
+            before       = next;
+            reachedStart = next is null;
+        }
+
+        return new(all, true);
     }
 
     /// <summary>The newest entries, or the page before <paramref name="beforeSeq"/>. Returns the

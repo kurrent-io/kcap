@@ -11,6 +11,10 @@ namespace Capacitor.Cli.Harness.GrokBot;
 /// <para>An entry is sent only once it has settled — not streaming, and a question or permission ask only
 /// once answered or followed by a later entry — because the server keeps the first copy of a line number and
 /// drops a resend. An entry older than the gap counts as settled whatever its state.</para>
+///
+/// <para>A chat first seen without its beginning is recorded from its next quiet gap on: its oldest entry
+/// may sit mid-session, and a session opened there would not be the one a reader holding the whole chat
+/// opens for the same messages.</para>
 /// </summary>
 public static class GrokBotSessionizer {
     public static IReadOnlyList<GrokBotAction> Plan(
@@ -20,6 +24,7 @@ public static class GrokBotSessionizer {
             long                      nowMs,
             bool                      isRunningTurn,
             TimeSpan                  gap,
+            bool                      fromThreadStart = true,
             int                       maxBatch = 100
         ) {
         var gapMs   = (long)gap.TotalMilliseconds;
@@ -29,6 +34,12 @@ public static class GrokBotSessionizer {
         var pending = state.LastSeq;
 
         var fresh = entries.Where(e => e.Seq > state.LastSeq).DistinctBy(e => e.Seq).OrderBy(e => e.Seq).ToList();
+
+        if (!fromThreadStart && state == GrokBotBotState.Empty) {
+            var boundary = Enumerable.Range(1, Math.Max(fresh.Count - 1, 0)).FirstOrDefault(i => fresh[i].TimestampMs - fresh[i - 1].TimestampMs >= gapMs);
+
+            fresh = boundary > 0 ? fresh[boundary..] : [];
+        }
 
         for (var i = 0; i < fresh.Count; i++) {
             var entry   = fresh[i];

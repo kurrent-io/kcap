@@ -122,6 +122,32 @@ public class GrokBotSessionizerTests {
     }
 
     [Test]
+    public async Task A_chat_first_seen_without_its_beginning_waits_for_a_quiet_gap() {
+        GrokBotEntry[] midSession = [Entry(40, T0), Entry(41, T0 + 1)];
+
+        await Assert.That(GrokBotSessionizer.Plan(Agent, GrokBotBotState.Empty, midSession, T0 + 2, false, Gap, fromThreadStart: false)).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_chat_first_seen_without_its_beginning_is_recorded_from_its_first_quiet_gap() {
+        GrokBotEntry[] entries = [Entry(40, T0), Entry(41, T0 + 1), Entry(42, T0 + 3 * Hour), Entry(43, T0 + 3 * Hour + 1)];
+
+        var actions = GrokBotSessionizer.Plan(Agent, GrokBotBotState.Empty, entries, T0 + 3 * Hour + 2, false, Gap, fromThreadStart: false);
+
+        await Assert.That(((GrokBotStartSession)actions[0]).SessionId).IsEqualTo(GrokBotSessionizer.SessionId(Agent, "e42"));
+        await Assert.That(((GrokBotSendLines)actions[1]).Seqs).IsEquivalentTo([42, 43]);
+    }
+
+    [Test]
+    public async Task A_chat_already_being_recorded_ignores_a_read_without_its_beginning() {
+        var recorded = new GrokBotBotState(41, null);
+
+        var actions = GrokBotSessionizer.Plan(Agent, recorded, [Entry(42, T0)], T0 + 1, false, Gap, fromThreadStart: false);
+
+        await Assert.That(actions.OfType<GrokBotSendLines>().Single().Seqs).IsEquivalentTo([42]);
+    }
+
+    [Test]
     public async Task Session_ids_are_32_lowercase_hex_and_stable() {
         var id = GrokBotSessionizer.SessionId(Agent, "t2u");
 
