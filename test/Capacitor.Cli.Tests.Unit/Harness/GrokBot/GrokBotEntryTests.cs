@@ -19,8 +19,10 @@ public class GrokBotEntryTests {
     [Arguments("""{"id":"t1u","seq":1}""")]
     [Arguments("""{"id":"t1u","seq":null,"timestampMs":1}""")]
     [Arguments("""{"id":"t1u","seq":1,"timestampMs":"soon"}""")]
+    [Arguments("""{"id":"t1u","seq":1,"timestampMs":9223372036854775807}""")]
+    [Arguments("""{"id":"t1u","seq":1,"timestampMs":-62135596800001}""")]
     [Arguments("""[]""")]
-    public async Task Entries_missing_identity_or_ordering_are_skipped(string json) {
+    public async Task Entries_missing_identity_ordering_or_a_usable_time_are_skipped(string json) {
         await Assert.That(Parse(json)).IsNull();
     }
 
@@ -38,6 +40,7 @@ public class GrokBotEntryTests {
     [Test]
     [Arguments("""{"kind":"send-message","id":"a","seq":1,"timestampMs":1,"message":{"type":"widget","widget":{}}}""", true)]
     [Arguments("""{"kind":"send-message","id":"a","seq":1,"timestampMs":1,"message":{"type":"widget","widget":{}},"respondedValue":"x"}""", false)]
+    [Arguments("""{"kind":"send-message","id":"a","seq":1,"timestampMs":1,"message":{"type":"widget","widget":{}},"respondedValue":null}""", true)]
     [Arguments("""{"kind":"send-message","id":"a","seq":1,"timestampMs":1,"message":{"type":"widget","widget":{}},"widgetSkipped":true}""", false)]
     [Arguments("""{"kind":"send-message","id":"a","seq":1,"timestampMs":1,"message":{"type":"text","content":"x"}}""", false)]
     [Arguments("""{"kind":"send-message","id":"a","seq":1,"timestampMs":1,"message":{"type":"local-tool-permission","ask":{"action":"read-file"}}}""", true)]
@@ -46,6 +49,14 @@ public class GrokBotEntryTests {
     [Arguments("""{"kind":"send-message","id":"a","seq":1,"timestampMs":1,"message":{"type":"connector","connector":"Gmail","variant":"connect"}}""", false)]
     public async Task Only_an_unanswered_question_or_permission_ask_awaits(string json, bool open) {
         await Assert.That(Parse(json)!.IsAwaitingAnswer).IsEqualTo(open);
+    }
+
+    [Test]
+    [Arguments("""{"kind":"message","id":"a","role":"user","content":"hi","seq":1,"timestampMs":1}""", true)]
+    [Arguments("""{"kind":"message","id":"a","role":"system","content":"hi","seq":1,"timestampMs":1}""", false)]
+    [Arguments("""{"kind":"send-message","id":"a","seq":1,"timestampMs":1,"message":{"type":"text","content":"x"}}""", false)]
+    public async Task Only_a_message_from_the_user_starts_a_turn(string json, bool startsTurn) {
+        await Assert.That(Parse(json)!.StartsTurn).IsEqualTo(startsTurn);
     }
 
     [Test]

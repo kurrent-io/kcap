@@ -54,7 +54,7 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) : IGr
             var oldest        = all.Min(e => e.Seq);
             var (older, next) = await TailAsync(agentId, before, ct);
 
-            // A page that does not move backwards is the gateway's way of saying there is none earlier.
+            // A page that does not move backwards while a cursor is outstanding leaves the beginning unreached.
             if (older.Count == 0 || older.Min(e => e.Seq) >= oldest) break;
 
             all.AddRange(older);
@@ -62,7 +62,7 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) : IGr
             reachedStart = next is null;
         }
 
-        return new(all, true);
+        return new(all, reachedStart || all.Count == 0 || all.Min(e => e.Seq) <= Math.Max(lastSeq + 1, 1));
     }
 
     /// <summary>The newest entries, or the page before <paramref name="beforeSeq"/>. Returns the

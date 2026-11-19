@@ -9,8 +9,8 @@ public class GrokBotSessionizerTests {
     const long Hour = 3_600_000;
     const long T0   = 1_790_000_000_000;
 
-    static GrokBotEntry Entry(int seq, long ts, bool streaming = false, bool awaiting = false) =>
-        new($"e{seq}", seq, ts, streaming, awaiting, $$"""{"id":"e{{seq}}","seq":{{seq}}}""");
+    static GrokBotEntry Entry(int seq, long ts, bool streaming = false, bool awaiting = false, bool startsTurn = false) =>
+        new($"e{seq}", seq, ts, streaming, awaiting, startsTurn, $$"""{"id":"e{{seq}}","seq":{{seq}}}""");
 
     static IReadOnlyList<GrokBotAction> Plan(GrokBotBotState state, long now, bool running = false, params GrokBotEntry[] entries) =>
         GrokBotSessionizer.Plan(Agent, state, entries, now, running, Gap);
@@ -86,21 +86,49 @@ public class GrokBotSessionizerTests {
         await Assert.That(((GrokBotSendLines)actions[^1]).Seqs).IsEquivalentTo([1]);
     }
 
+    /// <summary>The answer lands on the question's own entry, and the server keeps the first copy of a line:
+    /// a question sent while the Bot is still talking would lose the answer the user gives next.</summary>
     [Test]
-    public async Task An_unanswered_widget_waits_unless_a_later_entry_follows_it() {
+    public async Task An_unanswered_question_waits_through_later_bot_entries_until_the_user_moves_on() {
         var waiting = Plan(GrokBotBotState.Empty, T0 + 1, entries: [Entry(1, T0), Entry(2, T0 + 1, awaiting: true)]);
         await Assert.That(((GrokBotSendLines)waiting[^1]).Seqs).IsEquivalentTo([1]);
 
-        var followed = Plan(GrokBotBotState.Empty, T0 + 2, entries: [Entry(1, T0), Entry(2, T0 + 1, awaiting: true), Entry(3, T0 + 2)]);
-        await Assert.That(((GrokBotSendLines)followed[^1]).Seqs).IsEquivalentTo([1, 2, 3]);
+        var botWentOn = Plan(GrokBotBotState.Empty, T0 + 2, entries: [Entry(1, T0), Entry(2, T0 + 1, awaiting: true), Entry(3, T0 + 2)]);
+        await Assert.That(((GrokBotSendLines)botWentOn[^1]).Seqs).IsEquivalentTo([1]);
+
+        var userMovedOn = Plan(GrokBotBotState.Empty, T0 + 3, entries: [Entry(1, T0), Entry(2, T0 + 1, awaiting: true), Entry(3, T0 + 2), Entry(4, T0 + 3, startsTurn: true)]);
+        await Assert.That(((GrokBotSendLines)userMovedOn[^1]).Seqs).IsEquivalentTo([1, 2, 3, 4]);
     }
 
+    /// <summary>The limit of waiting: past the gap the question goes as it stands, and an answer given after
+    /// that has no line left to arrive on.</summary>
     [Test]
     public async Task An_unsettled_entry_older_than_the_gap_is_sent_as_it_stands() {
         var actions = Plan(GrokBotBotState.Empty, T0 + 3 * Hour, entries: [Entry(1, T0, awaiting: true)]);
 
         await Assert.That(actions.OfType<GrokBotSendLines>().Single().Seqs).IsEquivalentTo([1]);
         await Assert.That(actions[^1]).IsTypeOf<GrokBotEndSession>();
+    }
+
+    [Test]
+    public async Task A_session_stays_open_for_a_held_entry_that_belongs_to_it() {
+        var open = Plan(GrokBotBotState.Empty, T0, entries: [Entry(1, T0)])[^1].After;
+        var held = Entry(2, T0 + Hour, awaiting: true);
+
+        await Assert.That(Plan(open, T0 + 2 * Hour, entries: [held])).IsEmpty();
+
+        var settled = Plan(open, T0 + 2 * Hour + 1, entries: [held with { IsAwaitingAnswer = false }]);
+        await Assert.That(settled.OfType<GrokBotStartSession>()).IsEmpty();
+        await Assert.That(((GrokBotSendLines)settled[0]).SessionId).IsEqualTo(open.Open!.SessionId);
+    }
+
+    [Test]
+    public async Task A_held_entry_a_gap_after_the_session_does_not_keep_it_open() {
+        var open = Plan(GrokBotBotState.Empty, T0, entries: [Entry(1, T0)])[^1].After;
+
+        var actions = Plan(open, T0 + 3 * Hour, entries: [Entry(2, T0 + 3 * Hour - 1, awaiting: true)]);
+
+        await Assert.That(actions.Single()).IsTypeOf<GrokBotEndSession>();
     }
 
     [Test]
@@ -136,6 +164,24 @@ public class GrokBotSessionizerTests {
 
         await Assert.That(((GrokBotStartSession)actions[0]).SessionId).IsEqualTo(GrokBotSessionizer.SessionId(Agent, "e42"));
         await Assert.That(((GrokBotSendLines)actions[1]).Seqs).IsEquivalentTo([42, 43]);
+    }
+
+    /// <summary>The start was accepted and the send refused, so nothing is delivered yet and the session is
+    /// open: the retry must begin at the entry that names the session, not at the head it passed over.</summary>
+    [Test]
+    public async Task A_retry_after_an_accepted_start_sends_from_the_entry_the_session_opened_at() {
+        GrokBotEntry[] entries = [Entry(40, T0), Entry(41, T0 + 3 * Hour), Entry(42, T0 + 3 * Hour + 1)];
+        var started = (GrokBotStartSession)GrokBotSessionizer.Plan(Agent, GrokBotBotState.Empty, entries, T0 + 3 * Hour + 2, false, Gap, fromThreadStart: false)[0];
+
+        await Assert.That(started.After.LastSeq).IsEqualTo(-1);
+
+        foreach (var fromStart in new[] { false, true }) {
+            var retry = GrokBotSessionizer.Plan(Agent, started.After, entries, T0 + 3 * Hour + 2, false, Gap, fromThreadStart: fromStart);
+
+            await Assert.That(retry.OfType<GrokBotStartSession>()).IsEmpty();
+            await Assert.That(((GrokBotSendLines)retry[0]).SessionId).IsEqualTo(started.SessionId);
+            await Assert.That(((GrokBotSendLines)retry[0]).Seqs).IsEquivalentTo([41, 42]);
+        }
     }
 
     [Test]

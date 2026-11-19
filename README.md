@@ -1391,6 +1391,7 @@ The Bot installs kcap, shows you a sign-in code to approve on your own device, t
 ```bash
 npm install -g @kurrent/kcap
 kcap setup --server-url https://<your-tenant> --device --no-prompt --skip-cursor-hooks --skip-cursor-mcp --skip-import
+mkdir -p ~/.config/kcap/grok-bot
 nohup kcap grok-bot watch >> ~/.config/kcap/grok-bot/watch.log 2>&1 &
 ```
 
@@ -1399,9 +1400,9 @@ On a computer with the desktop app, `kcap grok-bot watch` is the whole of it onc
 - **Both at once is safe.** The two read the same entries and cut them into the same sessions under the same ids, so a chat recorded from both places is stored once.
 
 - **Sessions.** A Bot has one endless thread; a new session starts at the first message after two hours of quiet (`--gap-minutes`), and ends once that gap passes with no new message and no turn running.
-- **What is recorded.** User messages, Bot messages, and the questions a Bot asks with the answer chosen. Tool calls, computer use and created files are not in the gateway's transcript and are not recorded.
+- **What is recorded.** User messages, Bot messages, and the questions a Bot asks with the answer chosen. Tool calls, computer use and created files are in neither source and are not recorded. A question is held until it is answered or skipped, or you send another message; an answer given after that, or more than two hours after the question, is not recorded.
 - **Privacy.** Every session is private to you, whatever your profile's default visibility.
-- **History.** The first run backfills every chat. A chat whose beginning the source no longer holds — a long chat in the desktop app, which keeps the newest entries only — is recorded from its next quiet gap on. Delivery state lives in `~/.config/kcap/grok-bot/state.json` and advances only once the server accepts each call, so a restarted watcher resends nothing and loses nothing.
+- **History.** The first run backfills every chat. A chat whose beginning the source no longer holds — a long chat in the desktop app, which keeps the newest entries only — is recorded from its next quiet gap on. Delivery state lives under `~/.config/kcap/grok-bot/`, kept apart per server and profile, and advances only once the server accepts each call, so a restarted watcher resends nothing and loses nothing.
 - **Failures back off.** A failed cycle — gateway unreachable, server refusing a call, a lapsed sign-in (`kcap login --device` fixes it) — is retried with a doubling wait up to five minutes and logged once, not on every retry; nothing advances until the server accepts, so recovery loses nothing.
 - **One per computer.** A second `kcap grok-bot watch` refuses to start. `--once` runs a single polling cycle and exits, 1 if it failed; `--dry-run` logs the calls it would make and sends and saves nothing.
 

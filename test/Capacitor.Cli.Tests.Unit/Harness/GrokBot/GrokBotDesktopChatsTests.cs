@@ -67,7 +67,7 @@ public class GrokBotDesktopChatsTests {
     public async Task Only_chat_files_are_listed() {
         Tmp.CreateFile(ChatFile(), Replica(1));
         Tmp.CreateFile(FileFor("sand.client.slice.ui-layout"), "{}");
-        Tmp.CreateFile("lockfile", "");
+        Tmp.CreateFile("lockfile");
 
         var agents = await Store().ListAgentsAsync(CancellationToken.None);
 

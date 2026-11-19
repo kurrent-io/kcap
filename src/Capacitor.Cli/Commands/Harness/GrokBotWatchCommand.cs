@@ -37,7 +37,8 @@ public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profil
         var once       = args.Contains("--once");
         var dryRun     = args.Contains("--dry-run");
 
-        using var plain = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        using var plain = new HttpClient();
+        plain.Timeout = TimeSpan.FromSeconds(30);
 
         if (Source(args, plain) is not { } source) {
             await Console.Error.WriteLineAsync(
@@ -57,9 +58,20 @@ public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profil
 
         using var _   = lockFile;
         using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
-        var store   = new GrokBotStateStore(config.Path("grok-bot", "state.json"));
+        void Cancel(object? sender, ConsoleCancelEventArgs e) { e.Cancel = true; cts.Cancel(); }
+
+        Console.CancelKeyPress += Cancel;
+
+        try {
+            return await WatchAsync(source, interval, gap, once, dryRun, cts.Token);
+        } finally {
+            Console.CancelKeyPress -= Cancel;
+        }
+    }
+
+    async Task<int> WatchAsync(IGrokBotSource source, TimeSpan interval, TimeSpan gap, bool once, bool dryRun, CancellationToken ct) {
+        var store   = GrokBotStateStore.For(config, profiles.Resolution.ServerUrl!, profiles.Name);
         var states  = store.Load();
         var seen    = new Dictionary<string, (string Fingerprint, DateTimeOffset ReadAt)>(StringComparer.Ordinal);
         var backoff = new GrokBotBackoff(interval, BackoffCeiling);
@@ -69,8 +81,8 @@ public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profil
         do {
             string? failure;
             try {
-                failure = await CycleAsync(source, store, states, seen, gap, dryRun, cts.Token);
-            } catch (OperationCanceledException) when (cts.IsCancellationRequested) {
+                failure = await CycleAsync(source, store, states, seen, gap, dryRun, ct);
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                 break;
             } catch (Exception ex) {
                 failure = $"cycle failed: {ex.Message}";
@@ -85,7 +97,7 @@ public sealed class GrokBotWatchCommand(ConfigRoot config, ProfileContext profil
             if (once) return failure is null ? 0 : 1;
 
             try {
-                await Task.Delay(backoff.NextDelay, time, cts.Token);
+                await Task.Delay(backoff.NextDelay, time, ct);
             } catch (OperationCanceledException) {
                 break;
             }

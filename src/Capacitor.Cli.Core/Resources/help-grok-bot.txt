@@ -6,7 +6,9 @@ Records every Grok Bot chat — each Bot's own thread and every new chat, which
 Grok Bot keeps as a group — as kcap sessions: a new session starts after the
 thread has been quiet for the gap, and ends once the gap passes with no new
 message. Records the conversation only — user messages, Bot messages and the
-choices made on Bot questions — not tool calls.
+choices made on Bot questions — not tool calls. A question is held until it is
+answered or skipped, or you send another message; an answer given after that,
+or more than two hours after the question, is not recorded.
 
 Reads from one of two places. On a Grok Bot cloud computer it polls the
 computer's local Grok Bot gateway, and keeps recording with your own computer
@@ -16,7 +18,8 @@ chats otherwise. Both give the same sessions under the same ids, so a chat
 recorded from both places is stored once.
 
 One watcher runs per computer. Delivery state lives under the kcap config
-directory, so a restarted watcher resumes where it stopped. Sessions are always
+directory, kept apart per server and profile, so a restarted watcher resumes
+where it stopped and a change of server starts from the beginning there. Sessions are always
 private to you. A chat whose beginning is no longer available — a long chat in
 the desktop app — is recorded from its next quiet gap on.
 

@@ -22,6 +22,19 @@ public class GrokBotStateStoreTests {
         await Assert.That(loaded["b"]).IsEqualTo(saved["b"]);
     }
 
+    /// <summary>What one server accepted is still owed to another, and to another profile on the same one.</summary>
+    [Test]
+    public async Task State_is_kept_apart_per_server_and_profile() {
+        var config = new Capacitor.Cli.Core.ConfigRoot(Tmp.PathTo("config"));
+        var acme   = GrokBotStateStore.For(config, "https://acme.kcap.ai", "default");
+
+        acme.Save(new Dictionary<string, GrokBotBotState> { ["a"] = new(42, null) });
+
+        await Assert.That(GrokBotStateStore.For(config, "https://acme.kcap.ai/", "default").Load()["a"].LastSeq).IsEqualTo(42);
+        await Assert.That(GrokBotStateStore.For(config, "https://other.kcap.ai", "default").Load()).IsEmpty();
+        await Assert.That(GrokBotStateStore.For(config, "https://acme.kcap.ai", "work").Load()).IsEmpty();
+    }
+
     [Test]
     public async Task Missing_or_corrupt_state_loads_empty() {
         await Assert.That(new GrokBotStateStore(Tmp.PathTo("absent.json")).Load()).IsEmpty();

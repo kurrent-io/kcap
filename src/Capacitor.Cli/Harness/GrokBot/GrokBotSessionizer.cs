@@ -9,8 +9,9 @@ namespace Capacitor.Cli.Harness.GrokBot;
 /// timestamps, so a restarted poller derives the same sessions with the same ids.
 ///
 /// <para>An entry is sent only once it has settled — not streaming, and a question or permission ask only
-/// once answered or followed by a later entry — because the server keeps the first copy of a line number and
-/// drops a resend. An entry older than the gap counts as settled whatever its state.</para>
+/// once answered, skipped, or left behind by a later message from the user — because the server keeps the
+/// first copy of a line number and drops a resend. An entry older than the gap counts as settled whatever
+/// its state, so an answer given after either of those is not recorded.</para>
 ///
 /// <para>A chat first seen without its beginning is recorded from its next quiet gap on: its oldest entry
 /// may sit mid-session, and a session opened there would not be the one a reader holding the whole chat
@@ -35,18 +36,27 @@ public static class GrokBotSessionizer {
 
         var fresh = entries.Where(e => e.Seq > state.LastSeq).DistinctBy(e => e.Seq).OrderBy(e => e.Seq).ToList();
 
-        if (!fromThreadStart && state == GrokBotBotState.Empty) {
-            var boundary = Enumerable.Range(1, Math.Max(fresh.Count - 1, 0)).FirstOrDefault(i => fresh[i].TimestampMs - fresh[i - 1].TimestampMs >= gapMs);
+        if (state.LastSeq < 0) {
+            // Nothing of this chat is delivered yet. A session already open was opened at the entry that
+            // names it, and whatever precedes that entry was passed over when it was chosen: a retry after
+            // an accepted start and a refused send must pass over it again.
+            var from = state.Open is { } opened ? fresh.FindIndex(e => e.Id == opened.FirstEntryId)
+                     : fromThreadStart          ? 0
+                     : Enumerable.Range(1, Math.Max(fresh.Count - 1, 0)).FirstOrDefault(i => fresh[i].TimestampMs - fresh[i - 1].TimestampMs >= gapMs, -1);
 
-            fresh = boundary > 0 ? fresh[boundary..] : [];
+            fresh = from > 0 ? fresh[from..] : from == 0 ? fresh : [];
         }
 
-        for (var i = 0; i < fresh.Count; i++) {
-            var entry   = fresh[i];
-            var hasNext = i < fresh.Count - 1;
-            var stale   = nowMs - entry.TimestampMs >= gapMs;
+        GrokBotEntry? held = null;
 
-            if (!stale && (entry.IsStreaming || (entry.IsAwaitingAnswer && !hasNext))) break;
+        for (var i = 0; i < fresh.Count; i++) {
+            var entry = fresh[i];
+            var stale = nowMs - entry.TimestampMs >= gapMs;
+
+            if (!stale && (entry.IsStreaming || (entry.IsAwaitingAnswer && !fresh.Skip(i + 1).Any(later => later.StartsTurn)))) {
+                held = entry;
+                break;
+            }
 
             if (state.Open is { } open && entry.TimestampMs - open.LastEntryMs >= gapMs) {
                 Flush();
@@ -69,7 +79,10 @@ public static class GrokBotSessionizer {
 
         Flush();
 
-        if (!isRunningTurn && state.Open is { } idle && nowMs - idle.LastEntryMs >= gapMs) {
+        // An entry held back inside the gap still belongs to the open session, which must be there to take it.
+        var awaited = state.Open is { } current && held is not null && held.TimestampMs - current.LastEntryMs < gapMs;
+
+        if (!isRunningTurn && !awaited && state.Open is { } idle && nowMs - idle.LastEntryMs >= gapMs) {
             state = state with { Open = null };
             actions.Add(new GrokBotEndSession(idle.SessionId, idle.LastEntryMs, state));
         }

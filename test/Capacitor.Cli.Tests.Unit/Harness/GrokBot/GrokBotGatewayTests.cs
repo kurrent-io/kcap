@@ -33,29 +33,30 @@ public class GrokBotGatewayTests {
 
     [Test]
     public async Task A_finished_turn_changes_the_fingerprint() {
-        var running = await ListOne($$"""{"id":"g1","name":"weather","isRunningTurn":true,"newestEntryId":"t4s0"}""");
-        var idle    = await ListOne($$"""{"id":"g1","name":"weather","isRunningTurn":false,"newestEntryId":"t4s0"}""");
+        var running = await ListOne("""{"id":"g1","name":"weather","isRunningTurn":true,"newestEntryId":"t4s0"}""");
+        var idle    = await ListOne("""{"id":"g1","name":"weather","isRunningTurn":false,"newestEntryId":"t4s0"}""");
 
         await Assert.That(idle.Fingerprint).IsNotEqualTo(running.Fingerprint);
     }
 
     [Test]
     public async Task Preview_and_creation_time_alone_do_not_count_as_a_change() {
-        var a = await ListOne($$"""{"id":"g1","name":"w","newestEntryId":"t4u","lastEntry":{"kind":"text","text":"```"},"localActivityAt":1}""");
-        var b = await ListOne($$"""{"id":"g1","name":"w","newestEntryId":"t4u","lastEntry":{"kind":"text","text":"Sure"},"localActivityAt":2}""");
+        var a = await ListOne("""{"id":"g1","name":"w","newestEntryId":"t4u","lastEntry":{"kind":"text","text":"```"},"localActivityAt":1}""");
+        var b = await ListOne("""{"id":"g1","name":"w","newestEntryId":"t4u","lastEntry":{"kind":"text","text":"Sure"},"localActivityAt":2}""");
 
         await Assert.That(b.Fingerprint).IsEqualTo(a.Fingerprint);
     }
 
     /// <summary>Serves a chat of <paramref name="count"/> entries, seq 1 upward, in tail pages.</summary>
-    sealed class Paged(int count, int pageSize) : HttpMessageHandler {
+    /// <param name="stuckAt">A cursor the gateway hands out and then answers with an empty page.</param>
+    sealed class Paged(int count, int pageSize, int? stuckAt = null) : HttpMessageHandler {
         public int Calls { get; private set; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
             Calls++;
             using var body = System.Text.Json.JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
             var before = body.RootElement.TryGetProperty("beforeSeq", out var b) ? b.GetInt32() : count + 1;
-            var first  = Math.Max(1, before - pageSize);
+            var first  = before == stuckAt ? before : Math.Max(1, before - pageSize);
             var page   = string.Join(",", Enumerable.Range(first, before - first).Select(seq => $$"""{"id":"e{{seq}}","seq":{{seq}},"timestampMs":{{seq}}}"""));
             var cursor = first > 1 ? $",\"nextBeforeSeq\":{first}" : "";
 
@@ -63,9 +64,9 @@ public class GrokBotGatewayTests {
         }
     }
 
-    async Task<(GrokBotRead Read, int Calls)> ReadSince(int count, int lastSeq) {
+    async Task<(GrokBotRead Read, int Calls)> ReadSince(int count, int lastSeq, int? stuckAt = null) {
         var descriptor = Tmp.CreateFile("gateway.json", """{"scheme":"http","host":"127.0.0.1","port":1340,"token":"t"}""");
-        var handler    = new Paged(count, pageSize: 10);
+        var handler    = new Paged(count, pageSize: 10, stuckAt);
         using var http = new HttpClient(handler);
 
         return (await new GrokBotGateway(descriptor, http).ReadSinceAsync("g1", lastSeq, CancellationToken.None), handler.Calls);
@@ -94,6 +95,14 @@ public class GrokBotGatewayTests {
 
         await Assert.That(read.FromThreadStart).IsFalse();
         await Assert.That(calls).IsEqualTo(GrokBotGateway.MaxPages);
+    }
+
+    [Test]
+    public async Task A_cursor_that_leads_nowhere_leaves_the_read_without_its_beginning() {
+        var (read, _) = await ReadSince(count: 35, lastSeq: -1, stuckAt: 16);
+
+        await Assert.That(read.Entries.Min(e => e.Seq)).IsEqualTo(16);
+        await Assert.That(read.FromThreadStart).IsFalse();
     }
 
     [Test]
