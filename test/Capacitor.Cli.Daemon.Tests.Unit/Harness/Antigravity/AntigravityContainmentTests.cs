@@ -312,7 +312,7 @@ public class AntigravityContainmentTests {
         var died = parent.ExitTime.ToUniversalTime().Ticks;
 
         var query =
-            $"Get-CimInstance Win32_Process -Filter 'ParentProcessId={parent.Id}' | "
+            $"Get-CimInstance Win32_Process -Filter 'ParentProcessId={parent.Id}' -ErrorAction Stop | "
           + $"Where-Object {{ $t = $_.CreationDate.ToUniversalTime().Ticks; $t -ge {born} -and $t -le {died} }} | "
           + "ForEach-Object { $_.Name }";
 
@@ -329,6 +329,9 @@ public class AntigravityContainmentTests {
         return survivors;
     }
 
+    /// <summary>The names a process query prints, or a throw. A listing that timed out or failed has
+    /// observed nothing, and an empty list from it would read as "no survivors". The timeout is not a
+    /// cancellation, which the turn's own handler would take for the turn running out.</summary>
     static async Task<List<string>> ProcessNamesAsync(string query) {
         var lister = new ProcessStartInfo("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", query]) {
             RedirectStandardOutput = true,
@@ -340,8 +343,24 @@ public class AntigravityContainmentTests {
         using var ps   = Process.Start(lister) ?? throw new InvalidOperationException("powershell did not start");
         using var kill = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
-        var text = await ps.StandardOutput.ReadToEndAsync(kill.Token);
-        await ps.WaitForExitAsync(kill.Token);
+        string text, errors;
+
+        try {
+            var stderr = ps.StandardError.ReadToEndAsync(kill.Token);
+
+            text   = await ps.StandardOutput.ReadToEndAsync(kill.Token);
+            errors = await stderr;
+
+            await ps.WaitForExitAsync(kill.Token);
+        } catch (OperationCanceledException) {
+            try { ps.Kill(entireProcessTree: true); } catch { /* already gone */ }
+
+            throw new TimeoutException("The process listing did not finish, so no survivor check was made.");
+        }
+
+        if (ps.ExitCode != 0)
+            throw new InvalidOperationException(
+                $"The process listing failed (exit {ps.ExitCode}), so no survivor check was made: {errors.Trim()}");
 
         return [.. text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
     }
