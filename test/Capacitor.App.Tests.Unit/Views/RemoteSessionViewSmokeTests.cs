@@ -216,6 +216,75 @@ public class RemoteSessionViewSmokeTests {
         });
     }
 
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_remote_subscribe_takes_focus_only_if_the_user_stays_on_the_terminal(bool editTitle) {
+        await AvaloniaSession.DispatchAsync(async () => {
+            using var host = new Host(realTerminal: true);
+            try {
+                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "ready");
+                var subscribe = new TaskCompletionSource<HubCallOutcome>();
+                host.Lane.TerminalSubscribeHandler = _ => subscribe.Task;
+                Click(host, Named<Button>(host.View, "TerminalTabButton"));
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.Phase == RemoteTerminalPhase.Connecting, "connecting");
+
+                var input = Named<TextBox>(host.View, "TitleInput");
+                if (editTitle) {
+                    await host.Vm.TitleEditor.BeginEditCommand.Execute();
+                    await host.SettleUntilAsync(() => input.IsFocused, "editing the title");
+                }
+
+                subscribe.SetResult(HubCallOutcome.Ok);
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.IsLive, "live without output");
+                await Assert.That(editTitle ? input.IsFocused : Named<RemoteTerminalControl>(host.View, "TerminalHost").IsFocused).IsTrue();
+            } finally { await host.Vm.TeardownAsync(); }
+            return true;
+        });
+    }
+
+    [Test]
+    public async Task An_offline_terminal_keeps_its_output_and_scrolls_without_sending_input() {
+        await AvaloniaSession.DispatchAsync(async () => {
+            using var host = new Host(realTerminal: true);
+            try {
+                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "ready");
+                await host.Vm.ShowTerminalCommand.Execute();
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.IsLive, "live terminal");
+                host.Window.Height = 450;
+                host.Lane.TerminalDimensionsSubject.OnNext(new TerminalSize("a1", 100, 54));
+                var feed = string.Concat(Enumerable.Range(0, 120).Select(i => $"line {i}\r\n")) + "\x1b[?1000h\x1b[?1006h";
+                host.Lane.TerminalOutputSubject.OnNext(new TerminalOutputFrame("a1",
+                    Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(feed))));
+                host.Settle();
+
+                var terminal = Named<RemoteTerminalControl>(host.View, "TerminalHost");
+                var model = terminal.Model!;
+                await Assert.That(model.IsMouseModeActive).IsTrue();
+                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying));
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.HasOfflineSurface && host.Vm.HasAccessNotice,
+                    "retained offline terminal with the session notice");
+
+                var viewport = Named<RemoteTerminalViewport>(host.View, "TerminalViewport");
+                await Assert.That(Named<Border>(host.View, "AccessBanner").IsEffectivelyVisible).IsTrue();
+                await Assert.That(Named<SessionConnectionNotice>(host.View, "TerminalOfflineNotice").IsEffectivelyVisible).IsFalse();
+                await Assert.That(viewport.Opacity).IsEqualTo(1.0);
+                await Assert.That(terminal.Model).IsSameReferenceAs(model);
+
+                var before = viewport.Offset.Y;
+                var point = viewport.TranslatePoint(new Point(30, 30), host.Window)!.Value;
+                host.Window.MouseWheel(point, new Vector(0, 1));
+                await host.SettleUntilAsync(() => viewport.Offset.Y < before, "offline scroll");
+                terminal.Focus();
+                host.Window.KeyPress(Key.Up, RawInputModifiers.None, PhysicalKey.ArrowUp, null);
+                host.Settle();
+                await Assert.That(host.Lane.SpecialKeys).IsEmpty();
+                await Assert.That(host.Lane.TerminalInputs).IsEmpty();
+            } finally { await host.Vm.TeardownAsync(); }
+            return true;
+        });
+    }
+
     static void CaptureLoading(Host host, string name) {
         if (Environment.GetEnvironmentVariable("KCAP_SHOTS_OUT") is not { } dir) return;
         host.Window.SetRenderScaling(2);

@@ -302,7 +302,14 @@ public class WorkspaceViewSmokeTests {
                 await Assert.That(notice.IsEffectivelyVisible).IsTrue();
                 await Assert.That(title.Text).IsEqualTo("Terminal connection failed");
                 await Assert.That(vm.TerminalPaneNotice!.Detail).IsEqualTo("The daemon couldn’t open the terminal.");
-                await Assert.That(vm.TerminalPaneNotice.Action).IsSameReferenceAs(vm.Terminal.ReattachCommand);
+                var reattach = notice.GetVisualDescendants().OfType<Button>()
+                    .Single(b => Equals(b.Content, "Reattach") && b.IsEffectivelyVisible);
+                await Assert.That(reattach.Command).IsSameReferenceAs(vm.Terminal.ReattachCommand);
+                window.UpdateLayout();
+                var point = CenterOf(reattach, window);
+                window.MouseDown(point, MouseButton.Left);
+                window.MouseUp(point, MouseButton.Left);
+                await WaitUntilAsync(() => attach.Created.Count == 2, what: "the reattach client");
             } finally {
                 window.Close();
                 await vm.TeardownAsync();
@@ -771,25 +778,53 @@ public class WorkspaceViewSmokeTests {
 
     /// A workspace the app may rename: the daemon advertises rename, shares the app's server and
     /// account, and the agent is public with a session.
-    static async Task<(Window Window, WorkspaceViewModel Vm, ScriptedLocalControlOps Ops)> ShowRenamableAsync() {
+    static async Task<(Window Window, WorkspaceViewModel Vm, ScriptedLocalControlOps Ops)> ShowRenamableAsync(
+            FakeTerminalAttachClientFactory? attach = null) {
         var daemon = new FakeDaemonClientService();
         var ops = new ScriptedLocalControlOps();
         daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [RenameWire.Capability]));
         var snap = FakeDaemonClientService.Snap();
         daemon.SnapshotsSubject.OnNext(snap with { Daemon = snap.Daemon with { UserSubject = "u1" } });
         var vm = new WorkspaceViewModel(
-            AgentId, daemon, NewActions(), new FakeTerminalAttachClientFactory().Factory, () => new FakeTerminalSurface(),
+            AgentId, daemon, NewActions(), (attach ?? new FakeTerminalAttachClientFactory()).Factory,
+            () => attach is null ? new FakeTerminalSurface() : new XtermTerminalSurface(80, 24),
             new FakeTimeProvider(), new RecordingOpener(), new FakePermissionService(), new FakeWorkContextSource(),
             ops, new NoAttachmentUploader(), localDaemonOnAppServer: new BehaviorSubject<bool>(true),
             appSubject: new BehaviorSubject<string?>("u1"), notifier: new RecordingNotifier());
         var window = new Window { Content = new WorkspaceView { DataContext = vm }, Width = 900, Height = 600 };
         window.Show();
-        daemon.Agents.AddOrUpdate(WorkspaceFixtures.Agent(AgentId, "claude", hasTerminal: false, "/repo/myproj",
+        daemon.Agents.AddOrUpdate(WorkspaceFixtures.Agent(AgentId, "claude", hasTerminal: attach is not null, "/repo/myproj",
             sessionId: "s1", isPrivate: false) with { Title = "Old name" });
         await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
         Dispatcher.UIThread.RunJobs();
         window.UpdateLayout();
         return (window, vm, ops);
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_local_attach_keeps_focus_in_the_title_editor() {
+        await RunOnUiAsync(async () => {
+            var attach = new FakeTerminalAttachClientFactory();
+            var (window, vm, _) = await ShowRenamableAsync(attach);
+            try {
+                await vm.ShowTerminalCommand.Execute();
+                Dispatcher.UIThread.RunJobs();
+                await vm.TitleEditor.BeginEditCommand.Execute();
+                Dispatcher.UIThread.RunJobs();
+                var input = Find<TextBox>(window, "TitleInput")!;
+                await Assert.That(input.IsFocused).IsTrue();
+
+                await attach.Created.Single().TriggerAttached([]);
+                Dispatcher.UIThread.RunJobs();
+
+                await Assert.That(vm.Terminal.State.Phase).IsEqualTo(TerminalSessionPhase.Attached);
+                await Assert.That(input.IsFocused).IsTrue();
+            } finally {
+                window.Close();
+                await vm.TeardownAsync();
+            }
+        });
     }
 
     static Point CenterOf(Control control, Window window) =>

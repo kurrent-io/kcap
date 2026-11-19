@@ -29,7 +29,8 @@ public partial class WorkspaceView : UserControl {
         TerminalHost.PropertyChanged += (_, e) => {
             if ((e.Property == SvcSystems.UI.Terminal.TerminalControl.ModelProperty || e.Property == IsEnabledProperty)
                 && TerminalHost.IsEnabled && TerminalHost.Model is not null
-                && DataContext is WorkspaceViewModel { IsTerminalActive: true })
+                && DataContext is WorkspaceViewModel { IsTerminalActive: true }
+                && TerminalFocus.CanTakeFocus(TerminalHost, TerminalTabButton, TerminalNotice))
                 TerminalHost.Focus();
         };
         // The PR reader is created on first use, including for sessions without a PTY.

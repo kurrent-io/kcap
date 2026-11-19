@@ -186,6 +186,8 @@ public class RemoteTerminalViewModelTests {
 
             h.Drop();
             await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Offline, what: "offline");
+            await Assert.That(h.Vm.HasOfflineSurface).IsTrue();
+            await Assert.That(h.Vm.Surface).IsSameReferenceAs(first);
             await WaitUntilAsync(() => h.Lane.ResizeReleases.Contains("a1"), what: "the viewport released");
 
             h.Reconnect();
@@ -194,6 +196,24 @@ public class RemoteTerminalViewModelTests {
             await Assert.That(h.Vm.Surface).IsNotSameReferenceAs(first);
             await Assert.That(h.Surfaces.Count).IsEqualTo(2);
             await Assert.That(h.Lane.ResizeReleases.Count).IsEqualTo(1);
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_retained_offline_surface_is_hidden_when_access_is_lost(bool signedOut) {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            await WaitUntilAsync(() => h.Vm.IsLive, what: "live");
+            h.Drop();
+            await WaitUntilAsync(() => h.Vm.HasOfflineSurface, what: "retained");
+
+            if (signedOut) h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut));
+            else h.Access.OnNext(SessionAccessState.Denied);
+
+            await WaitUntilAsync(() => !h.Vm.ShowsSurface, what: "hidden");
             await h.Vm.TeardownAsync();
         });
     }
@@ -219,6 +239,7 @@ public class RemoteTerminalViewModelTests {
         await RunOnUiAsync(async () => {
             var h = new Harness(subscribe: _ => Task.FromResult(HubCallOutcome.NotConnected));
             await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Offline, what: "offline");
+            await Assert.That(h.Vm.ShowsSurface).IsFalse();
             await Assert.That(h.Lane.Resizes).IsEmpty();
 
             h.Ended.OnNext(true);
