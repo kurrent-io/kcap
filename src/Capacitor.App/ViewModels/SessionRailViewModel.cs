@@ -301,6 +301,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<Unit, Unit> ToggleDirectionCommand { get; }
     public ReactiveCommand<RailProject?, Unit> SetProjectCommand { get; }
     public ReactiveCommand<Unit, Unit> RestoreRemovedCommand { get; }
+    /// Folds every group while any is open, else opens them all.
+    public ReactiveCommand<Unit, Unit> ToggleAllExpandedCommand { get; }
 
     public bool HasRemoved => _removed.Count > 0;
     public string RestoreRemovedText => $"Show {_removed.Count} removed session{(_removed.Count == 1 ? "" : "s")}";
@@ -311,6 +313,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     readonly ObservableAsPropertyHelper<bool> _isEmpty;
     public bool IsEmpty => _isEmpty.Value;
+    readonly ObservableAsPropertyHelper<bool> _anyExpanded;
+    public bool AnyExpanded => _anyExpanded.Value;
 
     readonly ObservableAsPropertyHelper<bool> _showsViewAll;
     /// The listing holds ended sessions older than the ones the rail shows.
@@ -397,6 +401,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Project = project;
         }).DisposeWith(_disposables);
         RestoreRemovedCommand = ReactiveCommand.Create(() => SetRemoved([], persist: true)).DisposeWith(_disposables);
+        ToggleAllExpandedCommand = ReactiveCommand.Create(ToggleAllExpanded).DisposeWith(_disposables);
         OpenPreviousSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(-1); }).DisposeWith(_disposables);
         OpenNextSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(1); }).DisposeWith(_disposables);
         _stateFilter = new BehaviorSubject<Func<AgentRow, bool>>(StateFilter()).DisposeWith(_disposables);
@@ -557,6 +562,24 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .DistinctUntilChanged()
             .ToProperty(this, x => x.IsEmpty, initialValue: _groupsSource.Count == 0)
             .DisposeWith(_disposables);
+        _anyExpanded = _groupsSource.ToObservableChangeSet()
+            .AutoRefresh(group => group.IsExpanded)
+            .ToCollection()
+            .Select(groups => groups.Any(group => group.IsExpanded))
+            .DistinctUntilChanged()
+            .ToProperty(this, x => x.AnyExpanded, initialValue: _groupsSource.Any(group => group.IsExpanded))
+            .DisposeWith(_disposables);
+    }
+
+    void ToggleAllExpanded() {
+        var expand = !AnyExpanded;
+        _applying = true;
+        try {
+            foreach (var group in Groups.ToList()) group.SetExpanded(expand);
+        } finally {
+            _applying = false;
+        }
+        Persist();
     }
 
     /// Another user's remembered shape, or this user's set now that the lane has named them: applied

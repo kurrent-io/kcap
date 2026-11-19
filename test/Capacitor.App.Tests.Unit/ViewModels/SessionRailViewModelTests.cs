@@ -1012,6 +1012,33 @@ public class SessionRailViewModelTests {
         });
     }
 
+    /// One open group is enough to fold them all; once none is open the same command opens every one, persisting once per press.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Toggling_all_folds_every_group_while_any_is_open_then_opens_them_all() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, _, persisted, rail) = BuildWithControls();
+            using (directory) using (sessions) using (rail) {
+                rail.Grouping = RailGrouping.Date;
+                directory.Rows.AddOrUpdate([Local("a1"), Local("a2", created: Noon.AddDays(-10))]);
+                await Assert.That(rail.Groups.Count).IsEqualTo(2);
+                await rail.Groups[0].ToggleCommand.Execute();
+                await Assert.That(rail.AnyExpanded).IsTrue();
+
+                var writes = persisted.Count;
+                await rail.ToggleAllExpandedCommand.Execute();
+                await Assert.That(rail.Groups.Any(group => group.IsExpanded)).IsFalse();
+                await Assert.That(rail.AnyExpanded).IsFalse();
+                await Assert.That(persisted.Count).IsEqualTo(writes + 1);
+                await Assert.That(persisted[^1].Collapsed).IsEquivalentTo(rail.Groups.Select(group => group.Key));
+
+                await rail.ToggleAllExpandedCommand.Execute();
+                await Assert.That(rail.Groups.All(group => group.IsExpanded)).IsTrue();
+                await Assert.That(persisted[^1].Collapsed).IsEmpty();
+            }
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Apply_preferences_rearranges_without_persisting() {

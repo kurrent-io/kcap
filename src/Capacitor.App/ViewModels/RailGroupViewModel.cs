@@ -156,7 +156,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         this.RaisePropertyChanged(nameof(ToggleAccessibleName));
     }
 
-    void SetExpanded(bool expanded) {
+    internal void SetExpanded(bool expanded) {
         if (IsExpanded == expanded) return;
         IsExpanded = expanded;
         _setExpanded(expanded);

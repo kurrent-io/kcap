@@ -151,6 +151,21 @@
         <Style Selector="Button.railAlertLink:pointerover TextBlock#RailAlertText, Button.railAlertLink:focus-visible TextBlock#RailAlertText">
             <Setter Property="TextDecorations" Value="Underline" />
         </Style>
+        <Style Selector="Button#RailFoldAllButton">
+            <Setter Property="ToolTip.Tip" Value="Expand all" />
+            <Setter Property="AutomationProperties.Name" Value="Expand all groups" />
+        </Style>
+        <Style Selector="Button#RailFoldAllButton.expanded">
+            <Setter Property="ToolTip.Tip" Value="Collapse all" />
+            <Setter Property="AutomationProperties.Name" Value="Collapse all groups" />
+        </Style>
+        <Style Selector="Button#RailFoldAllButton views|AppIcon">
+            <Setter Property="Kind" Value="UnfoldVertical" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Button#RailFoldAllButton.expanded views|AppIcon">
+            <Setter Property="Kind" Value="FoldVertical" />
+        </Style>
         <Style Selector="Button#RailFilterButton views|AppIcon">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
@@ -478,10 +493,16 @@
                             </rail:RailNavRow.IsVisible>
                         </rail:RailNavRow>
                     </StackPanel>
-                    <Grid ColumnDefinitions="*,Auto" Margin="11,4,5,2">
+                    <Grid ColumnDefinitions="*,Auto,Auto" Margin="11,4,5,2">
                         <TextBlock x:Name="RailRecentHeading" Text="Recent sessions" FontSize="13" FontWeight="Medium"
                                    Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
-                        <Button x:Name="RailFilterButton" Grid.Column="1" Classes="kcapGhost kcapIcon"
+                        <Button x:Name="RailFoldAllButton" Grid.Column="1" Classes="kcapGhost kcapIcon"
+                                DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
+                                Classes.expanded="{Binding AnyExpanded}" Command="{Binding ToggleAllExpandedCommand}"
+                                IsVisible="{Binding !IsEmpty, FallbackValue=False}">
+                            <views:AppIcon Size="14" />
+                        </Button>
+                        <Button x:Name="RailFilterButton" Grid.Column="2" Classes="kcapGhost kcapIcon"
                                 DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
                                 Classes.custom="{Binding FiltersDiffer}"
                                 IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}"
