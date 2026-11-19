@@ -272,8 +272,11 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         var row = Realize(index);
         InvalidateMeasure();
         if (this.FindAncestorOfType<ScrollViewer>() is { } scroll) {
-            var target = pending is { Inset: var inset } ? _starts[index] + inset : scroll.Offset.Y + _starts[index] - _viewport.Top;
+            var inset = pending?.Inset ?? scroll.Offset.Y - _viewport.Top;
+            var target = _starts[index] + inset;
             scroll.Offset = new Vector(scroll.Offset.X, target);
+            // Past the extent the presenter has laid out, the offset was clamped; arrange applies it once the extent grows.
+            if (scroll.Offset.Y < target - 0.5) _insertAnchor = (row.Item, 0, inset);
         }
         return row.Container;
     }

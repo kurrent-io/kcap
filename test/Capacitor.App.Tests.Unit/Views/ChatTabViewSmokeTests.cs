@@ -312,6 +312,14 @@ public class ChatTabViewSmokeTests {
             Scroll().Offset = new Vector(0, 0);
             Settle();
             await Assert.That(list.ContainerFromIndex(0)).IsNotNull();
+
+            // A scroll to a row past the extent laid out before the insert still reaches it once layout grows.
+            rows.InsertRange(0, [.. Enumerable.Range(0, 300).Select(i => new AssistantTextItem($"page {i}", null))]);
+            list.ScrollIntoView(rows.Count - 1);
+            Settle();
+            var last = list.ContainerFromIndex(rows.Count - 1)?.TranslatePoint(default, Scroll())?.Y;
+            await Assert.That(last).IsNotNull();
+            await Assert.That(last!.Value).IsBetween(-1, Scroll().Viewport.Height);
         } finally {
             window.Close();
             Dispatcher.UIThread.RunJobs();
