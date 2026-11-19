@@ -13,6 +13,8 @@ public sealed record AgentStatusPresentation(
     public string AccessibleName => Tip.Length == 0 ? "" : Tip.Split('\n')[0];
 
     public bool HasLabel => Label.Length > 0;
+    /// Idle is the resting state of an open conversation, so its header leaves it unsaid.
+    public bool ShowsInHeader => HasLabel && Kind != AgentStatusKind.Idle;
     /// Working, and the daemon has proof a turn is running rather than an idle prompt that never
     /// reported a turn end. Only this makes a mid-turn keystroke like Escape safe to send.
     public bool InForegroundTurn { get; init; }

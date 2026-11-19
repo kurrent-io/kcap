@@ -22,8 +22,14 @@
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                         <views:AgentStatusMark x:Name="WorkspaceStatus" Classes="header"
                                                DataContext="{Binding Chat.AgentStatus}"
-                                               IsVisible="{Binding !$parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).HasConnectionNotice}"
-                                               HorizontalAlignment="Left" VerticalAlignment="Center" />
+                                               HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <views:AgentStatusMark.IsVisible>
+                                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                    <Binding Path="ShowsInHeader" />
+                                    <Binding Path="!$parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).HasConnectionNotice" />
+                                </MultiBinding>
+                            </views:AgentStatusMark.IsVisible>
+                        </views:AgentStatusMark>
                         <TextBlock x:Name="WorkspaceSubtitle" Grid.Column="1" Text="{Binding RepoLabelText}" FontSize="13"
                                    Foreground="{StaticResource KcapMutedBrush}" TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center" />
