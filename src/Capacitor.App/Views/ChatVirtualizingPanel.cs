@@ -1,6 +1,7 @@
 using System.Collections.Specialized;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -202,6 +203,9 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
             if (row.Item is not ChatItemViewModel item || !row.Container.IsVisible || index + 1 >= _starts.Length) continue;
             var top = _starts[index];
             var bottom = _starts[index + 1];
+            // Past the last row's own gap the rail would read as more chat below.
+            if (index == Items.Count - 1 && row.Container is ContentPresenter { Child: Layoutable { Margin.Bottom: > 0 } child })
+                bottom = Math.Max(top, bottom - child.Margin.Bottom);
             if (item.Topic is { } topic)
                 context.DrawLine(PenFor(topic), new Point(RailInset, top), new Point(RailInset, bottom));
             // A topic's own rail starts just under its header's icon.
