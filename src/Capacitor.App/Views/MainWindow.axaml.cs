@@ -317,23 +317,30 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             : new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, toggle) });
     }
 
-    Control? _warmup;
+    WarmupHost? _warmup;
+    IInputElement? _focusBeforeWarmup;
 
-    /// Lays a transparent view in the workspace's place, at its width. Pointer, Tab and find all
-    /// pass it by, so focus never lands inside and is never lost when it goes.
+    /// Lays a view in the workspace's place, at its width, where nothing can reach it.
     internal void HostWarmup(Control view) {
-        view.Opacity = 0;
-        view.IsHitTestVisible = false;
-        view.Focusable = false;
-        view.ZIndex = -1;
-        KeyboardNavigation.SetTabNavigation(view, KeyboardNavigationMode.None);
-        _warmup = view;
-        ContentPane.Children.Add(view);
+        ReleaseWarmup();
+        _focusBeforeWarmup = FocusManager?.GetFocusedElement();
+        _warmup = new WarmupHost(view);
+        ContentPane.Children.Add(_warmup);
     }
 
-    internal void ReleaseWarmup(Control view) {
-        ContentPane.Children.Remove(view);
-        if (ReferenceEquals(_warmup, view)) _warmup = null;
+    /// Focus is put back if anything managed to move it inside, so it is never left on nothing.
+    internal void ReleaseWarmup() {
+        if (_warmup is not { } warmup) return;
+        _warmup = null;
+        var focused = FocusManager?.GetFocusedElement() as Visual;
+        var regain = focused is not null && focused.GetSelfAndVisualAncestors().Contains(warmup);
+        ContentPane.Children.Remove(warmup);
+        warmup.Child = null;
+        var before = _focusBeforeWarmup;
+        _focusBeforeWarmup = null;
+        if (!regain) return;
+        if (before is Visual v && v.IsAttachedToVisualTree() && before.Focus()) return;
+        Focus();
     }
 
     // ⌘F and ⌘G on macOS. Off macOS Ctrl+F and F3 yield to a focused terminal, where they are shell

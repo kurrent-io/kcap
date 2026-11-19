@@ -11,7 +11,7 @@ namespace Capacitor.App.Views;
 /// transcript projection. The view sits in the window for one frame, transparent and out of input's
 /// way, over a made-up transcript, and reaches no network, rail or saved state.
 /// `KCAP_APP_NO_PREWARM=1` turns it off, for timing the cold path.
-internal sealed class ChatViewWarmup(IPermissionService permissions, IUrlOpener opener, TimeProvider time) {
+internal sealed class ChatViewWarmup(IPermissionService permissions, IUrlOpener opener, TimeProvider time, bool enabled) {
     const string AgentId = "kcap-chat-warmup";
     static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(1);
     static readonly TimeSpan DrainLimit = TimeSpan.FromSeconds(10);
@@ -23,11 +23,11 @@ internal sealed class ChatViewWarmup(IPermissionService permissions, IUrlOpener 
 
     internal Task? RunForTesting { get; private set; }
 
-    static bool Disabled => Environment.GetEnvironmentVariable("KCAP_APP_NO_PREWARM") == "1";
+    internal static bool EnabledByEnvironment => Environment.GetEnvironmentVariable("KCAP_APP_NO_PREWARM") != "1";
 
-    /// Runs at most once per instance; later calls, and any while disabled, do nothing.
+    /// Runs at most once per instance, unless an attempt found the window hidden; disabled, it never runs.
     public void Schedule(MainWindow window) {
-        if (_scheduled || Disabled) return;
+        if (_scheduled || !enabled) return;
         _scheduled = true;
         RunForTesting = RunAsync(window);
     }
@@ -53,9 +53,14 @@ internal sealed class ChatViewWarmup(IPermissionService permissions, IUrlOpener 
         }
     }
 
-    /// A chat already open has paid the cost this would save.
-    static bool Wanted(MainWindow window) =>
-        window.IsVisible && !window.GetVisualDescendants().OfType<ChatTabView>().Any();
+    /// A chat already open has paid the cost this would save. A hidden window gets another try when
+    /// it is next shown.
+    bool Wanted(MainWindow window) {
+        if (window.GetVisualDescendants().OfType<ChatTabView>().Any()) return false;
+        if (window.IsVisible) return true;
+        _scheduled = false;
+        return false;
+    }
 
     ChatTabViewModel Build() =>
         new(AgentId, AgentOrigin.Remote, Observable.Return(WarmupTranscriptFeed.Session(AgentId)), Observable.Return<string[]?>(null),
@@ -85,7 +90,7 @@ internal sealed class ChatViewWarmup(IPermissionService permissions, IUrlOpener 
             window.RequestAnimationFrame(_ => frame.TrySetResult());
             await Task.WhenAny(frame.Task, Task.Delay(FrameLimit, time));
         } finally {
-            window.ReleaseWarmup(view);
+            window.ReleaseWarmup();
             view.ChatHost.DataContext = null;
         }
     }

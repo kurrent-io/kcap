@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -19,7 +20,7 @@ public class ChatViewWarmupSmokeTests {
         var window = new MainWindow { DataContext = vm };
         window.Show();
         Dispatcher.UIThread.RunJobs();
-        return (window, new ChatViewWarmup(new FakePermissionService(), new RecordingOpener(), TimeProvider.System));
+        return (window, new ChatViewWarmup(new FakePermissionService(), new RecordingOpener(), TimeProvider.System, enabled: true));
     }
 
     /// The warm-up builds a session view inside the window, tool call rows included, then leaves it:
@@ -33,7 +34,7 @@ public class ChatViewWarmupSmokeTests {
             var rows = new HashSet<Type>();
             var toolRows = 0;
             window.ContentPane.Children.CollectionChanged += (_, e) => {
-                foreach (var view in e.NewItems?.OfType<RemoteSessionView>() ?? []) {
+                foreach (var view in e.NewItems?.OfType<WarmupHost>().Select(host => (RemoteSessionView)host.Child!) ?? []) {
                     added.Add(view);
                     view.LayoutUpdated += (_, _) => {
                         rows.UnionWith(view.ChatHost.FindControl<ItemsControl>("ChatItems")!
@@ -68,7 +69,7 @@ public class ChatViewWarmupSmokeTests {
             var pressed = false;
             var find = ShortcutLabels.UsesCommandKey ? RawInputModifiers.Meta : RawInputModifiers.Control;
             window.ContentPane.Children.CollectionChanged += (_, e) => {
-                foreach (var view in e.NewItems?.OfType<RemoteSessionView>() ?? []) {
+                foreach (var view in e.NewItems?.OfType<WarmupHost>().Select(host => (RemoteSessionView)host.Child!) ?? []) {
                     view.LayoutUpdated += (_, _) => {
                         if (pressed || view.ChatHost.DataContext is not ChatTabViewModel { Items.Count: > 0 }) return;
                         pressed = true;
@@ -88,6 +89,77 @@ public class ChatViewWarmupSmokeTests {
 
             await Assert.That(pressed).IsTrue();
             await Assert.That(reached).IsEmpty();
+        } finally {
+            window.Close();
+        }
+    });
+
+    /// An accessibility client walks the window's peers, not its Tab order: the warm-up's controls
+    /// must not be listed there. Focus that reaches inside by any other route goes back where it was.
+    [Test]
+    public Task Accessibility_clients_do_not_see_the_warm_up_and_focus_inside_returns() => AvaloniaSession.RunOnUiAsync(async () => {
+        var (window, warmup) = Open();
+        try {
+            var typing = window.GetVisualDescendants().OfType<TextBox>().First(box => box.IsEffectivelyVisible);
+            typing.Focus();
+            var exposed = new List<string>();
+            var walked = false;
+            var stolen = false;
+            window.ContentPane.Children.CollectionChanged += (_, e) => {
+                foreach (var host in e.NewItems?.OfType<Control>() ?? []) {
+                    host.LayoutUpdated += (_, _) => {
+                        if (walked || host.GetVisualDescendants().OfType<ChatTabView>().FirstOrDefault()?.DataContext
+                                is not ChatTabViewModel { Items.Count: > 0 }) return;
+                        walked = true;
+                        foreach (var peer in ControlView.Descendants(window))
+                            if (peer is ControlAutomationPeer { Owner: var owner } && owner.GetSelfAndVisualAncestors().Contains(host))
+                                exposed.Add(owner.GetType().Name);
+                        stolen = host.GetVisualDescendants().OfType<TextBox>().First().Focus();
+                    };
+                }
+            };
+
+            warmup.Schedule(window);
+            await warmup.RunForTesting!;
+
+            await Assert.That(walked).IsTrue();
+            await Assert.That(exposed).IsEmpty();
+            await Assert.That(stolen).IsTrue();
+            await Assert.That(window.FocusManager?.GetFocusedElement()).IsSameReferenceAs(typing);
+        } finally {
+            window.Close();
+        }
+    });
+
+    /// A window hidden to the tray before the warm-up runs is warmed on its next show, not never.
+    [Test]
+    public Task A_warm_up_that_found_the_window_hidden_runs_on_the_next_show() => AvaloniaSession.RunOnUiAsync(async () => {
+        var (window, warmup) = Open();
+        try {
+            var hosts = 0;
+            window.ContentPane.Children.CollectionChanged += (_, e) => hosts += e.NewItems?.OfType<WarmupHost>().Count() ?? 0;
+
+            warmup.Schedule(window);
+            window.Hide();
+            await warmup.RunForTesting!;
+            await Assert.That(hosts).IsEqualTo(0);
+
+            window.Show();
+            warmup.Schedule(window);
+            await warmup.RunForTesting!;
+            await Assert.That(hosts).IsEqualTo(1);
+        } finally {
+            window.Close();
+        }
+    });
+
+    [Test]
+    public Task A_disabled_warm_up_never_runs() => AvaloniaSession.RunOnUiAsync(async () => {
+        var (window, _) = Open();
+        try {
+            var warmup = new ChatViewWarmup(new FakePermissionService(), new RecordingOpener(), TimeProvider.System, enabled: false);
+            warmup.Schedule(window);
+            await Assert.That(warmup.RunForTesting is null).IsTrue();
         } finally {
             window.Close();
         }

@@ -1425,7 +1425,7 @@ public partial class App : Application {
                     && await access.GetAsync() == DesktopNotificationAccess.Allowed,
                 notification => _notificationSink?.Show(notification, _ => _coordinator?.ShowMainWindow()))
             : null;
-        var chatWarmup = new ChatViewWarmup(permissions, opener, _time);
+        var chatWarmup = new ChatViewWarmup(permissions, opener, _time, ChatViewWarmup.EnabledByEnvironment);
         _coordinator = new MainWindowCoordinator(
             () => TrackStartupMarks(() => TrackNoticeWindow(notifier, TrackViewedAgent(BuildAndShowMainWindow(
                 shownService, _config, _appState, actions, notifier, ticker,
