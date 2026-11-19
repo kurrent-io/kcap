@@ -342,11 +342,9 @@ public class AntigravityReviewerLaunchTests {
     /// the installed <c>agy</c>'s version, so an unseamed test would resolve <see langword="null"/> on
     /// any host without the binary (CI) and refuse as <c>version_unresolved</c> — passing or failing
     /// for a reason unrelated to what it asserts. Defaults to the shipped floor.</param>
-    /// <param name="windowsHost">Pinned rather than inherited from the runner, so every arm of the
-    /// ladder is reachable from any host: the platform arm short-circuits ahead of the binary and
-    /// version arms, so following a Windows runner would refuse every launch here on platform. The
-    /// real home a launch creates still follows the runner, so on Windows these tests exercise its
-    /// ACL.</param>
+    /// <param name="windowsHost">Pinned rather than inherited from the runner, so the launch environment
+    /// these tests read is the same on every host. The real home a launch creates still follows the
+    /// runner, so on Windows these tests exercise its ACL.</param>
     static AntigravityHostedAgentRuntimeFactory Factory(
             DaemonConfig config,
             Func<ProcessStartInfo, CancellationToken, Task<IAgyTurnProcess>>? turnSource = null,
@@ -356,35 +354,25 @@ public class AntigravityReviewerLaunchTests {
         new(config, NullLoggerFactory.Instance, TimeProvider.System, turnSource, _ => binaryExists, _ => version,
             windowsHost);
 
-    /// <summary>The platform arm itself. Containment on Windows has not been confirmed by a real agy
-    /// run, so the vendor is withheld there rather than advertised.</summary>
+    /// <summary>A launcher only offers what the daemon advertises, and that is binary presence alone on
+    /// either platform: a Windows daemon that withheld the vendor would hide it from the desktop app.</summary>
     [Test]
-    public async Task A_windows_host_is_withheld_as_an_unsupported_platform() {
+    [Arguments(true, true)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(false, false)]
+    public async Task The_vendor_is_available_exactly_when_its_binary_resolves(bool windowsHost, bool binaryExists) =>
+        await Assert.That(Factory(EnabledConfig(), binaryExists: binaryExists, windowsHost: windowsHost).IsAvailable())
+            .IsEqualTo(binaryExists);
+
+    /// <summary>A Windows daemon offers the unattended reviewer on the same ladder as any other.</summary>
+    [Test]
+    public async Task A_windows_host_is_offered_the_reviewer() {
         var support = Factory(EnabledConfig(), windowsHost: true).DescribeUnattendedSupport();
 
-        await Assert.That(support.Supported).IsFalse();
-        await Assert.That(support.WithheldReason!).Contains("antigravity_reviewer_unsupported_platform");
+        await Assert.That(support.Supported).IsTrue();
+        await Assert.That(support.WithheldReason).IsNull();
     }
-
-    /// <summary>The platform arm gates a hosted launch too: the unconfirmed containment is the
-    /// per-launch home's, which a hosted agent relies on as surely as a reviewer.</summary>
-    [Test]
-    public async Task A_windows_host_refuses_a_hosted_launch_too() {
-        var config = EnabledConfig();
-        config.AntigravityUnattendedReviewerEnabled = false;
-
-        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            Factory(config, new SpyTurnSource().SpawnAsync, windowsHost: true)
-                .StartAsync(Ctx(isReviewFlow: false), CancellationToken.None));
-
-        await Assert.That(ex!.Message).StartsWith("antigravity_reviewer_unsupported_platform");
-    }
-
-    /// <summary>A launcher only offers what the daemon advertises, so a Windows host that refuses
-    /// every launch must not report the vendor available — the binary is present here.</summary>
-    [Test]
-    public async Task A_windows_host_does_not_report_the_vendor_available() =>
-        await Assert.That(Factory(EnabledConfig(), windowsHost: true).IsAvailable()).IsFalse();
 
     [Test]
     public async Task A_consent_withheld_daemon_reports_an_operator_actionable_reason() {

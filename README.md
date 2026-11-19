@@ -1739,11 +1739,10 @@ the kcap capture plugin inside it do not reach the reviewer, and your interactiv
 unaffected. The restriction is read back before every launch, and a home that cannot be made owner-only
 refuses the launch rather than running with review context other users could read.
 
-**Not offered on Windows yet.** A Windows daemon withholds Antigravity, hosted agents and reviewers alike,
-with `antigravity_reviewer_unsupported_platform`. The home itself is ready there — a protected ACL admitting
-only you and SYSTEM, with `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and `TEMP`/`TMP` redirected into it
-alongside `HOME` — but no real `agy` run on Windows has yet confirmed that `agy` writes nothing outside it,
-and containment here is proven by a real run, not assumed.
+**Windows works the same way.** There the home carries a protected ACL admitting only you and SYSTEM, and
+`USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and `TEMP`/`TMP` are redirected into it alongside `HOME`. A real
+`agy` run under that home wrote nothing into your own `.gemini` or app-data folders and left no process
+behind.
 
 That home also carries a small `settings.json` holding `permissions.allow` rules for exactly the MCP tools
 the launch injected — the `kcap-flow-result` submit channel, plus any read-only servers the flow definition
@@ -1754,9 +1753,11 @@ reasons, and can never deliver its result. The grant admits those named tools an
 
 **Give the daemon durable credentials.** An unattended reviewer's stdin is closed, so it cannot complete an
 interactive login — an unauthenticated `agy` fails the launch with a coded
-`antigravity_reviewer_auth_unavailable` rather than hanging. Application Default Credentials are the
-supported setup, and every CLI-driven daemon start completes them for you — `daemon start`, `-d`, and
-`service install` alike:
+`antigravity_reviewer_auth_unavailable` rather than hanging. On Windows an `agy` you have already signed
+in to needs nothing more: its sign-in is not kept in the profile the launch redirects, so a daemon started
+with none of the three variables below launches it as it is. Elsewhere, Application Default Credentials
+are the supported setup, and every CLI-driven daemon start completes them for you — `daemon start`, `-d`,
+and `service install` alike:
 
 ```bash
 gcloud auth application-default login
@@ -1896,8 +1897,7 @@ consents specifically to an *unattended review*, whose risk is that it runs unde
 and returns what it read to whoever asked for the review — someone who need not be you. A hosted agent has
 no such gap: the server only ever launches on a daemon you own, so the person launching it is you.
 
-What a hosted launch *does* share with the reviewer is the **minimum `agy` version** (and not being offered
-on Windows yet), because
+What a hosted launch *does* share with the reviewer is the **minimum `agy` version**, because
 the containment that protects is the isolated `HOME` both shapes rely on. Your daemon records that minimum
 at startup whenever `agy` resolves, so there is normally nothing to do; if you installed `agy` after the
 daemon started, restart it or run `kcap daemon reviewer affirm --vendor antigravity`.

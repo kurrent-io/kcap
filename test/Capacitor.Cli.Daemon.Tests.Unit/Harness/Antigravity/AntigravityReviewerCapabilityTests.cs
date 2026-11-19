@@ -3,21 +3,16 @@ using Capacitor.Cli.Daemon.Harness.Antigravity;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Antigravity;
 
 /// <summary>
-/// The Antigravity reviewer gate is fail-closed on three axes: the operator's consent flag, the
-/// platform, and whether the installed <c>agy</c> meets the MINIMUM version this daemon recorded.
+/// The Antigravity reviewer gate is fail-closed on two axes: the operator's consent flag, and
+/// whether the installed <c>agy</c> meets the MINIMUM version this daemon recorded.
 ///
 /// <para>The version half is the SHARED mechanism Kiro and Gemini use — a daemon-owned record, moved
 /// only by <c>kcap daemon reviewer affirm</c>. It is a minimum, not an exact match, so an <c>agy</c>
 /// that updates itself needs no operator action; a build found to be bad is excluded by raising the
-/// floor past it. What stays Antigravity's own is the consent flag, the POSIX-only refusal, and the
-/// binary-missing arm the factory adds around this decision.</para>
+/// floor past it. What stays Antigravity's own is the consent flag and the binary-missing arm the
+/// factory adds around this decision.</para>
 /// </summary>
 public class AntigravityReviewerCapabilityTests {
-    /// <summary>Pinned, never read from the running host: these arms are about consent and versions,
-    /// and letting the CI leg decide the platform makes every one of them fail on Windows for a reason
-    /// unrelated to what it asserts.</summary>
-    const bool Posix = true;
-
     const string Minimum = "1.1.10";
 
     // ── the arms ──────────────────────────────────────────────────────────────────────────────────
@@ -26,8 +21,8 @@ public class AntigravityReviewerCapabilityTests {
     /// Pins a cross-file assumption the factory's ladder is BUILT on but does not own: with neither
     /// version known, the verdict must be <see cref="AntigravityReviewerDecision.VersionUnresolved"/>.
     ///
-    /// <para><c>LaunchRefusal</c> calls <c>Decide(posix, consented, null, null)</c> as a probe-free
-    /// pre-check and treats exactly that arm as "consent and platform are fine, keep going" — the
+    /// <para><c>LaunchRefusal</c> calls <c>Decide(consented, null, null)</c> as a probe-free
+    /// pre-check and treats exactly that arm as "consent is fine, keep going" — the
     /// binary-missing check and the version probe both sit AFTER it. The arm depends on
     /// <c>ReviewerVersionAffirmations.Decide</c> testing the installed version before the minimum,
     /// which is a property of a shared type in another assembly. Reorder those two null checks — a
@@ -38,12 +33,12 @@ public class AntigravityReviewerCapabilityTests {
     /// </summary>
     [Test]
     public async Task NeitherVersionKnown_IsUnresolved_WhichTheFactorysPreProbeDependsOn() =>
-        await Assert.That(AntigravityReviewerCapability.Decide(Posix, true, null, null))
+        await Assert.That(AntigravityReviewerCapability.Decide(true, null, null))
             .IsEqualTo(AntigravityReviewerDecision.VersionUnresolved);
 
     [Test]
     public async Task ConsentPlusAMinimumMeetingBuild_IsTheOnlyPermittedCombination() =>
-        await Assert.That(AntigravityReviewerCapability.Decide(Posix, true, "1.1.10", Minimum))
+        await Assert.That(AntigravityReviewerCapability.Decide(true, "1.1.10", Minimum))
             .IsEqualTo(AntigravityReviewerDecision.Allowed);
 
     /// <summary>Consent is read FIRST and short-circuits: an installed-but-wedged <c>agy</c> must not
@@ -55,17 +50,8 @@ public class AntigravityReviewerCapabilityTests {
     [Arguments("0.0.1")]
     [Arguments(null)]
     public async Task DisabledByTheOperator_IsRefusedWhateverTheVersionSays(string? installed) =>
-        await Assert.That(AntigravityReviewerCapability.Decide(Posix, false, installed, Minimum))
+        await Assert.That(AntigravityReviewerCapability.Decide(false, installed, Minimum))
             .IsEqualTo(AntigravityReviewerDecision.Disabled);
-
-    /// <summary>The Windows arm, assertable from any host because the platform is a parameter. No real
-    /// agy run has confirmed containment there, so a consenting daemon with a current build is still
-    /// refused.</summary>
-    [Test]
-    public async Task AWindowsHost_IsRefusedEvenWhenConsentedAndCurrent() =>
-        await Assert.That(AntigravityReviewerCapability.Decide(
-                posixHost: false, operatorEnabled: true, installedVersion: "1.1.10", minimumVersion: Minimum))
-            .IsEqualTo(AntigravityReviewerDecision.UnsupportedPlatform);
 
     // ── the minimum ───────────────────────────────────────────────────────────────────────────────
 
@@ -76,13 +62,13 @@ public class AntigravityReviewerCapabilityTests {
     [Arguments("2.0.0")]
     [Arguments("1.1.10.1")]
     public async Task ANewerVersion_IsAdmittedWithNoOperatorAction(string installed) =>
-        await Assert.That(AntigravityReviewerCapability.Decide(Posix, true, installed, Minimum))
+        await Assert.That(AntigravityReviewerCapability.Decide(true, installed, Minimum))
             .IsEqualTo(AntigravityReviewerDecision.Allowed);
 
     /// <summary>A floor, not a bar to clear: <c>&gt;=</c>, never <c>&gt;</c>.</summary>
     [Test]
     public async Task ExactlyTheMinimum_IsAllowed() =>
-        await Assert.That(AntigravityReviewerCapability.Decide(Posix, true, Minimum, Minimum))
+        await Assert.That(AntigravityReviewerCapability.Decide(true, Minimum, Minimum))
             .IsEqualTo(AntigravityReviewerDecision.Allowed);
 
     [Test]
@@ -90,7 +76,7 @@ public class AntigravityReviewerCapabilityTests {
     [Arguments("1.0.0")]
     [Arguments("0.9.9")]
     public async Task AnOlderVersion_IsRefused(string installed) =>
-        await Assert.That(AntigravityReviewerCapability.Decide(Posix, true, installed, Minimum))
+        await Assert.That(AntigravityReviewerCapability.Decide(true, installed, Minimum))
             .IsEqualTo(AntigravityReviewerDecision.VersionBelowMinimum);
 
     /// <summary>A build we cannot identify has not been SHOWN to meet the minimum, so it is refused —
@@ -100,7 +86,7 @@ public class AntigravityReviewerCapabilityTests {
     [Arguments("")]
     [Arguments("   ")]
     public async Task AnUnresolvedVersion_IsRefused(string? installed) =>
-        await Assert.That(AntigravityReviewerCapability.Decide(Posix, true, installed, Minimum))
+        await Assert.That(AntigravityReviewerCapability.Decide(true, installed, Minimum))
             .IsEqualTo(AntigravityReviewerDecision.VersionUnresolved);
 
     /// <summary>
@@ -112,7 +98,7 @@ public class AntigravityReviewerCapabilityTests {
     [Arguments("")]
     [Arguments("   ")]
     public async Task NoMinimumOnRecord_IsRefused(string? minimum) =>
-        await Assert.That(AntigravityReviewerCapability.Decide(Posix, true, "1.1.10", minimum))
+        await Assert.That(AntigravityReviewerCapability.Decide(true, "1.1.10", minimum))
             .IsEqualTo(AntigravityReviewerDecision.VersionNoMinimum);
 
     /// <summary>An unorderable pair must reach its OWN arm, never the below-minimum one — refusing an
@@ -122,7 +108,7 @@ public class AntigravityReviewerCapabilityTests {
     [Arguments("1.2.3.4.5", "2.0.0")]
     [Arguments("banana", "1.1.10")]
     public async Task AnUnorderablePair_IsIncomparableNotBelowMinimum(string installed, string minimum) =>
-        await Assert.That(AntigravityReviewerCapability.Decide(Posix, true, installed, minimum))
+        await Assert.That(AntigravityReviewerCapability.Decide(true, installed, minimum))
             .IsEqualTo(AntigravityReviewerDecision.VersionIncomparable);
 
     /// <summary>A vendor prerelease suffix is not an unidentifiable build — the shared comparison
@@ -132,13 +118,13 @@ public class AntigravityReviewerCapabilityTests {
     [Arguments("1.1.10-beta.1")]
     [Arguments("1.2.0+build7")]
     public async Task APrereleaseOrBuildSuffixStillMeetsTheMinimum(string installed) =>
-        await Assert.That(AntigravityReviewerCapability.Decide(Posix, true, installed, Minimum))
+        await Assert.That(AntigravityReviewerCapability.Decide(true, installed, Minimum))
             .IsEqualTo(AntigravityReviewerDecision.Allowed);
 
     /// <summary>Surrounding whitespace is not a version change.</summary>
     [Test]
     public async Task VersionComparisonIgnoresSurroundingWhitespace() =>
-        await Assert.That(AntigravityReviewerCapability.Decide(Posix, true, " 1.1.10\n", Minimum))
+        await Assert.That(AntigravityReviewerCapability.Decide(true, " 1.1.10\n", Minimum))
             .IsEqualTo(AntigravityReviewerDecision.Allowed);
 
     // ── the denial reasons ────────────────────────────────────────────────────────────────────────
@@ -154,17 +140,6 @@ public class AntigravityReviewerCapabilityTests {
         await Assert.That(reason).StartsWith("antigravity_unattended_reviewer_disabled");
         await Assert.That(reason).Contains("KCAP_ANTIGRAVITY_UNATTENDED_REVIEWER");
         await Assert.That(reason).Contains("daemon's environment");
-    }
-
-    /// <summary>The platform refusal says what is missing — a real agy run confirming containment.
-    /// The home itself is owner-only on Windows, so a reason blaming it would be false.</summary>
-    [Test]
-    public async Task TheUnsupportedPlatformReason_NamesTheUnconfirmedContainment() {
-        var reason = Reason(AntigravityReviewerDecision.UnsupportedPlatform, null, null);
-
-        await Assert.That(reason).StartsWith("antigravity_reviewer_unsupported_platform");
-        await Assert.That(reason).Contains("real agy run");
-        await Assert.That(reason).DoesNotContain("cannot be created owner-only");
     }
 
     [Test]

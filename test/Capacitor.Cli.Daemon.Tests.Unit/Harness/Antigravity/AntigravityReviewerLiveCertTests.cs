@@ -63,11 +63,10 @@ public class AntigravityReviewerLiveCertTests {
           + "own ADC credentials: gcloud auth application-default login, GOOGLE_CLOUD_PROJECT=<project>, "
           + "AGY_ADC_AUTH=1). Re-run it against a new agy before recommending that build to operators.");
 
-        Skip.Unless(!OperatingSystem.IsWindows(),
-            "The production factory withholds Antigravity on Windows until a real agy run confirms "
-          + "containment there — AntigravityContainmentTests is that run.");
-
-        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GOOGLE_CLOUD_PROJECT")))
+        // A signed-in agy on Windows authenticates under the redirected home without ADC, so there is
+        // no ADC environment to demand there.
+        if (!OperatingSystem.IsWindows()
+         && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("GOOGLE_CLOUD_PROJECT")))
             throw new InvalidOperationException(
                 $"{GateEnvVar}=1 but GOOGLE_CLOUD_PROJECT is unset. The launch path inherits the ADC "
               + "variables from this process rather than re-stamping them, so agy would sit on an "
@@ -184,7 +183,46 @@ public class AntigravityReviewerLiveCertTests {
         await Assert.That(runtime.HasExited).IsFalse();
     }
 
+    /// <summary>
+    /// A hosted launch on THIS host's platform: the real <c>agy</c> must write its conversation inside
+    /// the per-launch home, and disposal must remove that home.
+    ///
+    /// <para>The brain directory is the evidence, not the launch returning: an <c>agy</c> that ignored
+    /// the redirect would still report a conversation id, with its state in the operator's own tree and
+    /// the kcap capture hooks there firing against it.</para>
+    /// </summary>
+    [Test]
+    public async Task Cert3_AHostedLaunchKeepsItsConversationInsideTheHomeAndDisposalRemovesIt() {
+        Gate();
+
+        using var harness = LiveHarness.Create();
+
+        var start = await harness.LaunchAsync("Reply with the single word OK. Do not use any tools.", isReviewFlow: false)
+                                 .WaitAsync(RoundBudget);
+
+        var conversationId = start.Transcript!.AcpSessionId;
+        await Assert.That(conversationId).IsNotEmpty();
+
+        await harness.AwaitRoundAsync(start.Runtime, rounds: 1);
+
+        harness.Report("cert3", conversationId);
+
+        var home = harness.Spawns[0].Psi.Environment["HOME"]!;
+
+        await Assert.That(Directory.Exists(Path.Combine(home, ".gemini", "antigravity-cli", "brain", conversationId))).IsTrue()
+            .Because("agy must resolve its home from the variables this launch stamped");
+
+        await start.Runtime.DisposeAsync();
+
+        await Assert.That(Directory.Exists(home)).IsFalse()
+            .Because("the home holds the agent's conversation, so disposal must remove it");
+    }
+
     // ── harness ───────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Shape-accurate stand-in for the loopback capability a review's brokered result channel
+    /// delivers through. Never called: these certs judge the round, not a submitted result.</summary>
+    const string CapabilityUrl = "http://127.0.0.1:1/0123456789abcdef0123456789abcdef";
 
     /// <summary>One spawned round: the vector the OS received, and the child it produced.</summary>
     readonly record struct SpawnedRound(ProcessStartInfo Psi, IAgyTurnProcess Process);
@@ -247,7 +285,7 @@ public class AntigravityReviewerLiveCertTests {
             return new LiveHarness(tmp, daemons, worktree, config);
         }
 
-        internal Task<HostedRuntimeStart> LaunchAsync(string prompt) {
+        internal Task<HostedRuntimeStart> LaunchAsync(string prompt, bool isReviewFlow = true) {
             // binaryExists/resolveVersion left to production: this cert exists to judge the INSTALLED
             // agy, so seaming the version would certify a build the gate would have refused.
             var factory = new AntigravityHostedAgentRuntimeFactory(
@@ -260,7 +298,7 @@ public class AntigravityReviewerLiveCertTests {
                 Worktree: new WorktreeInfo(Path: Worktree, Branch: "cert", SourceRepo: Worktree),
                 Prompt: prompt,
                 Model: null, Effort: null, Tools: null,
-                IsReview: false, IsReviewFlow: true, Review: null,
+                IsReview: false, IsReviewFlow: isReviewFlow, Review: null,
                 Cols: 80, Rows: 24,
                 // A reachable tenant is not needed (and not assumed): the injected result channel is
                 // part of the launch shape being certified, but this cert judges the reviewer's own
@@ -271,7 +309,10 @@ public class AntigravityReviewerLiveCertTests {
                 CapacitorPath: Environment.GetEnvironmentVariable("KCAP_PATH") is { Length: > 0 } kcap
                                ? kcap : "kcap",
                 DaemonId: "agy-live-cert",
-                DaemonEpoch: Config.DaemonEpoch!);
+                DaemonEpoch: Config.DaemonEpoch!,
+                // A review under this runtime is always brokered, and the launch refuses one that is not.
+                FlowResultCapabilityUrl: isReviewFlow ? CapabilityUrl : null,
+                RequiresBrokeredResultDelivery: isReviewFlow);
 
             return factory.StartAsync(ctx, CancellationToken.None);
         }

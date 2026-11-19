@@ -119,13 +119,15 @@ public class AntigravityContainmentTests {
             // (it is inherited, so a rotated ADC path is read at spawn). Supplied here because a test
             // process is not a supervised daemon; defaulted rather than required so the gate stays
             // two variables.
-            psi.Environment["AGY_ADC_AUTH"]        = Environment.GetEnvironmentVariable("AGY_ADC_AUTH") ?? "1";
-            psi.Environment["GOOGLE_CLOUD_PROJECT"] = project;
-            psi.Environment["GOOGLE_APPLICATION_CREDENTIALS"] =
-                Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS")
-                ?? (OperatingSystem.IsWindows()
-                    ? Path.Combine(Environment.GetEnvironmentVariable("APPDATA") ?? "", "gcloud", "application_default_credentials.json")
-                    : Path.Combine(realHome, ".config", "gcloud", "application_default_credentials.json"));
+            if (project is not null) {
+                psi.Environment["AGY_ADC_AUTH"]        = Environment.GetEnvironmentVariable("AGY_ADC_AUTH") ?? "1";
+                psi.Environment["GOOGLE_CLOUD_PROJECT"] = project;
+                psi.Environment["GOOGLE_APPLICATION_CREDENTIALS"] =
+                    Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS")
+                    ?? (OperatingSystem.IsWindows()
+                        ? Path.Combine(Environment.GetEnvironmentVariable("APPDATA") ?? "", "gcloud", "application_default_credentials.json")
+                        : Path.Combine(realHome, ".config", "gcloud", "application_default_credentials.json"));
+            }
 
             // The daemon resolves the binary the same way, an npm shim included.
             var turn = await RunTurnAsync(WindowsLaunchCommand.Apply(psi, config.Binaries));
@@ -185,6 +187,20 @@ public class AntigravityContainmentTests {
                 await Assert.That(File.Exists(Path.Combine(root, "conversations", $"{id}.db"))).IsFalse()
                     .Because($"the reviewer's conversation db must not appear in the operator's store ({root})");
             }
+
+            // ── 5. nothing agy started outlives the turn ──────────────────────────────────────────
+            await Assert.That(turn.SurvivingChildren).IsEmpty()
+                .Because("a process agy left behind keeps files in the home open and holds a daemon slot");
+
+            // ── 6. the home can be removed once the turn is over ──────────────────────────────────
+            // Windows refuses to delete a file a process still holds, so this is also where a
+            // survivor the process table missed would show.
+            AntigravityReviewerHome.Delete(home, config.Store.StateDirectory(config.Name));
+
+            await Assert.That(Directory.Exists(home)).IsFalse()
+                .Because("the home holds the conversation, so it must not outlive its launch");
+
+            home = null;
         } finally {
             if (home is not null) AntigravityReviewerHome.Delete(home, config.Store.StateDirectory(config.Name));
         }
@@ -195,7 +211,7 @@ public class AntigravityContainmentTests {
     /// <summary>Both gates, evaluated before any work, so a CI run costs a skip and nothing else. The
     /// two reasons are reported separately: "not opted in" and "opted in but misconfigured" are
     /// different operator problems, and collapsing them hides the second.</summary>
-    static string Gate() {
+    static string? Gate() {
         Skip.Unless(Environment.GetEnvironmentVariable(GateEnvVar) == "1",
             $"Gated live enforcement of the Antigravity reviewer's containment — set {GateEnvVar}=1 to run "
           + "(spends one real agy turn; needs `agy` on PATH and application-default credentials). Observes "
@@ -203,19 +219,22 @@ public class AntigravityContainmentTests {
 
         var project = Environment.GetEnvironmentVariable("GOOGLE_CLOUD_PROJECT") ?? "";
 
-        Skip.Unless(project.Length > 0,
+        // A signed-in agy on Windows authenticates under the redirected home without ADC, which is
+        // how a daemon started with no ADC environment launches it.
+        Skip.Unless(project.Length > 0 || OperatingSystem.IsWindows(),
             $"{GateEnvVar}=1 but GOOGLE_CLOUD_PROJECT is unset — agy authenticates from an empty HOME via "
           + "AGY_ADC_AUTH + GOOGLE_CLOUD_PROJECT + GOOGLE_APPLICATION_CREDENTIALS, and without the project "
           + "it fails in a way that names a tier problem rather than the missing setting.");
 
-        return project;
+        return project.Length > 0 ? project : null;
     }
 
     // ── harness ───────────────────────────────────────────────────────────────────────────────────
 
     readonly record struct TurnOutcome(
         string? ConversationId, bool SawResult, string? Status, int? ExitCode,
-        IReadOnlyList<string> ProcessesMentioningConversation, string? Detail);
+        IReadOnlyList<string> ProcessesMentioningConversation, string? Detail,
+        IReadOnlyList<string> SurvivingChildren);
 
     /// <summary>
     /// Drives one real turn, parsing stdout with the PRODUCTION NDJSON parser. Takes the process-table
@@ -264,7 +283,8 @@ public class AntigravityContainmentTests {
                 processes    = [.. processes.Concat(await ProcessesMentioningAsync(done, dashless)).Distinct()];
             }
 
-            return new(conversationId, sawResult, status, proc.HasExited ? proc.ExitCode : null, processes, null);
+            return new(conversationId, sawResult, status, proc.HasExited ? proc.ExitCode : null, processes, null,
+                       await ChildrenOfAsync(proc.Id));
         } catch (OperationCanceledException) {
             // stderr is where agy reports an auth/project misconfiguration, which is by far the
             // likeliest reason this times out on a fresh machine.
@@ -272,10 +292,34 @@ public class AntigravityContainmentTests {
 
             return new(conversationId, sawResult, status, null, processes,
                        $"timed out after {TurnTimeout.TotalSeconds:N0}s; stderr tail: "
-                     + err[Math.Max(0, err.Length - 400)..]);
+                     + err[Math.Max(0, err.Length - 400)..], []);
         } finally {
             try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
         }
+    }
+
+    /// <summary>The processes still naming an exited <paramref name="pid"/> as their parent. Windows
+    /// only: it keeps a dead parent's pid on the child, where POSIX reparents the child and loses the
+    /// link, so elsewhere this reports nothing.</summary>
+    static async Task<List<string>> ChildrenOfAsync(int pid) {
+        if (!OperatingSystem.IsWindows()) return [];
+
+        var lister = new ProcessStartInfo("powershell.exe",
+            ["-NoProfile", "-NonInteractive", "-Command",
+             $"Get-CimInstance Win32_Process -Filter 'ParentProcessId={pid}' | ForEach-Object {{ $_.Name }}"]) {
+            RedirectStandardOutput = true,
+            RedirectStandardError  = true,
+            UseShellExecute        = false,
+            CreateNoWindow         = true
+        };
+
+        using var ps   = Process.Start(lister) ?? throw new InvalidOperationException("powershell did not start");
+        using var kill = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        var text = await ps.StandardOutput.ReadToEndAsync(kill.Token);
+        await ps.WaitForExitAsync(kill.Token);
+
+        return [.. text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
     }
 
     /// <summary>Every command line on this host mentioning the conversation, in either id spelling —
