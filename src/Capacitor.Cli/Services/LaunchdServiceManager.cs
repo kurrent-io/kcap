@@ -43,7 +43,7 @@ sealed partial class LaunchdServiceManager(
         var held     = preimage is not null && File.Exists(preimage) ? File.ReadAllText(preimage) : null;
         if (held is not null) File.Delete(preimage!);
         try {
-            _writeUnit(LaunchdUnit.PlistPath(home, spec.ServiceId), LaunchdUnit.Plist(spec), null);
+            _writeUnit(LaunchdUnit.PlistPath(home, spec.ServiceId), LaunchdUnit.Plist(spec));
         } catch when (held is not null) {
             // Best effort, so the write's failure is the one reported.
             try {
@@ -300,14 +300,14 @@ sealed partial class LaunchdServiceManager(
         var stale  = probe == LabelProbe.Loaded && (SpawnTypes.IsBackgroundBand(spawn) || pinned || amended is not null);
 
         // Rewriting the file is safe whatever launchd holds; only the reload depends on what it does.
-        if (upgraded is not null && preimagePath is null) _writeUnit(path, upgraded, null);
+        if (upgraded is not null && preimagePath is null) _writeUnit(path, upgraded);
         if (probe == LabelProbe.Unknown) return UnitRefresh.Unverified;
         if (probe == LabelProbe.Absent) {
-            if (pending is not null) _writeUnit(path, pending, null);
+            if (pending is not null) _writeUnit(path, pending);
             return UnitRefresh.NotLoaded;
         }
         if (!stale) {
-            if (pending is not null) _writeUnit(path, pending, null);
+            if (pending is not null) _writeUnit(path, pending);
             return !requirePositiveSpawnType || SpawnTypes.IsPositive(spawn) ? UnitRefresh.Current : UnitRefresh.Unverified;
         }
 
@@ -319,18 +319,18 @@ sealed partial class LaunchdServiceManager(
         if (preimagePath is not null)
             AtomicFile.Replace(preimagePath, original, mode: UnixFileMode.UserRead | UnixFileMode.UserWrite, followLink: false, durable: true);
         // Before the stop: a write that fails once the daemon has exited would leave it down.
-        else if (amended is not null) _writeUnit(path, amended, null);
+        else if (amended is not null) _writeUnit(path, amended);
 
         (string? Error, LabelProbe? After) reload;
         try {
             if (running && !stopForReload()) {
                 if (preimagePath is not null) File.Delete(preimagePath);
-                else if (amended is not null) _writeUnit(path, beforeAmend, null);
+                else if (amended is not null) _writeUnit(path, beforeAmend);
                 return UnitRefresh.Deferred;
             }
 
             // After the stop, so a busy daemon's unit is never touched; a failed write is settled, which starts it again.
-            if (preimagePath is not null && pending is not null) _writeUnit(path, pending, null);
+            if (preimagePath is not null && pending is not null) _writeUnit(path, pending);
 
             var (bootoutExit, _, _, bootoutTimedOut) = RunCtl(RefreshCtlTimeout, LaunchdUnit.BootoutArgs(Uid(), serviceId));
             if ((bootoutTimedOut || bootoutExit != 0) && Probe(serviceId).Label == LabelProbe.Loaded) {
@@ -340,7 +340,7 @@ sealed partial class LaunchdServiceManager(
                         : "launchctl bootout did not unload the job, so its previous unit was put back";
                     return UnitRefresh.Failed;
                 }
-                if (amended is not null) _writeUnit(path, beforeAmend, null);
+                if (amended is not null) _writeUnit(path, beforeAmend);
                 error = "launchctl bootout did not unload the job, so it keeps running in the background band until the next update";
                 return UnitRefresh.Failed;
             }
@@ -351,7 +351,7 @@ sealed partial class LaunchdServiceManager(
                 TrySettle(serviceId, path, preimagePath);
             } else {
                 // Same rule as every other path short of a reload: the file must not claim what launchd never loaded.
-                if (amended is not null) _writeUnit(path, beforeAmend, null);
+                if (amended is not null) _writeUnit(path, beforeAmend);
                 RecoverUnloadedJob(serviceId, path, upgraded is not null || amended is not null ? original : null);
             }
             throw;
@@ -370,12 +370,12 @@ sealed partial class LaunchdServiceManager(
                 error = SettlePreimage(serviceId, path, preimagePath) is { } unsettled ? $"{reload.Error}; {unsettled}" : reload.Error;
                 return UnitRefresh.Failed;
             }
-            if (amended is not null) _writeUnit(path, beforeAmend, null);
+            if (amended is not null) _writeUnit(path, beforeAmend);
             error = reload.Error;
             return UnitRefresh.Failed;
         }
 
-        if (upgraded is not null || amended is not null) _writeUnit(path, original, null);
+        if (upgraded is not null || amended is not null) _writeUnit(path, original);
         var rollback = Bootstrap(serviceId, path, acceptAnySpawnType: true);
         var (bootstrapError, rollbackError) = (reload.Error, rollback.Error);
 
@@ -400,7 +400,7 @@ sealed partial class LaunchdServiceManager(
             return UnitRefresh.Failed;
         }
 
-        if (rewritten is not null) _writeUnit(path, rewritten, null);
+        if (rewritten is not null) _writeUnit(path, rewritten);
         error = null;
         return UnitRefresh.NotLoaded;
     }
@@ -428,7 +428,7 @@ sealed partial class LaunchdServiceManager(
         if (label == LabelProbe.Unknown) return "launchd's state could not be read, so the unit was not put back as it was before the reload";
 
         if (label == LabelProbe.Absent || LaunchdPrint.LoadedProgram(stdout) != ReadBinaryPathSafe(path))
-            _writeUnit(path, File.ReadAllText(preimagePath), null);
+            _writeUnit(path, File.ReadAllText(preimagePath));
 
         var restart = label == LabelProbe.Absent ? Bootstrap(serviceId, path, acceptAnySpawnType: true).Error
             : LaunchdUnit.StatusFromPrint(0, stdout) == ServiceState.Running ? null
@@ -460,7 +460,7 @@ sealed partial class LaunchdServiceManager(
     void RecoverUnloadedJob(string serviceId, string path, string? restore) {
         try {
             if (Probe(serviceId).Label != LabelProbe.Absent) return;
-            if (restore is not null) _writeUnit(path, restore, null);
+            if (restore is not null) _writeUnit(path, restore);
             Bootstrap(serviceId, path, acceptAnySpawnType: true);
         } catch (Exception ex) when (Contained(ex)) {
             // The original failure is rethrown by the caller.

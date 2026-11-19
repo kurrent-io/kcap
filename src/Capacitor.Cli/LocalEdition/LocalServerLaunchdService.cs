@@ -59,7 +59,7 @@ sealed partial class LocalServerLaunchdService(
         }
 
         var plist = LocalServerLaunchdUnit.PlistPath(home, unit);
-        _writeUnit(plist, LocalServerLaunchdUnit.Plist(unit), null);
+        _writeUnit(plist, LocalServerLaunchdUnit.Plist(unit));
 
         Check(LocalServerLaunchdUnit.EnableArgs(_uid, unit));
         Check(LocalServerLaunchdUnit.BootstrapArgs(_uid, plist));

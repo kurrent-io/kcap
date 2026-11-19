@@ -37,7 +37,7 @@ public sealed class PermissionCardViewModel : PendingCardViewModel {
         _detail = root
             .Select(r => entry.ToolInputOmitted ? "Input too large to show" : ToolDetail.From(entry.ToolInputJson, r))
             .ObserveOn(RxSchedulers.MainThreadScheduler)
-            .ToProperty(this, x => x.Detail, entry.ToolInputOmitted ? "Input too large to show" : ToolDetail.From(entry.ToolInputJson, null))
+            .ToProperty(this, x => x.Detail, entry.ToolInputOmitted ? "Input too large to show" : ToolDetail.From(entry.ToolInputJson))
             .DisposeWith(Disposables);
 
         AllowCommand       = ReactiveCommand.CreateFromTask(() => AnswerAsync(PermissionAnswer.Allow), idle);

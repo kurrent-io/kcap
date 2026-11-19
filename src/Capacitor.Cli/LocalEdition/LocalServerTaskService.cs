@@ -164,7 +164,7 @@ sealed class LocalServerTaskService(
     /// <summary>Marks the stop so the wrapper launches nothing more, breaks the server, waits for the stack to go down,
     /// then ends the task's console.</summary>
     async Task Stop(LocalServerUnit unit, CancellationToken ct) {
-        _writeUnit(StopMarker(unit), "", null);
+        _writeUnit(StopMarker(unit), "");
 
         if (_findServer(unit) is { } pid && _breakConsole(pid, BreakBudget) is { } error)
             throw new LocalLifecycleException($"The local server (pid {pid}) could not be asked to stop: {error}");
@@ -204,7 +204,7 @@ sealed class LocalServerTaskService(
         var deadline = time.GetUtcNow() + grace;
 
         _schtasksQuick(LocalServerTaskUnit.DisableArgs(unit));
-        _writeUnit(StopMarker(unit), "", null);
+        _writeUnit(StopMarker(unit), "");
 
         // The sender's wait comes out of the grace too, or a hung sender would outlast the caller's deadline.
         if (_findServer(unit) is { } pid && deadline - time.GetUtcNow() is { Ticks: > 0 } left) _breakConsole(pid, left);

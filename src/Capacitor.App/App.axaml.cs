@@ -836,7 +836,7 @@ public partial class App : Application {
         void Quit() {
             if (quitting) return;
             quitting = true;
-            desktop.Shutdown(0);
+            desktop.Shutdown();
         }
         // Running as the installed copy, only a leftover older bundle prompted: declining goes on with this launch,
         // so a bundle that cannot be removed never locks the user out of the app.
@@ -895,7 +895,7 @@ public partial class App : Application {
             Program.Host.CliDirectory, _config, [_config.Directory, _daemonStore.Directory, _localRoot.Directory],
             new ProcessRunner(_time), LifecycleLog.Write, _shutdown.Token);
         if (handedOver) {
-            desktop.Shutdown(0);
+            desktop.Shutdown();
             return true;
         }
         _legacyRetirement = retirement;

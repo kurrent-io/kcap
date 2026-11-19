@@ -34,8 +34,7 @@ public sealed class RemoteTerminalControl : TerminalControl {
         for (var i = 0; i < Math.Abs(steps); i++) {
             var sequence = model.Terminal.Engine.GenerateMouseEvent(
                 up ? XTerm.Input.MouseButton.WheelUp : XTerm.Input.MouseButton.WheelDown,
-                col, row, up ? XTerm.Input.MouseEventType.WheelUp : XTerm.Input.MouseEventType.WheelDown,
-                XTerm.Input.KeyModifiers.None);
+                col, row, up ? XTerm.Input.MouseEventType.WheelUp : XTerm.Input.MouseEventType.WheelDown);
             model.Send(sequence);
         }
     }

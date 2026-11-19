@@ -346,7 +346,7 @@ sealed class DaemonServiceCommands(
             ConfigRoot root, ProfileContext profiles, UserHome home, TimeProvider time) {
         var store = DaemonStore.FromEnvironment();
         return new(store, root, profiles, ServiceManagerFactory.ForCurrentOs(root, home, time, store: store),
-            DaemonStore.Sanitize(profiles.DaemonName ?? DaemonNameResolver.Resolve([], null)), home, time);
+            DaemonStore.Sanitize(profiles.DaemonName ?? DaemonNameResolver.Resolve([])), home, time);
     }
 
     /// <summary>

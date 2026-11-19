@@ -629,7 +629,7 @@ internal partial class AgentOrchestrator {
         }
     }
 
-    static SendTextAckDto Refuse(string reason, string? error) => new(false, reason, error, null);
+    static SendTextAckDto Refuse(string reason, string? error) => new(false, reason, error);
 
     /// <summary>
     /// Spawn a new agent from a local <c>agent start</c> request, then attach the requesting
