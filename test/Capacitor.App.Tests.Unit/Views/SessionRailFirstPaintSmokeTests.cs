@@ -31,10 +31,10 @@ public class SessionRailFirstPaintSmokeTests {
         service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
         service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
         using var directory = new FakeAgentDirectory();
-        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System) { State = RailState.All };
+        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+        rail.State = RailState.All;
         var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, rail: rail);
-        var window = new MainWindow { DataContext = vm };
-        window.Panes.RailCollapsed = true;
+        var window = new MainWindow { DataContext = vm, Panes = { RailCollapsed = true } };
         var calls = 0;
         var painted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         window.SessionRail.OnFirstSessionsPainted(TimeProvider.System, _ => {
@@ -70,14 +70,14 @@ public class SessionRailFirstPaintSmokeTests {
         service.SnapshotsSubject.OnNext(Snap(connection: "connected"));
         service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
         using var directory = new FakeAgentDirectory();
-        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System) { State = RailState.All };
+        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+        rail.State = RailState.All;
         var now = DateTime.UtcNow;
         directory.Rows.AddOrUpdate(Enumerable.Range(0, 40).Select(i => AgentRow.FromLocal(
             new AgentStatusDto($"a{i}", "agent", "claude", $"/repo{i}", "Running", null, null, null, now.AddMinutes(-i), null, null),
             new RepoIdentity($"repo{i}", $"repo{i}"))));
         var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, rail: rail);
-        var window = new MainWindow { DataContext = vm, Height = 600 };
-        window.Panes.RailCollapsed = true;
+        var window = new MainWindow { DataContext = vm, Height = 600, Panes = { RailCollapsed = true } };
         var painted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         window.SessionRail.OnFirstSessionsPainted(TimeProvider.System, _ => painted.TrySetResult());
         try {

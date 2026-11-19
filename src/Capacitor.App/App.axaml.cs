@@ -82,8 +82,7 @@ public partial class App : Application {
     LifecycleLog? _lifecycleLogInstance;
     LifecycleLog LifecycleLog => _lifecycleLogInstance ??= new LifecycleLog(_config, _time, _userHome.Path,
         closed: () => _uninstalling || _uninstallMode is not null);
-    StartupMarks? _startupMarksInstance;
-    StartupMarks StartupMarks => _startupMarksInstance ??= new StartupMarks(LifecycleLog, _time, StartupMarks.CurrentProcessStart());
+    StartupMarks StartupMarks => field ??= new StartupMarks(LifecycleLog, _time, StartupMarks.CurrentProcessStart());
     TimeSpan? _windowBuild;
 
     // The update this launch finishes, once StartAsync has taken its record; null on an ordinary launch.
