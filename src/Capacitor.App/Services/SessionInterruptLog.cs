@@ -50,13 +50,11 @@ public sealed class SessionInterruptLog : ISessionInterruptSource {
             known = _folded.GetValueOrDefault(sessionId);
             generation = _generation;
         }
-        if (known is null) {
-            var listed = _listedEnded?.Invoke(sessionId);
-            if (listed is true) return new(Ended);
-            if (listed is null && _readSummary is { } readSummary
-                && await readSummary(sessionId, ct).ConfigureAwait(false) is { Outcome: ServerReadOutcome.Ok, Session.EndedAt: not null })
-                return new(Ended);
-        }
+        var listed = _listedEnded?.Invoke(sessionId);
+        if (listed is true
+            || (listed is null && known is null && _readSummary is { } readSummary
+                && await readSummary(sessionId, ct).ConfigureAwait(false) is { Outcome: ServerReadOutcome.Ok, Session.EndedAt: not null }))
+            return new(Ended);
         var folded = known ?? new Folded(0, new([], false));
         while (true) {
             var page = await _readEvents(sessionId, folded.From, ct).ConfigureAwait(false);

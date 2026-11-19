@@ -3,8 +3,9 @@ namespace Capacitor.App.Services;
 /// Callers asking for one session's detail while a read of it is in flight share that read. A
 /// joiner can get a body that predates its call, so this suits only callers that tail the stream
 /// from the position the body ends at. The read is cancelled once every caller waiting on it has
-/// gone, and a caller arriving after that starts a new one. A joiner handed a refusal reads again
-/// once: the read it joined may have carried a token refreshed since.
+/// gone, and a caller arriving after that starts a new one. A joiner handed a refusal or a miss reads
+/// again once: the read it joined may have carried a token refreshed since, or answered before the
+/// session existed.
 public sealed class SharedSessionDetailReader(SessionDetailReader read) {
     sealed class Flight {
         public readonly CancellationTokenSource Cts = new();
@@ -18,7 +19,7 @@ public sealed class SharedSessionDetailReader(SessionDetailReader read) {
 
     public async Task<SessionDetailFetch> ReadAsync(string sessionId, CancellationToken ct) {
         var (fetch, joined) = await ShareAsync(sessionId, ct).ConfigureAwait(false);
-        return joined && fetch.Unauthorized ? (await ShareAsync(sessionId, ct).ConfigureAwait(false)).Fetch : fetch;
+        return joined && (fetch.Unauthorized || fetch.NotFound) ? (await ShareAsync(sessionId, ct).ConfigureAwait(false)).Fetch : fetch;
     }
 
     async Task<(SessionDetailFetch Fetch, bool Joined)> ShareAsync(string sessionId, CancellationToken ct) {

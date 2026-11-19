@@ -217,6 +217,22 @@ public class SessionInterruptLogTests {
         await Assert.That(stream.Summaries).IsEqualTo(1);
     }
 
+    /// The listing outranks a fold already kept, which may not yet have read the end the listing reflects.
+    [Test]
+    public async Task A_folded_session_later_listed_ended_is_answered_ended_without_a_request() {
+        var stream = new Stream().Append(Issued("r1"));
+        bool? listed = false;
+        var log = new SessionInterruptLog(stream.Read, readSummary: stream.Summary, listedEnded: _ => listed);
+        await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "r1" });
+
+        listed = true;
+        stream.Froms.Clear();
+        var answer = (await log.ReadAsync("s1", CancellationToken.None)).Interrupts!;
+        await Assert.That(answer.Ended).IsTrue();
+        await Assert.That(answer.Pending).IsEmpty();
+        await Assert.That(stream.Froms).IsEmpty();
+    }
+
     [Test]
     public async Task A_session_listed_live_skips_the_summary_and_folds_the_stream() {
         var stream = new Stream().Append(Issued("r1"));
