@@ -369,4 +369,18 @@ public class SessionAttentionTrackerTests {
         h.Lane.PermissionRespondedSubject.OnNext(new PermissionRespondedPing("s1", "r2"));
         await WaitUntilAsync(() => !h.Sessions.Contains("s1"), what: "attention off");
     }
+
+    /// The summary still shows the session ended after it resumed and asked for permission; the
+    /// tracker's log is built without one, so the ping's prompt is read from the stream.
+    [Test]
+    public async Task A_resumed_session_s_prompt_lights_the_marker_while_its_summary_still_shows_an_end() {
+        var stream = new SessionInterruptLogTests.Stream { EndedAt = DateTimeOffset.UnixEpoch }
+            .Append(SessionInterruptLogTests.Ended, SessionInterruptLogTests.Resumed, SessionInterruptLogTests.Issued("r1"));
+        using var h = new Harness(stream.Log(summary: false));
+        h.Connect();
+        h.Lane.PermissionPendingSubject.OnNext("s1");
+        h.Time.Advance(TimeSpan.FromMilliseconds(100));
+        await WaitUntilAsync(() => h.Sessions.Contains("s1"), what: "attention on");
+        await Assert.That(stream.Summaries).IsEqualTo(0);
+    }
 }

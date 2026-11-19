@@ -270,6 +270,7 @@ public sealed class SessionAttentionTracker : IDisposable {
             _sessions.Clear();
         }
         _subscriptions.Dispose();
+        _interrupts.Dispose();
         _lifetime.Cancel();
         _lifetime.Dispose();
         _attention.OnCompleted();

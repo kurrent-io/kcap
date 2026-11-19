@@ -129,6 +129,7 @@ public sealed class ServerPermissionFeed : IDisposable {
         if (_disposed) return;
         _disposed = true;
         _subscriptions.Dispose();
+        _interrupts.Dispose();
         _lifetime.Cancel();
         _lifetime.Dispose();
         // Every in-flight fetch now reads as superseded rather than applying to a disposed cache.

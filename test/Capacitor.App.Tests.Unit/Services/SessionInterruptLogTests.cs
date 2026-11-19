@@ -45,7 +45,7 @@ public class SessionInterruptLogTests {
             }));
         }
 
-        public SessionInterruptLog Log() => new(Read, Summary);
+        public SessionInterruptLog Log(IServerLane? lane = null, bool summary = true) => new(Read, lane, summary ? Summary : null);
     }
 
     internal static string Issued(string id) =>
@@ -206,7 +206,7 @@ public class SessionInterruptLogTests {
     public async Task A_session_listed_ended_is_answered_without_a_request() {
         var stream = new Stream().Append(Issued("r1"));
         bool? listed = true;
-        var log = new SessionInterruptLog(stream.Read, stream.Summary, _ => listed);
+        var log = new SessionInterruptLog(stream.Read, readSummary: stream.Summary, listedEnded: _ => listed);
 
         await Assert.That((await log.ReadAsync("s1", CancellationToken.None)).Interrupts!.Ended).IsTrue();
         await Assert.That(stream.Summaries).IsEqualTo(0);
@@ -220,9 +220,59 @@ public class SessionInterruptLogTests {
     [Test]
     public async Task A_session_listed_live_skips_the_summary_and_folds_the_stream() {
         var stream = new Stream().Append(Issued("r1"));
-        var log = new SessionInterruptLog(stream.Read, stream.Summary, _ => false);
+        var log = new SessionInterruptLog(stream.Read, readSummary: stream.Summary, listedEnded: _ => false);
 
         await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "r1" });
         await Assert.That(stream.Summaries).IsEqualTo(0);
+    }
+
+    /// The events route counts from the first surviving event, so a cursor kept across a deletion
+    /// could skip a recreated stream's events.
+    [Test]
+    public async Task A_deleted_session_is_folded_again_from_its_first_event() {
+        var lane = new FakeServerLane();
+        var stream = new Stream().Append(Issued("r1"), Line);
+        using var log = stream.Log(lane);
+        await PendingIds(log);
+
+        lane.SessionPushesSubject.OnNext(new SessionPush(SessionPushKind.Deleted, "s1"));
+        stream.Froms.Clear();
+        await PendingIds(log);
+        await Assert.That(stream.Froms[0]).IsEqualTo(0);
+    }
+
+    /// A deletion pushed while the lane was down is never seen, so a reconnect starts every session over.
+    [Test]
+    public async Task A_reconnect_folds_every_session_again_from_its_first_event() {
+        var lane = new FakeServerLane();
+        lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 1));
+        var stream = new Stream().Append(Issued("r1"), Line);
+        using var log = stream.Log(lane);
+        await PendingIds(log);
+
+        stream.Froms.Clear();
+        await PendingIds(log);
+        await Assert.That(stream.Froms[0]).IsEqualTo(2);
+
+        lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying));
+        lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 2));
+        stream.Froms.Clear();
+        await PendingIds(log);
+        await Assert.That(stream.Froms[0]).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task Sessions_past_the_capacity_are_evicted_least_recently_read_first() {
+        var stream = new Stream().Append(Issued("r1"), Line);
+        using var log = stream.Log();
+        for (var i = 0; i <= SessionInterruptLog.Capacity; i++) await log.ReadAsync($"s{i}", CancellationToken.None);
+        await log.ReadAsync($"s{SessionInterruptLog.Capacity}", CancellationToken.None);
+
+        stream.Froms.Clear();
+        await log.ReadAsync("s1", CancellationToken.None);
+        await Assert.That(stream.Froms[0]).IsEqualTo(2);
+        stream.Froms.Clear();
+        await log.ReadAsync("s0", CancellationToken.None);
+        await Assert.That(stream.Froms[0]).IsEqualTo(0);
     }
 }

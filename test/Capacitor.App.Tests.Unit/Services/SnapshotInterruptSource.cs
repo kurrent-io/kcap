@@ -12,4 +12,6 @@ sealed class SnapshotInterruptSource(Func<string, Task<SessionDetailFetch>> read
     }
 
     public void Forget() => Forgets++;
+
+    public void Dispose() { }
 }
