@@ -434,9 +434,11 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
               + "GOOGLE_CLOUD_PROJECT from your active gcloud project — so set one first if you have "
               + "not (`gcloud config set project <id>`). The explicit credentials path matters even "
               + "though ADC has a default location, because a reviewer launch redirects HOME and that "
-              + "default location is not visible to it. On Windows a signed-in agy needs none of this: "
-              + "its sign-in is not kept in the profile the launch redirects, so run `agy` once in a "
-              + "terminal as this daemon's user, sign in, and start the daemon without AGY_ADC_AUTH.",
+              + "default location is not visible to it. On Windows that restart derives nothing unless "
+              + "AGY_ADC_AUTH=1 is set for the command that starts the daemon, and a signed-in agy needs "
+              + "none of it: its sign-in is not kept in the profile the launch redirects, so run `agy` "
+              + "once in a terminal as this daemon's user, sign in, and start the daemon without "
+              + "AGY_ADC_AUTH.",
                 cause);
 
         if (launchToken.IsCancellationRequested && !callerToken.IsCancellationRequested)
