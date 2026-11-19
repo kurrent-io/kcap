@@ -787,7 +787,7 @@ public class MainWindowSmokeTests {
             link.Command!.Execute(null);
             Dispatcher.UIThread.RunJobs();
             await Assert.That(cover.IsVisible).IsTrue();
-            await Assert.That(cover.FindControl<TextBlock>("AllSessionsHeading")!.Text).IsEqualTo("All sessions");
+            await Assert.That(cover.FindControl<TextBlock>("AllSessionsHeading")!.Text).IsEqualTo("Sessions");
         } finally {
             vm.AllSessionsPage?.Dispose();
             window.Close();
