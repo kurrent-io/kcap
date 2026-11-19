@@ -32,6 +32,9 @@ public sealed class WorkItemPageApi(ICapacitorHttpClient http, ProfileContext pr
     public Task<bool> RenameAsync(string workItemId, string title, CancellationToken ct) =>
         PostAsync(ApiRoutes.WorkItem(workItemId, "title"), new WorkItemTitleRequestDto(title), Json.WorkItemTitleRequestDto, ct);
 
+    public Task<bool> SetGoalAsync(string workItemId, string? goal, CancellationToken ct) =>
+        PostAsync(ApiRoutes.WorkItem(workItemId, "goal"), new WorkItemGoalRequestDto(goal), Json.WorkItemGoalRequestDto, ct);
+
     public Task<bool> MakePartAsync(string workItemId, string looseEndId, CancellationToken ct) =>
         ChangeAsync(ApiRoutes.LooseEndPart(workItemId, looseEndId), (client, url) => client.PostAsync(url, null, ct), null, ct);
 

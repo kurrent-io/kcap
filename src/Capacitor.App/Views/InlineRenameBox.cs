@@ -26,6 +26,7 @@ public sealed class InlineRenameBox : TextBox {
             if (_model is not null) _model.PropertyChanged += OnModelChanged;
             WatchPressesElsewhere(_model is not null);
         };
+        AttachedToVisualTree += (_, _) => WatchPressesElsewhere(_model is not null);
         DetachedFromVisualTree += (_, _) => WatchPressesElsewhere(false);
     }
 

@@ -14,6 +14,8 @@ public interface IWorkItemPageApi {
     /// A null status shows the worked-out one again.
     Task<bool> SetStatusAsync(string workItemId, string? status, CancellationToken ct);
     Task<bool> RenameAsync(string workItemId, string title, CancellationToken ct);
+    /// A null goal clears it.
+    Task<bool> SetGoalAsync(string workItemId, string? goal, CancellationToken ct);
     Task<bool> MakePartAsync(string workItemId, string looseEndId, CancellationToken ct);
     /// The new part's id, or null when the server refused it.
     Task<string?> AddPartAsync(string workItemId, string title, CancellationToken ct);

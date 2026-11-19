@@ -68,6 +68,9 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     public ReactiveCommand<WorkItemPageLooseEnd, Unit> MakePartCommand { get; }
     public ReactiveCommand<Unit, Unit> AddPartCommand { get; }
     public ReactiveCommand<Unit, Unit> AddLinkCommand { get; }
+    public SessionTitleEditorViewModel TitleEditor { get; }
+    /// Edits the goal in place; a blank one clears it.
+    public SessionTitleEditorViewModel GoalEditor { get; }
 
     /// <param name="flippedGroups">The groups the viewer opened or closed against their default, kept for the
     /// life of the app.</param>
@@ -101,6 +104,16 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         AddLinkCommand = ReactiveCommand.CreateFromTask(async () => {
             if (await ChangeAsync(ct => _api.AddLinkAsync(WorkItemId, NewLinkReference.Trim(), ct), "Couldn't add that link")) NewLinkReference = "";
         }, this.WhenAnyValue(x => x.NewLinkReference, reference => !string.IsNullOrWhiteSpace(reference))).DisposeWith(_disposables);
+
+        var notifier = new AppNotifier();
+        notifier.Messages.Subscribe(message => Message = message).DisposeWith(_disposables);
+        TitleEditor = new SessionTitleEditorViewModel(this.WhenAnyValue(x => x.Title), Observable.Return(true),
+            (title, _) => SaveAsync(() => _api.RenameAsync(WorkItemId, title, CancellationToken.None), () => Title = title, title),
+            notifier, "work item").DisposeWith(_disposables);
+        GoalEditor = new SessionTitleEditorViewModel(this.WhenAnyValue(x => x.Goal, goal => goal ?? ""), Observable.Return(true),
+            (goal, _) => SaveAsync(() => _api.SetGoalAsync(WorkItemId, goal.Length == 0 ? null : goal, CancellationToken.None),
+                () => Goal = goal.Length == 0 ? null : goal, goal),
+            notifier, "goal", draft => draft.Trim(), "save").DisposeWith(_disposables);
 
         Observable.Switch((changed ?? Observable.Never<Unit>()).Merge(_reread).StartWith(Unit.Default)
                 .Select(_ => Observable.FromAsync(ct => _api.ReadAsync(WorkItemId, ct)).Catch(Observable.Return<WorkItemPartsDto?>(null))))
@@ -148,6 +161,17 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         _pageLifetime = null;
         viewer.Close();
         PageViewer = null;
+    }
+
+    // Not cancelled when the page closes, so leaving right after Enter keeps the edit. Shows the saved text at once: the
+    // read that follows can come back before the server's read model has it.
+    async Task<SessionRenameResult> SaveAsync(Func<Task<bool>> send, Action show, string saved) {
+        Message = null;
+        if (!await send()) return new SessionRenameResult(false, null, null);
+        if (_disposables.IsDisposed) return new SessionRenameResult(true, saved, null);
+        show();
+        _reread.OnNext(Unit.Default);
+        return new SessionRenameResult(true, saved, null);
     }
 
     async Task<bool> ChangeAsync(Func<CancellationToken, Task<bool>> change, string failure) {

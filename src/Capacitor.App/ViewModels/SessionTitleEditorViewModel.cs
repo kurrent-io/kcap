@@ -9,12 +9,14 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// A session's or work item's title with an in-place rename. A failed save keeps the draft so the user can
+/// A session's or work item's title, or another line of text, with an in-place edit. A failed save keeps the draft so the user can
 /// retry; the title itself only ever follows the source, apart from showing an applied rename at once.
 public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
     readonly Func<string, CancellationToken, Task<SessionRenameResult>> _rename;
     readonly IAppNotifier _notifier;
     readonly string _subject;
+    readonly string _verb;
+    readonly Func<string, string?> _normalize;
     readonly CompositeDisposable _disposables = new();
     readonly CancellationTokenSource _disposed = new();
     // Command gates go through subjects rather than this.WhenAnyValue, which needs ReactiveUI's
@@ -65,10 +67,13 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
 
     public SessionTitleEditorViewModel(
             IObservable<string> title, IObservable<bool> canRename,
-            Func<string, CancellationToken, Task<SessionRenameResult>> rename, IAppNotifier notifier, string subject = "session") {
+            Func<string, CancellationToken, Task<SessionRenameResult>> rename, IAppNotifier notifier, string subject = "session",
+            Func<string, string?>? normalize = null, string verb = "rename") {
         _rename = rename;
         _notifier = notifier;
         _subject = subject;
+        _verb = verb;
+        _normalize = normalize ?? RenameWire.NormalizeTitle;
 
         title.Subscribe(t => Title = t).DisposeWith(_disposables);
         canRename.DistinctUntilChanged().Subscribe(can => {
@@ -101,7 +106,7 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
 
     async Task SaveAsync() {
         if (!IsEditing || IsSaving) return;
-        var normalized = RenameWire.NormalizeTitle(Draft);
+        var normalized = _normalize(Draft);
         if (normalized is null || string.Equals(normalized, Title, StringComparison.Ordinal)) {
             Cancel();
             return;
@@ -125,15 +130,15 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
             IsEditing = false;
             return;
         }
-        _notifier.Notify(FailureCopy(result.Reason, _subject));
+        _notifier.Notify(FailureCopy(result.Reason, _subject, _verb));
     }
 
-    internal static string FailureCopy(string? reason, string subject) => reason switch {
-        SessionRenameReasons.NotOwned => $"You can't rename a {subject} you don't own",
+    internal static string FailureCopy(string? reason, string subject, string verb = "rename") => reason switch {
+        SessionRenameReasons.NotOwned => $"You can't {verb} a {subject} you don't own",
         SessionRenameReasons.Refused => "The server kept a newer title",
         SessionRenameReasons.Transport or SessionRenameReasons.Unauthenticated or SessionRenameReasons.ServerError
-            => $"Couldn't rename the {subject}. Check your connection and try again",
-        _ => $"Couldn't rename the {subject}",
+            => $"Couldn't {verb} the {subject}. Check your connection and try again",
+        _ => $"Couldn't {verb} the {subject}",
     };
 
     public void Dispose() {
