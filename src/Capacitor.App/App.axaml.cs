@@ -546,7 +546,7 @@ public partial class App : Application {
         if (transition is null && Program.Host.UpdateRelaunch)
             transition = new AppUpdateTransition("relaunch", AppUpdateTransition.InApp, null, running, _startedAt);
         if (transition is null) return;
-        var fields = new (string, string?)[] {
+        var fields = new[] {
             ("operation", transition.Id), ("entry", transition.Entry), ("from", transition.From), ("to", transition.To),
             ("handover_ms", ((long)(_startedAt - transition.StartedAt).TotalMilliseconds).ToString(CultureInfo.InvariantCulture)),
         };

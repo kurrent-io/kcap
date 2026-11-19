@@ -250,7 +250,7 @@ public class MuseImportSourceTests : IDisposable {
             .ToArray();
 
         await Assert.That(bodies.All(b => (string?)b["vendor"] == "muse")).IsTrue();
-        await Assert.That(bodies.Select(b => (string?)b["agent_id"])).IsEquivalentTo(new string?[] {
+        await Assert.That(bodies.Select(b => (string?)b["agent_id"])).IsEquivalentTo(new[] {
             null, GoalChild.Replace("-", ""), VerifyChild.Replace("-", ""),
         });
     }
