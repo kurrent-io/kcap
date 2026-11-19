@@ -43,17 +43,11 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         private set => this.RaiseAndSetIfChanged(ref _isExpanded, value);
     }
     public ReactiveCommand<Unit, Unit> ToggleCommand { get; }
-    public string ToggleAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {(IsFolder ? "folder " : "")}{Label}{(HeaderStatus is { } status ? $", {status.AccessibleName}" : "")}";
-    readonly ObservableAsPropertyHelper<AgentStatusPresentation?> _headerStatus;
-    public AgentStatusPresentation? HeaderStatus => _headerStatus.Value;
-    readonly ObservableAsPropertyHelper<bool> _showsHeaderBadge;
-    public bool ShowsHeaderBadge => _showsHeaderBadge.Value;
+    public string ToggleAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {(IsFolder ? "folder " : "")}{Label}";
     public string Tooltip {
         get {
             if (IsWorkItem) return IsDone ? $"{Label}\nDone" : $"{Label}\n{PartsDone} of {PartsTotal} parts done";
-            var root = IsFolder ? $"{RootDisplay}\nFolder, not a repository with a remote" : RootDisplay;
-            if (_countIsPartial) root += "\nCounts cover the ended sessions loaded so far";
-            return HeaderStatus is { } status ? $"{root}\n\n{status.Tip}" : root;
+            return IsFolder ? $"{RootDisplay}\nFolder, not a repository with a remote" : RootDisplay;
         }
     }
 
@@ -63,16 +57,14 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     /// Counts a work item's sessions past its most recent few that are neither live nor open; its page lists them all.
     public string? MoreText => _moreText.Value;
 
-    readonly ObservableAsPropertyHelper<string> _countText;
-    public string CountText => _countText.Value;
-    bool _countIsPartial;
+    readonly ObservableAsPropertyHelper<int> _sessionCount;
+    public int SessionCount => _sessionCount.Value;
 
     readonly ObservableCollectionExtended<RailSessionViewModel> _sessionsSource = new();
     public ReadOnlyObservableCollection<RailSessionViewModel> Sessions { get; }
     public IObservable<bool> HasSessions { get; }
 
     readonly CompositeDisposable _disposables = new();
-    readonly BehaviorSubject<bool> _expanded;
     readonly BehaviorSubject<RailWorkItem?> _workItem;
     readonly Action<bool> _setExpanded;
 
@@ -88,7 +80,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
             bool isExpanded, Action<bool> setExpanded, IObservable<Unit>? ageTicks,
             Action<string>? openServer, IObservable<RailGrouping> grouping,
             IObservable<IComparer<RailSessionViewModel>> rowComparer, IObservable<RailSort> sort,
-            IObservable<bool>? endedListPartial = null, RailWorkItem? workItem = null,
+            RailWorkItem? workItem = null,
             IObservable<IReadOnlySet<string>>? suggested = null,
             IObservable<IReadOnlySet<string>>? marked = null,
             IObservable<string?>? selectedWorkItem = null, IObservable<string?>? openSessionKey = null) {
@@ -104,48 +96,14 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         _rootDisplay = kind == RailGrouping.Repository ? DisplayFor(Key, label) : label;
         _isExpanded = isExpanded;
         _setExpanded = setExpanded;
-        _expanded = new BehaviorSubject<bool>(isExpanded).DisposeWith(_disposables);
         ToggleCommand = ReactiveCommand.Create(() => SetExpanded(!IsExpanded)).DisposeWith(_disposables);
         _workItem = new BehaviorSubject<RailWorkItem?>(workItem);
         if (workItem is not null) UpdateWorkItem(workItem);
 
         var group = rows.AsObservableCache().DisposeWith(_disposables);
         HasSessions = group.CountChanged.Select(count => count > 0).DistinctUntilChanged();
+        _sessionCount = group.CountChanged.ToProperty(this, x => x.SessionCount, initialValue: 0).DisposeWith(_disposables);
         var query = group.Connect().QueryWhenChanged().Replay(1).RefCount();
-        var pendingHere = query.CombineLatest(agentsWithPending, (rows, pending) =>
-                rows.Items.Where(row => pending.Contains(row.Id)).Select(row => row.Id).ToHashSet(StringComparer.Ordinal))
-            .DistinctUntilChanged(EqualityComparer<HashSet<string>>.Create((a, b) => a!.SetEquals(b!)));
-        var answeringHere = query.CombineLatest(agentsAwaitingAnswer, (rows, answering) =>
-                rows.Items.Where(row => answering.Contains(row.Id)).Select(row => row.Id).ToHashSet(StringComparer.Ordinal))
-            .DistinctUntilChanged(EqualityComparer<HashSet<string>>.Create((a, b) => a!.SetEquals(b!)));
-        var workHere = query.CombineLatest(agentsRunningWork, (rows, work) =>
-                rows.Items.Where(row => work.ContainsKey(row.Key))
-                    .ToDictionary(row => row.Key, row => work[row.Key], StringComparer.Ordinal))
-            .DistinctUntilChanged(EqualityComparer<Dictionary<string, RunningWork>>.Create((a, b) => a!.Count == b!.Count && a.All(item => b.GetValueOrDefault(item.Key) == item.Value)));
-        var header = query.CombineLatest(pendingHere, answeringHere, workHere, _expanded,
-                (rows, pending, answering, work, visible) => visible ? null
-                    : SessionStatusDots.Rollup(rows.Items, pending, answering, work))
-            .Replay(1).RefCount();
-        _headerStatus = header.ToProperty(this, x => x.HeaderStatus, initialValue: null).DisposeWith(_disposables);
-        _showsHeaderBadge = header.Select(status => status is not null)
-            .ToProperty(this, x => x.ShowsHeaderBadge, initialValue: false).DisposeWith(_disposables);
-        header.Subscribe(_ => {
-            this.RaisePropertyChanged(nameof(Tooltip));
-            this.RaisePropertyChanged(nameof(ToggleAccessibleName));
-        }).DisposeWith(_disposables);
-
-        var counts = query
-            .CombineLatest((endedListPartial ?? Observable.Return(false)).DistinctUntilChanged(),
-                (rows, partial) => CountFor(rows.Items, partial))
-            .Replay(1).RefCount();
-        _countText = counts.Select(count => count.Text)
-            .ToProperty(this, x => x.CountText, initialValue: "")
-            .DisposeWith(_disposables);
-        counts.Select(count => count.Partial).DistinctUntilChanged().Subscribe(partial => {
-            _countIsPartial = partial;
-            this.RaisePropertyChanged(nameof(Tooltip));
-        }).DisposeWith(_disposables);
-
         var kept = query.CombineLatest(openSessionKey ?? selectedSessionKey, (rows, open) => (Keys: KeptOfWorkItem(rows.Items, open), rows.Count))
             .Replay(1).RefCount();
         _moreText = (workItem is null ? Observable.Return(0) : kept.Select(k => k.Count - k.Keys.Count))
@@ -186,7 +144,6 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     internal void ApplyExpanded(bool expanded) {
         if (IsExpanded == expanded) return;
         IsExpanded = expanded;
-        _expanded.OnNext(expanded);
         this.RaisePropertyChanged(nameof(ToggleAccessibleName));
     }
 
@@ -203,24 +160,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         if (IsExpanded == expanded) return;
         IsExpanded = expanded;
         _setExpanded(expanded);
-        _expanded.OnNext(expanded);
         this.RaisePropertyChanged(nameof(ToggleAccessibleName));
-    }
-
-    /// Mixed groups count each kind; a group of one kind reads as it always did. A local row whose
-    /// agent completed is ended, as its row and its workspace header already say. The ended list loads
-    /// a page at a time, so while pages remain a count is only a floor and reads "N+" — a group showing
-    /// only live rows may still have ended sessions on a page not yet loaded.
-    static (string Text, bool Partial) CountFor(IEnumerable<AgentRow> rows, bool endedListPartial) {
-        int live = 0, ended = 0;
-        foreach (var row in rows) {
-            if (IsEnded(row)) ended++;
-            else live++;
-        }
-        var more = endedListPartial ? "+" : "";
-        if (ended > 0 && live > 0) return ($"{live} live · {ended}{more} ended", endedListPartial);
-        var count = live + ended;
-        return (count == 1 && !endedListPartial ? "1 session" : $"{count}{more} sessions", endedListPartial);
     }
 
     static bool IsEnded(AgentRow row) => row.IsEndedSession || row is { Origin: AgentOrigin.Local, Status: "Completed" };

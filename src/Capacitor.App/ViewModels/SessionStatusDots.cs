@@ -140,53 +140,6 @@ public static class SessionStatusDots {
         return string.Join('\n', lines);
     }
 
-    /// Dominant surfaced status for a collapsed session group. Null when every child is settled or
-    /// only carrying the daemon's own word. The accessible name counts the dominant kind.
-    public static AgentStatusPresentation? Rollup(
-            IEnumerable<AgentRow> rows, IReadOnlySet<string> pending, IReadOnlySet<string>? answering = null,
-            IReadOnlyDictionary<string, RunningWork>? work = null) {
-        var presented = rows
-            .Select(row => (Row: row, Status: ForRow(row, pending.Contains(row.Id), answering?.Contains(row.Id) ?? false,
-                work?.GetValueOrDefault(row.Key) ?? default)))
-            .Where(item => item.Status.HasLabel)
-            .OrderBy(item => (int)item.Status.Kind)
-            .ThenBy(item => item.Row.Id, StringComparer.Ordinal)
-            .ToList();
-        var surfaced = presented.Where(item => item.Status.Kind is not AgentStatusKind.Done and not AgentStatusKind.Other).ToList();
-        if (surfaced.Count == 0) return null;
-        var dominant = surfaced[0].Status.Kind;
-        var count = surfaced.Count(item => item.Status.Kind == dominant);
-        var name = RollupName(dominant, count);
-        var facts = new List<AgentStatusFact> { new(name, "Status") };
-        foreach (var item in presented) {
-            var who = string.IsNullOrEmpty(item.Row.Title) ? item.Row.Id : item.Row.Title;
-            var sentence = item.Status.Facts.Count > 0 ? item.Status.Facts[0].Text : item.Status.Label;
-            string? detail = null;
-            if (item.Status.Facts.Count > 1)
-                detail = string.Join('\n', item.Status.Facts.Skip(1).Select(fact =>
-                    fact.HasCaption ? $"{fact.Caption}\n{fact.Text}" : fact.Text));
-            facts.Add(new($"{who}: {sentence}", detail));
-        }
-        return surfaced[0].Status with { Tip = FormatTip(facts), Facts = facts };
-    }
-
-    static string RollupName(AgentStatusKind kind, int count) {
-        var sessions = count == 1 ? "session" : "sessions";
-        var state = kind switch {
-            AgentStatusKind.Failed      => "failed",
-            AgentStatusKind.DaemonDown  => count == 1 ? "has no daemon running" : "have no daemon running",
-            AgentStatusKind.Answer      => count == 1 ? "needs an answer" : "need an answer",
-            AgentStatusKind.NeedsYou    => count == 1 ? "needs you" : "need you",
-            AgentStatusKind.Interrupted => "interrupted",
-            AgentStatusKind.Starting    => "starting",
-            AgentStatusKind.Resuming    => "resuming",
-            AgentStatusKind.Working     => "working",
-            AgentStatusKind.Idle        => "idle",
-            _                           => "active",
-        };
-        return $"{count} {sessions} {state}";
-    }
-
     static string? UsageLimitSummary(UsageLimitNoticeDto? notice) =>
         UsageLimitNoticeDto.IsQuestion(notice) ? notice!.Summary : null;
 

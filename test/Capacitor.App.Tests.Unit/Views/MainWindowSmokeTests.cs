@@ -834,51 +834,6 @@ public class MainWindowSmokeTests {
     });
 
     [Test]
-    [NotInParallel("AvaloniaSession")]
-    public Task Collapsed_repository_surfaces_idle_and_permission_status_without_reopening() => AvaloniaSession.RunOnUiAsync(async () => {
-        using var pending = new BehaviorSubject<IReadOnlySet<string>>(new HashSet<string>());
-        var service = new FakeDaemonClientService();
-        service.StatusSubject.OnNext(new(AttachState.Connected, null, null));
-        using var directory = new FakeAgentDirectory();
-        directory.Rows.AddOrUpdate(AgentRow.FromLocal(new AgentStatusDto(
-            "a1", "agent", "claude", "/repo", "Running", null, null, null, DateTime.UtcNow, null, null,
-            Title: "Waiting session", AwaitingInput: true), new RepoIdentity("path:/repo", "repo")));
-        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System, agentsWithPending: pending);
-        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, rail: rail);
-        var window = new MainWindow { DataContext = vm };
-        window.Show();
-        Dispatcher.UIThread.RunJobs();
-        try {
-            var header = window.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("railRepoHeader"));
-            var mark = header.GetVisualDescendants().OfType<AgentStatusMark>().Single();
-            await Assert.That(mark.IsEffectivelyVisible).IsFalse();
-            header.Command!.Execute(null);
-            Dispatcher.UIThread.RunJobs();
-            window.UpdateLayout();
-            await Assert.That(mark.IsEffectivelyVisible).IsTrue();
-            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.Text).IsEqualTo("Idle");
-            await Assert.That(ToolTip.GetTip(header) as string).Contains("Waiting session — Idle");
-            await Assert.That(AutomationProperties.GetName(header)).Contains("1 session idle");
-            pending.OnNext(new HashSet<string> { "a1" });
-            Dispatcher.UIThread.RunJobs();
-            window.UpdateLayout();
-            await Assert.That(rail.Groups[0].IsExpanded).IsFalse();
-            await Assert.That(RailRow(window, "Waiting session").IsEffectivelyVisible).IsFalse();
-            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.Text).IsEqualTo("Needs you");
-            await Assert.That(ToolTip.GetTip(header) as string).Contains("Pending response");
-            pending.OnNext(new HashSet<string>());
-            Dispatcher.UIThread.RunJobs();
-            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.Text).IsEqualTo("Idle");
-            header.Command.Execute(null);
-            Dispatcher.UIThread.RunJobs();
-            await Assert.That(mark.IsEffectivelyVisible).IsFalse();
-        } finally {
-            window.Close();
-            Dispatcher.UIThread.RunJobs();
-        }
-    });
-
-    [Test]
     [Arguments(false)]
     [Arguments(true)]
     [NotInParallel("AvaloniaSession")]

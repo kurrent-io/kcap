@@ -161,7 +161,7 @@ public class SessionRailViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Unrelated_pending_changes_leave_other_repository_and_session_presentations_untouched() {
+    public async Task Unrelated_pending_changes_leave_other_session_presentations_untouched() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var directory = new FakeAgentDirectory();
             using var pending = new System.Reactive.Subjects.BehaviorSubject<IReadOnlySet<string>>(new HashSet<string>());
@@ -170,12 +170,9 @@ public class SessionRailViewModelTests {
             directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto("b", "/b"), new RepoIdentity("path:/b", "b")));
             foreach (var repo in rail.Groups) await repo.ToggleCommand.Execute();
             var unaffected = rail.Groups.Single(repo => repo.Label == "b");
-            var header = unaffected.HeaderStatus;
             var status = unaffected.Sessions.Single().Status;
             pending.OnNext(new HashSet<string> { "a" });
-            await Assert.That(ReferenceEquals(header, unaffected.HeaderStatus)).IsTrue();
             await Assert.That(ReferenceEquals(status, unaffected.Sessions.Single().Status)).IsTrue();
-            await Assert.That(rail.Groups.Single(repo => repo.Label == "a").HeaderStatus!.Kind).IsEqualTo(AgentStatusKind.NeedsYou);
         });
     }
 
@@ -357,7 +354,7 @@ public class SessionRailViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Counts_track_the_cache() {
+    public async Task Groups_track_the_cache() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var (service, _, rail) = Build();
             using (rail) {
@@ -365,27 +362,11 @@ public class SessionRailViewModelTests {
                 service.Agents.AddOrUpdate(Dto("a1", "/dev/alpha"));
                 service.Agents.AddOrUpdate(Dto("a2", "/dev/alpha/wt/feature-x"));
                 await Assert.That(rail.IsEmpty).IsFalse();
-                await Assert.That(rail.Groups[0].CountText).IsEqualTo("2 sessions");
+                await Assert.That(rail.Groups[0].Sessions.Count).IsEqualTo(2);
 
                 service.Agents.RemoveKey("a2");
-                await Assert.That(rail.Groups[0].CountText).IsEqualTo("1 session");
+                await Assert.That(rail.Groups[0].Sessions.Count).IsEqualTo(1);
             }
-        });
-    }
-
-    /// A stopped agent's row reads Done before the server lists its session ended; the group count
-    /// agrees with the row instead of calling it live.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task A_completed_local_row_counts_as_ended() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            using var directory = new FakeAgentDirectory();
-            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
-            var repo = new RepoIdentity("path:/repo", "repo");
-            directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto("a", "/repo"), repo));
-            directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto("b", "/repo", status: "Completed"), repo));
-
-            await Assert.That(rail.Groups.Single().CountText).IsEqualTo("1 live · 1 ended");
         });
     }
 
@@ -423,7 +404,7 @@ public class SessionRailViewModelTests {
                 service.Agents.AddOrUpdate(Dto("a2", "/dev/alpha"));
                 rail.OpenSessionKey = "local:a2";
                 await Assert.That(alpha.IsExpanded).IsFalse();
-                await Assert.That(alpha.CountText).IsEqualTo("2 sessions");
+                await Assert.That(alpha.Sessions.Count).IsEqualTo(2);
                 await Assert.That(rail.Groups[1].IsExpanded).IsTrue();
                 service.Agents.RemoveKeys(["a1", "a2"]);
                 service.Agents.AddOrUpdate(Dto("a3", "/dev/alpha"));
@@ -992,48 +973,6 @@ public class SessionRailViewModelTests {
 
                 sessions.PagingSubject.OnNext(new ServerSessionsPaging(4, 4, 1, false, false));
                 await Assert.That(rail.ShowsViewAll).IsFalse();
-            }
-        });
-    }
-
-    /// The ended list loads a page at a time, so a group's ended count is a floor until every page is in.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task A_group_count_reads_as_a_floor_while_ended_pages_remain() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var (directory, sessions, _, _, rail) = BuildWithControls();
-            using (directory) using (sessions) using (rail) {
-                directory.Rows.AddOrUpdate([Server("e1"), Server("e2"), Server("e3"), Server("e4")]);
-                sessions.PagingSubject.OnNext(new ServerSessionsPaging(20, 106, 1, true, false));
-                var group = rail.Groups.Single();
-                await Assert.That(group.CountText).IsEqualTo("4+ sessions");
-                await Assert.That(group.Tooltip).Contains("Counts cover the ended sessions loaded so far");
-
-                rail.State = RailState.Live;
-                rail.State = RailState.Ended;
-                await Assert.That(rail.Groups.Single().CountText).IsEqualTo("4+ sessions");
-
-                sessions.PagingSubject.OnNext(new ServerSessionsPaging(106, 106, 6, false, false));
-                group = rail.Groups.Single();
-                await Assert.That(group.CountText).IsEqualTo("4 sessions");
-                await Assert.That(group.Tooltip).DoesNotContain("Counts cover");
-            }
-        });
-    }
-
-    /// A group with only live rows loaded can still have ended sessions on a later page.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task A_live_only_group_count_reads_as_a_floor_while_ended_pages_remain() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var (directory, sessions, _, _, rail) = BuildWithControls();
-            using (directory) using (sessions) using (rail) {
-                directory.Rows.AddOrUpdate([Local("a"), Local("b")]);
-                sessions.PagingSubject.OnNext(new ServerSessionsPaging(20, 106, 1, true, false));
-                await Assert.That(rail.Groups.Single().CountText).IsEqualTo("2+ sessions");
-
-                rail.State = RailState.Live;
-                await Assert.That(rail.Groups.Single().CountText).IsEqualTo("2 sessions");
             }
         });
     }

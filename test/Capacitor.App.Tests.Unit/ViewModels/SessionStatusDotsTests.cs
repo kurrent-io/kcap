@@ -98,14 +98,12 @@ public class SessionStatusDotsTests {
         await Assert.That(status.IsWarning).IsTrue();
         await Assert.That(status.IsInFlight).IsFalse();
         await Assert.That(pending.Kind).IsEqualTo(AgentStatusKind.DaemonDown);
-        await Assert.That(SessionStatusDots.Rollup([row, Local("w", awaiting: false)], new HashSet<string>())!.AccessibleName)
-            .IsEqualTo("1 session has no daemon running");
     }
 
-    static AgentRow Local(string id, string status = "Running", bool? awaiting = null, int? subagents = null, string? title = null) =>
+    static AgentRow Local(string id, string status = "Running", bool? awaiting = null, int? subagents = null) =>
         AgentRow.FromLocal(
             new(id, "agent", "claude", "/repo", status, null, null, null, DateTime.UtcNow, null, null,
-                Title: title, AwaitingInput: awaiting, LiveSubagents: subagents),
+                AwaitingInput: awaiting, LiveSubagents: subagents),
             Repo);
 
     /// A dialog on the terminal blocks the agent whatever the turn verdict says, so a row reads
@@ -164,38 +162,6 @@ public class SessionStatusDotsTests {
         await Assert.That(ended.Label).IsEqualTo("Running");
         await Assert.That(ended.IsInFlight).IsFalse();
         await Assert.That(ended.HasGlyph).IsFalse();
-    }
-
-    [Test]
-    public async Task A_collapsed_group_counts_a_subagent_only_the_transcript_sees() {
-        var row = Local("a", awaiting: true, subagents: 0, title: "Paused");
-
-        var rollup = SessionStatusDots.Rollup([row], new HashSet<string>(),
-            work: new Dictionary<string, RunningWork> { [row.Key] = new(0, 1) });
-
-        await Assert.That(rollup!.Label).IsEqualTo("Working");
-        await Assert.That(rollup.Tip).Contains("1 subagent running");
-    }
-
-    [Test]
-    public async Task A_collapsed_group_names_how_many_share_the_dominant_status() {
-        var idle = Local("a", awaiting: true, title: "First");
-        var also = Local("b", awaiting: true, title: "Second");
-        var rollup = SessionStatusDots.Rollup([idle, also], new HashSet<string>());
-        await Assert.That(rollup).IsNotNull();
-        await Assert.That(rollup!.Label).IsEqualTo("Idle");
-        await Assert.That(rollup.AccessibleName).IsEqualTo("2 sessions idle");
-        await Assert.That(rollup.Tip).Contains("First —");
-        await Assert.That(rollup.Tip).Contains("Second —");
-
-        var mixed = SessionStatusDots.Rollup(
-            [Local("a", status: "Failed", title: "Broken"), Local("b", awaiting: true, title: "Waiting")],
-            new HashSet<string>());
-        await Assert.That(mixed!.Label).IsEqualTo("Failed");
-        await Assert.That(mixed.AccessibleName).IsEqualTo("1 session failed");
-        await Assert.That(mixed.Tip).Contains("Waiting —");
-
-        await Assert.That(SessionStatusDots.Rollup([Local("a")], new HashSet<string>())).IsNull();
     }
 
     [Test]
@@ -264,17 +230,5 @@ public class SessionStatusDotsTests {
 
         await Assert.That(status.Tip).Contains("kcap agent resume a");
         await Assert.That(status.Facts.Any(f => f.Caption == "Reason")).IsFalse();
-    }
-
-    [Test]
-    public async Task A_rollup_puts_an_interrupted_session_ahead_of_working_and_resuming_ones() {
-        var rows = new[] { Local("w", awaiting: false), Local("r", status: "Resuming"), Local("i", status: "Interrupted") };
-
-        var rollup = SessionStatusDots.Rollup(rows, new HashSet<string>())!;
-        var resuming = SessionStatusDots.Rollup([Local("r", status: "Resuming"), Local("s", status: "Resuming")], new HashSet<string>())!;
-
-        await Assert.That(rollup.Kind).IsEqualTo(AgentStatusKind.Interrupted);
-        await Assert.That(rollup.AccessibleName).IsEqualTo("1 session interrupted");
-        await Assert.That(resuming.AccessibleName).IsEqualTo("2 sessions resuming");
     }
 }

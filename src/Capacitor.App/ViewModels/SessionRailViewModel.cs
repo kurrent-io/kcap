@@ -515,7 +515,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                         if (expanded) _collapsed.Remove(g.Key);
                         else _collapsed.Add(g.Key);
                         Persist();
-                    }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial, suggested: suggested,
+                    }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, suggested: suggested,
                     marked: _marked);
             });
         var workItemGroups = _workItems.Connect()
@@ -530,7 +530,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                     prs, localOnAppServer, openPullRequest, _openWorkItems.Contains(key), expanded => {
                         if (expanded) _openWorkItems.Add(key);
                         else _openWorkItems.Remove(key);
-                    }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial, item,
+                    }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, item,
                     marked: _marked, selectedWorkItem: _selectedWorkItemChanges, openSessionKey: _openSessionKeyChanges);
             }, (group, item) => group.UpdateWorkItem(item))
             .DisposeMany()
