@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using static Capacitor.App.Platform.Mac.AppKitInterop;
 
 namespace Capacitor.App.Platform.Mac;
 
@@ -41,7 +42,7 @@ public static partial class AppKitMenus {
         if (!OperatingSystem.IsMacOS()) return;
 
         var no = Send(GetClass("NSNumber"), Selector("numberWithBool:"), (nint)0);
-        var key = Send(GetClass("NSString"), Selector("stringWithUTF8String:"), "NSFullScreenMenuItemEverywhere");
+        var key = String("NSFullScreenMenuItemEverywhere");
         var defaults = Send(GetClass("NSDictionary"), Selector("dictionaryWithObject:forKey:"), no, key);
         SendVoid(Send(GetClass("NSUserDefaults"), Selector("standardUserDefaults")), Selector("registerDefaults:"), defaults);
     }
@@ -56,34 +57,13 @@ public static partial class AppKitMenus {
     static nint SharedApplication() => Send(GetClass("NSApplication"), Selector("sharedApplication"));
 
     static nint Submenu(nint menu, string title) {
-        var item = Send(menu, Selector("itemWithTitle:"), Send(GetClass("NSString"), Selector("stringWithUTF8String:"), title));
+        var item = Send(menu, Selector("itemWithTitle:"), String(title));
         return item == 0 ? 0 : Send(item, Selector("submenu"));
     }
-
-    [LibraryImport(ObjC, EntryPoint = "objc_getClass", StringMarshalling = StringMarshalling.Utf8)]
-    private static partial nint GetClass(string name);
-
-    [LibraryImport(ObjC, EntryPoint = "sel_registerName", StringMarshalling = StringMarshalling.Utf8)]
-    private static partial nint Selector(string name);
 
     [LibraryImport(ObjC, EntryPoint = "objc_getAssociatedObject")]
     private static partial nint GetAssociatedObject(nint obj, nint key);
 
     [LibraryImport(ObjC, EntryPoint = "objc_setAssociatedObject")]
     private static partial void SetAssociatedObject(nint obj, nint key, nint value, nint policy);
-
-    [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
-    private static partial nint Send(nint receiver, nint selector);
-
-    [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
-    private static partial nint Send(nint receiver, nint selector, nint argument);
-
-    [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
-    private static partial nint Send(nint receiver, nint selector, nint first, nint second);
-
-    [LibraryImport(ObjC, EntryPoint = "objc_msgSend", StringMarshalling = StringMarshalling.Utf8)]
-    private static partial nint Send(nint receiver, nint selector, string argument);
-
-    [LibraryImport(ObjC, EntryPoint = "objc_msgSend")]
-    private static partial void SendVoid(nint receiver, nint selector, nint argument);
 }
