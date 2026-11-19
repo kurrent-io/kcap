@@ -310,7 +310,7 @@
                 </Grid.ContextFlyout>
                 <Button Classes="kcapGhost bookmarkColor" VerticalAlignment="Top" Margin="0,3,0,0"
                         AutomationProperties.Name="Change bookmark colour">
-                    <views:AppIcon Kind="Bookmark" Size="14" Filled="True"
+                    <views:AppIcon Kind="Bookmark" Size="14"
                                    Foreground="{Binding Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}}" />
                     <Button.Flyout>
                         <Flyout Placement="BottomEdgeAlignedLeft" FlyoutPresenterClasses="kcapPanel" Opening="OnBookmarkColorsOpening">
