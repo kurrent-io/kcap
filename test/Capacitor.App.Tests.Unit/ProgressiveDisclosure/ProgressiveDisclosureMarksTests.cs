@@ -135,6 +135,13 @@ public class ProgressiveDisclosureMarksTests {
     }
 
     [Test]
+    public async Task A_hidden_span_removes_an_image_inside_it() {
+        var document = Markdown.Parse("Lead. ⌞![](diagram.png) Optional.⌟", WithoutPass);
+        ProgressiveDisclosureMarks.Apply(document, AllHidden);
+        await Assert.That(document.Descendants<LinkInline>().Any(link => link.IsImage)).IsFalse();
+    }
+
+    [Test]
     public async Task Text_nested_past_the_parser_limit_grades_nothing() =>
         await Assert.That(ProgressiveDisclosureMarks.Grades(new string('>', 200) + " A. ⌞B.⌟")).IsFalse();
 

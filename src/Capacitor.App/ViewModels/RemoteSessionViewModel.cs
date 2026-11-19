@@ -250,6 +250,11 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         (ShowsPanes || Access == RemoteSessionAccess.NoSession && !_hadSession && !OriginChangedToLocal) && IsChatActive && Subagent is null;
     public bool ShowsSubagentPane => ShowsPanes && IsChatActive && Subagent is not null;
 
+    /// Whether the header offers the progressive disclosure toggle: the chat on screen, the session's
+    /// or an open subagent's, has a graded reply.
+    public bool ShowsProgressiveDisclosure => _showsProgressiveDisclosure.Value;
+    readonly ObservableAsPropertyHelper<bool> _showsProgressiveDisclosure;
+
     SubagentPaneViewModel? _subagent;
     /// A subagent's own transcript, shown in place of the chat until the user goes back.
     public SubagentPaneViewModel? Subagent {
@@ -433,6 +438,11 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             _connectionFailed = status.State == ServerLaneState.Retrying && status.Failure is not null;
             RaiseConnectionNotice();
         }).DisposeWith(_disposables);
+        _showsProgressiveDisclosure = Observable.Switch(this.WhenAnyValue(vm => vm.IsChatActive, vm => vm.Chat, vm => vm.Subagent,
+                (active, chat, subagent) => active ? subagent?.Chat ?? chat : null)
+            .Select(static chat => chat is null ? Observable.Return(false) : chat.WhenAnyValue(c => c.HasProgressiveDisclosureMarks)))
+            .ToProperty(this, vm => vm.ShowsProgressiveDisclosure)
+            .DisposeWith(_disposables);
         Chat.Tasks.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
         lane.Status.Select(s => s.Subject).DistinctUntilChanged()

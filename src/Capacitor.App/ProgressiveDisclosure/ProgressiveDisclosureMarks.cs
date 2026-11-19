@@ -80,7 +80,8 @@ public sealed class ProgressiveDisclosureMarks : IMarkdownExtension {
                 case LiteralInline literal when literal.Content.AsSpan().IndexOfAny(Open, Close) >= 0:
                     Split(literal, open, graded);
                     break;
-                case ContainerInline nested:
+                // An image is graded whole: its alt text is not shown, so it cannot be split.
+                case ContainerInline nested and not LinkInline { IsImage: true }:
                     Walk(nested, open, graded);
                     break;
                 default:

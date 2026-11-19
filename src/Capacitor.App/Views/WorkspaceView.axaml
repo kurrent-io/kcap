@@ -45,16 +45,14 @@
                                     IsVisible="{Binding ShowsArtefactsTab}" />
                         </StackPanel>
                     </Border>
-                    <!-- Shown while the chat is on screen and has a graded reply; the panels carry that, since the button's context is the shared basis. -->
-                    <Panel IsVisible="{Binding ShowsChat}" VerticalAlignment="Center">
-                        <Panel IsVisible="{Binding Chat.HasProgressiveDisclosureMarks, FallbackValue=False}">
-                            <Button x:Name="ProgressiveDisclosureButton" Classes="kcapGhost kcapIcon progressiveDisclosure"
-                                    x:DataType="vm:ProgressiveDisclosureViewModel" DataContext="{x:Static vm:ProgressiveDisclosureViewModel.Shared}"
-                                    Classes.on="{Binding Enabled}" Command="{Binding ToggleCommand}"
-                                    ToolTip.Tip="Progressive disclosure" AutomationProperties.Name="Progressive disclosure">
-                                <views:AppIcon Kind="Focus" Size="14" />
-                            </Button>
-                        </Panel>
+                    <!-- The panel carries visibility, since the button's context is the shared basis. -->
+                    <Panel IsVisible="{Binding ShowsProgressiveDisclosure}" VerticalAlignment="Center">
+                        <Button x:Name="ProgressiveDisclosureButton" Classes="kcapGhost kcapIcon progressiveDisclosure"
+                                x:DataType="vm:ProgressiveDisclosureViewModel" DataContext="{x:Static vm:ProgressiveDisclosureViewModel.Shared}"
+                                Classes.on="{Binding Enabled}" Command="{Binding ToggleCommand}"
+                                ToolTip.Tip="Progressive disclosure" AutomationProperties.Name="Progressive disclosure">
+                            <views:AppIcon Kind="Focus" Size="14" />
+                        </Button>
                     </Panel>
                     <Button x:Name="OpenInWebButton" Command="{Binding OpenInWebCommand}" IsVisible="{Binding HasAgent}"
                             Classes="kcapGhost kcapIcon" ToolTip.Tip="Open in web" AutomationProperties.Name="Open in web">
