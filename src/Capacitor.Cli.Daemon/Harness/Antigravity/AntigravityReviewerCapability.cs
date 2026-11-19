@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Daemon.Services;
 
 namespace Capacitor.Cli.Daemon.Harness.Antigravity;
 
@@ -63,24 +64,19 @@ internal enum AntigravityReviewerDecision {
 /// must never be sent to the reviewer consent flag by a version arm.</para>
 /// </summary>
 internal static class AntigravityReviewerCapability {
+    static readonly ConsentAndMinimumGate<AntigravityReviewerDecision> Gate = new(
+        allowed:             AntigravityReviewerDecision.Allowed,
+        disabled:            AntigravityReviewerDecision.Disabled,
+        versionUnresolved:   AntigravityReviewerDecision.VersionUnresolved,
+        versionNoMinimum:    AntigravityReviewerDecision.VersionNoMinimum,
+        versionBelowMinimum: AntigravityReviewerDecision.VersionBelowMinimum,
+        versionIncomparable: AntigravityReviewerDecision.VersionIncomparable);
+
     /// <summary>The decision. It has no platform arm: the per-launch home is owner-only on every host,
     /// and one that cannot be restricted refuses its own launch.</summary>
     internal static AntigravityReviewerDecision Decide(
-            bool operatorEnabled, string? installedVersion, string? minimumVersion) {
-        // Consent FIRST and short-circuiting: an installed-but-wedged agy must not be probed — let
-        // alone stall a daemon start — for a feature the operator switched off.
-        if (!operatorEnabled) return AntigravityReviewerDecision.Disabled;
-
-        // No discard: `_ => Allowed` would silently ADMIT any arm added later, which is the wrong
-        // direction for this gate. CS8509 makes the next one a build failure instead.
-        return ReviewerVersionAffirmations.Decide(installedVersion, minimumVersion) switch {
-            ReviewerVersionAffirmation.MeetsMinimum      => AntigravityReviewerDecision.Allowed,
-            ReviewerVersionAffirmation.Unresolved        => AntigravityReviewerDecision.VersionUnresolved,
-            ReviewerVersionAffirmation.NoMinimumRecorded => AntigravityReviewerDecision.VersionNoMinimum,
-            ReviewerVersionAffirmation.BelowMinimum      => AntigravityReviewerDecision.VersionBelowMinimum,
-            ReviewerVersionAffirmation.Incomparable      => AntigravityReviewerDecision.VersionIncomparable
-        };
-    }
+            bool operatorEnabled, string? installedVersion, string? minimumVersion) =>
+        Gate.Decide(operatorEnabled, installedVersion, minimumVersion);
 
     /// <summary>
     /// The coded refusal an operator can act on. Separated from <see cref="Decide"/> so the two cannot
