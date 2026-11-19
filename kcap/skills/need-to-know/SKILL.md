@@ -5,12 +5,12 @@ description: >-
   need-to-know marks or graded replies — "use need to know formatting",
   "enable need-to-know formatting", "grade your replies", "mark the detail" — or asks to stop using it. It says
   how to mark the detail and footnote parts of a chat reply with corner
-  brackets, which the kcap desktop app can fade or hide.
+  brackets, which the kcap desktop app can fade.
 ---
 
 # Need-to-know formatting
 
-The reader can fade or hide the less important parts of your replies. Once
+The reader can fade the less important parts of your replies. Once
 they ask for this, grade every chat reply until they ask you to stop.
 
 ## The levels
@@ -26,7 +26,7 @@ Grade each part by what the reader does with it:
 - **Footnote** — evidence and references: file paths, line numbers, setting
   names, counts, commands, what you checked. Wrap it in `⌞⌞` and `⌟⌟`.
 
-Hidden text is one hover away, so when unsure, grade down. In a typical reply
+Faded text is one hover away, so when unsure, grade down. In a typical reply
 most of the text is detail or footnote.
 
 ## Writing the marks

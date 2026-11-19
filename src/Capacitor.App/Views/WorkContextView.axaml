@@ -2,7 +2,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              xmlns:views="clr-namespace:Capacitor.App.Views"
-             xmlns:ntk="clr-namespace:Capacitor.App.NeedToKnow"
              x:Class="Capacitor.App.Views.WorkContextView"
              x:DataType="vm:WorkContextViewModel"
              Background="{StaticResource KcapSurfaceBrush}">
@@ -983,67 +982,13 @@
                         </Grid>
                     </Button>
                     <Border Classes="sectionBody" IsVisible="{Binding NeedToKnowExpanded}">
-                        <StackPanel x:Name="NeedToKnowControls" Spacing="6"
-                                    x:DataType="vm:NeedToKnowBasisViewModel" DataContext="{x:Static vm:NeedToKnowBasisViewModel.Shared}">
-                            <StackPanel.Styles>
-                                <Style Selector="Button.kcapSegmentItem.needToKnow">
-                                    <Setter Property="Padding" Value="8,5" />
-                                    <Setter Property="FontSize" Value="12" />
-                                </Style>
-                                <Style Selector="Button.kcapSegmentItem.needToKnow:disabled /template/ ContentPresenter#PART_ContentPresenter">
-                                    <Setter Property="Background" Value="Transparent" />
-                                    <Setter Property="Foreground" Value="{StaticResource KcapBorderBrush}" />
-                                </Style>
-                            </StackPanel.Styles>
-                            <TextBlock Text="Detail" FontSize="13" Foreground="{StaticResource KcapMutedBrush}" />
-                            <Border Classes="kcapSegment" HorizontalAlignment="Left">
-                                <StackPanel Orientation="Horizontal" Spacing="2">
-                                    <Button Content="Normal" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding DetailNormal}"
-                                            Command="{Binding SetDetailCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Normal}" />
-                                    <Button Content="Fade" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding DetailFaded}"
-                                            Command="{Binding SetDetailCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Faded}">
-                                        <Button.Flyout>
-                                            <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="6" FlyoutPresenterClasses="kcapPanel">
-                                                <Grid ColumnDefinitions="Auto,160,Auto" ColumnSpacing="10" Margin="4,2">
-                                                    <TextBlock Text="Opacity" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
-                                                    <Slider Grid.Column="1" Minimum="5" Maximum="95" Value="{Binding DetailFade}" VerticalAlignment="Center" />
-                                                    <Panel Grid.Column="2" VerticalAlignment="Center">
-                                                        <TextBlock Text="100%" FontSize="12" Opacity="0" />
-                                                        <TextBlock Text="{Binding DetailFade, StringFormat={}{0}%}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" HorizontalAlignment="Right" />
-                                                    </Panel>
-                                                </Grid>
-                                            </Flyout>
-                                        </Button.Flyout>
-                                    </Button>
-                                    <Button Content="Hide" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding DetailHidden}"
-                                            Command="{Binding SetDetailCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Hidden}" />
-                                </StackPanel>
-                            </Border>
-                            <TextBlock Text="Footnote" FontSize="13" Foreground="{StaticResource KcapMutedBrush}" Margin="0,6,0,0" />
-                            <Border Classes="kcapSegment" HorizontalAlignment="Left">
-                                <StackPanel Orientation="Horizontal" Spacing="2">
-                                    <Button Content="Normal" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding FootnoteNormal}" IsEnabled="{Binding FootnoteCanBeNormal}"
-                                            Command="{Binding SetFootnoteCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Normal}" />
-                                    <Button Content="Fade" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding FootnoteFaded}" IsEnabled="{Binding FootnoteCanBeFaded}"
-                                            Command="{Binding SetFootnoteCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Faded}">
-                                        <Button.Flyout>
-                                            <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="6" FlyoutPresenterClasses="kcapPanel">
-                                                <Grid ColumnDefinitions="Auto,160,Auto" ColumnSpacing="10" Margin="4,2">
-                                                    <TextBlock Text="Opacity" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
-                                                    <Slider Grid.Column="1" Minimum="5" Maximum="95" Value="{Binding FootnoteFade}" VerticalAlignment="Center" />
-                                                    <Panel Grid.Column="2" VerticalAlignment="Center">
-                                                        <TextBlock Text="100%" FontSize="12" Opacity="0" />
-                                                        <TextBlock Text="{Binding FootnoteFade, StringFormat={}{0}%}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" HorizontalAlignment="Right" />
-                                                    </Panel>
-                                                </Grid>
-                                            </Flyout>
-                                        </Button.Flyout>
-                                    </Button>
-                                    <Button Content="Hide" Classes="kcapSegmentItem needToKnow" Classes.active="{Binding FootnoteHidden}"
-                                            Command="{Binding SetFootnoteCommand}" CommandParameter="{x:Static ntk:NeedToKnowDisplay.Hidden}" />
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
+                        <Grid x:Name="NeedToKnowControls" ColumnDefinitions="*,Auto" ColumnSpacing="10"
+                              x:DataType="vm:NeedToKnowBasisViewModel" DataContext="{x:Static vm:NeedToKnowBasisViewModel.Shared}">
+                            <TextBlock Text="Fade detail and footnotes" FontSize="13" Foreground="{StaticResource KcapMutedBrush}"
+                                       TextWrapping="Wrap" VerticalAlignment="Center" />
+                            <ToggleSwitch x:Name="NeedToKnowSwitch" Grid.Column="1" Classes="kcapSwitch" VerticalAlignment="Center"
+                                          IsChecked="{Binding Enabled, Mode=TwoWay}" AutomationProperties.Name="Fade detail and footnotes" />
+                        </Grid>
                     </Border>
                 </StackPanel>
             </StackPanel>

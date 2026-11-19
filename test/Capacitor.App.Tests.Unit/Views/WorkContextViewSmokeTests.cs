@@ -97,7 +97,7 @@ public class WorkContextViewSmokeTests {
         });
     }
 
-    /// The section stays hidden until the session has a graded reply, then shows the controls bound to the
+    /// The section stays hidden until the session has a graded reply, then shows the switch bound to the
     /// shared basis; its header folds it.
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -110,6 +110,7 @@ public class WorkContextViewSmokeTests {
             host.Vm.ShowsNeedToKnow = true;
             Dispatcher.UIThread.RunJobs();
             await Assert.That(host.Find<Control>("NeedToKnowControls").IsEffectivelyVisible).IsTrue();
+            await Assert.That(host.Find<ToggleSwitch>("NeedToKnowSwitch").IsChecked).IsEqualTo(NeedToKnowBasisViewModel.Shared.Enabled);
 
             host.Find<Button>("NeedToKnowToggle").Command!.Execute(null);
             Dispatcher.UIThread.RunJobs();
