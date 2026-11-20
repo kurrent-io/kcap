@@ -629,8 +629,10 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     /// The newest lines up to the cache's limit; the stream events before the oldest kept one count as unloaded.
     /// A transcript whose turned-down prompt checks outgrow that limit is not kept: they hold message text.
+    /// Nor is a whole-session feed that outgrows it, which would reopen showing part of the session as all of it.
     RemoteTranscriptSnapshot? SnapshotLocked() {
         if (_lost || _projecting > 0 || _loaded is null || _position is not { } position || _base is not { } origin || _earliest is not { } earliest) return null;
+        if (_window is null && _loaded.Count > RemoteTranscriptCache.MaxLines) return null;
         // A copy: an older page still projecting merges into the live state after the feed has closed.
         ScheduledPrompts scheduled;
         lock (_scheduled) {

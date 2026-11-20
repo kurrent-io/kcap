@@ -970,6 +970,27 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(server.Requests).IsEquivalentTo(new[] { (49L, 1000) });
     }
 
+    /// The cache holds only the newest lines, so a whole-session feed longer than that is not kept: reopening it
+    /// from the kept lines would show part of the session as the whole of it.
+    [Test]
+    public async Task A_whole_session_longer_than_the_cache_holds_is_read_again_in_full() {
+        var count = RemoteTranscriptCache.MaxLines + 50;
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, count).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = Cache();
+        using (var first = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, window: null, cache: cache)) {
+            await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the first tail");
+            first.ReadAppended();
+        }
+        await Assert.That(cache.Contains("s1")).IsFalse();
+
+        using var second = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, window: null, cache: cache);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the second tail");
+
+        await Assert.That(second.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, count).Select(i => (long)i));
+    }
+
     /// A session the server no longer shows this reader is not kept, and its kept lines go.
     [Test]
     public async Task A_refused_reopen_drops_the_kept_lines() {
