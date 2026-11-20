@@ -75,6 +75,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     bool _lost;
     /// The cache's stamp when the loaded lines were read.
     (int Generation, int Refusals) _stamp;
+    /// A snapshot whose catch-up read failed, with the stamp it was handed out under, for the retry.
+    (RemoteTranscriptSnapshot Snapshot, (int Generation, int Refusals) Stamp)? _resume;
     /// Tail projections between reading the prompt state and committing their event: a snapshot taken
     /// then would pair prompts that already saw the event with a position that has not.
     int _projecting;
@@ -221,9 +223,22 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     async Task<bool> EnsureSeededAsync(int attempt, CancellationToken ct) {
         lock (_lock) if (_position is not null) return true;
         var stamp = _cache?.Stamp(_sessionId) ?? default;
-        if (_cache?.Take(_sessionId) is { } snapshot) {
-            if (await ResumeAsync(attempt, stamp, snapshot, ct).ConfigureAwait(false) is { } resumed) return resumed;
-            stamp = _cache.Stamp(_sessionId);
+        (RemoteTranscriptSnapshot Snapshot, (int Generation, int Refusals) Stamp)? kept;
+        lock (_lock) {
+            kept = _resume;
+            _resume = null;
+        }
+        if (kept is null && _cache?.Take(_sessionId) is { } taken) kept = (taken, stamp);
+        if (kept is { } resume) {
+            bool? resumed;
+            try {
+                resumed = await ResumeAsync(attempt, resume.Stamp, resume.Snapshot, ct).ConfigureAwait(false);
+            } catch {
+                lock (_lock) _resume ??= resume;
+                throw;
+            }
+            if (resumed is { } done) return done;
+            stamp = _cache!.Stamp(_sessionId);
         }
         var lines = new List<ProjectedLine>();
         var scheduled = NewScheduled();
@@ -273,7 +288,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         if (!Admit(attempt, fetch, out var page)) return false;
         if (page.Events is not [var first, ..] || first.EventNumber != snapshot.Position) return null;
         var lines = new List<ProjectedLine>(snapshot.Lines);
-        var scheduled = snapshot.Scheduled;
+        // A copy, so an attempt that fails part way leaves the snapshot as it was for the retry.
+        var scheduled = snapshot.Scheduled.Copy();
         ProjectInto(page, lines, scheduled, above: snapshot.Position);
         if (page.NextFrom is { } next && page.Events is [.., var tail]) {
             (fetch, _) = await ReadForwardAsync(next - 1, lines, scheduled, ct, after: tail.EventNumber).ConfigureAwait(false);
@@ -630,6 +646,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     public void Dispose() {
         RemoteTranscriptSnapshot? snapshot;
+        (RemoteTranscriptSnapshot Snapshot, (int Generation, int Refusals) Stamp)? unused;
         lock (_lock) {
             if (_disposed) return;
             _disposed = true;
@@ -637,8 +654,10 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             _tailCts = null;
             _attempt++;
             snapshot = SnapshotLocked();
+            unused = snapshot is null && !_lost ? _resume : null;
         }
         if (snapshot is not null) _cache!.Put(_sessionId, snapshot, _stamp);
+        else if (unused is { } kept) _cache!.Put(_sessionId, kept.Snapshot, kept.Stamp);
         _access.Dispose();
         _lifetime.Cancel();
         _lifetime.Dispose();

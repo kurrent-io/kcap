@@ -1067,6 +1067,30 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(second.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 2510).Select(i => (long)i));
     }
 
+    /// A reopen whose catch-up read fails as an unreachable server would resumes from the kept lines on the
+    /// retry, rather than reading a fresh seed.
+    [Test]
+    public async Task A_failed_catch_up_read_resumes_from_the_kept_lines_on_the_retry() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        var time = new FakeTimeProvider();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = await CachedAsync(server, lane, access);
+        server.Events.AddRange(Enumerable.Range(700, 5).Select(i => Text(i, $"m{i}")));
+        server.Requests.Clear();
+        server.FailNext = 1;
+
+        using var second = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, time, _ => { }, cache: cache);
+        // The retry gap is a timer on the fake clock, which may not be registered yet when the failure lands.
+        await WaitUntilAsync(() => {
+            time.Advance(RemoteTranscriptFeed.Retry[0]);
+            return lane.Tails.Count == 2;
+        }, what: "the retried reopen");
+
+        await Assert.That(second.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(400, 305).Select(i => (long)i));
+        await Assert.That(server.Requests).IsEquivalentTo(new[] { (699L, 1000), (699L, 1000) });
+    }
+
     /// Events that aged out with nothing new after them still move the count: the kept lines go.
     [Test]
     public async Task A_reopen_after_events_aged_out_with_nothing_new_reads_a_fresh_seed() {
