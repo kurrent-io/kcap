@@ -48,29 +48,6 @@ public class MessageCopyButtonTests {
         });
     }
 
-    /// Two buttons clicked in turn leave the later message on the clipboard, whichever write is slower.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_later_of_two_copies_is_what_the_clipboard_holds() {
-        await RunOnUiAsync(async () => {
-            var first = new MessageCopyButton { Text = "first" };
-            var second = new MessageCopyButton { Text = "second" };
-            var window = new Window { Content = new StackPanel { Children = { first, second } }, Width = 200, Height = 100 };
-            window.Show();
-            Dispatcher.UIThread.RunJobs();
-            window.UpdateLayout();
-            try {
-                ClickCentre(window, ButtonOf(first));
-                ClickCentre(window, ButtonOf(second));
-                await Task.WhenAll(first.PendingCopyForTesting!, second.PendingCopyForTesting!);
-
-                await Assert.That(await TopLevel.GetTopLevel(first)!.Clipboard!.TryGetTextAsync()).IsEqualTo("second");
-            } finally {
-                window.Close();
-            }
-        });
-    }
-
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_button_announces_what_it_copies() {

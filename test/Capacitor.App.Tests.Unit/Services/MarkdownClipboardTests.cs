@@ -2,6 +2,7 @@ using System.Text;
 using Avalonia.Input;
 using Capacitor.App.Services;
 using Capacitor.App.Views;
+using static Capacitor.App.Tests.Unit.AvaloniaSession;
 
 namespace Capacitor.App.Tests.Unit.Services;
 
@@ -98,6 +99,27 @@ public class MarkdownClipboardTests {
         await Assert.That(Encoding.UTF8.GetString(bytes, start, end - start)).IsEqualTo(fragment);
         await Assert.That(Encoding.UTF8.GetString(bytes, Offset("StartHTML"), Offset("EndHTML") - Offset("StartHTML"))).StartsWith("<html>");
         await Assert.That(Offset("EndHTML")).IsEqualTo(bytes.Length);
+    }
+
+    /// A later copy waits for an earlier write still in flight, so the earlier one cannot land over it;
+    /// a failed earlier write does not stop the later one.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_write_starts_only_after_the_earlier_one_finishes() {
+        await RunOnUiAsync(async () => {
+            var first = new TaskCompletionSource();
+            var order = new List<string>();
+            var earlier = MarkdownClipboard.InOrder(async () => { await first.Task; order.Add("first"); throw new InvalidOperationException("retry failed"); });
+            var later = MarkdownClipboard.InOrder(() => { order.Add("second"); return Task.CompletedTask; });
+
+            await Task.Yield();
+            await Assert.That(order).IsEmpty();
+
+            first.SetResult();
+            await later;
+            await Assert.That(order).IsEquivalentTo(["first", "second"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            await Assert.That(earlier.IsFaulted).IsTrue();
+        });
     }
 
     [Test]
