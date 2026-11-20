@@ -323,10 +323,20 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         while (true) {
             var fetch = await _readEvents(_sessionId, from, MaxPage, ct).ConfigureAwait(false);
             if (fetch.Page is not { } page) return (fetch, first);
-            if (last is { } seen && !realigned && from > 0 && page.Events is [var lead, ..] && lead.EventNumber > seen) {
-                from = Math.Max(0, from - (lead.EventNumber - seen));
-                realigned = true;
-                continue;
+            if (last is { } seen && !realigned && from > 0) {
+                if (page.Events is [var lead, ..] && lead.EventNumber > seen) {
+                    from = Math.Max(0, from - (lead.EventNumber - seen));
+                    realigned = true;
+                    continue;
+                }
+                // So many events aged out that the count ran past the end: only the oldest event held can place it.
+                if (page.Events is null or [] && page.LastEventNumber > seen) {
+                    var probe = await _readEvents(_sessionId, 0, 1, ct).ConfigureAwait(false);
+                    if (probe.Page is not { Events: [var held, ..] }) return (probe, first);
+                    from = Math.Max(0, seen - held.EventNumber);
+                    realigned = true;
+                    continue;
+                }
             }
             realigned = false;
             var number = ProjectInto(page, lines, scheduled, above: last ?? long.MinValue);
