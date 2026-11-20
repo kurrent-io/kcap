@@ -2290,6 +2290,36 @@ public class ChatTabViewSmokeTests {
         });
     }
 
+    /// Each message between the person and the agent offers a copy of itself, hidden until the
+    /// pointer is over that message; tool rows offer none.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task User_and_assistant_messages_reveal_a_copy_button_on_hover() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            await host.LoadAsync(Tmp.CreateFile("copy.jsonl", [
+                """{"type":"user","message":{"role":"user","content":"hello"}}""",
+                """{"type":"assistant","message":{"content":[{"type":"text","text":"hi **there**"}]}}""",
+                ToolCallLine, ToolResultLine,
+            ]));
+            host.Settle();
+            var copies = host.View.GetVisualDescendants().OfType<MessageCopyButton>().Where(c => c.IsEffectivelyVisible).ToList();
+            await Assert.That(copies.Select(c => (c.Text ?? "", c.Flavor))).IsEquivalentTo([
+                ("hello", MarkdownFlavor.Prompt),
+                ("hi **there**", MarkdownFlavor.Chat),
+            ], CollectionOrdering.Matching);
+            await Assert.That(copies.All(c => c.Opacity == 0)).IsTrue();
+
+            var assistant = copies[1];
+            var row = assistant.GetVisualAncestors().OfType<StackPanel>().First(p => p.Classes.Contains("messageRow"));
+            host.Window.MouseMove(row.TranslatePoint(new Point(4, 4), host.Window)!.Value);
+            host.Settle();
+            await Assert.That(assistant.Opacity).IsEqualTo(1);
+            await Assert.That(copies[0].Opacity).IsEqualTo(0);
+            await host.CloseAsync();
+        });
+    }
+
     /// Pins the fold: settled calls become one summary line, live calls stay as rows, and a click
     /// on the summary reveals every call and hides them again.
     [Test]

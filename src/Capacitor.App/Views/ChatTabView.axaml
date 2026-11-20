@@ -23,6 +23,17 @@
         <Style Selector="Border.userTurn.undelivered views|MarkdownView">
             <Setter Property="Opacity" Value="0.6" />
         </Style>
+        <!-- Kept in layout while hidden, so revealing it on hover cannot move the header. -->
+        <Style Selector=":is(Panel).messageRow">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector=":is(Panel).messageRow views|MessageCopyButton, Border.userTurn views|MessageCopyButton">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector=":is(Panel).messageRow:pointerover views|MessageCopyButton, Border.userTurn:pointerover views|MessageCopyButton,
+                         views|MessageCopyButton:focus-within">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
         <Style Selector="Border.toolGroup">
             <Setter Property="Margin" Value="0,4,0,22" />
         </Style>
@@ -320,6 +331,7 @@
                                 </TextBlock>
                                 <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
                                            IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                <views:MessageCopyButton Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}" />
                             </StackPanel>
                             <views:MarkdownView Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}"
                                                 FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
@@ -364,12 +376,13 @@
                     </Border>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantTextItem">
-                    <StackPanel HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
+                    <StackPanel Classes="messageRow" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Classes="toolKindChip"
                                        Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
                             <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
                                        IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                            <views:MessageCopyButton Text="{Binding Text}" />
                         </StackPanel>
                         <views:MarkdownView Text="{Binding Text}"
                                             FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
