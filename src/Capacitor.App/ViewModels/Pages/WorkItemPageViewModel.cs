@@ -16,11 +16,15 @@ namespace Capacitor.App.ViewModels.Pages;
 public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     const string LooseEndsKey = "loose_ends";
     const string OnWorkItemKey = "on_work_item";
+    const string BoardKey = "board";
+    // The server refuses a longer slice title.
+    const int MaxSliceTitle = 200;
+    static readonly WorkStatus[] BoardOrder = [WorkStatus.Open, WorkStatus.InProgress, WorkStatus.InReview, WorkStatus.Blocked, WorkStatus.Done];
 
     readonly IWorkItemPageApi _api;
     readonly IAgentDirectory _directory;
     readonly TimeProvider _time;
-    readonly ISet<string> _flippedGroups;
+    readonly ISet<string> _flipped;
     readonly HashSet<string> _openedParts = new(StringComparer.Ordinal);
     // A status the viewer just set, shown until a read reports it: the read right after the change can come back
     // before the server's read model has it.
@@ -28,11 +32,17 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     // A slice order the viewer just set, shown until a read reports it, for the same reason.
     List<string>? _setOrder;
     List<string> _order = [];
-    // Rows just dropped, marked as arriving the first time they are built where they landed.
+    // Sessions the viewer just moved, by id, shown where they went until a read reports them gone from where they were.
+    // A null destination hides one until the slice it is going to appears.
+    readonly Dictionary<string, (string From, string? To)> _sessionMoves = new(StringComparer.Ordinal);
+    readonly Dictionary<string, string> _containerOf = new(StringComparer.Ordinal);
+    // Rows that appear without being dragged there, marked as arriving the first time they are built.
     readonly HashSet<string> _arrivals = new(StringComparer.Ordinal);
     readonly Subject<Unit> _reread = new();
     readonly CompositeDisposable _disposables = new();
     WorkItemPartsDto? _read;
+    bool _held;
+    bool _heldRebuild;
     IReadOnlySet<string> _needsYou = FrozenSet<string>.Empty;
 
     public string WorkItemId { get; }
@@ -53,6 +63,12 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     public string ProgressText { get => _progressText; private set => this.RaiseAndSetIfChanged(ref _progressText, value); }
     IReadOnlyList<WorkItemPageGroupViewModel> _groups = [];
     public IReadOnlyList<WorkItemPageGroupViewModel> Groups { get => _groups; private set => this.RaiseAndSetIfChanged(ref _groups, value); }
+    /// The board's columns: the sessions on no slice, the loose ends when there are any, then one per status in workflow
+    /// order. A column that takes drops is there even when empty.
+    IReadOnlyList<WorkItemPageGroupViewModel> _columns = [];
+    public IReadOnlyList<WorkItemPageGroupViewModel> Columns { get => _columns; private set => this.RaiseAndSetIfChanged(ref _columns, value); }
+    bool _isBoard;
+    public bool IsBoard { get => _isBoard; private set => this.RaiseAndSetIfChanged(ref _isBoard, value); }
     bool _isLoading = true;
     public bool IsLoading { get => _isLoading; private set => this.RaiseAndSetIfChanged(ref _isLoading, value); }
     string? _message;
@@ -76,24 +92,27 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     public ReactiveCommand<WorkItemPageLooseEnd, Unit> MakePartCommand { get; }
     public ReactiveCommand<Unit, Unit> AddPartCommand { get; }
     public ReactiveCommand<Unit, Unit> AddLinkCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowListCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowBoardCommand { get; }
     public SessionTitleEditorViewModel TitleEditor { get; }
     /// Edits the goal in place; a blank one clears it.
     public SessionTitleEditorViewModel GoalEditor { get; }
 
-    /// <param name="flippedGroups">The groups the viewer opened or closed against their default, kept for the
-    /// life of the app.</param>
+    /// <param name="flipped">What the viewer turned from its default on work item pages, kept for the life of the app:
+    /// the groups they opened or closed, and the board when they chose it over the list.</param>
     /// <param name="needsYou">The agents waiting on the viewer, such as for a permission.</param>
     /// <param name="viewPage">A viewer for a Page by id and URL, or null when Pages open in the browser right now.</param>
     public WorkItemPageViewModel(string workItemId, IWorkItemPageApi api, IAgentDirectory directory, TimeProvider time,
-            ISet<string> flippedGroups, IObservable<IReadOnlySet<string>>? needsYou = null, IObservable<Unit>? changed = null,
+            ISet<string> flipped, IObservable<IReadOnlySet<string>>? needsYou = null, IObservable<Unit>? changed = null,
             Action<string>? openSession = null, Action<string>? openUrl = null, Action? openInWeb = null,
             Func<string, string, PageViewerViewModel?>? viewPage = null) {
         WorkItemId = workItemId;
         _api = api;
         _directory = directory;
         _time = time;
-        _flippedGroups = flippedGroups;
+        _flipped = flipped;
         _disposables.Add(_reread);
+        _isBoard = flipped.Contains(BoardKey);
 
         OpenInWebCommand = ReactiveCommand.Create(() => openInWeb?.Invoke(), Observable.Return(openInWeb is not null)).DisposeWith(_disposables);
         OpenLinkCommand = ReactiveCommand.Create<WorkItemPageLink>(link => { if (link.Url is { } url) openUrl?.Invoke(url); }).DisposeWith(_disposables);
@@ -112,6 +131,9 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         AddLinkCommand = ReactiveCommand.CreateFromTask(async () => {
             if (await ChangeAsync(ct => _api.AddLinkAsync(WorkItemId, NewLinkReference.Trim(), ct), "Couldn't add that link")) NewLinkReference = "";
         }, this.WhenAnyValue(x => x.NewLinkReference, reference => !string.IsNullOrWhiteSpace(reference))).DisposeWith(_disposables);
+
+        ShowListCommand = ReactiveCommand.Create(() => ShowBoard(false)).DisposeWith(_disposables);
+        ShowBoardCommand = ReactiveCommand.Create(() => ShowBoard(true)).DisposeWith(_disposables);
 
         var notifier = new AppNotifier();
         notifier.Messages.Subscribe(message => Message = message).DisposeWith(_disposables);
@@ -161,25 +183,59 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     }
 
     /// What dropping a dragged slice or session on <paramref name="target"/>, a slice or a group, does; null when it does
-    /// nothing there. <paramref name="after"/> puts a dropped slice below the target slice rather than above it, and a
-    /// slice dropped among another status's slices takes that status.
+    /// nothing there. <paramref name="after"/> puts a dropped slice below the target slice rather than above it, a
+    /// slice dropped among another status's slices takes that status, a session dropped on a status becomes a new
+    /// slice there, and a slice dropped on the other sessions hands them its sessions.
     public Action? DropOn(object dragged, object target, bool after) => (dragged, target) switch {
         (WorkItemPageSession session, WorkItemPagePart part) when part.Sessions.All(s => s.SessionId != session.SessionId) =>
             () => _ = MoveSessionAsync(session, part.Id),
         (WorkItemPageSession session, WorkItemPageGroupViewModel { Key: OnWorkItemKey } group) when group.Sessions.All(s => s.SessionId != session.SessionId) =>
             () => _ = MoveSessionAsync(session, WorkItemId),
+        (WorkItemPageSession session, WorkItemPageGroupViewModel { Status: { } status }) => () => _ = SliceFromAsync(session, status),
+        (WorkItemPagePart part, WorkItemPageGroupViewModel { Key: OnWorkItemKey }) when part.HasSessions => () => _ = MoveSessionsOutAsync(part),
         (WorkItemPagePart part, WorkItemPagePart onto) => PlaceAt(part, onto, after),
         (WorkItemPagePart part, WorkItemPageGroupViewModel { Status: { } status }) when status != part.Status =>
             () => part.SetStatusCommand.Execute(status.Wire()).Subscribe(),
         _ => null,
     };
 
-    // Opens the slice it lands in, so the session is seen arriving.
-    async Task MoveSessionAsync(WorkItemPageSession session, string containerId) {
-        var arrival = ArrivalKey(containerId, session.SessionId);
-        _arrivals.Add(arrival);
+    // Opens the slice it lands in, so the session is seen there.
+    Task MoveSessionAsync(WorkItemPageSession session, string containerId) {
         if (containerId != WorkItemId) _openedParts.Add(containerId);
-        if (!await ChangeAsync(ct => _api.MoveSessionAsync(containerId, session.SessionId, ct), "Couldn't move that session")) _arrivals.Remove(arrival);
+        return ShiftAsync([session.SessionId], containerId, ct => _api.MoveSessionAsync(containerId, session.SessionId, ct), "Couldn't move that session");
+    }
+
+    Task MoveSessionsOutAsync(WorkItemPagePart part) {
+        _arrivals.UnionWith(part.Sessions.Select(session => ArrivalKey(WorkItemId, session.SessionId)));
+        return ShiftAsync([.. part.Sessions.Select(session => session.SessionId)], WorkItemId, async ct => {
+            foreach (var session in part.Sessions)
+                if (!await _api.MoveSessionAsync(WorkItemId, session.SessionId, ct)) return false;
+            return true;
+        }, "Couldn't move those sessions");
+    }
+
+    async Task SliceFromAsync(WorkItemPageSession session, WorkStatus status) {
+        var title = session.Title.Length > MaxSliceTitle ? session.Title[..MaxSliceTitle] : session.Title;
+        string? sliceId = null;
+        if (!await ShiftAsync([session.SessionId], null, async ct => (sliceId = await _api.AddPartAsync(WorkItemId, title, ct)) is not null
+                && await _api.MoveSessionAsync(sliceId, session.SessionId, ct)
+                && await _api.SetStatusAsync(sliceId, status.Wire(), ct),
+            "Couldn't make a slice from that session")) return;
+        _setStatuses[sliceId!] = status.Wire();
+        _arrivals.Add(sliceId!);
+        Rebuild();
+    }
+
+    // Shows the sessions where they go before the change is sent, so a drop lands where it was let go; a refusal puts them back.
+    async Task<bool> ShiftAsync(IReadOnlyList<string> sessionIds, string? to, Func<CancellationToken, Task<bool>> change, string failure) {
+        foreach (var id in sessionIds)
+            _sessionMoves[id] = (_sessionMoves.TryGetValue(id, out var earlier) ? earlier.From : _containerOf[id], to);
+        Rebuild();
+        if (await ChangeAsync(change, failure)) return true;
+        if (_disposables.IsDisposed) return false;
+        foreach (var id in sessionIds) _sessionMoves.Remove(id);
+        Rebuild();
+        return false;
     }
 
     WorkItemPagePart? Neighbour(WorkItemPagePart part, int step) {
@@ -197,17 +253,14 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         return () => _ = PlaceAsync(part, order, status);
     }
 
-    // A refused order puts the slice back, which says so without a message, and reads again in case another slice came or went.
+    // Shown in its new place at once. A refused order puts the slice back, which says so without a message, and reads
+    // again in case another slice came or went.
     async Task PlaceAsync(WorkItemPagePart part, List<string> order, WorkStatus? status) {
         var reorders = !order.SequenceEqual(_order);
-        if (status is { } moved) {
-            if (!reorders) _arrivals.Add(part.Id);
-            await part.SetStatusCommand.Execute(moved.Wire());
-        }
+        if (reorders) _setOrder = order;
+        if (status is { } moved) await part.SetStatusCommand.Execute(moved.Wire());
+        else Rebuild();
         if (!reorders) return;
-        _arrivals.Add(part.Id);
-        _setOrder = order;
-        Rebuild();
         var recorded = await _api.OrderPartsAsync(WorkItemId, order, CancellationToken.None);
         if (_disposables.IsDisposed || _setOrder != order) return;
         if (!recorded) {
@@ -215,6 +268,12 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
             Rebuild();
         }
         _reread.OnNext(Unit.Default);
+    }
+
+    void ShowBoard(bool board) {
+        IsBoard = board;
+        if (board) _flipped.Add(BoardKey);
+        else _flipped.Remove(BoardKey);
     }
 
     void ShowPage(PageViewerViewModel viewer) {
@@ -258,7 +317,19 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         return recorded;
     }
 
+    /// While a row is being dragged, rebuilds wait for it to end: a rebuild replaces the rows the drag is moving among.
+    public void HoldRebuilds(bool held) {
+        _held = held;
+        if (held || !_heldRebuild) return;
+        _heldRebuild = false;
+        Rebuild();
+    }
+
     void Rebuild() {
+        if (_held) {
+            _heldRebuild = true;
+            return;
+        }
         if (_read is not { } read) return;
         var rows = new Dictionary<string, AgentRow>(StringComparer.Ordinal);
         foreach (var row in _directory.Rows.Items)
@@ -270,54 +341,75 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         Pages = [.. read.Pages.Select(page => new WorkItemPublishedPage(
             page.ArtefactId, string.IsNullOrWhiteSpace(page.Title) ? "Untitled page" : page.Title, $"v{page.LatestVersion} · {Ago(page.UpdatedAt)}", page.Url))];
 
+        var located = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var part in read.Parts)
+            foreach (var id in part.SessionIds) located[id] = part.WorkItemId;
+        foreach (var id in read.SessionIds) located[id] = WorkItemId;
+        foreach (var (id, move) in _sessionMoves.ToList())
+            if (located.GetValueOrDefault(id) != move.From) _sessionMoves.Remove(id);
+        var named = read.Sessions.Concat(read.Parts.SelectMany(part => part.Sessions)).ToList();
+        _containerOf.Clear();
+
         var readOrder = read.Parts.Select(part => part.WorkItemId).ToList();
         if (_setOrder is { } set && (set.SequenceEqual(readOrder) || !set.ToHashSet(StringComparer.Ordinal).SetEquals(readOrder))) _setOrder = null;
         var parts = (_setOrder is { } order ? read.Parts.OrderBy(part => order.IndexOf(part.WorkItemId)) : read.Parts.AsEnumerable())
-            .Select(part => PartOf(part, rows)).ToList();
+            .Select(part => PartOf(part, rows, named)).ToList();
         _order = [.. parts.Select(part => part.Id)];
         var done = parts.Count(part => part.Status == WorkStatus.Done);
         ProgressText = parts.Count == 0 ? "" : $"{done}/{parts.Count}";
         ProgressSweep = parts.Count == 0 ? 0 : 360.0 * done / parts.Count;
 
-        var groups = new List<WorkItemPageGroupViewModel>();
-        void AddStatus(WorkStatus status) {
-            var inGroup = parts.Where(part => part.Status == status).ToList();
-            if (inGroup.Count > 0) groups.Add(Group(status.Wire(), status, status.Label(), status.Icon(), parts: inGroup, expandedByDefault: status != WorkStatus.Done));
-        }
-        foreach (var status in Enum.GetValues<WorkStatus>().Where(status => status != WorkStatus.Done)) AddStatus(status);
-        var looseEnds = read.LooseEnds.Select(looseEnd => new WorkItemPageLooseEnd(looseEnd.LooseEndId, looseEnd.Text)).ToList();
-        if (looseEnds.Count > 0) groups.Add(Group(LooseEndsKey, null, "Loose ends", LucideIconKind.Flag, looseEnds: looseEnds));
-        AddStatus(WorkStatus.Done);
-        var sessions = read.SessionIds.Select(id => SessionOf(WorkItemId, id, rows, read.Sessions)).ToList();
-        if (sessions.Count > 0) groups.Add(Group(OnWorkItemKey, null, "Other sessions", LucideIconKind.MessagesSquare, sessions: sessions));
-        Groups = groups;
+        var byStatus = Enum.GetValues<WorkStatus>().ToDictionary(status => status, status => Group(status.Wire(), status, status.Label(),
+            status.Icon(), parts: [.. parts.Where(part => part.Status == status)], expandedByDefault: status != WorkStatus.Done));
+        var looseEnds = Group(LooseEndsKey, null, "Loose ends", LucideIconKind.Flag,
+            looseEnds: [.. read.LooseEnds.Select(looseEnd => new WorkItemPageLooseEnd(looseEnd.LooseEndId, looseEnd.Text))]);
+        var otherSessions = Group(OnWorkItemKey, null, "Other sessions", LucideIconKind.MessagesSquare,
+            sessions: [.. Placed(WorkItemId, read.SessionIds).Select(id => SessionOf(WorkItemId, id, rows, named))]);
+        Groups = [.. Enum.GetValues<WorkStatus>().Where(status => status != WorkStatus.Done).Select(status => byStatus[status])
+            .Append(looseEnds).Append(byStatus[WorkStatus.Done]).Append(otherSessions).Where(group => group.Count > 0)];
+        Columns = [otherSessions, .. looseEnds.Count > 0 ? [looseEnds] : Array.Empty<WorkItemPageGroupViewModel>(),
+            .. BoardOrder.Select(status => byStatus[status])];
     }
 
     WorkItemPageGroupViewModel Group(string key, WorkStatus? status, string label, LucideIconKind icon,
             IReadOnlyList<WorkItemPagePart>? parts = null, IReadOnlyList<WorkItemPageSession>? sessions = null,
             IReadOnlyList<WorkItemPageLooseEnd>? looseEnds = null, bool expandedByDefault = true) =>
         new(key, status, label, icon, parts ?? [], sessions ?? [], looseEnds ?? [],
-            expandedByDefault ^ _flippedGroups.Contains(key), expanded => {
-            if (expanded == expandedByDefault) _flippedGroups.Remove(key);
-            else _flippedGroups.Add(key);
+            expandedByDefault ^ _flipped.Contains(key), expanded => {
+            if (expanded == expandedByDefault) _flipped.Remove(key);
+            else _flipped.Add(key);
         });
 
-    WorkItemPagePart PartOf(WorkItemPartDetailDto part, Dictionary<string, AgentRow> rows) {
+    IEnumerable<string> Placed(string containerId, IEnumerable<string> read) =>
+        read.Where(id => !_sessionMoves.ContainsKey(id)).Concat(_sessionMoves.Where(move => move.Value.To == containerId).Select(move => move.Key));
+
+    WorkItemPagePart PartOf(WorkItemPartDetailDto part, Dictionary<string, AgentRow> rows, IReadOnlyList<WorkItemPartSessionDto> named) {
         if (_setStatuses.TryGetValue(part.WorkItemId, out var set) && set == part.Status) _setStatuses.Remove(part.WorkItemId);
         var status = WorkStatusExtensions.ParseWorkStatus(_setStatuses.GetValueOrDefault(part.WorkItemId, part.Status));
         var tip = status == WorkStatus.Blocked && part.WaitsOn.Count > 0
             ? $"Waits on {string.Join(", ", part.WaitsOn.Select(other => other.Title))}"
             : null;
-        var needsYou = part.SessionIds.Any(id => rows.TryGetValue(id, out var row) && _needsYou.Contains(row.Id));
+        var id = part.WorkItemId;
+        var sessionIds = Placed(id, part.SessionIds).ToList();
+        var needsYou = sessionIds.Any(sessionId => rows.TryGetValue(sessionId, out var row) && _needsYou.Contains(row.Id));
+        // A set status shows at once and a refused one is put back; handing the slice back to its links waits for the
+        // server, since only it knows what they work out to.
         var setStatus = ReactiveCommand.CreateFromTask<string>(async wire => {
-            if (!await ChangeAsync(ct => _api.SetStatusAsync(part.WorkItemId, wire.Length == 0 ? null : wire, ct), "Couldn't set that status")) return;
-            if (wire.Length == 0) _setStatuses.Remove(part.WorkItemId);
-            else _setStatuses[part.WorkItemId] = wire;
+            var had = _setStatuses.TryGetValue(id, out var previous);
+            if (wire.Length > 0) {
+                _setStatuses[id] = wire;
+                Rebuild();
+            }
+            if (await ChangeAsync(ct => _api.SetStatusAsync(id, wire.Length == 0 ? null : wire, ct), "Couldn't set that status")) {
+                if (wire.Length > 0) return;
+                _setStatuses.Remove(id);
+            }
+            else if (had) _setStatuses[id] = previous!;
+            else _setStatuses.Remove(id);
             Rebuild();
         });
-        var id = part.WorkItemId;
         return new WorkItemPagePart(id, part.Title, status, tip, needsYou, LinksOf(part.Links),
-            [.. part.SessionIds.Select(sessionId => SessionOf(id, sessionId, rows, part.Sessions))], _openedParts.Contains(id),
+            [.. sessionIds.Select(sessionId => SessionOf(id, sessionId, rows, named))], _openedParts.Contains(id),
             expanded => { if (expanded) _openedParts.Add(id); else _openedParts.Remove(id); }, setStatus, _arrivals.Remove(id));
     }
 
@@ -329,6 +421,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
 
     /// <param name="containerId">The slice, or the work item itself, the session sits in.</param>
     WorkItemPageSession SessionOf(string containerId, string sessionId, Dictionary<string, AgentRow> rows, IReadOnlyList<WorkItemPartSessionDto> named) {
+        _containerOf[sessionId] = containerId;
         var arrives = _arrivals.Remove(ArrivalKey(containerId, sessionId));
         if (!rows.TryGetValue(sessionId, out var row)) {
             if (named.FirstOrDefault(session => session.SessionId == sessionId) is not { } known)

@@ -2494,10 +2494,10 @@ public partial class App : Application {
                 time, RxSchedulers.MainThreadScheduler, open, sidebar: () => rail.Groups.SelectMany(group => group.Sessions),
                 openSidebar: row => vm?.OpenSession(row.Id, row.IsServer ? AgentOrigin.Server : row.IsRemote ? AgentOrigin.Remote : AgentOrigin.Local) == true,
                 viewerUserId: sessions.ViewerUserId.ObserveOn(RxSchedulers.MainThreadScheduler));
-        var flippedWorkItemGroups = new HashSet<string>(StringComparer.Ordinal);
+        var flippedOnWorkItemPages = new HashSet<string>(StringComparer.Ordinal);
         Func<PageKey, IPage?>? pages = sessions is null ? null : key => key switch {
             PageKey.WorkItem { Id: var id } when workItemPages is not null => new WorkItemPageViewModel(
-                id, workItemPages, resolvedDirectory, time, flippedWorkItemGroups,
+                id, workItemPages, resolvedDirectory, time, flippedOnWorkItemPages,
                 needsYou: (agentsWithPending ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty))
                     .CombineLatest(agentsAwaitingAnswer ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty),
                         (permissions, answers) => (IReadOnlySet<string>)permissions.Union(answers).ToFrozenSet(StringComparer.Ordinal)),

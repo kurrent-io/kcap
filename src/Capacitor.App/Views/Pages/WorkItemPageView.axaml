@@ -137,10 +137,65 @@
             </Setter>
         </Style>
         <Style Selector="Button.lifted">
-            <Setter Property="Opacity" Value="0.35" />
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector="Border.column">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="MinHeight" Value="160" />
+            <Setter Property="Width" Value="280" />
+        </Style>
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="ClipToBounds" Value="True" />
+        </Style>
+        <Style Selector="Border.card:pointerover">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+        </Style>
+        <Style Selector="Border.card TextBlock.sessionMeta">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="Button.cardBody">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="CornerRadius" Value="0" />
+        </Style>
+        <Style Selector="Button.cardBody /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.cardBody:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.cardBody:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style Selector="Border.pill">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="MinHeight" Value="22" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="TextElement.Foreground" Value="{StaticResource KcapMutedBrush}" />
+            <Setter Property="TextElement.FontSize" Value="11.5" />
+        </Style>
+        <Style Selector="Button.linkSum.pillButton">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="Button.kcapSegmentItem.boardSwitch">
+            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="FontSize" Value="12" />
         </Style>
         <Style Selector="StackPanel.part.dropOver, StackPanel.group.dropOver">
             <Setter Property="Background" Value="{StaticResource KcapRowActiveBrush}" />
+        </Style>
+        <Style Selector="Border.column.dropOver, StackPanel.part.dropOver > Border.card">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" />
         </Style>
     </UserControl.Styles>
 
@@ -166,7 +221,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="SessionRow" x:DataType="pages:WorkItemPageSession">
-            <Button Classes="kcapGhost rowButton sessionRow dragRow" AttachedToVisualTree="OnRowAttached"
+            <Button Classes="kcapGhost rowButton sessionRow dragRow flow" AttachedToVisualTree="OnRowAttached"
                     Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OpenSessionCommand}"
                     CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" MinHeight="30">
@@ -175,14 +230,14 @@
                                     Content="{Binding Vendor, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=14}" />
                     <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13.5" Foreground="{StaticResource KcapTextBrush}"
                                TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="2" Text="{Binding Meta}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}"
-                               VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Classes="sessionMeta" Text="{Binding Meta}" FontSize="12"
+                               Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
                 </Grid>
             </Button>
         </DataTemplate>
 
         <DataTemplate x:Key="Part" x:DataType="pages:WorkItemPagePart">
-            <StackPanel Classes="part" AttachedToVisualTree="OnRowAttached">
+            <StackPanel Classes="part flow" AttachedToVisualTree="OnRowAttached">
                 <Button Classes="kcapGhost partRow dragRow" Classes.expandable="{Binding HasSessions}" ToolTip.Tip="{Binding Tip}"
                         Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Title}">
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="4" MinHeight="34">
@@ -224,7 +279,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="Group" x:DataType="pages:WorkItemPageGroupViewModel">
-            <StackPanel Classes="group">
+            <StackPanel Classes="group flow">
                 <Button Classes="kcapGhost groupHead" Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Label}">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <views:FoldChevron Size="14" Classes="chevron" IsOpen="{Binding IsExpanded}" />
@@ -255,6 +310,129 @@
                     </StackPanel>
                 </views:FoldPanel>
             </StackPanel>
+        </DataTemplate>
+        <DataTemplate x:Key="Card" x:DataType="pages:WorkItemPagePart">
+            <StackPanel Classes="part flow" AttachedToVisualTree="OnRowAttached">
+                <Border Classes="card">
+                    <StackPanel>
+                        <Button Classes="kcapGhost partRow dragRow cardBody" ToolTip.Tip="{Binding Tip}"
+                                Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Title}">
+                            <StackPanel Spacing="10">
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                    <views:AppIcon Kind="{Binding Icon}" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
+                                                   Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13.5" FontWeight="Medium" LineHeight="18"
+                                               TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                                <WrapPanel ItemSpacing="6" LineSpacing="6">
+                                    <Border Classes="pill" BorderBrush="{StaticResource KcapWarningDimBrush}"
+                                            Background="{StaticResource KcapWarningDimBrush}" IsVisible="{Binding NeedsYou}">
+                                        <TextBlock Text="Needs you" Foreground="{StaticResource KcapWarningBrush}" VerticalAlignment="Center" />
+                                    </Border>
+                                    <Button Classes="kcapGhost linkSum pillButton" IsVisible="{Binding HasLinks}" ToolTip.Tip="{Binding LinkTip}"
+                                            AutomationProperties.Name="{Binding LinkTip, StringFormat='Links: {0}'}">
+                                        <Border Classes="pill">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <views:AppIcon Kind="GitPullRequest" Size="12" IsVisible="{Binding HasPrs}" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding PrSummary}" IsVisible="{Binding HasPrs}" Margin="0,0,4,0" VerticalAlignment="Center" />
+                                                <views:AppIcon Kind="CircleDot" Size="12" IsVisible="{Binding HasIssues}" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding IssueSummary}" IsVisible="{Binding HasIssues}" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Border>
+                                        <Button.Flyout>
+                                            <Flyout Placement="BottomEdgeAlignedLeft" FlyoutPresenterClasses="kcapPanel">
+                                                <ItemsControl ItemsSource="{Binding Links}" ItemTemplate="{StaticResource LinkButton}" Margin="6" MinWidth="340" />
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                    <Border Classes="pill" IsVisible="{Binding HasSessions}" ToolTip.Tip="{Binding SessionSummary}">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <views:AppIcon Kind="MessagesSquare" Size="12" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Sessions.Count}" VerticalAlignment="Center" />
+                                            <views:FoldChevron Size="11" Classes="chevron" IsOpen="{Binding IsExpanded}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </Border>
+                                </WrapPanel>
+                            </StackPanel>
+                        </Button>
+                        <views:FoldPanel IsOpen="{Binding IsExpanded}">
+                            <Border BorderThickness="0,1,0,0" BorderBrush="{StaticResource KcapBorderBrush}" Padding="2,4"
+                                    IsVisible="{Binding HasSessions}">
+                                <ItemsControl ItemsSource="{Binding Sessions}" ItemTemplate="{StaticResource SessionRow}" />
+                            </Border>
+                        </views:FoldPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate x:Key="SessionCard" x:DataType="pages:WorkItemPageSession">
+            <Border Classes="card flow">
+                <Button Classes="kcapGhost sessionRow dragRow cardBody" AttachedToVisualTree="OnRowAttached"
+                        Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OpenSessionCommand}"
+                        CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}">
+                    <StackPanel Spacing="8">
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                            <ContentControl Width="14" Height="14" VerticalAlignment="Top" Margin="0,2,0,0"
+                                            AutomationProperties.Name="{Binding Vendor, Converter={x:Static views:VendorLabelConverter.Instance}}"
+                                            Content="{Binding Vendor, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=14}" />
+                            <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13.5" FontWeight="Medium" LineHeight="18"
+                                       TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                        </Grid>
+                        <TextBlock Text="{Binding Meta}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" TextTrimming="CharacterEllipsis"
+                                   IsVisible="{Binding Meta, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+                </Button>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="Column" x:DataType="pages:WorkItemPageGroupViewModel">
+            <Border Classes="group column flow">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="8,4,8,10">
+                        <views:AppIcon Kind="{Binding Icon}" Size="14" VerticalAlignment="Center"
+                                       Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
+                        <TextBlock Text="{Binding Label}" FontSize="13" FontWeight="Medium" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Count}" FontSize="13" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Spacing="8">
+                        <ItemsControl ItemsSource="{Binding Parts}" ItemTemplate="{StaticResource Card}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Spacing="8" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                        <ItemsControl ItemsSource="{Binding Sessions}" ItemTemplate="{StaticResource SessionCard}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Spacing="8" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                        <ItemsControl ItemsSource="{Binding LooseEnds}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Spacing="8" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="pages:WorkItemPageLooseEnd">
+                                    <Border Classes="card" Padding="12,10">
+                                        <StackPanel Spacing="10">
+                                            <TextBlock Text="{Binding Text}" FontSize="13.5" LineHeight="18" TextWrapping="Wrap" MaxLines="3"
+                                                       TextTrimming="CharacterEllipsis" />
+                                            <Button Classes="kcapChip" Content="Make slice" HorizontalAlignment="Left"
+                                                    Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).MakePartCommand}"
+                                                    CommandParameter="{Binding}" AutomationProperties.Name="{Binding Text, StringFormat='Make {0} a slice'}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
         </DataTemplate>
     </UserControl.Resources>
 
@@ -341,29 +519,52 @@
                                     <TextBlock Text="{Binding ProgressText}" FontSize="15" Foreground="{StaticResource KcapMutedBrush}"
                                                VerticalAlignment="Center" />
                                 </StackPanel>
-                                <Button x:Name="AddPartButton" Grid.Column="3" Classes="kcapGhost kcapIcon" ToolTip.Tip="Add slice"
-                                        AutomationProperties.Name="Add slice">
-                                    <views:AppIcon Kind="Plus" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                                    <Button.Flyout>
-                                        <Flyout Placement="BottomEdgeAlignedRight" FlyoutPresenterClasses="kcapPanel">
-                                            <StackPanel Spacing="8" Margin="8" Width="260">
-                                                <TextBox Classes="kcapField" Text="{Binding NewPartTitle}" PlaceholderText="Slice title"
-                                                         AutomationProperties.Name="Slice title" />
-                                                <Button Classes="kcapChip" Content="Add slice" HorizontalAlignment="Right"
-                                                        Command="{Binding AddPartCommand}" Click="OnFlyoutItemClick" />
-                                            </StackPanel>
-                                        </Flyout>
-                                    </Button.Flyout>
-                                </Button>
+                                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8">
+                                    <Border Classes="kcapSegment" Padding="2">
+                                        <StackPanel Orientation="Horizontal" Spacing="2">
+                                            <Button x:Name="WorkItemListButton" Classes="kcapSegmentItem boardSwitch" Content="List"
+                                                    Classes.active="{Binding !IsBoard}" Command="{Binding ShowListCommand}" />
+                                            <Button x:Name="WorkItemBoardButton" Classes="kcapSegmentItem boardSwitch" Content="Board"
+                                                    Classes.active="{Binding IsBoard}" Command="{Binding ShowBoardCommand}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Button x:Name="AddPartButton" Classes="kcapGhost kcapIcon" ToolTip.Tip="Add slice"
+                                            AutomationProperties.Name="Add slice">
+                                        <views:AppIcon Kind="Plus" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                                        <Button.Flyout>
+                                            <Flyout Placement="BottomEdgeAlignedRight" FlyoutPresenterClasses="kcapPanel">
+                                                <StackPanel Spacing="8" Margin="8" Width="260">
+                                                    <TextBox Classes="kcapField" Text="{Binding NewPartTitle}" PlaceholderText="Slice title"
+                                                             AutomationProperties.Name="Slice title" />
+                                                    <Button Classes="kcapChip" Content="Add slice" HorizontalAlignment="Right"
+                                                            Command="{Binding AddPartCommand}" Click="OnFlyoutItemClick" />
+                                                </StackPanel>
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                </StackPanel>
                             </Grid>
 
-                            <ItemsControl x:Name="WorkItemGroups" ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource Group}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Spacing="8" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                            </ItemsControl>
+                            <Panel x:Name="WorkItemSlices">
+                                <ItemsControl x:Name="WorkItemGroups" ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource Group}"
+                                              IsVisible="{Binding !IsBoard}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Spacing="8" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                                <ScrollViewer x:Name="WorkItemBoardView" IsVisible="{Binding IsBoard}" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                    <ItemsControl x:Name="WorkItemBoard" ItemsSource="{Binding Columns}" ItemTemplate="{StaticResource Column}"
+                                                  Margin="0,0,0,12">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal" Spacing="8" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+                                </ScrollViewer>
+                            </Panel>
                         </StackPanel>
                 </ScrollViewer>
             </Panel>
@@ -463,11 +664,10 @@
         </Border>
 
         <Canvas Grid.ColumnSpan="2" IsHitTestVisible="False">
-            <Border x:Name="DragGhost" IsVisible="False" CornerRadius="6" BorderThickness="1"
+            <Border x:Name="DragGhost" IsVisible="False" CornerRadius="6" BorderThickness="1" BoxShadow="0 10 28 0 #80000000"
                     Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderStrongBrush}">
                 <Image x:Name="DragGhostSnapshot" Stretch="None" />
             </Border>
-            <Border x:Name="DropLine" IsVisible="False" Height="2" CornerRadius="1" Background="{StaticResource KcapPrimaryBrush}" />
         </Canvas>
         <!-- Last child so it hit-tests above the column it overhangs. -->
         <GridSplitter x:Name="ContextSplitter" Grid.Column="1" HorizontalAlignment="Left" Width="6"

@@ -14,6 +14,7 @@ public class WorkItemPageViewModelTests {
         public IObservable<System.Reactive.Unit> Changed => Observable.Never<System.Reactive.Unit>();
         public IObservable<IReadOnlySet<string>> SuggestedSessions => Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty);
         public List<WorkItemPartDetailDto> Parts { get; init; } = [Part("p1", "in_progress", "s1")];
+        public List<string> SessionIds { get; init; } = [];
 
         public static WorkItemPartDetailDto Part(string id, string status, params string[] sessions) => new() {
             WorkItemId = id, Title = id == "p1" ? "Card form" : id, Status = status, SessionIds = [.. sessions],
@@ -21,12 +22,15 @@ public class WorkItemPageViewModelTests {
         };
 
         public Task<WorkItemPartsDto?> ReadAsync(string workItemId, CancellationToken ct) => Task.FromResult<WorkItemPartsDto?>(
-            new() { WorkItem = new() { WorkItemId = workItemId, Title = "Checkout" }, Goal = "Pay in two steps", Parts = Parts });
+            new() { WorkItem = new() { WorkItemId = workItemId, Title = "Checkout" }, Goal = "Pay in two steps", Parts = Parts, SessionIds = SessionIds });
         public Task<bool> RenameAsync(string workItemId, string title, CancellationToken ct) => Record($"title {title}");
         public Task<bool> SetGoalAsync(string workItemId, string? goal, CancellationToken ct) => Record($"goal {goal ?? "<none>"}");
         public Task<bool> SetStatusAsync(string workItemId, string? status, CancellationToken ct) => Record($"status {workItemId} {status ?? "<links>"}");
         public Task<bool> OrderPartsAsync(string workItemId, IReadOnlyList<string> partIds, CancellationToken ct) => Record($"order {string.Join(",", partIds)}");
         public Task<bool> MoveSessionAsync(string workItemId, string sessionId, CancellationToken ct) => Record($"move {sessionId} to {workItemId}");
+
+        public async Task<string?> AddPartAsync(string workItemId, string title, CancellationToken ct) =>
+            await Record($"add {title}") ? "p9" : null;
 
         Task<bool> Record(string call) {
             Calls.Add(call);
@@ -34,7 +38,6 @@ public class WorkItemPageViewModelTests {
         }
 
         public Task<bool> MakePartAsync(string workItemId, string looseEndId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<string?> AddPartAsync(string workItemId, string title, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> AddLinkAsync(string workItemId, string reference, CancellationToken ct) => throw new NotSupportedException();
         public Task<string?> CreateForSessionAsync(string sessionId, string title, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> RemoveSessionAsync(string workItemId, string sessionId, CancellationToken ct) => throw new NotSupportedException();
@@ -125,10 +128,61 @@ public class WorkItemPageViewModelTests {
         await Assert.That(page.Groups.Single().Status).IsEqualTo(WorkStatus.InProgress);
     });
 
+    /// The board leads with the sessions on no slice, then has a column for every status in workflow order, each there
+    /// even when empty, and a page opened later starts on the view the viewer last chose.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_board_has_a_column_per_status_and_is_remembered() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeApi { Parts = [FakeApi.Part("p1", "done"), FakeApi.Part("p2", "open"), FakeApi.Part("p3", "done")] };
+        using var directory = new FakeAgentDirectory();
+        var flipped = new HashSet<string>();
+        using var page = new WorkItemPageViewModel("w1", api, directory, TimeProvider.System, flipped);
+
+        await Assert.That(page.Columns.Select(column => (column.Label, column.Count))).IsEquivalentTo([
+            ("Other sessions", 0), ("Open", 1), ("In progress", 0), ("In review", 0), ("Blocked", 0), ("Done", 2),
+        ], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+
+        await page.ShowBoardCommand.Execute();
+        using var reopened = new WorkItemPageViewModel("w1", api, directory, TimeProvider.System, flipped);
+        await Assert.That(reopened.IsBoard).IsTrue();
+
+        await reopened.ShowListCommand.Execute();
+        using var again = new WorkItemPageViewModel("w1", api, directory, TimeProvider.System, flipped);
+        await Assert.That(again.IsBoard).IsFalse();
+    });
+
+    /// A session dropped on a status lane becomes a new slice named after it, holding it, in that status.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_session_dropped_on_a_status_becomes_a_slice_there() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeApi { SessionIds = ["s9"] };
+        using var directory = new FakeAgentDirectory();
+        using var page = Page(api, directory);
+        var session = page.Columns.SelectMany(column => column.Sessions).Single();
+
+        page.DropOn(session, page.Columns.Single(column => column.Status == WorkStatus.Blocked), false)!();
+
+        await Assert.That(api.Calls).IsEquivalentTo(["add Session s9", "move s9 to p9", "status p9 blocked"],
+            TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    });
+
+    /// A slice dropped on the other sessions moves each of its sessions there.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_slice_dropped_on_the_other_sessions_hands_them_its_sessions() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeApi { Parts = [FakeApi.Part("p1", "open", "s1", "s2")] };
+        using var directory = new FakeAgentDirectory();
+        using var page = Page(api, directory);
+
+        page.DropOn(page.Columns[1].Parts.Single(), page.Columns[0], false)!();
+
+        await Assert.That(api.Calls).IsEquivalentTo(["move s1 to w1", "move s2 to w1"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    });
+
     static string[] Ids(WorkItemPageGroupViewModel group) => [.. group.Parts.Select(part => part.Id)];
 
-    /// A slice dropped below another takes its place at once, arriving there, and keeps it, though the read that follows
-    /// still reports the old order (this fake never catches up).
+    /// A slice dropped below another takes its place at once and keeps it, though the read that follows still reports the
+    /// old order (this fake never catches up).
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_dropped_slice_keeps_its_new_place_before_the_read_model_has_it() => AvaloniaSession.WithImmediateRxScheduler(async () => {
@@ -136,16 +190,44 @@ public class WorkItemPageViewModelTests {
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
         var parts = page.Groups.Single().Parts;
-        var arrived = new List<string>();
-        page.PropertyChanged += (_, e) => {
-            if (e.PropertyName == nameof(page.Groups)) arrived.AddRange(page.Groups.SelectMany(g => g.Parts).Where(p => p.Arrives).Select(p => p.Id));
-        };
 
         page.DropOn(parts[0], parts[2], after: true)!();
 
         await Assert.That(api.Calls).IsEquivalentTo(["order p2,p3,p1"]);
         await Assert.That(Ids(page.Groups.Single())).IsEquivalentTo(["p2", "p3", "p1"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
-        await Assert.That(arrived).IsEquivalentTo(["p1"]);
+    });
+
+    /// A session dropped on another slice shows there at once and stays though the read that follows still reports it
+    /// where it was (this fake never catches up); a refused move puts it back.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(true)]
+    [Arguments(false)]
+    public Task A_dropped_session_shows_where_it_landed_until_refused(bool accepted) => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeApi { Accepts = accepted, Parts = [FakeApi.Part("p1", "open", "s1"), FakeApi.Part("p2", "open")] };
+        using var directory = new FakeAgentDirectory();
+        using var page = Page(api, directory);
+        var parts = page.Groups.Single().Parts;
+
+        page.DropOn(parts[0].Sessions.Single(), parts[1], after: false)!();
+
+        await Assert.That(page.Groups.Single().Parts.Select(part => part.Sessions.Count))
+            .IsEquivalentTo(accepted ? new[] { 0, 1 } : [1, 0], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    });
+
+    /// While a row is dragged the page holds its rebuilds, so a change made meanwhile shows only once the drag ends.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_change_during_a_drag_shows_once_the_drag_ends() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        using var directory = new FakeAgentDirectory();
+        using var page = Page(new FakeApi(), directory);
+
+        page.HoldRebuilds(true);
+        await page.Groups.Single().Parts.Single().SetStatusCommand.Execute("in_review");
+
+        await Assert.That(page.Groups.Single().Status).IsEqualTo(WorkStatus.InProgress);
+        page.HoldRebuilds(false);
+        await Assert.That(page.Groups.Single().Status).IsEqualTo(WorkStatus.InReview);
     });
 
     /// A refused order puts the slice back, with no message.
