@@ -56,4 +56,8 @@ public class MarkdownListsTests {
             .IsEquivalentTo(["Retry", "Lock order"]);
 
     internal const string CodeThenTwoLists = "```\nRetry\n```\n\n- Retry\n- Lock order\n\nThen:\n\n- Retry\n- Logging";
+
+    [Test]
+    public async Task An_item_that_is_a_code_block_reads_its_code() =>
+        await Assert.That(MarkdownLists.ItemsAround("- ```\n  Retry\n  ```\n- Logging", "Retry")).IsEquivalentTo(["Retry", "Logging"]);
 }

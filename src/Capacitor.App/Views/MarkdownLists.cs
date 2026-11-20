@@ -34,7 +34,7 @@ public static class MarkdownLists {
     };
 
     static string TextOf(ListItemBlock item) =>
-        Normalize(string.Join(' ', item.OfType<LeafBlock>().Select(static leaf => leaf.Inline is { } inline ? Plain(inline) : ""))) ?? "";
+        Normalize(string.Join(' ', item.OfType<LeafBlock>().Select(TextOf))) ?? "";
 
     static string Plain(ContainerInline container) =>
         string.Concat(container.Select(static inline => inline switch {
