@@ -327,11 +327,9 @@
                                     <TextBlock Text="{Binding ProgressText}" FontSize="15" Foreground="{StaticResource KcapMutedBrush}"
                                                VerticalAlignment="Center" />
                                 </StackPanel>
-                                <Button x:Name="AddPartButton" Grid.Column="3" Classes="kcapGhost barAction" AutomationProperties.Name="Add slice">
-                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <views:AppIcon Kind="Plus" Size="12" />
-                                        <TextBlock Text="Slice" />
-                                    </StackPanel>
+                                <Button x:Name="AddPartButton" Grid.Column="3" Classes="kcapGhost kcapIcon" ToolTip.Tip="Add slice"
+                                        AutomationProperties.Name="Add slice">
+                                    <views:AppIcon Kind="Plus" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
                                     <Button.Flyout>
                                         <Flyout Placement="BottomEdgeAlignedRight" FlyoutPresenterClasses="kcapPanel">
                                             <StackPanel Spacing="8" Margin="8" Width="260">
