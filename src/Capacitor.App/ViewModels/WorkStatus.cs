@@ -42,7 +42,7 @@ public static class WorkStatusExtensions {
     public static LucideIconKind Icon(this WorkStatus status) => status switch {
         WorkStatus.InProgress => LucideIconKind.CircleDot,
         WorkStatus.InReview   => LucideIconKind.Contrast,
-        WorkStatus.Blocked    => LucideIconKind.CircleSlash,
+        WorkStatus.Blocked    => LucideIconKind.CircleDashed,
         WorkStatus.Done       => LucideIconKind.CircleCheck,
         _                     => LucideIconKind.Circle,
     };
