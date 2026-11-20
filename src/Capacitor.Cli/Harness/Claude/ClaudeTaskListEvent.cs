@@ -161,7 +161,7 @@ sealed partial record ClaudeTaskListEvent(string SessionId, ClaudeTaskListEvent.
     [GeneratedRegex(@"^Implement\s+Task\s+([\w.-]+?)\s*:", RegexOptions.IgnoreCase)]
     private static partial Regex DispatchedTask();
 
-    [GeneratedRegex(@"(?:>>?|\btee\b(?:\s+-a)?)\s*[""']?[^\s;&|<>""']*progress\.md\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex("""(?:>>?|\btee\b(?:\s+-a)?)\s*["']?[^\s;&|<>"']*progress\.md\b""", RegexOptions.IgnoreCase)]
     private static partial Regex BashLedgerWrite();
 
     static bool IsError(JsonNode? response) =>
