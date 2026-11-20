@@ -258,14 +258,14 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     WorkItemPageSession SessionOf(string sessionId, Dictionary<string, AgentRow> rows, IReadOnlyList<WorkItemPartSessionDto> named) {
         if (!rows.TryGetValue(sessionId, out var row)) {
             if (named.FirstOrDefault(session => session.SessionId == sessionId) is not { } known)
-                return new(sessionId, $"Session {sessionId[..Math.Min(8, sessionId.Length)]}", null);
+                return new(sessionId, $"Session {sessionId[..Math.Min(8, sessionId.Length)]}", null, null);
             return new(sessionId, known.Title is { Length: > 0 } knownTitle ? knownTitle : "Untitled session",
-                known.LastActivityAt is { } moved ? Ago(moved) : null);
+                known.LastActivityAt is { } moved ? Ago(moved) : null, known.Vendor);
         }
         var stamp = row.LastActivityAt ?? row.CreatedAt;
         var age = Ago(new DateTimeOffset(stamp.Kind == DateTimeKind.Local ? stamp.ToUniversalTime() : DateTime.SpecifyKind(stamp, DateTimeKind.Utc)));
         return new(sessionId, row.Title is { Length: > 0 } title ? title : "Untitled session",
-            row.RepoGroupLabel is { Length: > 0 } repo ? $"{repo} · {age}" : age);
+            row.RepoGroupLabel is { Length: > 0 } repo ? $"{repo} · {age}" : age, row.Vendor);
     }
 
     string Ago(DateTimeOffset at) => RelativeTime.Ago(at, _time.GetUtcNow(), _time.LocalTimeZone);

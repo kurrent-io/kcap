@@ -17,7 +17,10 @@ public class WorkItemPageViewModelTests {
         public Task<WorkItemPartsDto?> ReadAsync(string workItemId, CancellationToken ct) => Task.FromResult<WorkItemPartsDto?>(
             new() {
                 WorkItem = new() { WorkItemId = workItemId, Title = "Checkout" }, Goal = "Pay in two steps",
-                Parts = [new() { WorkItemId = "p1", Title = "Card form", Status = "in_progress" }],
+                Parts = [new() {
+                    WorkItemId = "p1", Title = "Card form", Status = "in_progress", SessionIds = ["s1"],
+                    Sessions = [new() { SessionId = "s1", Title = "Spike the card form", Vendor = "codex" }],
+                }],
             });
         public Task<bool> RenameAsync(string workItemId, string title, CancellationToken ct) => Record($"title {title}");
         public Task<bool> SetGoalAsync(string workItemId, string? goal, CancellationToken ct) => Record($"goal {goal ?? "<none>"}");
@@ -87,6 +90,18 @@ public class WorkItemPageViewModelTests {
         await Assert.That(page.GoalEditor.IsEditing).IsTrue();
         await Assert.That(page.Goal).IsEqualTo("Pay in two steps");
         await Assert.That(page.Message).IsEqualTo("Couldn't save the goal");
+    });
+
+    /// A session the app has not listed takes its title and agent from the work item's read.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_unlisted_session_is_named_by_the_work_items_read() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        using var directory = new FakeAgentDirectory();
+        using var page = Page(new FakeApi(), directory);
+
+        var session = page.Groups.Single().Parts.Single().Sessions.Single();
+
+        await Assert.That((session.Title, session.Vendor)).IsEqualTo(("Spike the card form", "codex"));
     });
 
     /// A slice moves to its new status group as soon as the change is recorded, though the read that follows still
