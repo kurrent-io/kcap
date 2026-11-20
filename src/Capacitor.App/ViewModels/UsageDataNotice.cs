@@ -19,7 +19,6 @@ public sealed class UsageDataNotice : ReactiveObject {
     readonly CliTelemetry _telemetry;
     readonly ConfigRoot   _config;
     bool   _visible;
-    string _message = Text;
 
     public UsageDataNotice(CliTelemetry telemetry, ConfigRoot config) {
         _telemetry = telemetry;
@@ -37,9 +36,9 @@ public sealed class UsageDataNotice : ReactiveObject {
     }
 
     public string Message {
-        get => _message;
-        private set => this.RaiseAndSetIfChanged(ref _message, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = Text;
 
     public bool CanTurnOff { get; }
 

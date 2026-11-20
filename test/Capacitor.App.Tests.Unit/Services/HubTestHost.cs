@@ -51,8 +51,7 @@ public sealed class HubTestHost : IAsyncDisposable {
     public static List<DiscardQueuedInputRequest> Discards { get; } = [];
     public static List<(string AgentId, string Key)> SpecialKeys { get; } = [];
     /// While true, every negotiation is answered 503, the way a restarting server answers.
-    public static bool RefuseNegotiation { get => Volatile.Read(ref _refuseNegotiation); set => Volatile.Write(ref _refuseNegotiation, value); }
-    static bool _refuseNegotiation;
+    public static bool RefuseNegotiation { get => Volatile.Read(ref field); set => Volatile.Write(ref field, value); }
     static int _refusedNegotiations;
     static int _unauthorizedNegotiations;
     /// How many of the refused negotiations to come answer 401 rather than 503.

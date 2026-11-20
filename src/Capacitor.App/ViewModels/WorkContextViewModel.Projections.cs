@@ -44,16 +44,14 @@ public sealed partial class WorkContextViewModel {
     public IAvaloniaReadOnlyList<WorkContextLinkViewModel> Issues => _issues;
     public IAvaloniaReadOnlyList<WorkContextPersonViewModel> Contributors => _contributors;
 
-    string? _key;
     public string? Key {
-        get => _key;
-        private set { this.RaiseAndSetIfChanged(ref _key, value); NotifyIdentity(); }
+        get;
+        private set { this.RaiseAndSetIfChanged(ref field, value); NotifyIdentity(); }
     }
-    string _title = "";
     public string Title {
-        get => _title;
-        private set { this.RaiseAndSetIfChanged(ref _title, value); NotifyIdentity(); }
-    }
+        get;
+        private set { this.RaiseAndSetIfChanged(ref field, value); NotifyIdentity(); }
+    } = "";
     /// A short key carries no repository, so only this names the primary issue. GitHub numbers issues
     /// and pull requests in one sequence, so a seed spelled `!N` can be the issue `#N` of its
     /// repository; other providers number them apart.
@@ -103,23 +101,17 @@ public sealed partial class WorkContextViewModel {
     }
     string? _overview;
     public string? Overview { get => _overview; private set => this.RaiseAndSetIfChanged(ref _overview, value); }
-    string? _stateLabel;
-    public string? StateLabel { get => _stateLabel; private set => this.RaiseAndSetIfChanged(ref _stateLabel, value); }
-    bool _isShipped;
-    public bool IsShipped { get => _isShipped; private set => this.RaiseAndSetIfChanged(ref _isShipped, value); }
-    bool _isClosed;
-    public bool IsClosed { get => _isClosed; private set => this.RaiseAndSetIfChanged(ref _isClosed, value); }
-    string? _partOfTitle;
-    public string? PartOfTitle { get => _partOfTitle; private set => this.RaiseAndSetIfChanged(ref _partOfTitle, value); }
-    string? _cycleNote;
-    public string? CycleNote { get => _cycleNote; private set => this.RaiseAndSetIfChanged(ref _cycleNote, value); }
+    public string? StateLabel { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool IsShipped { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool IsClosed { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? PartOfTitle { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? CycleNote { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    WorkContextLinkViewModel? _issue;
     public WorkContextLinkViewModel? Issue {
-        get => _issue;
+        get;
         private set {
-            if (ReferenceEquals(_issue, value)) return;
-            this.RaiseAndSetIfChanged(ref _issue, value);
+            if (ReferenceEquals(field, value)) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             NotifyIdentity();
         }
     }
@@ -172,12 +164,9 @@ public sealed partial class WorkContextViewModel {
         var n => $"{n} sessions",
     };
 
-    string _requester = "You";
-    public string Requester { get => _requester; private set => this.RaiseAndSetIfChanged(ref _requester, value); }
-    string _requesterRole = "";
-    public string RequesterRole { get => _requesterRole; private set => this.RaiseAndSetIfChanged(ref _requesterRole, value); }
-    string _requesterInitial = "Y";
-    public string RequesterInitial { get => _requesterInitial; private set => this.RaiseAndSetIfChanged(ref _requesterInitial, value); }
+    public string Requester { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "You";
+    public string RequesterRole { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public string RequesterInitial { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "Y";
     string? _requesterId;
     ViewerIdentityDto? _viewer;
     public ViewerIdentityDto? ViewerIdentity {
@@ -187,14 +176,12 @@ public sealed partial class WorkContextViewModel {
             RefreshContributors();
         }
     }
-    string? _requesterAvatarUrl;
-    public string? RequesterAvatarUrl { get => _requesterAvatarUrl; private set => this.RaiseAndSetIfChanged(ref _requesterAvatarUrl, value); }
+    public string? RequesterAvatarUrl { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    bool _partsExpanded;
     public bool PartsExpanded {
-        get => _partsExpanded;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _partsExpanded, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(PartsAccessibleName));
         }
     }
@@ -202,13 +189,11 @@ public sealed partial class WorkContextViewModel {
     public string PartsAccessibleName => PartsExpanded || _partCounts.Count == 0
         ? $"Parts, {PartsHeader}"
         : $"Parts, {string.Join(", ", _partCounts.Select(c => c.Label))}";
-    bool _peopleExpanded;
-    public bool PeopleExpanded { get => _peopleExpanded; private set => this.RaiseAndSetIfChanged(ref _peopleExpanded, value); }
-    bool _issuesExpanded;
+    public bool PeopleExpanded { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public bool IssuesExpanded {
-        get => _issuesExpanded;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _issuesExpanded, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(VisibleSeparateIssues));
         }
     }
@@ -250,8 +235,7 @@ public sealed partial class WorkContextViewModel {
         }
     }
 
-    bool _subagentsExpanded;
-    public bool SubagentsExpanded { get => _subagentsExpanded; private set => this.RaiseAndSetIfChanged(ref _subagentsExpanded, value); }
+    public bool SubagentsExpanded { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     public ReactiveCommand<Unit, Unit> TogglePartsCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> TogglePeopleCommand { get; private set; } = null!;

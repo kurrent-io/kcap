@@ -41,12 +41,11 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         }
     }
     public bool ShowsLegacyLinks => PullRequests is null;
-    PullRequestRepository? _primaryRepository;
     public PullRequestRepository? PrimaryRepository {
-        get => _primaryRepository;
+        get;
         private set {
-            var changed = value is not null && value != _primaryRepository;
-            _primaryRepository = value;
+            var changed = value is not null && value != field;
+            field = value;
             if (changed) PullRequests?.PrimaryRepositoryChanged();
         }
     }
@@ -83,8 +82,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     long _compactStartedAt;
     AgentStatusDto? _dto;
 
-    string _repository = "—";
-    public string Repository { get => _repository; private set => this.RaiseAndSetIfChanged(ref _repository, value); }
+    public string Repository { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "—";
     string? _repositoryPath;
     public string? RepositoryPath {
         get => _repositoryPath;
@@ -114,14 +112,10 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         }
     }
     public bool CanCopyBranch => _branch != "—";
-    string _harness = "—";
-    public string Harness { get => _harness; private set => this.RaiseAndSetIfChanged(ref _harness, value); }
-    string _tokens = SessionFactText.Unknown;
-    public string Tokens { get => _tokens; private set => this.RaiseAndSetIfChanged(ref _tokens, value); }
-    string _cost = SessionFactText.Unknown;
-    public string Cost { get => _cost; private set => this.RaiseAndSetIfChanged(ref _cost, value); }
-    string _contextUse = SessionFactText.Unknown;
-    public string ContextUse { get => _contextUse; private set => this.RaiseAndSetIfChanged(ref _contextUse, value); }
+    public string Harness { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "—";
+    public string Tokens { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
+    public string Cost { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
+    public string ContextUse { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
     string? _currentContextUse;
     /// The context in use now, or "compacted" while a compaction awaits its next reading; null
     /// when the server reports neither.
@@ -147,10 +141,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
 
     public string Created { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
     public string Updated { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
-    string _sessionSharing = SessionFactText.Unknown;
-    public string SessionSharing { get => _sessionSharing; private set => this.RaiseAndSetIfChanged(ref _sessionSharing, value); }
-    string _agentSharing = SessionFactText.Unknown;
-    public string AgentSharing { get => _agentSharing; private set => this.RaiseAndSetIfChanged(ref _agentSharing, value); }
+    public string SessionSharing { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
+    public string AgentSharing { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
     string _sessionIdText = "resolving…";
     public string SessionIdText {
         get => _sessionIdText;
@@ -213,25 +205,23 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         return string.Concat(value.AsSpan(0, head), "…", value.AsSpan(value.Length - tail));
     }
 
-    WorkContextPhase _phase = WorkContextPhase.WaitingForSession;
     public WorkContextPhase Phase {
-        get => _phase;
+        get;
         private set {
-            if (_phase == value) return;
-            this.RaiseAndSetIfChanged(ref _phase, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(PhaseNote));
             this.RaisePropertyChanged(nameof(IsReady));
             this.RaisePropertyChanged(nameof(ShowsSignIn));
             this.RaisePropertyChanged(nameof(ShowsRetry));
             RaiseRelated();
         }
-    }
+    } = WorkContextPhase.WaitingForSession;
 
-    bool _hasWorkspaceNotice;
     public bool HasWorkspaceNotice {
-        get => _hasWorkspaceNotice;
+        get;
         set {
-            this.RaiseAndSetIfChanged(ref _hasWorkspaceNotice, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(PhaseNote));
         }
     }
@@ -288,47 +278,42 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         _branchReader.Switch(state);
     }
 
-    bool _isStale;
     public bool IsStale {
-        get => _isStale || _pullRequests?.HasStaleOverview == true;
+        get => field || _pullRequests?.HasStaleOverview == true;
         private set {
-            if (_isStale == value) return;
-            _isStale = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
         }
     }
-    bool _isReading;
     public bool IsReading {
-        get => _isReading;
+        get;
         private set {
-            if (_isReading == value) return;
-            this.RaiseAndSetIfChanged(ref _isReading, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             if (!value) IsRefreshing = false;
             this.RaisePropertyChanged(nameof(RefreshTip));
         }
     }
-    bool _isRefreshing;
     /// A refresh someone asked for, still reading; the 30s poll runs without it.
     public bool IsRefreshing {
-        get => _isRefreshing;
-        private set { if (_isRefreshing != value) { this.RaiseAndSetIfChanged(ref _isRefreshing, value); this.RaisePropertyChanged(nameof(RefreshTip)); } }
+        get;
+        private set { if (field != value) { this.RaiseAndSetIfChanged(ref field, value); this.RaisePropertyChanged(nameof(RefreshTip)); } }
     }
-    bool _hasSession;
     // Subject, not WhenAnyValue — same RxAppBuilder init trap as SessionRailViewModel.SelectedSessionKey.
     readonly BehaviorSubject<bool> _hasSessionChanges = new(false);
     public bool HasSession {
-        get => _hasSession;
+        get;
         private set {
-            if (_hasSession == value) return;
-            this.RaiseAndSetIfChanged(ref _hasSession, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             _hasSessionChanges.OnNext(value);
             this.RaisePropertyChanged(nameof(RefreshTip));
         }
     }
 
-    bool _hasAgent;
     /// Until the daemon reports the agent, every session fact and the requester are placeholders.
-    public bool HasAgent { get => _hasAgent; private set => this.RaiseAndSetIfChanged(ref _hasAgent, value); }
+    public bool HasAgent { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// Tip on the header refresh control — bound with ShowOnDisabled so a greyed icon still explains itself.
     public string RefreshTip => HasSession

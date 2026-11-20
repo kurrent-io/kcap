@@ -26,11 +26,10 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     /// The attach's own word for no daemon answering on the socket, which Start daemon repairs.
     const string DaemonStoppedReason = "daemon_unreachable";
 
-    SessionConnectionPresentation? _connectionNotice;
     public SessionConnectionPresentation? ConnectionNotice {
-        get => _connectionNotice;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _connectionNotice, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(HasConnectionNotice));
             this.RaisePropertyChanged(nameof(ShowsStartingNotice));
             RaiseConnectionPresentation();
@@ -116,7 +115,6 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
 
     public IObservable<Unit> Ended { get; }
 
-    ChatTabViewModel? _chat;
     /// Built once, on the first dto; the reader comes from transcript_format and the input channel
     /// from has_terminal.
     /// Whether the header offers the progressive disclosure toggle: the chat on screen, the session's
@@ -137,9 +135,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     }
 
     public ChatTabViewModel? Chat {
-        get => _chat;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _chat, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsChat));
             RaiseBannerNotice();
         }
@@ -150,29 +148,26 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     public WorkContextViewModel WorkContext { get; }
     public PullRequestContextViewModel? PullRequests { get; }
     public ArtefactsTabViewModel Artefacts { get; }
-    bool _showsArtefactsTab;
     public bool ShowsArtefactsTab {
-        get => _showsArtefactsTab;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _showsArtefactsTab, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsSurfaceSwitch));
         }
     }
-    bool _showsPullRequestTab;
     public bool ShowsPullRequestTab {
-        get => _showsPullRequestTab || IsPullRequestActive;
+        get => field || IsPullRequestActive;
         private set {
-            this.RaiseAndSetIfChanged(ref _showsPullRequestTab, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsSurfaceSwitch));
         }
     }
     public bool ShowsSurfaceSwitch => ShowsTerminalTab || ShowsPullRequestTab || ShowsArtefactsTab;
 
-    WorkspaceTab _activeTab = WorkspaceTab.Chat;
     public WorkspaceTab ActiveTab {
-        get => _activeTab;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _activeTab, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(IsChatActive));
             this.RaisePropertyChanged(nameof(ShowsChat));
             this.RaisePropertyChanged(nameof(ShowsSubagent));
@@ -187,7 +182,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             PullRequests?.SetReaderVisible(value == WorkspaceTab.PullRequest);
             Terminal.SurfaceShown = IsTerminalActive;
         }
-    }
+    } = WorkspaceTab.Chat;
     public bool IsChatActive => ActiveTab == WorkspaceTab.Chat;
     /// A chat surface with no view model behind it fails every visibility binding open, drawing
     /// its banners and composer as empty shells.

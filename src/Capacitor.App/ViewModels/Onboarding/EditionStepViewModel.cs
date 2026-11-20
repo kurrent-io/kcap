@@ -32,10 +32,7 @@ public sealed class EditionStepViewModel : ReactiveObject, IWizardStep {
     readonly Func<bool>    _leadWithLocal;
     readonly LocalBundlePrefetch? _prefetch;
     bool                   _offered;
-    bool                   _preselected;
-    EditionChoice?         _choice;
     string?                _unavailable;
-    string?                _notice;
 
     /// <param name="localUnavailableReason">Why Local cannot be chosen, or null when it can.</param>
     /// <param name="locked">True once this machine is committed to the local edition, so the page has nothing to ask.</param>
@@ -68,8 +65,8 @@ public sealed class EditionStepViewModel : ReactiveObject, IWizardStep {
     public bool         PassThrough       => _locked();
 
     public EditionChoice? Choice {
-        get => _choice;
-        private set => this.RaiseAndSetIfChanged(ref _choice, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? LocalUnavailableReason {
@@ -84,15 +81,15 @@ public sealed class EditionStepViewModel : ReactiveObject, IWizardStep {
 
     /// The page leads with the local card: shown selected and focused, so Enter takes it.
     public bool LocalPreselected {
-        get => _preselected;
-        private set => this.RaiseAndSetIfChanged(ref _preselected, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// A line from a later step that sent the user back here; the next choice clears it.
     public string? Notice {
-        get => _notice;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _notice, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(NoticeVisible));
         }
     }

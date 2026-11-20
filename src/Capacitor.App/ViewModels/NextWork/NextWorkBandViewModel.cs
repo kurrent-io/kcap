@@ -47,7 +47,6 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     bool _unavailable;
     bool _loaded;
     bool _failed;
-    bool _mutating;
     IReadOnlyList<NextWorkCardViewModel> _cards = [];
     IReadOnlyList<NextWorkCardViewModel> _moreCards = [];
     bool _moreExpanded;
@@ -89,8 +88,8 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     public bool IsLoading => IsAvailable && !_loaded && !_failed;
 
     public bool Mutating {
-        get => _mutating;
-        private set => this.RaiseAndSetIfChanged(ref _mutating, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// <summary>Why the list may be short, for the header's status icon.</summary>

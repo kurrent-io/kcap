@@ -34,19 +34,12 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     int _savedCapacity;
     string _name;
     decimal? _capacity;
-    bool _isBusy;
-    bool _windowsServiceVisible;
-    bool _windowsServiceOffered;
-    string? _windowsServiceMessage;
     bool _needsAppRestart;
     bool _notifyOnPermissions = true;
     bool _notifyOnQuestions = true;
     bool _notifyOnIdle = true;
     bool _autoResume;
     readonly SemaphoreSlim _autoResumeSaves = new(1, 1);
-    string? _autoResumeMessage;
-    string? _message;
-    string? _notificationMessage;
     DesktopNotificationAccess _access;
     int _accessReads;
     int _accessShown;
@@ -141,8 +134,8 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     }
 
     public string? AutoResumeMessage {
-        get => _autoResumeMessage;
-        private set => this.RaiseAndSetIfChanged(ref _autoResumeMessage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     // Saves run one at a time and each writes the selection current when it starts, so the last one
@@ -164,18 +157,18 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     }
 
     public bool IsBusy {
-        get => _isBusy;
-        private set { this.RaiseAndSetIfChanged(ref _isBusy, value); Refresh(); }
+        get;
+        private set { this.RaiseAndSetIfChanged(ref field, value); Refresh(); }
     }
 
     public string? Message {
-        get => _message;
-        private set => this.RaiseAndSetIfChanged(ref _message, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? NotificationMessage {
-        get => _notificationMessage;
-        private set => this.RaiseAndSetIfChanged(ref _notificationMessage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool CanManageNotifications => _notificationSettings is not null;
@@ -297,20 +290,20 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
 
     /// The card shows once the service was found installable and stays for the outcome line.
     public bool WindowsServiceVisible {
-        get => _windowsServiceVisible;
-        private set => this.RaiseAndSetIfChanged(ref _windowsServiceVisible, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// A Scheduled Task supervises the daemon and this install carries the Windows service. The app never
     /// interrupts a launch to offer the move, so this is where it is offered.
     public bool WindowsServiceOffered {
-        get => _windowsServiceOffered;
-        private set => this.RaiseAndSetIfChanged(ref _windowsServiceOffered, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? WindowsServiceMessage {
-        get => _windowsServiceMessage;
-        private set => this.RaiseAndSetIfChanged(ref _windowsServiceMessage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     async Task LoadWindowsServiceOfferAsync(Func<CancellationToken, Task<ServiceSnapshot?>> serviceStatus) {

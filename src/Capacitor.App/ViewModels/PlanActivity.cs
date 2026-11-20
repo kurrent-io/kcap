@@ -10,7 +10,6 @@ public sealed class PlanActivity {
     readonly HashSet<string> _writes = new(StringComparer.Ordinal);
     readonly HashSet<string> _publishes = new(StringComparer.Ordinal);
     readonly HashSet<string> _publishedPages = new(StringComparer.Ordinal);
-    bool _sessionOver;
 
     /// Raised once per transcript read that settled a write, however many it settled: a replayed
     /// history is a single server read, not one per task the session ever touched.
@@ -25,10 +24,10 @@ public sealed class PlanActivity {
     public string? FeedKey { get; private set; }
 
     public bool SessionOver {
-        get => _sessionOver;
+        get;
         set {
-            if (_sessionOver == value) return;
-            _sessionOver = value;
+            if (field == value) return;
+            field = value;
             SessionOverChanged?.Invoke();
         }
     }

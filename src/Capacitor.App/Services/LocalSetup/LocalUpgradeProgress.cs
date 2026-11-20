@@ -8,20 +8,18 @@ public sealed class LocalUpgradeProgress : ReactiveObject {
     long _bytes;
     // Between `recovering` and `recovered` the lines are an earlier, interrupted run's.
     bool _recovering;
-    LocalUpgradePhase _phase;
-    double? _downloadFraction;
     string? _from, _to, _switchedTo;
 
     public LocalEmbeddingProgress Embeddings { get; } = new();
 
     public LocalUpgradePhase Phase {
-        get => _phase;
-        private set => this.RaiseAndSetIfChanged(ref _phase, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public double? DownloadFraction {
-        get => _downloadFraction;
-        private set => this.RaiseAndSetIfChanged(ref _downloadFraction, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The stack's version before the upgrade.

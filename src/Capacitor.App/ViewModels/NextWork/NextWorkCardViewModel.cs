@@ -7,8 +7,6 @@ namespace Capacitor.App.ViewModels.NextWork;
 /// ▶ starts an agent on it at once; its menu holds the rest.</summary>
 public sealed class NextWorkCardViewModel : ReactiveObject {
     readonly NextWorkBandViewModel _band;
-    bool _busy;
-    bool _isFilled;
 
     public NextWorkCardViewModel(NextWorkBandViewModel band, NextWorkFocusItem item, bool isNew,
             IReadOnlyDictionary<string, string> repoNames, bool canLaunch) {
@@ -107,14 +105,14 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
 
     /// <summary>While its launch options are being read, for the fill or a start.</summary>
     public bool Busy {
-        get => _busy;
-        internal set => this.RaiseAndSetIfChanged(ref _busy, value);
+        get;
+        internal set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// <summary>This row's goal is the one in the composer.</summary>
     public bool IsFilled {
-        get => _isFilled;
-        internal set => this.RaiseAndSetIfChanged(ref _isFilled, value);
+        get;
+        internal set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public ReactiveCommand<Unit, Unit>   FillCommand    { get; }

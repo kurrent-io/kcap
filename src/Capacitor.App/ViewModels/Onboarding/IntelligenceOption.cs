@@ -7,7 +7,6 @@ namespace Capacitor.App.ViewModels.Onboarding;
 public sealed class IntelligenceOption : ReactiveObject {
     public const string ProviderToken = "provider";
 
-    bool _isSelected;
 
     IntelligenceOption(string token, string label, string detail) {
         Token  = token;
@@ -35,7 +34,7 @@ public sealed class IntelligenceOption : ReactiveObject {
     public bool IsLocalAgent => Token is not ProviderToken and not IntelligenceAnswer.NoneToken;
 
     public bool IsSelected {
-        get => _isSelected;
-        set => this.RaiseAndSetIfChanged(ref _isSelected, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 }

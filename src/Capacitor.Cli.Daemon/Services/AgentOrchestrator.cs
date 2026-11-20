@@ -194,13 +194,12 @@ internal record AgentInstance(
     public ResumeLaunchDescriptor? ResumedFrom { get; init; }
 
     bool _titleComputed;
-    string? _title;
     /// <summary>The status payload's display seed, computed once: the status pulse re-runs for
     /// every agent on every revision.</summary>
     public string? Title {
         get {
-            if (!_titleComputed) { _title = StartTitle?.Text ?? AgentStartTitle.Shorten(Prompt); _titleComputed = true; }
-            return _title;
+            if (!_titleComputed) { field = StartTitle?.Text ?? AgentStartTitle.Shorten(Prompt); _titleComputed = true; }
+            return field;
         }
     }
 

@@ -35,7 +35,6 @@ public sealed class SearchChoiceViewModel : ReactiveObject {
     bool? _builtinOffered;
     long? _builtinBytes;
     bool? _ollamaRunning;
-    string _otherModel = "";
 
     public SearchChoiceViewModel(
             Func<CancellationToken, Task<bool>>? ollamaAvailable = null,
@@ -172,13 +171,13 @@ public sealed class SearchChoiceViewModel : ReactiveObject {
     }
 
     public string OtherModel {
-        get => _otherModel;
+        get;
         set {
-            this.RaiseAndSetIfChanged(ref _otherModel, value ?? "");
+            this.RaiseAndSetIfChanged(ref field, value ?? "");
             this.RaisePropertyChanged(nameof(Valid));
             this.RaisePropertyChanged(nameof(OtherModelError));
         }
-    }
+    } = "";
 
     string Named => OtherModel.Trim();
 

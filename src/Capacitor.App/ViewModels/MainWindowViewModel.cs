@@ -179,13 +179,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     bool _localOnAppServer = true;
     readonly SerialDisposable _rebind = new();
 
-    ISessionWorkspace? _currentWorkspace;
     /// null = the launcher pane shows; non-null = that session's workspace,
     /// local or remote. Exactly one at a time, and this VM owns it: every swap starts the outgoing
     /// one's tracked teardown.
     public ISessionWorkspace? CurrentWorkspace {
-        get => _currentWorkspace;
-        private set => this.RaiseAndSetIfChanged(ref _currentWorkspace, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The session id of the open workspace, null while none is open or its session is unknown.
@@ -305,12 +304,11 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public bool SearchShowsSignIn => SearchSignedOut || Search?.ListState == SearchListState.SignInRequired;
     bool _searchSignedOut;
 
-    string? _startMessage;
     // Cleared on every new start attempt and on Connected; set when a start attempt fails.
     public string? StartMessage {
-        get => _startMessage;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _startMessage, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             _startMessageChanges.OnNext(value);
         }
     }

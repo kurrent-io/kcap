@@ -12,7 +12,6 @@ public sealed class HeldMessageItemViewModel : ReactiveObject, IDisposable {
     readonly ListedHeldMessageDto _message;
     readonly bool _viewerIsOwner;
     readonly BehaviorSubject<bool> _busy = new(false);
-    bool _isBusy;
     bool _disposed;
 
     public Guid DispatchId => _message.DispatchId;
@@ -36,11 +35,11 @@ public sealed class HeldMessageItemViewModel : ReactiveObject, IDisposable {
     };
 
     public bool IsBusy {
-        get => _isBusy;
+        get;
         internal set {
             // A refresh can replace the item while its decision is still in flight.
             if (_disposed) return;
-            this.RaiseAndSetIfChanged(ref _isBusy, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             _busy.OnNext(value);
         }
     }

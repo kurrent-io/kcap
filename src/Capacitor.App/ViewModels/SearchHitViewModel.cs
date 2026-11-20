@@ -7,8 +7,6 @@ using ReactiveUI.Reactive;
 namespace Capacitor.App.ViewModels;
 
 public sealed class SearchHitViewModel : ReactiveObject {
-    bool _isHighlighted;
-    bool _isOpening;
 
     SearchHitViewModel() { }
 
@@ -28,8 +26,8 @@ public sealed class SearchHitViewModel : ReactiveObject {
     public required string WhenText { get; init; }
     public required PinPresentation Presentation { get; init; }
 
-    public bool IsHighlighted { get => _isHighlighted; set => this.RaiseAndSetIfChanged(ref _isHighlighted, value); }
-    public bool IsOpening { get => _isOpening; set => this.RaiseAndSetIfChanged(ref _isOpening, value); }
+    public bool IsHighlighted { get; set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool IsOpening { get; set => this.RaiseAndSetIfChanged(ref field, value); }
 
     public static SearchHitViewModel ForSession(SessionSearchHitDto hit, DateTimeOffset now) {
         var title = SearchSnippet.Parse(hit.Snippet);

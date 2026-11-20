@@ -35,12 +35,11 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     internal bool HasBaseline => _offset.HasValue;
     internal long? Baseline => _offset;
 
-    bool _isUnconfirmed;
     public bool IsUnconfirmed {
-        get => _isUnconfirmed;
+        get;
         private set {
-            if (_isUnconfirmed == value) return;
-            _isUnconfirmed = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(ShowsUnconfirmed));
             this.RaisePropertyChanged(nameof(IsAwaitingPickup));
@@ -49,22 +48,20 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     }
 
     bool? _agentIdle;
-    bool _canSendNow;
-    bool _canDiscard;
     public bool CanDiscard {
-        get => _canDiscard;
+        get;
         private set {
-            if (_canDiscard == value) return;
-            _canDiscard = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
         }
     }
     /// The agent is idle and the channel can take text, so this row can be delivered instead of waiting.
     public bool CanSendNow {
-        get => _canSendNow;
+        get;
         private set {
-            if (_canSendNow == value) return;
-            _canSendNow = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
         }
     }
@@ -110,13 +107,12 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     /// A turn cannot be tied to one send: this only withholds the pickup handling, never acknowledges.
     internal bool TurnSeen { get; set; }
 
-    bool _isNotPickedUp;
     /// The agent sat idle without echoing this row, even after a second Enter.
     public bool IsNotPickedUp {
-        get => _isNotPickedUp;
+        get;
         private set {
-            if (_isNotPickedUp == value) return;
-            _isNotPickedUp = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(PickupNote));
         }

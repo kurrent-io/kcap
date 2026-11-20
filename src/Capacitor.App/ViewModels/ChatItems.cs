@@ -277,8 +277,6 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
 
     string? _filePath;
     Action<string>? _openFile;
-    bool _isConfirmingOpen;
-    bool _fileMissing;
 
     /// The file the detail names, set only where it lives on this machine.
     public string? FilePath => _filePath;
@@ -286,13 +284,13 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
 
     /// The warning strip is up: nothing opens until it is confirmed.
     public bool IsConfirmingOpen {
-        get => _isConfirmingOpen;
-        private set => this.RaiseAndSetIfChanged(ref _isConfirmingOpen, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool FileMissing {
-        get => _fileMissing;
-        private set => this.RaiseAndSetIfChanged(ref _fileMissing, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public void EnableOpenFile(string path, Action<string> open) {
@@ -436,12 +434,11 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     /// pulsing status pill so a live row is never blank.
     public bool IsRunning => _outcome == ToolOutcome.Running && !_isAwaitingPermission && !_sessionOver;
 
-    string? _previewPath;
     public string? PreviewPath {
-        get => _previewPath;
+        get;
         set {
-            if (_previewPath == value) return;
-            _previewPath = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(HasPreview));
         }
@@ -482,8 +479,7 @@ public sealed class ToolGroupItem : ChatItemViewModel, IExpandableItem {
 
     public ReactiveCommand<Unit, Unit> ToggleCommand { get; }
 
-    string _summary = "";
-    public string Summary { get => _summary; private set => this.RaiseAndSetIfChanged(ref _summary, value); }
+    public string Summary { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
     bool _hasSummary;
     public bool HasSummary { get => _hasSummary; private set => this.RaiseAndSetIfChanged(ref _hasSummary, value); }
@@ -513,19 +509,17 @@ public sealed class ToolGroupItem : ChatItemViewModel, IExpandableItem {
     bool _hasFailure;
     public bool HasFailure { get => _hasFailure; private set => this.RaiseAndSetIfChanged(ref _hasFailure, value); }
 
-    bool _packsWithCard;
     /// A live card answering this group sits in the next row; the view drops the paragraph gap
     /// so the two read as one block.
     public bool PacksWithCard {
-        get => _packsWithCard;
-        set => this.RaiseAndSetIfChanged(ref _packsWithCard, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    bool _suppressedForPendingQuestion;
     /// While a question prompt is open, the centered card owns the turn — hide this system bubble.
     public bool SuppressedForPendingQuestion {
-        get => _suppressedForPendingQuestion;
-        set => this.RaiseAndSetIfChanged(ref _suppressedForPendingQuestion, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public ToolGroupItem() {

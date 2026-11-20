@@ -10,7 +10,6 @@ namespace Capacitor.App.Services;
 public sealed class ExperimentalSwitch(ExperimentalSettingsStore store, string? profile, ExperimentalFeature feature) {
     readonly Lock _lock = new();
     (bool Exists, DateTime Written, long Length)? _fingerprint;
-    bool _on;
 
     /// Signals each <paramref name="mayChange"/> on which <paramref name="read"/> differs from
     /// <paramref name="shown"/>, the switch as its consumer last applied it. Comparing with an earlier
@@ -29,10 +28,10 @@ public sealed class ExperimentalSwitch(ExperimentalSettingsStore store, string? 
             var file = new FileInfo(store.Path);
             var fingerprint = file.Exists ? (true, file.LastWriteTimeUtc, file.Length) : (false, default(DateTime), 0L);
             lock (_lock) {
-                if (fingerprint == _fingerprint) return _on;
-                _on = store.Load(profile).IsOn(feature);
+                if (fingerprint == _fingerprint) return field;
+                field = store.Load(profile).IsOn(feature);
                 _fingerprint = fingerprint;
-                return _on;
+                return field;
             }
         }
     }

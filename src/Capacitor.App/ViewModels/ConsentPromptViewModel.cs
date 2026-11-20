@@ -93,37 +93,32 @@ public sealed class ConsentPromptViewModel : ReactiveObject, IActivatableViewMod
     /// ViewModel owns no window.
     public IObservable<Unit> CloseRequested => _closeRequested.AsObservable();
 
-    PendingConsent? _current;
     /// The pinned request — the ONLY thing rendered. Null when the queue is empty.
     public PendingConsent? Current {
-        get => _current;
-        private set => this.RaiseAndSetIfChanged(ref _current, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    ConsentPromptPhase _phase;
     public ConsentPromptPhase Phase {
-        get => _phase;
-        private set => this.RaiseAndSetIfChanged(ref _phase, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string? _phaseText;
     /// Terminal-state line: "Already decided" with its rule-side-effect disclosure, or a
     /// rule-not-saved warning being held on screen. Null while the request is still answerable.
     public string? PhaseText {
-        get => _phaseText;
-        private set => this.RaiseAndSetIfChanged(ref _phaseText, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string _positionText = "";
     public string PositionText {
-        get => _positionText;
-        private set => this.RaiseAndSetIfChanged(ref _positionText, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
-    bool _positionVisible;
     public bool PositionVisible {
-        get => _positionVisible;
-        private set => this.RaiseAndSetIfChanged(ref _positionVisible, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     readonly ObservableAsPropertyHelper<string> _requesterText;
