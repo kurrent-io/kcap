@@ -1904,7 +1904,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // cannot acquire dispatches from the history this read is already replaying.
         var candidates = CaptureReceiptCandidates();
         if (!Prepare(generation, read)) return;
-        _feedLines += read.Lines.Count + read.Older.Count;
+        // A Reset replaces the rows on screen, so its lines replace the count.
+        _feedLines = (read.Status == FeedStatus.Reset ? 0 : _feedLines) + read.Lines.Count + read.Older.Count;
         if (read.Older.Count > 0) {
             var history = new HashSet<(long Offset, string Text)>(_literalInputHistory);
             var older = await Task.Run(() => ProjectLines(read with { Lines = read.Older }, LineCursor.Empty(), matchSends: false, history));
