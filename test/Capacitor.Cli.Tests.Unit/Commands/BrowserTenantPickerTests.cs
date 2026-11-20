@@ -23,7 +23,7 @@ public class BrowserTenantPickerTests {
     static readonly DiscoveredTenant[] Two = [WorkOS("org_a", "acme"), WorkOS("org_b", "globex")];
 
     sealed class StubProxy : IAuthProxyClient {
-        public CliPickerPrepareResponse? Prepared { get; set; }
+        public CliPickerPrepareResponse? Prepared { get; init; }
         public Queue<CliPickerResultResponse?> Polls { get; } = new();
         public int Abandons { get; private set; }
         public string? PreparedWithBearer { get; private set; }

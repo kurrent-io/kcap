@@ -6,7 +6,6 @@ namespace Capacitor.App.Services.LocalSetup;
 /// afterwards by <see cref="LocalInstallOutcome.Settle"/>. Unknown events are ignored.
 public sealed class LocalSetupProgress(LocalEmbeddingChoice? embeddings = null) : ReactiveObject {
     long _bytes;
-    double? _downloadFraction;
     bool _recovering, _rollingBack, _reused, _sawSuccess, _sawRecovery, _serviceDeclined, _serviceUnavailable;
     string? _serverUrl, _failedCode, _failedMessage;
 
@@ -18,8 +17,8 @@ public sealed class LocalSetupProgress(LocalEmbeddingChoice? embeddings = null) 
     public LocalEmbeddingProgress Embeddings { get; } = new(embeddings);
 
     public double? DownloadFraction {
-        get => _downloadFraction;
-        private set => this.RaiseAndSetIfChanged(ref _downloadFraction, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Recovering {

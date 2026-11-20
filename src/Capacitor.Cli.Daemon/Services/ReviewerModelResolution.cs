@@ -88,7 +88,7 @@ internal static class ReviewerModelSyntax {
         if (string.IsNullOrWhiteSpace(requestedModel)) return false;
 
         var trimmed = requestedModel.Trim();
-        if (trimmed.Length == 0 || trimmed.Length > MaxLength) return false;
+        if (trimmed.Length is 0 or > MaxLength) return false;
 
         foreach (var c in trimmed)
             if (char.IsWhiteSpace(c) || char.IsControl(c)) return false;
@@ -168,5 +168,5 @@ internal static class ReviewerModelResolvers {
     /// resolver can't leak an anchorless accept: it is treated as a non-recognition (demoted to
     /// unavailable) both for the selected vendor and for cross-vendor recognition.</summary>
     static bool IsAnchoredAccept(ReviewerModelResolution r) =>
-        r.Disposition == ReviewerModelDisposition.Accept && r.EquivalenceKey is not null;
+        r is { Disposition: ReviewerModelDisposition.Accept, EquivalenceKey: not null };
 }

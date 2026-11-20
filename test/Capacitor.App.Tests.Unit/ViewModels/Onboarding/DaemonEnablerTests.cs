@@ -79,7 +79,7 @@ public class DaemonEnablerTests {
         public readonly DaemonEnabler Vm;
 
         public (string Profile, string Server, string DaemonName)? Identity = (Profile, RawServer, DaemonName);
-        public (string Profile, string Server, string DaemonName) UnderConfigLock = (Profile, RawServer, DaemonName);
+        readonly (string Profile, string Server, string DaemonName) UnderConfigLock = (Profile, RawServer, DaemonName);
         public string? TerminalPath = "/usr/bin:/bin";
         public Func<CancellationToken, Task<string?>> Pick = _ => Task.FromResult<string?>(null);
         public int PickCalls;
@@ -97,7 +97,7 @@ public class DaemonEnablerTests {
                 });
         }
 
-        public ConfigRoot Root => _config.Root;
+        ConfigRoot Root => _config.Root;
 
         public string? SavedName() =>
             File.Exists(AppConfig.GetConfigPath(Root))

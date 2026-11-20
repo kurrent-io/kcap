@@ -40,7 +40,6 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
     ServerLaneState? _lane;
     LocalUpgradeOutcome? _shown;
     string? _searchWarning;
-    string? _startMessage;
     int _starting;
     readonly ObservableAsPropertyHelper<bool> _isStarting;
 
@@ -236,8 +235,8 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
 
     /// Why the last Start failed, without its terminal advice; null once a start succeeds or a new one begins.
     public string? StartMessage {
-        get => _startMessage;
-        private set => this.RaiseAndSetIfChanged(ref _startMessage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public ReactiveCommand<Unit, Unit> StartCommand { get; }

@@ -407,7 +407,7 @@ public sealed class CodexRolloutEvents : ITranscriptProjection {
     static ProjectionResult Compacted(JsonElement? payload, Record rec) {
         var     history   = payload?.Prop("replacement_history");
         string? encrypted = null;
-        if (history is { } entries && entries.IsArray) {
+        if (history is { IsArray: true } entries) {
             foreach (var entry in entries.EnumerateArray()) {
                 if (entry.Str("type") == "compaction" && entry.Str("encrypted_content") is { } enc) {
                     encrypted = enc;

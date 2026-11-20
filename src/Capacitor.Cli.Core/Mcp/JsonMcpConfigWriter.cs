@@ -115,7 +115,7 @@ public static class JsonMcpConfigWriter {
 
             var matches = key switch {
                 "command" when shape.CommandAsArgvArray =>
-                    value is JsonArray argv && argv.Count > 0 && IsKcapCommand(argv[0]) && IsServerArgs(argv.Skip(1), s),
+                    value is JsonArray { Count: > 0 } argv && IsKcapCommand(argv[0]) && IsServerArgs(argv.Skip(1), s),
                 "command" => IsKcapCommand(value),
                 "args" when !shape.CommandAsArgvArray => value is JsonArray args && IsServerArgs(args, s),
                 _ => JsonNode.DeepEquals(value, rendered[key]),

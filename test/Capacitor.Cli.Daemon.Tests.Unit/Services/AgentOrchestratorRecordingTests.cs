@@ -85,7 +85,7 @@ public class AgentOrchestratorRecordingTests {
 
         public RecorderClaims Claims => new(WatcherPaths.FromEnvironment(Config.ConfigRoot).Directory, TimeProvider.System);
 
-        public string ClaimsDirectory => WatcherPaths.FromEnvironment(Config.ConfigRoot).Directory;
+        string ClaimsDirectory => WatcherPaths.FromEnvironment(Config.ConfigRoot).Directory;
 
         const string LeftSession = "fedcba9876543210fedcba9876543210";
 

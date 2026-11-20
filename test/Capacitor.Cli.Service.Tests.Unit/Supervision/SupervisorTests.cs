@@ -11,7 +11,7 @@ public class SupervisorTests {
     const string Bob   = "S-1-5-21-1-1002";
 
     sealed class ListLog : IServiceLog {
-        public readonly List<string> Lines = [];
+        readonly List<string> Lines = [];
         public void Write(string line) { lock (Lines) Lines.Add(line); }
     }
 

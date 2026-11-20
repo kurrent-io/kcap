@@ -12,7 +12,6 @@ namespace Capacitor.App.Services;
 public sealed class PendingPermissionRequest {
     string? _serverRequestId;
     string _agentId;
-    bool _subscriptionLost;
 
     internal PendingPermissionRequest(PermissionPendingDto dto) {
         Lane = PermissionLane.Local;
@@ -28,7 +27,7 @@ public sealed class PendingPermissionRequest {
         ToolInputOmitted = dto.ToolInputOmitted;
         ToolUseId = dto.ToolUseId;
         RequestedAt = ParseTime(dto.RequestedAt);
-        Questions = dto.Vendor == "claude" && dto.ToolName == ClaudeElicitation.ToolName && !dto.ToolInputOmitted
+        Questions = dto is { Vendor: "claude", ToolName: ClaudeElicitation.ToolName, ToolInputOmitted: false }
             ? ClaudeElicitation.TryParse(ToolInputJson) : null;
         _serverRequestId = dto.ServerRequestId;
     }
@@ -92,7 +91,7 @@ public sealed class PendingPermissionRequest {
     public string Vendor { get; }
     public bool CanAllowOnce { get; }
     public bool CanAllowAlways { get; }
-    internal bool SubscriptionLost { get => Volatile.Read(ref _subscriptionLost); set => Volatile.Write(ref _subscriptionLost, value); }
+    internal bool SubscriptionLost { get => Volatile.Read(ref field); set => Volatile.Write(ref field, value); }
     public string ToolName { get; }
     public string? ToolInputJson { get; }
     public bool ToolInputOmitted { get; }

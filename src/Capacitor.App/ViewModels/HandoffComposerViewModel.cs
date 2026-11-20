@@ -303,13 +303,12 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
     public ReactiveCommand<Unit, Unit> OpenStripCommand { get; }
     public ReactiveCommand<Unit, Unit> CloseStripCommand { get; }
 
-    bool _resumeOffered;
     /// Every check passed, so a click would resume: Resume is never shown to fail as the normal path.
     public bool ResumeOffered {
-        get => _resumeOffered;
+        get;
         private set {
-            if (_resumeOffered == value) return;
-            this.RaiseAndSetIfChanged(ref _resumeOffered, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             RaiseStrip();
         }
     }
@@ -350,27 +349,24 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
         ? "What should this session do next? Resume carries on here; Hand off starts a new session."
         : "What should the new session do next?";
 
-    bool _isResuming;
     /// A resume was accepted and is being judged; the view turns live on success, the draft comes back on failure.
     public bool IsResuming {
-        get => _isResuming;
-        private set => this.RaiseAndSetIfChanged(ref _isResuming, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string _text = "";
     public string Text {
-        get => _text;
-        set => this.RaiseAndSetIfChanged(ref _text, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
-    string _stripLabel = "";
     public string StripLabel {
-        get => _stripLabel;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _stripLabel, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(StripSummary));
         }
-    }
+    } = "";
 
     public string StripSummary {
         get {
@@ -378,7 +374,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
                 return StripLabel.Length > 0 ? "Starting point will be checked with origin when you start." : "";
             var sha = start.StartSha.Length > 7 ? start.StartSha[..7] : start.StartSha;
             var branch = start.Branch;
-            if (branch is not null && start.HeadIsFork && start.HeadOwner is { } owner)
+            if (branch is not null && start is { HeadIsFork: true, HeadOwner: { } owner })
                 branch = $"{owner}:{branch}";
             var summary = branch is { Length: > 0 } ? $"Starting from {branch} at {sha}" : $"Starting at {sha}";
             return start.Checkout == nameof(HandoffCheckout.Detached)
@@ -386,11 +382,10 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
         }
     }
 
-    string? _completenessNote;
     public string? CompletenessNote {
-        get => _completenessNote;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _completenessNote, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(WorkMissingOrUnconfirmed));
         }
     }
@@ -398,57 +393,50 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
     /// Only Complete may read as all there, and this slice never reaches it.
     public bool WorkMissingOrUnconfirmed => CompletenessNote is not null;
 
-    string? _disabledReason;
     public string? DisabledReason {
-        get => _disabledReason;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _disabledReason, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(StripNotice));
             this.RaisePropertyChanged(nameof(StartVisible));
         }
     }
 
-    string? _progress;
     /// What the composer is waiting on while Start cannot run yet and nothing is wrong.
     public string? Progress {
-        get => _progress;
-        private set => this.RaiseAndSetIfChanged(ref _progress, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    bool _isProbing;
     public bool IsProbing {
-        get => _isProbing;
-        private set => this.RaiseAndSetIfChanged(ref _isProbing, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string? _error;
     /// What went wrong with the last launch or intake; shown beside DisabledReason, never instead of it.
     public string? Error {
-        get => _error;
-        private set => this.RaiseAndSetIfChanged(ref _error, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    HandoffLaunchStart? _probedStart;
     /// The start the strip shows, which a launch sends unchanged.
     public HandoffLaunchStart? ProbedStart {
-        get => _probedStart;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _probedStart, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(StripSummary));
         }
     }
 
-    bool _startsFromOrigin;
     /// Nothing on this machine names the start, so Start asks origin and launches from its answer.
     public bool StartsFromOrigin {
-        get => _startsFromOrigin;
-        private set => this.RaiseAndSetIfChanged(ref _startsFromOrigin, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    bool _isLaunching;
     public bool IsLaunching {
-        get => _isLaunching;
-        private set => this.RaiseAndSetIfChanged(ref _isLaunching, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Takes back what an earlier composer of this session left unsent, then a draft a failed launch

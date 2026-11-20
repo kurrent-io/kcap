@@ -737,7 +737,7 @@ public class HarnessesStepViewModelTests {
             Dispatcher.UIThread.RunJobs();
 
             var labels = window.GetVisualDescendants().OfType<TextBlock>().Count(t => t.Name == "HarnessLabelText");
-            var tools  = window.GetVisualDescendants().OfType<CheckBox>().Count(c => c.Name == "ToolsCheckBox" && c.IsVisible);
+            var tools  = window.GetVisualDescendants().OfType<CheckBox>().Count(c => c is { Name: "ToolsCheckBox", IsVisible: true });
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -773,7 +773,7 @@ public class HarnessesStepViewModelTests {
                 if (Environment.GetEnvironmentVariable("KCAP_ONBOARDING_PREVIEW") is { Length: > 0 } preview)
                     bitmap!.Save(preview, Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
                 foreach (var check in window.GetVisualDescendants().OfType<CheckBox>()
-                             .Where(c => c.IsVisible && c.Name is "RecordCheckBox" or "ToolsCheckBox")) {
+                             .Where(c => c is { IsVisible: true, Name: "RecordCheckBox" or "ToolsCheckBox" })) {
                     var column = check.Name == "RecordCheckBox" ? "RECORD" : "TOOLS";
                     var heading = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == column);
                     var headingCenter = heading.TranslatePoint(new Point(heading.Bounds.Width / 2, 0), window)!.Value.X;
@@ -788,7 +788,7 @@ public class HarnessesStepViewModelTests {
                     await Assert.That(Math.Abs(center.Y - rowCenter) <= 0.5).IsTrue();
                     await Assert.That(Math.Abs(center.X - headingCenter) <= 0.5).IsTrue();
                 }
-                foreach (var bundled in window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsVisible && t.Text == "BUNDLED")) {
+                foreach (var bundled in window.GetVisualDescendants().OfType<TextBlock>().Where(t => t is { IsVisible: true, Text: "BUNDLED" })) {
                     var row = bundled.GetVisualAncestors().OfType<Grid>().First();
                     var center = bundled.TranslatePoint(new Point(0, bundled.Bounds.Height / 2), row)!.Value.Y;
                     await Assert.That(Math.Abs(center - row.Bounds.Height / 2) <= 0.5).IsTrue();

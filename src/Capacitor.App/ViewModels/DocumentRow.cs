@@ -24,8 +24,7 @@ public sealed class DocumentRow(string kind, string title, string path, string s
     public string StateChip => ContentState == "ok" ? "" : ContentState;
     public bool HasStateChip => ContentState != "ok";
 
-    bool _isSelected;
-    public bool IsSelected { get => _isSelected; internal set => this.RaiseAndSetIfChanged(ref _isSelected, value); }
+    public bool IsSelected { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
 
     public static DocumentRow From(PlanArtifactDto dto) => new(
         dto.Kind, dto.Title, dto.Path ?? dto.Title, dto.Source, dto.ContentState, dto.Content,

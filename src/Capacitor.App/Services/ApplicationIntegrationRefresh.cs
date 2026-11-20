@@ -61,7 +61,7 @@ internal sealed class ApplicationIntegrationRefresh(ConfigRoot config, IProcessR
             new RunOptions(EnvOverlay: new Dictionary<string, string> { [ConfigRoot.ConfigDirEnvVar] = config.Directory },
                 Timeout: RefreshTimeout, CancelMode: CancelMode.KillTree), ct);
         ct.ThrowIfCancellationRequested();
-        if (!result.TimedOut && result.ExitCode == 0 && names) File.Delete(pending);
+        if (result is { TimedOut: false, ExitCode: 0 } && names) File.Delete(pending);
         return result;
     }
 }

@@ -38,8 +38,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         "Couldn't reconnect. If the daemon isn't running, press Start daemon.";
 
     internal static bool IsInFlightReconnectMessage(string? message) =>
-        message == ReconnectingMessage
-        || message == DaemonLifecycleController.AlreadyRunningReconnectStatus;
+        message is ReconnectingMessage or DaemonLifecycleController.AlreadyRunningReconnectStatus;
 
     static readonly IBrush ConnectedBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.Connected));
     static readonly IBrush InProgressBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.InProgress));
@@ -180,13 +179,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     bool _localOnAppServer = true;
     readonly SerialDisposable _rebind = new();
 
-    ISessionWorkspace? _currentWorkspace;
     /// null = the launcher pane shows; non-null = that session's workspace,
     /// local or remote. Exactly one at a time, and this VM owns it: every swap starts the outgoing
     /// one's tracked teardown.
     public ISessionWorkspace? CurrentWorkspace {
-        get => _currentWorkspace;
-        private set => this.RaiseAndSetIfChanged(ref _currentWorkspace, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The session id of the open workspace, null while none is open or its session is unknown.
@@ -306,12 +304,11 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public bool SearchShowsSignIn => SearchSignedOut || Search?.ListState == SearchListState.SignInRequired;
     bool _searchSignedOut;
 
-    string? _startMessage;
     // Cleared on every new start attempt and on Connected; set when a start attempt fails.
     public string? StartMessage {
-        get => _startMessage;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _startMessage, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             _startMessageChanges.OnNext(value);
         }
     }
@@ -424,13 +421,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         // in that gap reads as a failure the user must fix.
         var canStart = service.Status
             .CombineLatest(movingToWindowsService ?? Observable.Return(false),
-                (s, moving) => s.State == AttachState.Unreachable && s.Reason == UnreachableReason && !moving)
+                (s, moving) => s is { State: AttachState.Unreachable, Reason: UnreachableReason } && !moving)
             .ObserveOn(RxSchedulers.MainThreadScheduler);
         var canRetry = service.Status
             .Select(s =>
                 s.State == AttachState.Connecting
-                || (s.State == AttachState.Unreachable
-                    && s.Reason is not (UnreachableReason or ExpectedDaemonRestart.Reason or ExpectedDaemonRestart.StartingReason)))
+                || (s is { State: AttachState.Unreachable, Reason: not (UnreachableReason or ExpectedDaemonRestart.Reason or ExpectedDaemonRestart.StartingReason) }))
             .ObserveOn(RxSchedulers.MainThreadScheduler);
 
         var start = startAction ?? RunStartAsync;

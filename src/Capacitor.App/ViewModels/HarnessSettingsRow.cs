@@ -9,15 +9,10 @@ namespace Capacitor.App.ViewModels;
 /// One coding tool as Settings shows it. What kcap set up for it is the computer's, not a profile's:
 /// the hooks it installs carry no profile, and each session picks one when it starts.
 public sealed class HarnessSettingsRow : ReactiveObject {
-    string? _message;
-    string? _errorTitle;
-    string? _details;
-    bool _isWarning;
     bool? _wired;
     bool _tools;
     bool _setupUnverified;
     bool _untrusted;
-    int? _earlierChats;
     int _importLookup;
 
     internal HarnessSettingsRow(HarnessIdentity identity, DetectedAgent detected, bool? wired, bool tools, bool setupUnverified = false,
@@ -122,20 +117,20 @@ public sealed class HarnessSettingsRow : ReactiveObject {
         this.RaisePropertyChanged(nameof(ConnectionTip));
     }
 
-    public string? Message { get => _message; private set => this.RaiseAndSetIfChanged(ref _message, value); }
+    public string? Message { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// Set when Message reports a failure, which then reads as that failure's detail.
-    public string? ErrorTitle { get => _errorTitle; private set => this.RaiseAndSetIfChanged(ref _errorTitle, value); }
+    public string? ErrorTitle { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// The command line's own output, kept behind Show details: it names files and errors a reader rarely needs.
-    public string? Details { get => _details; private set => this.RaiseAndSetIfChanged(ref _details, value); }
+    public string? Details { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// The callout reports a change that finished with warnings rather than one that failed.
-    public bool IsWarning { get => _isWarning; private set => this.RaiseAndSetIfChanged(ref _isWarning, value); }
+    public bool IsWarning { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// Sessions this tool wrote before recording was turned on, which the row offers to import; null when it offers none.
     public int? EarlierChats {
-        get => _earlierChats;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _earlierChats, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(OffersImport));
             this.RaisePropertyChanged(nameof(ImportOffer));
         }

@@ -21,7 +21,7 @@ public class OneExecutionDomainProcessorTests {
     static readonly TimeSpan Bounded = TimeSpan.FromSeconds(30);
 
     sealed class CapturingLogger : ILogger {
-        public readonly ConcurrentQueue<(LogLevel Level, string Message)> Entries = new();
+        readonly ConcurrentQueue<(LogLevel Level, string Message)> Entries = new();
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
         public void Log<TState>(LogLevel level, EventId id, TState state, Exception? ex,
@@ -35,7 +35,7 @@ public class OneExecutionDomainProcessorTests {
         public readonly List<CommandAck> Acks = [];
         public readonly List<CommandRejected> Rejects = [];
         public readonly ConcurrentQueue<string> ExecOrder = new();
-        public readonly HashSet<string> KnownTargets = new(StringComparer.Ordinal);
+        readonly HashSet<string> KnownTargets = new(StringComparer.Ordinal);
         public readonly CapturingLogger Logger = new();
         public readonly FakeTimeProvider Time = new();
 
@@ -680,7 +680,7 @@ public class OneExecutionDomainProcessorTests {
         // The accepted sequenced item got its terminal answer, exactly once, and its done-task completed.
         await Assert.That(seqDone.IsCompleted).IsTrue();
         await Assert.That(seqDone.IsFaulted).IsFalse();
-        await Assert.That(h.Rejects.Count(r => r.Seq == 1 && r.Reason == CommandRejectedReason.InternalError)).IsEqualTo(1);
+        await Assert.That(h.Rejects.Count(r => r is { Seq: 1, Reason: CommandRejectedReason.InternalError })).IsEqualTo(1);
         await Assert.That(p.LastProcessedSeq).IsEqualTo(1L);
 
         // The un-seq'd stop was DISCARDED, not executed, and the counter returned to zero.

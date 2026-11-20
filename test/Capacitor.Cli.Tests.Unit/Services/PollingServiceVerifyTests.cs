@@ -23,7 +23,7 @@ public class PollingServiceVerifyTests {
         public int? JobPidOnStart = DaemonPid;
         public bool OldRegistered;
         public bool OldRunning;
-        public int? OldJobPid = OldDaemonPid;
+        readonly int? OldJobPid = OldDaemonPid;
         public bool OldUninstallFails;
         public bool InstallEndsOldDaemon;
         public bool InstallEndsReplacedDaemon { get; init; }

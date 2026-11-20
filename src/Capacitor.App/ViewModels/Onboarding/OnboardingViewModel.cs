@@ -43,14 +43,14 @@ public sealed class OnboardingViewModel : ReactiveObject {
     readonly bool[] _visited;
     readonly Func<IWizardStep, bool> _counted;
 
-    IWizardStep? _current;
     public IWizardStep Current {
-        get => _current!;
+        // ReSharper disable once RedundantAccessorBody — with `get;` the backing field is non-nullable and `ref field` below fails CS8601
+        get => field!;
         private set {
-            if (_current is not null) _current.AdvanceRequested -= OnAdvanceRequested;
-            if (_current is INotifyPropertyChanged leaving) leaving.PropertyChanged -= OnCurrentChanged;
+            if (field is not null) field.AdvanceRequested -= OnAdvanceRequested;
+            if (field is INotifyPropertyChanged leaving) leaving.PropertyChanged -= OnCurrentChanged;
             _advancePending = false;
-            this.RaiseAndSetIfChanged(ref _current, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             if (value is INotifyPropertyChanged entering) entering.PropertyChanged += OnCurrentChanged;
             value.AdvanceRequested += OnAdvanceRequested;
             this.RaisePropertyChanged(nameof(Eyebrow));

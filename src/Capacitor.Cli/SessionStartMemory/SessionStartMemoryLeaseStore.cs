@@ -51,9 +51,9 @@ internal sealed partial class SessionStartMemoryLeaseStore {
                 // tombstone. This makes the documented 30-day guarantee a lower bound even
                 // when the opportunistic sweep is delayed by its 15-minute cadence.
                 if (current.State == "completed") return null;
-                if (current.State == "retry_pending" && current.NextAttemptAt is { } next && now < next)
+                if (current is { State: "retry_pending", NextAttemptAt: { } next } && now < next)
                     return null;
-                if (current.State == "leased" && current.LeaseExpiresAt is { } expiry && now < expiry)
+                if (current is { State: "leased", LeaseExpiresAt: { } expiry } && now < expiry)
                     return null;
             }
 
@@ -326,9 +326,9 @@ internal sealed partial class SessionStartMemoryLeaseStore {
     }
 
     static bool IsSweepExpired(SessionStartMemoryStoreRecord value, DateTimeOffset now) =>
-        value.State == "completed" && value.CompletedAt is { } completed &&
+        value is { State: "completed", CompletedAt: { } completed } &&
         now - completed >= SessionStartMemoryConstants.Retention ||
-        value.State == "retry_pending" && value.NextAttemptAt is { } retry &&
+        value is { State: "retry_pending", NextAttemptAt: { } retry } &&
         now - retry >= SessionStartMemoryConstants.Retention;
 
     static TimeSpan Backoff(long attempt) => attempt switch {

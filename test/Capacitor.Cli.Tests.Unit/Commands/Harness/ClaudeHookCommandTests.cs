@@ -2720,7 +2720,7 @@ public class ClaudeHookCommandTests {
     sealed class Fixture : IDisposable {
         readonly TempHome      _home = new();
         readonly string         _tmpHome;
-        public   ConfigRoot     Config      { get; }
+        ConfigRoot     Config      { get; }
         readonly string         _spoolPath;
         public   List<string>   Sent        { get; } = [];
         public   List<string>   RouteOrder  { get; } = [];
@@ -2728,7 +2728,7 @@ public class ClaudeHookCommandTests {
         public   HttpClient     Client      { get; }
         public   TimeSpan       HoldOnPost  { get; set; } = TimeSpan.Zero;
         public   string?        RespondJson { get; set; }
-        public   bool           PassNoticesCapable { get; set; }
+        public   bool           PassNoticesCapable { get; init; }
         public   HttpStatusCode PostStatus  { get; set; }
         HookClock?              _clock;
 
@@ -2746,16 +2746,16 @@ public class ClaudeHookCommandTests {
         public HttpStatusCode MemoryIndexStatus { get; set; } = HttpStatusCode.OK;
         public TimeSpan       MemoryIndexDelay  { get; set; } = TimeSpan.Zero;
 
-        public string FlowDefinitionsBody { get; set; } = """{"definitions":[]}""";
+        public string FlowDefinitionsBody { get; init; } = """{"definitions":[]}""";
 
         /// <summary>What the daemon exported into the session, as the hook reads it.</summary>
-        public HostedAgent Hosted { get; set; } = HostedAgent.Terminal;
+        public HostedAgent Hosted { get; init; } = HostedAgent.Terminal;
 
         /// <summary>Watches watcher spawns instead of launching them, when a test sets it.</summary>
-        public FakeWatcherSpawner? Spawner { get; set; }
+        public FakeWatcherSpawner? Spawner { get; init; }
 
         /// <summary>The Claude process a SessionEnd reports; none unless a test names one.</summary>
-        public ProcessIncarnation? EndingProcess { get; set; }
+        public ProcessIncarnation? EndingProcess { get; init; }
 
         /// <summary>The environment Claude Code ran the hook in. Empty by default, so the test host's own
         /// <c>CLAUDE_CODE_ENTRYPOINT</c> never reaches the hook.</summary>

@@ -326,7 +326,7 @@ sealed class SkillsSyncRun(
             _rows.Relocate(recovery.From, recovery.Row);
             _dirty = true;
 
-            if (recovery.Outcome == SkillRecoveryOutcome.Landed && recovery.Row.State == OwnedSkillState.Published)
+            if (recovery is { Outcome: SkillRecoveryOutcome.Landed, Row.State: OwnedSkillState.Published })
                 SkillsOwnership.Complete(_rows, At(recovery.Row), recovery.Row.Confirmed!);
         }
     }
@@ -500,15 +500,18 @@ sealed class SkillsSyncRun(
     /// named. A settled row is not one — it holds no claim at all.</summary>
     bool Eligible() =>
         _heldBack.Count == 0
-        && _ledger.Etag is { Length: > 0 }
-        && _ledger.Identity is not null && Equals(_ledger.Identity, identity)
+        && _ledger is { Etag.Length: > 0, Identity: not null } && Equals(_ledger.Identity, identity)
         && _rows.Live.All(row => row.Origin != SkillOrigin.Repository
                                  || row.State == OwnedSkillState.Settled
                                  || Satisfies(row));
 
     bool Satisfies(OwnedSkillRow row) =>
-        row is { State: OwnedSkillState.Published, Prepared: null, Confirmed: { } confirmed }
-        && row.Anchor is { } recorded
+        row is {
+            State: OwnedSkillState.Published,
+            Prepared: null,
+            Confirmed: { } confirmed,
+            Anchor: { } recorded
+        }
         && PathComparison.Equal(CanonicalPath.Resolve(recorded), CanonicalPath.Resolve(anchor))
         && PathComparison.Equal(
                CanonicalPath.Resolve(row.Path),

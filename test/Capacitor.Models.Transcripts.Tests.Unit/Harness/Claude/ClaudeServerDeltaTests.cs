@@ -42,7 +42,7 @@ public class ClaudeServerDeltaTests {
     }
 
     static string Boundary(string metadata, bool sidechain = false) =>
-        $$$"""{"parentUuid":null,"logicalParentUuid":"{{{Parent}}}","isSidechain":{{{(sidechain ? "true" : "false")}}},"type":"system","subtype":"compact_boundary","content":"Conversation compacted","isMeta":false,"timestamp":"2026-02-16T19:05:54.853Z","uuid":"{{{Record}}}","level":"info","compactMetadata":""" + metadata + "}";
+        $$"""{"parentUuid":null,"logicalParentUuid":"{{Parent}}","isSidechain":{{(sidechain ? "true" : "false")}},"type":"system","subtype":"compact_boundary","content":"Conversation compacted","isMeta":false,"timestamp":"2026-02-16T19:05:54.853Z","uuid":"{{Record}}","level":"info","compactMetadata":""" + metadata + "}";
 
     [Test]
     public async Task A_compaction_boundary_is_a_compaction_on_the_record_id_with_its_counts() {
@@ -139,7 +139,7 @@ public class ClaudeServerDeltaTests {
         const string meta    = "a1b2c3d4-0000-4000-8000-0000000000b2";
         var ctx = Ctx();
         E(Prompt(Cancelled, Parent), ctx);
-        E($$$"""{"type":"system","subtype":"informational","uuid":"{{{between}}}","parentUuid":"{{{Cancelled}}}","content":"x"}""", ctx);
+        E($$"""{"type":"system","subtype":"informational","uuid":"{{between}}","parentUuid":"{{Cancelled}}","content":"x"}""", ctx);
         E(Prompt(meta, between, meta: true), ctx);
         E(Answer(meta), ctx);
         E(Prompt(Cancelled, Parent), ctx);
@@ -153,7 +153,7 @@ public class ClaudeServerDeltaTests {
         const string between = "a1b2c3d4-0000-4000-8000-0000000000b1";
         var ctx = Ctx();
         E(Prompt(Cancelled, Parent), ctx);
-        E($$$"""{"type":"system","subtype":"informational","uuid":"{{{between}}}","parentUuid":"{{{Cancelled}}}","content":"x"}""", ctx);
+        E($$"""{"type":"system","subtype":"informational","uuid":"{{between}}","parentUuid":"{{Cancelled}}","content":"x"}""", ctx);
         E(Prompt(Cancelled, Parent), ctx);
         E(Answer(between), ctx);
         E(Prompt(Cancelled, Parent), ctx);
@@ -205,7 +205,7 @@ public class ClaudeServerDeltaTests {
 
     [Test]
     public async Task A_retraction_reads_back_from_its_stored_json() {
-        var parsed = CanonicalEventJson.TryParse(CanonicalEventTypes.UserMessageRetracted, $$$"""{"message_id":"{{{Cancelled}}}"}""");
+        var parsed = CanonicalEventJson.TryParse(CanonicalEventTypes.UserMessageRetracted, $$"""{"message_id":"{{Cancelled}}"}""");
 
         await Assert.That(parsed).IsTypeOf<UserMessageRetractedEvent>();
         await Assert.That(((UserMessageRetractedEvent)parsed!).MessageId).IsEqualTo(Guid.Parse(Cancelled));
@@ -224,7 +224,7 @@ public class ClaudeServerDeltaTests {
     public async Task A_noise_record_between_two_assistant_records_keeps_the_usage_an_echo(string noiseType) {
         var ctx = Ctx();
         E(AssistantWithUsage(Record), ctx);
-        E($$$"""{"type":"{{{noiseType}}}","uuid":"a1b2c3d4-0000-4000-8000-0000000000f1"}""", ctx);
+        E($$"""{"type":"{{noiseType}}","uuid":"a1b2c3d4-0000-4000-8000-0000000000f1"}""", ctx);
         var second = E(AssistantWithUsage(Resubmit), ctx);
 
         await Assert.That(second[0].Usage).IsNull();

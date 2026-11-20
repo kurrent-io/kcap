@@ -263,7 +263,7 @@ public class AntigravityContainmentTests {
             while (await proc.StandardOutput.ReadLineAsync(cts.Token) is { } line) {
                 if (AntigravityNdjson.TryParseLine(line) is not { } evt) continue;
 
-                if (evt.Kind == AntigravityEventKind.Init && evt.ConversationId is { Length: > 0 } cid) {
+                if (evt is { Kind: AntigravityEventKind.Init, ConversationId: { Length: > 0 } cid }) {
                     conversationId = cid;
                     var dashless   = Guid.TryParse(cid, out var g) ? g.ToString("N") : cid.Replace("-", "");
                     processes      = await ProcessesMentioningAsync(cid, dashless);

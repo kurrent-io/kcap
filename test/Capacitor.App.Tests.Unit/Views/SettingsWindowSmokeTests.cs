@@ -653,7 +653,7 @@ public class SettingsWindowSmokeTests {
 
             await Assert.That(tools.IsChecked).IsNull();
             await Assert.That(view.GetVisualDescendants().OfType<TextBlock>()
-                .Any(t => t.IsEffectivelyVisible && t.Text == "Setup unverified")).IsTrue();
+                .Any(t => t is { IsEffectivelyVisible: true, Text: "Setup unverified" })).IsTrue();
         } finally { window.Close(); }
     });
 
@@ -687,7 +687,7 @@ public class SettingsWindowSmokeTests {
             await Assert.That(capture.Visibility).IsEqualTo("project");
             await Assert.That(choices.SelectedValue).IsEqualTo("project");
             var noteShown = window.GetVisualDescendants().OfType<TextBlock>()
-                .Any(t => t.IsEffectivelyVisible && t.Text is { } text && text.Contains("not offered by this server", StringComparison.Ordinal));
+                .Any(t => t is { IsEffectivelyVisible: true, Text: { } text } && text.Contains("not offered by this server", StringComparison.Ordinal));
             await Assert.That(noteShown).IsEqualTo(!supported);
             await Assert.That(capture.VisibilityNote is null).IsEqualTo(supported);
             capture.AllowedRepos = "team/project";

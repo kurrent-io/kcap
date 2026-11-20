@@ -2938,110 +2938,110 @@ public class CodingAgentsStepTests {
 
     sealed class InstallerCalls {
         /// <summary>Every install that succeeds finds its file already current.</summary>
-        public bool AlreadyCurrent { get; set; }
+        public bool AlreadyCurrent { get; init; }
 
         SettingsEdit Edit(bool ok) => !ok ? SettingsEdit.Failed : AlreadyCurrent ? SettingsEdit.Unchanged : SettingsEdit.Changed;
 
         public bool                                 ClaudeCalled  { get; private set; }
         public (string Settings, string PluginDir)? ClaudeArgs    { get; private set; }
-        public bool                                 ClaudeReturns { get; set; } = true;
+        public bool                                 ClaudeReturns { get; init; } = true;
 
         public bool    CodexHooksCalled  { get; private set; }
         public string? CodexHooksArg     { get; private set; }
-        public bool    CodexHooksReturns { get; set; } = true;
+        public bool    CodexHooksReturns { get; init; } = true;
 
         public bool    CursorHooksCalled  { get; private set; }
         public string? CursorHooksArg     { get; private set; }
-        public bool    CursorHooksReturns { get; set; } = true;
+        public bool    CursorHooksReturns { get; init; } = true;
 
         public bool    CopilotHooksCalled  { get; private set; }
         public string? CopilotHooksArg     { get; private set; }
-        public bool    CopilotHooksReturns { get; set; } = true;
+        public bool    CopilotHooksReturns { get; init; } = true;
 
         public bool    AntigravityHooksCalled  { get; private set; }
         public string? AntigravityHooksArg     { get; private set; }
-        public bool    AntigravityHooksReturns { get; set; } = true;
+        public bool    AntigravityHooksReturns { get; init; } = true;
 
         public bool    GeminiHooksCalled  { get; private set; }
         public string? GeminiHooksArg     { get; private set; }
-        public bool    GeminiHooksReturns { get; set; } = true;
+        public bool    GeminiHooksReturns { get; init; } = true;
 
         public bool    KiroHooksCalled  { get; private set; }
         public string? KiroHooksArg     { get; private set; }
-        public bool    KiroHooksReturns { get; set; } = true;
+        public bool    KiroHooksReturns { get; init; } = true;
 
         public bool    PiExtensionCalled  { get; private set; }
         public string? PiExtensionArg     { get; private set; }
-        public bool    PiExtensionReturns { get; set; } = true;
+        public bool    PiExtensionReturns { get; init; } = true;
 
         public bool    OpenCodeExtensionCalled  { get; private set; }
         public string? OpenCodeExtensionArg     { get; private set; }
-        public bool    OpenCodeExtensionReturns { get; set; } = true;
+        public bool    OpenCodeExtensionReturns { get; init; } = true;
 
         public bool CapacitorOnPathCalled  { get; private set; }
-        public bool CapacitorOnPathReturns { get; set; } = true;
+        public bool CapacitorOnPathReturns { get; init; } = true;
 
         public bool                      AgentSkillsCalled  { get; private set; }
         public (string Src, string Dst)? AgentSkillsArgs    { get; private set; }
-        public SkillsInstallFailure?     AgentSkillsFailure { get; set; }
+        public SkillsInstallFailure?     AgentSkillsFailure { get; init; }
 
         public bool    AgentSkillsCurrentCalled  { get; private set; }
         public string? AgentSkillsCurrentArg     { get; private set; }
-        public bool    AgentSkillsCurrentReturns { get; set; } // default false → not current → install
+        public bool    AgentSkillsCurrentReturns { get; init; } // default false → not current → install
 
         public bool    LegacyCleanupCalled  { get; private set; }
         public string? LegacyCleanupArg     { get; private set; }
-        public bool    LegacyCleanupReturns { get; set; } = true;
+        bool    LegacyCleanupReturns { get; } = true;
 
         public bool                   EnableCodexNetworkCalled  { get; private set; }
-        public CodexConfigToml.Change EnableCodexNetworkReturns { get; set; } = CodexConfigToml.Change.Updated;
+        public CodexConfigToml.Change EnableCodexNetworkReturns { get; init; } = CodexConfigToml.Change.Updated;
 
         public bool                   RegisterCodexMcpCalled  { get; private set; }
-        public CodexConfigToml.Change RegisterCodexMcpReturns { get; set; } = CodexConfigToml.Change.Updated;
+        public CodexConfigToml.Change RegisterCodexMcpReturns { get; init; } = CodexConfigToml.Change.Updated;
 
         public bool                     RegisterCursorMcpCalled  { get; private set; }
-        public JsonMcpConfigWriter.Change RegisterCursorMcpReturns { get; set; } = JsonMcpConfigWriter.Change.Updated;
+        public JsonMcpConfigWriter.Change RegisterCursorMcpReturns { get; init; } = JsonMcpConfigWriter.Change.Updated;
 
         public bool                     RegisterCopilotMcpCalled  { get; private set; }
-        public JsonMcpConfigWriter.Change RegisterCopilotMcpReturns { get; set; } = JsonMcpConfigWriter.Change.Updated;
+        public JsonMcpConfigWriter.Change RegisterCopilotMcpReturns { get; init; } = JsonMcpConfigWriter.Change.Updated;
 
         public bool                          InstallCopilotInstructionsCalled  { get; private set; }
-        public AgentInstructionsWriter.Change InstallCopilotInstructionsReturns { get; set; } = AgentInstructionsWriter.Change.Updated;
+        public AgentInstructionsWriter.Change InstallCopilotInstructionsReturns { get; init; } = AgentInstructionsWriter.Change.Updated;
 
         public bool         EnableCopilotToolSearchCalled  { get; private set; }
-        public SettingsEdit EnableCopilotToolSearchReturns { get; set; } = SettingsEdit.Changed;
+        SettingsEdit EnableCopilotToolSearchReturns { get; } = SettingsEdit.Changed;
 
         public bool                     RegisterGeminiMcpCalled  { get; private set; }
-        public JsonMcpConfigWriter.Change RegisterGeminiMcpReturns { get; set; } = JsonMcpConfigWriter.Change.Updated;
+        public JsonMcpConfigWriter.Change RegisterGeminiMcpReturns { get; init; } = JsonMcpConfigWriter.Change.Updated;
 
         public bool                          InstallGeminiInstructionsCalled  { get; private set; }
-        public AgentInstructionsWriter.Change InstallGeminiInstructionsReturns { get; set; } = AgentInstructionsWriter.Change.Updated;
+        public AgentInstructionsWriter.Change InstallGeminiInstructionsReturns { get; init; } = AgentInstructionsWriter.Change.Updated;
 
         public bool                     RegisterAntigravityMcpCalled  { get; private set; }
-        public JsonMcpConfigWriter.Change RegisterAntigravityMcpReturns { get; set; } = JsonMcpConfigWriter.Change.Updated;
+        JsonMcpConfigWriter.Change RegisterAntigravityMcpReturns { get; } = JsonMcpConfigWriter.Change.Updated;
 
         public bool                          InstallAntigravityInstructionsCalled  { get; private set; }
-        public AgentInstructionsWriter.Change InstallAntigravityInstructionsReturns { get; set; } = AgentInstructionsWriter.Change.Updated;
+        AgentInstructionsWriter.Change InstallAntigravityInstructionsReturns { get; } = AgentInstructionsWriter.Change.Updated;
 
         // Every InstallAgentSkills(src,dst) call (the single AgentSkillsArgs only keeps the last) — so
         // tests can assert WHICH skills dirs got written (e.g. ~/.gemini/skills vs ~/.agents/skills).
         public List<(string Src, string Dst)> AgentSkillsInstalls { get; } = [];
 
         public bool                     RegisterOpenCodeMcpCalled  { get; private set; }
-        public JsonMcpConfigWriter.Change RegisterOpenCodeMcpReturns { get; set; } = JsonMcpConfigWriter.Change.Updated;
+        public JsonMcpConfigWriter.Change RegisterOpenCodeMcpReturns { get; init; } = JsonMcpConfigWriter.Change.Updated;
 
         public bool                          InstallOpenCodeInstructionsCalled  { get; private set; }
-        public AgentInstructionsWriter.Change InstallOpenCodeInstructionsReturns { get; set; } = AgentInstructionsWriter.Change.Updated;
+        AgentInstructionsWriter.Change InstallOpenCodeInstructionsReturns { get; } = AgentInstructionsWriter.Change.Updated;
 
         public bool                     RegisterKiroMcpCalled  { get; private set; }
-        public JsonMcpConfigWriter.Change RegisterKiroMcpReturns { get; set; } = JsonMcpConfigWriter.Change.Updated;
+        public JsonMcpConfigWriter.Change RegisterKiroMcpReturns { get; init; } = JsonMcpConfigWriter.Change.Updated;
 
         public bool    InstallPiMcpCalled  { get; private set; }
         public string? InstallPiMcpArg     { get; private set; }
-        public bool    InstallPiMcpReturns { get; set; } = true;
+        public bool    InstallPiMcpReturns { get; init; } = true;
 
         public bool                          InstallPiInstructionsCalled  { get; private set; }
-        public AgentInstructionsWriter.Change InstallPiInstructionsReturns { get; set; } = AgentInstructionsWriter.Change.Updated;
+        public AgentInstructionsWriter.Change InstallPiInstructionsReturns { get; init; } = AgentInstructionsWriter.Change.Updated;
 
         public Installers AsInstallers() => new(
             InstallClaudePlugin: (s, p) => {

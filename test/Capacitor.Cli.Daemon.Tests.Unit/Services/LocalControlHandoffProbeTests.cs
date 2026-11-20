@@ -28,7 +28,7 @@ public class LocalControlHandoffProbeTests {
 
         public GitRepo Upstream { get; }
         public GitRepo Clone    { get; }
-        public string  Default  { get; }
+        string  Default  { get; }
 
         public void PointOriginAt(string path) => Clone.Config($"url.{path}.insteadOf", Remote);
 

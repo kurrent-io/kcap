@@ -288,7 +288,7 @@ public class GrokHostedLaunchTests {
 
     sealed class FakeAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int  Pid       { get; init; } = 4242;
+        public int  Pid       { get; } = 4242;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
         public Task WaitForExitAsync(TimeSpan? timeout = null) => _exited.Task;

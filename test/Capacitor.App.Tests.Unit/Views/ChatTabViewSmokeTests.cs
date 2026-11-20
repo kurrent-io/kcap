@@ -120,7 +120,7 @@ public class ChatTabViewSmokeTests {
         public FakeTerminalAttachClientFactory Attach { get; } = new();
         public RecordingOpener Opener { get; } = new();
         public FakePermissionService Permissions { get; } = new();
-        public SessionRuns Runs { get; }
+        SessionRuns Runs { get; }
         public TerminalTabViewModel Terminal { get; }
         public ChatTabViewModel Chat { get; }
         public ChatTabView View { get; }
@@ -1869,18 +1869,18 @@ public class ChatTabViewSmokeTests {
             var path = Tmp.CreateFile("pub.jsonl", [PublishCallLine]);
             await host.LoadAsync(path);
 
-            var label = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowLabel" && t.IsEffectivelyVisible);
-            var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowDetail" && t.IsEffectivelyVisible && t.Text == "Retention brief");
+            var label = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t is { Name: "ToolRowLabel", IsEffectivelyVisible: true });
+            var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t is { Name: "ToolRowDetail", IsEffectivelyVisible: true, Text: "Retention brief" });
             await Assert.That(label.Text).IsEqualTo("Published page");
             await Assert.That(label.FontFamily.Name).IsEqualTo(detail.FontFamily.Name);
             await Assert.That(label.LineHeight).IsEqualTo(detail.LineHeight);
             await Assert.That(label.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
             await Assert.That(detail.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
-            await Assert.That(host.View.GetVisualDescendants().OfType<Control>().Any(c => c.Name == "ToolCard" && c.IsEffectivelyVisible)).IsFalse();
+            await Assert.That(host.View.GetVisualDescendants().OfType<Control>().Any(c => c is { Name: "ToolCard", IsEffectivelyVisible: true })).IsFalse();
 
             await host.AppendLinesAndTickAsync(path, PublishResultLine);
 
-            var card = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "ToolCard" && b.IsEffectivelyVisible);
+            var card = host.View.GetVisualDescendants().OfType<Border>().Single(b => b is { Name: "ToolCard", IsEffectivelyVisible: true });
             await Assert.That(card.Margin.Left).IsEqualTo(0);
             await Assert.That(card.Margin.Right).IsEqualTo(0);
             var title = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolCardTitle");
@@ -2335,15 +2335,15 @@ public class ChatTabViewSmokeTests {
             var banner = host.View.FindControl<Border>("QueuedMessagesBanner")!;
             await Assert.That(banner.IsVisible).IsTrue();
             await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "queued follow-up")).IsTrue();
-            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Delivery unconfirmed" && t.IsVisible)).IsFalse();
+            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: "Delivery unconfirmed", IsVisible: true })).IsFalse();
             // The paste is still in flight, so Send appears once the channel will take text.
             host.Time.Advance(CrDelay);
             await host.Terminal.PendingDeliveryForTesting!;
             host.Settle();
-            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == QueuedChatMessage.IdlePickupNote && t.IsVisible)).IsTrue();
-            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == QueuedChatMessage.AwaitingPickupNote && t.IsVisible)).IsFalse();
+            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: QueuedChatMessage.IdlePickupNote, IsVisible: true })).IsTrue();
+            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: QueuedChatMessage.AwaitingPickupNote, IsVisible: true })).IsFalse();
             var queued = host.Chat.QueuedMessages.Single();
-            var send = banner.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "SendQueuedButton" && b.IsVisible);
+            var send = banner.GetVisualDescendants().OfType<Button>().Single(b => b is { Name: "SendQueuedButton", IsVisible: true });
             await Assert.That(send.Content).IsEqualTo("Send again");
             host.Type("queued follow-up");
             Click(host, send);
@@ -2356,12 +2356,12 @@ public class ChatTabViewSmokeTests {
             await Assert.That(client.SentInput[3]).IsEquivalentTo(new byte[] { 13 });
             host.Daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path, Status = "Running", AwaitingInput = false });
             host.Settle();
-            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == QueuedChatMessage.AwaitingPickupNote && t.IsVisible)).IsTrue();
-            await Assert.That(banner.GetVisualDescendants().OfType<Button>().Any(b => b.Name == "SendQueuedButton" && b.IsVisible)).IsFalse();
+            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: QueuedChatMessage.AwaitingPickupNote, IsVisible: true })).IsTrue();
+            await Assert.That(banner.GetVisualDescendants().OfType<Button>().Any(b => b is { Name: "SendQueuedButton", IsVisible: true })).IsFalse();
             host.Daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path, Status = "Completed" });
             host.Settle();
-            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Delivery unconfirmed" && t.IsVisible)).IsTrue();
-            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == QueuedChatMessage.AwaitingPickupNote && t.IsVisible)).IsFalse();
+            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: "Delivery unconfirmed", IsVisible: true })).IsTrue();
+            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: QueuedChatMessage.AwaitingPickupNote, IsVisible: true })).IsFalse();
             await host.AppendLinesAndTickAsync(path, UserLine.Replace("hello", "queued follow-up"));
             await Assert.That(banner.IsVisible).IsFalse();
             await Assert.That(host.Composer.Text).IsEqualTo("queued follow-up");
@@ -2825,7 +2825,7 @@ public class ChatTabViewSmokeTests {
             await Assert.That(call.IsRunning).IsFalse();
             var glyph = host.View.GetVisualDescendants().OfType<AppIcon>()
                 .Single(icon => icon.DataContext is ToolCallItem &&
-                                icon.Kind == Lucide.Avalonia.LucideIconKind.CircleQuestionMark && icon.IsEffectivelyVisible);
+                                icon is { Kind: Lucide.Avalonia.LucideIconKind.CircleQuestionMark, IsEffectivelyVisible: true });
             await Assert.That(glyph.Foreground).IsSameReferenceAs(Brush(isError: false));
             await Assert.That(host.View.GetVisualDescendants().OfType<Border>()
                 .Count(b => b.Classes.Contains("toolRunning") && b.IsEffectivelyVisible)).IsEqualTo(0);
@@ -2899,9 +2899,9 @@ public class ChatTabViewSmokeTests {
             await Assert.That(pulse.Background).IsSameReferenceAs(Application.Current!.FindResource("KcapPurpleBrush"));
             await Assert.That(PulseClock.GetIsActive(pulse)).IsTrue();
             var rowLabel = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
-                .Single(t => t.Name == "ToolRowLabel" && t.IsEffectivelyVisible);
+                .Single(t => t is { Name: "ToolRowLabel", IsEffectivelyVisible: true });
             var detail = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
-                .Single(t => t.IsEffectivelyVisible && t.Text == "ls -la");
+                .Single(t => t is { IsEffectivelyVisible: true, Text: "ls -la" });
             await Assert.That(rowLabel.Text).IsEqualTo("Ran command");
             await Assert.That(rowLabel.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
             await Assert.That(detail.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
@@ -3307,7 +3307,7 @@ public class ChatTabViewSmokeTests {
             var first = (Button)host.Window.FocusManager.GetFocusedElement()!;
             var second = Option(host, "Wait");
             await Assert.That(first.Classes.Contains(":focus-visible")).IsTrue();
-            await Assert.That(first.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Ship it (Recommended)" && t.IsEffectivelyVisible)).IsTrue();
+            await Assert.That(first.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: "Ship it (Recommended)", IsEffectivelyVisible: true })).IsTrue();
 
             var presenter = first.GetVisualDescendants().OfType<ContentPresenter>().First(p => p.Name == "PART_ContentPresenter");
             await Assert.That(presenter.BorderBrush).IsSameReferenceAs(host.View.FindResource("KcapPurpleBrush"));
@@ -3570,8 +3570,8 @@ public class ChatTabViewSmokeTests {
             var prose = string.Join("\\n\\n", Enumerable.Range(1, 60).Select(i => $"Paragraph {i} of a long reply that wraps across the column."));
             var tall = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + prose + "\"}]}}";
             var tags = string.Join(",", Enumerable.Range(1, 8).Select(i =>
-                $$$"""{"label":"Tag {{{i}}}","description":"A longer description of tag {{{i}}} that wraps across the column and adds height."}"""));
-            var question = $$$"""{"questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]},{"question":"Tags","multiSelect":true,"options":[{{{tags}}}]}]}""";
+                $$"""{"label":"Tag {{i}}","description":"A longer description of tag {{i}} that wraps across the column and adds height."}"""));
+            var question = $$"""{"questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]},{"question":"Tags","multiSelect":true,"options":[{{tags}}]}]}""";
             var ask = $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"q-tool","name":"AskUserQuestion","input":{{{question}}}}]}}""";
             var path = Tmp.CreateFile("series.jsonl", [tall, tall, tall, .. Enumerable.Repeat(UserLine, 20), ask]);
             await host.LoadAsync(path);
@@ -3853,7 +3853,7 @@ public class ChatTabViewSmokeTests {
             var host = new Host();
             host.Window.Width = width;
             const string text = "Run every integration suite against the staging server and collect the coverage";
-            var input = described ? $$$"""{"command":"make it","description":"{{{text}}}"}""" : $$$"""{"command":"{{{text}}}"}""";
+            var input = described ? $$"""{"command":"make it","description":"{{text}}"}""" : $$"""{"command":"{{text}}"}""";
             await host.LoadAsync(Tmp.CreateFile("sh.jsonl", [ShellCall("toolu_S", input), ShellLaunch("toolu_S", "b1")]));
             Click(host, host.View.FindControl<Button>("BackgroundTasksToggle")!);
 

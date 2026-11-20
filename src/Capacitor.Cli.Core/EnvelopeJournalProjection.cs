@@ -19,7 +19,7 @@ public sealed class EnvelopeJournalProjection : IChatTranscriptProjection {
     public ChatProjectionResult ProjectWithInputs(string line, int lineNumber, DateTimeOffset receivedAt, TranscriptContext context) {
         var envelopes = Project(line, lineNumber, receivedAt, context);
         return new(envelopes,
-            [.. envelopes.Where(e => e.Kind == AcpEventKind.UserMessage && e.Text is not null).Select(e => e.Text!)],
+            [.. envelopes.Where(e => e is { Kind: AcpEventKind.UserMessage, Text: not null }).Select(e => e.Text!)],
             [.. envelopes.SelectMany(e => Runs(e, receivedAt))]);
     }
 

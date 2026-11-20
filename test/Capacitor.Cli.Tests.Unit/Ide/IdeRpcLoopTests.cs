@@ -17,7 +17,7 @@ public class IdeRpcLoopTests {
 
         public override Encoding Encoding => Encoding.UTF8;
 
-        public Func<Exception?>? FailWrite { get; set; }
+        public Func<Exception?>? FailWrite { get; init; }
 
         public bool Overlapped { get; private set; }
 

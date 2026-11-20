@@ -292,6 +292,34 @@ public class CodexSubagentDiscoveryTests {
     }
 
     [Test]
+    public async Task A_refused_codex_subagent_stop_holds_the_resumed_parent_tail() {
+        using var tmp    = new TempDir();
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/hooks/subagent-stop").UsingPost())
+            .AtPriority(1).RespondWith(Response.Create().WithStatusCode(400));
+        server.Given(Request.Create().UsingPost())
+            .AtPriority(2).RespondWith(Response.Create().WithStatusCode(200));
+
+        var day    = DayDir(tmp.Path);
+        var parent = WriteParent(day);
+        File.AppendAllLines(parent, [Item("""{"type":"message","role":"user","content":[]}""")]);
+        WriteChild(day);
+
+        using var client = new HttpClient();
+        await Assert.ThrowsAsync<HttpRequestException>(async () => await SessionImporter.ImportSessionAsync(
+            client, server.Url!, parent, Dashless(ParentDashed), new SessionMetadata(), encodedCwd: null,
+            TimeProvider.System, vendor: HarnessId.Codex, startLine: 1, strict: true));
+
+        await Assert.That(string.Join(" ", server.LogEntries.Select(e => e.RequestMessage.Path)))
+            .IsEqualTo("/hooks/subagent-start /hooks/transcript /hooks/subagent-stop");
+        foreach (var entry in server.LogEntries) {
+            var body = JsonNode.Parse(entry.RequestMessage.Body!)!;
+            await Assert.That(body["agent_id"]!.GetValue<string>()).IsEqualTo(Dashless(ChildDashed));
+            await Assert.That(body["strict"]!.GetValue<bool>()).IsTrue();
+        }
+    }
+
+    [Test]
     [Arguments("/root/a", "call_a")]
     [Arguments("/root/a/b/c", "call_a")]
     [Arguments("/root/ab", null)]

@@ -21,35 +21,30 @@ public sealed class SessionTitleEditorViewModel : ReactiveObject, IDisposable {
     readonly BehaviorSubject<bool> _canBegin = new(false);
     readonly BehaviorSubject<bool> _canFinish = new(false);
 
-    string _title = "";
-    public string Title { get => _title; private set => this.RaiseAndSetIfChanged(ref _title, value); }
+    public string Title { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
-    string _draft = "";
-    public string Draft { get => _draft; set => this.RaiseAndSetIfChanged(ref _draft, value); }
+    public string Draft { get; set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
-    bool _isEditing;
     public bool IsEditing {
-        get => _isEditing;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _isEditing, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             Refresh();
         }
     }
 
-    bool _isSaving;
     public bool IsSaving {
-        get => _isSaving;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _isSaving, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             Refresh();
         }
     }
 
-    bool _canRename;
     public bool CanRename {
-        get => _canRename;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _canRename, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             Refresh();
         }
     }

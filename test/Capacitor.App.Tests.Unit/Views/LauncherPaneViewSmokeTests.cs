@@ -744,7 +744,7 @@ public class LauncherPaneViewSmokeTests {
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
             var ring = goal.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "PART_BorderElement");
-            var result = (ring.BorderThickness, ring.Background is null || ring.Background is Avalonia.Media.ISolidColorBrush { Color.A: 0 });
+            var result = (ring.BorderThickness, ring.Background is null or Avalonia.Media.ISolidColorBrush { Color.A: 0 });
             window.Close();
             Dispatcher.UIThread.RunJobs();
             vm.Dispose();
@@ -1196,7 +1196,7 @@ public class LauncherPaneViewSmokeTests {
     /// A connected local daemon the server lists under accounts/1, a repository chosen, and a
     /// snapshot of two Claude accounts: home in the default directory, work in its own.
     sealed class AccountRig : IDisposable {
-        public FakeDaemonClientService Daemon { get; } = new();
+        FakeDaemonClientService Daemon { get; } = new();
         public FakeRemoteAgents Remote { get; } = new();
         public BehaviorSubject<AccountsSnapshotDto?> Snapshots { get; } = new(null);
         public RecordingLaunchClient Launch { get; } = new();

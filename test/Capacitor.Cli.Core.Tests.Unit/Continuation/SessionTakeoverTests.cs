@@ -608,7 +608,7 @@ public class SessionTakeoverTests {
     public async Task Claim_adoption_requires_both_the_attempt_and_current_worker(string claim, string attempted) {
         var routes = Server(Ended());
         routes.Post("/api/loose-ends/adopt", 200,
-            $$$"""{"results":[{"outcome":"transferred","attempted_claim_id":{{{attempted}}},"claim":{{{claim}}}}]}""");
+            $$"""{"results":[{"outcome":"transferred","attempted_claim_id":{{attempted}},"claim":{{claim}}}]}""");
         var result = (TakeoverResult.Completed)await Run(routes);
         await Assert.That(result.Unsuccessful).IsTrue();
         await Assert.That(result.Outcome["loose_end_claims"]!["status"]!.GetValue<string>()).IsEqualTo("partial");

@@ -17,7 +17,7 @@ public class SessionSearchSidebarTests {
         public List<SearchRequest> Requests { get; } = [];
         public HistoricalScheduler Scheduler { get; } = new();
         public BehaviorSubject<string?> Viewer { get; } = new(null);
-        public SessionRailViewModel Rail { get; }
+        SessionRailViewModel Rail { get; }
         public SessionSearchViewModel Vm { get; }
         public int Closed { get; private set; }
 

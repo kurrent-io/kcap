@@ -292,7 +292,7 @@ internal sealed class AntigravityStepAccumulator {
             var buf      = _steps[index];
             var terminal = buf.State is "DONE" or "ERROR";
 
-            if (buf.IsTool && !buf.ToolCallEmitted && buf.ToolName is not null) {
+            if (buf is { IsTool: true, ToolCallEmitted: false, ToolName: not null }) {
                 (envelopes ??= []).Add(new AcpEventEnvelope(
                     Kind: AcpEventKind.ToolCall,
                     ToolCallId: index.ToString(),

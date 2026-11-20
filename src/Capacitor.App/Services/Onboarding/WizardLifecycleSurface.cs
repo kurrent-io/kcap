@@ -11,9 +11,6 @@ namespace Capacitor.App.Services.Onboarding;
 public sealed class WizardLifecycleSurface : ReactiveObject, ILifecycleSurface {
     readonly LifecycleSurface _inner;
 
-    string? _statusText;
-    string? _attentionText;
-
     /// <param name="post">Marshals the text updates onto the UI thread — the outcome consumer runs off it.</param>
     public WizardLifecycleSurface(Func<LifecyclePrompt, CancellationToken, Task<bool>> showPrompt, Action<Action> post) =>
         _inner = new LifecycleSurface(
@@ -23,14 +20,14 @@ public sealed class WizardLifecycleSurface : ReactiveObject, ILifecycleSurface {
             message => post(() => { if (ReferenceEquals(AttentionText, message)) AttentionText = null; }));
 
     public string? StatusText {
-        get => _statusText;
-        private set => this.RaiseAndSetIfChanged(ref _statusText, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Kept apart from StatusText so the wizard can render a repair/attention line distinctly.
     public string? AttentionText {
-        get => _attentionText;
-        private set => this.RaiseAndSetIfChanged(ref _attentionText, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public void Status(string message) => _inner.Status(message);

@@ -11,25 +11,22 @@ namespace Capacitor.App.Services.LocalSetup;
 /// <param name="held">True while another app-owned change to the installation runs; a start then does nothing,
 /// since its child would only find the installation busy.</param>
 public sealed class LocalUpgradeController(Func<IKcapCli> cli, Action<Action> post, Func<bool>? held = null) : ReactiveObject {
-    LocalUpgradeProgress     _progress = new();
-    bool                     _running;
-    LocalUpgradeOutcome?     _outcome;
     CancellationTokenSource? _interrupt;
     TaskCompletionSource     _exited = CompletedSource();
 
     public LocalUpgradeProgress Progress {
-        get => _progress;
-        private set => this.RaiseAndSetIfChanged(ref _progress, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = new();
 
     public bool Running {
-        get => _running;
-        private set => this.RaiseAndSetIfChanged(ref _running, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public LocalUpgradeOutcome? Outcome {
-        get => _outcome;
-        private set => this.RaiseAndSetIfChanged(ref _outcome, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Raised once per run, through <c>post</c>, after <see cref="Outcome"/> is set.

@@ -32,13 +32,7 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
 
     bool                     _discovered;
     bool                     _discoveredLocal;
-    HistoryState             _state = HistoryState.Looking;
-    bool                     _titleLocally;
-    bool                     _summariseOutcomes = true;
-    string?                  _summariseError;
     bool                     _summariseUnknown;
-    bool                     _sendingSummary;
-    bool                     _customizing;
     int                      _unmatched;
     ImportDiscoveryReport?   _report;
     HistoryImportRun?        _run;
@@ -85,9 +79,9 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
     public bool Satisfied => _run is { State: ImportRunState.Finished };
 
     public HistoryState State {
-        get => _state;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _state, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Looking));
             this.RaisePropertyChanged(nameof(HasRepos));
             this.RaisePropertyChanged(nameof(EmptyMessage));
@@ -105,7 +99,7 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
             this.RaisePropertyChanged(nameof(SourcesVisible));
             Restate();
         }
-    }
+    } = HistoryState.Looking;
 
     public bool Looking  => State == HistoryState.Looking;
     public bool HasRepos => State == HistoryState.Repos;
@@ -184,9 +178,9 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
 
     /// Off until asked for: most people import everything found, so the per-repository choices wait behind Customize.
     public bool Customizing {
-        get => _customizing;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _customizing, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(DetailsVisible));
             this.RaisePropertyChanged(nameof(FoldersVisible));
             this.RaisePropertyChanged(nameof(CustomizeLabel));
@@ -251,17 +245,17 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
 
     /// On until the user turns it off: the server's own default for the local edition.
     public bool SummariseOutcomes {
-        get => _summariseOutcomes;
+        get;
         set {
-            this.RaiseAndSetIfChanged(ref _summariseOutcomes, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             SummariseError = null;
         }
-    }
+    } = true;
 
     bool SendingSummary {
-        get => _sendingSummary;
+        get;
         set {
-            _sendingSummary = value;
+            field = value;
             this.RaisePropertyChanged(nameof(SummariseEditable));
         }
     }
@@ -271,8 +265,8 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
 
     /// Why the server did not take the summary choice; the import waits until it does or the box matches the server.
     public string? SummariseError {
-        get => _summariseError;
-        private set => this.RaiseAndSetIfChanged(ref _summariseError, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// How long the server's background work on the selected sessions takes at its daily pace.
@@ -296,9 +290,9 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
     /// Off until the user turns it on: naming sends each session's opening excerpts to whichever model
     /// provider their claude or codex uses, which nothing else on this page does.
     public bool TitleLocally {
-        get => _titleLocally;
+        get;
         set {
-            this.RaiseAndSetIfChanged(ref _titleLocally, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Lede));
         }
     }

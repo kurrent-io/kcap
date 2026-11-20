@@ -18,7 +18,7 @@ public static class AccountWiring {
     /// removed without a backup to restore, since there is nothing left to retry, and hook trust left behind,
     /// which names hooks that are gone.</summary>
     public static bool HasFatalFailure(IReadOnlyList<WiringStep> steps) =>
-        steps.Any(s => !s.Succeeded && s.Name is not (NetworkStep or StatusLineBackupStep or HookTrustStep));
+        steps.Any(s => s is { Succeeded: false, Name: not (NetworkStep or StatusLineBackupStep or HookTrustStep) });
 
     public static string FailureSummary(IReadOnlyList<WiringStep> steps) =>
         string.Join(", ", steps.Where(s => !s.Succeeded).Select(s => $"{s.Name}: {s.Detail}"));

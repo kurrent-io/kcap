@@ -213,7 +213,7 @@ public sealed record DiscoveredTenant {
         init => _profileName = value;
     }
 
-    string? _profileName;
+    readonly string? _profileName;
 
     [JsonIgnore] public string Label       => !string.IsNullOrEmpty(DisplayName) ? DisplayName : OrgLogin;
 }

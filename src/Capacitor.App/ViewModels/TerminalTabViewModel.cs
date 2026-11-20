@@ -74,12 +74,11 @@ public sealed class TerminalTabViewModel : ReactiveObject {
     CancellationTokenSource? _attemptCts;
     Task? _runTask;
 
-    TerminalSessionState _state = TerminalSessionState.Resolving;
     /// Bound; mutated only on the UI scheduler (see class doc comment), and only from Publish.
     public TerminalSessionState State {
-        get => _state;
-        private set => this.RaiseAndSetIfChanged(ref _state, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = TerminalSessionState.Resolving;
 
     // The send gate. Only BeginAttempt and Invalidate advance the token; an attempt carries the
     // token its BeginAttempt produced and may open the gate only while that token is current.
@@ -293,12 +292,11 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         }
     }
 
-    ITerminalSurface? _surface;
     /// The VM-owned model handle the view binds -- a fresh instance per attempt, assigned on the
     /// UI scheduler before the attempt's RunAsync starts.
     public ITerminalSurface? Surface {
-        get => _surface;
-        private set => this.RaiseAndSetIfChanged(ref _surface, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public static readonly TimeSpan HiddenFeedInterval = TimeSpan.FromSeconds(1);

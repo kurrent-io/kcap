@@ -26,13 +26,13 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 public class DaemonHeartbeatLoopTests {
     sealed class FakePort : IDaemonHeartbeatPort {
         public Func<CancellationToken, Task<bool>>? PingHandler              { get; set; }
-        public Func<Task>?                          ReRegisterHandler        { get; set; }
-        public Func<Task>?                          ForceReconnectHandler    { get; set; }
+        public Func<Task>?                          ReRegisterHandler        { get; init; }
+        public Func<Task>?                          ForceReconnectHandler    { get; init; }
         public int                                  ReRegisterCalls;
         public int                                  ForceReconnectCalls;
         public int                                  PingCalls;
         // Defaults to the Connected steady state the ping and force-reconnect cases assume.
-        public bool                                 IsConnected { get; set; } = true;
+        public bool                                 IsConnected { get; init; } = true;
 
         public Task<bool> PingAsync(CancellationToken ct) {
             PingCalls++;
@@ -52,7 +52,7 @@ public class DaemonHeartbeatLoopTests {
             return ForceReconnectHandler is null ? Task.CompletedTask : ForceReconnectHandler();
         }
 
-        public Func<Task<bool>>? CredentialChangedHandler { get; set; }
+        public Func<Task<bool>>? CredentialChangedHandler { get; init; }
 
         public Task<bool> CredentialChangedAsync(CancellationToken ct) =>
             CredentialChangedHandler is null ? Task.FromResult(false) : CredentialChangedHandler();

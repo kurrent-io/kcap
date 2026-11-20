@@ -69,7 +69,7 @@ public class WizardSimpleStepsTests {
     // ── Shim: install / claim / outcome mapping ─────────────────────────────
 
     sealed class FakeAppStateStore : IAppStateStore {
-        public AppState State = new();
+        AppState State = new();
         public int Updates;
 
         public Task<AppState> LoadAsync() => Task.FromResult(State);
@@ -162,12 +162,12 @@ public class WizardSimpleStepsTests {
 
     sealed class ShimHarness : IDisposable {
         readonly TempDir _tmp = new();
-        public string TempDir => _tmp.Path;
+        string TempDir => _tmp.Path;
         public readonly FakeLoginShellProbe Probe = new();
         public readonly FakeAppStateStore  Store  = new();
         public readonly PathShimInstaller  Installer;
-        public readonly string             Destination;
-        public readonly string             Target;
+        readonly string             Destination;
+        readonly string             Target;
         public readonly PathFixViewModel   Vm;
 
         public ShimHarness() {

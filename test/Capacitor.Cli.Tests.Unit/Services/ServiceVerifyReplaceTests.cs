@@ -46,8 +46,8 @@ public class ServiceVerifyReplaceTests {
         public bool Bootstrapped, Uninstalled;
         public bool UninstallSucceeds = true;
         public int? RunningPid = 4242;
-        public string PlistPath = "/fake/agents/io.kurrent.kcap.daemon.svc-verify-replace.plist";
-        public string PlistContent = OwnPlistContent;
+        readonly string PlistPath = "/fake/agents/io.kurrent.kcap.daemon.svc-verify-replace.plist";
+        readonly string PlistContent = OwnPlistContent;
 
         public int QueryCalls             => Calls.Count(c => c == "query");
         public int WriteAndBootstrapCalls => Calls.Count(c => c == "writeAndBootstrap");
@@ -463,11 +463,11 @@ public class ServiceVerifyReplaceTests {
     /// then unloads while the file lingers, so a clear must re-uninstall to remove it.</summary>
     sealed class OrphanPlistManager(UserHome home, bool reUninstallRemovesPlist) : IVerifyServiceManager {
         public string UnitPath(string serviceId) => LaunchdUnit.PlistPath(home, serviceId);
-        public readonly List<string> Calls = [];
+        readonly List<string> Calls = [];
         public int UninstallCalls;
         public bool PlistPresent = true;
         public bool Bootstrapped;
-        public int? RunningPid = 7777;
+        public readonly int? RunningPid = 7777;
         int _queriesAfterFirstUninstall;
 
         public int WriteAndBootstrapCalls => Calls.Count(c => c == "writeAndBootstrap");

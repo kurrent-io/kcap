@@ -387,7 +387,7 @@ public class PullRequestContextViewModelTests {
             await WaitUntilAsync(() => first.Vm.CanReveal && !first.Vm.IsReading, what: "explicit selection admitted");
             first.Source.Links = [Link(2)];
             first.Time.Advance(TimeSpan.FromSeconds(16)); await first.Vm.RefreshCommand.Execute();
-            await WaitUntilAsync(() => !first.Vm.IsReading && first.Vm.Selected is { IsAvailable: false }, what: "unlinked pick kept in this pane");
+            await WaitUntilAsync(() => first.Vm is { IsReading: false, Selected.IsAvailable: false }, what: "unlinked pick kept in this pane");
         } finally {
             await first.Dispose();
         }
@@ -1055,7 +1055,7 @@ public class PullRequestContextViewModelTests {
         h.Source.ListGate = list;
         h.Source.OverviewResponses.Enqueue((_, _) => renewal.Task);
         h.Time.Advance(TimeSpan.FromSeconds(30));
-        await WaitUntilAsync(() => h.Source.Overviews == 2 && h.Source.Lists == 2, what: "renewal and list pending");
+        await WaitUntilAsync(() => h.Source is { Overviews: 2, Lists: 2 }, what: "renewal and list pending");
         // CanReveal turns true in one UI job but is announced by the renewal's settle job, whose notify re-arms
         // the tick: an advance made before that announcement re-arms it past the advance and fires nothing.
         var announced = false;

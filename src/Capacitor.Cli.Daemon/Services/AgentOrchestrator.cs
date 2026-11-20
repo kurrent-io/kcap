@@ -194,13 +194,12 @@ internal record AgentInstance(
     public ResumeLaunchDescriptor? ResumedFrom { get; init; }
 
     bool _titleComputed;
-    string? _title;
     /// <summary>The status payload's display seed, computed once: the status pulse re-runs for
     /// every agent on every revision.</summary>
     public string? Title {
         get {
-            if (!_titleComputed) { _title = StartTitle?.Text ?? AgentStartTitle.Shorten(Prompt); _titleComputed = true; }
-            return _title;
+            if (!_titleComputed) { field = StartTitle?.Text ?? AgentStartTitle.Shorten(Prompt); _titleComputed = true; }
+            return field;
         }
     }
 
@@ -381,6 +380,10 @@ internal record AgentInstance(
 
     internal Task? DiscoveryTask { get; set; }
 
+    /// <summary>The run start a launch refused for its connection still owes. Finalization waits for it, so the run's
+    /// stop cannot be followed by its start.</summary>
+    internal Task? RunStartTask { get; set; }
+
     /// <summary>
     /// True for locally-launched agents: the orchestrator makes no per-agent server call
     /// and does not attach the SignalR sink. An explicit share clears this.
@@ -389,7 +392,24 @@ internal record AgentInstance(
 
     /// <summary>Set when the server refused this agent's registration: it holds no live entry under the id, and a
     /// status sent for it could overwrite the failure it recorded. The agent keeps running with nothing sent.</summary>
-    public bool RegistrationRefused { get; set; }
+    public bool RegistrationRefused { get; private set; }
+
+    readonly TaskCompletionSource<bool> _registration = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>The server's first answer about the agent: true once it holds the agent, false once it refused it.
+    /// A refusal about the reporting connection answers nothing, so the answer waits for the next registration.</summary>
+    public Task<bool> Registration => _registration.Task;
+
+    /// <summary>The reason the server gave for the first refusal of this agent's registration.</summary>
+    public string? RegistrationRefusal { get; private set; }
+
+    public void AcceptRegistration() => _registration.TrySetResult(true);
+
+    public void RefuseRegistration(string? reason) {
+        RegistrationRefusal ??= reason ?? "";
+        RegistrationRefused =   true;
+        _registration.TrySetResult(false);
+    }
 
     /// <summary>No per-agent server call applies: a private agent, or one whose registration was refused.</summary>
     public bool IsServerSilent => IsPrivate || RegistrationRefused;
@@ -1223,7 +1243,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             : null;
 
     static bool FreshIn(AgentInstance agent, string canonicalSession) =>
-        agent.BridgedSinceStart && agent.SessionId is { } own && PermissionWire.Canonical(own) == canonicalSession;
+        agent is { BridgedSinceStart: true, SessionId: { } own } && PermissionWire.Canonical(own) == canonicalSession;
 
     /// The attribution ladder: the payload's agent id (raw, then canonical GUID), the resolved
     /// vendor session id, the worktree path — each rung only on exactly one live match. Live is
@@ -2536,7 +2556,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // malformed sequenced command and must FAIL CLOSED — never the unwatermarked un-sequenced route,
         // whose retry could be re-accepted on the sequenced lane and double-create the generation
         // (at-most-once-per-generation).
-        if (Processor is { } proc && cmd.Epoch is { } epoch && cmd.Seq is { } seq && cmd.CommandId is { } cmdId) {
+        if (Processor is { } proc && cmd is { Epoch: { } epoch, Seq: { } seq, CommandId: { } cmdId }) {
             var execution = proc.SubmitAsync(
                 new SequencedItem(SequencedKind.Launch, epoch, seq, cmdId, cmd.AgentId),
                 () => HandleLaunchAgentCore(cmd, launch));
@@ -3402,8 +3422,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // maps to OwnedWorktree while still being a borrow the caller never chose a posture for.
             (string Sandbox, string Approval)? appliedPosture =
                 string.Equals(cmd.Vendor, "codex", StringComparison.OrdinalIgnoreCase)
-             && cmd.Kind == LaunchKind.Default
-             && !cmd.Borrowed
+             && cmd is { Kind: LaunchKind.Default, Borrowed: false }
              && work is WorkLocation.OwnedWorktree or WorkLocation.InPlace
                     ? CodexPosturePolicy.Resolve(work, isReviewFlow, cmd.CodexPosture)
                     : null;
@@ -3505,8 +3524,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             // A resume the server refused must not run under an id it holds no entry for; the resume
             // lane takes it from here, and the pending resume keeps the worktree and ledger entry.
-            if (!registration.Registered && resume is not null) {
-                resume.RefusedRegistration = registration.RefusedReason ?? "";
+            if (resume is not null && await ResumeRefusalAsync(agent, registration) is { } resumeRefusal) {
+                resume.RefusedRegistration = resumeRefusal;
 
                 // Read before cleanup, since a disposed runtime no longer knows its process, and checked again after it,
                 // since cleanup kills once more.
@@ -3563,10 +3582,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // A refused agent keeps running with nothing sent, so a held first turn goes out without the claim.
             if (agent.RegistrationRefused && start.Runtime.RequiresSourceClaimBeforeFirstTurn) _ = BeginRefusedFirstTurnAsync(agent, start.Runtime);
 
-            if (agent.IsServerSilent && start.Transcript is { } silentTranscript) {
-                agent.TranscriptBound = false;
-                silentTranscript.ServerBindSettled(bound: false);
-            }
+            if (agent.IsServerSilent && start.Transcript is { } silentTranscript) SettleUnboundTranscript(agent, silentTranscript);
 
             if (!agent.IsServerSilent && start.Transcript is { } transcript) {
                 // Create + store the per-agent CTS BEFORE firing the setup task, so it exists for
@@ -3577,12 +3593,19 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 // A runtime that HOLDS its first turn (envelope-sourced hosted Codex) is
                 // driven through the deferred-first-turn source-claim sequence — durable claim BEFORE the
                 // first turn, then forward without re-binding, then confirm. Every other transcript
-                // runtime (Cursor) keeps the single-phase bind-then-forward path. Dormant until the
-                // factory sets deferFirstTurn (the activation slice); the fake test runtime exercises it.
-                if (start.Runtime.RequiresSourceClaimBeforeFirstTurn)
-                    _ = StartEnvelopeSourcedSessionAsync(agent, start.Runtime, transcript, cmd.Vendor, acpCts);
-                else
-                    _ = StartAcpForwardingAsync(agent, transcript, cmd.Vendor, acpCts);
+                // runtime (Cursor) keeps the single-phase bind-then-forward path.
+                // The server refuses a bind or a claim from a connection it does not hold as the daemon's,
+                // and nothing binds the session again, so neither goes out before the server holds the agent.
+                var deferFirstTurn = start.Runtime.RequiresSourceClaimBeforeFirstTurn;
+                _ = OnceRegisteredAsync(agent,
+                    registered: () => deferFirstTurn
+                        ? StartEnvelopeSourcedSessionAsync(agent, start.Runtime, transcript, cmd.Vendor, acpCts)
+                        : StartAcpForwardingAsync(agent, transcript, cmd.Vendor, acpCts),
+                    refused: () => {
+                        SettleUnboundTranscript(agent, transcript);
+
+                        return deferFirstTurn ? BeginRefusedFirstTurnAsync(agent, start.Runtime) : Task.CompletedTask;
+                    });
             }
 
             // Reconnect PID-record seam: a resume candidate's pid is
@@ -3632,15 +3655,20 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             if (start.Transcript is null) _ = DetectSessionIdAsync(agent, cmd.Vendor, spawnedAtUtc);
 
             // Report the resolved model so the server can display / validate the real model the agent
-            // is running. Best-effort: never let a report failure break the launch.
+            // is running. Best-effort: never let a report failure break the launch. Sent once, so it
+            // waits for the server to hold the agent.
             if (!agent.IsServerSilent && cmd.ExplicitReviewerModel is { } explicitReviewerModel) {
                 // An explicit-model reviewer reports the concrete model on its own channel, keyed by the
                 // LaunchAttemptId, so the server's one-shot waiter can validate and re-price it.
-                ReportExplicitReviewerModel(agentId, cmd.Vendor, explicitReviewerModel, runtimeFactory);
+                _ = OnceRegisteredAsync(agent, () => {
+                    ReportExplicitReviewerModel(agentId, cmd.Vendor, explicitReviewerModel, runtimeFactory);
+
+                    return Task.CompletedTask;
+                });
             } else if (!agent.IsServerSilent && string.Equals(cmd.Vendor, "codex", StringComparison.OrdinalIgnoreCase)) {
                 // updateLocal only on the PTY path: an app-server Codex (Transcript present) already
                 // registered its confirmed handshake model, which must not be overwritten locally.
-                ReportResolvedModel(agentId, cmd.Vendor, model, agent.Account, updateLocal: start.Transcript is null);
+                ReportResolvedModel(agent, cmd.Vendor, model, updateLocal: start.Transcript is null);
             }
 
             // The launch executed — the agent is registered.
@@ -3815,12 +3843,14 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// the launch's <c>config.toml</c> — we resolve the same value here. Never throws: a resolve/report
     /// failure must not break launch.
     /// </summary>
-    void ReportResolvedModel(string agentId, string vendor, string model, ResolvedAccount? account, bool updateLocal) {
+    void ReportResolvedModel(AgentInstance launched, string vendor, string model, bool updateLocal) {
+        var agentId = launched.Id;
+
         try {
             var isDefault = string.IsNullOrEmpty(model) || string.Equals(model, "default", StringComparison.OrdinalIgnoreCase);
 
             var resolved = isDefault && string.Equals(vendor, "codex", StringComparison.OrdinalIgnoreCase)
-                ? CodexResolvedModel(model, account)
+                ? CodexResolvedModel(model, launched.Account)
                 : model;
 
             if (string.IsNullOrEmpty(resolved)) return;
@@ -3834,7 +3864,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
              && _agents.TryGetValue(agentId, out var agent))
                 SetResolvedModel(agent, resolved);
 
-            _ = _server.ReportAgentResolvedModelAsync(agentId, resolved);
+            // Read at launch, since the config can change before the server holds the agent.
+            _ = OnceRegisteredAsync(launched, () => _server.ReportAgentResolvedModelAsync(agentId, resolved));
         } catch (Exception ex) {
             LogReportResolvedModelFailed(ex, agentId);
         }
@@ -4181,10 +4212,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // Wait briefly for the process to finalize so we get a real exit code.
             await agent.Runtime.WaitForExitAsync(TimeSpan.FromSeconds(5));
 
-            // Stop and drain transcript discovery before setting terminal status or appending
-            // AgentRunStopped, so a late discovery callback cannot send AgentRunHeartbeat after stop.
+            // Stop and drain transcript discovery and any owed run start before setting terminal status or
+            // appending AgentRunStopped, so neither a late AgentRunHeartbeat nor AgentRunStarted follows the stop.
             try { await agent.ExitedCts.CancelAsync(); } catch { /* best-effort */ }
             if (agent.DiscoveryTask is { } discoveryTask) await discoveryTask;
+            if (agent.RunStartTask is { } runStart) await runStart;
 
             var exitCode = agent.Runtime.ExitCode;
 
@@ -4276,7 +4308,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // FinalDrainAcpTranscriptAsync's remarks); it always returns within AcpFinalDrainBudget
             // regardless of outcome. PTY agents have no AcpForwarder and take none of this path — the
             // runtime is disposed exactly where it always was, inside CleanupAgentAsync below.
-            if (!agent.IsServerSilent && agent.AcpForwarder is { } acpForwarder) {
+            if (agent is { IsServerSilent: false, AcpForwarder: { } acpForwarder }) {
                 await FinalDrainAcpTranscriptAsync(agent, acpForwarder);
             }
 
@@ -5207,7 +5239,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             if (AttachmentIds.Validate(attachmentIds) is { } invalid) return RefuseAttachments(invalid);
             if (agent.Kind != LaunchKind.Default) return RefuseAttachments(AttachmentRefusals.ReviewParticipant);
 
-            if (agent.Placement == AttachmentPlacement.Worktree && agent.Work is WorkLocation.BorrowedCwd or WorkLocation.InPlace)
+            if (agent is { Placement: AttachmentPlacement.Worktree, Work: WorkLocation.BorrowedCwd or WorkLocation.InPlace })
                 return RefuseAttachments(AttachmentRefusals.NeedsOwnedWorktree);
 
             if (!agent.Runtime.EmitsTerminalOutput && IsQuitCommand(text))
@@ -5671,7 +5703,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // Capabilities gates the capability on (installed + unattended-certified + resolver present).
         // Vendor-neutral: we read each factory's own resolver, never a central vendor→model table.
         var advertised = _runtimeFactories.Values
-            .Where(f => f.IsAvailable() && f.SupportsUnattended && f.ReviewerModelResolver is not null)
+            .Where(f => f.IsAvailable() && f is { SupportsUnattended: true, ReviewerModelResolver: not null })
             .Select(f => f.ReviewerModelResolver!)
             .ToList();
 
@@ -5750,7 +5782,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// PrivateLocal agent. Shared by the hosted launch and the registered local launch so the
     /// two cannot drift. Dims come from <see cref="AgentInstance.CurrentCols"/>/<c>CurrentRows</c>
     /// (hosted = HostedPtyCols/Rows; local = the client's terminal size). A refusal sends nothing
-    /// further: the server holds no entry for the dims or the run to attach to.
+    /// further: the server holds no entry for the dims or the run to attach to. After a refusal about
+    /// the reporting connection, they follow the next registration the server takes.
     /// </summary>
     async Task<AgentRegisteredResponse> RegisterAgentAsync(AgentInstance agent) {
         if (agent.IsPrivate) return AgentRegisteredResponse.Accepted;
@@ -5759,26 +5792,95 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         var registration = await _server.AgentRegisteredAsync(agent.Id, agent.Prompt, agent.Model, agent.Effort, agent.RepoPath, agent.SandboxPolicy, agent.ApprovalPolicy, agent.PermissionPreset, agent.RuntimeTransport, agent.Vendor, agent.StartTitle, agent.ContinuesAgentId,
             agent.Account?.Directory, agent.Account?.AccountId, CurrentAccountLabel(agent.Account?.AccountId, agent.Account?.Label),
             resumed, resumeFirstAnnounce: resumed is not null && !agent.ResumeAnswered);
+
+        // The agent stays reported, so the registration that follows the connection's recovery sends it again.
+        if (registration.RefusesConnection) {
+            LogRegistrationRefusedForConnection(agent.Id, registration.RefusedReason);
+            agent.RunStartTask = OnceRegisteredAsync(agent, () => StartRegisteredRunAsync(agent));
+
+            return registration;
+        }
+
         // A server that cannot answer may be upgraded before the next registration, which must then still be the first.
         if (registration.Answered) agent.ResumeAnswered = true;
 
         if (!registration.Registered) {
-            agent.RegistrationRefused = true;
+            agent.RefuseRegistration(registration.RefusedReason);
             LogRegistrationRefused(agent.Id, registration.RefusedReason);
             return registration;
         }
 
-        // Report the PTY size so read-only viewers lock their xterm to it. Best-effort.
+        agent.AcceptRegistration();
+        await StartRegisteredRunAsync(agent);
+
+        return registration;
+    }
+
+    /// <summary>Why the server holds no entry for a resumed agent, or null when it holds one. After a refusal about
+    /// the reporting connection, the registration that follows the connection's recovery answers for it, if it comes
+    /// within <see cref="DaemonConfig.ResumeReadinessWindow"/>: the resume is judged once the launch returns, and must
+    /// not be judged before the server holds the agent.</summary>
+    async Task<string?> ResumeRefusalAsync(AgentInstance agent, AgentRegisteredResponse registration) {
+        if (registration.Registered) return null;
+        if (!registration.RefusesConnection) return registration.RefusedReason ?? "";
+
         try {
-            await _server.SendTerminalDimensionsAsync(agent.Id, agent.CurrentCols, agent.CurrentRows);
+            if (await agent.Registration.WaitAsync(_config.ResumeReadinessWindow, _time, agent.ExitedCts.Token) && !agent.RegistrationRefused) return null;
+        } catch (Exception ex) when (ex is TimeoutException or OperationCanceledException) {
+            // Unanswered, it is refused like any other: the resume goes on under a new id.
+        }
+
+        agent.RefuseRegistration(registration.RefusedReason);
+
+        return agent.RegistrationRefusal;
+    }
+
+    /// <summary>Runs work that needs the server to hold the agent, once it does: at once after an accepted launch
+    /// registration, and after the next registration when the launch's was refused for its connection.
+    /// <paramref name="refused"/> runs instead once the server refuses the agent. Contains its own faults.</summary>
+    async Task OnceRegisteredAsync(AgentInstance agent, Func<Task> registered, Func<Task>? refused = null) {
+        // Cancelled by every teardown, so a wait for a server that never takes the agent ends with it.
+        var lifetime = agent.ExitedCts.Token;
+
+        try {
+            // A refusal can follow the acceptance before this resumes.
+            var accepted = await agent.Registration.WaitAsync(lifetime) && !agent.RegistrationRefused;
+
+            await (accepted ? registered() : refused?.Invoke() ?? Task.CompletedTask);
+        } catch (OperationCanceledException) when (lifetime.IsCancellationRequested) {
+            // The agent ended before the server held it.
+        } catch (Exception ex) {
+            LogRegisteredWorkFailed(ex, agent.Id);
+        }
+    }
+
+    /// <summary>What a launch reports once the server holds the agent. Nothing for an agent refused or ended meanwhile:
+    /// a run start after the stop would mark the run running again.</summary>
+    async Task StartRegisteredRunAsync(AgentInstance agent) {
+        if (agent.RegistrationRefused || agent.ExitedCts.IsCancellationRequested) return;
+
+        // Report the PTY size so read-only viewers lock their xterm to it. Best-effort. The exit or the shutdown
+        // cancels it, because finalization and the shutdown's lane drain both wait for this start.
+        try {
+            using var sendCts = CancellationTokenSource.CreateLinkedTokenSource(_shutdownCts.Token, agent.ExitedCts.Token);
+            await _server.SendTerminalDimensionsAsync(agent.Id, agent.CurrentCols, agent.CurrentRows, sendCts.Token);
+        } catch (OperationCanceledException) when (agent.ExitedCts.IsCancellationRequested) {
+            return;
         } catch (Exception ex) {
             ReportDimsSendFailed(ex, agent.Id);
         }
 
-        _ = _server.AppendAgentRunEventAsync(
-            agent.Id,
-            new AgentRunStarted(agent.Prompt, agent.Model, agent.Effort, agent.RepoPath, agent.Worktree.Path, agent.Vendor)
-        );
+        // Under the gate a stop's report is queued under, so a start never follows that report either.
+        lock (agent.StatusSendGate) {
+            bool stopping;
+            lock (_ledgerLock) stopping = agent.StopRequested;
+            if (stopping || agent.RegistrationRefused || agent.ExitedCts.IsCancellationRequested) return;
+
+            _ = _server.AppendAgentRunEventAsync(
+                agent.Id,
+                new AgentRunStarted(agent.Prompt, agent.Model, agent.Effort, agent.RepoPath, agent.Worktree.Path, agent.Vendor)
+            );
+        }
 
         // Persist repo path and notify server so the launch dialog updates. A scratch workspace is
         // deleted at teardown, so recording it would advertise a repository that no longer exists.
@@ -5791,8 +5893,6 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 }
             }
         );
-
-        return registration;
     }
 
     /// <summary>The only caller of <c>AgentStatusChangedAsync</c>. A failure status is always sent. Any
@@ -5949,6 +6049,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
         agent.TranscriptBound = true;
         transcript.ServerBindSettled(bound: true);
+    }
+
+    static void SettleUnboundTranscript(AgentInstance agent, IAcpTranscriptSource transcript) {
+        agent.TranscriptBound = false;
+        transcript.ServerBindSettled(bound: false);
     }
 
     /// <summary>The held first turn of an agent the server refused: no claim can be made for it, and holding the
@@ -6252,7 +6357,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     // and the agent is left out of later re-registrations too. A status sent for the refused id
                     // could clear the failure the server recorded for it.
                     if (!registration.Registered) {
-                        agent.RegistrationRefused = true;
+                        agent.RefuseRegistration(registration.RefusedReason);
                         LogRegistrationRefused(agent.Id, registration.RefusedReason);
 
                         // The forwarder would go on sending the transcript under the refused id.
@@ -6271,6 +6376,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
                         break;
                     }
+
+                    agent.AcceptRegistration();
 
                     // The acknowledgement is what re-registered means: whatever was written to
                     // the old connection may not have arrived, and that holds even if the sends
@@ -6867,7 +6974,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // Only agents this teardown still owns. One whose own finalizer already ran has reported its
         // real ending and is waiting on cleanup; reporting it again would append a second stop event
         // over the top of a truer one and race that finalizer's unregister.
-        var live = _agents.Values.Where(a => !a.IsServerSilent && !a.ResumePending && a.Status is "Starting" or "Running").ToList();
+        var live = _agents.Values.Where(a => a is { IsServerSilent: false, ResumePending: false, Status: "Starting" or "Running" }).ToList();
 
         if (live.Count == 0) return;
 
@@ -7329,6 +7436,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Server refused the re-registration of agent {AgentId} for this connection ({Reason}); it stays reported")]
     partial void LogReRegistrationRefusedForConnection(string agentId, string? reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Server refused the registration of agent {AgentId} for this connection ({Reason}); it stays reported, and its run starts once a registration is taken")]
+    partial void LogRegistrationRefusedForConnection(string agentId, string? reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Work that waited for the registration of agent {AgentId} failed")]
+    partial void LogRegisteredWorkFailed(Exception ex, string agentId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to send terminal dimensions for agent {AgentId} (read-only viewers may render garbled until the next reconnect)")]
     partial void LogTerminalDimsSendFailed(Exception ex, string agentId);

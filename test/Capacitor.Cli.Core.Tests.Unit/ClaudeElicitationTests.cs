@@ -34,7 +34,7 @@ public class ClaudeElicitationTests {
     [Arguments("""{"questions":[]}""")]
     [Arguments("""{"questions":{}}""")]
     [Arguments("""{"noquestions":true}""")]
-    [Arguments("""[1,2]""")]
+    [Arguments("[1,2]")]
     [Arguments("""{"questions":["notanobject"]}""")]
     [Arguments("""{"questions":[{"question":""}]}""")]
     [Arguments("""{"questions":[{"question":"   "}]}""")]

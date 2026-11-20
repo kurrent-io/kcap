@@ -146,11 +146,9 @@ public class DaemonConfig {
     }
 
     internal UnattendedAdvertisement Advertisement {
-        get => Volatile.Read(ref _advertisement);
-        private set => Volatile.Write(ref _advertisement, value);
-    }
-
-    UnattendedAdvertisement _advertisement = UnattendedAdvertisement.None;
+        get => Volatile.Read(ref field);
+        private set => Volatile.Write(ref field, value);
+    } = UnattendedAdvertisement.None;
 
     internal void Advertise(IReadOnlyList<UnattendedVendorCapability> capabilities, Harness.Codex.CodexTransportResolution codex) =>
         Advertisement = new(capabilities, codex);
@@ -222,11 +220,9 @@ public class DaemonConfig {
     /// <summary>The Codex resolution this daemon routes on and advertises. Swapped whole by the
     /// capability refresh; readers on other threads take the reference once.</summary>
     internal Harness.Codex.CodexTransportResolution CodexResolution {
-        get => Volatile.Read(ref _codexResolution);
-        set => Volatile.Write(ref _codexResolution, value);
-    }
-
-    Harness.Codex.CodexTransportResolution _codexResolution = Harness.Codex.CodexTransportResolution.Unresolved;
+        get => Volatile.Read(ref field);
+        set => Volatile.Write(ref field, value);
+    } = Harness.Codex.CodexTransportResolution.Unresolved;
 
     /// <summary>Whether app-server applies when the profile never set the <c>codex-app-server</c>
     /// switch. Set from the platform at boot; off for a config built anywhere else.</summary>
@@ -271,11 +267,9 @@ public class DaemonConfig {
 
     /// <summary>Why <c>experimental.json</c> could not be read on the last resolution pass; null when it was.</summary>
     internal string? ExperimentalSettingsProblem {
-        get => Volatile.Read(ref _experimentalSettingsProblem);
-        set => Volatile.Write(ref _experimentalSettingsProblem, value);
+        get => Volatile.Read(ref field);
+        set => Volatile.Write(ref field, value);
     }
-
-    string? _experimentalSettingsProblem;
 
     /// <summary>This daemon's profile's experimental switches, read from disk now. Empty when no
     /// profile was resolved.</summary>

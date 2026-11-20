@@ -6,7 +6,7 @@ namespace Capacitor.App.Services;
 /// answered separately. Tools are the MCP servers and what steers the agent to them.
 public static class HarnessInstallOptions {
     /// Claude Code and Codex install their tools with capture; the two cannot be answered apart.
-    public static bool ToolsBundled(HarnessId id) => id == HarnessId.Claude || id == HarnessId.Codex;
+    public static bool ToolsBundled(HarnessId id) => id is HarnessId.Claude or HarnessId.Codex;
 
     public static IReadOnlyList<string> For(HarnessId id, bool record, bool tools) =>
         ToolsBundled(id)    ? []
@@ -18,6 +18,6 @@ public static class HarnessInstallOptions {
     // wrong name would leave that part installed without a word.
     static IEnumerable<string> ToolParts(HarnessId id) =>
         id == HarnessId.Grok ? ["skills"]
-        : id == HarnessId.Cursor || id == HarnessId.Kiro || id == HarnessId.MistralVibe || id == HarnessId.Muse ? ["mcp", "skills"]
+        : id is HarnessId.Cursor or HarnessId.Kiro or HarnessId.MistralVibe or HarnessId.Muse ? ["mcp", "skills"]
         : ["mcp", "skills", "instructions"];
 }

@@ -230,7 +230,7 @@ public sealed class KcapCli : IKcapCli {
                 new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false), Timeout: VersionTimeout), ct)
             .ConfigureAwait(false);
 
-        return result.ExitCode == 0 && !result.TimedOut ? CliResolver.ParseVersion(result.Stdout) : null;
+        return result is { ExitCode: 0, TimedOut: false } ? CliResolver.ParseVersion(result.Stdout) : null;
     }
 
     public Task<ServiceSnapshot?> ServiceStatusAsync(CancellationToken ct) => ServiceStatusAsync(_daemonName, ct);
@@ -257,7 +257,7 @@ public sealed class KcapCli : IKcapCli {
         if (CliPath is not { } cliPath) return false;
         var help = await Run(cliPath, ["daemon", "--help", "--no-update-check"],
             new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false), Timeout: VersionTimeout), ct).ConfigureAwait(false);
-        return !help.TimedOut && help.ExitCode == 0 &&
+        return help is { TimedOut: false, ExitCode: 0 } &&
             (help.Stdout.Contains("--retire", StringComparison.Ordinal) || help.Stderr.Contains("--retire", StringComparison.Ordinal));
     }
 

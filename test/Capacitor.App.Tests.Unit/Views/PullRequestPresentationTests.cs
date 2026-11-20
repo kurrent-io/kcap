@@ -219,7 +219,7 @@ public class PullRequestPresentationTests {
         await h.SettleAsync();
         h.Source.HeadSha = new string('b', 40);
         h.Time.Advance(TimeSpan.FromSeconds(31));
-        await WorkspaceFixtures.WaitUntilAsync(() => h.Model.FreshnessDetail == "Checks ran on commit bbbbbbb" && !h.Model.IsReading, what: "checks for the new head");
+        await WorkspaceFixtures.WaitUntilAsync(() => h.Model is { FreshnessDetail: "Checks ran on commit bbbbbbb", IsReading: false }, what: "checks for the new head");
         await Assert.That(h.Model.PageNote).IsEmpty();
         await Assert.That(h.Model.Rows.Count).IsEqualTo(1);
     });

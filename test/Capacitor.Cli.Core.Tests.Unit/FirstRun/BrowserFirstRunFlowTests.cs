@@ -204,9 +204,9 @@ public class BrowserFirstRunFlowTests {
             log.Add("open");
         }
 
-        public int Discoveries  { get; private set; }
+        int Discoveries  { get; set; }
         public int ImportEnds   { get; private set; }
-        public int ActionsEnded { get; private set; }
+        int ActionsEnded { get; set; }
 
         public List<(int Repos, int? Sessions)> Imports { get; } = [];
 

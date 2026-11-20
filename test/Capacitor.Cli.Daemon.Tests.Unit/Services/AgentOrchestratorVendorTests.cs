@@ -179,6 +179,106 @@ public class AgentOrchestratorVendorTests {
         await Assert.That(server.AgentUnregisteredCalls).IsEmpty();
     }
 
+    /// <summary>A launch refused for its connection stays reported, and its run starts once the registration that
+    /// follows the connection's recovery takes it.</summary>
+    [Test]
+    [Arguments("not_a_daemon")]
+    [Arguments("connection_vanished")]
+    public async Task A_launch_refused_for_its_connection_stays_reported_and_starts_its_run_once_registered(string refusal) {
+        using var repoPath = GitRepo.CreateWithCommit();
+        var server = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, refusal) };
+
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(new ScriptedPtyProcess()), AgentOrchestratorHarness.Launcher("claude"), allowedRepoPath: repoPath);
+
+        await orch.HandleLaunchAgentForTest(new LaunchAgentCommand(
+            AgentId: "displaced-launch", Prompt: "hi", Model: "opus", Effort: null,
+            RepoPath: repoPath, Tools: null, AttachmentIds: null, Vendor: "claude"));
+
+        int RunStarts() {
+            lock (server.RunEvents) return server.RunEvents.Count(e => e is { AgentId: "displaced-launch", Event: AgentRunStarted });
+        }
+
+        var liveWhileRefused   = server.GetLiveAgentIds!();
+        var startsWhileRefused = RunStarts();
+
+        server.RegistrationResponse = null;
+        await server.ReRegisterAgentsHook!();
+        await WaitHarness.PollUntilAsync(() => RunStarts() > 0);
+        await server.ReRegisterAgentsHook!();
+
+        await Assert.That(liveWhileRefused).Contains("displaced-launch");
+        await Assert.That(startsWhileRefused).IsEqualTo(0);
+        await Assert.That(RunStarts()).IsEqualTo(1);
+        await Assert.That(orch.GetAgentForTest("displaced-launch")!.IsServerSilent).IsFalse();
+        await Assert.That(server.AgentRegisteredCallCount).IsEqualTo(3);
+        await Assert.That(server.StatusChangedCalls.Select(c => c.AgentId)).Contains("displaced-launch");
+
+        await orch.HandleStopAgentForTest("displaced-launch");
+    }
+
+    /// <summary>A launch refused for its connection that ends while its owed run start is under way sends no run start
+    /// after its stop, which would mark the stopped run running again, and its stop does not wait for the size send
+    /// that start is held on.</summary>
+    [Test]
+    public async Task A_launch_refused_for_its_connection_that_ends_while_its_run_starts_sends_no_start_after_its_stop() {
+        using var repoPath = GitRepo.CreateWithCommit();
+        var server = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_a_daemon") };
+        var pty    = new ScriptedPtyProcess();
+
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(pty), AgentOrchestratorHarness.Launcher("claude"), allowedRepoPath: repoPath);
+
+        await orch.HandleLaunchAgentForTest(new LaunchAgentCommand(
+            AgentId: "displaced-ending", Prompt: "hi", Model: "opus", Effort: null,
+            RepoPath: repoPath, Tools: null, AttachmentIds: null, Vendor: "claude"));
+        var agent = orch.GetAgentForTest("displaced-ending")!;
+
+        // The recovery's own resend and the owed run start both hold on the terminal size.
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        server.DimensionsGate       = held;
+        server.RegistrationResponse = null;
+        var reRegistration = server.ReRegisterAgentsHook!();
+        await WaitHarness.PollUntilAsync(() => server.DimensionsSends >= 2);
+
+        List<object> Events() {
+            lock (server.RunEvents) return server.RunEvents.Where(e => e.AgentId == "displaced-ending").Select(e => e.Event).ToList();
+        }
+
+        pty.Exit();
+        await agent.RunStartTask!.WaitAsync(WaitHarness.Bounded);
+        await WaitHarness.PollUntilAsync(() => Events().Any(e => e is AgentRunStopped));
+
+        held.SetResult();
+        await reRegistration;
+
+        await Assert.That(Events().SkipWhile(e => e is not AgentRunStopped).Any(e => e is AgentRunStarted)).IsFalse();
+    }
+
+    /// <summary>A launch held on its terminal-size send does not hold the daemon's shutdown, which drains the launch
+    /// lane before it stops any agent.</summary>
+    [Test]
+    public async Task A_launch_held_on_its_size_send_does_not_hold_the_shutdown() {
+        using var repoPath = GitRepo.CreateWithCommit();
+        var held   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server = new CaptureServerConnection { DimensionsGate = held };
+        var pty    = new ScriptedPtyProcess();
+
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(pty), AgentOrchestratorHarness.Launcher("claude"), allowedRepoPath: repoPath);
+
+        try {
+            await orch.SubmitLaunchAgentForTest(new LaunchAgentCommand(
+                AgentId: "held-size", Prompt: "hi", Model: "opus", Effort: null,
+                RepoPath: repoPath, Tools: null, AttachmentIds: null, Vendor: "claude"));
+            await WaitHarness.PollUntilAsync(() => server.DimensionsSends >= 1);
+
+            await orch.DisposeAsync().AsTask().WaitAsync(WaitHarness.Bounded);
+        } finally {
+            held.TrySetResult();
+        }
+    }
+
     // A PTY codex runtime reports "pty" on AgentRegistered — the transport rides the runtime TYPE,
     // not the vendor (a codex agent is not automatically app-server).
     [Test]

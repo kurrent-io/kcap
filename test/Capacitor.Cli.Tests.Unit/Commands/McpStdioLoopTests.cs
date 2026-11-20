@@ -42,7 +42,7 @@ public class McpStdioLoopTests {
         ["jsonrpc"] = "2.0", ["id"] = id, ["method"] = "tools/call", ["params"] = new JsonObject { ["name"] = tool },
     }.ToJsonString();
 
-    static string Request(string id, string method) => $$$"""{"jsonrpc":"2.0","id":{{{id}}},"method":{{{method}}}}""";
+    static string Request(string id, string method) => $$"""{"jsonrpc":"2.0","id":{{id}},"method":{{method}}}""";
 
     static string Tool(JsonObject request) => request["params"]!["name"]!.GetValue<string>();
 

@@ -13,8 +13,6 @@ public sealed class HarnessRowViewModel : ReactiveObject {
 
     bool               _record;
     bool               _tools;
-    AgentInstallStatus _status = AgentInstallStatus.NotRun;
-    string?            _message;
 
     internal HarnessRowViewModel(
             AgentVendor vendor, DetectedAgent detected, bool declined, Func<HarnessRowViewModel, Task> retry,
@@ -70,18 +68,18 @@ public sealed class HarnessRowViewModel : ReactiveObject {
     public bool Selected => Record || Tools;
 
     public AgentInstallStatus Status {
-        get => _status;
+        get;
         internal set {
-            this.RaiseAndSetIfChanged(ref _status, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Failed));
             this.RaisePropertyChanged(nameof(Succeeded));
             this.RaisePropertyChanged(nameof(Installing));
         }
-    }
+    } = AgentInstallStatus.NotRun;
 
     public string? Message {
-        get => _message;
-        internal set => this.RaiseAndSetIfChanged(ref _message, value);
+        get;
+        internal set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Failed     => Status == AgentInstallStatus.Failed;

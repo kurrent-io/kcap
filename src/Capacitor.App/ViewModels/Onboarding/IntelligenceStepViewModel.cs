@@ -28,14 +28,6 @@ public sealed class IntelligenceStepViewModel : ReactiveObject, IWizardStep, IIm
     readonly Func<IReadOnlyList<HarnessId>>              _ticked;
     readonly Func<CancellationToken, Task<string[]>>     _headless;
 
-    IReadOnlyList<IntelligenceOption> _options = [];
-    IntelligenceVendor                _vendor  = IntelligenceVendor.Anthropic;
-    string                            _model   = IntelligenceVendor.Anthropic.DefaultModel;
-    string                            _apiKey  = "";
-    string?                           _error;
-    bool                              _busy;
-    bool                              _loading;
-    IntelligenceSetupResponse?        _applied;
     (IntelligenceAnswer Answer, string? Model, string? Key)? _sent;
     string[]?                         _headlessRead;
     string                            _offeredFor = "";
@@ -63,25 +55,25 @@ public sealed class IntelligenceStepViewModel : ReactiveObject, IWizardStep, IIm
 
     /// <summary>What the server applied, for the Import page; null when nothing was.</summary>
     public IntelligenceSetupResponse? Applied {
-        get => _applied;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _applied, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Satisfied));
         }
     }
 
     public IReadOnlyList<IntelligenceOption> Options {
-        get => _options;
-        private set => this.RaiseAndSetIfChanged(ref _options, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = [];
 
     /// <summary>The page's harness read, done once it completes.</summary>
     public Task Loading { get; private set; } = Task.CompletedTask;
 
     public bool IsLoading {
-        get => _loading;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _loading, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(CanContinue));
         }
     }
@@ -93,40 +85,40 @@ public sealed class IntelligenceStepViewModel : ReactiveObject, IWizardStep, IIm
     public IReadOnlyList<IntelligenceVendor> Vendors => IntelligenceVendor.All;
 
     public IntelligenceVendor SelectedVendor {
-        get => _vendor;
+        get;
         set {
-            if (value == _vendor) return;
-            this.RaiseAndSetIfChanged(ref _vendor, value);
+            if (value == field) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             Model  = value.DefaultModel;
             ApiKey = "";
             this.RaisePropertyChanged(nameof(KeyHint));
         }
-    }
+    } = IntelligenceVendor.Anthropic;
 
     public string Model {
-        get => _model;
-        set => this.RaiseAndSetIfChanged(ref _model, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = IntelligenceVendor.Anthropic.DefaultModel;
 
     public string ApiKey {
-        get => _apiKey;
+        get;
         set {
-            this.RaiseAndSetIfChanged(ref _apiKey, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(CanContinue));
         }
-    }
+    } = "";
 
     public string KeyHint => $"Your {SelectedVendor.Label} API key. The local server stores it and sends it only to {SelectedVendor.Label}.";
 
     public string? Error {
-        get => _error;
-        private set => this.RaiseAndSetIfChanged(ref _error, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Busy {
-        get => _busy;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _busy, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(NextLabel));
             this.RaisePropertyChanged(nameof(CanContinue));
         }

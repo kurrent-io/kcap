@@ -8,7 +8,7 @@ internal sealed record HandoffDecision(bool Offered, HandoffSuppressedReason? Re
     public static HandoffDecision Decide(
             ForegroundImportOutcome outcome, BackgroundImportStatus background,
             int eligibleVendors, int detectedVendors) {
-        if (outcome.Certainty == ForegroundCertainty.Incomplete && outcome.Succeeded == 0)
+        if (outcome is { Certainty: ForegroundCertainty.Incomplete, Succeeded: 0 })
             return new(false, HandoffSuppressedReason.ImportFailed);
         if (background == BackgroundImportStatus.Failed && outcome.Succeeded == 0)
             return new(false, HandoffSuppressedReason.ImportFailed);

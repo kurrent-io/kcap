@@ -48,7 +48,7 @@ public partial class WorkspaceView : UserControl {
                     if (pair.Property1 == WorkspaceTab.Artefacts && ArtefactsHost.Content is null && model is not null)
                         ArtefactsHost.Content = new ArtefactsView { DataContext = model.Artefacts };
                     if (PullRequestHost.Content is PullRequestReader reader) reader.IsVisible = pair.Property1 == WorkspaceTab.PullRequest;
-                    if (pair.Property1 == WorkspaceTab.Chat && pair.Property2 is not null) ChatHost.FocusComposer();
+                    if (pair is { Property1: WorkspaceTab.Chat, Property2: not null }) ChatHost.FocusComposer();
                     else if (pair.Property1 == WorkspaceTab.Terminal) TerminalHost.Focus();
                 }, DispatcherPriority.Loaded));
         };

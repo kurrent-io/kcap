@@ -54,7 +54,6 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     readonly Dictionary<(string SessionId, string PageId), int> _citationAttempts = [];
     readonly HashSet<(string SessionId, string PageId)> _citationsInFlight = [];
     internal const int MaxCitationAttempts = 3;
-    bool _pagesExpanded;
 
     public IAvaloniaReadOnlyList<DocumentRow> Documents => _documents;
     public IAvaloniaReadOnlyList<PageRow> Pages => _pages;
@@ -84,9 +83,9 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     internal const int VisiblePagesCap = 3;
     public bool PagesOverflow => _pages.Count > VisiblePagesCap;
     public bool PagesExpanded {
-        get => _pagesExpanded;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _pagesExpanded, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(VisiblePages));
         }
     }
@@ -94,24 +93,21 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     public string PagesMeta => _pages.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     (string Path, string? Hash, DriftState State)? _lastDrift;
-    DocumentRow? _selected;
-    public DocumentRow? Selected { get => _selected; private set => this.RaiseAndSetIfChanged(ref _selected, value); }
+    public DocumentRow? Selected { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    DocumentReaderViewModel? _reader;
     public DocumentReaderViewModel? Reader {
-        get => _reader;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _reader, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsReaderNote));
         }
     }
 
-    PageViewerViewModel? _openPage;
     /// The page open in the right pane in place of the reader; at most one of the two is set.
     public PageViewerViewModel? PageViewer {
-        get => _openPage;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _openPage, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsReaderNote));
             this.RaisePropertyChanged(nameof(HasAny));
         }
@@ -123,13 +119,12 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     /// only when the activity naming it was read from this transcript.
     public string? TranscriptKey { get; set; }
 
-    bool _isShown;
     /// Set by the workspace while the tab is the active one; the pane's poll re-reads documents only then.
     /// A tab shown with nothing open opens the first row it can.
     public bool IsShown {
-        get => _isShown;
+        get;
         set {
-            this.RaiseAndSetIfChanged(ref _isShown, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             OpenFirst();
         }
     }

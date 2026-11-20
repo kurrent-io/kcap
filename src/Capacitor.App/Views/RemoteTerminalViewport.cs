@@ -21,7 +21,7 @@ public sealed class RemoteTerminalViewport : ScrollViewer {
         AddHandler(PointerWheelChangedEvent, OnTerminalWheel, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, (_, e) => {
             var remoteKey = e.Key is Key.Up or Key.Down or Key.Enter or Key.Tab or Key.Escape
-                || (e.Key == Key.C && e.KeyModifiers == KeyModifiers.Control);
+                || (e is { Key: Key.C, KeyModifiers: KeyModifiers.Control });
             if (IsLive && remoteKey && Content is RemoteTerminalControl { IsKeyboardFocusWithin: true }) ShowTail();
         }, RoutingStrategies.Tunnel);
         ScrollChanged += OnScrollChanged;

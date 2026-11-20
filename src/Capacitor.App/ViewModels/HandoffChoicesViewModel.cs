@@ -203,55 +203,47 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
         return Task.CompletedTask;
     }
 
-    string _selectedCodexSandbox = HostedHarnessCatalog.DefaultCodexSandbox;
     public string SelectedCodexSandbox {
-        get => _selectedCodexSandbox;
-        set => this.RaiseAndSetIfChanged(ref _selectedCodexSandbox, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = HostedHarnessCatalog.DefaultCodexSandbox;
 
-    string _selectedCodexApproval = HostedHarnessCatalog.DefaultCodexApproval;
     public string SelectedCodexApproval {
-        get => _selectedCodexApproval;
-        set => this.RaiseAndSetIfChanged(ref _selectedCodexApproval, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = HostedHarnessCatalog.DefaultCodexApproval;
 
-    bool _accountSection;
     public bool AccountSection {
-        get => _accountSection;
-        private set => this.RaiseAndSetIfChanged(ref _accountSection, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    IReadOnlyList<AccountChoice> _accountRows = [];
     public IReadOnlyList<AccountChoice> AccountRows {
-        get => _accountRows;
-        private set => this.RaiseAndSetIfChanged(ref _accountRows, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = [];
 
-    string? _selectedAccountLabel;
     public string? SelectedAccountLabel {
-        get => _selectedAccountLabel;
-        private set => this.RaiseAndSetIfChanged(ref _selectedAccountLabel, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string? _accountPendingText;
     public string? AccountPendingText {
-        get => _accountPendingText;
-        private set => this.RaiseAndSetIfChanged(ref _accountPendingText, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool AccountRetryVisible => false;
 
-    IReadOnlyDictionary<string, AccountUsageView> _accountUsageById = FrozenDictionary<string, AccountUsageView>.Empty;
     public IReadOnlyDictionary<string, AccountUsageView> AccountUsageById {
-        get => _accountUsageById;
-        private set => this.RaiseAndSetIfChanged(ref _accountUsageById, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = FrozenDictionary<string, AccountUsageView>.Empty;
 
-    bool _accountPending;
     /// The choice is still resolving, so a launch now would run under a default nobody chose.
     public bool AccountPending {
-        get => _accountPending;
-        private set => this.RaiseAndSetIfChanged(ref _accountPending, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Why the picked account cannot launch, while it is listed no longer; null otherwise.
@@ -371,7 +363,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     void Revalidate(IReadOnlyList<HarnessOption> options) {
         var current = options.FirstOrDefault(o => string.Equals(o.Vendor, SelectedVendor, StringComparison.OrdinalIgnoreCase));
         if (current is { Available: true }) return;
-        SetVendor(options.Any(o => o.Available && o.Vendor == HomeViewModel.DefaultVendor)
+        SetVendor(options.Any(o => o is { Available: true, Vendor: HomeViewModel.DefaultVendor })
             ? HomeViewModel.DefaultVendor
             : options.FirstOrDefault(o => o.Available)?.Vendor ?? HomeViewModel.DefaultVendor);
     }

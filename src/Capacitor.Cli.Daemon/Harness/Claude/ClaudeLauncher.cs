@@ -31,7 +31,7 @@ internal sealed partial class ClaudeLauncher(
     // prompts, not question cards or the one-time bypass consent dialog, so a sprayed Enter could
     // still answer something.
     public bool DisablesApprovalPrompts(LauncherContext ctx) =>
-        ctx.IsReviewFlow && ctx.Work == WorkLocation.OwnedWorktree;
+        ctx is { IsReviewFlow: true, Work: WorkLocation.OwnedWorktree };
     /// <summary>Claude owns its own reviewer-model policy (aliases + dated concrete ids → family-level
     /// equivalence key). Stateless singleton.</summary>
     public IReviewerModelResolver? ReviewerModelResolver => ClaudeReviewerModelResolver.Instance;
@@ -51,7 +51,7 @@ internal sealed partial class ClaudeLauncher(
     const string EmptyMcpConfig = """{"mcpServers":{}}""";
 
     public void Prepare(LauncherContext ctx) {
-        if (ctx.IsReviewFlow && ctx.Work == WorkLocation.BorrowedCwd)
+        if (ctx is { IsReviewFlow: true, Work: WorkLocation.BorrowedCwd })
             throw new UnattendedReviewPolicyException(
                 "Claude borrowed review flows are not certified; retry with an owned review worktree.");
         // A borrowed cwd or a resumed session's own directory is the user's, already trusted and

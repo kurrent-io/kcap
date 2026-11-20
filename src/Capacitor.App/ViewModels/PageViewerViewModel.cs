@@ -66,12 +66,10 @@ public sealed class PageViewerViewModel : ReactiveObject {
         _                           => null,
     };
 
-    string _title = "";
-    public string Title { get => _title; private set => this.RaiseAndSetIfChanged(ref _title, value); }
+    public string Title { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
-    string? _html;
     /// The host document for the WebView; null after a read that found no page.
-    public string? Html { get => _html; private set => this.RaiseAndSetIfChanged(ref _html, value); }
+    public string? Html { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     public ArtefactDto? Page { get; private set; }
     public int Version { get; private set; }
