@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Acp;
 using Capacitor.Cli.Core.Harness;
@@ -66,8 +67,8 @@ internal interface IAgyTurnDiagnostics {
 /// </summary>
 /// <param name="turnSource">Test seam ONLY. Production passes null, which spawns the real
 /// <see cref="AgyTurnProcess"/> from the <see cref="ProcessStartInfo"/> <see cref="BuildTurnPsi"/>
-/// built — so the seam changes nothing about production behaviour, and the argv assertions run
-/// against the same builder a real launch uses.</param>
+/// built and hands it the prompt — so the seam changes nothing about production behaviour, and the
+/// argv assertions run against the same builder a real launch uses.</param>
 /// <param name="binaryExists">Test seam ONLY, for the availability half of the gate. Production
 /// passes null, which resolves the real binary through <c>PATH</c>. A test pins it so the CONSENT
 /// half is assertable on a host that happens to have (or not have) <c>agy</c> installed — otherwise
@@ -83,16 +84,18 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         DaemonConfig                                                     config,
         ILoggerFactory                                                   loggerFactory,
         TimeProvider                                                     time,
-        Func<ProcessStartInfo, CancellationToken, Task<IAgyTurnProcess>>? turnSource = null,
+        Func<AgyTurnSpawn, CancellationToken, Task<IAgyTurnProcess>>?    turnSource = null,
         Func<string, bool>?                                              binaryExists = null,
         Func<string, string?>?                                           resolveVersion = null,
         bool?                                                            windowsHost = null
     ) : IHostedAgentRuntimeFactory {
     readonly ILogger _logger = loggerFactory.CreateLogger<AntigravityHostedAgentRuntimeFactory>();
 
-    readonly Func<ProcessStartInfo, CancellationToken, Task<IAgyTurnProcess>> _turnSource =
-        turnSource ?? ((psi, _) => Task.FromResult<IAgyTurnProcess>(
-            new AgyTurnProcess(WindowsLaunchCommand.Apply(psi, config.Binaries), loggerFactory.CreateLogger<AgyTurnProcess>(), time)));
+    readonly Func<AgyTurnSpawn, CancellationToken, Task<IAgyTurnProcess>> _turnSource =
+        turnSource ?? ((spawn, _) => Task.FromResult<IAgyTurnProcess>(
+            new AgyTurnProcess(
+                WindowsLaunchCommand.Apply(spawn.Psi, config.Binaries), spawn.Prompt,
+                loggerFactory.CreateLogger<AgyTurnProcess>(), time)));
 
     readonly Func<string, bool> _binaryExists =
         binaryExists ?? (path => config.Binaries.Finds(path));
@@ -301,8 +304,8 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         IAgyTurnProcess? firstTurnProcess = null;
 
         async Task<IAgyTurnProcess> SpawnTurnAsync(string prompt, string? conversationId, CancellationToken turnCt) {
-            var psi     = BuildTurnPsi(config, ctx, prompt, conversationId, home, _windowsHost);
-            var process = await _turnSource(psi, turnCt).ConfigureAwait(false);
+            var psi     = BuildTurnPsi(config, ctx, conversationId, home, _windowsHost);
+            var process = await _turnSource(new AgyTurnSpawn(psi, prompt), turnCt).ConfigureAwait(false);
 
             firstTurnProcess ??= process;
 
@@ -423,10 +426,19 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     /// </summary>
     static InvalidOperationException DescribeLaunchFailure(
             Exception cause, IAgyTurnProcess? firstTurn, CancellationToken callerToken, CancellationToken launchToken) {
+        // Ahead of the auth arm: a build that rejects the flag prints its whole usage text after the
+        // error, and nothing guarantees that text never matches an auth pattern.
+        if (firstTurn is IAgyTurnDiagnostics { Diagnostics: { } rejected } && LooksLikeUnknownInputFormat(rejected))
+            return new InvalidOperationException(
+                "antigravity_reviewer_agy_too_old: this agy does not accept --input-format, which the "
+              + "daemon needs to hand it a prompt on stdin instead of on its command line, where any "
+              + "local user could read it. agy 1.1.15 added the flag: run `agy update`.",
+                cause);
+
         if (firstTurn is IAgyTurnDiagnostics { Diagnostics: { } diagnostics } && LooksLikeAuthFailure(diagnostics))
             return new InvalidOperationException(
                 "antigravity_reviewer_auth_unavailable: agy could not authenticate, and a daemon-hosted "
-              + "agy has no way to complete an interactive login (its stdin is closed). Give the "
+              + "agy has no way to complete an interactive login (its stdin carries only the prompt). Give the "
               + "daemon durable credentials: `gcloud auth application-default login`, then stop and "
               + "start it (`kcap daemon stop` then `kcap daemon start` or `-d`) — or re-run `kcap "
               + "daemon service install` for a supervised macOS or Linux daemon. That derives AGY_ADC_AUTH=1 and "
@@ -466,6 +478,15 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
      && (text.Contains("authentication required", StringComparison.OrdinalIgnoreCase)
       || text.Contains("log in", StringComparison.OrdinalIgnoreCase)
       || text.Contains("oauth", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Whether a child refused <c>--input-format</c>, which agy builds before 1.1.15 do not
+    /// have. Go's flag parser names the flag it does not know with one dash or two depending on the
+    /// build, so the match is on the name and the verdict rather than the whole line.</summary>
+    internal static bool LooksLikeUnknownInputFormat(string? diagnostics) =>
+        diagnostics is { Length: > 0 } text
+     && text.Contains("input-format", StringComparison.OrdinalIgnoreCase)
+     && (text.Contains("not defined", StringComparison.OrdinalIgnoreCase)
+      || text.Contains("unknown flag", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The effective reviewer model — the launch's own override, else the daemon-wide
     /// default. ONE derivation, read by both the argv builder and the runtime's
@@ -541,6 +562,11 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     /// spawn path and the launch tests both go through it, so an assertion here certifies the vector
     /// the OS actually receives rather than a re-derivation of it.
     ///
+    /// <para><b>It is never given the prompt.</b> Any local user can read a command line, and a
+    /// pattern kill from any session matches every agent whose prompt contains the pattern, so the
+    /// prompt is the one stream-json line <see cref="AgyTurnProcess"/> writes to stdin. <c>-p</c>
+    /// still needs a value: agy refuses an empty one only without <c>--input-format</c>.</para>
+    ///
     /// <para><b>The one asymmetry between a hosted agent and a reviewer</b> is
     /// <c>--dangerously-skip-permissions</c>, added on the hosted arm only. A hosted agent exists to DO
     /// work, and without it agy's shell and out-of-workspace operations soft-deny while the run still
@@ -572,10 +598,11 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     /// </summary>
     /// <param name="windowsHost">Which platform's environment to build; null reads the ambient OS.</param>
     internal static ProcessStartInfo BuildTurnPsi(
-            DaemonConfig config, RuntimeStartContext ctx, string prompt, string? conversationId, string home,
+            DaemonConfig config, RuntimeStartContext ctx, string? conversationId, string home,
             bool? windowsHost = null) {
         var argv = new List<string> {
-            "-p", prompt,
+            "-p", "",
+            "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--disable-slash-commands"
         };
@@ -603,10 +630,12 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
 
         var psi = new ProcessStartInfo(config.AntigravityPath, argv) {
             WorkingDirectory = ctx.Worktree.Path,
-            // Redirected and then CLOSED at spawn (see AgyTurnProcess): nothing can consume a pasted
+            // Carries the prompt and is then CLOSED (see AgyTurnProcess): nothing can consume a pasted
             // OAuth code, so an unauthenticated agy fails against the launch deadline instead of
             // waiting on a human who is not there.
             RedirectStandardInput  = true,
+            // agy rejects a byte-order mark ahead of its first stdin message.
+            StandardInputEncoding  = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             RedirectStandardOutput = true,
             RedirectStandardError  = true,
             // Also what makes the daemon's own Google auth variables reach the child by inheritance —
