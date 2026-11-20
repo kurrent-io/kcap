@@ -324,6 +324,7 @@ public partial class ChatTabViewModelTests {
             new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time));
         try {
             await WaitUntilAsync(() => chat.Items.OfType<ShellCommandItem>().Any(), what: "the paged-in command");
+            await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the live tail");
             lane.PushStreamEvent(RemoteFixtures.Envelope("s1", 400, CanonicalEventTypes.UserMessageReceived,
                 """{"content":"<bash-stdout>a.txt</bash-stdout><bash-stderr></bash-stderr>"}"""));
             await WaitUntilAsync(() => chat.Items.OfType<ShellCommandItem>().Single().HasOutput, what: "the output on the command");
