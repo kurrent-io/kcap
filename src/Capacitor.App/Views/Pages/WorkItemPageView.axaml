@@ -38,6 +38,7 @@
             <Setter Property="Background" Value="{StaticResource KcapRowHoverBrush}" />
         </Style>
         <Style Selector="TextBox.inlineEdit">
+            <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
             <Setter Property="CaretBrush" Value="{StaticResource KcapTextBrush}" />
