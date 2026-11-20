@@ -504,6 +504,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                         .DistinctUntilChanged()) {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
                     InputSending = inputSending,
+                    Reclaimer = HeapReclaimer.Shared,
                     WorkspaceNotice = ConnectionNotice,
                     Picker = pickers?.Create(presence.Select(p =>
                             p.Dto is { } dto && (CheckoutLabel.CheckoutPathFor(dto) ?? dto.RepoPath) is { Length: > 0 } checkout

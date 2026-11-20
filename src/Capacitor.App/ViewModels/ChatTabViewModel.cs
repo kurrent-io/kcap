@@ -124,6 +124,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     int _readInFlight;
     string? _feedKey;
     bool _feedReleased;
+    long _feedLines;
     /// The session the listed foreign rows belong to.
     string? _queueKey;
     // Dispatch ids are unique across sessions, and a snapshot can arrive late, so a discarded id
@@ -519,6 +520,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// response will ever say so.
     public Func<string, Action>? InputSending { get; init; }
     public ComposerPicker? Picker { get; init; }
+    public HeapReclaimer? Reclaimer { get; init; }
     /// Raised once a turn has gone to the channel and was not refused.
     public event Action? TurnSubmitted;
     volatile string? _sessionId;
@@ -1541,6 +1543,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _runs.KeepsHistory = _lease.Feed is RemoteTranscriptFeed;
         HasSeed = false;
         previous?.Dispose();
+        Reclaimer?.Released(_feedLines);
+        _feedLines = 0;
         RebaseQueuedMessages(CurrentOffset);
         _failureNote = null;
         var wasWaiting = _phase == ChatTabPhase.Waiting;
@@ -1900,6 +1904,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // cannot acquire dispatches from the history this read is already replaying.
         var candidates = CaptureReceiptCandidates();
         if (!Prepare(generation, read)) return;
+        _feedLines += read.Lines.Count + read.Older.Count;
         if (read.Older.Count > 0) {
             var history = new HashSet<(long Offset, string Text)>(_literalInputHistory);
             var older = await Task.Run(() => ProjectLines(read with { Lines = read.Older }, LineCursor.Empty(), matchSends: false, history));
@@ -2437,6 +2442,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         var lease = _lease;
         _lease = null;
         lease?.Dispose();
+        Reclaimer?.Released(_feedLines);
+        _feedLines = 0;
         _timer?.Dispose();
         _timer = null;
         _runs.Changed -= RefreshRuns;

@@ -440,7 +440,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             signInCompleted: signInCompleted,
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
                 .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending };
+            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending, Reclaimer = HeapReclaimer.Shared };
         this.WhenAnyValue(vm => vm.AccessNote).Subscribe(_ => RaiseConnectionNotice()).DisposeWith(_disposables);
         lane.Status.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(status => {
             _connectionFailed = status.State == ServerLaneState.Retrying && status.Failure is not null;
