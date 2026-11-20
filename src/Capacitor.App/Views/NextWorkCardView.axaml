@@ -7,23 +7,40 @@
     <!-- Styled by NextWorkBandView, the only view that hosts it. The row itself is the button: pressing it fills the
          composer. ▶ and the menu show on hover, keyboard focus or the row the composer holds. -->
         <Grid x:Name="RowHost" Classes="nwbRowHost" Classes.filled="{Binding IsFilled}" Classes.busy="{Binding Busy}">
-            <Button x:Name="CardRow" Classes="nwbRow" Classes.filled="{Binding IsFilled}" Command="{Binding FillCommand}" ToolTip.Tip="{Binding FillTip}"
-                    AutomationProperties.Name="{Binding Label}" AutomationProperties.HelpText="{Binding FillTip}">
+            <Button x:Name="CardRow" Classes="nwbRow" Classes.filled="{Binding IsFilled}" Command="{Binding FillCommand}"
+                    IsEnabled="{Binding !Busy}" ToolTip.Tip="{Binding FillTip}"
+                    AutomationProperties.Name="{Binding AccessibleName}" AutomationProperties.HelpText="{Binding FillTip}">
                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
-                    <Panel VerticalAlignment="Top" Margin="0,1,0,0" Background="Transparent" ToolTip.Tip="{Binding KindTip}">
-                        <Border Classes="nwbGlyph">
+                    <Panel VerticalAlignment="Top" Margin="0,1,0,0" Background="Transparent" ToolTip.Tip="{Binding KindTip}"
+                           AutomationProperties.Name="{Binding KindTip}">
+                        <Border Classes="nwbGlyph" IsVisible="{Binding !Busy}">
                             <views:AppIcon Classes="nwbTint" Classes.waiting="{Binding Glyph.TintWaiting}"
                                            Classes.finish="{Binding Glyph.TintFinish}" Kind="{Binding Glyph.Icon}" Size="14" />
                         </Border>
+                        <!-- Prepare can take a few seconds: swap the kind glyph for a spinner so wait is obvious. -->
+                        <Border Classes="nwbGlyph" IsVisible="{Binding Busy}" ToolTip.Tip="Loading this task…">
+                            <views:AppIcon Kind="LoaderCircle" Size="14" Foreground="{StaticResource KcapMutedBrush}"
+                                           views:BusyIndicator.IsBusy="{Binding Busy}" />
+                        </Border>
                         <Ellipse Classes="nwbBadge" Classes.wait="{Binding Glyph.BadgeWait}" Classes.ok="{Binding Glyph.BadgeOk}"
-                                 Classes.stop="{Binding Glyph.BadgeStop}" IsVisible="{Binding Glyph.HasBadge}" />
+                                 Classes.stop="{Binding Glyph.BadgeStop}">
+                            <!-- Local IsVisible beats a style setter, so hide here while Busy — not via .busy styles. -->
+                            <Ellipse.IsVisible>
+                                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                    <Binding Path="Glyph.HasBadge" />
+                                    <Binding Path="!Busy" />
+                                </MultiBinding>
+                            </Ellipse.IsVisible>
+                        </Ellipse>
                     </Panel>
-                    <!-- The right margin keeps the title clear of the actions that show over the row's end. -->
-                    <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center" Margin="0,0,72,0">
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <Ellipse Classes="nwbNew" IsVisible="{Binding IsNew}" ToolTip.Tip="New since your last visit" />
-                            <TextBlock Classes="nwbTitle" Text="{Binding Label}" />
-                        </StackPanel>
+                    <!-- The right margin keeps the text clear of the actions that show over the row's end. Each line is a
+                         Grid, not a horizontal StackPanel: a StackPanel measures with infinite width, so nothing trims. -->
+                    <StackPanel Grid.Column="1" Classes="nwbBody" Spacing="3" VerticalAlignment="Center" Margin="0,0,72,0">
+                        <Grid ColumnDefinitions="Auto,*">
+                            <Ellipse Classes="nwbNew" Margin="0,0,8,0" IsVisible="{Binding IsNew}" ToolTip.Tip="New since your last visit"
+                                     AutomationProperties.Name="New since your last visit" />
+                            <TextBlock Grid.Column="1" Classes="nwbTitle" Text="{Binding Label}" ToolTip.Tip="{Binding Label}" />
+                        </Grid>
                         <!-- Spaced like the text's own " · ", so every dot on the line sits the same way. The pills
                              take the end column so they line up across rows and leave the dotted text unbroken. -->
                         <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="4">
@@ -49,19 +66,18 @@
                                 </ItemsControl>
                             </StackPanel>
                         </Grid>
-                        <StackPanel x:Name="CardContext" Orientation="Horizontal" Spacing="4" IsVisible="{Binding HasContext}"
-                                    ToolTip.Tip="Loose end noted against this item">
+                        <Grid x:Name="CardContext" ColumnDefinitions="Auto,*" ColumnSpacing="4" IsVisible="{Binding HasContext}"
+                              ToolTip.Tip="Loose end noted against this item">
                             <views:AppIcon Kind="CornerDownRight" Size="12" Foreground="{StaticResource KcapFaintBrush}" />
-                            <TextBlock Classes="nwbContext" Text="{Binding Context}" />
-                        </StackPanel>
+                            <TextBlock Grid.Column="1" Classes="nwbContext" Text="{Binding Context}" ToolTip.Tip="{Binding Context}" />
+                        </Grid>
                     </StackPanel>
                 </Grid>
             </Button>
 
             <StackPanel x:Name="CardActions" Classes="nwbActs" Orientation="Horizontal" Spacing="2"
-                        HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
-                <views:AppIcon views:BusyIndicator.IsBusy="{Binding Busy}" Kind="LoaderCircle" Size="14" Foreground="{StaticResource KcapMutedBrush}"
-                               Margin="0,0,6,0" IsVisible="{Binding Busy}" />
+                        HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
+                        IsEnabled="{Binding !Busy}" IsHitTestVisible="{Binding !Busy}">
                 <Button x:Name="CardStart" Classes="kcapGhost nwbIconAction" Command="{Binding StartCommand}" IsVisible="{Binding CanWorkOn}"
                         ToolTip.Tip="Start an agent on this now, on this machine"
                         AutomationProperties.Name="{Binding Label, StringFormat='Start an agent on: {0}'}">

@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Rendering.Composition;
 using Avalonia.Threading;
 using Capacitor.App.Views;
 
@@ -68,6 +69,54 @@ public class RenderedFrameSmokeTests {
             window.Width = 402;
             await RenderAsync();
             await Assert.That(shown).IsEqualTo(1);
+        } finally { window.Close(); }
+        return true;
+    });
+
+    /// Waits on one control each complete on their own predicate: one armed after another does not take
+    /// the first's probe, and those finishing do not detach the probe a later one still waits on.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Concurrent_waits_on_one_control_each_complete_on_their_own_predicate() => AvaloniaSession.DispatchAsync(async () => {
+        var window = new Window { Width = 400, Height = 300 };
+        var gated = false;
+        var first = 0;
+        var second = 0;
+        var third = 0;
+        try {
+            window.Show();
+            await RenderAsync(1);
+            RenderedFrame.WhenDrawn(window, () => true, TimeProvider.System, _ => first++);
+            RenderedFrame.WhenDrawn(window, () => true, TimeProvider.System, _ => second++);
+            RenderedFrame.WhenDrawn(window, () => gated, TimeProvider.System, _ => third++);
+            window.Width = 401;
+            await RenderAsync();
+            await Assert.That(first).IsEqualTo(1);
+            await Assert.That(second).IsEqualTo(1);
+            await Assert.That(third).IsEqualTo(0);
+
+            gated = true;
+            window.Width = 402;
+            await RenderAsync();
+            await Assert.That(third).IsEqualTo(1);
+            await Assert.That(ElementComposition.GetElementChildVisual(window)).IsNull();
+        } finally { window.Close(); }
+        return true;
+    });
+
+    /// A child visual something else installed is neither replaced nor removed.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_foreign_child_visual_is_refused_and_left_in_place() => AvaloniaSession.DispatchAsync(async () => {
+        var window = new Window { Width = 400, Height = 300 };
+        try {
+            window.Show();
+            await RenderAsync(1);
+            var foreign = ElementComposition.GetElementVisual(window)!.Compositor.CreateContainerVisual();
+            ElementComposition.SetElementChildVisual(window, foreign);
+
+            await Assert.That(() => RenderedFrame.WhenDrawn(window, () => true, TimeProvider.System, _ => { })).Throws<InvalidOperationException>();
+            await Assert.That(ElementComposition.GetElementChildVisual(window)).IsSameReferenceAs(foreign);
         } finally { window.Close(); }
         return true;
     });

@@ -521,7 +521,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     // entirely), is invisible to the user — stderr (AppNotifier's own mirroring) is the only
     // channel that survives either case.
     void ShowToast(string message) =>
-        _notifications?.Show(new Notification("kcap", message, NotificationType.Warning, ToastDuration(message)));
+        _notifications?.Show(new Notification(null, message, NotificationType.Warning, ToastDuration(message)));
 
     // About fifteen characters a second to read it, never under four seconds or past twenty.
     internal static TimeSpan ToastDuration(string message) => TimeSpan.FromSeconds(Math.Clamp(message.Length / 15.0, 4, 20));

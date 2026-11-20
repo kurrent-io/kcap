@@ -410,43 +410,19 @@ internal record AgentInstance(
     /// .git entries, and neither the worktree nor the work location changes after launch.</summary>
     public AgentCheckout Checkout => _checkout ??= AgentCheckout.Resolve(Worktree, Work, BorrowedSnapshotSource);
 
-    /// <summary>The per-agent delivery section: held across the whole of
-    /// <see cref="AgentOrchestrator.DeliverInputAsync"/> for EVERY vendor, borrowed or not. It
-    /// serializes the borrowed-checkout refresh against a concurrent send, and it has a second,
-    /// load-bearing purpose:
-    ///
-    /// <para><b>The delivery/reap fence.</b> The reaper's
-    /// validate-and-claim (<see cref="AgentOrchestrator.TryClaimReapAsync"/>) runs inside this same
-    /// section, so a delivery's clock advance and a reap claim are mutually exclusive and exactly one
-    /// side wins: a delivery that completes first advances <see cref="AgentActivityClock.ActivitySeq"/>
-    /// past the generation captured at selection, and the claim aborts; a claim that lands first sets
-    /// <see cref="ReapClaimed"/>, and the next delivery refuses. Selection alone can never be the
-    /// decision — <see cref="AgentOrchestrator.FindReviewersToReap"/> reads a snapshot, and any recheck
-    /// outside this section leaves a recheck-to-stop window.</para>
-    ///
-    /// <para><b>A waiter whose own action is needed to unblock the holder must bound its wait.</b> It
-    /// is held across a delivery, and a delivery can block for an unbounded time on a healthy-looking
-    /// transport — the PTY path ends in <c>UnixPtyProcess.WriteAsync</c>, a raw <c>write(2)</c> on the
-    /// pty master with no timeout and no cancellation, which parks forever if the child stops draining
-    /// its stdin. The graceful-stop wait in <see cref="AgentOrchestrator.StopAgentCoreAsync"/> is exactly this case: it
-    /// is waiting on the very process that only its OWN next action (terminate) can unblock, so that
-    /// wait is bounded. The delivery's own ENTRY wait onto this gate (<see
-    /// cref="AgentOrchestrator.DeliverInputAsync"/>) is exempt from this rule — it is the holder class,
-    /// not the bounded class: it is unblocked by whatever the current holder is itself waiting on (the
-    /// child exiting, or a stop completing), never by an action the entry waiter must take. See <see
-    /// cref="AgentOrchestrator.TryClaimReapAsync"/>.</para>
-    ///
-    /// <para><b>Lock ordering.</b> This gate is OUTERMOST relative to
-    /// <see cref="AgentActivityClock"/>'s internal lock (holders read the clock while holding it) and
-    /// must NEVER be held across an acquisition of
-    /// <c>AgentOrchestrator._statusReportOrderingGate</c> — that gate is held across a whole hub send
-    /// and takes the clock itself, so a per-agent → ordering edge would put an unbounded network wait
-    /// underneath a per-agent lock, on top of the write(2) hazard above. The permitted edges are
-    /// per-agent → clock and ordering → clock, never per-agent → ordering.</para>
-    ///
-    /// <para>Deliberately never disposed: a reap claim and a delivery can both be parked here while
-    /// teardown runs, and an <see cref="ObjectDisposedException"/> on either would surface on a task
-    /// nobody observes.</para></summary>
+    /// <summary>The per-agent delivery section, held across the whole of
+    /// <see cref="AgentOrchestrator.DeliverInputAsync"/> for every vendor.
+    /// <para>The reaper's validate-and-claim (<see cref="AgentOrchestrator.TryClaimReapAsync"/>) runs
+    /// inside it, so a delivery and an activity-fenced (idle or wedge) claim are mutually exclusive:
+    /// whichever lands first wins. Selection reads a snapshot and can never be the decision. An
+    /// absolute-lifetime claim that cannot get the section within <c>ReapClaimGateWait</c> claims without
+    /// it, so a delivery that never finishes cannot keep terminate out of reach.</para>
+    /// <para>A delivery can block forever (a PTY <c>write(2)</c> to a child that stopped reading), so a
+    /// waiter whose own action is needed to unblock the holder, like the graceful-stop wait in
+    /// <see cref="AgentOrchestrator.StopAgentCoreAsync"/>, must bound its wait.</para>
+    /// <para>Lock order: per-agent → clock and ordering → clock, never per-agent →
+    /// <c>_statusReportOrderingGate</c>, which is held across a hub send.</para>
+    /// <para>Never disposed: a parked reap claim or delivery would throw on a task nobody observes.</para></summary>
     public SemaphoreSlim BorrowedSnapshotGate { get; } = new(1, 1);
 
     /// <summary>0/1 single-flight latch claimed by the reaper that WON this agent, via
@@ -1410,40 +1386,6 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         UnpublishAgent(agentId);
     }
 
-    /// <summary>The ReviewFlow agents the heartbeat should reap now — the daemon's coarse backstop for
-    /// a dead or disconnected server. Only Running ReviewFlow agents; pure, so the heartbeat and tests
-    /// share one decision.
-    ///
-    /// <para><b>Decision table</b>, in this order. A <see cref="TimeSpan.Zero"/> config value disables
-    /// its own rule. The lifetime cap (<see cref="DaemonConfig.ReviewerMaxLifetime"/>, 6h) is
-    /// two-tier: past lifetime + one <see cref="DaemonConfig.ReviewerTurnWedgeCeiling"/> it is
-    /// absolute and unfenced (a runaway turn or output stream must stay mortal, and a disabled
-    /// wedge ceiling collapses this tier onto the lifetime); in between it selects only a
-    /// visibly-at-rest reviewer — a held turn defers it, and so does activity within
-    /// <see cref="LifetimeReapQuietWindow"/>, because reaping mid-round burns the dispatched round
-    /// plus the reviewer's context, and a just-delivered round may not have flagged its turn yet
-    /// (the busy signal is asynchronous — e.g. Pi's <c>agent_start</c>). The wedge rule
-    /// (<c>turn_wedged</c>) and the idle rule (<c>reviewer_idle_expired</c>) are unchanged. A PTY
-    /// vendor never sets <c>TurnInFlight</c>; mid-round it relies on the quiet window and the
-    /// activity fence alone.</para>
-    ///
-    /// <para><b>The server's <see cref="AgentInstance.InactivityBoundSeconds"/> must never appear in
-    /// that table.</b> It is ROUND-SCOPED — the server applies it only while a round is in flight, and
-    /// stops the participant itself. This method runs on the heartbeat regardless of round state, so
-    /// reading the bound here turns it into a LIFETIME idle rule and reaps a healthy reviewer BETWEEN
-    /// rounds while the driver spends twenty minutes fixing round 1's findings. So the daemon's idle
-    /// rule deliberately does not share the server's number.</para>
-    ///
-    /// <para>Idle comes from <see cref="AgentActivityClock"/>, never <see cref="AgentInstance.LastOutputAt"/>
-    /// (PTY-only, so it sits frozen at launch for every ACP vendor, degenerating "2h idle" into a hard
-    /// 2h cap) and never a <see cref="DateTime"/> delta (a wall-clock jump would reap a healthy
-    /// reviewer).</para>
-    ///
-    /// <para>This is SELECTION, never the decision: the result is a snapshot, and the agent it names
-    /// can become active in the very next instant. Each candidate therefore carries the activity
-    /// generation it was selected against, which <see cref="TryClaimReapAsync"/> re-validates inside
-    /// the per-agent fence.</para></summary>
-
     /// <summary>The end/park reason for a resumable reviewer parked (not reaped). This
     /// exact string is BOTH the ack reason sent to the server's <c>ReportParticipantParked</c> AND the
     /// <see cref="AgentInstance.PendingEndReason"/> that tells <see cref="FinalizeAgentRunAsync"/> to
@@ -1465,6 +1407,19 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     static bool IsResumableReviewer(AgentInstance a) =>
         a.RuntimeTransport == CodexTransportDecision.AppServer;
 
+    /// <summary>The Running ReviewFlow agents the heartbeat should reap now, the daemon's backstop for a
+    /// dead or disconnected server. A zero config value disables its rule.
+    /// <para>The lifetime cap is two-tier: past lifetime plus one wedge ceiling it is absolute, so a
+    /// runaway turn stays mortal; before that it takes only a reviewer at rest, with no held turn and no
+    /// activity within <see cref="LifetimeReapQuietWindow"/>, since reaping mid-round burns the round and
+    /// the busy signal arrives asynchronously.</para>
+    /// <para>Never read the server's <see cref="AgentInstance.InactivityBoundSeconds"/> here: it is
+    /// round-scoped, and applying it on the heartbeat would reap a healthy reviewer between rounds.</para>
+    /// <para>Idle comes from <see cref="AgentActivityClock"/>, not <see cref="AgentInstance.LastOutputAt"/>
+    /// (PTY-only) or a wall-clock delta.</para>
+    /// <para>Selection only: an idle or wedge candidate carries the activity generation it was selected
+    /// against, which <see cref="TryClaimReapAsync"/> re-validates inside the per-agent fence. An
+    /// absolute-lifetime candidate is not fenced on activity.</para></summary>
     internal IReadOnlyList<ReapCandidate> FindReviewersToReap() {
         var result = new List<ReapCandidate>();
 
@@ -4889,35 +4844,15 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 agent.StopDetail ??= "agent_stopped";
             }
 
-            // Try a graceful shutdown first: send /exit so claude can fire its own
-            // session-end hook (drains transcript, writes SessionEnded + summary,
-            // optionally schedules what's-done). Falls through to SIGTERM/SIGKILL
-            // below if claude doesn't exit in time.
+            // Try a graceful stop first, so the agent fires its own session-end hook; fall through to terminate.
             //
-            // Claude CLI requires the slash-command text and the Enter key to arrive
-            // as separate PTY writes (with a small delay between them) — sending them
-            // in a single write makes Claude treat the carriage return as part of the
-            // command buffer instead of a submit. DeliverInputAsync uses the same split
-            // pattern; matching it here makes the graceful path actually fire.
-            // BOTH steps are bounded, and bounding the SEND is the load-bearing half. Asking for the
-            // graceful stop is not free work: for a PTY runtime it writes "/exit" to the same master fd
-            // a delivery writes to (an uncancellable write(2)), so against a child that has stopped
-            // draining its stdin it parks forever — and an unbounded await here would mean TerminateAsync
-            // below is never reached, i.e. the one action that ends the wedge (SIGKILL closes the slave,
-            // every parked write returns EIO) is unreachable precisely when it is needed. This is
-            // pre-existing — every stop, including a user's, could hang here — but the reviewer reaper
-            // now DEPENDS on reaching terminate, so the bound is no longer optional.
+            // Both the request and the wait are bounded. A PTY graceful stop writes "/exit" with an uncancellable
+            // write(2), which parks forever against a child that stopped reading, and only TerminateAsync below
+            // ends that wedge; the reviewer reaper depends on reaching it. No legitimate graceful path takes
+            // longer than the bound.
             //
-            // No legitimate graceful path is truncated: PTY writes + a submit, ACP sends one
-            // session/cancel notify, Antigravity returns Task.CompletedTask, and Pi's own grace is 3s.
-            // A timeout here just falls through to the same terminate a graceful-exit timeout already
-            // falls through to.
-            //
-            // Inside the try, not before it: RequestGracefulStopAsync() itself (not just the await) can
-            // throw synchronously, and that throw must land in the catch below and fall through to
-            // terminate — not escape via the OUTER catch and skip terminate, which on the reap path
-            // leaves a permanent zombie (ReapClaimed latched, agent still Running, every future reap
-            // CAS-refused).
+            // Inside the try: RequestGracefulStopAsync can throw synchronously, and escaping to the outer catch
+            // would skip terminate and leave a reaped reviewer a permanent zombie.
             // A shutdown stop has the supervisor's exit budget to fit in, not a user's patience.
             var shuttingDown = _shutdownCts.IsCancellationRequested;
             Task graceful = Task.CompletedTask;
@@ -5881,42 +5816,17 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     /// <summary>
-    /// Binds the ACP canonical session to <paramref name="agent"/> (<c>AcpSessionStarted</c>) —
-    /// this call MUST run after <see cref="RegisterAgentAsync"/> has already registered the agent (the server rejects a
-    /// bind for an unregistered agent) and strictly before any transcript event reaches the server;
-    /// callers (<see cref="HandleLaunchAgent"/>) enforce the first half by only calling this after
-    /// <c>await RegisterAgentAsync(agent)</c>, and this method enforces the second half itself by
-    /// awaiting the bind before ever constructing the forwarder. Once bound, registers the binding
-    /// for reconnect re-bind (<see cref="ServerConnection.RegisterAcpBinding"/>), builds the
-    /// synthesized <c>SessionStarted@Seq0</c> envelope (<see cref="AcpEventTranslator.BuildSessionStarted"/>),
-    /// and starts <see cref="ForwardAcpTranscriptAsync"/> as background work — the resulting task is
-    /// kept on <see cref="AgentInstance.AcpForwarder"/> so <see cref="FinalizeAgentRunAsync"/> can
-    /// coordinate the bounded final-drain at teardown.
+    /// Binds the ACP session to <paramref name="agent"/> (<c>AcpSessionStarted</c>), after
+    /// <see cref="RegisterAgentAsync"/> and before any transcript event, then registers the binding for
+    /// reconnect and starts the forwarder on <see cref="AgentInstance.AcpForwarder"/>.
     ///
-    /// Best-effort: any failure in the bind/setup step is logged and swallowed, never propagated to
-    /// the caller. By the time this runs, <paramref name="agent"/> is already registered with the
-    /// server and its ACP process is already live — letting a transcript-plumbing failure escape
-    /// into <see cref="HandleLaunchAgent"/>'s outer catch would incorrectly route it through the
-    /// failed-launch cleanup path (worktree removal) against an agent that is actually running.
-    /// Degrades to "no live transcript for this session" rather than failing the launch.
+    /// Failures are logged and swallowed: the agent is already registered and running, and escaping into
+    /// <see cref="HandleLaunchAgent"/>'s catch would remove the worktree of a live agent.
     ///
-    /// <b>Bind-vs-finalize stale-binding race:</b>
-    /// <paramref name="acpCts"/> is <paramref name="agent"/>'s <see cref="AgentInstance.AcpCts"/>,
-    /// created by the caller BEFORE this task was fired. Its token — not the raw daemon shutdown
-    /// token — gates the bind call below AND (once built) the forwarder's run task, so
-    /// <see cref="FinalizeAgentRunAsync"/> can cancel just this setup/forwarder. The bind call can
-    /// block for the length of a reconnect outage (<c>ConnectionRetry</c>); if the agent's whole
-    /// lifecycle finalizes while it's still in flight, a LATE successful bind must not register a
-    /// binding for what is by then a dead agent (it would leak into <c>_acpBindings</c> and be
-    /// replayed on every future reconnect with nothing left to ever drain it) — the liveness check
-    /// immediately below the bind await closes that race.
+    /// <paramref name="acpCts"/> gates the bind and the forwarder so finalize can cancel them. The bind can
+    /// block through a reconnect outage, so a liveness check after it stops a late bind from registering a
+    /// binding for a dead agent, which would be replayed on every reconnect.
     /// </summary>
-    /// <remarks>A <see cref="IAcpTranscriptSource.Reopened"/> session already has events on the server,
-    /// and a forwarder numbering from 0 would have each new one deduplicated away until it passed the
-    /// server's cursor. <c>AcpSessionStarted</c> reports no cursor, so it is read with an empty
-    /// <c>AcpSessionEvents</c> batch, which the server answers without appending. Neither call reveals a
-    /// terminal binding, which only drops the next event, so the session's first turn is held until the
-    /// server has accepted the event before it.</remarks>
     async Task StartAcpForwardingAsync(AgentInstance agent, IAcpTranscriptSource transcript, string vendor, CancellationTokenSource acpCts) {
         var reopened = transcript.Reopened;
         if (reopened) agent.MarkReopenedTranscriptPending();

@@ -717,39 +717,14 @@ public sealed class CursorHookCommand(
     }
 
     /// <summary>
-    /// the divert path for a Cursor hook belonging to a subagent child
-    /// already linked to a parent (<see cref="CursorLiveSubagentLinker"/>). Mirrors
-    /// <c>CursorImportSource.SendSubagentLifecycleAsync</c> — as designed, three things happen
-    /// for a linked child, regardless of which Cursor hook fired: <c>subagent-start</c>
-    /// (once, from its own <c>sessionStart</c>), transcript backfill routed under the parent
-    /// with <c>agent_id=child</c> (on every hook — Cursor gives us no line-granular signal,
-    /// so the watermark is just re-checked each time), and <c>subagent-stop</c> (once, from
-    /// its own <c>sessionEnd</c>).
-    ///
-    /// <para>
-    /// TWO OF THOSE THREE CANNOT HAPPEN. A Cursor subagent child fires neither
-    /// <c>sessionStart</c> nor <c>sessionEnd</c>, so the start and stop arms below are
-    /// unreachable from a real child; only the backfill arm can run, and only when a marker
-    /// already exists. The design above is therefore a description of intent, not of observed
-    /// behaviour — read it that way.
-    /// </para>
-    ///
-    /// Every other Cursor hook for a linked child
-    /// (<c>beforeSubmitPrompt</c>/<c>afterAgentThought</c>/telemetry) carries no signal the
-    /// import path can ever replay either (Cursor's on-disk transcript has no side channel
-    /// for them), so — for live/import parity — they are simply not forwarded, rather than
-    /// being appended to a phantom <c>AgentSession-{child}</c> stream that never got a
-    /// <c>SessionStarted</c>.
-    ///
-    /// <para>
-    /// UNREACHABLE in a fresh installation on the measured cursor-agent contract: entry requires
-    /// <c>isSubagentChild</c>, which requires a marker that has no producer there. It remains
-    /// reachable from a marker persisted by another surface or an older build. Note also that
-    /// the sessionStart/sessionEnd arms below can never fire from a real child, which never
-    /// emits either event — a native revival must be driven by the PARENT's subagentStart /
-    /// subagentStop instead. See
-    /// docs/superpowers/specs/2026-07-30-ai1505-cursor-subagent-classification-design.md
-    /// </para>
+    /// The divert path for a hook from a subagent child already linked to a parent
+    /// (<see cref="CursorLiveSubagentLinker"/>), mirroring <c>CursorImportSource.SendSubagentLifecycleAsync</c>:
+    /// subagent-start on the child's <c>sessionStart</c>, transcript backfill under the parent on every
+    /// hook, subagent-stop on its <c>sessionEnd</c>. Other hooks are not forwarded, since import could never
+    /// replay them.
+    /// <para>Reachable only from a marker persisted elsewhere: nothing writes one. A real child fires
+    /// neither <c>sessionStart</c> nor <c>sessionEnd</c>, so only the backfill arm can run; native support
+    /// would have to be driven by the parent's subagentStart/subagentStop.</para>
     /// </summary>
     internal async Task<int> HandleSubagentChildEventAsync(
             HttpClient        client,

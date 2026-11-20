@@ -8,12 +8,13 @@
          overview, since the composer is the launcher's subject. It takes the height the launcher leaves it and scrolls
          inside it. Labels, reasons and evidence are tracker- or model-authored, so every one is
          a TextBlock's text. Colour is status only: warning where someone waits on the viewer, success where work
-         settled, danger for urgent and bug marks; selection marks the row whose goal the composer holds. -->
+         settled, danger for urgent and bug marks; selection marks the row whose goal the composer holds. The blue
+         title-side dot is "new since last visit", not a status badge — those sit on the kind glyph. -->
     <UserControl.Styles>
         <Style Selector="Button.nwbRow">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="Padding" Value="8,6" />
+            <Setter Property="Padding" Value="8,8" />
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="CornerRadius" Value="8" />
             <Setter Property="Background" Value="Transparent" />
@@ -24,19 +25,29 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
-        <Style Selector="Button.nwbRow:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+        <!-- Host-scoped hover: ▶ and More sit beside the row button, so button-only :pointerover drops under them.
+             Do not key raised chrome on :focus-within — a click leaves focus on the row and the highlight would stick. -->
+        <Style Selector="Grid.nwbRowHost:pointerover Button.nwbRow /template/ ContentPresenter#PART_ContentPresenter,
                          Button.nwbRow:pressed /template/ ContentPresenter#PART_ContentPresenter,
-                         Grid.nwbRowHost.menuOpen Button.nwbRow /template/ ContentPresenter#PART_ContentPresenter">
+                         Grid.nwbRowHost.menuOpen Button.nwbRow /template/ ContentPresenter#PART_ContentPresenter,
+                         Grid.nwbRowHost.busy Button.nwbRow /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
         <Style Selector="Button.nwbRow.filled /template/ ContentPresenter#PART_ContentPresenter,
-                         Button.nwbRow.filled:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+                         Grid.nwbRowHost.filled:pointerover Button.nwbRow /template/ ContentPresenter#PART_ContentPresenter,
+                         Grid.nwbRowHost.filled.busy Button.nwbRow /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
         </Style>
         <Style Selector="Button.nwbRow:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" />
             <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Grid.nwbRowHost.busy Button.nwbRow">
+            <Setter Property="Cursor" Value="Wait" />
+        </Style>
+        <Style Selector="Grid.nwbRowHost.busy StackPanel.nwbBody">
+            <Setter Property="Opacity" Value="0.55" />
         </Style>
         <!-- A row's own actions show where the viewer is: under the pointer, on the picked row, while it works, or with
              keyboard focus on the actions themselves. Not on the row's own focus, which a click leaves behind. -->
@@ -59,6 +70,7 @@
         <Style Selector="views|AppIcon.nwbTint"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>
         <Style Selector="views|AppIcon.nwbTint.finish"><Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" /></Style>
         <Style Selector="views|AppIcon.nwbTint.waiting"><Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" /></Style>
+        <!-- Corner of the kind glyph: outcome / attention (wait, ok, stop). Canvas stroke keeps it off the icon. -->
         <Style Selector="Ellipse.nwbBadge">
             <Setter Property="Width" Value="9" />
             <Setter Property="Height" Value="9" />
@@ -71,10 +83,11 @@
         <Style Selector="Ellipse.nwbBadge.wait"><Setter Property="Fill" Value="{StaticResource KcapWarningBrush}" /></Style>
         <Style Selector="Ellipse.nwbBadge.ok"><Setter Property="Fill" Value="{StaticResource KcapSuccessBrush}" /></Style>
         <Style Selector="Ellipse.nwbBadge.stop"><Setter Property="Fill" Value="{StaticResource KcapDangerBrush}" /></Style>
+        <!-- Beside the title only: unread since last visit. Info blue, not text colour, so it is not a status badge. -->
         <Style Selector="Ellipse.nwbNew">
-            <Setter Property="Width" Value="6" />
-            <Setter Property="Height" Value="6" />
-            <Setter Property="Fill" Value="{StaticResource KcapTextBrush}" />
+            <Setter Property="Width" Value="8" />
+            <Setter Property="Height" Value="8" />
+            <Setter Property="Fill" Value="{StaticResource KcapInfoBrush}" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
         <Style Selector="TextBlock.nwbHeader">
@@ -88,12 +101,15 @@
             <Setter Property="FontSize" Value="13" />
             <Setter Property="FontWeight" Value="Medium" />
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
-            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <!-- Two lines, break on words: mid-word "ap..." hides the issue key's value. Full text is on the tip. -->
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="MaxLines" Value="2" />
+            <Setter Property="TextTrimming" Value="WordEllipsis" />
         </Style>
         <Style Selector="TextBlock.nwbMeta">
             <Setter Property="FontSize" Value="11.5" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="TextTrimming" Value="WordEllipsis" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
         <Style Selector="TextBlock.nwbMicro">
@@ -140,7 +156,7 @@
         <Style Selector="TextBlock.nwbContext">
             <Setter Property="FontSize" Value="11.5" />
             <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
-            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="TextTrimming" Value="WordEllipsis" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
         <Style Selector="Button.nwbIconAction">
@@ -165,11 +181,9 @@
           AutomationProperties.Name="Pick up next" AutomationProperties.LandmarkType="Region">
         <!-- The window's own Open dashboard is the way to what the launcher leaves out, so its count is text, not
              another link. -->
-        <StackPanel Orientation="Horizontal" Spacing="6" Margin="8,0,4,4">
-            <!-- The header's letter spacing trails its last letter too; the negative margin takes it back, so the dot
-                 sits midway between the words. -->
-            <TextBlock Classes="nwbHeader" Text="PICK UP NEXT" Margin="0,0,-0.6,0" />
-            <TextBlock Text="·" FontSize="11.5" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" IsVisible="{Binding HasElsewhere}" />
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="8,0,4,4">
+            <TextBlock Classes="nwbHeader" Text="PICK UP NEXT" />
+            <!-- Caps vs sentence + muted colour already separate the count; a · adds nothing. -->
             <TextBlock x:Name="BandElsewhere" Text="{Binding ElsewhereText}" FontSize="11.5"
                        Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" IsVisible="{Binding HasElsewhere}" />
             <Panel VerticalAlignment="Center">
@@ -194,6 +208,11 @@
                 <TextBlock x:Name="BandEmpty" Text="Nothing to pick up right now." FontSize="12" Margin="8,4"
                            Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding ShowEmpty}" />
                 <ItemsControl x:Name="BandRows" ItemsSource="{Binding Cards}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Spacing="4" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="nw:NextWorkCardViewModel">
                             <views:NextWorkCardView />
@@ -211,6 +230,11 @@
                     </StackPanel>
                 </Button>
                 <ItemsControl x:Name="MoreRows" ItemsSource="{Binding MoreCards}" IsVisible="{Binding MoreListVisible}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Spacing="4" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="nw:NextWorkCardViewModel">
                             <views:NextWorkCardView />

@@ -124,6 +124,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     int _readInFlight;
     string? _feedKey;
     bool _feedReleased;
+    long _feedLines;
     /// The session the listed foreign rows belong to.
     string? _queueKey;
     // Dispatch ids are unique across sessions, and a snapshot can arrive late, so a discarded id
@@ -557,6 +558,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// response will ever say so.
     public Func<string, Action>? InputSending { get; init; }
     public ComposerPicker? Picker { get; init; }
+    public HeapReclaimer? Reclaimer { get; init; }
     /// Raised once a turn has gone to the channel and was not refused.
     public event Action? TurnSubmitted;
     volatile string? _sessionId;
@@ -1594,6 +1596,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _runs.KeepsHistory = _lease.Feed is RemoteTranscriptFeed;
         HasSeed = false;
         previous?.Dispose();
+        Reclaimer?.Released(_feedLines);
+        _feedLines = 0;
         RebaseQueuedMessages(CurrentOffset);
         _failureNote = null;
         var wasWaiting = _phase == ChatTabPhase.Waiting;
@@ -1953,6 +1957,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // cannot acquire dispatches from the history this read is already replaying.
         var candidates = CaptureReceiptCandidates();
         if (!Prepare(generation, read)) return;
+        // A Reset replaces the rows on screen, so its lines replace the count.
+        _feedLines = (read.Status == FeedStatus.Reset ? 0 : _feedLines) + read.Lines.Count + read.Older.Count;
         if (read.Older.Count > 0) {
             var history = new HashSet<(long Offset, string Text)>(_literalInputHistory);
             var older = await Task.Run(() => ProjectLines(read with { Lines = read.Older }, LineCursor.Empty(), matchSends: false, history));
@@ -2194,8 +2200,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             shell.Output = output.Output;
             _items.RemoveAt(0);
         }
-        // With no rows shown, the page's open group or command is the newest row, which live events continue.
-        if (_items.Count == 0) {
+        // With no transcript rows shown, the page's open group or command is the newest row, which live events continue.
+        if (ShowsNoTranscriptRows()) {
             _openGroup = older.OpenGroup;
             _openShell = older.OpenShell;
         }
@@ -2224,7 +2230,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             _settledTools.UnionWith(cursor.Settled);
             _questionAsks.Clear();
             _questionAsks.AddRange(cursor.Questions);
-            if (_lease?.Feed is RemoteTranscriptFeed { HasOlder: true })
+            // Not gated on HasOlder: the last page can be fetched, ending it, before the pane applies that page.
+            if (_lease?.Feed is RemoteTranscriptFeed)
                 foreach (var (id, result) in cursor.Orphans) _orphanResults[id] = result;
             _planActivity?.Apply(read.Lines.Select(line => line.Projection));
             _runs.ApplyAll(cursor.Restored);
@@ -2262,8 +2269,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// A seed whose events show no rows leaves nothing to scroll, so older pages are read until one does;
     /// a live session's are read regardless, for the runs they start, and any session's while the feed prefetches.
     void RequestOlderUnasked() {
-        if (_items.Count == 0 || !_ended || _lease?.Feed is RemoteTranscriptFeed { PrefetchesOlder: true }) RequestOlder();
+        if (ShowsNoTranscriptRows() || !_ended || _lease?.Feed is RemoteTranscriptFeed { PrefetchesOlder: true }) RequestOlder();
     }
+
+    /// Pending cards always sit last and are not part of the transcript.
+    bool ShowsNoTranscriptRows() => _items.All(static item => item is PendingCardItem);
 
     /// A remote feed's offset is the line's number in the session's root stream; a local one's is a file
     /// position, so only the envelope's own keys name it there. A journaled message with no dispatch is the
@@ -2492,6 +2502,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         var lease = _lease;
         _lease = null;
         lease?.Dispose();
+        Reclaimer?.Released(_feedLines);
+        _feedLines = 0;
         _timer?.Dispose();
         _timer = null;
         _runs.Changed -= RefreshRuns;

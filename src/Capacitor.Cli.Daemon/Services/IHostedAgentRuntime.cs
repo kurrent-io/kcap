@@ -3,23 +3,15 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// Vendor-agnostic hosted-agent process abstraction. <see cref="AgentOrchestrator"/> owns the
-/// vendor-neutral lifecycle (status flips, terminal fan-out to local sinks, server calls, worktree
-/// cleanup, heartbeats); the runtime owns the vendor-specific process and I/O.
-///
-/// <see cref="PtyHostedAgentRuntime"/> wraps an <see cref="Pty.IPtyProcess"/> for the interactive
-/// CLIs (Claude, Codex). <c>AcpHostedAgentRuntime</c> speaks ACP JSON-RPC over stdio for
-/// Cursor. The orchestrator only ever touches this interface, never a raw PTY.
+/// Vendor-agnostic hosted-agent process. <see cref="AgentOrchestrator"/> owns the vendor-neutral
+/// lifecycle and only ever touches this interface; the runtime owns the vendor's process and I/O.
 /// </summary>
 internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// <summary>Vendor token this runtime hosts ("claude", "codex", "cursor").</summary>
     string Vendor { get; }
 
-    /// <summary>The wire transport label reported to the server on registration so it can validate its
-    /// launch decision against the transport actually used (defense-in-depth). "pty" is the universal
-    /// default — the label every interactive-PTY and ACP runtime reports — matching the server's PTY
-    /// contract; only the Codex app-server runtime overrides it. A runtime owns its own transport, so
-    /// the orchestrator never type-switches to derive it.</summary>
+    /// <summary>The transport label reported on registration, which the server validates its launch
+    /// decision against. Only the Codex app-server runtime reports something other than "pty".</summary>
     string RuntimeTransport => "pty";
 
     /// <summary>What the vendor's resume takes when it is not the session id; recorded as the vendor
@@ -35,26 +27,17 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// <summary>Exit code once <see cref="HasExited"/>; null while running or if unknown.</summary>
     int? ExitCode { get; }
 
-    /// <summary>The start-identity token captured NATIVELY, inside the spawn call, immediately
-    /// after the child exists (the capture-binding rule) — <c>null</c> when this runtime never
-    /// captures one this way (Windows; ACP runtimes have no PTY at all), in which case the caller
-    /// falls back to a legacy post-hoc <c>ProcessStartToken.ForPid</c> re-capture. On Unix this is
-    /// NEVER null: it's either a real token or <c>""</c> (capture attempted and failed — an
-    /// identity-unavailable record), and the caller must NOT re-capture in that case (that would
-    /// defeat the whole point of capturing pre-reap).</summary>
+    /// <summary>The start identity captured inside the spawn call, before the child can be reaped. Null
+    /// when this runtime does not capture one (Windows, ACP), and the caller falls back to
+    /// <c>ProcessStartToken.ForPid</c>. On Unix never null: <c>""</c> means capture failed, and the caller
+    /// must not re-capture, since a later capture could name a recycled pid.</summary>
     string? StartIdentity => null;
 
     /// <summary>
-    /// True when <see cref="ReadOutputAsync"/> yields real terminal bytes that the orchestrator's
-    /// read loop can use as a liveness/lifecycle signal — <c>true</c> for <see cref="PtyHostedAgentRuntime"/>
-    /// (Claude/Codex), <c>false</c> for the ACP runtime (its stdout is protocol traffic, never
-    /// terminal output, so <see cref="ReadOutputAsync"/> never yields any bytes at all).
-    /// <see cref="AgentOrchestrator"/> uses this to pick between two lifecycle strategies:
-    /// a PTY runtime's Starting→Running flip and startup-failure heuristic both
-    /// key off the FIRST output chunk / the output stream ending, which never happens for a
-    /// no-terminal ACP runtime — without this flag an ACP agent would flip Running only once it
-    /// exits (i.e. never while live) and get misclassified as a startup failure on every normal
-    /// exit.
+    /// Whether <see cref="ReadOutputAsync"/> yields terminal bytes. A PTY runtime flips Running on the
+    /// first chunk and reads the stream ending as a possible startup failure; a runtime without terminal
+    /// output needs the other strategy or it would never show Running and every exit would look like a
+    /// startup failure.
     /// </summary>
     bool EmitsTerminalOutput { get; }
 
@@ -90,11 +73,8 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// should take. Null for a prompt that is not held.</summary>
     Task? LaunchPromptOverdue => null;
 
-    /// <summary>
-    /// Terminal byte stream consumed by the orchestrator read loop. PTY runtimes yield real
-    /// terminal output; the ACP runtime yields an empty stream until a follow-up adds a terminal
-    /// capability (ACP stdout is protocol traffic, never terminal output).
-    /// </summary>
+    /// <summary>Terminal byte stream for the orchestrator's read loop; empty for a runtime whose stdout
+    /// is protocol traffic.</summary>
     IAsyncEnumerable<byte[]> ReadOutputAsync(CancellationToken ct = default);
 
     /// <summary>
@@ -164,8 +144,7 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// </summary>
     Task SendRawInputAsync(byte[] data);
 
-    /// <summary>Viewer resize. PTY runtimes resize the winsize; the ACP runtime no-ops until
-    /// a follow-up adds a terminal capability.</summary>
+    /// <summary>Viewer resize; a no-op without a terminal.</summary>
     void Resize(ushort cols, ushort rows);
 
     /// <summary>Set by the orchestrator after the runtime starts. The runtime invokes it whenever it

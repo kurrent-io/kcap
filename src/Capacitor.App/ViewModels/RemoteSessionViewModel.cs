@@ -340,7 +340,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             HandoffOutcomeReader? handoffOutcomes = null, IHeldMessagesApi? heldMessages = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
             Func<bool>? inAppPages = null, Func<Task>? retryConnection = null, LocalServerRecoveryViewModel? localServer = null,
-            IAttachmentUploader? uploader = null, ChatMarks? chatMarks = null) {
+            IAttachmentUploader? uploader = null, RemoteTranscriptCache? transcripts = null, ChatMarks? chatMarks = null) {
         _drafts = drafts;
         _localMachine = localMachine;
         _handoffFactory = handoff;
@@ -429,7 +429,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             : new HeldMessagesViewModel(row.Id, heldMessages, lane.HeldMessagesChanged, HeldViewer(lane.Status, _rows));
         Chat = new ChatTabViewModel(
             row.Id, AgentOrigin.Remote, _session, Observable.Return<string[]?>(null), input, uploader ?? new NoAttachmentUploader(),
-            key => new RemoteTranscriptFeed(key, row.Vendor, _accessStates, readEvents, lane, time, Log),
+            key => new RemoteTranscriptFeed(key, row.Vendor, _accessStates, readEvents, lane, time, Log, cache: transcripts),
             // A session-only chat has no agent here to answer for it: no session, no cards, no send.
             opener, time, permissions, runs, missingNote: MissingNote, sessionId: IsSessionOnly ? Observable.Return<string?>(null) : _sessionIds,
             serverQueue: Observable.Switch(_sessionIds
@@ -441,7 +441,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             signInCompleted: signInCompleted,
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
                 .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending };
+            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending, Reclaimer = HeapReclaimer.Shared };
         WorkContext.Topics = Chat.Topics;
         WorkContext.Bookmarks = Chat.Bookmarks;
         Chat.Topics.Revealing += ShowTopic;

@@ -710,58 +710,21 @@ partial class McpFlowsServer(
     }
 
     /// <summary>
-    /// Bounded, code-aware auto-retry for the two settlement-layer coded 409s a start/round POST
-    /// can return: flow_settlement_busy (a settlement CAS append exhausted its own retry budget)
-    /// and reviewer_launch_incarnation_superseded (the launch's incarnation was superseded by a
-    /// concurrent settlement transition). Both are documented server-side as retryable: retrying
-    /// the originating request re-resolves against the settlement layer's current state.
-    ///
-    /// For start_review_flow/start_flow, retrying re-POSTs the start — which mints a FRESH
-    /// flow_run_id and abandons the superseded attempt (see StartFlowAsync), so it's
-    /// unconditionally safe. For submit_review_round/send_to_participant, the server invariant
-    /// that no path appends FlowRoleAgentAssigned/FlowRoundSubmitted/FlowIntentCompleted unless
-    /// IsCurrentSettlementCompletion is true means a coded rejection here never recorded a round
-    /// — so retrying the same flow_run_id can't double-submit.
-    ///
-    /// Only these two codes (via <see cref="TryParseCodedError"/>) trigger a retry, plus whatever
-    /// single code the caller names in <paramref name="extraRetryableCode"/> (today only
-    /// <see cref="ParticipantUnreachableCode"/>). Every other coded 4xx, and an uncoded failure,
-    /// passes through untouched — an older server that has never heard of the extra code simply
-    /// never sends it, so this is additive, not a capability negotiation.
-    ///
-    /// <para><see cref="ParticipantUnreachableCode"/> never carries a <c>last_processed_seq</c>, so
-    /// the rolling no-progress window never re-arms for it and it always exhausts at the flat
-    /// <see cref="SettlementElapsedDeadline"/> (3 minutes). That bound is load-bearing, not
-    /// redundant with a faster server-side signal: the incarnation-cleared append that would let a
-    /// retry succeed lands in the reviewer gateway / settlement service, not in the reconciler, so
-    /// 3 minutes is sized to give that reconcile sweep (<c>FlowReconcilerService.SweepInterval</c>)
-    /// one full cycle to prove the prior agent's absence.</para>
-    ///
-    /// <para>Bounded by <see cref="SettlementElapsedDeadline"/> rather than an attempt count, on the
-    /// <see cref="SettlementBackoff"/> schedule, with the deadline's remaining time propagated as a
-    /// per-request <see cref="CancellationToken"/> so a held POST is abandoned instead of
-    /// overshooting. Each retried POST re-enters a fresh server-side admission wait, which is what
-    /// lets a burst of concurrent launches against one daemon absorb serially.</para>
-    ///
-    /// <para>Returns a discriminated result: <c>Response</c> carries the live response (the caller
-    /// owns it, exactly as before); <c>DeadlineExhausted</c> carries only the last observed coded
-    /// error plus attempt/elapsed diagnostics — this helper disposes every superseded failing
-    /// response, so an exhausted result never carries a live one. The deadline CTS is linked to the
-    /// caller's token; in production that token is <see cref="CancellationToken.None"/> (the stdio
-    /// loop has none), and caller-token cancellation is rethrown untouched — only this helper's OWN
-    /// deadline firing produces <c>DeadlineExhausted</c>.</para>
-    ///
-    /// <para>Sits above the lane's own 401 recovery, which still applies on every attempt. All
-    /// timing is injectable so unit tests run instantly on a virtual clock.</para>
-    ///
-    /// <para><paramref name="budgetStartedAt"/> lets a caller that sends TWICE within one tool call
-    /// (the preference fallback: a refused vendor-less start, then one re-send naming the saved
-    /// vendor) share ONE elapsed budget instead of opening a second full one. Two independent
-    /// budgets would put the worst case at 3m + 3m of settlement plus the poll cap — past the
-    /// harness MCP tool timeout this deadline was sized to stay under, with the specific hazard that
-    /// the second POST succeeds (a run minted, a paid reviewer launched) after the harness has
-    /// already given up, and the driver starts the flow again. Omitted, the budget starts now, which
-    /// is every other caller's behavior unchanged.</para>
+    /// Retries the two retryable settlement 409s, <c>flow_settlement_busy</c> and
+    /// <c>reviewer_launch_incarnation_superseded</c>, plus <paramref name="extraRetryableCode"/>; every
+    /// other failure passes through. A retried start mints a fresh flow_run_id, and a coded rejection of a
+    /// round never recorded it, so neither can double-submit.
+    /// <para>Bounded by time, not attempts, with the remaining time cancelling each POST. Two limits apply:
+    /// a no-progress window of <see cref="SettlementElapsedDeadline"/>, re-armed by a 409 whose
+    /// <c>last_processed_seq</c> advances, and an absolute cap of <paramref name="absoluteBudget"/> or
+    /// <see cref="SettlementAbsoluteDeadline"/>. <see cref="ParticipantUnreachableCode"/> carries no
+    /// <c>last_processed_seq</c>, so it never re-arms and gets at most 3 minutes from the budget start,
+    /// sized to give the server's reconcile sweep one cycle to prove the prior agent gone.</para>
+    /// <para>An exhausted result carries no live response; only this helper's own deadline produces it, and
+    /// caller cancellation is rethrown.</para>
+    /// <para><paramref name="budgetStartedAt"/> lets a caller that sends twice in one tool call share one
+    /// budget. Two budgets would outlast the harness's MCP tool timeout, and a second POST could launch a
+    /// paid reviewer after the harness had given up and retried.</para>
     /// </summary>
     internal static async Task<SettlementSendResult> SendWithSettlementRetryAsync(
             HttpClient                                                    client,

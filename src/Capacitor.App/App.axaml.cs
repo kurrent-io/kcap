@@ -252,6 +252,7 @@ public partial class App : Application {
     HandoffDrafts? _handoffDrafts;
     SessionRunActivity? _commands;
     SessionAccessService? _sessionAccess;
+    RemoteTranscriptCache? _remoteTranscripts;
     PullRequestToneCache? _pullRequestTones;
     ConsentPromptCoordinator? _promptCoordinator;
     // Disposed with the other UI services below: it holds a constructor-scoped subscription to
@@ -503,7 +504,7 @@ public partial class App : Application {
             await HandleStartupFailureAsync(
                 desktop, ex, _service, _shutdown,
                 [_tray, _trayVm, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
-                    _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess,
+                    _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess, _remoteTranscripts,
                     _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart,
                     _adoption],
                 _lifecycle, _lane, _localUpgrade, _localSearch, _menuBar, _coordinator);
@@ -534,6 +535,7 @@ public partial class App : Application {
             _accounts = null;
             _usageClock = null;
             _sessionAccess = null;
+            _remoteTranscripts = null;
             _pullRequestTones = null;
             _pause = null;
             _activity = null;
@@ -1229,6 +1231,8 @@ public partial class App : Application {
         // A pending ping is evidence the listing and summary can trail, so neither answers for it.
         var attention = new SessionAttentionTracker(serverLane, new SessionInterruptLog(readEvents, serverLane), _time);
         _sessionAccess = sessionAccess;
+        var remoteTranscripts = new RemoteTranscriptCache(SignedInSubject.From(serverLane.Status), sessionAccess.Transitions);
+        _remoteTranscripts = remoteTranscripts;
         // Sessions the rail hides are not read: nothing would show their PRs.
         var railShown = new ReplaySubject<Func<AgentRow, bool>>(1);
         var pullRequestTones = new PullRequestToneCache(directory, readers, TimeProvider.System, railShown);
@@ -1387,7 +1391,7 @@ public partial class App : Application {
                     () => new XtermTerminalSurface(80, 24, PtyDumpPath), planArtifacts, commands,
                     pullRequests: readers, requestSignIn: requestSignIn, linkGitHub: linkGitHub,
                     signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, finds: finds, inputSending: attention.ReplySending,
-                    pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
+                    pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent, transcripts: remoteTranscripts,
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
                     heldMessages: heldMessages, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
@@ -1425,7 +1429,7 @@ public partial class App : Application {
                     surfaceFactory: null, planArtifacts, commands,
                     pullRequests: readers, requestSignIn: requestSignIn, linkGitHub: linkGitHub,
                     signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, finds: finds, inputSending: attention.ReplySending,
-                    pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
+                    pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent, transcripts: remoteTranscripts,
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
                     handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
@@ -2552,7 +2556,6 @@ public partial class App : Application {
 
         // A window held behind an update's progress is hidden again before it renders; its mark waits for the real show.
         RenderedFrame.WhenDrawn(window, () => true, _time, at => _ = Task.Run(() => StartupMarks.Mark("window_shown", at)));
-        // The warm-up rides this callback: a second wait on the rail would take the draw probe this one placed.
         window.SessionRail.OnFirstSessionsPainted(_time, at => {
             _ = Task.Run(() => StartupMarks.Mark("first_sessions_painted", at));
             _chatWarmup?.RowsPainted(window);
@@ -3339,7 +3342,7 @@ public partial class App : Application {
             await Dispatcher.UIThread.InvokeAsync(async () => {
                 IDisposable?[] ui = [
                     _tray, _trayVm, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
-                    _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess,
+                    _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess, _remoteTranscripts,
                     _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart,
                     _adoption,
                 ];

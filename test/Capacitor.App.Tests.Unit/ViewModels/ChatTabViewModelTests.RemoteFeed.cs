@@ -366,11 +366,43 @@ public partial class ChatTabViewModelTests {
             new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time));
         try {
             await WaitUntilAsync(() => chat.Items.OfType<ShellCommandItem>().Any(), what: "the paged-in command");
+            await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the live tail");
             lane.PushStreamEvent(RemoteFixtures.Envelope("s1", 400, CanonicalEventTypes.UserMessageReceived,
                 """{"content":"<bash-stdout>a.txt</bash-stdout><bash-stderr></bash-stderr>"}"""));
             await WaitUntilAsync(() => chat.Items.OfType<ShellCommandItem>().Single().HasOutput, what: "the output on the command");
 
             await Assert.That(chat.Items.OfType<ShellCommandItem>().Count()).IsEqualTo(1);
+        } finally { await chat.TeardownAsync(); }
+    });
+
+    /// A pending card is not a transcript row: with only a card shown, the command paged in ahead of it
+    /// is still the row live output lands in.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Live_output_joins_a_command_paged_in_ahead_of_a_pending_card() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var lane = new FakeServerLane();
+        var permissions = new FakePermissionService();
+        permissions.Add(PermissionEntries.ServerEntry());
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 400).Select(i => i switch {
+            99 => RemoteFixtures.Event(i, CanonicalEventTypes.UserMessageReceived, """{"content":"<bash-input>ls</bash-input>"}"""),
+            < 99 => TextEvent(i),
+            _ => ResultEvent(i, $"x{i}"),
+        })]);
+        var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, Observable.Return(Session("s1")), Observable.Return<string[]?>(null),
+            new AcceptingChatInput(), new NoAttachmentUploader(),
+            key => new RemoteTranscriptFeed(key, "claude", access, server.Reader, lane, time, _ => { }, prefetch: 0),
+            new RecordingOpener(), time, permissions, new SessionRuns(time), sessionId: Observable.Return<string?>("s1"));
+        try {
+            await WaitUntilAsync(() => chat.Items.OfType<ShellCommandItem>().Any(), what: "the paged-in command");
+            await Assert.That(chat.Items[^1] is PendingCardItem).IsTrue();
+            await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the live tail");
+            lane.PushStreamEvent(RemoteFixtures.Envelope("s1", 400, CanonicalEventTypes.UserMessageReceived,
+                """{"content":"<bash-stdout>a.txt</bash-stdout><bash-stderr></bash-stderr>"}"""));
+            await WaitUntilAsync(() => chat.Items.OfType<ShellCommandItem>().Any(item => item.HasOutput), what: "the output");
+
+            await Assert.That(chat.Items.OfType<ShellCommandItem>().Single().Command).Contains("ls");
         } finally { await chat.TeardownAsync(); }
     });
 

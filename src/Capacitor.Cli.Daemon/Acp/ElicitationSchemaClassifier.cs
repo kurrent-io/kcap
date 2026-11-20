@@ -32,49 +32,26 @@ internal sealed record ElicitationClassification(
     );
 
 /// <summary>
-/// Pure classifier for stabilized ACP elicitation schemas (agent-client-protocol #1779,
-/// `schema/v1/schema.json` `ElicitationSchema`/`ElicitationPropertySchema`/
-/// `MultiSelectPropertySchema`) onto the daemon's single-question subset. No I/O, no logging —
-/// the caller owns observability. Validation is a strictly ordered pipeline; the FIRST failing
-/// stage's reason wins, and within a stage the first failing check wins, so every input has
-/// exactly one deterministic reason:
+/// Pure classifier mapping ACP elicitation schemas onto the daemon's single-question subset. Stages
+/// run in order and the first failing check names the reason, so every input has exactly one:
 ///
-///   stage 0  raw-size gate (`schema_too_large`) — nothing else is inspected past the cap
-///   stage 1  root shape (`malformed_schema`)
-///   stage 2  properties container (`malformed_schema`)
-///   stage 3  property COUNT (`multi_property`) — before inspecting any child, so a
-///            multi-property schema with malformed children still reports the count
-///   stage 4  the single property's shape/type (`malformed_schema` / `unsupported_type`)
-///   stage 5  selectors: dual-selector (`unsupported_selector_combination`), kind/emptiness
-///            (`malformed_schema` for wrong kinds; `empty_selector_unsupported` for EMPTY
-///            selector arrays on both variants — the union's reserved-variant tolerance makes a
-///            zero-option frame protocol-tolerated, so it is declined by name, a deliberate
-///            post-review refinement of the original malformed classification), entry-count cap
-///            (`too_many_options`, before per-entry validation), then per-entry in array order,
-///            shape before length (`malformed_schema` / `option_too_long`)
-///   stage 6  `required` (`malformed_schema` typing / `unsupported_required` foreign names)
-///   stage 7  bounds, array variant only, lexeme-first (`malformed_schema` / `bounds_too_large`)
-///   stage 8  bounds sanity (`empty_selection_unsupported` / `unsatisfiable_bounds`)
+///   0  raw size (`schema_too_large`)
+///   1  root shape, 2 properties container (`malformed_schema`)
+///   3  property count (`multi_property`), before any child is inspected
+///   4  the property's shape and type (`malformed_schema` / `unsupported_type`)
+///   5  selectors: both present (`unsupported_selector_combination`), wrong kind (`malformed_schema`),
+///      empty (`empty_selector_unsupported`, since the protocol tolerates a zero-option frame), entry
+///      count (`too_many_options`), then each entry, shape before length (`option_too_long`)
+///   6  `required` (`malformed_schema` / `unsupported_required`)
+///   7  array bounds (`malformed_schema` / `bounds_too_large`)
+///   8  bounds sanity (`empty_selection_unsupported` / `unsatisfiable_bounds`)
 ///
-/// Null-equivalence is scoped to the members the pinned schema declares nullable (the string
-/// property's `enum`/`oneOf`, `required`, `minItems`/`maxItems`, `title`/`description`): JSON
-/// null there is treated exactly like an absent member. The multi-select items selectors
-/// (`items.enum`/`items.anyOf`) are REQUIRED non-nullable members, so null there is
-/// `malformed_schema`. Non-string property `title`/`description` are treated as absent —
-/// mirroring the schema's own `x-deserialize-default-on-error` annotation — never an error.
+/// JSON null equals absent only where the schema declares the member nullable; null
+/// <c>items.enum</c>/<c>items.anyOf</c> is malformed. A non-string <c>title</c>/<c>description</c> is
+/// treated as absent. Caps are in UTF-16 code units: schema 32 Ki, 32 entries, 1024 per id or label.
 ///
-/// Caps (UTF-16 code units, resource bounds — not wire-byte bounds): raw schema 32 Ki, selector
-/// entries 32, option id/label 1024 each. With those, the produced <see cref="AcpInteractionOption"/>
-/// payload is a fixed, bounded function of the caps regardless of the raw schema's content.
-///
-/// On JSON access style: the validation stages below branch on <see cref="JsonElement.ValueKind"/>
-/// DIRECTLY and deliberately do not go through the shared <c>JsonElementExtensions</c> helpers.
-/// Those helpers implement a wrong-typed-reads-as-absent convenience contract, which is the exact
-/// opposite of what a validator needs — this pipeline must DISTINGUISH missing/JSON-null (absent,
-/// scoped null-equivalence) from a present wrong-typed value (`malformed_schema`, with a
-/// deterministic stage-ordered reason) — so routing through them would silently reclassify
-/// malformed frames as renderable. The one place the helper contract genuinely matches — the
-/// display-metadata reads, where wrong-typed IS treated as absent — uses <c>Str</c>.
+/// The stages branch on <see cref="JsonElement.ValueKind"/> directly: <c>JsonElementExtensions</c>
+/// reads a wrong-typed value as absent, which would reclassify a malformed frame as renderable.
 /// </summary>
 internal static class ElicitationSchemaClassifier {
     const int MaxSchemaCodeUnits = 32 * 1024;

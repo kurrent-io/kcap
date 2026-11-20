@@ -282,58 +282,24 @@ static partial class ProcessHelpers {
     }
 
     /// <summary>
-    /// Stops a process spawned immediately after this call from inheriting descriptors
-    /// it has no business holding: on Windows, this process's own standard
-    /// input/output/error handles; on Unix, every one of this process's own descriptors
-    /// numbered 3 and above. Call this immediately before spawning a long-lived detached
-    /// process such as the transcript watcher.
+    /// Stops a process spawned right after this call from inheriting descriptors: on Windows this
+    /// process's std handles, on Unix every pipe descriptor numbered 3 and above. Call it immediately before
+    /// spawning a long-lived detached process such as the transcript watcher.
     /// </summary>
     /// <remarks>
-    /// Background: hooks are invoked by the coding agent (Claude/Codex) with their
-    /// stdio wired to pipes the agent reads. .NET's <see cref="System.Diagnostics.Process"/>
-    /// always passes <c>bInheritHandles: true</c> to <c>CreateProcess</c> when any stream is
-    /// redirected, so a watcher spawned from inside a hook inherits the hook process's own
-    /// std handles — i.e. the agent's pipe write-ends. Closing the watcher's redirected
-    /// streams on the parent side does nothing about those inherited copies, so the watcher
-    /// holds the agent's pipe open for its entire (long) lifetime. The agent's read of the
-    /// hook's stdout therefore never reaches EOF: a synchronous <c>SubagentStart</c> hook
-    /// stalls until its timeout, surfacing as <c>[Tool result missing due to internal error]</c>
-    /// from the Agent/Task tool, and the watcher is then orphaned because the disrupted flow
-    /// never fires the matching <c>SubagentStop</c> that would reap it.
+    /// A hook's stdio are the agent's pipes. A watcher that inherits them holds them open for its whole
+    /// life, so the agent never sees EOF on the hook's stdout: a synchronous <c>SubagentStart</c> stalls
+    /// until timeout and the watcher is orphaned.
     ///
-    /// On Windows the std handles are NOT the whole story, so a detached spawn must not rely
-    /// on this: <c>CreateProcess</c> inherits every handle marked inheritable, and an agent
-    /// invokes its hook holding further inheritable copies of its own pipes, under values
-    /// <c>GetStdHandle</c> never reports. Clearing these three applies cleanly and still
-    /// leaves the leak open, which is why <see cref="StartDetachedWindows"/> spawns with
-    /// <c>bInheritHandles: false</c> rather than calling this.
+    /// On Windows clearing the std handles is not enough, because an agent also passes inheritable pipe
+    /// copies <c>GetStdHandle</c> never reports; <see cref="StartDetachedWindows"/> therefore spawns with
+    /// <c>bInheritHandles: false</c> instead of relying on this. On Unix fds 0-2 are replaced by
+    /// <c>dup2</c>, but every other descriptor survives <c>exec</c>, and hook executors hold extra pipe
+    /// ends above fd 2.
     ///
-    /// Unix is different in a way that makes the std-handle-only mitigation insufficient:
-    /// <c>fork</c>+<c>exec</c> <c>dup2</c>s the redirect pipes over fds 0/1/2 in the child,
-    /// so those three are never a problem — but every OTHER open descriptor in the parent
-    /// (a hook process) survives <c>exec</c> unless it is separately marked
-    /// <c>FD_CLOEXEC</c>, and a coding agent's hook executor routinely holds descriptors
-    /// above fd 2 (extra pipe ends, sockets) that have nothing to do with the watcher's own
-    /// stdio. Measured live on a hung session: the watcher process held fds 0,1,2 (its own
-    /// redirected stdio) and 4,5 (its own pair) as expected, but ALSO fds 6,8,10,11,13 —
-    /// inherited pipe descriptors it never opened, one of which was the coding agent's
-    /// stdout write-end, kept open long after the agent itself had exited. So the Unix
-    /// sweep targets fds &gt;= 3, never the std handles Windows targets — the two platforms
-    /// leak through different mechanisms and the fix for each is the descriptor set that
-    /// mechanism actually exposes.
-    ///
-    /// The Unix sweep runs in THIS (the hook) process, before the child is spawned, and
-    /// only sets <c>FD_CLOEXEC</c> — it never closes anything. That ordering matters: the
-    /// redirect pipes <see cref="System.Diagnostics.Process"/> creates for the child are
-    /// created AFTER this call returns, so they're unaffected, and <c>FD_CLOEXEC</c> only
-    /// takes effect on the next <c>exec</c> — nothing in this process is disrupted, and the
-    /// hook is about to exit anyway. This must never run inside the watcher itself: by the
-    /// time the watcher is up, the .NET runtime already holds its own descriptors (kqueue/
-    /// epoll, sockets) that a blind sweep there could break.
-    ///
-    /// Clearing the flag does not close the handles or stop the hook from writing its own
-    /// output to the agent — it only prevents subsequently-spawned children from inheriting
-    /// them.
+    /// The Unix sweep only sets <c>FD_CLOEXEC</c>, in the hook process, before the child's own redirect
+    /// pipes exist. Never run it inside the watcher, where the runtime already holds descriptors a blind
+    /// sweep could break.
     /// </remarks>
     public static void PreventInheritedHandles() {
         if (OperatingSystem.IsWindows()) {
@@ -348,39 +314,13 @@ static partial class ProcessHelpers {
     }
 
     /// <summary>
-    /// Marks every PIPE descriptor &gt;= 3 open in the CURRENT process <c>FD_CLOEXEC</c>, so
-    /// a process spawned immediately afterwards does not inherit it. See
-    /// <see cref="PreventInheritedHandles"/> for why fd 3+ (and not fds 0/1/2, which Unix
-    /// <c>exec</c> already replaces via redirect-pipe <c>dup2</c>) is the right target
-    /// range here. Enumerates live descriptors via <c>/dev/fd</c> (macOS) or
-    /// <c>/proc/self/fd</c> (Linux) rather than blindly sweeping a huge fd range; falls
-    /// back to a bounded sweep if that enumeration is unavailable.
+    /// Marks every pipe descriptor &gt;= 3 in the current process <c>FD_CLOEXEC</c>, enumerating
+    /// <c>/dev/fd</c> or <c>/proc/self/fd</c>, with a bounded sweep as fallback. Never throws.
     /// </summary>
     /// <remarks>
-    /// Only touches descriptors positively identified as pipes — <see cref="IsPipeFd"/>
-    /// gates every <see cref="MarkCloExec"/> call — rather than sweeping every open fd
-    /// regardless of type. A blind sweep crashes a real .NET process outright: on macOS, marking a KERNEL-GUARDED descriptor
-    /// close-on-exec (Apple's <c>guarded_fd</c> mechanism, used internally by some system
-    /// frameworks to protect specific fds from exactly this kind of blind manipulation)
-    /// delivers <c>EXC_GUARD</c> — an immediate, unrecoverable kill that bypasses errno
-    /// entirely and cannot be caught by any try/catch, signal handler, or "ignore EBADF"
-    /// logic, because it isn't a syscall failure at all. Measured directly against a real
-    /// Microsoft Testing Platform host process: guard violation <c>"NOCLOEXEC on file
-    /// descriptor 138 (guarded with 0xb3a0ea2f8257e982)"</c>, and the process was gone
-    /// before a single line of the calling test method had run. The exact descriptors a
-    /// hook process happens to hold vary by coding-agent runtime, so this isn't a corner
-    /// case reserved for test hosts — any Unix process complex enough to hold a guarded fd
-    /// is at risk from a blind sweep (and this guard applies regardless of which syscall
-    /// requests the change — <c>ioctl</c> shares the same kernel-level check as
-    /// <c>fcntl</c>). Restricting to pipes is not just safer, it's a closer match to the
-    /// diagnosed leak itself: the measured hang was specifically inherited PIPE
-    /// descriptors (fds 6,8,10,11,13, all <c>PIPE</c> in the per-fd dump) — never a
-    /// guarded system descriptor — so this scoping loses no coverage against the bug the
-    /// fix exists for.
-    ///
-    /// Best-effort throughout: a per-fd failure to identify or mark a descriptor (a raced
-    /// close, <c>EBADF</c>, an unreadable <c>/proc</c> symlink) is silently skipped, and
-    /// this never throws.
+    /// Only pipes, checked by <see cref="IsPipeFd"/>: on macOS, marking a kernel-guarded descriptor
+    /// delivers <c>EXC_GUARD</c>, an uncatchable kill of the whole process. The leaked descriptors are pipes,
+    /// so nothing is lost.
     /// </remarks>
     internal static void PreventInheritedFileDescriptorsUnix() {
         try {
@@ -1026,35 +966,16 @@ static partial class ProcessHelpers {
         GetParentPid() is { } parent ? NearestCodingAgent(parent, GetProcessInfo) : null;
 
     /// <summary>
-    /// Detaches the current process from its controlling terminal on Unix so that
-    /// closing the parent terminal does not deliver SIGHUP to this process.
+    /// Detaches the current process from its controlling terminal on Unix, so closing the terminal does
+    /// not SIGHUP it.
     /// </summary>
     /// <remarks>
-    /// The watcher is forked by the coding-agent's hook executor and inherits the
-    /// agent's process group and controlling terminal. When the user closes the
-    /// terminal, the kernel sends SIGHUP to the controlling-terminal's foreground
-    /// process group — that includes the watcher, which has no SIGHUP handler and
-    /// dies instantly with default action <c>terminate</c>. The parent-PID poll in
-    /// <c>WatchCommand.RunWatch</c> never gets to fire, so the watcher never
-    /// POSTs session-end and the session stays "active" forever in the read model.
-    ///
-    /// <c>setsid()</c> moves the watcher into a new session with no controlling
-    /// terminal. The captured <c>parentPid</c> (the coding-agent's PGID, recorded
-    /// before the watcher was spawned) is unchanged and still resolves to the
-    /// agent's actual PID — when the agent dies the 5s polling loop detects it
-    /// and runs the cleanup path that POSTs session-end.
-    ///
-    /// No-op on Windows (no equivalent terminal-session abstraction; closing a
-    /// console window kills the watcher via a different mechanism and the
-    /// codex/Windows combination is uncommon).
+    /// The watcher inherits the agent's process group and terminal; SIGHUP would kill it before its
+    /// parent-PID poll could post session-end, leaving the session active forever. After <c>setsid()</c>
+    /// the recorded parent PID still resolves, so the poll still ends the session. No-op on Windows.
     /// </remarks>
-    /// <returns>
-    /// <c>true</c> if the process was successfully detached (or if running on
-    /// Windows where the call is intentionally a no-op). <c>false</c> if
-    /// <c>setsid()</c> failed — typically because the process is already a
-    /// process-group leader, which means it's already isolated and the call
-    /// would be redundant anyway.
-    /// </returns>
+    /// <returns>False if <c>setsid()</c> failed, typically because the process already leads a process
+    /// group and is isolated anyway.</returns>
     public static bool DetachFromControllingTerminal() {
         if (OperatingSystem.IsWindows()) {
             return true;

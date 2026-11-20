@@ -740,45 +740,20 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     readonly ObservableAsPropertyHelper<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>> _effectiveModelCatalog;
     IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>? _currentLocalCatalog;
 
-    /// knownRepos is RepoPathStore.GetSortedPathsAsync in production — the same persisted list
-    /// DaemonConnect.RepoPaths feeds the server's launch dialog. Required (no defaulted overload)
-    /// so a test can never silently read the developer's own ~/.config/kcap/repos.json.
-    /// <param name="navigationGeneration">
-    /// Read BEFORE the launch call, never after: the captured value is what makes a success that
-    /// lands after the user navigated away open nothing.
-    /// </param>
-    /// <param name="openSessionIfCurrent">
-    /// The launch auto-open (MainWindowViewModel.OpenSessionIfCurrent), carrying the lane and that
-    /// captured generation. Either lane's launch opens on its placeholder row at once.
-    /// </param>
-    /// <param name="requestSignIn">Opens the re-auth sign-in surface (App owns the window). Null
-    /// leaves the Sign in button inert — a HomeViewModel with no windows to open.</param>
-    /// <param name="daemons">The viewer's own-plus-others remote registry (IRemoteAgentsService.
-    /// Daemons). Null ⇒ the machine picker offers only the local daemon.</param>
-    /// <param name="viewerId">The signed-in user's own id (JwtClaims), read fresh per call. Null
-    /// ⇒ no remote daemon is ever offered — ownership is never guessed.</param>
-    /// <param name="laneStatus">The app's own server lane (IServerLane.Status) — what a remote
-    /// launch's availability gates on, independent of the local daemon's own connection word.</param>
-    /// <param name="localMachineId">This machine's id, for excluding the local daemon's own remote
-    /// registry twin from the picker's remote options.</param>
-    /// <param name="launchFailures">The app's own server lane (IServerLane.LaunchFailures). A
-    /// failure whose id is being tracked renders as StartError; an unknown id is another client's
-    /// launch and is ignored. Null ⇒ launch failures are never correlated.</param>
-    /// <param name="directory">The merged local+remote rows (IAgentDirectory.Rows). A row for a
-    /// tracked id is success confirmation and stops tracking it. Null ⇒ only a LaunchFailed or the
-    /// pending entry's own 10-minute timeout ever stops tracking.</param>
-    /// <param name="listing">The server's daemon listing (IRemoteAgentsService.Listing), which says
-    /// whether each daemon, this machine's included, honours an explicit account. Null ⇒ no account
-    /// is offered or sent.</param>
-    /// <param name="daemonAccounts">Every listed daemon's accounts (IRemoteAgentsService.DaemonAccounts).</param>
-    /// <param name="localAccounts">This machine's daemon's own snapshot (IAccountsService.Snapshot).</param>
-    /// <param name="retryListing">Fetches the listing and every daemon's accounts again
-    /// (IRemoteAgentsService.RefreshDaemonsAsync).</param>
-    /// <param name="readings">The drawable snapshots and clock behind <see cref="AccountUsageById"/>.
-    /// Null ⇒ no usage is shown.</param>
-    /// <param name="branches">Reads branch names for the "Branch from" picker. Null ⇒ none are listed.</param>
-    /// <param name="launchFailed">A tracked launch failed (MainWindowViewModel.CloseFailedLaunch):
-    /// its auto-opened workspace would otherwise cover the StartError this view just set.</param>
+    /// knownRepos is required, with no defaulted overload, so a test never reads the developer's own
+    /// ~/.config/kcap/repos.json.
+    /// <param name="navigationGeneration">Read before the launch call, never after: it is what makes a
+    /// success landing after the user navigated away open nothing.</param>
+    /// <param name="viewerId">Read fresh per call. Null offers no remote daemon; ownership is never
+    /// guessed.</param>
+    /// <param name="localMachineId">Excludes the local daemon's own registry twin from the remote
+    /// options.</param>
+    /// <param name="launchFailures">A failure for a tracked id renders as StartError; an unknown id is
+    /// another client's launch.</param>
+    /// <param name="directory">A row for a tracked id confirms success. Null leaves only a LaunchFailed or
+    /// the 10-minute timeout to stop tracking.</param>
+    /// <param name="launchFailed">Closes the auto-opened workspace, which would otherwise cover the
+    /// StartError.</param>
     public HomeViewModel(
             IDaemonClientService daemon, IAppStateStore state, ILaunchClient launch,
             Func<Task<string[]>> knownRepos, TimeProvider time, CancellationToken shutdown = default,

@@ -633,6 +633,26 @@ public class CodexHostedAgentRuntimeFactoryTests {
         await Assert.That(Environment.GetEnvironmentVariable("CODEX_HOME")).IsEqualTo(CodexDaemonDefault);
     }
 
+    /// The advertised Codex judges a models cache under any account's home; auth files and a cache
+    /// with no advertised version to compare against are always the probed build's.
+    [Test]
+    public async Task Catalog_writes_are_judged_by_the_advertised_codex_version() {
+        var config  = ConfigWith(switchOn: false);
+        var factory = new CodexHostedAgentRuntimeFactory(
+            NewLauncher(), new RecordingPtyFactory(), config, NullLoggerFactory.Instance, TimeProvider.System);
+        var cache   = Home.PathTo(".codex-work", CodexPaths.ModelsCacheFileName);
+        var other   = """{"client_version":"0.170.0"}"""u8.ToArray();
+        var own     = """{"client_version":"0.169.0"}"""u8.ToArray();
+
+        await Assert.That(factory.CatalogWrittenByProbedCli(cache, other)).IsTrue();
+
+        config.UnattendedVendorCapabilities = [new("codex", "0.169.0", "policy", BorrowedReviewSupported: false)];
+
+        await Assert.That(factory.CatalogWrittenByProbedCli(cache, other)).IsFalse();
+        await Assert.That(factory.CatalogWrittenByProbedCli(cache, own)).IsTrue();
+        await Assert.That(factory.CatalogWrittenByProbedCli(Home.PathTo(".codex-work", "auth.json"), other)).IsTrue();
+    }
+
     /// The built-in directory is reached by removing the daemon's inherited variable and a custom one by
     /// naming it; each account's probe runs in a working directory of its own, and its answer lands
     /// under its own id.
