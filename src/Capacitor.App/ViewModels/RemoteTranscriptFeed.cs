@@ -233,10 +233,15 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             if (_window is null && taken.Earliest > 0) _cache.Put(_sessionId, taken, stamp);
             else {
                 kept = (taken, stamp);
+                bool closed;
                 lock (_lock) {
-                    // Closed while taking it: put it back.
-                    if (_disposed) { _cache.Put(_sessionId, taken, stamp); return false; }
-                    _resume = kept;
+                    closed = _disposed;
+                    if (!closed) _resume = kept;
+                }
+                // Outside the lock: the cache publishes under its own lock and then takes this one.
+                if (closed) {
+                    _cache.Put(_sessionId, taken, stamp);
+                    return false;
                 }
             }
         }
