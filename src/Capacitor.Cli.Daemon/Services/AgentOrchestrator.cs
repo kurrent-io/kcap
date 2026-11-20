@@ -413,8 +413,10 @@ internal record AgentInstance(
     /// <summary>The per-agent delivery section, held across the whole of
     /// <see cref="AgentOrchestrator.DeliverInputAsync"/> for every vendor.
     /// <para>The reaper's validate-and-claim (<see cref="AgentOrchestrator.TryClaimReapAsync"/>) runs
-    /// inside it, so a delivery and a reap claim are mutually exclusive: whichever lands first wins.
-    /// Selection reads a snapshot and can never be the decision.</para>
+    /// inside it, so a delivery and an activity-fenced (idle or wedge) claim are mutually exclusive:
+    /// whichever lands first wins. Selection reads a snapshot and can never be the decision. An
+    /// absolute-lifetime claim that cannot get the section within <c>ReapClaimGateWait</c> claims without
+    /// it, so a delivery that never finishes cannot keep terminate out of reach.</para>
     /// <para>A delivery can block forever (a PTY <c>write(2)</c> to a child that stopped reading), so a
     /// waiter whose own action is needed to unblock the holder, like the graceful-stop wait in
     /// <see cref="AgentOrchestrator.StopAgentCoreAsync"/>, must bound its wait.</para>
@@ -1415,8 +1417,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// round-scoped, and applying it on the heartbeat would reap a healthy reviewer between rounds.</para>
     /// <para>Idle comes from <see cref="AgentActivityClock"/>, not <see cref="AgentInstance.LastOutputAt"/>
     /// (PTY-only) or a wall-clock delta.</para>
-    /// <para>Selection only: each candidate carries the activity generation it was selected against, which
-    /// <see cref="TryClaimReapAsync"/> re-validates inside the per-agent fence.</para></summary>
+    /// <para>Selection only: an idle or wedge candidate carries the activity generation it was selected
+    /// against, which <see cref="TryClaimReapAsync"/> re-validates inside the per-agent fence. An
+    /// absolute-lifetime candidate is not fenced on activity.</para></summary>
     internal IReadOnlyList<ReapCandidate> FindReviewersToReap() {
         var result = new List<ReapCandidate>();
 

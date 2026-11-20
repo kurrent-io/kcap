@@ -714,10 +714,12 @@ partial class McpFlowsServer(
     /// <c>reviewer_launch_incarnation_superseded</c>, plus <paramref name="extraRetryableCode"/>; every
     /// other failure passes through. A retried start mints a fresh flow_run_id, and a coded rejection of a
     /// round never recorded it, so neither can double-submit.
-    /// <para>Bounded by <see cref="SettlementElapsedDeadline"/>, not an attempt count, with the remaining
-    /// time cancelling each POST. <see cref="ParticipantUnreachableCode"/> carries no
-    /// <c>last_processed_seq</c>, so it always runs the full 3 minutes, sized to give the server's reconcile
-    /// sweep one cycle to prove the prior agent gone.</para>
+    /// <para>Bounded by time, not attempts, with the remaining time cancelling each POST. Two limits apply:
+    /// a no-progress window of <see cref="SettlementElapsedDeadline"/>, re-armed by a 409 whose
+    /// <c>last_processed_seq</c> advances, and an absolute cap of <paramref name="absoluteBudget"/> or
+    /// <see cref="SettlementAbsoluteDeadline"/>. <see cref="ParticipantUnreachableCode"/> carries no
+    /// <c>last_processed_seq</c>, so it never re-arms and gets at most 3 minutes from the budget start,
+    /// sized to give the server's reconcile sweep one cycle to prove the prior agent gone.</para>
     /// <para>An exhausted result carries no live response; only this helper's own deadline produces it, and
     /// caller cancellation is rethrown.</para>
     /// <para><paramref name="budgetStartedAt"/> lets a caller that sends twice in one tool call share one

@@ -331,8 +331,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// would strand a live attach on a swap.</param>
     /// <param name="originOf">Null reads every id as local. A null answer means neither lane holds the
     /// id, which opens nothing.</param>
-    /// <param name="remoteWorkspaceFactory">Returns null when the row is gone by the time it runs. A null
-    /// factory sends remote ids to the local factory.</param>
+    /// <param name="remoteWorkspaceFactory">Returns null when the row is gone by the time it runs. Without
+    /// it a remote id opens nothing; the local factory is never used for one.</param>
     /// <param name="directory">Watched so an open local workspace can follow its agent to the server
     /// lane; null reads a dropped local row as an ended session.</param>
     public MainWindowViewModel(

@@ -283,7 +283,7 @@ static partial class ProcessHelpers {
 
     /// <summary>
     /// Stops a process spawned right after this call from inheriting descriptors: on Windows this
-    /// process's std handles, on Unix every descriptor numbered 3 and above. Call it immediately before
+    /// process's std handles, on Unix every pipe descriptor numbered 3 and above. Call it immediately before
     /// spawning a long-lived detached process such as the transcript watcher.
     /// </summary>
     /// <remarks>
