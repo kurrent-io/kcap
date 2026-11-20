@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -53,7 +54,9 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
              && status["profile"]?.GetValue<string>() is { } profile) {
                 using var writer = Process.GetProcessById(pid);
 
-                return new GrokBotWatchStatus(server, profile, pid);
+                var accepted = DateTimeOffset.TryParse(status["accepted"]?.GetValue<string>(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at) ? at : (DateTimeOffset?)null;
+
+                return new GrokBotWatchStatus(server, profile, pid, accepted, status["failure"]?.GetValue<string>(), status["cycled"]?.GetValue<bool>() ?? false);
             }
         } catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException or FormatException) {
             // Unreadable, or left by a process that is gone.
@@ -82,12 +85,34 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
 
         using var _ = held;
 
-        // First thing under the lock, so a held lock never vouches for the watcher before this one.
-        if (held is not null) {
-            var status = StatusPath + ".tmp";
-            File.WriteAllText(status, new JsonObject { ["pid"] = Environment.ProcessId, ["server"] = Destination, ["profile"] = profiles.Name }.ToJsonString());
-            File.Move(status, StatusPath, overwrite: true);
+        string? published = null;
+
+        void Publish(DateTimeOffset? accepted, string? failure, bool cycled) {
+            if (held is null) return;
+
+            var status = new JsonObject {
+                ["pid"]      = Environment.ProcessId,
+                ["server"]   = Destination,
+                ["profile"]  = profiles.Name,
+                ["accepted"] = accepted?.ToString("O", CultureInfo.InvariantCulture),
+                ["failure"]  = failure,
+                ["cycled"]   = cycled
+            }.ToJsonString();
+
+            if (status == published) return;
+
+            // Written in place: on Windows replacing the file fails while a reader has it open. A reader
+            // that catches it half-written says the destination could not be read, and asking again mends that.
+            try {
+                File.WriteAllText(StatusPath, status);
+                published = status;
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                // Left unpublished, so the next cycle writes it.
+            }
         }
+
+        // First thing under the lock, so a held lock never vouches for the watcher before this one.
+        Publish(null, null, cycled: false);
 
         var store   = GrokBotStateStore.For(config, profiles.Resolution.ServerUrl!, profiles.Name);
         var run     = new Run(source, store, store.Load(), options, log);
@@ -104,7 +129,7 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
             } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                 return GrokBotWatchOutcome.Stopped;
             } catch (Exception ex) {
-                failure = $"cycle failed: {ex.Message}";
+                failure = ex.Message.TrimEnd('.');
             }
 
             if (failure is null) {
@@ -112,6 +137,8 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
             } else if (backoff.Failed(failure) is { } report) {
                 log($"{report}; retrying with backoff, next in {backoff.NextDelay.TotalSeconds:0}s");
             }
+
+            Publish(run.AcceptedAt, failure, cycled: true);
 
             if (options.Once) return failure is null ? GrokBotWatchOutcome.Completed : GrokBotWatchOutcome.Failed;
 
@@ -130,6 +157,8 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
         public HashSet<string> WithoutBeginning { get; } = new(StringComparer.Ordinal);
 
         public HashSet<string> Unread { get; } = new(StringComparer.Ordinal);
+
+        public DateTimeOffset? AcceptedAt { get; set; }
     }
 
     /// <summary>The source the options name, else the gateway where this computer has one, else the desktop
@@ -184,6 +213,7 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
                     return refused;
                 }
 
+                run.AcceptedAt = time.GetUtcNow();
                 run.Log(Describe(action));
                 run.States[agent.Id] = action.After;
                 run.Store.Save(run.States);

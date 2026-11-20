@@ -125,7 +125,8 @@ public class GrokBotWatcherTests {
     }
 
     /// <summary>The lock proves a watcher runs, and only its holder writes the status, so a running watcher is
-    /// described by what it wrote itself. Once it stops, the file it left behind describes nothing.</summary>
+    /// described by what it wrote itself, down to the server having accepted what it sent. Once it stops, the
+    /// file it left behind describes nothing.</summary>
     [Test]
     public async Task A_running_watcher_says_where_it_posts_and_a_stopped_one_says_nothing() {
         var watcher = Watcher(new Server());
@@ -136,14 +137,48 @@ public class GrokBotWatcherTests {
 
         var running = watcher.RunAsync(options, _ => { }, stop.Token);
         using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        while (watcher.Running()?.Server is null) await Task.Delay(10, limit.Token);
+        GrokBotWatchStatus? status;
+        while ((status = watcher.Running())?.AcceptedAt is null) await Task.Delay(10, limit.Token);
 
-        await Assert.That(watcher.Running()).IsEqualTo(new GrokBotWatchStatus("https://acme.kcap.ai", "default", Environment.ProcessId));
+        await Assert.That(status with { AcceptedAt = null }).IsEqualTo(new GrokBotWatchStatus("https://acme.kcap.ai", "default", Environment.ProcessId, Cycled: true));
 
         await stop.CancelAsync();
         await Assert.That(await running).IsEqualTo(GrokBotWatchOutcome.Stopped);
         await Assert.That(File.Exists(Tmp.PathTo("config", "grok-bot", "watch.json"))).IsTrue();
         await Assert.That(watcher.Running()).IsNull();
+    }
+
+    /// <summary>A watcher holds its lock while the server refuses everything it sends, so being found running
+    /// says nothing about delivery: the status carries what the last cycle met.</summary>
+    [Test]
+    public async Task A_running_watcher_the_server_refuses_says_so() {
+        var watcher = Watcher(new Server(HttpStatusCode.BadRequest));
+        using var stop = new CancellationTokenSource();
+
+        var running = watcher.RunAsync(OneOldChat() with { Once = false }, _ => { }, stop.Token);
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        GrokBotWatchStatus? status;
+        while ((status = watcher.Running())?.Failure is null) await Task.Delay(10, limit.Token);
+
+        await Assert.That(status.AcceptedAt).IsNull();
+        await Assert.That(GrokBotWatchStatus.Describe(status)).Contains("as profile default. Its last cycle failed: hooks/session-start/grok-bot answered 400");
+
+        await stop.CancelAsync();
+        await Assert.That(await running).IsEqualTo(GrokBotWatchOutcome.Stopped);
+    }
+
+    /// <summary>The install skill decides what to tell the user from these sentences.</summary>
+    [Test]
+    public async Task A_status_reads_as_what_the_last_cycle_met() {
+        var found = new GrokBotWatchStatus("https://acme.kcap.ai", "default", 7);
+        var at    = new DateTimeOffset(2026, 3, 4, 5, 6, 7, TimeSpan.Zero);
+
+        await Assert.That(GrokBotWatchStatus.Describe(null)).IsEqualTo("No Grok Bot watcher is running on this computer.");
+        await Assert.That(GrokBotWatchStatus.Describe(new(null, null, null))).IsEqualTo("A Grok Bot watcher is running. Where it posts could not be read.");
+        await Assert.That(GrokBotWatchStatus.Describe(found)).IsEqualTo("A Grok Bot watcher is running (pid 7), posting to https://acme.kcap.ai as profile default. Its first cycle has not finished.");
+        await Assert.That(GrokBotWatchStatus.Describe(found with { Cycled = true })).EndsWith("Nothing has needed sending since it started.");
+        await Assert.That(GrokBotWatchStatus.Describe(found with { Cycled = true, AcceptedAt = at })).EndsWith("The server last accepted a delivery at 2026-03-04 05:06:07Z.");
+        await Assert.That(GrokBotWatchStatus.Describe(found with { Cycled = true, AcceptedAt = at, Failure = "refused" })).EndsWith("Its last cycle failed: refused.");
     }
 
     /// <summary>A status left by an earlier watcher sits under a lock a later one holds until that one writes

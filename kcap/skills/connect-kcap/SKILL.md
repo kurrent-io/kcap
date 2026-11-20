@@ -437,12 +437,29 @@ that is actually running, however that was started:
   a watcher that has only just started has not said yet.
 - `posting to <address> as profile <name>`, with `whoami` accepted, the address
   the workspace the user wants and the name the one on `whoami`'s `Profile:`
-  line: recording is already active there, as them. Say so and stop.
+  line: the right watcher is running. Whether it is recording is the sentence
+  that follows, read below.
 - anything else is a watcher recording somewhere, or as someone, the user did
   not ask for: another address, another profile, a second `could not be read`,
   or a `whoami` that was not accepted. Tell them the address and profile, or
   that they cannot be told, and with their agreement stop it the way C4 says
   before going on to C3 and C4.
+
+A watcher stays running while the workspace refuses everything it sends, so
+running is not recording. The sentence after the profile says which:
+
+- `The server last accepted a delivery at …`: recording is active there, as
+  them. Say so and stop.
+- `Its first cycle has not finished`: ask again after a few seconds.
+- `Nothing has needed sending since it started`: the watcher is running and
+  nothing has yet shown that the workspace accepts what it sends. Say exactly
+  that, and that the next message in any chat settles it; do not call it
+  recording.
+- `Its last cycle failed: …`: it is not recording. A refused sign-in (`401`)
+  is C3's to mend, and the watcher picks the new sign-in up by itself. Any
+  other `answered <status>` is the workspace refusing these sessions, which an
+  older workspace does, and anything else is the workspace not being reached:
+  tell the user what it says and stop.
 
 ### C2. Install
 
@@ -500,7 +517,9 @@ command line holds the same words; without it a watcher always seems to be
 running.
 
 Go on only when `kcap grok-bot status` says `posting to` the workspace from C3
-`as profile` the name on `kcap whoami`'s `Profile:` line:
+`as profile` the name on `kcap whoami`'s `Profile:` line, and then read the
+sentence after the profile the way C1 does: only an accepted delivery is
+recording, and C5 says what the status said, no more.
 
 - `No Grok Bot watcher is running` means the start failed, and the last lines
   of the log say why: `No Grok Bot here` is a computer with no Grok Bot gateway
@@ -525,6 +544,8 @@ check that `kcap grok-bot status` says no watcher is running.
 
 ### C5. Tell the user
 
-- What C4 listed, and that recording continues with their own computer off.
+- What C4 listed, and that recording continues with their own computer off —
+  or, where the status showed no accepted delivery, that the watcher is running
+  and what it said instead.
 - If the log ever says the sign-in was refused, say "reconnect kcap": run
   `kcap login --device` and show them the new code.
