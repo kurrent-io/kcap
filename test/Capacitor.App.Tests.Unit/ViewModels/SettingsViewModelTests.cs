@@ -68,7 +68,7 @@ public class SettingsViewModelTests {
     /// <summary>Closing disposes the tab and cancels the CLI child, which could leave the server's new mode
     /// unrecorded, so the window's close guard counts a running mode save as an active operation.</summary>
     [Test]
-    public Task Settings_cannot_close_while_a_background_intelligence_save_runs() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Settings_cannot_close_or_edit_the_daemon_while_a_background_intelligence_save_runs() => AvaloniaSession.RunOnUiAsync(async () => {
         var cli = new FakeKcapCli();
         var server = new Cli.Core.Setup.Intelligence.IntelligenceSettings("none", null, null, null, true, false, 300, false, []);
         cli.IntelligenceStatusBehavior = () => Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>(
@@ -81,14 +81,17 @@ public class SettingsViewModelTests {
         using var vm = Make(Seed(), Connected(), intelligence: tab);
         await tab.ShownAsync();
         await Assert.That(vm.HasActiveOperation).IsFalse();
+        await Assert.That(vm.CanEdit).IsTrue();
 
         tab.Options.Single(o => o.Token == "claude").IsSelected = true;
         var saving = tab.SaveModeAsync();
         await Assert.That(vm.HasActiveOperation).IsTrue();
+        await Assert.That(vm.CanEdit).IsFalse();
 
         applied.SetResult(new Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Applied(new("local_agent", "claude", null, true, 300, [])));
         await saving;
         await Assert.That(vm.HasActiveOperation).IsFalse();
+        await Assert.That(vm.CanEdit).IsTrue();
     });
 
     [Test]

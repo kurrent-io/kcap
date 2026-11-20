@@ -29,6 +29,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     readonly IDesktopNotificationAccess? _notificationAccess;
     readonly CancellationTokenSource _lifetime;
     readonly CompositeDisposable _subscriptions = new();
+    readonly BackgroundIntelligenceSettingsViewModel? _intelligence;
     AttachStatus _status = new(AttachState.Connecting, null, null);
     DaemonStatusDto? _snapshot;
     int _savedCapacity;
@@ -197,7 +198,14 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     public LocalSearchViewModel? Search { get; init; }
 
     /// Null unless the profile's server is this computer's local installation; owned by this window.
-    public BackgroundIntelligenceSettingsViewModel? Intelligence { get; init; }
+    public BackgroundIntelligenceSettingsViewModel? Intelligence {
+        get => _intelligence;
+        init {
+            _intelligence = value;
+            if (value is not null)
+                value.WhenAnyValue(x => x.Busy).Subscribe(_ => Refresh()).DisposeWith(_subscriptions);
+        }
+    }
     public ExperimentalSettingsViewModel? Experimental { get; init; }
     public AboutSettingsViewModel? About { get; init; }
 
@@ -245,7 +253,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    public bool CanEdit => !IsBusy && !Capture.Busy && Harnesses?.Busy != true && !_needsAppRestart;
+    public bool CanEdit => !IsBusy && !Capture.Busy && Harnesses?.Busy != true && Intelligence?.Busy != true && !_needsAppRestart;
     public bool CanSave => CanEdit && CapacityError is null && Capacity != _savedCapacity;
     public bool CanRename => CanEdit && _canRenameOnPlatform && !_nameOverridden && _startupSettled.IsCompletedSuccessfully &&
         NameError is null && Name != DaemonStore.Sanitize(_runningName) && Idle;
