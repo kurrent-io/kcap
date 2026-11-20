@@ -25,8 +25,8 @@ public class HostReconnectTests {
     sealed class Fixture {
         int _daemonRestarts, _laneRestarts;
 
-        public FakeDaemonClientService Daemon { get; } = new();
-        public FakeServerLane Lane { get; } = new();
+        FakeDaemonClientService Daemon { get; } = new();
+        FakeServerLane Lane { get; } = new();
         public Errors Errors { get; } = new();
         public Func<Task> RestartLane { get; set; } = () => Task.CompletedTask;
 

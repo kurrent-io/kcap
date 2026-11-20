@@ -24,7 +24,7 @@ public class TitleResolveLoopTests {
     /// next GET returns. Assign <see cref="Get"/> to script the read side explicitly.
     sealed class FakeServerPort : ITitleServerPort {
         public Func<string, string?>? Get { get; set; }
-        public string? Committed { get; private set; }
+        string? Committed { get; set; }
         public List<(string SessionId, HarnessTitlePost Post)> Pushed { get; } = [];
         public HarnessTitleOutcome PushResult { get; set; } = HarnessTitleOutcome.Posted;
         /// One-shot pause points: the next read (or push) signals the gate and waits for its release.
@@ -66,7 +66,7 @@ public class TitleResolveLoopTests {
         public List<(string AgentId, string Title)> Applied { get { lock (_applied) return [.. _applied]; } }
         public FakeServerPort Server { get; } = new();
         public Func<TitleAgentView, string?> Native { get; set; } = _ => null;
-        public HarnessTitleKind NativeKind { get; set; } = HarnessTitleKind.Rename;
+        public HarnessTitleKind NativeKind { get; init; } = HarnessTitleKind.Rename;
         public DateTimeOffset? NativeChangedAt { get; set; }
         public int NativeCalls;
         public Func<TitleAgentView, CancellationToken, Task<string?>> Generate { get; set; } =

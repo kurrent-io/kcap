@@ -29,7 +29,7 @@ public class AcpLaunchStageTests {
     /// launch failed.</summary>
     sealed class FakeAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int  Pid            { get; init; } = 4242;
+        public int  Pid            { get; } = 4242;
         public bool HasExited      { get; private set; }
         public int? ExitCode       { get; private set; }
         public int  TerminateCalls { get; private set; }
@@ -367,7 +367,7 @@ public class AcpLaunchStageOrchestratorTests {
     /// <summary>Minimal <see cref="IAcpProcess"/> — records terminate calls, mirroring
     /// <see cref="AcpLaunchStageTests"/>'s own fake.</summary>
     sealed class StageTimeoutFakeAcpProcess : IAcpProcess {
-        public int  Pid            { get; init; } = 4343;
+        public int  Pid            { get; } = 4343;
         public bool HasExited      { get; private set; }
         public int? ExitCode       { get; private set; }
         public int  TerminateCalls { get; private set; }

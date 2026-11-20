@@ -36,13 +36,13 @@ public class FirstRunHeartbeatTests {
         /// <summary>Holds every beat until <see cref="Release"/>, to keep one provably in flight.</summary>
         public bool Block { get; init; }
 
-        public Exception? Throws { get; set; }
+        public Exception? Throws { get; init; }
 
         /// <summary>Answered to the next beat, then cleared. Models a server that throttles once.</summary>
         public FirstRunHeartbeatOutcome? Next { get; set; }
 
         /// <summary>Answered to every beat. Models a route that is simply not there.</summary>
-        public FirstRunHeartbeatOutcome? Always { get; set; }
+        public FirstRunHeartbeatOutcome? Always { get; init; }
 
         /// <summary>Answered to beats in the order they were issued. Taken at call time, so pairing it
         /// with <see cref="HoldAnswers"/> makes a drain deterministic — which is what lets a test pin

@@ -36,8 +36,8 @@ public class ServiceVerifyStartGateProductionPathTests {
     sealed class Fixture : IDisposable {
         readonly ProdPathFixture _core = new(Id);
 
-        public DaemonStore Store => _core.Store;
-        public ConfigRoot Config => _core.Config;
+        DaemonStore Store => _core.Store;
+        ConfigRoot Config => _core.Config;
         public UserHome Home => _core.Home;
         public string PlistPath => _core.PlistPath;
         public LaunchdServiceManager Manager => _core.Manager;

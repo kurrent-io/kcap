@@ -27,7 +27,7 @@ public class DesktopNotificationAccessPromptTests {
     sealed class Harness : IDisposable {
         public FakeDesktopNotificationAccess Access { get; }
         public BehaviorSubject<NotificationPreferences> Preferences { get; }
-        public Subject<ReactiveUnit> Activated { get; } = new();
+        Subject<ReactiveUnit> Activated { get; } = new();
         public bool Foreground { get; set; }
         readonly DesktopNotificationAccessPrompt _prompt;
 

@@ -24,7 +24,7 @@ public class PtyHostedAgentRuntimeFactoryTests {
     sealed class RecordingLauncher(string vendor, string cliPath) : IHostedAgentLauncher {
         public string Vendor  { get; } = vendor;
         public string CliPath { get; } = cliPath;
-        public bool   SupportsUnattended { get; init; } = true;
+        public bool   SupportsUnattended { get; } = true;
 
         public LauncherContext? LastPrepareCtx { get; private set; }
 

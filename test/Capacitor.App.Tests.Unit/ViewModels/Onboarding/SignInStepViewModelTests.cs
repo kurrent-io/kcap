@@ -53,9 +53,9 @@ public class SignInStepViewModelTests {
         public readonly RecordingOpener         Opener  = new();
         public readonly FakeAppState            AppState = new();
         public readonly FakeTimeProvider        Time    = new();
-        public readonly ConsentFlipClaims       Claims;
+        readonly ConsentFlipClaims       Claims;
         public readonly UiAuthProgress          Progress;
-        public readonly WizardAuthService       Service;
+        readonly WizardAuthService       Service;
         public readonly SignInStepViewModel     Vm;
 
         public int Runs;

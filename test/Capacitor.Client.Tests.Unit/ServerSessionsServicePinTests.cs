@@ -42,7 +42,7 @@ public class ServerSessionsServicePinTests {
         public readonly FakeServerLane Lane = new();
         public readonly Listing Listing = new();
         public readonly Summaries Summaries = new();
-        public readonly FakeTimeProvider Time = new();
+        readonly FakeTimeProvider Time = new();
         public readonly ServerSessionsService Service;
         ImmutableList<ServerSessionsSnapshot> _snapshots = [];
         readonly IDisposable _subscription;

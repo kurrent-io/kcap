@@ -301,7 +301,7 @@ public class RemoteSessionViewSmokeTests {
 
         public readonly FakeServerLane Lane = new();
         public readonly FakePermissionService Permissions = new();
-        public readonly FakeTimeProvider Time = new();
+        readonly FakeTimeProvider Time = new();
         public readonly FakeRemoteAgents Remote = new();
         public readonly RemoteSessionViewModel Vm;
         public readonly RemoteSessionView View;

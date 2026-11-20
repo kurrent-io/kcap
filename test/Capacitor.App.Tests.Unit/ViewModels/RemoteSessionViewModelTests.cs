@@ -58,7 +58,7 @@ public class RemoteSessionViewModelTests {
 
         public readonly FakeRemoteAgents Remote = new();
         public readonly FakeServerSessionsService Sessions = new();
-        public readonly RecordingNotifier Notifier = new();
+        readonly RecordingNotifier Notifier = new();
 
         public RemoteSessionViewModel Build(AgentRow row, IPlanArtifactSource? planArtifacts = null,
                 Cli.Core.PullRequests.IPullRequestSource? pullRequests = null, IPlanSource? plans = null,

@@ -44,8 +44,8 @@ public class ShimOfferCoordinatorTests {
         public readonly FakeAppStateStore Store;
         public readonly FakeLifecycleSurface Surface = new();
         readonly TempDir _tmp = new();
-        public string TempDir => _tmp.Path;
-        public readonly TaskCompletionSource<bool> PhaseClosedSource = new();
+        string TempDir => _tmp.Path;
+        readonly TaskCompletionSource<bool> PhaseClosedSource = new();
         public readonly List<bool> OfferableValues = [];
 
         public readonly string? Target;

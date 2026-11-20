@@ -48,8 +48,8 @@ public static class MistralVibeUnifiedStore {
 
     /// <summary>The history being folded, and the running token total from the session envelope.</summary>
     sealed class FoldState {
-        public List<HistoryEntry>     Entries { get; set; } = [];
-        public MistralVibeTokenUsage? Usage   { get; set; }
+        public List<HistoryEntry>     Entries { get; } = [];
+        public MistralVibeTokenUsage? Usage   { get; private set; }
 
         public void TakeEnvelope(JsonElement? state) {
             if (MistralVibeTokenUsage.From(state?.Obj("session")?.Obj("tokenUsage")) is { } usage) Usage = usage;

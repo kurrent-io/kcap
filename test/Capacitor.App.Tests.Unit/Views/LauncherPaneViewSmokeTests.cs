@@ -1196,7 +1196,7 @@ public class LauncherPaneViewSmokeTests {
     /// A connected local daemon the server lists under accounts/1, a repository chosen, and a
     /// snapshot of two Claude accounts: home in the default directory, work in its own.
     sealed class AccountRig : IDisposable {
-        public FakeDaemonClientService Daemon { get; } = new();
+        FakeDaemonClientService Daemon { get; } = new();
         public FakeRemoteAgents Remote { get; } = new();
         public BehaviorSubject<AccountsSnapshotDto?> Snapshots { get; } = new(null);
         public RecordingLaunchClient Launch { get; } = new();

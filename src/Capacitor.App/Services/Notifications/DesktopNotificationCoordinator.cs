@@ -13,7 +13,7 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
         public string Id { get; } = id;
         public PendingPermissionRequest? Request { get; set; } = request;
         public AgentRow Row { get; set; } = row;
-        public string? UsageLimitKey { get; set; }
+        public string? UsageLimitKey { get; init; }
         public bool Busy { get; set; }
     }
 

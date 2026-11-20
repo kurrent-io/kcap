@@ -37,7 +37,7 @@ public class AgentOrchestratorFinalizerVerdictTests {
         public int  Pid            => 9191;
         public bool HasExited      { get; private set; }
         public int? ExitCode       { get; private set; }
-        public int  TerminateCalls { get; private set; }
+        int  TerminateCalls { get; set; }
 
         /// <summary>Completed when the FINALIZER'S process-exit wait is entered — keyed on a NON-NULL
         /// timeout, because the finalizer calls <c>WaitForExitAsync(5s)</c> while the runtime's own
