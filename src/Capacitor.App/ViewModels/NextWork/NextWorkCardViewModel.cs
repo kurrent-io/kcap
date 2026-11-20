@@ -27,11 +27,13 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
 
         var ownEnd = LooseEndId is not null;
         // A loose end's reason is its own text, the title already; its line says when it was noted instead.
-        var because = ownEnd && NextWorkLaneLogic.BecauseIsLabel(row) ? null : NextWorkLaneLogic.WithoutAge(NextWorkLaneLogic.Reason(row));
+        // Approved-unmerged's because restates the arm ("Approved, unmerged…"); KindLabel already says Ready to merge.
+        var because = ownEnd && NextWorkLaneLogic.BecauseIsLabel(row) ? null
+            : row.Arm == "ApprovedUnmerged" ? null
+            : NextWorkLaneLogic.WithoutAge(NextWorkLaneLogic.Reason(row));
         var age     = ownEnd ? NextWorkLaneLogic.NotedAgo(row) : NextWorkLaneLogic.Age(row);
         KindLabel = NextWorkLaneLogic.KindLabel(row);
         KindTip   = NextWorkLaneLogic.KindTip(row);
-        Meta = string.Join(" · ", new[] { because, NextWorkLaneLogic.ShortRepo(repoNames, row.RepoHash), age }.Where(p => p is { Length: > 0 }));
 
         // The loose end an item carries is why it is worth picking up now; a loose end's own row is its title.
         // What the server's prompt adds, said for a person: the prompt itself is written for the agent.
@@ -46,7 +48,12 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
         if (!ownEnd && item.Ends.Count > 0) {
             var first = item.Ends[0].Text;
             Context = item.Ends.Count > 1 ? $"{first} · +{item.Ends.Count - 1} more" : first;
+            // Because often is that same loose-end text; saying it twice fills the row with two truncated copies.
+            if (because is not null && string.Equals(because.Trim(), first.Trim(), StringComparison.OrdinalIgnoreCase))
+                because = null;
         }
+
+        Meta = string.Join(" · ", new[] { because, NextWorkLaneLogic.ShortRepo(repoNames, row.RepoHash), age }.Where(p => p is { Length: > 0 }));
 
         FillCommand    = ReactiveCommand.CreateFromTask(() => _band.FillAsync(this));
         StartCommand   = ReactiveCommand.CreateFromTask(() => _band.StartNowAsync(this));
@@ -94,6 +101,9 @@ public sealed class NextWorkCardViewModel : ReactiveObject {
     public bool HasMenuActions   => CanOpenInBrowser || IsLooseEnd;
 
     public string FillTip => Row.TargetKind == "session" ? "Open this session" : "Put this in the composer";
+
+    /// <summary>Row name for assistive tech; prefixes New when the visit-dot is showing.</summary>
+    public string AccessibleName => IsNew ? $"New: {Label}" : Label;
 
     /// <summary>While its launch options are being read, for the fill or a start.</summary>
     public bool Busy {

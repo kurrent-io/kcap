@@ -220,9 +220,8 @@ public class BorrowedReviewAuthBrokerTests {
 
     // ── availability is PASSIVE ───────────────────────────────────────────────────────────────────
     //
-    // The daemon must not mint a credential nobody asked for. An earlier revision probed by RUNNING the
-    // command once at startup, which bought a better diagnostic by breaking exactly the invariant this
-    // class exists to state.
+    // The daemon must not mint a credential nobody asked for, so availability never RUNS the command,
+    // not even once at startup for a better diagnostic.
 
     [Test]
     public async Task Availability_is_true_for_a_configured_command_without_running_it() {
@@ -260,7 +259,7 @@ public class BorrowedReviewAuthBrokerTests {
     public async Task The_real_runner_rejects_output_longer_than_a_token() {
         Skip.When(OperatingSystem.IsWindows(), "POSIX shell command");
 
-        var length = BorrowedReviewTokenCommand.MaxTokenLength + 100;
+        const int length = BorrowedReviewTokenCommand.MaxTokenLength + 100;
 
         await Assert.That(BorrowedReviewTokenCommand.Run(
             $"head -c {length} /dev/zero | tr '\\0' 'a'")).IsNull();
@@ -272,8 +271,8 @@ public class BorrowedReviewAuthBrokerTests {
     public async Task The_real_runner_accepts_output_at_the_cap() {
         Skip.When(OperatingSystem.IsWindows(), "POSIX shell command");
 
-        var length = BorrowedReviewTokenCommand.MaxTokenLength;
-        var token  = BorrowedReviewTokenCommand.Run($"head -c {length} /dev/zero | tr '\\0' 'a'");
+        const int length = BorrowedReviewTokenCommand.MaxTokenLength;
+        var token        = BorrowedReviewTokenCommand.Run($"head -c {length} /dev/zero | tr '\\0' 'a'");
 
         await Assert.That(token).IsNotNull();
         await Assert.That(token!.Length).IsEqualTo(length);

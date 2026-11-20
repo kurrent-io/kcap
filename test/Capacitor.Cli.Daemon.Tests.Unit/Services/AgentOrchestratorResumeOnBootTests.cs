@@ -777,9 +777,9 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That(after.Launch.Prompt).IsEqualTo("build the thing");
         await Assert.That(after.DaemonInstanceId).IsEqualTo("instance-now");
         await Assert.That(after.StartedAt?.UtcDateTime).IsEqualTo(agent!.CreatedAt);
-        await Assert.That(agent!.ResumePending).IsFalse();
+        await Assert.That(agent.ResumePending).IsFalse();
 
-        var buffered = System.Text.Encoding.UTF8.GetString(agent!.OutputBuffer.Snapshot());
+        var buffered = System.Text.Encoding.UTF8.GetString(agent.OutputBuffer.Snapshot());
         await Assert.That(buffered).StartsWith("earlier output");
         await Assert.That(File.Exists(f.Orch.ResumeLedger!.RingPath("resume-1"))).IsFalse();
 
@@ -935,6 +935,33 @@ public class AgentOrchestratorResumeOnBootTests {
                             TUnit.Assertions.Enums.CollectionOrdering.Matching);
     }
 
+    /// <summary>A server that refuses a re-announcement for its connection read nothing it carried, so the next
+    /// re-announcement before the launch registration is answered is still flagged as the first.</summary>
+    [Test]
+    public async Task A_reannouncement_refused_for_its_connection_leaves_the_next_flagged_first() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Entry(f, "resume-displaced");
+        var launchHeld = new TaskCompletionSource();
+        f.Server.AgentRegisteredEntered = new TaskCompletionSource();
+        f.Server.AgentRegisteredGate    = launchHeld;
+
+        f.Orch.LoadResumeLedger();
+        var lane = f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await f.Server.AgentRegisteredEntered.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        f.Server.AgentRegisteredGate = null;
+
+        f.Server.RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_a_daemon");
+        await f.Orch.ReRegisterAgentsAsync();
+        f.Server.RegistrationResponse = null;
+        await f.Orch.ReRegisterAgentsAsync();
+        launchHeld.SetResult();
+        await lane;
+
+        await Assert.That(f.Server.AgentRegisteredResumes.Where(r => r.AgentId == "resume-displaced").Select(r => r.FirstAnnounce))
+            .IsEquivalentTo(new[] { true, true, true }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
     /// <summary>A registration a server without the acked method took answered nothing, so the next one, after a
     /// reconnect to a server that may now read the resume, is still flagged as the first.</summary>
     [Test]
@@ -989,7 +1016,7 @@ public class AgentOrchestratorResumeOnBootTests {
     }
 
     [Test]
-    [ExcludeOn(TUnit.Core.Enums.OS.Windows), System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    [ExcludeOn(OS.Windows), System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
     public async Task A_discard_whose_delete_fails_keeps_the_candidate_listed() {
         var f = Build();
         await using var _ = f.Orch;
@@ -1120,6 +1147,21 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That(entry.LastError).IsEqualTo("too_old");
         await Assert.That(f.Factory.Contexts).IsEmpty();
         await Assert.That(f.Orch.ResumingClaims()).IsEmpty();
+    }
+
+    /// <summary>A run this daemon did not launch is reported with no holding process: the server holds the ledger's
+    /// process unless a resume claim re-stamped it, which the ledger cannot tell, and a wrong id hides the failure.
+    /// The current process's id is never one the server holds for it.</summary>
+    [Test]
+    public async Task A_predecessors_run_failed_at_boot_names_no_holding_process() {
+        var f = Build(configure: c => c.AutoResume = false);
+        await using var _ = f.Orch;
+        Entry(f, "off-1", state: ResumeState.Running, predecessor: null, daemonInstanceId: "instance-killed");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Server.ShutdownReportRunInstances).IsEquivalentTo([("off-1", (string?)null)]);
     }
 
     /// <summary>A zero age cap means no cap, as the environment knob documents.</summary>
@@ -1592,7 +1634,7 @@ public class AgentOrchestratorResumeOnBootTests {
 
         await Assert.That(f.Server.ShutdownReports.Select(r => (r.AgentId, r.Status, r.Reason)))
             .Contains(("exits-1", "Failed", "resume_failed:runtime_exited"));
-        await Assert.That(f.Server.ShutdownReportExitCodes).Contains(("exits-1", (int?)3));
+        await Assert.That(f.Server.ShutdownReportExitCodes).Contains(("exits-1", 3));
     }
 
     /// <summary>The server already holds the reopened session's events through its cursor, so the first

@@ -41,10 +41,10 @@ public class PluginCommandCursorTests {
     [Test]
     public async Task install_cursor_refresh_points_every_kcap_server_at_the_current_binary() {
         using var fakeHome = new TempHome();
-        var cursorDir = System.IO.Path.Combine(fakeHome.Path, ".cursor");
+        var cursorDir = Path.Combine(fakeHome.Path, ".cursor");
         Directory.CreateDirectory(cursorDir);
 
-        var hooksPath = System.IO.Path.Combine(cursorDir, "hooks.json");
+        var hooksPath = Path.Combine(cursorDir, "hooks.json");
         await File.WriteAllTextAsync(hooksPath, """
             {"version":1,"hooks":{"sessionStart":[{"command":"kcap hook --cursor"}]}}
             """);
@@ -52,7 +52,7 @@ public class PluginCommandCursorTests {
         // A kcap binary that still exists is never taken over, so the stale one must be absent
         // whatever the machine has installed.
         var goneBinary = fakeHome.PathTo("uninstalled", "bin", "kcap");
-        var mcpPath    = System.IO.Path.Combine(cursorDir, "mcp.json");
+        var mcpPath    = Path.Combine(cursorDir, "mcp.json");
         await File.WriteAllTextAsync(mcpPath, new JsonObject {
             ["mcpServers"] = new JsonObject {
                 ["my-tool"]        = new JsonObject { ["command"] = "my-tool",  ["args"] = new JsonArray("serve") },
@@ -81,17 +81,17 @@ public class PluginCommandCursorTests {
             ["plugin", "install", "--cursor", "--if-installed"]);
         await Assert.That(exit).IsEqualTo(0);
 
-        var mcpPath = System.IO.Path.Combine(fakeHome.Path, ".cursor", "mcp.json");
+        var mcpPath = Path.Combine(fakeHome.Path, ".cursor", "mcp.json");
         await Assert.That(File.Exists(mcpPath)).IsFalse();
     }
 
     [Test]
     public async Task install_cursor_skip_cursor_mcp_flag_leaves_mcp_json_untouched() {
         using var fakeHome = new TempHome();
-        var cursorDir = System.IO.Path.Combine(fakeHome.Path, ".cursor");
+        var cursorDir = Path.Combine(fakeHome.Path, ".cursor");
         Directory.CreateDirectory(cursorDir);
 
-        var hooksPath = System.IO.Path.Combine(cursorDir, "hooks.json");
+        var hooksPath = Path.Combine(cursorDir, "hooks.json");
         await File.WriteAllTextAsync(hooksPath, """
             {"version":1,"hooks":{"sessionStart":[{"command":"kcap hook --cursor"}]}}
             """);
@@ -100,17 +100,17 @@ public class PluginCommandCursorTests {
             ["plugin", "install", "--cursor", "--if-installed", "--skip-cursor-mcp"]);
         await Assert.That(exit).IsEqualTo(0);
 
-        var mcpPath = System.IO.Path.Combine(cursorDir, "mcp.json");
+        var mcpPath = Path.Combine(cursorDir, "mcp.json");
         await Assert.That(File.Exists(mcpPath)).IsFalse();
     }
 
     [Test]
     public async Task remove_cursor_unregisters_mcp_servers_preserving_user_entries() {
         using var fakeHome = new TempHome();
-        var cursorDir = System.IO.Path.Combine(fakeHome.Path, ".cursor");
+        var cursorDir = Path.Combine(fakeHome.Path, ".cursor");
         Directory.CreateDirectory(cursorDir);
 
-        var hooksPath = System.IO.Path.Combine(cursorDir, "hooks.json");
+        var hooksPath = Path.Combine(cursorDir, "hooks.json");
         await File.WriteAllTextAsync(hooksPath, """
             {"version":1,"hooks":{"sessionStart":[{"command":"kcap hook --cursor"}]}}
             """);
@@ -118,7 +118,7 @@ public class PluginCommandCursorTests {
         // Seed mcp.json exactly as a prior real install would have (so the
         // sidecar ownership marker exists), then splice in a user-authored
         // server that must survive removal.
-        var mcpPath = System.IO.Path.Combine(cursorDir, "mcp.json");
+        var mcpPath = Path.Combine(cursorDir, "mcp.json");
         JsonMcpConfigWriter.Register(mcpPath, KcapMcpServers.All, McpConfigShape.Standard, cwd: null, new McpMarker("cursor", fakeHome.Home));
         var seeded = JsonNode.Parse(await File.ReadAllTextAsync(mcpPath))!.AsObject();
         seeded["mcpServers"]!["my-tool"] = JsonNode.Parse("""{"command":"my-tool","args":["serve"]}""");
@@ -141,11 +141,11 @@ public class PluginCommandCursorTests {
     [Test]
     public async Task remove_cursor_retains_marker_on_failed_unregister_then_retry_removes_entries() {
         using var fakeHome = new TempHome();
-        var cursorDir = System.IO.Path.Combine(fakeHome.Path, ".cursor");
+        var cursorDir = Path.Combine(fakeHome.Path, ".cursor");
         Directory.CreateDirectory(cursorDir);
 
         // A prior real install: kcap entries + sidecar ownership marker.
-        var mcpPath = System.IO.Path.Combine(cursorDir, "mcp.json");
+        var mcpPath = Path.Combine(cursorDir, "mcp.json");
         JsonMcpConfigWriter.Register(mcpPath, KcapMcpServers.All, McpConfigShape.Standard, cwd: null, new McpMarker("cursor", fakeHome.Home));
         var installed = await File.ReadAllTextAsync(mcpPath); // valid content to restore after the "fix"
         await Assert.That(new McpMarker("cursor", fakeHome.Home).Owned(mcpPath).ToArray()).IsNotEmpty();

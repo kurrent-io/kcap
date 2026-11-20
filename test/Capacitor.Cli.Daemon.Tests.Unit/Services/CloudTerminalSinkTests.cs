@@ -22,7 +22,7 @@ public class CloudTerminalSinkTests {
         CloudTerminalSink? _sink;
 
         public CloudTerminalSink Sink => _sink ??= new CloudTerminalSink(
-            "agent-1", SinksLock, Ring, Mirror.Send, () => Mirror.Ready,
+            "agent-1", SinksLock, Ring, Mirror.Send, Mirror.SendSize, () => Mirror.Ready,
             NullLogger.Instance, time ?? TimeProvider.System, options ?? Fast, Shutdown.Token);
 
         /// <summary>The read loop's fan-out: ring append and sink enqueue under one lock.</summary>
@@ -33,6 +33,11 @@ public class CloudTerminalSinkTests {
                 Ring.Append(chunk);
                 Sink.TryEnqueue(chunk);
             }
+        }
+
+        /// <summary>A PTY resize, made under the lock the read loop appends under.</summary>
+        public void Resize(int cols, int rows) {
+            lock (SinksLock) Sink.TryEnqueueSize(cols, rows);
         }
 
         public async ValueTask DisposeAsync() {
@@ -63,6 +68,66 @@ public class CloudTerminalSinkTests {
         var sent = rig.Mirror.SentText();
         await Assert.That(sent.Length).IsEqualTo(50);
         for (var i = 0; i < 50; i++) await Assert.That(sent[i]).IsEqualTo($"chunk-{i}");
+    }
+
+    /// <summary>The server drops what it recorded when the size changes, so the size must land between the output
+    /// drawn before the resize and the output drawn after it.</summary>
+    [Test]
+    public async Task A_resize_reaches_the_mirror_between_the_output_around_it() {
+        await using var rig = new Rig();
+        _ = rig.Sink;
+
+        rig.Emit("before");
+        rig.Resize(100, 30);
+        rig.Emit("after");
+
+        await rig.Sink.StopAsync(HangGuard).WaitAsync(HangGuard);
+
+        await Assert.That(string.Join(",", rig.Mirror.SentText())).IsEqualTo("before,<SIZE 100x30>,after");
+    }
+
+    /// <summary>A replay replaces whatever was queued, sizes included, so it starts with the latest size.</summary>
+    [Test]
+    public async Task A_replay_starts_with_the_latest_size() {
+        using var gate = new StepGate();
+        await using var rig = new Rig(Fast with { BacklogBudgetBytes = 8 });
+        rig.Mirror.OnSend = gate.Wait;
+        _ = rig.Sink;
+
+        rig.Emit("aaaa");
+        await WaitHarness.PollUntilAsync(() => rig.Mirror.Entered == 1);
+        rig.Resize(100, 30);
+        rig.Emit("bbbb");
+        rig.Emit("cccc");
+        rig.Emit("dddd");
+        rig.Resize(90, 20);
+
+        gate.Open();
+        await WaitHarness.PollUntilAsync(() => rig.Mirror.Sent.Count == 7);
+        await rig.Sink.StopAsync(HangGuard).WaitAsync(HangGuard);
+
+        await Assert.That(string.Join(",", rig.Mirror.SentText()))
+            .IsEqualTo("aaaa,<SIZE 90x20>,<RIS>,aaaa,bbbb,cccc,dddd");
+    }
+
+    /// <summary>A pump held on a send must not queue every resize of an agent that draws nothing: sizes count
+    /// against the budget, and an overflow is recovered by a replay that starts with the latest size.</summary>
+    [Test]
+    public async Task Resizes_behind_a_held_send_overflow_into_a_replay() {
+        using var gate = new StepGate();
+        await using var rig = new Rig(Fast with { BacklogBudgetBytes = 40 });
+        rig.Mirror.OnSend = gate.Wait;
+        _ = rig.Sink;
+
+        rig.Emit("aaaa");
+        await WaitHarness.PollUntilAsync(() => rig.Mirror.Entered == 1);
+        for (var cols = 81; cols <= 90; cols++) rig.Resize(cols, 24);
+
+        gate.Open();
+        await WaitHarness.PollUntilAsync(() => rig.Mirror.Sent.Count == 4);
+        await rig.Sink.StopAsync(HangGuard).WaitAsync(HangGuard);
+
+        await Assert.That(string.Join(",", rig.Mirror.SentText())).IsEqualTo("aaaa,<SIZE 90x24>,<RIS>,aaaa");
     }
 
     [Test]
@@ -231,7 +296,7 @@ public class CloudTerminalSinkTests {
         };
 
         await using var sink = new CloudTerminalSink(
-            "agent-1", rig.SinksLock, rig.Ring, rig.Mirror.Send, () => rig.Mirror.Ready,
+            "agent-1", rig.SinksLock, rig.Ring, rig.Mirror.Send, rig.Mirror.SendSize, () => rig.Mirror.Ready,
             log, time, Fast, CancellationToken.None);
 
         lock (rig.SinksLock) sink.TryEnqueue("stuck"u8.ToArray());
@@ -390,7 +455,7 @@ public class CloudTerminalSinkTests {
         };
 
         await using var sink = new CloudTerminalSink(
-            "agent-1", rig.SinksLock, rig.Ring, rig.Mirror.Send, () => rig.Mirror.Ready,
+            "agent-1", rig.SinksLock, rig.Ring, rig.Mirror.Send, rig.Mirror.SendSize, () => rig.Mirror.Ready,
             log, TimeProvider.System, Fast with { FailingSendAttempts = 2 }, CancellationToken.None);
 
         lock (rig.SinksLock) sink.TryEnqueue("x"u8.ToArray());
@@ -582,7 +647,7 @@ public class CloudTerminalSinkTests {
         var log  = new CountingLogger();
         await using var rig = new Rig();
         await using var sink = new CloudTerminalSink(
-            "agent-1", rig.SinksLock, rig.Ring, rig.Mirror.Send, () => rig.Mirror.Ready,
+            "agent-1", rig.SinksLock, rig.Ring, rig.Mirror.Send, rig.Mirror.SendSize, () => rig.Mirror.Ready,
             log, time, Fast, CancellationToken.None);
 
         for (var i = 0; i < 5; i++) {

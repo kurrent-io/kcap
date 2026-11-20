@@ -4,11 +4,12 @@ using Capacitor.App.Services;
 namespace Capacitor.App.ViewModels;
 
 /// The Terminal tab's own notice for each terminal state, in the session banner's vocabulary. A
-/// read-write attach, a resolve still in flight and a session with no terminal show none.
+/// read-write attach and a session with no terminal show none.
 public static class TerminalNotices {
     public static SessionConnectionPresentation? For(TerminalSessionState state, ICommand reattach, ICommand detach,
             ICommand retryResolve) => state switch {
-        { Phase: TerminalSessionPhase.Connecting } => new("Connecting to the terminal…", "", true),
+        { Phase: TerminalSessionPhase.Resolving or TerminalSessionPhase.Connecting } =>
+            SessionConnectionPresentation.ConnectingToTerminal,
         { Phase: TerminalSessionPhase.Resuming } =>
             new("Resuming this session…", "The daemon restarted. The agent comes back on its own.", true),
         // The only explanation for dead keystrokes, and Detach is the only action such a session has.
@@ -16,7 +17,7 @@ public static class TerminalNotices {
             new("Read-only terminal", state.Detail ?? "", false, "Detach", detach),
         { Phase: TerminalSessionPhase.Detached } => new("Detached from the terminal", "", false, "Reattach", reattach),
         { Phase: TerminalSessionPhase.Failed } =>
-            new("The terminal disconnected", state.Detail ?? "The terminal failed.", false, "Reattach", reattach),
+            new("Terminal connection failed", state.Detail ?? "", false, "Reattach", reattach),
         { Phase: TerminalSessionPhase.NotFound } => new("Session not found", "", false, "Retry", retryResolve),
         { Phase: TerminalSessionPhase.Interrupted } => new("This session wasn’t resumed", InterruptedDetail(state.Detail), false),
         { Phase: TerminalSessionPhase.Exited } => new($"Session exited (code {state.ExitCode})", "", false, IsPlain: true),

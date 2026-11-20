@@ -27,12 +27,12 @@ public class WatchCommandTests {
     public async Task A_handed_end_is_judged_as_the_run_its_hook_named_or_else_by_its_session() {
         const string session = "2aa834d09c294410b64c177c75d32358";
         using var daemons = new TempDaemonStore();
-        Capacitor.Cli.Core.Resume.ResumeLedgerStore.For(daemons.Store, "d1").Write(
-            ResumeLedgerEntries.For("agent-1", Capacitor.Cli.Core.Resume.ResumeState.Running) with {
+        Core.Resume.ResumeLedgerStore.For(daemons.Store, "d1").Write(
+            ResumeLedgerEntries.For("agent-1", Core.Resume.ResumeState.Running) with {
                 LaunchEpoch = "epoch-1", RunEpoch = "epoch-2", SessionId = session
             });
         string? Held(string payload) => WatchCommand.HandedEndHeld(payload, session,
-            run => SessionEndFence.ShouldHold(run.AgentId, run.DaemonEpoch, session, id => Capacitor.Cli.Core.Resume.ResumeLedgerStore.LocateByAgentId(daemons.Store, id), TimeProvider.System),
+            run => SessionEndFence.ShouldHold(run.AgentId, run.DaemonEpoch, session, id => Core.Resume.ResumeLedgerStore.LocateByAgentId(daemons.Store, id), TimeProvider.System),
             exited => SessionEndFence.ShouldHold(exited, daemons.Store, TimeProvider.System));
 
         await Assert.That(Held("""{"reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""")).IsNull();
@@ -46,8 +46,8 @@ public class WatchCommandTests {
     public async Task A_named_handed_end_let_through_commits_its_own_session() {
         const string session = "2aa834d09c294410b64c177c75d32358";
         using var daemons = new TempDaemonStore();
-        var ledger = Capacitor.Cli.Core.Resume.ResumeLedgerStore.For(daemons.Store, "d1");
-        ledger.Write(ResumeLedgerEntries.For("agent-1", Capacitor.Cli.Core.Resume.ResumeState.Running) with {
+        var ledger = Core.Resume.ResumeLedgerStore.For(daemons.Store, "d1");
+        ledger.Write(ResumeLedgerEntries.For("agent-1", Core.Resume.ResumeState.Running) with {
             LaunchEpoch = "epoch-2", RunEpoch = "epoch-2", SessionId = session
         });
         using var dir = EnvScope.Exclusive("KCAP_DAEMONS_DIR", daemons.Directory);
@@ -71,11 +71,11 @@ public class WatchCommandTests {
 
         await Assert.That(WatchCommand.SuccessorRun(home, session, followed)).IsEqualTo(none);
 
-        Capacitor.Cli.Core.Harness.Muse.MuseHostedSessionMarker.Write(home, marker);
+        Core.Harness.Muse.MuseHostedSessionMarker.Write(home, marker);
         await Assert.That(WatchCommand.SuccessorRun(home, session, followed)).IsEqualTo(new WatcherRun("agent-1", "epoch-2"));
         await Assert.That(WatchCommand.SuccessorRun(home, session, followed + 1)).IsEqualTo(none);
 
-        Capacitor.Cli.Core.Harness.Muse.MuseHostedSessionMarker.Write(home, marker with { OwnerToken = null, OwnerPid = null });
+        Core.Harness.Muse.MuseHostedSessionMarker.Write(home, marker with { OwnerToken = null, OwnerPid = null });
         await Assert.That(WatchCommand.SuccessorRun(home, session, followed)).IsEqualTo(none);
     }
 
@@ -191,6 +191,6 @@ public class WatchCommandTests {
 // real subagent transcript: tool_use carries `id`, tool_result carries `tool_use_id`, both inside
 // message.content[].
 // Loss markers carry no correlation IDs, so local trackers must use raw source lines.
-// PR #162: Pi emits type:"message" with message.role (not Claude's
+// Pi emits type:"message" with message.role (not Claude's
 // top-level user/assistant), so the watcher title helpers need a Pi branch —
 // otherwise live Pi sessions never get the initial/LLM title.

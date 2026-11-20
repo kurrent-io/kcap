@@ -107,9 +107,10 @@ public static class DirectoryExposure {
         var holders = new List<string> { Path.GetFullPath(directory) };
         var physical = Resolve(Path.GetFullPath(directory), depth: 0, holders, links: []);
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var start in holders.Prepend(physical))
+        foreach (var start in holders.Prepend(physical)) {
             for (var d = start; !string.IsNullOrEmpty(d); d = Path.GetDirectoryName(d)!)
                 if (seen.Add(d)) yield return d;
+        }
     }
 
     /// <summary>The path with every symlinked component replaced by its target, so the walk ascends the

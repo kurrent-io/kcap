@@ -317,7 +317,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     /// THIS call — never those left for a retry by a <c>TransientStop</c> or the budget. The caller
     /// uses a non-zero terminal-phase count to durably mark the session ended (see
     /// <see cref="MarkEnded"/>), which is how <see cref="LifecycleSpoolDrain"/> prevents a later
-    /// straggler non-terminal entry from ever being delivered after session-end (BLOCKER-3).</para>
+    /// straggler non-terminal entry from ever being delivered after session-end.</para>
     /// </summary>
     public async Task<int> DrainRoutesAsync(
             string sid, bool isTerminal, Func<string, string, Task<DrainOutcome>> poster,
@@ -512,9 +512,10 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
 
         try {
             foreach (var path in Directory.EnumerateFiles(DirectoryPath, $"{key}.jsonl").Concat(Temps(key)))
-            foreach (var line in File.ReadLinesShared(path))
+            foreach (var line in File.ReadLinesShared(path)) {
                 if (Entry(line) is { } e && e.Route != RunStartedRoute && (marked || IsTerminalRoute(e.Route)))
                     ids.Add((JsonNode)JsonValue.Create(EntryId(e.Route, e.Body)));
+            }
         } catch {
             // Unreadable: what could not be read stays queued, and the drain's position rule judges it
         }
@@ -609,7 +610,7 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     /// <summary>
     /// True if a terminal (session-end) entry for this session has already been durably delivered
     /// (or permanently dropped) by a previous ordered-drain pass — see <see cref="MarkEnded"/>.
-    /// Task 12 / BLOCKER-3: once true, <see cref="LifecycleSpoolDrain"/> must never attempt
+    /// Once true, <see cref="LifecycleSpoolDrain"/> must never attempt
     /// to deliver a straggler non-terminal entry for this session, even one that arrives (or is
     /// discovered) in a later pass — that would be a real cross-pass ordering violation, not just a
     /// same-pass one (the same-pass case is already prevented by <see cref="DrainRoutesAsync"/>'s
@@ -709,8 +710,8 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     }
 
     // Filename-safe superset of the old dashless-GUID form. The filename IS the session id --
-    // LifecycleSpoolDrain posts it verbatim as session_id for session-needs-import -- so the key may
-    // be widened but never transformed (hashing would fabricate an id on the wire). Excludes '.', '/'
+    // LifecycleSpoolDrain reads it back and names it in what it sends and reports -- so the key may
+    // be widened but never transformed (hashing would fabricate an id). Excludes '.', '/'
     // and '\\', preserving both the path-traversal property and the parse-before-first-dot split.
     // Vendors such as OpenCode use ids like "ses_7f3a9c21b8", which the old form silently dropped.
     /// <summary>The pre-upgrade key space: a dashless GUID, case-insensitively one id.</summary>

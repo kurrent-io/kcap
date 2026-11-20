@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -15,6 +14,7 @@ using Capacitor.Cli.Core.FirstRun;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.RepoEvidence;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.Harness.Cursor;
@@ -487,43 +487,14 @@ class ImportCommand(
     }
 
     /// <summary>
-    /// A routed-phase
-    /// <c>AlreadyLoaded</c> classification (Cursor) is included in `routed` solely so its
-    /// <c>ImportSessionAsync</c> call can re-assert lifecycle hooks and backfill the
-    /// <c>repository</c> node on an already-fully-ingested session (the C2 suppressed-repo-import
-    /// contract), or — for a correlated nested child — because its parent needs it present in
-    /// `routed` to import it inline; neither case is "new work" on its own. Because nothing past
-    /// the parent's own watermark exists, its own call still returns <see cref="ImportOutcome.Loaded"/>
-    /// or <see cref="ImportOutcome.Resumed"/> (no line 0 to distinguish "nothing sent" from "brand
-    /// new"), and a nested child's own call always short-circuits to <see cref="ImportOutcome.Skipped"/>
-    /// (its content is sent inline by the parent, not by its own call). Without this check either
-    /// success would double-count on top of the classify-time <c>AlreadyLoaded</c> bucket the same
-    /// session already contributes to (as both Loaded/Already-loaded, or as both Excluded/Already-
-    /// loaded), and a parent replay would wrongly join <c>importedSessionIds</c> so a later
-    /// <c>--private</c> pass re-privates a session this run never actually (re)imported.
-    ///
-    /// <para>
-    /// Round-2 finding 1: an <c>AlreadyLoaded</c> parent can still ship brand-new content by
-    /// attaching a previously-unloaded nested child — real work that must NOT be suppressed just
-    /// because the parent's OWN outcome looks like a no-op replay. <c>sentChildContent</c> is the
-    /// out-of-band signal (see <see cref="ImportSessionResult"/>) that lets this distinguish the
-    /// two: only a replay that sent no child content either is truly lifecycle-only.
-    /// </para>
-    ///
-    /// <para>
-    /// This gate is vendor-NEUTRAL: <c>sentChildContent</c> carries a real signal for Cursor,
-    /// Antigravity, and Gemini alike (Copilot/Kiro/Pi/OpenCode permanently default it
-    /// <c>false</c>, which is already correct for their no-op replay shape).
-    /// </para>
-    ///
-    /// <para>
-    /// This gate alone only decides whether a replay is suppressed — it does NOT decide which
-    /// bucket a non-suppressed call lands in for counting. See
-    /// <see cref="IsSkippedChildContentOverride"/> and <see cref="ResolveRoutedOutcomeForCounting"/>
-    /// for the central aggregation boundary that fixes the case this gate can't: a <c>Skipped</c>
-    /// <c>AlreadyLoaded</c> call (e.g. Antigravity's) that attached genuinely-new nested-child
-    /// content must count as Loaded, even though its own raw outcome is <c>Skipped</c>.
-    /// </para>
+    /// An <c>AlreadyLoaded</c> session is routed only to re-assert lifecycle hooks and backfill its
+    /// repository, or because a nested child's parent imports it inline. Its own call still reports
+    /// Loaded, Resumed or Skipped, so without this check it would be counted twice and join
+    /// <c>importedSessionIds</c>, letting a later <c>--private</c> pass re-private a session this run
+    /// never imported.
+    /// <para>A replay that attached a previously unloaded child (<c>sentChildContent</c>) did real work and
+    /// is not suppressed. Which bucket it counts in is decided by
+    /// <see cref="ResolveRoutedOutcomeForCounting"/>.</para>
     /// </summary>
     internal static bool IsLifecycleOnlyRoutedReplay(
             ClassificationStatus  status,
@@ -991,7 +962,6 @@ class ImportCommand(
                 if (fp is not null && ec is not null) {
                     allFileTuples.Add((s.SessionId, fp, ec, src.Vendor));
                 } else {
-                    // Cursor or other future non-file source.
                     cursorCwds[s.SessionId] = s.Cwd;
                 }
             }
@@ -1006,6 +976,7 @@ class ImportCommand(
         var cwdRemap           = profileConfig.CwdRemap;
         var resolved           = new Dictionary<string, (string Owner, string Name)?>(StringComparer.Ordinal);
         var sessionCwds        = new Dictionary<string, string>(StringComparer.Ordinal);
+        var rawCwds            = new Dictionary<string, string>(StringComparer.Ordinal);
         var worktreeAttributed = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var vendor in new[] { HarnessId.Claude, HarnessId.Codex }) {
@@ -1016,7 +987,7 @@ class ImportCommand(
 
             if (slice.Count == 0) continue;
 
-            var partial                                  = await ResolveTranscriptReposAsync(slice, codex: vendor is HarnessId.Codex, display, cwdRemap, sessionCwds, worktreeAttributed);
+            var partial                                  = await ResolveTranscriptReposAsync(slice, codex: vendor is HarnessId.Codex, display, cwdRemap, sessionCwds, worktreeAttributed, rawCwds);
             foreach (var kv in partial) resolved[kv.Key] = kv.Value;
         }
 
@@ -1075,12 +1046,18 @@ class ImportCommand(
             }
         }
 
-        // --- Missing cwd report ---
-        // Surface transcripts whose (possibly remapped) cwd no longer exists on
-        // disk so the user understands why some sessions won't match an org or
-        // repo scope, and can fix it by adding cwd_remap entries.
+        var (ignored, ignoredBeyondRemap, ignoredFolders) =
+            await CaptureScopeExclusionsAsync(discoveriesPerSource.SelectMany(d => d), rawCwds, sessionCwds, resolved, cwdRemap);
+
+        // Folders that no longer exist explain why a session matches no repository and can be remapped. An allow
+        // list that rejects an unresolved repository may admit it once remapped, so only a session no remap can
+        // bring back into scope is left out of that report.
         ReportWorktreeAttributions(worktreeAttributed.Count, display);
-        ReportMissingCwds(sessionCwds, cwdRemap, display, home);
+        ReportMissingCwds(
+            ignoredBeyondRemap.Count == 0
+                ? sessionCwds
+                : sessionCwds.Where(kv => !ignoredBeyondRemap.Contains(kv.Key)).ToDictionary(StringComparer.Ordinal),
+            cwdRemap, display, home);
 
         if (discoverOnly) {
             discoverySink(new ImportDiscoveryResult(
@@ -1094,7 +1071,11 @@ class ImportCommand(
                     sources.SelectMany((src, i) => discoveriesPerSource[i].Select(d => (d.SessionId, src.Vendor)))
                         .DistinctBy(s => s.SessionId)
                         .ToDictionary(s => s.SessionId, s => s.Vendor),
-                    sessionCwds),
+                    // An exclusion covers the folder a session recorded, so that is the folder it is named by.
+                    ignored.Count == 0
+                        ? sessionCwds
+                        : sessionCwds.Where(kv => !ignored.Contains(kv.Key)).Concat(ignoredFolders).ToDictionary(StringComparer.Ordinal),
+                    ignored),
                 ScannedVendors(sources)));
 
             return 0;
@@ -1346,7 +1327,6 @@ class ImportCommand(
             }
         }
 
-        // Flatten classifications.
         var classifications = classificationsPerSource.SelectMany(c => c).ToList();
         RefreshClassifiedCwds(classifications);
 
@@ -1354,9 +1334,10 @@ class ImportCommand(
         // discovered it rather than to its vendor.
         var sourceBySession = new Dictionary<(HarnessId Vendor, string SessionId), IImportSource>();
 
-        for (var i = 0; i < sources.Count; i++)
+        for (var i = 0; i < sources.Count; i++) {
             foreach (var c in classificationsPerSource[i])
                 sourceBySession.TryAdd((c.Vendor, c.SessionId), sources[i]);
+        }
 
         // Local read failures also carry scope, even though they never reached a probe.
         if (captureScope.Configured) classifications = await captureScope.ApplyAsync(classifications, sessionCwds);
@@ -1911,7 +1892,7 @@ class ImportCommand(
                                 },
                             };
 
-                            r = await ImportChainsAsync(httpClient, baseUrl, chains, wrappedEvents, CancellationToken.None, sessionCwds, chainDefaultVisibility);
+                            r = await ImportChainsAsync(httpClient, baseUrl, chains, wrappedEvents, CancellationToken.None, sessionCwds, chainDefaultVisibility, stopAtLoss: filterSession is not null);
 
                             // Insurance, not presentation: the frame is erased on the way out, and an
                             // erase that ever fails should strand idle rows rather than a session name.
@@ -1935,7 +1916,7 @@ class ImportCommand(
                     );
                 importResult = r!;
             } else {
-                importResult = await ImportChainsAsync(httpClient, baseUrl, chains, events, CancellationToken.None, sessionCwds, chainDefaultVisibility);
+                importResult = await ImportChainsAsync(httpClient, baseUrl, chains, events, CancellationToken.None, sessionCwds, chainDefaultVisibility, stopAtLoss: filterSession is not null);
             }
         } else {
             importResult = new(0, 0, 0);
@@ -1971,7 +1952,7 @@ class ImportCommand(
                 Progress: new CallbackProgress(ev => {
                     if (ev is ImportWarning w) WarnSession(w.SessionId, w.Message);
                 })
-            ) { Stderr = console.Error, TranscriptLedger = routedLedger };
+            ) { Stderr = console.Error, TranscriptLedger = routedLedger, StopAtLoss = filterSession is not null };
 
             async Task<ImportSessionResult> ImportOne(SessionClassification c) {
                 if (!sourceBySession.TryGetValue((c.Vendor, c.SessionId), out var src)) {
@@ -2098,8 +2079,10 @@ class ImportCommand(
 
                                             break;
                                         case null:
+                                            // The replay re-sent the session's lifecycle; nothing says whether that
+                                            // changed what the server holds, so the line claims no backfill.
                                             console.Ansi.MarkupLine(
-                                                $"{display.Indented}[grey]·[/] Refreshed [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] (repository backfill, already loaded)"
+                                                $"{display.Indented}[grey]·[/] Refreshed [cyan]{Markup.Escape(SessionIds.Display(c.SessionId))}[/] (already loaded)"
                                             );
 
                                             break;
@@ -2137,7 +2120,7 @@ class ImportCommand(
 
                                 break;
                             case null:
-                                display.Line($"Refreshed {SessionIds.Display(c.SessionId)} (repository backfill, already loaded)");
+                                display.Line($"Refreshed {SessionIds.Display(c.SessionId)} (already loaded)");
 
                                 break;
                         }
@@ -2441,28 +2424,22 @@ class ImportCommand(
                     var doc  = JsonDocument.Parse(line);
                     var root = doc.RootElement;
 
-                    // Skip file-history-snapshot entries
                     if (root.Str("type") == "file-history-snapshot") {
                         continue;
                     }
 
-                    // Extract cwd from metadata
                     meta.Cwd ??= root.Str("cwd");
 
-                    // Extract model from assistant message
                     meta.Model ??= root.Obj("message")?.Str("model");
 
-                    // Extract slug from metadata
                     meta.Slug ??= root.Str("slug");
 
-                    // Extract sessionId
                     meta.SessionId ??= root.Str("sessionId");
 
                     // Detached HEAD is recorded as "HEAD", which names no branch.
                     if (meta.GitBranch is null && root.Str("gitBranch") is { Length: > 0 } branch && branch != "HEAD")
                         meta.GitBranch = branch;
 
-                    // Extract first timestamp for continuation ordering
                     if (meta.FirstTimestamp is null
                      && root.Str("timestamp") is { } tsStr
                      && DateTimeOffset.TryParse(tsStr, out var ts)) {
@@ -2476,7 +2453,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort metadata extraction
         }
 
         return meta;
@@ -2496,7 +2472,6 @@ class ImportCommand(
             // If we seeked mid-file, skip the first partial line
             if (offset > 0) reader.ReadLine();
 
-            // Collect the last 50 non-empty lines
             var tail = new List<string>(50);
 
             while (reader.ReadLine() is { } line) {
@@ -2528,7 +2503,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort
         }
 
         return null;
@@ -2563,7 +2537,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort
         }
 
         return null;
@@ -2708,7 +2681,6 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
-            // Best effort
         }
 
         return meta;
@@ -2763,7 +2735,7 @@ class ImportCommand(
     /// then promotes the read fallback if no mutation ever attributed. Import has no live tail
     /// to keep scanning, so — unlike the watcher's one-shot prefix scan — this always runs to
     /// end of file. <paramref name="findRoot"/>/<paramref name="detect"/> are injected so the
-    /// D1 gating in <see cref="ImportSingleSessionAsync"/> is unit-testable without disk.
+    /// evidence gating in <see cref="ImportSingleSessionAsync"/> is unit-testable without disk.
     /// </summary>
     internal static async Task<JsonObject?> TryBuildEvidenceRepositoryNodeAsync(
             string                                 vendor,
@@ -3106,6 +3078,93 @@ class ImportCommand(
     }
 
     /// <summary>
+    /// The discovered sessions the profile's capture scope keeps out of any import, judged on each session's recorded
+    /// cwd with the fallback the import uses, and the subset that no remap can bring back. The import also excludes a
+    /// session whose recorded folder lies in an excluded repository when a remap, a worktree fallback or the harness's
+    /// recorded repository placed it elsewhere, so only those folders' repositories are detected, and it excludes the
+    /// checkout a session ran in even when its harness recorded another repository. A transcript that records no cwd is
+    /// placed by the import in the repository of its decoded project folder after remap and worktree fallback, which
+    /// stands in for the one discovery could not resolve. <c>Folders</c> names each excluded session by the folder it
+    /// was judged on, before any remap.
+    /// </summary>
+    async Task<(IReadOnlySet<string> All, IReadOnlySet<string> BeyondRemap, IReadOnlyDictionary<string, string> Folders)> CaptureScopeExclusionsAsync(
+            IEnumerable<DiscoveredSession>                            sessions,
+            IReadOnlyDictionary<string, string>                       rawCwds,
+            IReadOnlyDictionary<string, string>                       sessionCwds,
+            IReadOnlyDictionary<string, (string Owner, string Name)?> resolved,
+            IReadOnlyList<CwdRemap>?                                  cwdRemap) {
+        if (profiles.Effective is not { } profile)
+            return (FrozenSet<string>.Empty, FrozenSet<string>.Empty, FrozenDictionary<string, string>.Empty);
+
+        var judged = sessions
+            .Select(d => {
+                var recordedCwd = rawCwds.GetValueOrDefault(d.SessionId) ?? d.Cwd;
+                var folderCwd   = recordedCwd is null && d.SourceMeta.GetValueOrDefault("EncodedCwd") is string encoded
+                    ? SessionImporter.DecodeCwdFromDirName(encoded)
+                    : null;
+
+                var placedCwd   = folderCwd is not null && !sessionCwds.ContainsKey(d.SessionId)
+                    ? ResolveCwd(folderCwd, cwdRemap, worktreeAttributed: null, d.SessionId)
+                    : null;
+
+                return (d.SessionId, Cwd: recordedCwd ?? folderCwd, PlacedCwd: placedCwd,
+                    EffectiveCwd: placedCwd ?? sessionCwds.GetValueOrDefault(d.SessionId),
+                    Recorded: ParseRecordedRepository(d.SourceMeta.GetValueOrDefault(RecordedRepositoryKey) as string) is not null);
+            })
+            .ToList();
+
+        var repos        = new ConcurrentDictionary<string, (string Owner, string Name)?>(StringComparer.Ordinal);
+        var excludesRepo = profile.ExcludedRepos is { Length: > 0 };
+        var judgesRepo   = excludesRepo || profile.AllowedRepos is { Length: > 0 };
+
+        var rawDetect = judged
+            .Where(j => excludesRepo && j.Cwd is not null
+                     && (j.Recorded || j.PlacedCwd is not null
+                      || sessionCwds.TryGetValue(j.SessionId, out var effective) && !string.Equals(effective, j.Cwd, StringComparison.Ordinal)))
+            .Select(j => j.Cwd!);
+        var placedDetect = judged
+            .Where(j => judgesRepo && !j.Recorded && j.PlacedCwd is not null)
+            .Select(j => j.PlacedCwd!);
+        // A recorded repository names where the session goes, but the import still excludes the checkout it ran in.
+        var checkoutDetect = judged
+            .Where(j => excludesRepo && j.Recorded && j.EffectiveCwd is not null)
+            .Select(j => j.EffectiveCwd!);
+        var detect = rawDetect.Concat(placedDetect).Concat(checkoutDetect)
+            .Where(Directory.Exists)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        await Parallel.ForEachAsync(detect, new ParallelOptions { MaxDegreeOfParallelism = 8 }, async (cwd, _) => {
+            try {
+                var repo = await RepositoryDetection.DetectRepositoryAsync(router, config, cwd, time, detectPullRequest: false);
+                repos[cwd] = repo is { Owner: { } o, RepoName: { } n } ? (o, n) : null;
+            } catch {
+                repos[cwd] = null;
+            }
+        });
+
+        var all         = new HashSet<string>(StringComparer.Ordinal);
+        var beyondRemap = new HashSet<string>(StringComparer.Ordinal);
+        var folders     = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        foreach (var (sessionId, cwd, placedCwd, effectiveCwd, recorded) in judged) {
+            var rawRepo  = cwd is not null && repos.GetValueOrDefault(cwd) is { } f ? $"{f.Owner}/{f.Name}" : null;
+            var repo     = placedCwd is not null && !recorded ? repos.GetValueOrDefault(placedCwd) : resolved.GetValueOrDefault(sessionId);
+            var checkout = recorded && effectiveCwd is not null && repos.GetValueOrDefault(effectiveCwd) is { } c ? $"{c.Owner}/{c.Name}" : null;
+
+            if (CaptureScope.ExcludesRecorded(profile, home, cwd, rawRepo)) beyondRemap.Add(sessionId);
+
+            if (CaptureScope.ExcludesDiscovered(profile, home, cwd, repo, rawRepo)
+             || excludesRepo && checkout is not null && RepoScope.Names(profile.ExcludedRepos, checkout)) {
+                all.Add(sessionId);
+                if (cwd is not null) folders[sessionId] = cwd;
+            }
+        }
+
+        return (all, beyondRemap, folders);
+    }
+
+    /// <summary>
     /// Build a SessionId → repo lookup for every discovered transcript. Repo detection (git + `gh pr view`) is
     /// the slow part of discovery, so it runs once per distinct cwd (transcripts in one project share a repo), in
     /// parallel, with a status spinner on a TTY and a plain status line otherwise.
@@ -3116,7 +3175,8 @@ class ImportCommand(
             ImportDisplay                                                         display,
             IReadOnlyList<CwdRemap>?                                              cwdRemap            = null,
             IDictionary<string, string>?                                          sessionCwds        = null,
-            ISet<string>?                                                         worktreeAttributed = null
+            ISet<string>?                                                         worktreeAttributed = null,
+            IDictionary<string, string>?                                          rawCwds            = null
         ) {
         // Extract cwd per transcript first (cheap: ≤20-line file read).
         // Apply user-configured prefix remaps so historic transcripts pointing
@@ -3144,6 +3204,8 @@ class ImportCommand(
 
                 continue;
             }
+
+            if (raw is not null && rawCwds is not null) rawCwds[transcripts[i].SessionId] = raw;
 
             var effective = raw is null ? null : ResolveCwd(raw, cwdRemap, worktreeAttributed, transcripts[i].SessionId);
 
@@ -3400,12 +3462,14 @@ class ImportCommand(
             ChainWorkerEvents                 events,
             CancellationToken                 ct,
             IReadOnlyDictionary<string, string>? sessionCwds       = null,
-            string?                              defaultVisibility = null
+            string?                              defaultVisibility = null,
+            bool                                 stopAtLoss        = false
         ) {
-        var loaded  = 0;
-        var resumed = 0;
-        var errored = 0;
-        var ledger  = TranscriptImportLedger.ForRecording(config);
+        var loaded    = 0;
+        var resumed   = 0;
+        var errored   = 0;
+        var ledger    = TranscriptImportLedger.ForRecording(config);
+        var canonical = new IngestCapability(httpClient, baseUrl, time);
 
         var queue = Channel.CreateUnbounded<List<SessionClassification>>(
             new() {
@@ -3435,7 +3499,7 @@ class ImportCommand(
                                 var linesSent = 0;
 
                                 try {
-                                    (r, linesSent) = await ImportSingleSessionAsync(httpClient, baseUrl, session, slot, events, ledger, ct, sessionCwds, defaultVisibility);
+                                    (r, linesSent) = await ImportSingleSessionAsync(httpClient, baseUrl, session, slot, events, ledger, canonical, ct, sessionCwds, defaultVisibility, stopAtLoss);
                                 } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                                     throw;
                                 } catch (Exception ex) {
@@ -3493,9 +3557,11 @@ class ImportCommand(
             int                    slot,
             ChainWorkerEvents      events,
             TranscriptImportLedger ledger,
+            IngestCapability       canonical,
             CancellationToken      ct,
             IReadOnlyDictionary<string, string>? sessionCwds       = null,
-            string?                              defaultVisibility = null
+            string?                              defaultVisibility = null,
+            bool                                 stopAtLoss        = false
         ) {
         // Denominator for the per-slot progress bar: the number of parent-transcript
         // lines this import will POST. For a resume, only the lines past the server's
@@ -3528,26 +3594,35 @@ class ImportCommand(
             try {
                 // Fail-closed tail: a rejected/half-applied resume must NOT be finalized
                 // (posting session-end after a gap would mark the session ended with a hole).
-                var completeLines = new StrongBox<int>();
-                var linesSent = await SessionImporter.SendTranscriptBatches(
+                // Subagents first referenced past the watermark go too, or the next import
+                // reads the session as loaded and they never arrive.
+                var resumed = await SessionImporter.ImportSessionAsync(
                     httpClient,
                     baseUrl,
-                    session.SessionId,
                     session.FilePath,
-                    agentId: null,
-                    startLine: session.ResumeFromLine, time: time,
-                    progress: perSessionProgress,
-                    vendor: session.Vendor,
-                    failOnError: true,
-                    completeLines: completeLines
+                    session.SessionId,
+                    session.Meta,
+                    session.EncodedCwd,
+                    time,
+                    perSessionProgress,
+                    session.Vendor,
+                    canonical: canonical,
+                    stopAtLoss: stopAtLoss,
+                    startLine: session.ResumeFromLine,
+                    strict: true
                 );
+                var (_, _, linesSent, completeLines) = resumed;
+                if (resumed.TailDeferred || completeLines <= session.ResumeFromLine) {
+                    events.OnSessionErrored(slot, session.SessionId, "The transcript tail changed or is incomplete. Retry the import once it is stable.");
+                    return (SessionImportOutcome.Errored, linesSent);
+                }
 
                 var (_, resumeTitleCancelled) = await TryPostCodexHarnessTitleAsync(httpClient, baseUrl, session, perSessionProgress, ct);
 
                 // End-only reassertion: session-end has server-side idempotency guards,
                 // whereas the generic SessionStarted uses random ids — re-asserting start
                 // would duplicate it. So finalize a resumed session with end ONLY.
-                var resumeLastTs  = ExtractLastTimestamp(session.FilePath);
+                var resumeLastTs  = resumed.EndTimestamp;
                 var resumeEndHook = new JsonObject {
                     ["session_id"]      = session.SessionId,
                     ["transcript_path"] = session.FilePath,
@@ -3576,7 +3651,7 @@ class ImportCommand(
                     return (SessionImportOutcome.Errored, linesSent);
                 }
 
-                if (!transcriptDropped) await ledger.RecordAsync(httpClient, baseUrl, session.SessionId, completeLines.Value, ct);
+                if (!transcriptDropped) await ledger.RecordAsync(httpClient, baseUrl, session.SessionId, completeLines, ct);
 
                 return (SessionImportOutcome.Resumed, linesSent);
             } catch (HttpRequestException ex) {
@@ -3656,7 +3731,7 @@ class ImportCommand(
             }
         }
 
-        // D1: the cwd itself isn't inside any git repo (or is missing entirely), so neither
+        // The cwd itself isn't inside any git repo (or is missing entirely), so neither
         // workspace_root above nor the cwd-based repository detection could find anything —
         // fall back to scanning the transcript's own tool-use paths for a resolvable git root,
         // same evidence rule the live watcher applies for sessions launched outside a repo.
@@ -3711,7 +3786,9 @@ class ImportCommand(
                 session.EncodedCwd,
                 time,
                 perSessionProgress,
-                session.Vendor
+                session.Vendor,
+                canonical,
+                stopAtLoss
             );
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;

@@ -7,6 +7,7 @@
     <ItemGroup>
         <ProjectReference Include="..\Capacitor.Tests.Helpers\Capacitor.Tests.Helpers.csproj" />
         <ProjectReference Include="..\..\src\Capacitor.App\Capacitor.App.csproj" />
+        <ProjectReference Include="..\..\src\Capacitor.Client\Capacitor.Client.csproj" />
     </ItemGroup>
     <ItemGroup>
         <PackageReference Include="TUnit" />
@@ -24,5 +25,7 @@
     <ItemGroup>
         <Using Include="Capacitor.Tests.Helpers" />
         <Using Include="Capacitor.Models.Transcripts" />
+        <Using Include="Capacitor.Client" />
+        <Using Include="Capacitor.Client.Mutation" />
     </ItemGroup>
 </Project>

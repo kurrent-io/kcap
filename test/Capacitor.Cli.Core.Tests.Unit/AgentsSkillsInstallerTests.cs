@@ -3,8 +3,8 @@ using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
 
-public class AgentsSkillsInstallerTests {
-    static readonly string[] SourceNames = ["recap", "errors", "disable", "hide", "validate-plan", "review-flows", "agent-flows", "work-items", "plans", "guided-tour", "eval-watch", "start-agents", "connect-kcap", "pages", "worktrees"];
+public partial class AgentsSkillsInstallerTests {
+    static readonly string[] SourceNames = ["recap", "errors", "disable", "hide", "validate-plan", "review-flows", "agent-flows", "work-items", "plans", "guided-tour", "eval-watch", "start-agents", "connect-kcap", "pages", "worktrees", "progressive-disclosure"];
 
     [Test]
     public async Task Mirror_of_SourceNames_matches_the_installer() {
@@ -42,7 +42,7 @@ public class AgentsSkillsInstallerTests {
         var help = await File.ReadAllTextAsync(
             Path.Combine(RepoTree.Root(), "src", "Capacitor.Cli.Core", "Resources", "help-plugin.txt"));
 
-        var braceList = Regex.Match(help, @"kcap-\{([^}]*)\}");
+        var braceList = BraceList().Match(help);
 
         await Assert.That(braceList.Success)
                     .IsTrue()
@@ -579,4 +579,7 @@ public class AgentsSkillsInstallerTests {
         await Assert.That(result.RemovedAny).IsFalse();
         await Assert.That(result.HadErrors).IsFalse();
     }
+
+    [GeneratedRegex(@"kcap-\{([^}]*)\}")]
+    private static partial Regex BraceList();
 }

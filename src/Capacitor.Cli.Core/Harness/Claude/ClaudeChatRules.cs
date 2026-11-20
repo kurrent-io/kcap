@@ -144,11 +144,11 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
 
     /// The chat shows a block result's text blocks one per line, where the stored result joins them with
     /// a blank line, as the server writes it.
-    static string? ChatResultText(Google.Protobuf.WellKnownTypes.Struct? slug) {
+    static string? ChatResultText(Struct? slug) {
         if (slug is null || !slug.Fields.TryGetValue(ClaudeCodeExtension.OutputRaw, out var raw) || raw.ListValue is not { } blocks) return null;
 
         // The chat's own join: no separator ahead of the first text it has kept.
-        var sb    = new System.Text.StringBuilder();
+        var sb    = new StringBuilder();
         var found = false;
         foreach (var v in blocks.Values) {
             if (v.StructValue is not { } b || SchemaExtensions.Text(b, "type") != "text" || SchemaExtensions.Text(b, "text") is not { } t) continue;
@@ -465,44 +465,44 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
     /// read only past the reminders that open the message, which can quote them.
     static bool OutsideTags(string rest) => SystemInstructionParser.Parse(rest).CleanText.Trim().Length > 0;
 
-    [GeneratedRegex(@"<command-name>(.*?)</command-name>", RegexOptions.Singleline)]
+    [GeneratedRegex("<command-name>(.*?)</command-name>", RegexOptions.Singleline)]
     private static partial Regex CommandName();
 
-    [GeneratedRegex(@"<command-args>(.*?)</command-args>", RegexOptions.Singleline)]
+    [GeneratedRegex("<command-args>(.*?)</command-args>", RegexOptions.Singleline)]
     private static partial Regex CommandArgs();
 
     // A stored notification can end before its closing tag, so it stays optional in the pattern.
-    [GeneratedRegex(@"<summary>(.*?)(?:</summary>|$)", RegexOptions.Singleline)]
+    [GeneratedRegex("<summary>(.*?)(?:</summary>|$)", RegexOptions.Singleline)]
     private static partial Regex TaskSummary();
 
-    [GeneratedRegex(@"<result>(.*?)(?:</result>|$)", RegexOptions.Singleline)]
+    [GeneratedRegex("<result>(.*?)(?:</result>|$)", RegexOptions.Singleline)]
     private static partial Regex TaskResult();
 
-    [GeneratedRegex(@"<task-id>(.*?)(?:</task-id>|$)", RegexOptions.Singleline)]
+    [GeneratedRegex("<task-id>(.*?)(?:</task-id>|$)", RegexOptions.Singleline)]
     private static partial Regex TaskId();
 
-    [GeneratedRegex(@"<note>(.*?)(?:</note>|$)", RegexOptions.Singleline)]
+    [GeneratedRegex("<note>(.*?)(?:</note>|$)", RegexOptions.Singleline)]
     private static partial Regex TaskNote();
 
-    [GeneratedRegex(@"<tool-use-id>(.*?)(?:</tool-use-id>|$)", RegexOptions.Singleline)]
+    [GeneratedRegex("<tool-use-id>(.*?)(?:</tool-use-id>|$)", RegexOptions.Singleline)]
     private static partial Regex TaskToolUseId();
 
-    [GeneratedRegex(@"<status>(.*?)(?:</status>|$)", RegexOptions.Singleline)]
+    [GeneratedRegex("<status>(.*?)(?:</status>|$)", RegexOptions.Singleline)]
     private static partial Regex TaskStatus();
 
-    [GeneratedRegex(@"</?task-notification>")]
+    [GeneratedRegex("</?task-notification>")]
     private static partial Regex TaskWrapper();
 
     [GeneratedRegex(@"<(system-reminder|command-name|command-message|command-args|local-command-stdout|local-command-caveat)>.*?</\1>", RegexOptions.Singleline)]
     private static partial Regex Wrappers();
 
-    [GeneratedRegex(@"<bash-input>(.*?)</bash-input>", RegexOptions.Singleline)]
+    [GeneratedRegex("<bash-input>(.*?)</bash-input>", RegexOptions.Singleline)]
     private static partial Regex BashInput();
 
     // A stored record can end before its closing tag, so the close stays optional.
-    [GeneratedRegex(@"<bash-stdout>(.*?)(?:</bash-stdout>|$)", RegexOptions.Singleline)]
+    [GeneratedRegex("<bash-stdout>(.*?)(?:</bash-stdout>|$)", RegexOptions.Singleline)]
     private static partial Regex BashStdout();
 
-    [GeneratedRegex(@"<bash-stderr>(.*?)(?:</bash-stderr>|$)", RegexOptions.Singleline)]
+    [GeneratedRegex("<bash-stderr>(.*?)(?:</bash-stderr>|$)", RegexOptions.Singleline)]
     private static partial Regex BashStderr();
 }

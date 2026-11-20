@@ -78,8 +78,8 @@ public static partial class DaemonRunner {
         // launchd may carry a restricted PATH captured during setup. A live probe shares the
         // refreshed environment with child processes; other platforms keep their startup snapshot.
         var agentEnvironment = OperatingSystem.IsMacOS() ? new AgentPathEnvironment(new ProcessRunner(time), time) : null;
-        var binaries = agentEnvironment is null ? Core.Setup.BinaryProbe.FromEnvironment()
-            : Core.Setup.BinaryProbe.Tracking(() => Environment.GetEnvironmentVariable("PATH"));
+        var binaries = agentEnvironment is null ? BinaryProbe.FromEnvironment()
+            : BinaryProbe.Tracking(() => Environment.GetEnvironmentVariable("PATH"));
 
         // OriginalArgs is captured for self-respawn (detached restart-after-update) and to detect
         // the successor's --await-lock handoff flag. Paths is set here, in the initializer, so the
@@ -107,7 +107,7 @@ public static partial class DaemonRunner {
 
         // Below the carrier scrub: this reads every vendor's override variable, and the scrub above
         // must run before anything reads the environment.
-        var harnesses = Core.Harness.HarnessRegistry.FromEnvironment(userHome, binaries);
+        var harnesses = HarnessRegistry.FromEnvironment(userHome, binaries);
         config.Accounts           = Core.Accounts.AccountStore.Beside(paths);
         config.DefaultDirectories = new Dictionary<HarnessId, string> {
             [HarnessId.Claude] = harnesses.Of<Core.Harness.Claude.ClaudeHarness>().Paths.Home,
@@ -148,7 +148,7 @@ public static partial class DaemonRunner {
             }
         }
 
-        // Phase B (D3): reviewer lifetime/idle backstop overrides from env (seconds; 0 disables).
+        // Reviewer lifetime/idle backstop overrides from env (seconds; 0 disables).
         config.ReviewerMaxLifetime = ParseSecondsEnv("KCAP_REVIEWER_MAX_LIFETIME", config.ReviewerMaxLifetime);
         config.RestartTurnWait = ParseSecondsEnv("KCAP_RESTART_TURN_WAIT_SECONDS", config.RestartTurnWait);
         config.ResumeMaxAge = ParseSecondsEnv("KCAP_RESUME_MAX_AGE_SECONDS", config.ResumeMaxAge);
@@ -157,7 +157,7 @@ public static partial class DaemonRunner {
             config.ResumeConcurrency = resumeConcurrency;
         config.ReviewerIdleTimeout = ParseSecondsEnv("KCAP_REVIEWER_IDLE_TIMEOUT", config.ReviewerIdleTimeout);
         config.ReviewerResumableIdleTimeout = ParseSecondsEnv("KCAP_REVIEWER_RESUMABLE_IDLE_TIMEOUT", config.ReviewerResumableIdleTimeout);
-        // Task 12: daemon-local held-turn wedge ceiling override (seconds; 0 disables), independent
+        // Daemon-local held-turn wedge ceiling override (seconds; 0 disables), independent
         // of the server's own Flows:TurnWedgeCeilingSeconds — see DaemonConfig.ReviewerTurnWedgeCeiling.
         config.ReviewerTurnWedgeCeiling = ParseSecondsEnv("KCAP_REVIEWER_TURN_WEDGE_CEILING", config.ReviewerTurnWedgeCeiling);
 
@@ -211,19 +211,10 @@ public static partial class DaemonRunner {
          && int.TryParse(envApprovalTimeout, out var approvalTimeoutSeconds) && approvalTimeoutSeconds > 0)
             config.CodexAppServerApprovalTimeoutSeconds = approvalTimeoutSeconds;
 
-        if (Harness.Codex.LegacyCodexEnvironment.Warning(Environment.GetEnvironmentVariable) is { } legacyCodexWarning)
+        if (LegacyCodexEnvironment.Warning(Environment.GetEnvironmentVariable) is { } legacyCodexWarning)
             await Console.Error.WriteLineAsync(legacyCodexWarning);
 
-        // Committed before the first advertisement, which carries it to the server.
-        config.CodexAppServerByDefault = Harness.Codex.CodexTransportDecision.AppServerByDefault;
-        var startupCodex = Harness.Codex.CodexTransportResolution.Read(
-            1, config.ReadExperimentalSettings, () => ProbeCliVersion(harnesses.LaunchCommand(HarnessId.Codex, config.CodexPath)),
-            problem => {
-                config.ExperimentalSettingsProblem = problem;
-                return Harness.Codex.CodexTransportResolution.Unreadable(1, problem);
-            },
-            config.CodexAppServerByDefault);
-        config.CodexResolution = startupCodex;
+        config.CodexAppServerByDefault = CodexTransportDecision.AppServerByDefault;
 
         // The per-vendor reviewer switches are opt-out: unset means enabled, matching the vendors that
         // are never gated. The reviewer vendor is a caller-chosen parameter, so where an ungated vendor
@@ -321,7 +312,7 @@ public static partial class DaemonRunner {
             );
         }
 
-        // Phase B2-b (sequenced-settlement design §4.2.3): the durable per-daemon state root — used by
+        // The durable per-daemon state root — used by
         // the pre-host boot-check block immediately below AND (further down) by the coverage journal /
         // reviewer-home sweeps. Computed once here so every consumer agrees on the exact same directory.
         var coverageStateDir = config.Store.StateDirectory(config.Name);
@@ -334,16 +325,10 @@ public static partial class DaemonRunner {
         // daemon never gets far enough to touch the network or spawn anything.
         if (await RunBootChecksAsync(config, time) is { } bootCheckExit) return bootCheckExit;
 
-        // Phase B2-b (sequenced-settlement design): pin the per-boot epoch here, before any service is
+        // Pin the per-boot epoch here, before any service is
         // built, so the epoch advertised on DaemonConnect and the orchestrator's own _daemonEpoch (which
         // falls back to config.DaemonEpoch) are provably the same value.
         config.DaemonEpoch ??= Guid.NewGuid().ToString("N");
-
-        // Phase B2-b (sequenced-settlement design §4.2.3): fold the durable coverage boot-chain BEFORE any
-        // Connect/spawn. this_epoch_contained is true only where OS containment leaves NO recordless
-        // survivor class (the Windows Job Object). Fail-closed inside RecordBoot. NullLogger is acceptable
-        // this early — the host's logging pipeline isn't built yet.
-        SeedReviewerFloors(coverageStateDir, config);
 
         // Recovers reviewer homes left by a SIGKILLed predecessor. Runs unconditionally: a daemon
         // whose operator has since disabled the reviewer still owns whatever its last incarnation
@@ -457,7 +442,7 @@ public static partial class DaemonRunner {
         if (OperatingSystem.IsWindows()) {
             builder.Services.AddSingleton<IPtyProcessFactory, WinPtyProcessFactory>();
         } else {
-            // L1-managed(a)/(b): one dedicated, daemon-lifetime native thread runs EVERY Unix
+            // One dedicated, daemon-lifetime native thread runs EVERY Unix
             // pty_spawn call (never a thread-pool thread — see UnixSpawnerThread's own doc
             // comment for why). Registered with no factory delegate so DI resolves it via its
             // parameterless constructor, which already starts the thread. host.StopAsync() only
@@ -512,8 +497,8 @@ public static partial class DaemonRunner {
                 sp.GetRequiredService<ILogger<PtyHostedAgentRuntimeFactory>>(),
                 sp.GetRequiredService<TimeProvider>(),
                 config.Home);
-            return new Harness.Codex.CodexHostedAgentRuntimeFactory(
-                (Harness.Codex.CodexLauncher) codexLauncher, pty,
+            return new CodexHostedAgentRuntimeFactory(
+                (CodexLauncher) codexLauncher, pty,
                 sp.GetRequiredService<DaemonConfig>(),
                 sp.GetRequiredService<ILoggerFactory>(),
                 time,
@@ -523,83 +508,29 @@ public static partial class DaemonRunner {
                 refreshCapabilities: reason => sp.GetRequiredService<AgentOrchestrator>().RefreshAdvertisedCapabilities(reason),
                 readings: sp.GetRequiredService<AccountReadingSink>());
         });
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.Cursor,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.Copilot,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.Kiro,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.Gemini,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.OpenCode,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.Grok,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
-        builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
-            new AcpHostedAgentRuntimeFactory(
-                AcpVendorDescriptors.MistralVibe,
-                sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<ILoggerFactory>(),
-                sp.GetRequiredService<ServerConnection>(), time,
-                permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
-                permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
-                policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
-            )
-        );
+        AcpVendorDescriptor[] acpVendors = [
+                     AcpVendorDescriptors.Cursor,
+                     AcpVendorDescriptors.Copilot,
+                     AcpVendorDescriptors.Kiro,
+                     AcpVendorDescriptors.Gemini,
+                     AcpVendorDescriptors.OpenCode,
+                     AcpVendorDescriptors.Grok,
+                     AcpVendorDescriptors.MistralVibe
+        ];
+
+        foreach (var descriptor in acpVendors) {
+            builder.Services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
+                new AcpHostedAgentRuntimeFactory(
+                    descriptor,
+                    sp.GetRequiredService<DaemonConfig>(),
+                    sp.GetRequiredService<ILoggerFactory>(),
+                    sp.GetRequiredService<ServerConnection>(), time,
+                    permissionBroker: sp.GetRequiredService<PermissionPromptBroker>(),
+                    permissionDecisionLog: sp.GetRequiredService<PermissionDecisionLog>(),
+                    policyJudge: sp.GetRequiredService<PolicyJudgeGateway>()
+                )
+            );
+        }
 
         // Not an ACP factory: agy speaks NDJSON over one child process PER TURN, so it carries its own
         // runtime rather than AcpHostedAgentRuntimeFactory's persistent-child shape. Takes the logger
@@ -650,12 +581,12 @@ public static partial class DaemonRunner {
         builder.Services.AddSingleton<AgentOrchestrator>();
         builder.Services.AddSingleton<EvalContextCache>();
         builder.Services.AddSingleton<EvalRunner>();
-        builder.Services.AddSingleton<IHeadlessHarness>(sp => new Harness.Claude.ClaudeHeadlessHarness(
+        builder.Services.AddSingleton<IHeadlessHarness>(sp => new ClaudeHeadlessHarness(
             sp.GetRequiredService<HarnessRegistry>(), sp.GetRequiredService<DaemonConfig>(),
-            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Harness.Claude.ClaudeHeadlessHarness>>()));
-        builder.Services.AddSingleton<IHeadlessHarness>(sp => new Harness.Codex.CodexHeadlessHarness(
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<ClaudeHeadlessHarness>>()));
+        builder.Services.AddSingleton<IHeadlessHarness>(sp => new CodexHeadlessHarness(
             sp.GetRequiredService<HarnessRegistry>(), sp.GetRequiredService<DaemonConfig>(),
-            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<Harness.Codex.CodexHeadlessHarness>>()));
+            sp.GetRequiredService<TimeProvider>(), sp.GetRequiredService<ILogger<CodexHeadlessHarness>>()));
         builder.Services.AddSingleton(headlessRuns);
         builder.Services.AddSingleton<IHeadlessHarness>(sp => new PiHeadlessHarness(
             sp.GetRequiredService<HarnessRegistry>(), sp.GetRequiredService<DaemonConfig>(), sp.GetRequiredService<HeadlessRunRoot>(),
@@ -717,27 +648,29 @@ public static partial class DaemonRunner {
         builder.Services.AddHostedService(sp => sp.GetRequiredService<RepoStoreWatcher>());
 
         builder.Services.AddSingleton(sp => {
-            var log = sp.GetRequiredService<ILogger<Harness.Claude.ModAttachments>>();
+            var log = sp.GetRequiredService<ILogger<ModAttachments>>();
             var consent = sp.GetRequiredService<LaunchConsentStore>();
 
-            return new Harness.Claude.ModAttachments(
+            return new ModAttachments(
                 sp.GetRequiredService<ServerConnection>(),
-                new Harness.Claude.ModAttachmentStore(config.Store.SteeringAttachmentsPath(config.Name), log),
+                new ModAttachmentStore(config.Store.SteeringAttachmentsPath(config.Name), log),
                 () => consent.SteeringOn, time, log, sp.GetRequiredService<DaemonStatusNotifier>());
         });
 
         // Ahead of the control server, so it stops after the last SteeringSet can reach it.
         builder.Services.AddSingleton(sp => new SteeringEndpoint(
             config.Store.SteeringSocketPath(config.Name),
-            new SteeringRoutes(sp.GetRequiredService<Harness.Claude.ModAttachments>()).Table(),
+            new SteeringRoutes(sp.GetRequiredService<ModAttachments>()).Table(),
             time, sp.GetRequiredService<ILogger<SteeringEndpoint>>()));
         builder.Services.AddSingleton(sp => new SteeringSwitch(
             sp.GetRequiredService<LaunchConsentStore>(), sp.GetRequiredService<SteeringEndpoint>(),
-            attachments: sp.GetRequiredService<Harness.Claude.ModAttachments>(), time: time));
+            attachments: sp.GetRequiredService<ModAttachments>(), time: time));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<SteeringSwitch>());
 
         // Local control socket: lets `kcap agent start`/`attach`/`ls`/`stop` drive daemon-hosted
-        // agents from the user's own terminal (AI local-attach Phase 1).
+        // agents from the user's own terminal.
+        builder.Services.AddSingleton<LocalControlSocket>();
+        builder.Services.AddSingleton<StartingLocalControl>();
         builder.Services.AddSingleton<LocalControlServer>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<LocalControlServer>());
 
@@ -754,6 +687,12 @@ public static partial class DaemonRunner {
         // Wired before the vendor probes below, which can run for tens of seconds: a stop that lands
         // during them must still leave a line saying why.
         var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
+
+        // Bound before the probes, so a client meets a starting daemon rather than none: what it sends waits
+        // for the handlers, which go live with the host below.
+        host.Services.GetRequiredService<StartingLocalControl>()
+            .Start(host.Services.GetRequiredService<LocalControlSocket>().Bind(), lifetime.ApplicationStopping);
+        LogStartupPhase(logger, "socket bound");
         RegisterDeathRattle(logger, lifetime, AttachedToTerminal(), time, stopCause);
         lifetime.ApplicationStopping.Register(() => {
             DeathRattle(time, "Lifetime: ApplicationStopping fired");
@@ -763,6 +702,18 @@ public static partial class DaemonRunner {
             DeathRattle(time, "Lifetime: ApplicationStopped fired");
             LogLifetimeStopped(logger);
         });
+
+        // Both can run a vendor's --version, so they wait for the bind. The Codex transport is committed before the first
+        // advertisement, which carries it to the server; the reviewer floors before any launch or capability reads them.
+        var startupCodex = CodexTransportResolution.Read(
+            1, config.ReadExperimentalSettings, () => ProbeCliVersion(harnesses.LaunchCommand(HarnessId.Codex, config.CodexPath)),
+            problem => {
+                config.ExperimentalSettingsProblem = problem;
+                return CodexTransportResolution.Unreadable(1, problem);
+            },
+            config.CodexAppServerByDefault);
+        config.CodexResolution = startupCodex;
+        SeedReviewerFloors(coverageStateDir, config);
 
         // Set by the supervised restart strategy so we exit non-zero for a supervisor relaunch.
         var restartState = host.Services.GetRequiredService<RestartState>();
@@ -786,10 +737,10 @@ public static partial class DaemonRunner {
         // the unattended classification below — a preset is an interactive-launch feature, not a
         // reviewer one. The server refuses a preset toward a daemon that does not advertise the vendor.
         config.AcpPresetVendors = config.SupportedVendors
-            .Where(Acp.AcpPermissionPresets.RoutedVendors.Contains)
+            .Where(AcpPermissionPresets.RoutedVendors.Contains)
             .ToArray();
 
-        config.PermissionModeVendors = Harness.Claude.ClaudePermissionModePolicy.AdvertisedVendors(config.SupportedVendors);
+        config.PermissionModeVendors = ClaudePermissionModePolicy.AdvertisedVendors(config.SupportedVendors);
         config.PrReviewVendors       = AdvertisedPrReviewVendors(runtimeFactories);
 
         // Reviewer vendor override support: a strict subset of SupportedVendors — only vendors that
@@ -837,9 +788,9 @@ public static partial class DaemonRunner {
         // without any comparison against a validated-build record.
         LogUnattendedVendorIdentities(logger, startupCapabilities);
 
-        // The counterpart of the line above. A withheld vendor used to vanish from advertisement in
-        // silence: the refusal text existed, but only the launch path threw it — and advertisement is
-        // what stops that launch being attempted, so the explanation could never be produced.
+        // The counterpart of the line above. Without it a withheld vendor vanishes from advertisement
+        // in silence: only the launch path throws the refusal text, and advertisement is what stops
+        // that launch being attempted, so the explanation would never be produced.
         foreach (var withheld in unattendedStatuses.Where(s => s.WithheldReason is not null))
             LogUnattendedVendorWithheld(logger, withheld.Vendor, withheld.WithheldReason!);
 
@@ -913,10 +864,10 @@ public static partial class DaemonRunner {
                 // BaseUrl is still null and the spawned Claude falls back to the HTTPS path —
                 // exactly what this bridge is meant to avoid.
                 await host.StartAsync(lifetime.ApplicationStopping);
-                LogStartupPhase(logger, "socket bound");
+                LogStartupPhase(logger, "services started");
                 startupWatch.Entering("reaping agents a prior run left behind");
 
-                // Phase B (D4 §6.4(3)): resolve the orchestrator (which wires OnLaunchAgent +
+                // Resolve the orchestrator (which wires OnLaunchAgent +
                 // GetLiveAgents in its ctor) and reap any hosted-agent children that outlived a
                 // PRIOR daemon run — all BEFORE ConnectAsync advertises this daemon and the server
                 // can dispatch launches. Doing it after connect would let new work be admitted
@@ -1135,42 +1086,19 @@ public static partial class DaemonRunner {
         => RunTeardownAsync(logger, BuildDaemonTeardownSteps(daemonLock, orchestrator, connection, host));
 
     /// <summary>
-    /// Builds the production teardown step list. Do NOT reorder: the explicit-dispose-before-
-    /// host-stop sequence is load-bearing (spawner-thread retirement, pinned by
-    /// <c>DaemonHostDisposalTests</c>). <paramref name="orchestrator"/> is nullable because
-    /// cooperative shutdown can land before it was ever resolved (mid <c>host.StartAsync</c>);
-    /// host disposal still releases whatever WAS partially resolved.
+    /// Builds the production teardown steps. Do not reorder: disposing explicitly before host stop retires
+    /// the spawner thread (<c>DaemonHostDisposalTests</c>). <paramref name="orchestrator"/> is null when
+    /// shutdown lands before it was resolved.
     ///
-    /// LIMITATION: <see cref="RunTeardownAsync"/> contains a throw from each STEP, but it cannot
-    /// make the DI container's own dispose walk (inside <see cref="DisposeHostAsync"/>) resilient
-    /// — a tracked singleton whose Dispose/DisposeAsync throws still aborts the container's
-    /// INTERNAL walk partway, silently skipping the remaining singletons. The helper prevents the
-    /// process abort, not partial DI disposal; each disposable must still contain its own
-    /// failures (ServerConnection and AgentOrchestrator now do). The one skip that could strand
-    /// the process — <see cref="UnixSpawnerThread"/>, whose Dispose retires the FOREGROUND thread
-    /// that otherwise keeps a "shut down" daemon alive forever — is closed by the dedicated
-    /// spawner-retire step below, which runs BEFORE host disposal.
+    /// <see cref="RunTeardownAsync"/> contains a throw from each step but not from inside the DI
+    /// container's dispose walk, where one throwing singleton skips the rest; each disposable must contain
+    /// its own failures. <see cref="UnixSpawnerThread"/> is retired in its own step before host disposal
+    /// because its foreground thread would otherwise keep the daemon alive.
     ///
-    /// Structural double-teardown sweep (explicit dispose here + a framework-driven dispose of
-    /// the SAME instance) and why each shape is safe today:
-    ///   • ServerConnection / AgentOrchestrator / UnixSpawnerThread: run-once dispose guards.
-    ///   • DaemonLock: disposed explicitly here AND DI-tracked; its Dispose is idempotent
-    ///     (releases the handle once, subsequent calls no-op).
-    ///   • RestartCoordinator / LocalControlServer / LocalPermissionBridge: registered through
-    ///     TWO singleton descriptors each (<c>AddSingleton&lt;T&gt;()</c> + an
-    ///     <c>AddHostedService</c> factory resolving the same instance). Microsoft DI tracks
-    ///     disposables per DESCRIPTOR and does not de-duplicate by reference, so the container's
-    ///     dispose walk visits each such instance TWICE (LocalPermissionBridge's own
-    ///     <c>_disposed</c> doc documents exactly this). LocalPermissionBridge carries its own
-    ///     run-once guard; RestartCoordinator and LocalControlServer inherit
-    ///     <c>BackgroundService.Dispose</c>, which is safe to re-enter under the current
-    ///     Microsoft.Extensions.Hosting behavior (it only cancels its stopping CTS) — a
-    ///     framework-version assumption.
-    ///
-    /// host-stop/host-dispose stay split because <c>host.StopAsync()</c> only STOPS
-    /// IHostedServices — it does NOT dispose the ServiceProvider, so a plain
-    /// <c>AddSingleton&lt;T&gt;()</c> IDisposable is never released by StopAsync alone; disposing
-    /// the host is what disposes the ServiceProvider and therefore every registered singleton.
+    /// Instances disposed here are disposed again by the container, and RestartCoordinator,
+    /// LocalControlServer and LocalPermissionBridge twice more, since DI tracks disposables per descriptor.
+    /// Each relies on a run-once guard, an idempotent Dispose, or <c>BackgroundService.Dispose</c> being
+    /// safe to re-enter. Host stop does not dispose the ServiceProvider; host dispose does.
     /// </summary>
     internal static (string Name, Func<ValueTask> Action)[] BuildDaemonTeardownSteps(
             IDisposable       daemonLock,
@@ -1286,7 +1214,7 @@ public static partial class DaemonRunner {
         config.MaxConcurrentAgents = max;
     }
 
-    /// <summary>Phase B (D3): parse a seconds-valued env var into a <see cref="TimeSpan"/>
+    /// <summary>Parse a seconds-valued env var into a <see cref="TimeSpan"/>
     /// (<c>0</c> → <see cref="TimeSpan.Zero"/>, which disables the bound). Unset/blank/invalid/negative
     /// → the supplied <paramref name="fallback"/>.</summary>
     internal static TimeSpan ParseSecondsEnv(string name, TimeSpan fallback) {
@@ -1348,74 +1276,24 @@ public static partial class DaemonRunner {
     internal static int NameInUseExit(bool supervised) => supervised ? 0 : 3;
 
     /// <summary>
-    /// Whether a reviewer vendor is permitted on this daemon. **Absent means ENABLED** — this is an
-    /// opt-OUT, and it used to be an opt-in. Same polarity as
-    /// <see cref="ParseAcpReconnectFlag"/> now, where it used to be deliberately the opposite.
+    /// Whether a reviewer vendor is permitted on this daemon. **Absent means ENABLED** — an opt-OUT,
+    /// the same polarity as <see cref="ParseAcpReconnectFlag"/>.
     ///
-    /// <para><b>Why the default flipped.</b> The reviewer vendor is a caller-chosen parameter, and
-    /// Claude, Codex, Cursor and Copilot have never been gated at all — each running with FULL tool
-    /// access (shell and write) in the same worktree. <b>On any daemon that also ADVERTISES one of
-    /// those</b> — the overwhelmingly common case — the gate did not widen the CAPABILITY CLASS a
-    /// requester could reach: one it blocked from a gated vendor simply asked for an ungated one with
-    /// more capability, while the honest path paid a service-unit edit and a restart. Two of the four
-    /// gated vendors (Kiro, OpenCode) also run READ-ONLY reviewers, so the strictest policy sat on the
-    /// least dangerous configurations.</para>
+    /// <para>Claude, Codex, Cursor and Copilot are never gated, and each runs with full tool access in
+    /// the same worktree, so on a daemon that advertises one of them a gate here does not narrow the
+    /// capability class a requester can reach. It does still add binaries, vendor permission models and
+    /// credentials, and on a daemon that advertises ONLY a gated vendor these variables are the sole
+    /// separation between the hosted role and the unattended-reviewer role. What compensates: the
+    /// opt-out, which <c>ServiceEnvironment</c> carries into the service unit (frozen at
+    /// <c>kcap daemon service install</c>, so a later opt-out needs a reinstall), and
+    /// <c>kcap daemon consent</c>, which defaults to allow. The version floor constrains which build
+    /// runs, not whether a launch happens.</para>
     ///
-    /// <para><b>Three precisions, because earlier revisions of this comment overstated all three</b> —
-    /// review caught each. (1) The predicate is ADVERTISED, not installed: a vendor must also be
-    /// certified and above its version floor, so a daemon with an uncertified Claude advertises no
-    /// ungated vendor either. (2) "Did not widen the capability class" is the true claim, not "excluded
-    /// nobody": even where an ungated vendor exists, this flip adds execution paths with different
-    /// binaries, different vendor-side permission models and different CREDENTIALS — a Gemini reviewer
-    /// burns the operator's Gemini credentials, which is not a subset of "Claude was already
-    /// available". (3) On a daemon that advertises ONLY a gated vendor — installed for hosted work, the
-    /// ordinary reason — these variables were the sole separation between the hosted role and the
-    /// unattended-reviewer role, and the flip genuinely widens what a non-operator requester can cause
-    /// to run with no human in the loop.</para>
-    ///
-    /// <para><b>What actually compensates, stated without inflation.</b> Exactly two things, and the
-    /// floor in the DEFAULT configuration is worth saying plainly: on a fresh daemon that has not been
-    /// configured further, the only thing between a non-operator requester and an unattended gated-vendor
-    /// launch is that the vendor be installed, certified and above its version floor.
-    /// <list type="number">
-    /// <item>The operator keeps an explicit opt-out — and it is REACHABLE on the supported install path:
-    /// <c>ServiceEnvironment</c> carries these four variables into a service unit on
-    /// every platform, DERIVED from the affirmable-reviewer registry so a new vendor cannot be omitted.
-    /// The caveat is timing, not reachability: a supervised daemon's environment is FROZEN at
-    /// <c>kcap daemon service install</c>, so an opt-out set afterwards needs a reinstall to take
-    /// effect.</item>
-    /// <item><c>kcap daemon consent</c> is the only control that scopes unattended launches as such — but
-    /// it DEFAULTS TO ALLOW, so it compensates only for an operator who has configured it, not for the
-    /// average daemon.</item>
-    /// </list></para>
-    ///
-    /// <para><b>The version floor is deliberately NOT a third entry</b>, though it is easy to count as
-    /// one. It constrains which BUILD runs, never whether a non-operator can cause an unattended launch;
-    /// it is seeded automatically at first boot precisely so it never blocks a first launch. It is real
-    /// protection against a different failure — several of these vendors' containment is environment-based
-    /// and fails SILENTLY when a build stops honouring it, which is what
-    /// <c>kcap daemon reviewer affirm</c> exists to remediate. Remediation, not permission.</para>
-    ///
-    /// <para><b>Unset means enabled; a value we cannot read means DISABLED.</b></para>
-    ///
-    /// <para>Those two are not in tension, and the asymmetry is the point. Since unset already enables,
-    /// the only reason to set one of these variables at all is to turn a reviewer OFF — enabling needs no
-    /// variable. So an unrecognised value is not an ambiguous input, it is a FAILED ATTEMPT TO SAY OFF,
-    /// and honouring the evident intent means failing closed. Review caught this: an earlier revision
-    /// failed open here, reasoning from the general "a typo must not take a feature offline" rule, which
-    /// does not transfer to a setting whose only use is to disable.</para>
-    ///
-    /// <para>The direction is also cheap in the wrong case: a typo'd ENABLE attempt (<c>=y</c>,
-    /// <c>=enabled</c>) lands on the pre-change behaviour, which is the safe side, and the operator still
-    /// gets the warning either way.</para>
-    ///
-    /// <para><b>That justification does not generalise, so do not reuse this from anywhere else.</b> It
-    /// rests on TWO facts specific to the four reviewer variables: unset already means enabled, and
-    /// disabling is therefore the only possible intent behind setting one. A setting where unset means
-    /// disabled, or where fail-open was chosen deliberately, needs its own parse and its own reasoning —
-    /// inheriting this one by name would silently import an argument that does not hold. The four
-    /// <c>KCAP_*_UNATTENDED_REVIEWER</c> variables in <see cref="RunAsync"/>'s apply loop are the only
-    /// production callers.</para>
+    /// <para><b>Unset means enabled; a value we cannot read means DISABLED.</b> Since unset already
+    /// enables, the only reason to set one of these variables is to turn a reviewer OFF, so an
+    /// unrecognised value is a failed attempt to say off and fails closed. That argument rests on both
+    /// facts and does not generalise: the four <c>KCAP_*_UNATTENDED_REVIEWER</c> variables in
+    /// <see cref="RunAsync"/>'s apply loop are the only production callers.</para>
     /// </summary>
     internal static bool ParseConsentFlag(string? value) => ReviewerConsent.IsEnabled(value);
 
@@ -1559,7 +1437,7 @@ public static partial class DaemonRunner {
     /// <c>kcap daemon reviewer affirm</c> can clear. A floor is meant to exclude a build found to be
     /// bad, not to be an opt-in gate wearing a different hat.</param>
     internal static void SeedReviewerAffirmation(
-            string stateDir, string vendor, bool enabled, string binaryPath, Core.Setup.BinaryProbe binaries) {
+            string stateDir, string vendor, bool enabled, string binaryPath, BinaryProbe binaries) {
         if (!enabled) return;
 
         SeedVersionFloor(stateDir, vendor, binaryPath, binaries);
@@ -1575,7 +1453,7 @@ public static partial class DaemonRunner {
     /// the caller exists to avoid. With no boolean to flip, the asymmetry has to be read.</para>
     /// </summary>
     internal static void SeedVersionFloor(
-            string stateDir, string vendor, string binaryPath, Core.Setup.BinaryProbe binaries) {
+            string stateDir, string vendor, string binaryPath, BinaryProbe binaries) {
         try {
             if (!ReviewerVersionStore.RecordExists(stateDir, vendor)
              && new VendorVersionResolver(binaries).Resolve(binaryPath) is { Length: > 0 } installed) {
@@ -1704,7 +1582,7 @@ public static partial class DaemonRunner {
     /// recomputes, which is what the tests and any other caller want.</param>
     internal static IReadOnlyList<UnattendedVendorCapability> ComputeUnattendedVendorCapabilities(
             IEnumerable<IHostedAgentRuntimeFactory> factories, DaemonConfig config,
-            Harness.Codex.CodexTransportResolution codex, IEnumerable<string>? advertised = null) {
+            CodexTransportResolution codex, IEnumerable<string>? advertised = null) {
         var unattended = advertised?.ToArray() ?? ComputeUnattendedVendors(factories, config);
         var byVendor   = factories.ToDictionary(f => f.Vendor, StringComparer.Ordinal);
 
@@ -1718,7 +1596,7 @@ public static partial class DaemonRunner {
             .Where(v => byVendor.TryGetValue(v, out var f) && !string.IsNullOrEmpty(f.CliPath))
             .ToDictionary(v => v, v => byVendor[v].CliPath, StringComparer.Ordinal);
         var probedVersions = ProbeVendorsConcurrently(
-            probePaths.Keys, vendor => ProbeCliVersion(probePaths[vendor]), timedOut: (string?)null);
+            probePaths.Keys, vendor => ProbeCliVersion(probePaths[vendor]), timedOut: null);
 
         var capabilities = new List<UnattendedVendorCapability>();
         foreach (var vendor in unattended) {
@@ -1776,7 +1654,7 @@ public static partial class DaemonRunner {
     /// <summary>Fingerprints each advertised vendor's binary through the factory that launches it —
     /// the same path the version probe runs. A vendor with no locatable binary maps to null.</summary>
     internal static IReadOnlyDictionary<string, CliBinaryStat?> FingerprintUnattendedVendors(
-            Core.Setup.BinaryProbe binaries, IEnumerable<IHostedAgentRuntimeFactory> factories, IEnumerable<string> vendors) {
+            BinaryProbe binaries, IEnumerable<IHostedAgentRuntimeFactory> factories, IEnumerable<string> vendors) {
         var byVendor = factories.ToDictionary(f => f.Vendor, StringComparer.Ordinal);
         return vendors.ToDictionary(
             vendor => vendor,
@@ -1793,7 +1671,7 @@ public static partial class DaemonRunner {
     /// it was probed with the policy and transport beside it, and an older version would misdescribe them.</param>
     internal static IReadOnlyList<UnattendedVendorCapability> RetainAdvertisedVersions(
             IReadOnlyList<UnattendedVendorCapability>? current, IReadOnlyList<UnattendedVendorCapability> fresh,
-            Harness.Codex.CodexTransportResolution codex) {
+            CodexTransportResolution codex) {
         if (current is null) return fresh;
         return fresh.Select(capability => {
             if (!string.IsNullOrEmpty(capability.CliVersion) || (codex.Probed && IsCodex(capability.Vendor))) return capability;
@@ -1818,11 +1696,12 @@ public static partial class DaemonRunner {
     /// </summary>
     internal static void LogUnattendedVendorIdentities(
             ILogger logger, IEnumerable<UnattendedVendorCapability> capabilities) {
-        foreach (var capability in capabilities)
+        foreach (var capability in capabilities) {
             LogUnattendedVendorIdentity(
                 logger,
                 capability.Vendor,
                 string.IsNullOrWhiteSpace(capability.CliVersion) ? UnknownCliVersion : capability.CliVersion);
+        }
     }
 
     /// <summary>Registration probe budget. Generous and retried because this result is cached for the
@@ -1858,9 +1737,10 @@ public static partial class DaemonRunner {
         // A probe blocks its thread for its whole budget, so each gets a dedicated one. Queued on the
         // thread pool they start only as the pool grows — one thread a second once it is saturated —
         // which serializes the very pass this seam exists to overlap.
-        foreach (var vendor in vendors)
+        foreach (var vendor in vendors) {
             tasks.TryAdd(vendor, Task.Factory.StartNew(
                 () => probe(vendor), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default));
+        }
 
         if (tasks.Count == 0) return FrozenDictionary<string, T>.Empty;
 

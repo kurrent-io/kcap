@@ -31,7 +31,7 @@ internal sealed class CodexHostedAgentRuntimeFactory : IHostedAgentRuntimeFactor
     /// real <c>codex app-server</c> child is spawned via <see cref="Process"/>. A test can substitute
     /// an in-process fake peer to drive the app-server route without a child process.</param>
     /// <param name="connection">The server connection whose <c>RequestAcpInteractionAsync</c> forwards an
-    /// interactive launch's approvals to the user (§2.3). Null in tests that never exercise interactive
+    /// interactive launch's approvals to the user. Null in tests that never exercise interactive
     /// approvals; reviewers (approvalPolicy:never) never build an approval bridge regardless.</param>
     /// <param name="refreshCapabilities">Asks the daemon to re-probe and re-advertise, when a launch finds the
     /// installed Codex no longer matches what was advertised. Null leaves the advertisement to the next refresh.</param>
@@ -116,6 +116,15 @@ internal sealed class CodexHostedAgentRuntimeFactory : IHostedAgentRuntimeFactor
         var paths = AccountLayouts.Codex(_config.Home, configDirectory);
         return [paths.ModelsCache, paths.AuthJson];
     }
+
+    /// <summary>Every account probes with the one installed Codex, so its version judges every models cache.</summary>
+    public bool CatalogWrittenByProbedCli(string path, byte[] content) =>
+        !string.Equals(Path.GetFileName(path), CodexPaths.ModelsCacheFileName, StringComparison.Ordinal)
+     || CodexModelsCache.WrittenBy(content, ProbedCliVersion());
+
+    string? ProbedCliVersion() =>
+        _config.UnattendedVendorCapabilities?.FirstOrDefault(c => string.Equals(c.Vendor, Vendor, StringComparison.Ordinal))?.CliVersion
+     ?? (_config.CodexResolution is { Probed: true, CliVersion: { } version } ? version : null);
 
     // A default-kind launch is the only Codex shape that accepts a follow-up while running, so it is
     // the only one whose fetch happens alongside a live, write-contained process: the store keeps

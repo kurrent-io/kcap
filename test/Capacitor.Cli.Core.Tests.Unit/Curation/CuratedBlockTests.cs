@@ -19,9 +19,9 @@ public class CuratedBlockTests {
 
     [Test]
     public async Task Splice_appends_when_absent_preserving_existing() {
-        var content = "# My Project\n\nHand-written notes.\n";
-        var block   = CuratedBlock.Render([G("quality", "always close writers")])!;
-        var result  = CuratedBlock.Splice(content, block);
+        const string content = "# My Project\n\nHand-written notes.\n";
+        var block            = CuratedBlock.Render([G("quality", "always close writers")])!;
+        var result           = CuratedBlock.Splice(content, block);
 
         await Assert.That(result.StartsWith("# My Project", StringComparison.Ordinal)).IsTrue();
         await Assert.That(result.Contains("Hand-written notes.")).IsTrue();
@@ -32,10 +32,10 @@ public class CuratedBlockTests {
 
     [Test]
     public async Task Splice_replaces_in_place_and_leaves_surrounding_untouched() {
-        var head  = "# Title\n\nbefore\n";
-        var tail  = "\nafter\n";
-        var old   = CuratedBlock.Render([G("quality", "old line")])!;
-        var start = head + old + tail;
+        const string head = "# Title\n\nbefore\n";
+        const string tail = "\nafter\n";
+        var old           = CuratedBlock.Render([G("quality", "old line")])!;
+        var start         = head + old + tail;
 
         var fresh  = CuratedBlock.Render([G("quality", "new line")])!;
         var result = CuratedBlock.Splice(start, fresh);
@@ -48,9 +48,9 @@ public class CuratedBlockTests {
 
     [Test]
     public async Task Splice_removes_block_when_null() {
-        var head   = "# Title\n\nkeep me\n";
-        var block  = CuratedBlock.Render([G("quality", "x")])!;
-        var withIt = CuratedBlock.Splice(head, block);
+        const string head = "# Title\n\nkeep me\n";
+        var block         = CuratedBlock.Render([G("quality", "x")])!;
+        var withIt        = CuratedBlock.Splice(head, block);
 
         var removed = CuratedBlock.Splice(withIt, null);
         await Assert.That(removed.Contains(CuratedBlock.StartMarker)).IsFalse();
@@ -60,19 +60,19 @@ public class CuratedBlockTests {
     [Test]
     public async Task Splice_fails_closed_on_malformed_markers() {
         // start-only
-        var startOnly = "before\n" + CuratedBlock.StartMarker + "\n- x\n";
+        const string startOnly = "before\n" + CuratedBlock.StartMarker + "\n- x\n";
         await Assert.That(() => CuratedBlock.Splice(startOnly, null)).Throws<CuratedBlockException>();
 
         // end-only
-        var endOnly = "before\n" + CuratedBlock.EndMarker + "\n- x\n";
+        const string endOnly = "before\n" + CuratedBlock.EndMarker + "\n- x\n";
         await Assert.That(() => CuratedBlock.Splice(endOnly, null)).Throws<CuratedBlockException>();
 
         // out-of-order (end before start)
-        var outOfOrder = CuratedBlock.EndMarker + "\n- x\n" + CuratedBlock.StartMarker + "\n";
+        const string outOfOrder = CuratedBlock.EndMarker + "\n- x\n" + CuratedBlock.StartMarker + "\n";
         await Assert.That(() => CuratedBlock.Splice(outOfOrder, null)).Throws<CuratedBlockException>();
 
         // two blocks
-        var twoBlocks =
+        const string twoBlocks =
             CuratedBlock.StartMarker + "\n- a\n" + CuratedBlock.EndMarker + "\n" +
             CuratedBlock.StartMarker + "\n- b\n" + CuratedBlock.EndMarker + "\n";
         await Assert.That(() => CuratedBlock.Splice(twoBlocks, null)).Throws<CuratedBlockException>();
@@ -80,8 +80,8 @@ public class CuratedBlockTests {
 
     [Test]
     public async Task Splice_result_ends_with_exactly_one_trailing_newline() {
-        var content = "# My Project\n\nHand-written notes.\n";
-        var block   = CuratedBlock.Render([G("quality", "always close writers")])!;
+        const string content = "# My Project\n\nHand-written notes.\n";
+        var block            = CuratedBlock.Render([G("quality", "always close writers")])!;
 
         // After appending a block the result ends with exactly one newline.
         var appended = CuratedBlock.Splice(content, block);

@@ -14,7 +14,7 @@ namespace Capacitor.Cli.Daemon.Harness.OpenCode;
 /// <para>Deny-all, then exactly what a reviewer needs. A denied tool is absent from the model's
 /// surface rather than refused when called, so no <c>session/request_permission</c> frame is ever
 /// raised and <see cref="AcpUnattendedInteractionPolicy.Fail"/> holds: a frame means the launch
-/// contract regressed (<c>docs/probes/2026-08-07-opencode-acp/</c> §6b).</para>
+/// contract regressed (<c>docs/probes/2026-08-07-opencode-acp/</c>).</para>
 ///
 /// <para>OpenCode presents an injected MCP tool flattened as <c>{serverName}_{toolName}</c> and puts
 /// it through the same table, so without its server's entry the reviewer cannot reach its own result
@@ -38,15 +38,15 @@ internal static class OpenCodeReviewerPermissions {
     /// the read family, and one <c>{server}_*</c> entry per injected server. String values go through
     /// <c>(JsonNode?)</c> casts, which stay NativeAOT-safe (IL3050).</summary>
     internal static string Build(IReadOnlyList<AcpMcpServerSpec> injected) {
-        var permission = new JsonObject { ["*"] = (JsonNode?)"deny" };
+        var permission = new JsonObject { ["*"] = "deny" };
 
         // OpenCode resolves a specific key before the wildcard, so a file config's `bash: "allow"`
         // would otherwise survive `"*": "deny"`.
         foreach (var tool in OpenCodeForbiddenTools.Names)
-            permission[tool] = (JsonNode?)"deny";
+            permission[tool] = "deny";
 
         foreach (var tool in ReadTools)
-            permission[tool] = (JsonNode?)"allow";
+            permission[tool] = "allow";
 
         foreach (var server in injected) {
             if (string.IsNullOrWhiteSpace(server.Name))
@@ -63,7 +63,7 @@ internal static class OpenCodeReviewerPermissions {
                   + "into a permission glob could widen the reviewer's tool surface beyond that server. "
                   + "Refusing the launch.");
 
-            permission[$"{server.Name}_*"] = (JsonNode?)"allow";
+            permission[$"{server.Name}_*"] = "allow";
         }
 
         return permission.ToJsonString();

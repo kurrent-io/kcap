@@ -1,0 +1,360 @@
+# kcap CLI
+
+**File paths:** CLI source at `src/Capacitor.Cli/`, shared core at `src/Capacitor.Cli.Core/`, transcript normalization at `src/Capacitor.Models.Transcripts/`, transcript recorder at `src/Capacitor.Cli.Recording/`, daemon at `src/Capacitor.Cli.Daemon/`, desktop app at `src/Capacitor.App/`, npm packages at `npm/`, Claude Code plugin at `kcap/`.
+
+**Harness layout:** vendor-specific code lives under `Harness/`. Vendors: Antigravity, Claude, Codex, Copilot, Cursor, Gemini, Grok, Kiro, MistralVibe, Muse, OpenCode, Pi.
+
+- `src/Capacitor.Models.Transcripts/Harness/<Vendor>/` — transcript projections to canonical events, the one place a vendor's transcript format is read.
+- `src/Capacitor.Cli.Core/Harness/<Vendor>/` — paths, hook parsers/installers, CLI runners, chat display rules.
+- `src/Capacitor.Cli.Recording/Harness/<Vendor>/` — what the transcript recorder does for a vendor: subagent scans and child watchers, live transcript, usage and title readers, line helpers, shutdown and rewrite guards.
+- `src/Capacitor.Cli.Daemon/Harness/<Vendor>/` — launchers, runtimes, reviewer capabilities, posture policies; one directory per vendor covering what used to be split between `Services/` and `Acp/`.
+- `src/Capacitor.Cli/Commands/Harness/` — command entry points, flat (`<Vendor>HookCommand` and friends).
+- `src/Capacitor.Cli/Harness/<Vendor>/` — everything else per vendor: import sources, subagent teardowns and correlators, policy seams, hosted-session helpers, nudge and import ledgers.
+
+Namespaces follow the directory (`Capacitor.Cli.Core.Harness.Codex`, `Capacitor.Cli.Commands.Harness`, `Capacitor.Cli.Harness.Pi`), enforced by the compiler, so moving a file means fixing its namespace in the same change. Code shared across vendors stays outside `Harness/` — a directory named after a vendor holds only that vendor's code. Adding a harness should mean a new `Harness/<Vendor>/` directory plus one registration site per assembly, not edits to shared folders.
+
+## What this project does
+
+The `kcap` CLI records coding-agent sessions by forwarding hook payloads and transcript data to a
+kcap server. It also hosts an agent daemon for remote agent management and provides PR
+review context via MCP tools.
+
+## Invariants
+
+Deliberate choices a change can silently undo — each looks like a bug until you know why.
+`docs/superpowers/specs/` holds the designs. There is no changelog file: the reasoning behind a
+change lives in its PR description and the recorded sessions that produced it — trace it with the
+kcap-review and kcap-sessions MCP tools (`search_context`, `search_sessions`), and do not add a
+running notes file that every PR edits.
+
+- **A vendor either contains borrowed review or does not offer it.** Cursor and Copilot read a
+  daemon-owned snapshot, Codex its own tool clamp; Claude declares no containment, so a borrowed
+  request fails closed to an owned worktree. Copilot's boundary is an OS sandbox rather than a tool
+  clamp, and its support is conjunctive — macOS/ARM64 and `sandbox-exec` and a brokerable token, or
+  the capability is not advertised. Containment is proven by a real process run under the profile,
+  never by a model-layer refusal.
+- **kcap's own tools skip Claude's auto-mode classifier, and only there.** A plugin cannot ship
+  permission rules and the classifier ignores MCP annotations, so the `PreToolUse` seam answers
+  `allow` for the `AutoApprove` servers and for read tools, when `permission_mode` is `auto` and no
+  rule decided the call, in rendered sessions too. Manual stays the user's control. Trust rests on
+  the hook payload's `mcp_server` report, never the tool name: a repository's `.mcp.json` can name a
+  server so its tools carry `mcp__plugin_kcap_`, and a call without the report gets no trust.
+- **The daemon never looks for a credential.** No keychain read, prompt, cache, persistence or
+  default command: it forwards what the operator exported, or runs the one command they configured,
+  and only when a borrowed launch needs it. Availability is configuration presence, never execution
+  — probing would mint a credential nobody asked for.
+- **Borrowed-review capability is never gated on the installed vendor build.** A runtime factory
+  declaring a containment strategy is enough to advertise it; version-gating would let a vendor
+  auto-update silently withdraw the capability and drop reviewers back to a stale base.
+- **Every server-driven launch passes the consent gate** (a local spawn on the 0600 socket is the
+  owner's by construction). Its store degrades a missing or corrupt policy to `allow` rather than
+  failing closed, so an update cannot brick a pre-existing daemon. Decisions append to an
+  owner-only log; no gate path blocks a launch on a terminal prompt, and cancellation aborts the
+  launch rather than fabricating a decision.
+- **The daemons directory is a fixed location and ignores `KCAP_CONFIG_DIR`.** It shares the
+  `~/.config/kcap` prefix with the config directory by coincidence, not derivation: when it was
+  derived, two daemons under different config dirs took different `flock`s, never saw each other,
+  both authenticated as the same GitHub ID and oscillated the server's registry slot. Same literal,
+  different anchor — `DaemonStoreTests` guards it.
+- **Local control IPC is append-only and capability-gated.** `FrameType` values are never reused or
+  renumbered, and `LocalControlCapabilities.Current` is assembled beside the routing switch so
+  nothing can be advertised without a live handler, or, for a capability that gates a status field,
+  without the daemon filling that field.
+- **Server-origin launch and stop share one serial lane**, sequenced and un-sequenced alike, so
+  arrival order survives. One lock guards handler admission and the processor's single null→live
+  transition: there is no second command domain, ever.
+- **Codex MCP setup owns only what it created.** Entries it added, and the sandbox network keys it
+  set with the values they replaced, are tracked in `mcp-ownership-v1.json`; uninstall undoes only
+  what it can prove it wrote and still holds kcap's value, and says why it keeps the rest. An empty ledger
+  proves nothing, so it never justifies deleting config.
+- **Desktop-app daemon mutations go through one app-lifetime lane** with one shared evidence
+  predicate: classifying a failure as success is the cardinal sin.
+- **Auth commits in one ordered boundary** — claims, then config and provider stamp, then tokens —
+  behind a totalized result. `kcap login` never repoints `server_url`; `kcap setup` and the wizard
+  adopt it.
+- **A 401 spools; only a rejected payload drops.** Every live hook post and every drain poster
+  classifies a status through `HookSpool.IsRetryable`, where a 401 is retryable like a 5xx: the
+  credential is what `kcap login` repairs, so the event must outlive the lapse. Restating the rule
+  at a call site lets a vendor spool a status the drain then drops — a visible loss turned into a
+  delayed silent one. Retention while the lapse lasts is the spool's own byte cap and 30-day reap.
+- **Secret redaction rewrites decoded JSON string values, never the serialized line.** A pattern run
+  over the whole line matches past the value it found into the surrounding structure, and the server
+  drops an unparseable line silently. A line the writer refuses is replaced by a placeholder —
+  never by the raw line, which would re-expose what the redactor just matched.
+- **A redaction timeout holds its source; it never drops or marks the line.** The record budget and
+  regex deadline are wall-clock, so the watcher stops capturing at that line and retries it off the
+  loop under a longer budget each time, for as long as it takes. Sending the lines after it first
+  would lose it: the server drops a line numbered at or below one it already took. A source that
+  stops advancing behind such a line is waiting, not hung.
+- **Transcript event ids are a persistence contract.** `TranscriptIds` in `Capacitor.Models.Transcripts`
+  fixes the bytes each id hashes; the server dedups by them, and a session it has already ingested
+  is never re-projected. A different derivation would append duplicates on the next re-import, so
+  the leaf's fixed vectors pin every row and a change needs a migration, not a bump.
+- **The daemon never stops a process in its own process group.** Every `Process.Start` child (Pi,
+  Antigravity, ACP agents, git) shares the daemon's group, and a launch agent shares launchd's
+  session: a stopped member at the moment a reparented grandchild exits makes the kernel SIGHUP
+  the whole group, daemon included. Tree kills go through `ProcessTree.Kill` (SIGKILL only,
+  children before parents, each pid identity-checked and signalled once), the runtime's
+  `Process.Kill(bool)` is banned in the daemon assembly, and a daemon with no terminal on any
+  standard stream ignores SIGHUP outright — there is nothing to hang up, and exiting 0 on it is an
+  exit launchd never restarts.
+- **The Windows service never runs user-controlled code as SYSTEM.** `kcap-service.exe` is the only
+  SYSTEM code, and it runs from `%ProgramFiles%\kcap\service\`, a directory it sets administrator-only
+  rather than trusting inheritance. Everything it starts — each user's daemon from their own Velopack
+  install, the user's `kcap daemon stop --direct` — runs with that user's token, and anything it opens
+  from a profile it opens while impersonating that user. Its only elevation is the UAC prompt in front of
+  `kcap-service.exe install`; a Velopack MSI cannot stand in for it, because its install hook runs
+  without admin rights and its silent per-machine install lands in a user-writable folder.
+- **Nothing kcap runs prunes worktrees.** Unless `worktree.useRelativePaths` is set, git links a
+  worktree by absolute path, and a sandbox mounting the host's repository sees it at another path:
+  from there every host-made worktree looks dangling, and the other way round. A `git worktree prune`
+  on either side deletes metadata for worktrees that are fine. The SessionStart nudge asks the user
+  to switch the repository to relative links instead; it never converts on its own, because git
+  older than 2.48 then refuses to open the repository at all.
+- **A hosted agent's launch prompt never goes on its command line.** Any local user can read a
+  command line through `ps`, and a `pkill -f` from any session matches every agent whose prompt
+  contains its pattern. The PTY launch spawns the agent without its prompt and pastes it into the
+  composer once startup output has settled, so the real prompt is the agent's first message; only
+  a slash command stays inline, because the agent runs one only as the literal first message.
+- **A Claude launch prompt waits for SessionStart with no time limit.** A first-run screen fires no
+  hook and reads as a settled composer, so a paste or a retry Enter on a timer answers it and the
+  prompt is lost. With hooks wired only SessionStart, a relayed turn or a fresh agent's transcript
+  releases the hold; a timeout that falls back to pasting undoes this. An enabled plugin with no
+  install record counts as wired, because Claude installs it on the first start, the one this exists
+  for, and the project's settings outrank the account's. Do not add more guesses about whether Claude
+  will load a plugin: what kcap cannot see counts as wired, because a wrong hold shows its warning and
+  the terminal, while a wrong paste loses the prompt silently. A follow-up is refused once the hold is overdue rather than parked on it: server input runs
+  on the daemon's one sequential SignalR dispatch, so it would stall every other agent's stop and
+  launch. Codex stays on the output checks, since nothing shows it fires SessionStart ahead of the
+  first input, and if it fires on the first turn a hold deadlocks
+- **The daemon's state directory is owner-only on Windows too, and securing it never blocks a
+  boot.** `OwnerOnlyDirectory` gives it a protected DACL (the user and SYSTEM) at every start, so
+  what is inside stops inheriting from a relocated `KCAP_DAEMONS_DIR`. A failure warns and boots:
+  refusing would brick a daemon whose state sits where no ACL can be set.
+- **The PTY read loop never awaits a consumer.** Local sinks and the cloud sink take chunks through
+  a non-blocking `TryEnqueue` under `SinksLock`, and each drains on its own pump. A consumer that
+  falls behind is cut off and replayed from the ring — a local client by reattaching, the cloud
+  mirror by an in-band terminal reset — never allowed to back-pressure the PTY, which would freeze
+  every other surface of that agent.
+- **Desktop-app green / orange / yellow are status only.** `KcapSuccess*` is shipped, settled,
+  passing; `KcapWarning*` is blocked, stale, needs-you. Identity must not share them: a work-item
+  key, vendor chip, "this session" mark, or title in success green reads as done, and a Claude chip
+  in warning orange reads as attention. `KcapPurple*` is in-flight execution (a running session or
+  an in-progress task and its count); selection and open items (the selected rail session or selected
+  master-list row) use `KcapInfo*` / `KcapSelectionBrush`; labels and keys use text/muted/surface
+  tokens.
+- **Desktop-app chrome is the kcap theme, not Fluent's defaults.** `FluentTheme` is the substrate
+  in `App.axaml`; menus, flyouts, buttons, fields and list rows opt into `kcapPanel`, `kcapGhost`,
+  `kcapChip`, `kcapField`. A bare `MenuFlyout`/`MenuItem` keeps Fluent's grey hover bar on the dark
+  canvas. Copy the launcher pickers and the rail help flyout (`kcapPanel` + ghost rows), do not add
+  an unstyled control.
+- **The work-context pane hosts the full PR card, not a title line.** `PullRequestCard` is the
+  only place to switch between a session's linked PRs, and its checks and review rows are the live
+  status a user reads without opening the reader tab. A compact header that collapses it to the
+  first PR's title drops both, and the pane smoke test pins the picker and the status rows.
+- **Skills materialization nests one pair of locks only — migration outside the per-worktree
+  manifest lock — and holds no shared lock across a network request.** The repository lock is taken
+  alone, before any target starts and while nothing else is held, so it nests with neither and the
+  exclusion block can go in ahead of the first file. Acquiring the nested pair the other way round
+  deadlocks two checkouts of one repository against each other, and holding migration or repository
+  across a snapshot fetch serializes unrelated repositories on someone else's network.
+- **A skills identity retirement deletes before it fetches.** When the account or server a manifest
+  records is not the current one, every local path and every global copy that identity owned is
+  deleted first and unconditionally, and the ledger is saved owning nothing and carrying no refresh
+  stamp. Fetching first and deleting on success leaves a revoked account's skills loadable exactly
+  when the credential that would have replaced them has stopped working.
+
+## Tech stack
+
+- .NET 10, NativeAOT compiled
+- SignalR client for real-time server communication
+- TUnit for testing, WireMock.Net for HTTP mocking
+
+## Building
+
+```bash
+dotnet build src/Capacitor.Cli/Capacitor.Cli.csproj
+```
+
+## Test conventions
+
+**Layout:** one test project per prod project, each mirroring that project's directories — `test/Capacitor.Cli.Core.Tests.Unit/`, `test/Capacitor.Cli.Tests.Unit/`, `test/Capacitor.Cli.Daemon.Tests.Unit/`, `test/Capacitor.Models.Transcripts.Tests.Unit/`, plus `test/Capacitor.Cli.Tests.Integration/` and `test/Capacitor.SourceGuards.Tests.Unit/`. A test project references its own prod project and `test/Capacitor.Tests.Helpers/`, never another test project: anything shared across suites goes in Helpers, with a `public` surface (no `InternalsVisibleTo`). Helpers' `Guards/` holds the process-global pins every assembly needs, and Helpers is a global `using` everywhere, so its types need no import.
+
+- Throwaway directories come from Helpers' `TempDir` — `using var tmp = new TempDir();` — never a per-class copy. Build paths under it with its own members — `tmp.PathTo(…)` for a path that must not exist yet, `tmp.CreateDir(…)`, `tmp.CreateFile(…)` — not `Path.Combine(tmp.Path, …)` + `Directory.CreateDirectory`/`File.WriteAllText`. When the code under test refuses a symlinked path component, hand it `tmp.GetResolvedPath(…)` instead: a Mac's temp root is under `/var`, a symlink into `/private`, so the plain path is rejected there and nowhere else — CI has no macOS leg to catch it. It is not the default because resolving costs 8 characters of the `sockaddr_un` budget.
+- A file the test will *run* — a stub script, a copied binary — comes from `tmp.CreateExecutable(…)` / `CopyExecutable(…)`, never `CreateFile` + `SetUnixFileMode`. A write handle opened in the test host is copied into whatever child a concurrent test forks, and until that child execs Linux fails the spawn with ETXTBSY; code that swallows a failed spawn turns that into a wrong-value assertion a few milliseconds in. macOS never shows it. A file that only needs the execute bit (a PATH lookup, `access(X_OK)`) is not exposed.
+- When every test in a class needs one, inject it instead of holding a field: `[TempDir] public required TempDir Tmp { get; init; }` (or `[TempDaemonPaths]` for a `TempDaemonPaths`; both take an optional hint, `[TempDir("short")]`). TUnit builds one per test and disposes it, so the class needs no `IDisposable` — which is also how CA1001 stops applying. `Shared` widens the lifetime (`SharedType.PerClass` and friends) but hands one directory to tests that run concurrently, so it fits a read-only fixture only. The property is set *after* construction, so a ctor or another field initializer cannot read it (make those members lazy) and a `static` helper cannot see it at all; a `[Before(Test)]` hook can, because injection runs first.
+- Outside a test class — a nested harness type, a fixture object — keep the field and implement `IDisposable`: TUnit only injects into test classes. CA1001 is an error there, so an `[After(Test)]` hook will not build.
+- A class whose time goes into real child processes (git, a vendor CLI, a PTY) can draw from `[ParallelLimiter<SubprocessLimit>]` — one pool of half the cores, shared by every class in the assembly that names it. TUnit keys the semaphore by the limiter type, per process, so each test assembly has its own pool. TUnit's own cap is 4x the cores, sized for IO-bound tests; at that width these classes starve each other's timing assertions. Pool the CPU hogs, not the test that failed. A whole-class `[NotInParallel(nameof(TheClass))]` is the cheaper tool when the point is to keep one class's own tests apart.
+- Spawning the real `kcap` binary goes through `KcapProcess`, which requires a `DaemonStore` and pins it for the child. It lives in `test/Capacitor.Tests.Helpers.Kcap/`, not Helpers: that project's reference is what makes a suite depend on the CLI build, and CI selects test projects by project reference, so reference it only from a suite that spawns `kcap`. The assembly-wide `KCAP_DAEMONS_DIR` pin is a path that cannot be created, so a hand-rolled spawn dies with a bare ENOTDIR `IOException` instead of quietly resolving the developer's own daemons directory.
+- Capture console output with `ConsoleOutput.StartCapture()` / `StartErrorCapture()`, never a hand-rolled `Console.SetOut`/`SetError` save-restore — TUnit0055 is an error. Console is process-global, so every caller needs bare `[NotInParallel]`; a group key is not enough.
+- Never assert that an environment variable is *absent* from a built `ProcessStartInfo`: its environment is seeded from the current process, and the repo's own `.envrc` exports several. Assert what the code under test contributed, by comparing against the inherited value.
+- Do not write tests for test-only fakes/mocks, dedicated test files for one-line wrappers/constants already exercised by their callers, or headless XAML smoke tests that only assert `x:Name` lookups, static typography/margin values, or Avalonia layout math. Keep `*SmokeTests` to real view interactions (focus, keyboard/pointer routing, flyouts, accessibility peers) and keep data-projection permutations in ViewModel unit tests.
+
+A test that reads source as text beyond what its own project references — a guard over all of `src/` or `test/` — goes in `test/Capacitor.SourceGuards.Tests.Unit/`, which references no production project and holds nothing else. CI selects suites from project references plus each `.csproj`'s `<TestSelectionDirectory Include="../../src" />` items (project-relative directories, not globs), and that project declares both trees. Left in a product suite, such a test is not selected for the changes that can break it; declaring the directory there instead pulls the whole suite into every PR.
+
+**Parallelism:** bare `[NotInParallel]` is exclusive against the whole assembly and its tests run last, one at a time; keyed `[NotInParallel("k")]` excludes only tests carrying `k`.
+
+- Bare is what process-global state needs: an environment variable, `Console`, a mutable static in production code, the working directory. Keyed is sound only when every *reader* is in the cohort too, not just every writer — an env var fails that as soon as a concurrent peer spawns a child (it inherits) or calls a path helper (it reads).
+- A method-level `[NotInParallel(…)]` shadows a class-level one: the first constraint wins and the method's comes first. Never carry both.
+- Mutate an environment variable through Helpers' `EnvScope` — `EnvScope.Exclusive(key, value)` for one a child inherits or a path helper reads, the constructor for one whose readers all carry the same key. It checks the constraint and throws naming the fix, so the rule is enforced rather than commented.
+- Reaping a child you forked is safe: the zombie holds its pid until you wait on it. Asserting on a pid you *no longer own* is not — one the shim already reaped, or a grandchild reparented to init. `kill(pid, 0)` reads a squatter as your process still alive, and stealing a wait from a child `System.Diagnostics.Process` owns FailFasts the test host. Use Helpers' `PidIdentity`: `Capture` while alive, then `IsGone`/`WaitUntilGoneAsync`.
+
+## Running tests
+
+Tests use TUnit on Microsoft Testing Platform.
+
+```bash
+dotnet test --solution Capacitor.slnx
+```
+
+A single suite still runs directly as an executable, which is the faster loop when iterating:
+
+```bash
+dotnet run --project test/Capacitor.Cli.Core.Tests.Unit/Capacitor.Cli.Core.Tests.Unit.csproj
+```
+
+CI caps concurrency at three assemblies with four tests each on Linux/macOS, and two assemblies
+with two tests each on Windows. To reproduce CI locally on Linux/macOS, pass
+`--max-parallel-test-modules 3` and `-- --maximum-parallel-tests 4`; on Windows, pass
+`--max-parallel-test-modules 2` and `-- --maximum-parallel-tests 2`.
+Tests touching shared state still need their own exclusion;
+the concurrency cap only limits resource contention.
+
+The installed Codex schema certification is opt-in: set `KCAP_CODEX_SCHEMA_CHECK=1` to compare
+your local Codex version with the vendored pin. `KCAP_CODEX_SCHEMA_PIN_UPDATE=1` regenerates
+the pin after an intended, vetted upgrade, without needing the check flag.
+
+## Publishing
+
+AOT publish for the current platform:
+
+```bash
+dotnet publish src/Capacitor.Cli/Capacitor.Cli.csproj -c Release
+```
+
+Always verify no IL3050/IL2026 AOT warnings after changes:
+
+```bash
+dotnet publish src/Capacitor.Cli/Capacitor.Cli.csproj -c Release 2>&1 | grep -E 'IL[23][01][0-9]{2}'
+```
+
+## Comments
+
+**Scarce by default — never modelled on the ones already in the tree.** Existing comments are long and heavily historical, so they are the one thing here you *MUST NOT* imitate: do not pattern-match on them, and do not match their density. Follow these rules whatever the neighboring code looks like.
+
+**The test, before writing any comment:** would it still be true and useful to a reader who has only the current source — no ticket, no diff, no review thread, no calendar? And does it name something that breaks or gets undone if unknown (a trap, a non-obvious constraint, a deliberate decision)? Both yes, or write nothing. Restating the code fails the second question; narrating how the code got here fails the first. One or two lines is the norm; a longer block needs something the reader can get nowhere else.
+
+**Never write** — and the ban is on the content, not these exact words; paraphrases count:
+
+- **design/spec/plan coordinates** — "§4", "decision 3", "Task 12", "Phase 2", "scenario (a)". State the constraint itself.
+- **ticket ids as narration** — "ABC-123 adds…", "pre-ABC-456 semantics", "the ABC-789 invariant".
+- **review artifacts** — reviewer or bot names, "round 2's fix", "PR #1289 finding 3", severity labels ("P1", "Medium 2"). If the text only parses once the reader reconstructs earlier versions, rewrite it to describe what is there now.
+- **facts true only at the time of writing** — "as of this writing", "measured today", dates, run ids, site counts, open-PR numbers.
+- **change narration** — "used to", "previously", "no longer", "originally", "this replaces", "moved from", "do not re-add", or any other account of how the code evolved. The diff, the commit message and the issue own that.
+
+**Exactly three exceptions**, each with its condition:
+
+- A ticket id pointing at *still-open* work the reader must act on (TODO-style). Closed tickets never qualify, and the id is the GitHub issue number — see Dos and donts.
+- A measurement justifying a value that would otherwise look arbitrary (a timeout, a retry gap) — keep the number, drop the date and the run it came from.
+- An old shape — a renamed field, a dropped enum value, an older event version — that persisted data, stored config or an older client **can still present**. That is a live compatibility constraint, not history: name the old form and what must keep accepting it, not the story of the change.
+
+**A test's doc comment says what the test pins.** A precondition that keeps the test honest ("the stale spec genuinely cannot — otherwise this test proves nothing") belongs; its review history or its place in a CI budget does not.
+
+**Rewrite as you go.** When you touch code, shorten and de-historicise the comments on and around it: delete anything the Never list bans, keep only what still passes the test. Expected work, not scope creep.
+
+Applies to every file type: source, tests, config and build files, YAML, shell scripts.
+
+`scripts/check-comment-rules.sh` fails CI on the unambiguous forms: spec coordinates (`§4.2`, `Task 3`, `Phase B`), review artifacts (`Qodo #1`, `round-2 fix`) and `pre-fix` / `an earlier revision`.
+
+The checker and its `.test.sh` need Python 3.10+ with `scripts/comment-rules-requirements.txt` installed in a virtual environment. It reads syntax-tree comments in C#, Bash and YAML, XML comments in XAML/MSBuild, and shell comments in literal (`run: |`) Bash/sh scripts in `.github/`. Other YAML scalar contents are data; embedded scripts with an unknown shell or runner are skipped. CI installs the pinned parsers through `.github/actions/setup-comment-rules`.
+
+## Duplication
+
+**Run `bash scripts/check-duplication.sh` before opening a PR that changes `src/`.** CI runs it too. It fails on a C#
+method that has near-identical copies in three or more files under `src/` (same name and parameter types, 90% alike)
+unless `scripts/check-duplication.baseline` lists that family. The first run builds its own Python environment, shared
+by every worktree; it needs a Python 3.10+ on `PATH`.
+
+- **A failure names the new family and every copy.** Extract the shared code. Copying one harness's implementation
+  into another is how these families grow. `--list` prints every family the scan finds.
+- **Add a line to the baseline only for copies that must stay apart**, and say why in the PR. Never add one just to
+  make the check pass.
+- **When it reports families gone, run `--update` in the same PR**, so the baseline only ever shrinks.
+
+## Commit messages
+
+Subject: `one clause (#123)`, imperative, **at most 80 characters including the trailing reference**. No second clause, and no parenthetical other than that reference.
+
+The reference is the GitHub issue number — Linear ids stay out of commit messages, as they do out of comments. It goes in only when context already gives it. **Never invent one, and never settle a near-match on your own judgement** — offer the candidates and let the user pick, or ask whether one should be created. Leave the reference off until then.
+
+Body: a line or two naming the constraint that forced this shape, or a consequence easy to miss — something neither the diff nor the issue shows. Nothing to name means no body. **Five lines max.** Comments bans apply, and no inventory of the diff (file lists, per-site counts), however labelled.
+
+Squash-merge concatenates the branch's messages verbatim, and the merge is usually not yours, so write them to survive that untouched: every subject standing on its own, context stated once instead of repeated in each message, and no cross-references between commits ("as above", "fixes the previous commit"). If you do perform the merge, discard the concatenated default and write the squash body fresh, under these same rules.
+
+## Issues and pull requests
+
+This is a public repository — we develop in the open.
+
+- **Open issues in GitHub Issues**, not Linear. Linear auto-imports GitHub issues, so there is no need to create the issue in Linear by hand.
+- **PRs must reference both the Linear issue and the GitHub issue.** Both go on the reference line in the PR *description*: the GitHub issue with a closing keyword (e.g. `Closes #123`) and the Linear issue (e.g. `AI-774`), so Linear links the PR back to the imported issue. The title carries no reference of its own: squash-merge appends the PR number to it, so an issue reference there lands beside that one and reads as a second PR.
+
+Title: commit-subject rules minus the reference — `Show "Copied" tooltip on clipboard copy`.
+
+Description: **before writing it, open [.github/PULL_REQUEST_TEMPLATE.md](.github/PULL_REQUEST_TEMPLATE.md) and follow its comment block** — it owns length, headings and the Never list. `gh pr create --body` not rendering the template is not an exemption from it.
+
+## Code conventions
+
+**Return `FrozenDictionary<K,V>.Empty` / `FrozenSet<T>.Empty` for an empty `IReadOnlyDictionary`/`IReadOnlySet`** — a fresh empty `Dictionary`/`HashSet` per miss allocates for nothing, and these are shared singletons.
+
+**No `InternalsVisibleTo` to a production assembly.** If a shipping project needs a member, that member is not internal — make it public. Test-assembly grants are fine, and most of the grants here are those. `Capacitor.Cli.Core` keeps its grants to `kcap` and `kcap-daemon`, the two shipping executables; that is grandfathered, not a precedent, and **new projects start with none**.
+
+**One type per file, named after the type.** Several types in one file is discouraged, whatever the neighbouring files do — and plenty here do. Three exceptions: an enum plus its extension methods; a closely-related hierarchy (an interface plus many small implementations); a registry of descriptors. The last two are rare — reach for them when splitting would leave files that only make sense read together, not to save a file.
+
+**Desktop app UI** lives under `src/Capacitor.App/`. Palette and control classes are in `App.axaml`.
+
+- Icons: use Lucide through `Views/AppIcon.cs`, with named `LucideIconKind` mappings.
+  Reuse `ToolCategoryIcons` for system/chat headings. No custom UI icon paths, copied SVG
+  geometry, text/emoji stand-ins, or additional icon families. Existing vendor/product
+  branding, native control glyphs, and activity dots are exceptions. Size and semantic
+  conventions are in `src/Capacitor.App/AGENTS.md`.
+- Status tokens: `KcapSuccess*` (green) and `KcapWarning*` (orange/yellow) only on badges, pills, and
+  glyphs that mean outcome or attention. Never on keys, titles, vendor/model chips, or "you are here".
+- In-flight vs. selection: `KcapPurple*` is active execution (running session indicator, `InProgress`
+  plan task dot and count); `KcapInfo*` / `KcapSelectionBrush` is selection and open state (selected
+  rail session, selected list row). Everything else uses `KcapTextBrush`, `KcapMutedBrush`,
+  `KcapFaintBrush`, and surface brushes.
+- Controls: `kcapPanel` flyouts, `kcapGhost` rows and icon buttons, `kcapChip` compact buttons,
+  `kcapField` inputs. Fluent `MenuItem` chrome, default `Button` / `ToggleButton` presenters, and
+  Fluent accent on a menu or toolbar are out — Fluent paints `PART_ContentPresenter` unless the
+  kcap class restyles it.
+- Hierarchy and chrome: chat tool rows and inline `ToolCard`s lead with a human verb in
+  `KcapTextBrush` and trailing target/path/detail in `KcapMutedBrush` (only rows with their own prose
+  description or question text omit the verb label). Inline cards inside `Border.toolGroup` sit flush
+  without a nested card border or fill. Do not repeat a document's kind pill or filename across the
+  sidebar, master list, and reader header when the surrounding section or markdown heading already
+  names it.
+- Avalonia layout and animation: match class selectors to every control type that carries the class
+  (`SelectableTextBlock.toolLine, TextBlock.toolLine`); set `UseLayoutRounding="False"` on concentric
+  geometric indicators of mixed odd/even sizes (e.g. a `5×5` dot inside a `12×12` ring); use
+  `AppIcon.Size` for UI icons and `MaxWidth`/`MaxHeight` on `Stretch="Uniform"` branding paths;
+  and gate continuous animations (`PulseClock.IsActive`) on live
+  session activity (`IsActive`), never on static task state alone.
+- Reactive and UI-thread discipline: filter `SourceCache.Connect()` streams *before* `.ObserveOn(RxSchedulers.MainThreadScheduler)` so irrelevant cache revisions do not schedule UI-thread work across every open workspace; use `SingleFlightReader<TState, TResult>` for session-keyed single-flight server reads rather than hand-rolling another `ReadLease` state machine; cache template parts (`ScrollViewer`, `TextPresenter`) on `TemplateApplied` instead of walking `GetVisualDescendants()` on keystrokes or layout ticks; and do not run uncached git/disk/hash I/O inside recompute loops or on the UI thread.
+
+## Dos and donts
+
+- DO use `JsonElementExtensions` instead of checking JSON value kind.
+- DO take a `UserHome` rather than resolving a home yourself: `Environment.GetFolderPath` is banned
+  (`RS0030`, `BannedSymbols.txt`), so a new call is a build error. An exemption is a per-site
+  `#pragma warning disable RS0030` naming why that site cannot take one.
+- DO NOT use Linear issue numbers in comments. If you absolutely need an issue number, use the GitHub issue number.
+
+## Common mistakes to avoid
+
+- **AOT warnings only show on publish** — `dotnet build` does NOT surface IL3050/IL2026 trimming warnings. Run `dotnet publish -c Release` after changes.
+- **JsonArray collection expressions** — `[item1, item2]` compiles to `Add<T>()` which requires dynamic code. Use `new JsonArray(item1, item2)` constructor instead.
+- **TUnit test filtering** — Use `--treenode-filter` with glob syntax, NOT `--filter`.
+- **Docs figures** — `KCAP_SHOTS_OUT=<absolute dir> dotnet run --project test/Capacitor.App.Tests.Unit/Capacitor.App.Tests.Unit.csproj -- --treenode-filter "/*/*/DocsShots/*"` renders the desktop app's docs figures; without the variable those tests skip. kcap-web's `scripts/docs-shots/capture-desktop.sh` consumes them.
+- **macOS AOT binary code signing** — After copying an AOT binary, run `codesign --force --sign -` to re-sign.
+- **Never read an agent-owned file with a write-denying open** — `File.ReadAllText`/`ReadAllTextAsync` open `FileShare.Read`, which *denies Write to every other handle* for the duration. On Windows that sharing is mandatory, so it stops the agent writing to its own transcript/sidecar — worst on the shutdown final drain, when it is flushing its last records. Read via `File.ReadAllTextShared`/`ReadAllTextSharedAsync`/`ReadLinesShared`, the `File` extensions in `Capacitor.Cli.Core`'s `SharedFileText` (or your own `FileStream(..., FileShare.ReadWrite)`) for anything the agent writes: transcripts and their `{id}.json` sidecars. Config/settings files we own are fine. **This is invisible on macOS/Linux** — Unix has no mandatory sharing, so a violation passes locally and only reddens the Windows CI leg (AI-1629 was exactly this, on the one read that missed the rule while seven siblings had it).
+- **README sync on CLI changes** — Any change to user-facing CLI surface (new command, new/renamed/removed flag, changed default behavior, new prerequisite) must update `README.md` in the *same* PR. Check both the quick-start (`## Getting started`) and the per-command section under `## CLI commands`. Updating only `src/Capacitor.Cli.Core/Resources/help-*.txt` is not enough — the README is the public-facing docs. This has been missed repeatedly and has required follow-up doc-only PRs (#60, #61).

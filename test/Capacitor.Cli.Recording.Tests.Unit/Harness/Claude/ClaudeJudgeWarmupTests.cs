@@ -2,7 +2,7 @@ namespace Capacitor.Cli.Recording.Tests.Unit.Harness.Claude;
 
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Harness.Claude;
-using Capacitor.Cli.Core.Policy;
+using Core.Policy;
 using Capacitor.Cli.Recording.Harness.Claude;
 
 public class ClaudeJudgeWarmupTests {

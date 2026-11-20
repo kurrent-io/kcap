@@ -1,39 +1,17 @@
 namespace Capacitor.Cli.Core;
 
 /// <summary>
-/// The vendor build this daemon last ran an unattended reviewer under, per vendor.
-///
-/// <para><b>Why a version gate exists at all.</b> Each gated reviewer's containment rests on a
-/// behaviour of the INSTALLED build, not on anything this repository controls — that Kiro honours
-/// <c>KIRO_HOME</c> and reads no other global config source, that Gemini's
-/// <c>--allowed-mcp-server-names</c> is an exclusive exact-match gate a repository's own settings
-/// cannot widen. A vendor release can change either.</para>
-///
-/// <para><b>Why an operator-set MINIMUM and not a curated certified set.</b> A maintainer-curated set
-/// takes the reviewer offline on every vendor release until a re-certification PR ships — untenable
-/// against CLIs that move several versions a week, and it did exactly that: the Gemini reviewer was
-/// unreachable at a version one patch ahead of the certified one. Failing closed on a version CHANGE
-/// removed the kcap-release coupling but kept the treadmill, merely relocating it onto the operator,
-/// who then re-took the same acceptance on every patch. The recorded value is therefore the OLDEST
-/// build this daemon will run: an upgrade needs no action, a downgrade below it is refused, and a
-/// build later found to be bad is excluded by raising the floor past it.</para>
-///
-/// <para><b>Why this is state and not configuration.</b> A value the operator could set from a shell
-/// profile would be re-affirmed by their dotfiles rather than by them — the same "consent that isn't
-/// consent" failure the enable flag exists to avoid. The daemon writes it; only an explicit operator
-/// command changes it.</para>
-///
-/// <para><b>ONE per-vendor exception: antigravity's floor is seeded from the binary resolving, not
-/// from a consent event</b> — it also gates HOSTED <c>agy</c> launches, which take no consent, and a
-/// consent-less daemon with no floor refuses every one as <c>version_no_minimum</c>. Seeding is
-/// once-only, so a floor recorded before consent is not raised when the reviewer is later enabled:
-/// a downgrade to that pre-consent build is admitted where a consent-anchored floor would refuse it.
-/// Accepted — bounded to builds at or above that one, remedy is
-/// <c>kcap daemon reviewer affirm --vendor antigravity</c>. Consent must not re-seed.</para>
-///
-/// <para>Keyed by vendor, one file each, so affirming one vendor's build says nothing about another's.
-/// Kiro's filename is unchanged from when this type was Kiro-only — renaming it would have silently
-/// discarded every existing affirmation and taken shipped reviewers offline on upgrade.</para>
+/// The minimum vendor build this daemon runs an unattended reviewer under, per vendor.
+/// <para>Each gated reviewer's containment rests on a behaviour of the installed build (Kiro honouring
+/// <c>KIRO_HOME</c>, Gemini's exact-match MCP allowlist), which a release can change. The value is the
+/// oldest build allowed: vendors ship several builds a week, so an upgrade needs no action, a downgrade
+/// below it is refused, and a bad build is excluded by raising the floor.</para>
+/// <para>State, not configuration: a value a shell profile could set would be re-affirmed by dotfiles
+/// rather than by the operator. Only an explicit operator command changes it.</para>
+/// <para>Antigravity's floor is seeded once when the binary resolves, because it also gates hosted
+/// <c>agy</c> launches, which take no consent. Consent must not re-seed it; the remedy for a
+/// pre-consent floor is <c>kcap daemon reviewer affirm --vendor antigravity</c>.</para>
+/// <para>One file per vendor. The name must not change: existing affirmations are found by it.</para>
 /// </summary>
 public sealed class ReviewerVersionStore(string stateDir, string vendor) {
     public static string FileNameFor(string vendor) => $"{vendor}-reviewer-affirmed-version";
@@ -112,20 +90,17 @@ public enum ReviewerVersionAffirmation {
 /// preconditions (Kiro's POSIX requirement) and its own consent text, because what enabling a
 /// reviewer grants differs per vendor — only this comparison is common.
 ///
-/// <para><b>The recorded value is a MINIMUM, not an exact match.</b> It previously required the
-/// installed build to equal the recorded one, which took a reviewer offline on every vendor patch
-/// release until an operator re-ran the affirm verb. That is the treadmill the maintainer-curated
-/// certified set was abandoned for; affirmation only relocated it from a kcap release onto the
-/// operator. The recorded value now means "the oldest build this daemon will run", and a vendor
-/// upgrade needs no action at all.</para>
+/// <para><b>The recorded value is a MINIMUM, not an exact match.</b> An exact match would take a
+/// reviewer offline on every vendor patch release until an operator re-ran the affirm verb. The
+/// recorded value means "the oldest build this daemon will run", so an upgrade between orderable
+/// versions needs no action. A value that does not order still matches only exactly, so changing
+/// it needs re-affirming (<see cref="Decide"/>).</para>
 ///
 /// <para><b>What that gives up.</b> A future vendor build that weakens its own containment behaviour
 /// is admitted silently — for Gemini the MCP-allowlist semantics, for Kiro the <c>KIRO_HOME</c>
-/// suppression. Both were already accepted at the operator's first affirmation; what changed is that
-/// the acceptance carries forward across upgrades instead of being re-taken each time. When a bad
-/// build is found, the affirm verb raises the floor past it without a kcap release. See
-/// <c>GeminiReviewerCapability</c>'s class doc, which records the earlier decision this reverses and
-/// why the boundary sat where it did.</para>
+/// suppression. The operator's first affirmation carries forward across upgrades instead of being
+/// re-taken each time. When a bad build is found, the affirm verb raises the floor past it without a
+/// kcap release.</para>
 /// </summary>
 public static class ReviewerVersionAffirmations {
     /// <summary>
@@ -147,9 +122,8 @@ public static class ReviewerVersionAffirmations {
         var installedVersionParsed = TryParseVersion(installed);
         var minimumVersionParsed   = TryParseVersion(minimum);
 
-        // Both unorderable: fall back to the ordinal equality this type used to apply unconditionally.
-        // That is what keeps the change monotone — every pair the old rule ALLOWED (which is exactly
-        // the ordinal-equal ones) is still allowed, including values no version parser accepts.
+        // Both unorderable: fall back to ordinal equality, so a recorded value no version parser
+        // accepts still admits exactly that installed value.
         if (installedVersionParsed is null && minimumVersionParsed is null)
             return string.Equals(installed, minimum, StringComparison.Ordinal)
                 ? ReviewerVersionAffirmation.MeetsMinimum
@@ -179,15 +153,14 @@ public static class ReviewerVersionAffirmations {
     /// gate's scope — widening what parses here would widen what the certification gate admits, so it
     /// cannot be done as a side effect of a reviewer change.</para>
     /// </summary>
-    /// <para><b>Byte-identical to the normalization <c>CliVersionAllowed</c> applied before it moved
-    /// here — deliberately, and do not "tidy" a <c>.Trim()</c> back in.</b> An earlier revision added
-    /// one, on the reasoning that trimming is harmless. It is not: <see cref="Version.TryParse(string?, out Version?)"/>
+    /// <para><b>No <c>.Trim()</c> here, deliberately.</b> Trimming looks harmless but is not:
+    /// <see cref="Version.TryParse(string?, out Version?)"/>
     /// already tolerates surrounding whitespace, so the trim changes nothing on its own — but it lets
     /// <c>TrimStart('v','V')</c> reach a <c>v</c> it could not otherwise see, so <c>" v1.2.3"</c> flips
     /// from REFUSED to allowed (measured). For the certification gate that is a silent widening of what
     /// it admits, made as a side effect of a reviewer change. Every caller here already passes trimmed
-    /// input anyway (<see cref="Normalize"/>'s output, <see cref="ReviewerVersionStore.Affirmed"/>, and
-    /// <see cref="VendorVersionResolver"/>'s token), so the trim bought nothing and cost that.</para>
+    /// input (<see cref="Normalize"/>'s output, <see cref="ReviewerVersionStore.Affirmed"/>, and
+    /// <see cref="VendorVersionResolver"/>'s token).</para>
     public static Version? TryParseVersion(string? version) =>
         Version.TryParse((version ?? "").TrimStart('v', 'V').Split('-', '+')[0], out var parsed)
             ? parsed

@@ -100,14 +100,14 @@ public class SessionGuidelinesEmitterTests {
 
     [Test]
     public async Task Returns_null_when_top_clusters_is_object_not_array() {
-        var body = """{ "top_clusters": { "category": "safety", "text": "x" } }""";
+        const string body = """{ "top_clusters": { "category": "safety", "text": "x" } }""";
         var fragment = SessionGuidelinesEmitter.BuildFragment(JsonNode.Parse(body), disabled: false);
         await Assert.That(fragment).IsNull();
     }
 
     [Test]
     public async Task Returns_null_when_response_is_top_level_array() {
-        var body = """[ { "category": "safety", "text": "x" } ]""";
+        const string body = """[ { "category": "safety", "text": "x" } ]""";
         var fragment = SessionGuidelinesEmitter.BuildFragment(JsonNode.Parse(body), disabled: false);
         await Assert.That(fragment).IsNull();
     }

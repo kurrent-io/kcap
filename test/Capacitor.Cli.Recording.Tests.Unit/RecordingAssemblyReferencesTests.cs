@@ -21,7 +21,7 @@ public class RecordingAssemblyReferencesTests {
     [Test]
     public async Task The_reference_walk_reaches_what_core_references() {
         var reached = ReachableAssemblyNames(typeof(TranscriptRecorder).Assembly);
-        var core    = typeof(Capacitor.Cli.Core.WatchState).Assembly.GetReferencedAssemblies().Select(reference => reference.Name!);
+        var core    = typeof(Core.WatchState).Assembly.GetReferencedAssemblies().Select(reference => reference.Name!);
 
         await Assert.That(core.Except(reached)).IsEmpty();
     }

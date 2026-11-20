@@ -106,9 +106,8 @@ public class ProcessHelpersTests {
     public async Task GetProcessInfo_returns_ppid_and_name_for_current_process() {
         // Backs the ancestry walk: it must report a process's real parent PID and a
         // non-empty executable name so the walk can match the coding agent by name.
-        // Runs on every platform now that Windows has a native implementation:
-        // the Windows branch previously returned null, so the parent-PID watchdog had no
-        // way to resolve the durable coding-agent process and silently never armed.
+        // Runs on every platform: a null on Windows leaves the parent-PID watchdog no
+        // way to resolve the durable coding-agent process, so it silently never arms.
         var info = ProcessHelpers.GetProcessInfo(Environment.ProcessId);
 
         await Assert.That(info).IsNotNull();

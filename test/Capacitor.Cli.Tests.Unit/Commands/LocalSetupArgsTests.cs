@@ -249,6 +249,6 @@ internal sealed class LocalSetupArgsTests {
         var (parsed, error) = LocalSetupArgs.Parse(["setup", "--local", "--intelligence", "cohere"], kcapUrlEnv: null, variable: _ => null);
 
         await Assert.That(error).IsNull();
-        await Assert.That(parsed!.Intelligence!.Vendor).IsEqualTo(Capacitor.Cli.Core.Setup.Intelligence.IntelligenceVendor.Cohere);
+        await Assert.That(parsed!.Intelligence!.Vendor).IsEqualTo(IntelligenceVendor.Cohere);
     }
 }

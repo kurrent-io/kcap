@@ -11,14 +11,13 @@ namespace Capacitor.App.Services.LocalSetup;
 /// outcome is always decided after every line the child printed has been applied.
 /// </summary>
 /// <param name="prefetch">The app's bundle prefetch; a run waits for one still downloading rather than download beside it.</param>
-/// <param name="rememberWindowsServiceDeclined">Records a declined or failed service install, so the app does not offer the service again.</param>
 /// <param name="settlesUnpublished">
 /// Settles a run without spawning setup once the prefetch found no bundle, unless an unfinished setup may need none:
 /// Windows setup can reach its service step, and its administrator prompt, before it looks for the bundle itself.
 /// </param>
 public sealed class LocalInstallController(
         Func<IKcapCli> cli, LocalRoot root, Func<bool> committedLocal, Action<Action> post, SetupFunnel funnel,
-        LocalBundlePrefetch? prefetch = null, Func<Task>? rememberWindowsServiceDeclined = null, bool settlesUnpublished = false)
+        LocalBundlePrefetch? prefetch = null, bool settlesUnpublished = false)
     : ReactiveObject {
     LocalSetupProgress    _progress = new();
     bool                  _running;
@@ -170,22 +169,8 @@ public sealed class LocalInstallController(
         progress.Apply(line);
         if (line.Event is not ("windows_service_declined" or "windows_service_unavailable")) return;
 
-        // A service that failed to install would fail the app's own offer the same way, so it is not offered again
-        // either; Settings keeps the explicit action.
+        // A retry of this install does not raise the prompt again; Settings keeps the explicit action.
         WindowsService = false;
-        _ = RememberDeclinedAsync();
-    }
-
-    /// The install page's service option, left unticked: the answer the app's later offer would ask for again.
-    public void DeclineWindowsService() => _ = RememberDeclinedAsync();
-
-    async Task RememberDeclinedAsync() {
-        if (rememberWindowsServiceDeclined is null) return;
-        try {
-            await rememberWindowsServiceDeclined().ConfigureAwait(false);
-        } catch (Exception ex) {
-            Console.Error.WriteLine($"kcap app: recording the declined Windows service failed: {ex.Message}");
-        }
     }
 
     void Finish(

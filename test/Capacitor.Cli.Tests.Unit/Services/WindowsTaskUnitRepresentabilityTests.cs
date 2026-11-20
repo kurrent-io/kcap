@@ -45,8 +45,7 @@ public class WindowsTaskUnitRepresentabilityTests {
     }
 
     /// <summary>The KEY is interpolated into the same `set "K=V"` line, so it is exactly as dangerous as
-    /// the value. The first version checked only the value — review caught that the stated rationale
-    /// (callers add entries after Build, so the sink must validate) applies to both sides equally.</summary>
+    /// the value: callers add entries after Build, so the sink must validate both sides.</summary>
     [Test]
     [Arguments("BAD\"KEY")]
     [Arguments("BAD\r\nset FOO=bar")]
@@ -63,7 +62,7 @@ public class WindowsTaskUnitRepresentabilityTests {
         var ex = Assert.Throws<InvalidOperationException>(
             () => WindowsTaskUnit.Wrapper(Spec("GOOGLE_VERTEX_BASE_URL", "https://x\"")));
 
-        await Assert.That(ex!.Message).Contains("GOOGLE_VERTEX_BASE_URL");
+        await Assert.That(ex.Message).Contains("GOOGLE_VERTEX_BASE_URL");
     }
 
     /// <summary>The positive control: everything legitimate still round-trips, including a path with

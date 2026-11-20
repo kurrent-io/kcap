@@ -45,6 +45,8 @@ public sealed record LocalFrame(FrameType Type) {
     public static LocalFrame DisableSessionAck(string status) => new(FrameType.DisableSessionAck) { Text = status };
     public static LocalFrame SteeringSet(bool on) => new(FrameType.SteeringSet) { Text = on ? SteeringIpc.On : SteeringIpc.Off };
     public static LocalFrame SteeringSetAck(string json) => new(FrameType.SteeringSetAck) { Text = json };
+    public static LocalFrame AgentCommands(string agentId) => new(FrameType.AgentCommands) { Text = agentId };
+    public static LocalFrame AgentCommandsReply(string json) => new(FrameType.AgentCommandsReply) { Text = json };
     public static LocalFrame Stop(string agentId)      => new(FrameType.Stop)       { Text = agentId };
     public static LocalFrame StopAck(string payload)    => new(FrameType.StopAck)    { Text = payload };
     public static LocalFrame StopV2(bool force, string agentId) => FrameCodec.StopV2(force, agentId);

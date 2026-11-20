@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Daemon.Services;
 /// overrides a command was given are the overrides it will honour. Fail-closed: the alternative is running a
 /// containment command that silently has no containment.</summary>
 public sealed class GitConfigTransportException(string detail)
-    : Exception("Refusing to run git with config overrides that may not apply. " + detail) { }
+    : Exception("Refusing to run git with config overrides that may not apply. " + detail);
 
 /// <summary>
 /// One git config override, as a key and a value that stay SEPARATE all the way to git.

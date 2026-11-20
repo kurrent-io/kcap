@@ -39,6 +39,25 @@ public class McpToolArgumentsTests {
     }
 
     [Test]
+    public async Task Try_read_int_lenient_reads_whole_numbers_and_skips_non_numbers() {
+        await Assert.That(McpToolArguments.TryReadIntLenient(Args("""{"n":3}"""), "n", out var n)).IsTrue();
+        await Assert.That(n).IsEqualTo(3);
+        await Assert.That(McpToolArguments.TryReadIntLenient(Args("""{"n":3.0}"""), "n", out var whole)).IsTrue();
+        await Assert.That(whole).IsEqualTo(3);
+        await Assert.That(McpToolArguments.TryReadIntLenient(new JsonObject(), "n", out var missing)).IsFalse();
+        await Assert.That(missing).IsEqualTo(0);
+        await Assert.That(McpToolArguments.TryReadIntLenient(Args("""{"n":"not-a-number"}"""), "n", out _)).IsFalse();
+        await Assert.That(McpToolArguments.TryReadIntLenient(Args("""{"n":{}}"""), "n", out _)).IsFalse();
+    }
+
+    [Test]
+    public async Task Try_read_int_lenient_throws_on_overflow_and_fractions() {
+        await Assert.That(() => McpToolArguments.TryReadIntLenient(new JsonObject { ["n"] = 5_000_000_000L }, "n", out _))
+            .Throws<ArgumentException>();
+        await Assert.That(() => McpToolArguments.TryReadIntLenient(Args("""{"n":1.5}"""), "n", out _)).Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task Try_read_long_reads_wire_integers_and_canonical_integer_strings() {
         await Assert.That(McpToolArguments.TryReadLong(Args("""{"n":9007199254740993}"""), "n", out var big)).IsTrue();
         await Assert.That(big).IsEqualTo(9007199254740993L);

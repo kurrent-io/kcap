@@ -9,9 +9,8 @@ namespace Capacitor.Cli.Core;
 ///
 /// <para>It lives in Core because the three processes that touch it cannot reference each other — the
 /// daemon writes it, the CLI reads it to attribute a service-verb readiness timeout, and the desktop
-/// app reads it to attribute a detached start. Each used to carry its own record, its own
-/// <c>JsonSerializerContext</c> and its own copy of the filename, and they had already drifted: the
-/// CLI's record omitted <c>schema</c>, so it could not make the schema check the app made.</para>
+/// app reads it to attribute a detached start. One record, one <c>JsonSerializerContext</c> and one
+/// filename keep the three from drifting apart on the shape or the schema check.</para>
 ///
 /// <para>Every entry point is contained. The daemon writes this from the pre-host boot-check block,
 /// before the logging pipeline or DI exist, and a boot refusal is itself an

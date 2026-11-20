@@ -121,6 +121,7 @@ public static class CommandServices {
         services.AddTransient<CurateCommand>();
         services.AddTransient<MemoriesCommand>();
         services.AddTransient<ArtefactCommand>();
+        services.AddTransient<SharingCommand>();
         services.AddTransient<DaemonCommands>();
         services.AddTransient<ErrorsCommand>();
         services.AddTransient<SetTitleCommand>();
@@ -132,6 +133,7 @@ public static class CommandServices {
                 ? s => FeedbackMail.Send(s, sp.GetRequiredService<IBrowserLauncher>(), Clipboard.TryCopy)
                 : null));
         services.AddTransient<HarnessCommand>();
+        services.AddTransient<IdeCommand>();
         services.AddTransient<IgnoreCommand>();
         services.AddTransient<AllowCommand>();
         services.AddTransient(_ => ImportConsole.FromProcess());
@@ -176,11 +178,13 @@ public static class CommandServices {
         services.AddTransient<McpFlowsServer>();
         services.AddTransient<McpMemoryServer>();
         services.AddTransient<McpSessionsServer>();
+        services.AddTransient<McpCaptureScope>();
         services.AddTransient<McpWorkItemsServer>();
         services.AddTransient<McpPlansServer>();
         services.AddTransient<McpHandoffServer>();
         services.AddTransient<McpAnalyticsServer>();
         services.AddTransient<McpArtefactsServer>();
+        services.AddTransient<McpSharingServer>();
         services.AddTransient<McpKnowledgeServer>();
         services.AddTransient(sp => new McpPassServer(
             sp.GetRequiredService<IPassesApi>(), sp.GetRequiredService<CapacitorServer>().Url, sp.GetRequiredService<TimeProvider>(),

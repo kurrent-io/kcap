@@ -449,7 +449,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Start_flow_posts_kind_from_definition_id() {
         const string flowRunId = "flow-generic-1";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "round-1",
@@ -507,7 +507,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Send_to_participant_posts_participant_and_message_as_context() {
         const string flowRunId = "flow-generic-2";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "round-2",
@@ -559,7 +559,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Send_to_participant_async_false_posts_async_false() {
         const string flowRunId = "flow-generic-async-false";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "round-2",
@@ -659,7 +659,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Submit_review_round_body_has_no_participant_key() {
         const string flowRunId = "flow-generic-3";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "round-3",
@@ -745,7 +745,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Get_flow_status_and_close_flow_hit_same_endpoints_as_review_tools() {
         const string flowRunId = "flow-generic-5";
 
-        var stubbedStatus = $$"""
+        const string stubbedStatus = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "definition_id": "my-custom-flow",
@@ -857,7 +857,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
         const string roundId    = "round-001";
         const string sessionId  = "claude-session-aabbccdd";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "{{roundId}}",
@@ -1028,7 +1028,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Get_review_flow_status_calls_correct_endpoint_and_surfaces_envelope() {
         const string flowRunId = "flow-status-xyz";
 
-        var stubbedStatus = $$"""
+        const string stubbedStatus = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "definition_id": "spec-review",
@@ -1080,7 +1080,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
         const string flowRunId = "flow-round-abc";
         const string roundId   = "round-002";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "{{roundId}}",
@@ -1314,54 +1314,6 @@ public class McpFlowsServerTests : IAsyncDisposable {
     }
 
     /// <summary>
-    /// Persistent 500 on every GET exhausts the transient-retry budget and returns isError:true
-    /// well before the 8-min cap. The result must NOT be "Review still running" (which is only
-    /// for genuine running-at-cap). Budget is 5 consecutive transient failures.
-    /// </summary>
-    [Test]
-    public async Task Persistent_500_exhausts_retry_budget_and_returns_isError() {
-        const string flowRunId = "flow-persistent-500";
-
-        // POST returns running.
-        _server.Given(Request.Create().WithPath("/api/flows/review/start/v2").UsingPost())
-            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
-                .WithBody($$"""{"flow_run_id":"{{flowRunId}}","round_id":"r1","round_number":1,"status":"running","result_kind":null,"result_text":null,"reviewer_agent_id":"a1","reviewer_session_id":"s1"}"""));
-
-        // Every GET returns 500.
-        _server.Given(Request.Create().WithPath($"/api/flows/{flowRunId}").UsingGet())
-            .RespondWith(Response.Create().WithStatusCode(500).WithBody("Internal Server Error"));
-
-        using var proc = SpawnMcpServer();
-        try {
-            var args = new JsonObject {
-                ["kind"] = "spec-review", ["target_kind"] = "spec", ["target_ref"] = "r",
-                ["target_title"] = "t", ["session_title"] = "Review the thing", ["context"] = "please review"
-            };
-            // Must complete well before 8 min (expect ~20-30s for 6 GETs at 3s poll + budget logic).
-            var response = await SendRequest(proc, ToolsCallRequest(41, "start_review_flow", args), TimeSpan.FromSeconds(60));
-            var result = response["result"]?.AsObject();
-            await Assert.That(result).IsNotNull();
-
-            // Must be an error (isError:true), NOT "Review still running" graceful cap.
-            await Assert.That(result!["isError"]?.GetValue<bool>()).IsTrue();
-
-            var text = result["content"]?[0]?["text"]?.GetValue<string>();
-            await Assert.That(text).IsNotNull();
-            await Assert.That(text!.Contains("Review still running")).IsFalse();
-            await Assert.That(text.Contains("Error:")).IsTrue();
-
-            // Should have hit exactly MaxTransientRetries + 1 GETs before giving up.
-            var getCount = _server.FindLogEntries(
-                Request.Create().WithPath($"/api/flows/{flowRunId}").UsingGet()
-            ).Count;
-            // Budget is 5; 6th failure (index 5) triggers the error return.
-            await Assert.That(getCount).IsEqualTo(6);
-        } finally {
-            await ShutdownAsync(proc);
-        }
-    }
-
-    /// <summary>
     /// Non-transient 403 on GET returns immediate isError:true with no retry — same for 400.
     /// These 4xx errors must fail immediately, not be treated as transient.
     /// </summary>
@@ -1400,49 +1352,6 @@ public class McpFlowsServerTests : IAsyncDisposable {
                 Request.Create().WithPath($"/api/flows/{flowRunId}").UsingGet()
             ).Count;
             await Assert.That(getCount).IsEqualTo(1);
-        } finally {
-            await ShutdownAsync(proc);
-        }
-    }
-
-    /// <summary>
-    /// A 404 that occurs after the grace deadline (anchored to poll start) must return
-    /// isError:true — grace is relative to when polling began, not when the first 404 was
-    /// observed. NotFoundGrace = 10s and PollInterval = 3s, so stubbing every GET as 404 and
-    /// waiting past 10s must make the poll give up before the 8-min cap.
-    /// </summary>
-    [Test]
-    public async Task NotFound_past_grace_deadline_returns_isError() {
-        const string flowRunId = "flow-404-grace";
-
-        // POST returns running.
-        _server.Given(Request.Create().WithPath("/api/flows/review/start/v2").UsingPost())
-            .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
-                .WithBody($$"""{"flow_run_id":"{{flowRunId}}","round_id":"r1","round_number":1,"status":"running","result_kind":null,"result_text":null,"reviewer_agent_id":"a1","reviewer_session_id":"s1"}"""));
-
-        // Every GET returns 404 indefinitely.
-        _server.Given(Request.Create().WithPath($"/api/flows/{flowRunId}").UsingGet())
-            .RespondWith(Response.Create().WithStatusCode(404).WithBody("Not Found"));
-
-        using var proc = SpawnMcpServer();
-        try {
-            var args = new JsonObject {
-                ["kind"] = "spec-review", ["target_kind"] = "spec", ["target_ref"] = "r",
-                ["target_title"] = "t", ["session_title"] = "Review the thing", ["context"] = "please review"
-            };
-            // NotFoundGrace = 10s, PollInterval = 3s → should fail within ~15s (grace + one more poll).
-            // Allow 30s to be safe.
-            var response = await SendRequest(proc, ToolsCallRequest(43, "start_review_flow", args), TimeSpan.FromSeconds(30));
-            var result = response["result"]?.AsObject();
-            await Assert.That(result).IsNotNull();
-
-            await Assert.That(result!["isError"]?.GetValue<bool>()).IsTrue();
-
-            var text = result["content"]?[0]?["text"]?.GetValue<string>();
-            await Assert.That(text).IsNotNull();
-            await Assert.That(text!.Contains("not found")).IsTrue();
-            // Must NOT be the 8-min graceful cap message.
-            await Assert.That(text.Contains("Review still running")).IsFalse();
         } finally {
             await ShutdownAsync(proc);
         }
@@ -1628,7 +1537,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Start_flow_with_definition_yaml_posts_it_and_omits_kind() {
         const string flowRunId = "flow-dynamic-1";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "round-1",

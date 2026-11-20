@@ -22,7 +22,7 @@ public static class TerminalScrollKey {
 
     static bool IsWheel(ReadOnlySpan<byte> bytes) {
         if (bytes is [0x1b, (byte)'[', (byte)'M', 96 or 97, >= 33, >= 33]) return true;
-        if (bytes.Length is < 10 or > MaxBytes || !bytes.StartsWith("\x1b[<"u8) || bytes[^1] != 'M') return false;
+        if (bytes.Length is < 10 or > MaxBytes || !bytes.StartsWith("\e[<"u8) || bytes[^1] != 'M') return false;
         if (bytes[3] != '6' || bytes[4] is not ((byte)'4' or (byte)'5') || bytes[5] != ';') return false;
         var coords = bytes[6..^1];
         var separator = coords.IndexOf((byte)';');

@@ -223,18 +223,20 @@ static partial class WorkItemEvalToolResults {
 
         if (retro.Arr("suggestions") is not { } suggestions) return;
 
-        foreach (var s in suggestions.EnumerateArray().Take(MaxListItems))
+        foreach (var s in suggestions.EnumerateArray().Take(MaxListItems)) {
             if (s.IsObject && Text(s.Str("text"), LongTextCap) is { Length: > 0 } text)
                 Line(sb, $"  suggestion ({Text(s.Str("audience"), CodeCap)}): {text}");
+        }
         More(sb, suggestions.GetArrayLength() - MaxListItems, "suggestions", indent: true);
     }
 
     static void Items(StringBuilder sb, string label, string plural, JsonElement? items) {
         if (items is not { } arr) return;
 
-        foreach (var item in arr.EnumerateArray().Take(MaxListItems))
+        foreach (var item in arr.EnumerateArray().Take(MaxListItems)) {
             if (item.IsString && Text(item.GetString(), LongTextCap) is { Length: > 0 } text)
                 Line(sb, $"  {label}: {text}");
+        }
         More(sb, arr.GetArrayLength() - MaxListItems, plural, indent: true);
     }
 

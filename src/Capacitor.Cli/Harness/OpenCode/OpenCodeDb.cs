@@ -45,6 +45,17 @@ internal sealed class OpenCodeDb : IDisposable {
         _conn.Open();
     }
 
+    /// <summary>True for an OpenCode v2 database: its sessions live in <c>session_v2</c>, with no v1
+    /// <c>session</c> table for this reader to query.</summary>
+    public bool IsV2Only() {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('session', 'session_v2')";
+        using var reader = cmd.ExecuteReader();
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        while (reader.Read()) names.Add(reader.GetString(0));
+        return names.Contains("session_v2") && !names.Contains("session");
+    }
+
     public IReadOnlyList<OpenCodeSessionRow> QueryRoots() =>
         QuerySessions("(parent_id IS NULL OR parent_id = '')", parent: null).Rows;
 
@@ -150,47 +161,16 @@ internal sealed class OpenCodeDb : IDisposable {
         bool                         CountTruncated);
 
     /// <summary>
-    /// Recursively walks <c>parent_id</c> edges from <paramref name="rootId"/> — per-level
-    /// <see cref="QueryChildren"/>, a visited-id set to guard a reachable cycle (traversal
-    /// simply stops re-descending, terminating the walk), IMPORT depth capped at
-    /// <see cref="MaxDescendantDepth"/>. In-cap discovery (depth &lt;=
-    /// <see cref="MaxDescendantDepth"/>) is ALWAYS complete — never bounded by
-    /// <see cref="MaxCountingNodes"/>. A descendant beyond the cap is never imported, but the
-    /// walk still recurses into it (same visited-set guard) purely to COUNT the whole omitted
-    /// subtree accurately and surface its identities — this below-cap-only counting/signature
-    /// walk is what <see cref="MaxCountingNodes"/> bounds; if it's hit,
-    /// <see cref="DescendantDiscoveryResult.CountTruncated"/> is set and the omitted count/ids
-    /// become a lower bound instead of silently under-reporting as complete.
-    ///
-    /// <para>The in-cap and below-cap walks run over two INDEPENDENT frontiers. A below-cap
-    /// descendant's own descendants are always below-cap too (depth only grows), so the split is
-    /// safe and lets the below-cap walk be abandoned the instant it truncates, without disturbing
-    /// the in-cap walk's completeness guarantee: once truncation is established, the below-cap
-    /// frontier is dropped rather than drained node-by-node.</para>
-    ///
-    /// <para>Because <see cref="MaxDescendantDepth"/> gates the in-cap frontier's own enqueue
-    /// (a child is only ever added to <c>inCapFrontier</c> when its depth is &lt;=
-    /// <see cref="MaxDescendantDepth"/>), every node dequeued from it has depth in
-    /// <c>0..MaxDescendantDepth</c> — so a node at exactly <see cref="MaxDescendantDepth"/> has
-    /// children that are ALL necessarily below the cap. That single call — where an unbounded
-    /// <see cref="QueryChildren"/> could still force reading and allocating an entire
-    /// (potentially enormous) child row set before truncation was even detectable — goes through
-    /// <see cref="QueryChildrenBounded"/> instead, capped to (remaining counting capacity + 1
-    /// sentinel row). An in-cap parent (depth &lt; <see cref="MaxDescendantDepth"/>) keeps the
-    /// unbounded <see cref="QueryChildren"/> — its children are always in-cap.</para>
-    ///
-    /// <para>A bounded fetch's <c>limit</c> caps RAW rows, but <see cref="QuerySessions"/>
-    /// filters malformed rows and this walk dedups already-visited ids AFTER the fetch — so a
-    /// malformed or duplicate row landing inside the bounded window could consume the sole
-    /// sentinel row without itself being counted as an omitted descendant, letting a
-    /// genuinely-omitted valid descendant just past it go undetected and the walk falsely
-    /// conclude <see cref="DescendantDiscoveryResult.CountTruncated"/> is <c>false</c>.
-    /// <see cref="QueryChildrenBounded"/> reports whether the RAW <c>LIMIT</c> was actually
-    /// exhausted (<c>HitLimit</c>); if so, truncation is asserted regardless of how many rows in
-    /// the batch turned out valid — the only case that can't prove otherwise is a raw count
-    /// strictly below the limit (definite EOF). This can over-report truncation in the rare case
-    /// where the directory holds exactly <c>limit</c> raw rows and no more (safe: the omitted
-    /// count/ids were already documented as a lower bound once truncated).</para>
+    /// Walks <c>parent_id</c> edges from <paramref name="rootId"/>, guarding cycles with a visited set.
+    /// Descendants within <see cref="MaxDescendantDepth"/> are always found completely. Those below it are
+    /// never imported but are still walked to count and identify the omitted subtree; that walk alone is
+    /// bounded by <see cref="MaxCountingNodes"/>, and hitting it sets
+    /// <see cref="DescendantDiscoveryResult.CountTruncated"/>, making the omitted figures a lower bound.
+    /// <para>The two walks use separate frontiers, so the below-cap one can be dropped the moment it
+    /// truncates. A node at exactly the cap has only below-cap children, so it is the one call that goes
+    /// through <see cref="QueryChildrenBounded"/>.</para>
+    /// <para>Malformed and duplicate rows are dropped after the fetch and could use up the sentinel row, so
+    /// a raw <c>LIMIT</c> hit (<c>HitLimit</c>) asserts truncation regardless of how many rows were valid.</para>
     /// </summary>
     public DescendantDiscoveryResult QueryDescendants(string rootId) {
         var result         = new List<DescendantRow>();
@@ -354,7 +334,7 @@ internal sealed class OpenCodeDb : IDisposable {
                 partNode["messageID"] = r.GetString(3);
                 partNode["sessionID"] = r.GetString(4);
                 // Cast to JsonNode so the non-generic Add(JsonNode?) overload is chosen —
-                // the generic Add<T>(T) trips IL2026/IL3050 under AOT (see CLAUDE.md).
+                // the generic Add<T>(T) trips IL2026/IL3050 under AOT (see AGENTS.md).
                 parts!.Add((JsonNode)partNode);
             }
         }

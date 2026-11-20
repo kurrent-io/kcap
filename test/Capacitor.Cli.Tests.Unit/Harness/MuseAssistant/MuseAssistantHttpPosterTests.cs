@@ -96,9 +96,12 @@ public class MuseAssistantHttpPosterTests : IDisposable {
 
     [Test]
     public async Task An_unreachable_server_is_a_refusal_not_an_exception() {
-        var poster = new MuseAssistantHttpPoster(Resolutions.Of(new() { ServerUrl = "http://127.0.0.1:9" }), new FixedCapacitorHttpClient(), TimeProvider.System);
+        var time   = new FakeTimeProvider();
+        var poster = new MuseAssistantHttpPoster(Resolutions.Of(new() { ServerUrl = "http://127.0.0.1:9" }), new FixedCapacitorHttpClient(), time);
 
-        var refused = await poster.SendAsync(new MuseAssistantEndSession(Session, 1, null, State), "chat-main", default);
+        var sending = poster.SendAsync(new MuseAssistantEndSession(Session, 1, null, State), "chat-main", default);
+        for (var i = 0; !sending.IsCompleted && i++ < 1000;) { time.Advance(TimeSpan.FromSeconds(1)); await Task.Delay(1); }
+        var refused = await sending.WaitAsync(TimeSpan.FromSeconds(10));
 
         await Assert.That(refused).Contains("127.0.0.1:9");
     }

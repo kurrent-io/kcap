@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using System.Collections.Concurrent;
+using System.Text;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Time.Testing;
@@ -160,6 +161,39 @@ public class VendorModelCatalogsTests {
 
         await Assert.That(CatalogPathStat.Of(path, previous).Digest).IsEqualTo("untouched");
         await Assert.That(CatalogPathStat.Of(path, previous with { Length = first.Length + 1 }).Digest).IsEqualTo(first.Digest);
+    }
+
+    /// A rewrite another build of the vendor made keeps the digest the probed build's last write had,
+    /// and takes the new size and write time so the next tick does not read the file again.
+    [Test]
+    public async Task CatalogPathStat_keeps_the_previous_digest_for_a_write_the_probed_cli_did_not_make() {
+        var path     = Tmp.CreateFile("models_cache.json", """{"client_version":"1.0.0","models":["a"]}""");
+        var previous = CatalogPathStat.Of(path);
+        File.WriteAllText(path, """{"client_version":"2.0.0","models":["a","b"]}""");
+
+        var current = CatalogPathStat.Of(path, previous, (_, content) => !Encoding.UTF8.GetString(content).Contains("2.0.0"));
+
+        await Assert.That(current.SameCatalogAs(previous)).IsTrue();
+        await Assert.That(CatalogPathStat.Of(path, current with { Digest = "untouched" }).Digest).IsEqualTo("untouched");
+    }
+
+    [Test]
+    public async Task CatalogPathStat_takes_a_write_the_probed_cli_made() {
+        var path     = Tmp.CreateFile("models_cache.json", """{"client_version":"1.0.0","models":["a"]}""");
+        var previous = CatalogPathStat.Of(path);
+        File.WriteAllText(path, """{"client_version":"1.0.0","models":["a","b"]}""");
+
+        await Assert.That(CatalogPathStat.Of(path, previous, (_, _) => true).SameCatalogAs(previous)).IsFalse();
+    }
+
+    /// Codex restamps these on every refetch of an unchanged list.
+    [Test]
+    public async Task CatalogPathStat_ignores_the_models_cache_freshness_and_identity_stamps() {
+        var path     = Tmp.CreateFile("models_cache.json", """{"fetched_at":"t1","etag":"e1","identity":"i1","client_version":"1.0.0","models":["a"]}""");
+        var previous = CatalogPathStat.Of(path);
+        File.WriteAllText(path, """{"fetched_at":"t2","etag":"e2","identity":"i2","client_version":"1.0.0","models":["a"]}""");
+
+        await Assert.That(CatalogPathStat.Of(path, previous).SameCatalogAs(previous)).IsTrue();
     }
 
     /// A file that exists but cannot be read is one a vendor holds mid-rewrite: it keeps the previous

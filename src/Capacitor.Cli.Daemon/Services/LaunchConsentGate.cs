@@ -7,7 +7,7 @@ internal sealed record LaunchConsentPromptRequest(
     string RequestId, string? Requester, string Kind, string RepoPath, string Vendor,
     string RequestedAt, int TimeoutSeconds, string? RequesterDisplay, string PromptId);
 
-/// Implemented by LaunchConsentBroker (Task 6). Null answer = timeout / subscriber vanished.
+/// Implemented by LaunchConsentBroker. Null answer = timeout / subscriber vanished.
 internal interface ILaunchConsentPrompter {
     /// No production reader — DecideAsync no longer short-circuits on this; it always goes through
     /// <see cref="WaitForSubscriberAsync"/>. Kept for tests/diagnostics.
@@ -38,14 +38,13 @@ internal sealed class LaunchConsentGate(
             return Done(agentId, input, allowed: false, source: "prompt_no_ui",
                 detail: "owner approval required and no approval UI is attached to this daemon");
 
-        // Deadline discipline (spec §3.2): one monotonic anchor for the whole prompt path. Every
+        // Deadline discipline: one monotonic anchor for the whole prompt path. Every
         // wait duration below is computed immediately before waiting from Remaining() — never
         // from a stored/accumulated elapsed value — so setup/scheduling time between anchoring
         // and waiting can only shrink a wait, never push it past the deadline. `ct` firing below
         // (WaitForSubscriberAsync or PromptAsync) propagates OperationCanceledException uncaught
         // — deliberately not handled here: external cancellation must abort the launch without
-        // fabricating a decision, so Done()/the decision log is never reached for that case
-        // (spec §3.2 "Cancellation").
+        // fabricating a decision, so Done()/the decision log is never reached for that case.
         var timeout     = TimeSpan.FromSeconds(policy.PromptTimeoutSeconds);
         var start       = time.GetTimestamp();           // monotonic anchor; the ONE deadline
         var requestedAt = time.GetUtcNow().ToString("O"); // countdown metadata anchors here too

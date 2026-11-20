@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Http;
 using WireMock.RequestBuilders;
@@ -21,7 +22,7 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 /// <c>ClaudeHookStdoutTests</c>: the SUT writes to the process-global <see cref="Console.Out"/>,
 /// and a group key alone would not stop a different file's test from leaking into the capture.
 /// </summary>
-public class ValidatePlanCommandTests : IDisposable {
+public partial class ValidatePlanCommandTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
     const string SessionId = "9dc2775376454e4691ecc2d69973c152";
@@ -270,7 +271,7 @@ public class ValidatePlanCommandTests : IDisposable {
             .RespondWith(Response.Create().WithStatusCode(404));
 
         // Legacy path: a single recap call carrying a "plan" entry plus the usual work/whats_done.
-        var extra = $$""", {"type":"plan","session_id":"{{SessionId}}","agent_id":null,"agent_type":null,"content":"Legacy plan text","file_path":null,"timestamp":"2026-06-30T00:00:00Z"}""";
+        const string extra = $$""", {"type":"plan","session_id":"{{SessionId}}","agent_id":null,"agent_type":null,"content":"Legacy plan text","file_path":null,"timestamp":"2026-06-30T00:00:00Z"}""";
         _server.Given(Request.Create().WithPath($"/api/sessions/{SessionId}/recap").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody(RecapJson(extra)));
 
@@ -381,13 +382,13 @@ public class ValidatePlanCommandTests : IDisposable {
 
         await Assert.That(stdout).Contains("[plan content unavailable due to size bounds]");
         await Assert.That(stdout).Contains("Validation is not possible");
-        // review finding 3: distinguishable from success (0) and from a generic error (1).
+        // Distinguishable from success (0) and from a generic error (1).
         await Assert.That(exitCode).IsEqualTo(2);
     }
 
     [Test, NotInParallel]
     public async Task Truncated_primary_with_null_original_bytes_falls_back_to_unknown_total_marker() {
-        // review finding 2: OriginalBytes is nullable — a malformed/edge response could
+        // OriginalBytes is nullable — a malformed/edge response could
         // omit it even on a "truncated" artifact. The marker must stay well-formed ("of ? bytes"),
         // never "of  bytes".
         const string content = "Truncated prefix with no known original size...";
@@ -434,7 +435,7 @@ public class ValidatePlanCommandTests : IDisposable {
 
     [Test, NotInParallel]
     public async Task Truncated_primary_with_null_content_renders_like_unavailable() {
-        // review finding 2: content_state=="truncated" with Content == null is an edge
+        // content_state=="truncated" with Content == null is an edge
         // shape the server contract doesn't normally produce, but the CLI must not print
         // "first 0 of {n} bytes" — treat it like "unavailable" (placeholder + exit 2 since this
         // is the primary).
@@ -673,7 +674,7 @@ public class ValidatePlanCommandTests : IDisposable {
 
         // The primary's content is rendered exactly once (not duplicated because it
         // also appears in the "artifacts" array).
-        var occurrences = System.Text.RegularExpressions.Regex.Count(stdout, "PRIMARY-CONTENT");
+        var occurrences = PrimaryContent().Count(stdout);
         await Assert.That(occurrences).IsEqualTo(1);
     }
 
@@ -775,4 +776,7 @@ public class ValidatePlanCommandTests : IDisposable {
         await Assert.That(stdout).DoesNotContain("### Summary");
         await Assert.That(stdout).Contains("- Write: docs/adr/0007-charts.md");
     }
+
+    [GeneratedRegex("PRIMARY-CONTENT")]
+    private static partial Regex PrimaryContent();
 }

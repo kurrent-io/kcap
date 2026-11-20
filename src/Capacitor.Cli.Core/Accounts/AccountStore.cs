@@ -29,7 +29,10 @@ public sealed class AccountStore {
         new(Path.Combine(Path.GetDirectoryName(daemons.Directory)!, "accounts"));
 
     /// <summary>Not re-entrant: never call <see cref="HostId"/>, <see cref="Mutate{T}"/> or <see cref="MutateWithReadings{T}"/> while holding it.</summary>
-    public IDisposable Lock() => ConfigFileLock.Acquire(LockPath);
+    public IDisposable Lock() => ConfigFileLock.Acquire(LockPath, LockWait);
+
+    /// <summary>How long <see cref="Lock"/> waits out another holder; null is <see cref="ConfigFileLock"/>'s default.</summary>
+    internal TimeSpan? LockWait { get; init; }
 
     /// <summary>How long a missing registry is looked for again while a save is replacing it. On Windows the
     /// name can be absent for a moment inside the rename, and a lock-free reader that took that for "no

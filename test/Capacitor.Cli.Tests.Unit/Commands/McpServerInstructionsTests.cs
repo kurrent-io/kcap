@@ -18,6 +18,9 @@ public class McpServerInstructionsTests {
         yield return () => ("kcap-review", McpReviewServer.ServerInstructions);
         yield return () => ("kcap-sessions", McpSessionsServer.ServerInstructions);
         yield return () => ("kcap-workitems", McpWorkItemsServer.ServerInstructions);
+        yield return () => ("kcap-pages out of scope", McpArtefactsServer.OutOfScopeInstructions);
+        yield return () => ("kcap-plans out of scope", McpPlansServer.OutOfScopeInstructions);
+        yield return () => ("kcap-workitems out of scope", McpWorkItemsServer.OutOfScopeInstructions);
     }
 
     [Test]

@@ -127,9 +127,10 @@ static class JudgeErrorDigest {
     static string? Operation(JsonElement? input) {
         if (input is not { } value || value.IsNull) return null;
 
-        foreach (var key in OperationKeys)
+        foreach (var key in OperationKeys) {
             if (value.Str(key) is { Length: > 0 } s)
                 return Collapse(s);
+        }
 
         var raw = Collapse(value.GetRawText());
         return raw is "{}" or "[]" or "" ? null : raw;

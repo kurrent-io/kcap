@@ -31,7 +31,7 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
 
     // Seams (assigned from DI in the production ctor; overridden directly in tests).
     internal Func<string, CliBinaryStat?>                    StatBinary;
-    internal Func<string, CatalogPathStat?, CatalogPathStat> StatCatalog = CatalogPathStat.Of;
+    internal Func<string, CatalogPathStat?, CatalogPathStat> StatCatalog = static (path, previous) => CatalogPathStat.Of(path, previous);
     internal Action<string>                                  Refresh;
     // A vendor's CLI path is read per tick: a desktop app's bundled CLI moves to a new directory on update.
     internal Func<string, string?>                           CurrentCliPath = _ => null;
@@ -68,6 +68,8 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
         StatBinary = path => StatCliBinary(config.Binaries, path);
         CurrentCliPath = vendor => factories.TryGetValue(vendor, out var factory) ? factory.CliPath : null;
         LateCatalogs   = () => config.LateCatalogKeys.Keys;
+        StatCatalog    = (path, previous) => CatalogPathStat.Of(path, previous,
+            (file, content) => factories.Values.All(f => f.CatalogWrittenByProbedCli(file, content)));
         Watched    = [];
         accounts.Changed += OnAccountsChanged;
     }
@@ -84,7 +86,7 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
         Watched           = watched;
         Refresh           = refresh;
         StatBinary        = stat;
-        StatCatalog       = statCatalog ?? CatalogPathStat.Of;
+        StatCatalog       = statCatalog ?? (static (path, previous) => CatalogPathStat.Of(path, previous));
     }
 
     internal static VendorCliWatcher ForTest(
@@ -103,9 +105,10 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
             DaemonConfig config, IReadOnlyDictionary<string, IHostedAgentRuntimeFactory> factories,
             AccountsSnapshotDto? accounts = null) {
         var vendors = new HashSet<string>(config.UnattendedVendors ?? [], StringComparer.Ordinal);
-        foreach (var f in factories.Values)
+        foreach (var f in factories.Values) {
             if (f.CatalogFingerprintPaths.Count > 0 || (config.VendorModels?.ContainsKey(f.Vendor) ?? false))
                 vendors.Add(f.Vendor);
+        }
 
         var perAccount = VendorModelCatalogs.AccountFactory(factories.Values, config.SupportedVendors ?? []) is { } accountFactory
             ? VendorModelCatalogs.AccountsIn(accounts).Select(a =>

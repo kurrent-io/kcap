@@ -77,7 +77,7 @@ public partial class InstallLocationWindow : Window {
             if (DestinationPicker.Items.OfType<ComboBoxItem>().FirstOrDefault(item => Equals(item.Tag, userApps)) is { } item)
                 DestinationPicker.SelectedItem = item;
             else
-                ShowPlan(selectDestination!(userApps));
+                ShowPlan(selectDestination(userApps));
             if (shown?.Action == ApplicationsInstallAction.Install) _actionLabel = "Install for me only";
             ShowError($"kcap cannot write to {denied}. You can install it in {userApps} for your account only.");
         }

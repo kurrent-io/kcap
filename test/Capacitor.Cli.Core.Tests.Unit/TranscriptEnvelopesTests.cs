@@ -75,6 +75,16 @@ public class TranscriptEnvelopesTests {
     }
 
     [Test]
+    public async Task A_compaction_and_a_retraction_are_notes() {
+        var compacted = TranscriptEnvelopes.From(Ev(new ContextCompactedEvent { PreTokens = 9 })).Single();
+        var retracted = TranscriptEnvelopes.From(Ev(new UserMessageRetractedEvent { MessageId = Guid.NewGuid() })).Single();
+
+        await Assert.That((compacted.Kind, compacted.Text)).IsEqualTo((AcpEventKind.SystemNote, TranscriptEnvelopes.CompactedNote));
+        await Assert.That((retracted.Kind, retracted.Text)).IsEqualTo((AcpEventKind.SystemNote, TranscriptEnvelopes.RetractedNote));
+        await Assert.That(retracted.TimestampIso).IsEqualTo("2026-08-26T12:00:00Z");
+    }
+
+    [Test]
     public async Task Payloads_the_chat_cannot_show_map_to_nothing() {
         await Assert.That(TranscriptEnvelopes.From(Ev(new SessionStarted()))).IsEmpty();
         await Assert.That(TranscriptEnvelopes.From(new CanonicalEvent("Other", new object(), Guid.NewGuid(), At))).IsEmpty();

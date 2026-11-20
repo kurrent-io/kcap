@@ -32,7 +32,7 @@ public class InteractiveLifetimeTests {
 
         InteractiveLifetime.ShowCursor(error, errorRedirected: false, output, outputRedirected: false);
 
-        await Assert.That(error.ToString()).IsEqualTo("\u001b[?25h");
+        await Assert.That(error.ToString()).IsEqualTo("\e[?25h");
         await Assert.That(output.ToString()).IsEqualTo("");
     }
 
@@ -44,7 +44,7 @@ public class InteractiveLifetimeTests {
         InteractiveLifetime.ShowCursor(error, errorRedirected: true, output, outputRedirected: false);
 
         await Assert.That(error.ToString()).IsEqualTo("");
-        await Assert.That(output.ToString()).IsEqualTo("\u001b[?25h");
+        await Assert.That(output.ToString()).IsEqualTo("\e[?25h");
     }
 
     [Test]

@@ -156,10 +156,11 @@ public class SkillsDeletionTests {
         var sibling = Tmp.CreateDir("repo", "skills-backup", "kcap-foo");
         var plain   = Tmp.CreateDir("repo", "skills", "authored");
 
-        foreach (var victim in (string[])[nested, sibling, plain])
+        foreach (var victim in (string[])[nested, sibling, plain]) {
             await Assert.That(SkillsDeletion.Delete(Row(victim, root, anchor, null),
                                                     new SkillAuthority(root, anchor)))
                 .IsEqualTo(SkillDeletionResult.Refused);
+        }
 
         await Assert.That(Directory.Exists(nested)).IsTrue();
         await Assert.That(Directory.Exists(sibling)).IsTrue();

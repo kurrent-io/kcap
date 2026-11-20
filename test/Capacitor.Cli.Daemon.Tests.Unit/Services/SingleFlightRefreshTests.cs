@@ -63,13 +63,14 @@ public class SingleFlightRefreshTests {
         var concurrent = 0;
         var maxSeen    = 0;
 
-        foreach (var _ in Enumerable.Range(0, 25))
+        foreach (var _ in Enumerable.Range(0, 25)) {
             refresh.Trigger(async () => {
                 var now = Interlocked.Increment(ref concurrent);
                 InterlockedMax(ref maxSeen, now);
                 await Task.Delay(5);
                 Interlocked.Decrement(ref concurrent);
             });
+        }
         await refresh.Current;
 
         await Assert.That(maxSeen).IsEqualTo(1);
@@ -121,9 +122,9 @@ public class SingleFlightRefreshTests {
     }
 
 
-    // Codex review round 4: a DISCARDED task is not an asynchronous boundary. The refresh delegate
+    // A DISCARDED task is not an asynchronous boundary. The refresh delegate
     // computes capabilities synchronously (it shells out to probe CLI versions) before awaiting
-    // anything, so `_ = RequestAsync(...)` still ran the whole probe budget on the launch's stack.
+    // anything, so `_ = RequestAsync(...)` would still run the whole probe budget on the launch's stack.
     // Trigger must return before a delegate that blocks synchronously has finished.
     [Test] public async Task Trigger_returns_before_a_synchronously_blocking_delegate_completes() {
         var refresh  = new SingleFlightRefresh();

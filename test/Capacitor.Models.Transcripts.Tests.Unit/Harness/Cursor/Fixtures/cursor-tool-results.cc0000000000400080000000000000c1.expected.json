@@ -1,0 +1,126 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "4d4fc94b-78dd-5112-9318-3c82e48fcf08",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "0"
+        },
+        "payload": {
+          "content": "Map how src/Acp/AcpClient.cs opens and closes a session, and report the entry points.",
+          "messageId": "line:0",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "5cefc8ff-2525-579b-9ea7-552f5dcb6521",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "1"
+        },
+        "payload": {
+          "content": "Reading the client.",
+          "messageId": "line:1",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "5fff8c9f-f79f-5f05-9c83-e352a460f85e",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "1"
+        },
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "toolu_c1Read",
+              "toolName": "Read",
+              "arguments": {
+                "path": "/Users/johndoe/dev/acme-api/src/Acp/AcpClient.cs"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "messageId": "line:1",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "96aef979-872c-52a4-a5d9-c7a5d6109ec3",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "2"
+        },
+        "payload": {
+          "callId": "toolu_c1Read",
+          "result": "public sealed class AcpClient {\n    public Task\u003CAcpSession\u003E OpenAsync() =\u003E AcpSession.StartAsync();\n}",
+          "messageId": "line:2",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "6b4ff709-3ec1-56ac-9953-e1d7c270c4f5",
+        "timestamp": "2026-11-15T10:00:00.0000000\u002B00:00",
+        "recordTimestamp": null,
+        "metadata": {
+          "$source": "cursor-live",
+          "line": "3"
+        },
+        "payload": {
+          "content": "AcpClient.OpenAsync starts a session; AcpSession.DisposeAsync closes it.",
+          "messageId": "line:3",
+          "createdAt": "2026-11-15T10:00:00Z",
+          "timestamp": "2026-11-15T10:00:00Z"
+        }
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  }
+]

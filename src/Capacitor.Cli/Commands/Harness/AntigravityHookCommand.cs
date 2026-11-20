@@ -92,7 +92,7 @@ sealed class AntigravityHookCommand(
         // Canonical dashless id — matches how `kcap watch` and `kcap disable` normalize ids,
         // so session-start, the watcher's transcript batches, and disable all resolve to ONE
         // stream (the dashed conversationId is kept only for the transcript file path).
-        var sessionId = conversationId!.Replace("-", "");
+        var sessionId = conversationId.Replace("-", "");
 
         var cwd = ResolveWorkspace(payload, workspaceFallback ?? AgentWorkspaceCwd);
 
@@ -108,7 +108,7 @@ sealed class AntigravityHookCommand(
         }
 
         var hookBudget = clock.Budget(Ceiling);
-        return await HandleSessionStart(sessionId, transcriptPath!, cwd, payload, activeProfile, stdout, hookBudget);
+        return await HandleSessionStart(sessionId, transcriptPath, cwd, payload, activeProfile, stdout, hookBudget);
     }
 
     /// <summary>
@@ -200,8 +200,7 @@ sealed class AntigravityHookCommand(
             SessionStartMemoryHookSupport.FlowsLaneDisabled(HarnessId.Antigravity, harnesses, audience: audience),
             budget.Remaining);
 
-        // Task 6: spawn-before-post. Route through the shared spool-aware poster (which
-        // replaced this dispatcher's former bespoke poster) — a lapse/outage durably spools the
+        // Spawn-before-post. Route through the shared spool-aware poster — a lapse/outage durably spools the
         // payload for a later drain AND still proceeds to spawn the watcher, so capture never
         // depends on lifecycle-POST delivery. Only a permanent Failed withholds the watcher.
         //

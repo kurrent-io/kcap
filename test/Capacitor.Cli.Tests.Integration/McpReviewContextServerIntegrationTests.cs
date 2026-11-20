@@ -13,7 +13,7 @@ public class McpReviewContextServerIntegrationTests {
 
     [Test]
     public async Task Daemon_context_mode_starts_without_backend_and_performs_one_exact_get() {
-        var token = "0123456789abcdef0123456789abcdef";
+        const string token = "0123456789abcdef0123456789abcdef";
         var portProbe = new TcpListener(IPAddress.Loopback, 0);
         portProbe.Start();
         var port = ((IPEndPoint)portProbe.LocalEndpoint).Port;
@@ -22,7 +22,7 @@ public class McpReviewContextServerIntegrationTests {
         using var listener = new HttpListener();
         listener.Prefixes.Add($"http://127.0.0.1:{port}/{token}/");
         listener.Start();
-        var manifest = "{\"schemaVersion\":1,\"entries\":[]}";
+        const string manifest = "{\"schemaVersion\":1,\"entries\":[]}";
         using var config = new TempConfigRoot();
         var requests = 0;
         var serve = Task.Run(async () => {

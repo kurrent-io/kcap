@@ -26,9 +26,10 @@ public class McpStdioLoopTests {
         public IEnumerable<string> Ids => _lines.Select(l => l["id"]!.ToJsonString());
 
         public async Task WaitForAsync(int count) {
-            while (_lines.Count < count)
+            while (_lines.Count < count) {
                 if (!await _written.WaitAsync(TimeSpan.FromSeconds(10)))
                     throw new TimeoutException($"Expected {count} responses, saw {_lines.Count}.");
+            }
         }
 
         protected override void Dispose(bool disposing) {

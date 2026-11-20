@@ -1,8 +1,8 @@
 namespace Capacitor.Cli.Recording.Harness.Claude;
 
-using Capacitor.Cli.Core;
+using Core;
 using Capacitor.Cli.Core.Harness.Claude;
-using Capacitor.Cli.Core.Policy;
+using Core.Policy;
 
 /// <summary>
 /// Reads a judged session's transcript backlog from the recorder's host, off every hook's path, so the

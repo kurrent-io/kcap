@@ -5,8 +5,8 @@ namespace Capacitor.Cli.Core.Tests.Unit.Harness.Antigravity;
 /// <summary>
 /// Unit tests for <see cref="AntigravitySubagents"/>. The child→parent map is
 /// built from the parent transcript's <c>INVOKE_SUBAGENT</c> steps (the spawn-time signal) rather
-/// than the child-reports-back <c>messages/*.json</c> scan used previously, which
-/// missed children that never reported back.
+/// than a child-reports-back <c>messages/*.json</c> scan, which misses children that
+/// never report back.
 /// </summary>
 public class AntigravitySubagentsTests {
     static void MakeBrainDir(string home, string convId) =>

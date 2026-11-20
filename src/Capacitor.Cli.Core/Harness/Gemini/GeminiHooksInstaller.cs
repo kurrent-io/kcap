@@ -1,5 +1,3 @@
-using System.Text.Json.Nodes;
-
 namespace Capacitor.Cli.Core.Harness.Gemini;
 
 /// <summary>
@@ -17,47 +15,12 @@ public static class GeminiHooksInstaller {
     /// presence OR an existing <c>kcap hook --gemini</c> entry in settings.json
     /// (the latter covers pre-marker installs).
     /// </summary>
-    public static bool IsInstalled(string settingsPath) {
-        var dir = Path.GetDirectoryName(settingsPath);
-        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return false;
+    public static bool IsInstalled(string settingsPath) =>
+        HooksJson.IsInstalled(settingsPath, MarkerFileName, GeminiHooksParser.EntryReferencesCapacitorGeminiHook);
 
-        if (File.Exists(Path.Combine(dir, MarkerFileName))) return true;
-        if (!File.Exists(settingsPath)) return false;
+    public static string? ReadMarker(string settingsPath) => InstallMarker.Read(settingsPath, MarkerFileName);
 
-        try {
-            if (JsonNode.Parse(File.ReadAllText(settingsPath)) is not JsonObject root) return false;
-            if (root["hooks"] is not JsonObject hooks) return false;
+    public static void WriteMarker(string settingsPath) => InstallMarker.Write(settingsPath, MarkerFileName);
 
-            foreach (var (_, entries) in hooks) {
-                if (entries is JsonArray arr && arr.Any(GeminiHooksParser.EntryReferencesCapacitorGeminiHook)) {
-                    return true;
-                }
-            }
-        } catch { /* Malformed → treat as not installed. */ }
-        return false;
-    }
-
-    public static string? ReadMarker(string settingsPath) {
-        var dir = Path.GetDirectoryName(settingsPath);
-        if (string.IsNullOrEmpty(dir)) return null;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { return File.Exists(marker) ? File.ReadAllText(marker).Trim() : null; }
-        catch { return null; }
-    }
-
-    public static void WriteMarker(string settingsPath) {
-        var dir = Path.GetDirectoryName(settingsPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        try {
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, MarkerFileName), CapacitorVersion.Current());
-        } catch { /* best effort */ }
-    }
-
-    public static void DeleteMarker(string settingsPath) {
-        var dir = Path.GetDirectoryName(settingsPath);
-        if (string.IsNullOrEmpty(dir)) return;
-        var marker = Path.Combine(dir, MarkerFileName);
-        try { if (File.Exists(marker)) File.Delete(marker); } catch { }
-    }
+    public static void DeleteMarker(string settingsPath) => InstallMarker.Delete(settingsPath, MarkerFileName);
 }

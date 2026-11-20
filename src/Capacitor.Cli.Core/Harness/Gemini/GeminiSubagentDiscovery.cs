@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Core.Harness.Gemini;
 
@@ -94,46 +93,12 @@ public static class GeminiSubagentDiscovery {
         int                           UnreadableDescendantDirs);
 
     /// <summary>
-    /// Recursively discovers every descendant subagent transcript under
-    /// <paramref name="rootTranscriptPath"/>: the root's own <c>chats/&lt;root&gt;/*.jsonl</c>,
-    /// then — for each discovered subagent — that subagent's OWN <c>chats/&lt;sub&gt;/*.jsonl</c>,
-    /// and so on. Child directories are always derived from the ROOT's <c>chats/</c> directory,
-    /// never relative to a nested dir. Deterministic BFS (files ordered by filename at each
-    /// level); a visited-id set guards against a reachable cycle (it simply stops re-descending,
-    /// terminating the walk). In-cap discovery (depth &lt;= <see cref="MaxDescendantDepth"/>) is
-    /// ALWAYS complete — never bounded by <see cref="MaxCountingNodes"/>. Depth &gt;
-    /// <see cref="MaxDescendantDepth"/> is never imported, but the walk still recurses into it
-    /// (same visited-set guard) purely to COUNT the whole omitted subtree accurately and surface
-    /// its identities — this below-cap-only counting/signature walk is what
-    /// <see cref="MaxCountingNodes"/> bounds; if it's hit,
-    /// <see cref="DescendantDiscoveryResult.CountTruncated"/> is set and the omitted count/ids
-    /// become a lower bound instead of silently under-reporting as complete. Import-only for now
-    /// (see <see cref="EnumerateSubagentFiles"/>).
-    ///
-    /// <para>The in-cap and below-cap walks run over two INDEPENDENT frontiers, mirroring
-    /// <c>OpenCodeDb.QueryDescendants</c>. A below-cap descendant's own descendants are always
-    /// below-cap too (depth only grows), so the split is safe and lets the below-cap walk be
-    /// abandoned the instant it truncates, without disturbing the in-cap walk's completeness
-    /// guarantee: once truncation is established, the below-cap frontier is dropped rather than
-    /// drained node-by-node.</para>
-    ///
-    /// <para>A below-cap parent's own directory read goes through a bounded enumerator capped to
-    /// (remaining counting capacity + 1 sentinel entry) rather than the unbounded, full-sort
-    /// enumerator used for in-cap parents — since a child is only ever enqueued onto the in-cap
-    /// frontier when its own depth is &lt;= <see cref="MaxDescendantDepth"/>, a dequeued node at
-    /// exactly that depth has children that are ALL necessarily below the cap, so a single parent
-    /// with an enormous below-cap fan-out can't force listing (and sorting) its entire directory
-    /// before truncation is even detectable.</para>
-    ///
-    /// <para>The bounded enumerator reports whether the RAW read actually reached <c>limit</c>
-    /// entries, not merely how many of them turned out to be well-formed/unvisited — a malformed
-    /// or already-visited entry landing inside the bounded window would otherwise consume the
-    /// sole sentinel slot without itself counting as omitted, letting a genuinely-omitted
-    /// descendant just past it go undetected. When the raw read hits the limit, truncation is
-    /// asserted regardless of how many entries turned out valid; only a raw count strictly below
-    /// the limit is definite EOF. This can over-report truncation in the rare case where a
-    /// directory holds exactly <c>limit</c> raw entries and no more — safe, since a truncated
-    /// result is already documented as a lower bound.</para>
+    /// Discovers every descendant subagent transcript under <paramref name="rootTranscriptPath"/>, breadth
+    /// first in filename order, deriving each child directory from the root's <c>chats/</c>. Same depth,
+    /// counting and truncation contract as <c>OpenCodeDb.QueryDescendants</c>: complete within
+    /// <see cref="MaxDescendantDepth"/>, below it counted up to <see cref="MaxCountingNodes"/> on a
+    /// separate frontier. A node at the cap lists its directory through a bounded enumerator, and a raw
+    /// read reaching the limit asserts truncation however many entries were valid. Import only.
     /// </summary>
     public static DescendantDiscoveryResult EnumerateDescendantFiles(string rootTranscriptPath) =>
         EnumerateDescendantFiles(rootTranscriptPath, onDequeueBelowCapNode: null);
@@ -148,10 +113,12 @@ public static class GeminiSubagentDiscovery {
     /// with the number of raw directory entries actually pulled from the OS enumeration to
     /// satisfy it, letting a regression test prove a single below-cap parent's own directory read
     /// never pulls more than (remaining counting capacity + 1) entries, no matter how many files
-    /// that directory truly holds.
+    /// that directory truly holds. <paramref name="maxCountingNodes"/> stands in for
+    /// <see cref="MaxCountingNodes"/>, so a test reaches the ceiling with tens of files.
     /// </summary>
     internal static DescendantDiscoveryResult EnumerateDescendantFiles(
-        string rootTranscriptPath, Action? onDequeueBelowCapNode, Action<int>? onBelowCapDirectoryRead = null) {
+        string rootTranscriptPath, Action? onDequeueBelowCapNode, Action<int>? onBelowCapDirectoryRead = null,
+        int maxCountingNodes = MaxCountingNodes) {
         if (ReadParentSessionId(rootTranscriptPath) is not { } rootDashedId) return new([], 0, [], false, 0);
         if (Path.GetDirectoryName(rootTranscriptPath) is not { } chatsDir) return new([], 0, [], false, 0);
 
@@ -254,7 +221,7 @@ public static class GeminiSubagentDiscovery {
             // this parent's whole directory.
             if (countTruncated) continue; // already known to be a lower bound — skip the read entirely
 
-            var remaining = MaxCountingNodes - omittedIds.Count;
+            var remaining = maxCountingNodes - omittedIds.Count;
             if (EnumerateChildFilesBounded(dashedId, remaining + 1) is not { } fetch) continue;
             var (belowChildren, hitLimit) = fetch;
 
@@ -263,7 +230,7 @@ public static class GeminiSubagentDiscovery {
                 if (!Guid.TryParse(subId, out _)) continue;
                 if (!visited.Add(subId)) continue; // cycle guard — already reached
 
-                if (omittedIds.Count >= MaxCountingNodes) {
+                if (omittedIds.Count >= maxCountingNodes) {
                     countTruncated = true;
                     break; // stop scanning this parent's remaining fetched entries too
                 }
@@ -290,7 +257,7 @@ public static class GeminiSubagentDiscovery {
             var (_, dashedId) = belowCapFrontier.Dequeue();
             onDequeueBelowCapNode?.Invoke();
 
-            var remaining = MaxCountingNodes - omittedIds.Count;
+            var remaining = maxCountingNodes - omittedIds.Count;
             if (EnumerateChildFilesBounded(dashedId, remaining + 1) is not { } fetch) continue;
             var (children, hitLimit) = fetch;
 
@@ -299,7 +266,7 @@ public static class GeminiSubagentDiscovery {
                 if (!Guid.TryParse(subId, out _)) continue;
                 if (!visited.Add(subId)) continue; // cycle guard — already reached
 
-                if (omittedIds.Count >= MaxCountingNodes) {
+                if (omittedIds.Count >= maxCountingNodes) {
                     countTruncated = true;
                     break; // stop scanning this node's remaining fetched entries too
                 }
@@ -347,34 +314,4 @@ public static class GeminiSubagentDiscovery {
     /// the dashless form the server routes/correlates on and canonicalizes defensively.
     /// </summary>
     public static string CanonicalAgentId(string dashedSubId) => dashedSubId.Replace("-", "");
-
-    // ── Hook payloads (the vendor-agnostic /hooks/subagent-start|stop wire shape) ──
-
-    /// <summary>
-    /// <c>/hooks/subagent-start</c> body. cwd is "" — Gemini carries no cwd for subagents
-    /// (same as the parent session); the server's HookBase requires the (non-null) field.
-    /// </summary>
-    public static JsonObject BuildStartPayload(string parentSessionId, string agentId, string agentType, string subagentTranscriptPath) =>
-        new() {
-            ["hook_event_name"] = "subagent_start",
-            ["session_id"]      = parentSessionId,
-            ["agent_id"]        = agentId,
-            ["agent_type"]      = agentType,
-            ["transcript_path"] = subagentTranscriptPath,
-            ["cwd"]             = "",
-        };
-
-    /// <summary><c>/hooks/subagent-stop</c> body.</summary>
-    public static JsonObject BuildStopPayload(string parentSessionId, string agentId, string agentType, string subagentTranscriptPath) =>
-        new() {
-            ["hook_event_name"]        = "subagent_stop",
-            ["session_id"]             = parentSessionId,
-            ["agent_id"]               = agentId,
-            ["agent_type"]             = agentType,
-            ["transcript_path"]        = subagentTranscriptPath,
-            ["cwd"]                    = "",
-            ["stop_hook_active"]       = false,
-            ["agent_transcript_path"]  = subagentTranscriptPath,
-            ["last_assistant_message"] = "",
-        };
 }

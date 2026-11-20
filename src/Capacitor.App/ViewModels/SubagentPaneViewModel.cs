@@ -38,7 +38,7 @@ public sealed class SubagentPaneViewModel : ReactiveObject {
         // Its own key keeps the parent's pending cards, which are keyed by the parent, out of this pane.
         Chat = new ChatTabViewModel(
             $"{parentAgentId}/{row.AgentId}", origin, session, Observable.Return<string[]?>(null), new ReadOnlyChatInput(),
-            new NoAttachmentUploader(), openFeed, opener, time, permissions, new SessionRuns(time));
+            new NoAttachmentUploader(), openFeed, opener, time, permissions, new SessionRuns(time)) { Reclaimer = HeapReclaimer.Shared };
         BackCommand = ReactiveCommand.Create(back);
     }
 

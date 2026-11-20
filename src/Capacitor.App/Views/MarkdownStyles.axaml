@@ -268,6 +268,26 @@
         <Setter Property="FontSize" Value="13.5" />
         <Setter Property="FontStyle" Value="Italic" />
     </Style>
+    <!-- An answer's detail and footnote text, faded by each level's own opacity. The pointer
+         brings faded text to full text colour. -->
+    <Style Selector="mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-detail, mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-detail Run.markdown-code-inline">
+        <Setter Property="Foreground" Value="{DynamicResource ProgressiveDisclosureDetailFadeBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-footnote, mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-footnote Run.markdown-code-inline">
+        <Setter Property="Foreground" Value="{DynamicResource ProgressiveDisclosureFootnoteFadeBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-detail Run.markdown-code-inline">
+        <Setter Property="Background" Value="{DynamicResource ProgressiveDisclosureDetailCodeFadeBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-footnote Run.markdown-code-inline">
+        <Setter Property="Background" Value="{DynamicResource ProgressiveDisclosureFootnoteCodeFadeBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-lit, mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-lit Run.markdown-code-inline">
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-lit Run.markdown-code-inline">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+    </Style>
     <Style Selector="mv|MarkdownViewer Span.markdown-marked">
         <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
     </Style>

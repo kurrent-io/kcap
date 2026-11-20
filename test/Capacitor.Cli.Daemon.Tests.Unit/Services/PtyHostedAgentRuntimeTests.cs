@@ -1,3 +1,4 @@
+using TUnit.Assertions.Enums;
 using System.Runtime.CompilerServices;
 using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Services;
@@ -44,10 +45,10 @@ public class PtyHostedAgentRuntimeTests {
 
         // Approvals disabled → one bracketed-paste block then the CR spray (one CR per
         // SubmitCarriageReturnSchedule step) so at least one lands past codex's Enter-suppression
-        // window (GitHub #349).
+        // window.
         var expectedCrs = PtyHostedAgentRuntime.SubmitCarriageReturnSchedule.Length;
         await Assert.That(pty.StringWrites.Count).IsEqualTo(1 + expectedCrs);
-        await Assert.That(pty.StringWrites[0]).IsEqualTo("\x1b[200~hello world\x1b[201~");
+        await Assert.That(pty.StringWrites[0]).IsEqualTo("\e[200~hello world\e[201~");
         await Assert.That(pty.StringWrites.Skip(1)).IsEquivalentTo(Enumerable.Repeat("\r", expectedCrs));
     }
 
@@ -58,8 +59,8 @@ public class PtyHostedAgentRuntimeTests {
 
         await runtime.RequestGracefulStopAsync();
 
-        // "/exit" submits via the same CR spray (a single CR failed to submit it — the
-        // SIGTERM-fallback half of GitHub #349).
+        // "/exit" submits via the same CR spray (a single CR failed to submit it, forcing the
+        // SIGTERM fallback).
         var expectedCrs = PtyHostedAgentRuntime.SubmitCarriageReturnSchedule.Length;
         await Assert.That(pty.StringWrites.Count).IsEqualTo(1 + expectedCrs);
         await Assert.That(pty.StringWrites[0]).IsEqualTo("/exit");
@@ -120,8 +121,220 @@ public class PtyHostedAgentRuntimeTests {
         await holder.WaitAsync(TimeSpan.FromSeconds(5));
 
         await Assert.That(await resubmit.WaitAsync(TimeSpan.FromSeconds(5))).IsFalse();
-        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\x1b");
+        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\e");
         pty.Inner.Exit();
+    }
+
+    /// <summary>A dispatched message a dialog holds back is taken at once, so the key that answers the dialog is not
+    /// held behind it; the held messages are written in the order they came once the dialog closes, each submitted
+    /// before the next is pasted.</summary>
+    [Test]
+    public async Task A_dispatched_message_held_by_a_dialog_is_taken_at_once_and_written_once_it_closes() {
+        var time = new FakeTimeProvider();
+        var pty  = new RecordingScriptedPtyProcess();
+        await using var runtime = new PtyHostedAgentRuntime("codex", pty, time, approvalsDisabled: true);
+        _ = PumpAsync(runtime);
+        pty.Emit("composer");
+        await Task.Delay(100);
+        runtime.NoteTerminalDialog(true);
+
+        var first  = await runtime.SendDispatchedInputAsync("first", Guid.NewGuid()).WaitAsync(TimeSpan.FromSeconds(2));
+        var second = await runtime.SendDispatchedInputAsync("second", Guid.NewGuid()).WaitAsync(TimeSpan.FromSeconds(2));
+        await runtime.SendSpecialKeyAsync("Enter").WaitAsync(TimeSpan.FromSeconds(2));
+
+        await Assert.That((first.IsCompleted, second.IsCompleted, string.Join("|", pty.Writes))).IsEqualTo((false, false, "\r"));
+
+        runtime.NoteTerminalDialog(false);
+        await StepAsync(time, TimeSpan.FromSeconds(10), () => first.IsCompleted && second.IsCompleted);
+        await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(5));
+
+        var enters = Enumerable.Repeat("\r", PtyHostedAgentRuntime.SubmitCarriageReturnSchedule.Length).ToList();
+        await Assert.That(pty.Writes).IsEquivalentTo(
+            ["\r", "\e[200~first\e[201~", ..enters, "\e[200~second\e[201~", ..enters], CollectionOrdering.Matching)
+            .Because("each message is submitted before the next is pasted, so two never merge into one submit");
+        pty.Exit();
+    }
+
+    /// <summary>A closing dialog redraws the screen, and a paste landing in that redraw is lost: a message the dialog held
+    /// waits until the dialog has stayed gone, the prompt box is back and the screen quiet for the launch prompt's window,
+    /// through a redraw that briefly reads as no dialog.</summary>
+    [Test]
+    public async Task A_held_message_waits_for_the_redraw_after_its_dialog_to_settle() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        await using var runtime = new PtyHostedAgentRuntime("codex", pty, time, approvalsDisabled: true);
+        _ = PumpAsync(runtime);
+        pty.Emit("composer");
+        await Task.Delay(100);
+        runtime.NoteTerminalDialog(true);
+
+        var written = await runtime.SendDispatchedInputAsync("held", Guid.NewGuid()).WaitAsync(TimeSpan.FromSeconds(2));
+
+        // Answering redraws the dialog, which can read as gone for a chunk before it is drawn again.
+        runtime.NoteTerminalDialog(false);
+        await Task.Delay(50);
+        runtime.NoteTerminalDialog(true);
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow * 2);
+        await Assert.That(pty.Writes).IsEmpty();
+
+        pty.Emit("redraw");
+        await Task.Delay(50);
+        runtime.NoteTerminalDialog(false);
+
+        for (var i = 0; i < 4; i++) {
+            await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow / 2);
+            pty.Emit("redraw");
+            await Task.Delay(50);
+        }
+
+        await Assert.That(pty.Writes).IsEmpty();
+
+        // Quiet is no proof while the prompt box is still missing: Claude can go silent between erasing a dialog and
+        // drawing its prompt again.
+        runtime.NotePromptShown(false);
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow * 4);
+        await Assert.That(pty.Writes).IsEmpty();
+
+        runtime.NotePromptShown(true);
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow * 4, () => written.IsCompleted);
+
+        await Assert.That(pty.Writes[0]).IsEqualTo("\e[200~held\e[201~");
+        pty.Exit();
+    }
+
+    /// <summary>A dispatched message that meets a dialog opening between its paste and its Enter is let go at once, as
+    /// one held from the start is: the daemon handles server messages one at a time, and the key that answers the dialog
+    /// comes as the next one.</summary>
+    [Test]
+    public async Task A_dispatched_message_that_meets_a_dialog_mid_write_is_let_go() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        await using var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+        _ = PumpAsync(runtime);
+        pty.Emit("composer");
+        await Task.Delay(100);
+
+        var dispatched = runtime.SendDispatchedInputAsync("carry on", Guid.NewGuid());
+        await Task.Delay(100);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\e[200~carry on\e[201~");
+
+        runtime.NoteTerminalDialog(true);
+        var written = await dispatched.WaitAsync(TimeSpan.FromSeconds(2));
+
+        await Assert.That(written.IsCompleted).IsFalse();
+        pty.Exit();
+    }
+
+    /// <summary>A message sent with no dispatch, from the desktop or a local client, lands after one a dialog holds, not in
+    /// the redraw the held one waits out.</summary>
+    [Test]
+    public async Task Input_sent_while_a_message_is_held_lands_after_it() {
+        var time = new FakeTimeProvider();
+        var pty  = new RecordingScriptedPtyProcess();
+        await using var runtime = new PtyHostedAgentRuntime("codex", pty, time, approvalsDisabled: true);
+        _ = PumpAsync(runtime);
+        pty.Emit("composer");
+        await Task.Delay(100);
+        runtime.NoteTerminalDialog(true);
+
+        var held  = await runtime.SendDispatchedInputAsync("held", Guid.NewGuid()).WaitAsync(TimeSpan.FromSeconds(2));
+        var local = runtime.SendUserInputAsync("local");
+        runtime.NoteTerminalDialog(false);
+        await StepAsync(time, TimeSpan.FromSeconds(10), () => held.IsCompleted && local.IsCompleted);
+        await Task.WhenAll(held, local).WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(pty.Writes.Where(w => w.StartsWith("\e[200~", StringComparison.Ordinal)))
+            .IsEquivalentTo(["\e[200~held\e[201~", "\e[200~local\e[201~"], CollectionOrdering.Matching);
+        pty.Exit();
+    }
+
+    /// <summary>A turn the dialog interrupted keeps drawing once it is answered, so the screen never goes quiet: with the
+    /// prompt box on screen, a held message goes once the quiet window has passed since the dialog closed.</summary>
+    [Test]
+    public async Task A_held_message_does_not_wait_out_a_turn_that_keeps_drawing() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        await using var runtime = new PtyHostedAgentRuntime("codex", pty, time, approvalsDisabled: true);
+        _ = PumpAsync(runtime);
+        pty.Emit("composer");
+        await Task.Delay(100);
+        runtime.NoteTerminalDialog(true);
+
+        await runtime.SendDispatchedInputAsync("held", Guid.NewGuid()).WaitAsync(TimeSpan.FromSeconds(2));
+        runtime.NotePromptShown(true);
+        runtime.NoteTerminalDialog(false);
+
+        bool Pasted() => pty.Writes.Contains("\e[200~held\e[201~");
+
+        // Two quiet windows of steady output, far short of the settle's 10 s cap.
+        for (var i = 0; i < 8 && !Pasted(); i++) {
+            pty.Emit("spinner");
+            await Task.Delay(30);
+            await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow / 4);
+        }
+
+        await Assert.That(Pasted()).IsTrue().Because("the turn's output must not hold the message to the settle's cap");
+        pty.Exit();
+    }
+
+    /// <summary>Under steady output, a held message waits for the prompt box to have stood a quiet window, counted from
+    /// when it last came back: not from when the dialog closed, nor across a moment it was gone.</summary>
+    [Test]
+    public async Task A_held_message_waits_for_the_prompt_box_to_stand_a_quiet_window() {
+        var time    = new FakeTimeProvider();
+        var pty     = new RecordingScriptedPtyProcess();
+        await using var runtime = new PtyHostedAgentRuntime("codex", pty, time, approvalsDisabled: true);
+        _ = PumpAsync(runtime);
+        pty.Emit("composer");
+        await Task.Delay(100);
+        runtime.NoteTerminalDialog(true);
+
+        await runtime.SendDispatchedInputAsync("held", Guid.NewGuid()).WaitAsync(TimeSpan.FromSeconds(2));
+        runtime.NotePromptShown(false);
+        runtime.NoteTerminalDialog(false);
+
+        bool Pasted() => pty.Writes.Contains("\e[200~held\e[201~");
+
+        async Task DrawAsync(int quarters) {
+            for (var i = 0; i < quarters; i++) {
+                pty.Emit("spinner");
+                await Task.Delay(30);
+                time.Advance(PtyHostedAgentRuntime.LaunchPromptQuietWindow / 4);
+                await Task.Delay(10);
+            }
+        }
+
+        await DrawAsync(6);
+        runtime.NotePromptShown(true);
+        await DrawAsync(3);
+        await Assert.That(Pasted()).IsFalse().Because("the prompt box has stood only three quarters of a quiet window");
+
+        runtime.NotePromptShown(false);
+        runtime.NotePromptShown(true);
+        await DrawAsync(3);
+        await Assert.That(Pasted()).IsFalse().Because("the prompt box went and came back three quarters of a window ago");
+
+        await DrawAsync(5);
+        await Assert.That(Pasted()).IsTrue();
+        pty.Exit();
+    }
+
+    /// <summary>A message held when the agent is asked to stop is not written behind the stop, and its write reports the
+    /// loss.</summary>
+    [Test]
+    public async Task A_message_held_through_a_stop_reports_it_was_not_written() {
+        var pty = new RecordingScriptedPtyProcess();
+        await using var runtime = new PtyHostedAgentRuntime("codex", pty, TimeProvider.System, approvalsDisabled: true);
+        _ = PumpAsync(runtime);
+        pty.Emit("composer");
+        await Task.Delay(100);
+        runtime.NoteTerminalDialog(true);
+
+        var written = await runtime.SendDispatchedInputAsync("held", Guid.NewGuid()).WaitAsync(TimeSpan.FromSeconds(2));
+        pty.Exit();
+
+        await Assert.That(async () => await written.WaitAsync(TimeSpan.FromSeconds(10))).Throws<IOException>();
+        await Assert.That(pty.Writes.Any(w => w.Contains("held", StringComparison.Ordinal))).IsFalse();
     }
 
     /// <summary>A dialog's default option would take the Enter.</summary>
@@ -144,18 +357,18 @@ public class PtyHostedAgentRuntimeTests {
     public async Task Wheel_reports_are_dropped_after_the_source_disables_mouse_tracking(int mode) {
         var pty = new RecordingPty();
         await using var runtime = new PtyHostedAgentRuntime("claude", pty, TimeProvider.System);
-        var report = "\x1b[<64;10;5M"u8.ToArray();
-        Capacitor.Remote.Models.TerminalScrollKey.TryCreate(report, out var key);
+        var report = "\e[<64;10;5M"u8.ToArray();
+        Remote.Models.TerminalScrollKey.TryCreate(report, out var key);
         await runtime.SendSpecialKeyAsync(key);
         await Assert.That(pty.ByteWrites).IsEmpty();
 
-        pty.Output.Enqueue(System.Text.Encoding.UTF8.GetBytes($"\x1b[?{mode}"));
+        pty.Output.Enqueue(System.Text.Encoding.UTF8.GetBytes($"\e[?{mode}"));
         pty.Output.Enqueue("h"u8.ToArray());
         await foreach (var _ in runtime.ReadOutputAsync()) { }
         await runtime.SendSpecialKeyAsync(key);
         await Assert.That(pty.ByteWrites.Single()).IsEquivalentTo(report);
 
-        pty.Output.Enqueue(System.Text.Encoding.UTF8.GetBytes($"\x1b[?{mode}l"));
+        pty.Output.Enqueue(System.Text.Encoding.UTF8.GetBytes($"\e[?{mode}l"));
         await foreach (var _ in runtime.ReadOutputAsync()) { }
         await runtime.SendSpecialKeyAsync(key);
         await runtime.SendSpecialKeyAsync("Enter");
@@ -206,14 +419,14 @@ public class PtyHostedAgentRuntimeTests {
         await runtime.SendUserInputAsync("hi");
 
         await Assert.That(pty.Writes.Count).IsEqualTo(1);                   // just the paste, no CRs
-        await Assert.That(pty.Writes[0].StartsWith("\x1b[200~", StringComparison.Ordinal)).IsTrue();
+        await Assert.That(pty.Writes[0].StartsWith("\e[200~", StringComparison.Ordinal)).IsTrue();
     }
 
     [Test]
     public async Task SubmitAsync_swallows_a_pipe_closed_write_and_stops() {
         // The race where HasExited hasn't flipped yet but the reviewer's pipe is already closing:
         // the CR write throws a pipe-closed IOException. SendUserInputAsync must NOT propagate it
-        // (a benign post-exit write) and must send no further CRs (GitHub #349, Qodo finding #2).
+        // (a benign post-exit write) and must send no further CRs.
         var pty     = new ClosablePty(throwOnCrIndex: 0);
         var runtime = new PtyHostedAgentRuntime("codex", pty, TimeProvider.System, approvalsDisabled: true);
 
@@ -226,18 +439,18 @@ public class PtyHostedAgentRuntimeTests {
     [Test]
     public async Task SendUserInput_sends_a_single_CR_when_approvals_are_enabled() {
         // Interactive session (approvals enabled → a prompt is possible): submit with ONE CR so a
-        // stray Enter can't accept a live approval dialog — never the multi-CR spray (Qodo review).
+        // stray Enter can't accept a live approval dialog — never the multi-CR spray.
         var pty     = new RecordingPty();
         var runtime = new PtyHostedAgentRuntime("codex", pty, TimeProvider.System, approvalsDisabled: false);
 
         await runtime.SendUserInputAsync("hello");
 
         await Assert.That(pty.StringWrites.Count).IsEqualTo(2);   // paste + exactly one CR
-        await Assert.That(pty.StringWrites[0]).IsEqualTo("\x1b[200~hello\x1b[201~");
+        await Assert.That(pty.StringWrites[0]).IsEqualTo("\e[200~hello\e[201~");
         await Assert.That(pty.StringWrites[1]).IsEqualTo("\r");
     }
 
-    const string ReadyBanner = "\x1b[?2004hbanner";
+    const string ReadyBanner = "\e[?2004hbanner";
 
     static Task PumpAsync(PtyHostedAgentRuntime runtime) =>
         Task.Run(async () => { await foreach (var _ in runtime.ReadOutputAsync()) { } });
@@ -301,7 +514,7 @@ public class PtyHostedAgentRuntimeTests {
         await followUp.WaitAsync(TimeSpan.FromSeconds(10));
 
         await Assert.That(string.Join("|", pty.Writes))
-            .IsEqualTo("\x1b[200~build it\x1b[201~|\r|\x1b[200~and test it\x1b[201~|\r");
+            .IsEqualTo("\e[200~build it\e[201~|\r|\e[200~and test it\e[201~|\r");
         pty.Exit();
     }
 
@@ -328,7 +541,7 @@ public class PtyHostedAgentRuntimeTests {
 
         await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow, () => pty.Writes.Count >= 1);
 
-        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        await Assert.That(pty.Writes[0]).IsEqualTo("\e[200~build it\e[201~");
         pty.Exit();
     }
 
@@ -343,8 +556,8 @@ public class PtyHostedAgentRuntimeTests {
 
         runtime.DeliverLaunchPrompt("build it");
         var pump = new CountingPump(runtime);
-        await pump.EmitAsync(pty, "\x1b[?9001h\x1b[?1004h");
-        await pump.EmitAsync(pty, "\x1b[?25l\x1b[2J\x1b[m\x1b[H\x1b]0;claude\x07\x1b[?25h");
+        await pump.EmitAsync(pty, "\e[?9001h\e[?1004h");
+        await pump.EmitAsync(pty, "\e[?25l\e[2J\e[m\e[H\e]0;claude\a\e[?25h");
 
         await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow * 4);
         await Task.Delay(100);
@@ -357,7 +570,7 @@ public class PtyHostedAgentRuntimeTests {
 
         await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow, () => pty.Writes.Count >= 1);
 
-        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        await Assert.That(pty.Writes[0]).IsEqualTo("\e[200~build it\e[201~");
         pty.Exit();
     }
 
@@ -374,7 +587,7 @@ public class PtyHostedAgentRuntimeTests {
         await pump.EmitAsync(pty, ReadyBanner);
         time.Advance(TimeSpan.FromMilliseconds(250));
         await Task.Delay(50);
-        await pump.EmitAsync(pty, "\x1b[?2004l");
+        await pump.EmitAsync(pty, "\e[?2004l");
 
         await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow * 4);
         await Task.Delay(100);
@@ -387,7 +600,7 @@ public class PtyHostedAgentRuntimeTests {
 
         await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow, () => pty.Writes.Count >= 1);
 
-        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        await Assert.That(pty.Writes[0]).IsEqualTo("\e[200~build it\e[201~");
         pty.Exit();
     }
 
@@ -401,7 +614,7 @@ public class PtyHostedAgentRuntimeTests {
         runtime.DeliverLaunchPrompt("build it");
         await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptMaxWait, () => pty.Writes.Count >= 1);
 
-        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        await Assert.That(pty.Writes[0]).IsEqualTo("\e[200~build it\e[201~");
         await StepAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay, () => runtime.LaunchPromptDelivery!.IsCompleted);
         await Assert.That(await runtime.LaunchPromptDelivery!).IsEqualTo(LaunchPromptOutcome.DeliveredAfterMaxWait);
         pty.Exit();
@@ -432,7 +645,7 @@ public class PtyHostedAgentRuntimeTests {
             () => runtime.LaunchPromptDelivery!.IsCompleted);
 
         await Assert.That(await runtime.LaunchPromptDelivery!).IsEqualTo(LaunchPromptOutcome.Delivered);
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~build it\x1b[201~|\r");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\e[200~build it\e[201~|\r");
         pty.Exit();
     }
 
@@ -463,7 +676,7 @@ public class PtyHostedAgentRuntimeTests {
             () => runtime.LaunchPromptDelivery!.IsCompleted);
 
         await Assert.That(await runtime.LaunchPromptDelivery!).IsEqualTo(LaunchPromptOutcome.Delivered);
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\r|\x1b[200~build it\x1b[201~|\r");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\r|\e[200~build it\e[201~|\r");
         pty.Exit();
     }
 
@@ -482,14 +695,14 @@ public class PtyHostedAgentRuntimeTests {
         runtime.NoteTerminalDialog(true);
 
         await AdvanceAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 4);
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~build it\x1b[201~");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\e[200~build it\e[201~");
 
         await runtime.SendRawInputAsync([0x1b]).WaitAsync(TimeSpan.FromSeconds(2));
         runtime.NoteTerminalDialog(false);
 
         await StepAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay, () => runtime.LaunchPromptDelivery!.IsCompleted);
         await Assert.That(await runtime.LaunchPromptDelivery!).IsEqualTo(LaunchPromptOutcome.Delivered);
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~build it\x1b[201~|\x1b|\r");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\e[200~build it\e[201~|\e|\r");
         pty.Exit();
     }
 
@@ -514,7 +727,7 @@ public class PtyHostedAgentRuntimeTests {
         pty.ReleaseRawWrites();
         await key.WaitAsync(TimeSpan.FromSeconds(5));
         await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptMaxWait * 2);
-        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\x1b");
+        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\e");
 
         pty.Inner.Emit("composer");
         await Task.Delay(100);
@@ -523,7 +736,7 @@ public class PtyHostedAgentRuntimeTests {
             () => runtime.LaunchPromptDelivery!.IsCompleted);
 
         await Assert.That(await runtime.LaunchPromptDelivery!).IsEqualTo(LaunchPromptOutcome.Delivered);
-        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\x1b|\x1b[200~build it\x1b[201~|\r");
+        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\e|\e[200~build it\e[201~|\r");
         pty.Inner.Exit();
     }
 
@@ -551,11 +764,11 @@ public class PtyHostedAgentRuntimeTests {
         await answer.WaitAsync(TimeSpan.FromSeconds(5));
 
         await AdvanceAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 4);
-        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\x1b[200~build it\x1b[201~|\x1b");
+        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\e[200~build it\e[201~|\e");
 
         runtime.NoteTerminalDialog(false);
         await StepAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay, () => runtime.LaunchPromptDelivery!.IsCompleted);
-        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\x1b[200~build it\x1b[201~|\x1b|\r");
+        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\e[200~build it\e[201~|\e|\r");
         pty.Inner.Exit();
     }
 
@@ -575,7 +788,7 @@ public class PtyHostedAgentRuntimeTests {
         runtime.NoteTerminalDialog(true);
 
         await AdvanceAsync(time, TimeSpan.FromSeconds(3));
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~review it\x1b[201~|\r");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\e[200~review it\e[201~|\r");
 
         runtime.NoteTerminalDialog(false);
         await StepAsync(time, TimeSpan.FromSeconds(3), () => runtime.LaunchPromptDelivery!.IsCompleted);
@@ -591,6 +804,9 @@ public class PtyHostedAgentRuntimeTests {
         var time    = new FakeTimeProvider();
         var pty     = new RecordingScriptedPtyProcess();
         var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+        _ = PumpAsync(runtime);
+        pty.Emit("composer");
+        await Task.Delay(100);
 
         runtime.NoteTerminalDialog(true);
         var send = runtime.SendUserInputAsync("carry on");
@@ -601,33 +817,43 @@ public class PtyHostedAgentRuntimeTests {
         await runtime.SendRawInputAsync("1"u8.ToArray()).WaitAsync(TimeSpan.FromSeconds(2));
         runtime.NoteTerminalDialog(false);
 
-        await StepAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 2, () => send.IsCompleted);
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow + PtyHostedAgentRuntime.SingleSubmitDelay * 2, () => send.IsCompleted);
         await send;
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("1|\x1b[200~carry on\x1b[201~|\r");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("1|\e[200~carry on\e[201~|\r");
         pty.Exit();
     }
 
     /// <summary>A dialog drawn between a message's paste and its submit holds the submit Enter, which
-    /// would otherwise pick the dialog's default option.</summary>
+    /// would otherwise pick the dialog's default option, and once it closes the Enter waits out the
+    /// redraw, which would swallow it with nothing to resubmit it.</summary>
     [Test]
     public async Task A_message_submit_waits_for_a_dialog_that_appears_after_the_paste() {
         var time    = new FakeTimeProvider();
         var pty     = new RecordingScriptedPtyProcess();
         var runtime = new PtyHostedAgentRuntime("claude", pty, time, approvalsDisabled: false);
+        _ = PumpAsync(runtime);
+        pty.Emit("composer");
+        await Task.Delay(100);
 
         var send = runtime.SendUserInputAsync("carry on");
         await Task.Delay(100);
         runtime.NoteTerminalDialog(true);
 
         await AdvanceAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 4);
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~carry on\x1b[201~");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\e[200~carry on\e[201~");
 
+        // The daemon reads the dialog as closed from the redraw that erases it, after the read counted as output.
         await runtime.SendRawInputAsync([0x1b]).WaitAsync(TimeSpan.FromSeconds(2));
+        pty.Emit("redraw");
+        await Task.Delay(50);
         runtime.NoteTerminalDialog(false);
 
-        await StepAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay * 2, () => send.IsCompleted);
+        await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow / 2);
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\e[200~carry on\e[201~|\e");
+
+        await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow + PtyHostedAgentRuntime.SingleSubmitDelay * 2, () => send.IsCompleted);
         await send;
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~carry on\x1b[201~|\x1b|\r");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\e[200~carry on\e[201~|\e|\r");
         pty.Exit();
     }
 
@@ -705,7 +931,7 @@ public class PtyHostedAgentRuntimeTests {
         await AdvanceAsync(time, TimeSpan.FromSeconds(1));
 
         await Assert.That(async () => await send).Throws<IOException>();
-        var expected = exits ? "\x1b[200~carry on\x1b[201~" : "\x1b[200~carry on\x1b[201~|/exit|\r";
+        var expected = exits ? "\e[200~carry on\e[201~" : "\e[200~carry on\e[201~|/exit|\r";
         await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(expected);
         pty.Exit();
     }
@@ -791,7 +1017,7 @@ public class PtyHostedAgentRuntimeTests {
         return (runtime, pty);
     }
 
-    const string PastedAndSubmitted = "\x1b[200~build it\x1b[201~|\r";
+    const string PastedAndSubmitted = "\e[200~build it\e[201~|\r";
 
     /// <summary>A turn reported after the paste proves the prompt went, so no second Enter follows:
     /// it would submit an empty turn.</summary>
@@ -894,11 +1120,11 @@ public class PtyHostedAgentRuntimeTests {
         runtime.NoteTurnRelayed();
         await StepAsync(time, TimeSpan.FromSeconds(2), () => followUp.IsCompleted);
 
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted + "|\x1b[200~and test it\x1b[201~|\r");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted + "|\e[200~and test it\e[201~|\r");
         pty.Exit();
     }
 
-    const string FollowUpSubmitted = PastedAndSubmitted + "|\x1b[200~and test it\x1b[201~|\r";
+    const string FollowUpSubmitted = PastedAndSubmitted + "|\e[200~and test it\e[201~|\r";
 
     static async Task<(PtyHostedAgentRuntime Runtime, RecordingScriptedPtyProcess Pty)> SubmittedConfirmingFollowUpAsync(FakeTimeProvider time) {
         var (runtime, pty) = await SubmittedConfirmingLaunchAsync(time);
@@ -953,7 +1179,7 @@ public class PtyHostedAgentRuntimeTests {
         var time = new FakeTimeProvider();
         var (runtime, pty) = await SubmittedConfirmingFollowUpAsync(time);
 
-        await runtime.SendRawInputAsync("\x1b[12;40R"u8.ToArray());
+        await runtime.SendRawInputAsync("\e[12;40R"u8.ToArray());
         await StepAsync(time, PtyHostedAgentRuntime.FollowUpConfirmWait + TimeSpan.FromSeconds(1), () => pty.Writes.Count(w => w == "\r") >= 3);
 
         await Assert.That(pty.Writes.Count(w => w == "\r")).IsEqualTo(3);
@@ -996,7 +1222,7 @@ public class PtyHostedAgentRuntimeTests {
         await send;
         var confirmation = runtime.FollowUpConfirmation!;
 
-        var parked = runtime.SendRawInputAsync("\x1b[12;40R"u8.ToArray());
+        var parked = runtime.SendRawInputAsync("\e[12;40R"u8.ToArray());
         await pty.RawWriteEntered.WaitAsync(TimeSpan.FromSeconds(5));
         await StepAsync(time, PtyHostedAgentRuntime.FollowUpConfirmWait + PtyHostedAgentRuntime.ResubmitLaneWait + TimeSpan.FromSeconds(1),
             () => confirmation.IsCompleted);
@@ -1117,7 +1343,7 @@ public class PtyHostedAgentRuntimeTests {
         runtime.DeliverLaunchPrompt("build it");
         await runtime.SendRawInputAsync([0x1b]).WaitAsync(TimeSpan.FromSeconds(2));
 
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\e");
         pty.Exit();
     }
 
@@ -1174,7 +1400,7 @@ public class PtyHostedAgentRuntimeTests {
 
         await StepAsync(time, PtyHostedAgentRuntime.LaunchPromptQuietWindow, () => pty.Writes.Count >= 1);
 
-        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        await Assert.That(pty.Writes[0]).IsEqualTo("\e[200~build it\e[201~");
         pty.Exit();
     }
 
@@ -1208,7 +1434,7 @@ public class PtyHostedAgentRuntimeTests {
         }
         await WaitWithoutAdvancingAsync(() => pty.Writes.Count >= 1);
 
-        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        await Assert.That(pty.Writes[0]).IsEqualTo("\e[200~build it\e[201~");
         pty.Exit();
     }
 
@@ -1237,7 +1463,7 @@ public class PtyHostedAgentRuntimeTests {
         }
         await WaitWithoutAdvancingAsync(() => pty.Writes.Count >= 1);
 
-        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        await Assert.That(pty.Writes[0]).IsEqualTo("\e[200~build it\e[201~");
         pty.Exit();
     }
 
@@ -1259,16 +1485,16 @@ public class PtyHostedAgentRuntimeTests {
         await pty.RawWriteEntered.WaitAsync(TimeSpan.FromSeconds(5));
         await pump.EmitAsync(pty.Inner, ReadyBanner);
         await AdvanceAsync(time, TimeSpan.FromSeconds(1));
-        await pump.EmitAsync(pty.Inner, "\x1b[?2004l");
+        await pump.EmitAsync(pty.Inner, "\e[?2004l");
 
         pty.ReleaseRawWrites();
         await parked.WaitAsync(TimeSpan.FromSeconds(5));
         await AdvanceAsync(time, TimeSpan.FromSeconds(1));
-        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\x1b");
+        await Assert.That(string.Join("|", pty.Inner.Writes)).IsEqualTo("\e");
 
         await pump.EmitAsync(pty.Inner, ReadyBanner);
         await StepAsync(time, TimeSpan.FromSeconds(2), () => pty.Inner.Writes.Count >= 2);
-        await Assert.That(pty.Inner.Writes[1]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        await Assert.That(pty.Inner.Writes[1]).IsEqualTo("\e[200~build it\e[201~");
         pty.Inner.Exit();
     }
 
@@ -1282,7 +1508,7 @@ public class PtyHostedAgentRuntimeTests {
 
         runtime.DeliverLaunchPrompt("build it");
         var pump = new CountingPump(runtime);
-        await pump.EmitAsync(pty, "\x1b[?2004htrust this folder?");
+        await pump.EmitAsync(pty, "\e[?2004htrust this folder?");
 
         await AdvanceAsync(time, PtyHostedAgentRuntime.LaunchPromptMaxWait * 2);
         await Assert.That(pty.Writes).IsEmpty();
@@ -1291,7 +1517,7 @@ public class PtyHostedAgentRuntimeTests {
         time.Advance(TimeSpan.FromMilliseconds(250));
         await WaitWithoutAdvancingAsync(() => pty.Writes.Count >= 1);
 
-        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~build it\x1b[201~");
+        await Assert.That(pty.Writes[0]).IsEqualTo("\e[200~build it\e[201~");
         pty.Exit();
     }
 
@@ -1361,7 +1587,7 @@ public class PtyHostedAgentRuntimeTests {
         await StepAsync(time, TimeSpan.FromSeconds(3), () => followUp.IsCompleted);
 
         await followUp.WaitAsync(TimeSpan.FromSeconds(5));
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted + "|\x1b[200~and test it\x1b[201~|\r");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(PastedAndSubmitted + "|\e[200~and test it\e[201~|\r");
         pty.Exit();
     }
 
@@ -1394,7 +1620,7 @@ public class PtyHostedAgentRuntimeTests {
         pty.Exit();
     }
 
-    const string FirstMessagePasted = "\x1b[200~carry on\x1b[201~|\r";
+    const string FirstMessagePasted = "\e[200~carry on\e[201~|\r";
 
     /// <summary>A resumed agent has no launch prompt, so without the hold its first message would go
     /// into a terminal still rewriting CR as LF, and sit unsent in the composer.</summary>
@@ -1490,7 +1716,7 @@ public class PtyHostedAgentRuntimeTests {
         await StepAsync(time, PtyHostedAgentRuntime.SingleSubmitDelay, () => second.IsCompleted);
 
         await second.WaitAsync(TimeSpan.FromSeconds(5));
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FirstMessagePasted + "|\x1b[200~and test it\x1b[201~|\r");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo(FirstMessagePasted + "|\e[200~and test it\e[201~|\r");
         pty.Exit();
     }
 
@@ -1541,7 +1767,7 @@ public class PtyHostedAgentRuntimeTests {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
         while (pty.Writes.Count == 0 && DateTime.UtcNow < deadline) await Task.Delay(10);
 
-        await Assert.That(string.Join("|", pty.Writes)).StartsWith("\x1b[200~build it\x1b[201~");
+        await Assert.That(string.Join("|", pty.Writes)).StartsWith("\e[200~build it\e[201~");
         pty.Exit();
     }
 
@@ -1568,9 +1794,9 @@ public class PtyHostedAgentRuntimeTests {
         var pty     = new RecordingPty();
         var runtime = new PtyHostedAgentRuntime("claude", pty, TimeProvider.System, approvalsDisabled: false);
 
-        await runtime.SendUserInputAsync("one\x1b[201~\rtwo\x1b[200~three");
+        await runtime.SendUserInputAsync("one\e[201~\rtwo\e[200~three");
 
-        await Assert.That(pty.StringWrites[0]).IsEqualTo("\x1b[200~one[201~\rtwo[200~three\x1b[201~");
+        await Assert.That(pty.StringWrites[0]).IsEqualTo("\e[200~one[201~\rtwo[200~three\e[201~");
     }
 
     /// <summary>Dropping only the marker's own ESC would let the ESC before it form a new marker.</summary>
@@ -1579,9 +1805,9 @@ public class PtyHostedAgentRuntimeTests {
         var pty     = new RecordingPty();
         var runtime = new PtyHostedAgentRuntime("claude", pty, TimeProvider.System, approvalsDisabled: false);
 
-        await runtime.SendUserInputAsync("one\x1b\x1b[201~\rtwo");
+        await runtime.SendUserInputAsync("one\e\e[201~\rtwo");
 
-        await Assert.That(pty.StringWrites[0]).IsEqualTo("\x1b[200~one[201~\rtwo\x1b[201~");
+        await Assert.That(pty.StringWrites[0]).IsEqualTo("\e[200~one[201~\rtwo\e[201~");
     }
 
     [Test]
@@ -1589,13 +1815,13 @@ public class PtyHostedAgentRuntimeTests {
         var pty     = new RecordingScriptedPtyProcess();
         var runtime = new PtyHostedAgentRuntime("claude", pty, TimeProvider.System, approvalsDisabled: false);
 
-        runtime.DeliverLaunchPrompt("one\x1b[201~\rtwo");
+        runtime.DeliverLaunchPrompt("one\e[201~\rtwo");
         _ = PumpAsync(runtime);
         pty.Emit("banner");
         var outcome = await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(10));
 
         await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.Delivered);
-        await Assert.That(pty.Writes[0]).IsEqualTo("\x1b[200~one[201~\rtwo\x1b[201~");
+        await Assert.That(pty.Writes[0]).IsEqualTo("\e[200~one[201~\rtwo\e[201~");
         pty.Exit();
     }
 
@@ -1709,7 +1935,7 @@ public class PtyHostedAgentRuntimeTests {
         public Task WriteAsync(string input) {
             Writes.Add(input);
             if (input == "\r" && throwOnCrIndex == _crCount++)
-                throw new System.IO.IOException("The pipe is being closed.");
+                throw new IOException("The pipe is being closed.");
             return Task.CompletedTask;
         }
 

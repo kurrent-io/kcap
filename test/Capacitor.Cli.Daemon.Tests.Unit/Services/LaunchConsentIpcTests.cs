@@ -1,10 +1,7 @@
 using System.Net.Sockets;
 using System.Text.Json;
 using Capacitor.Cli.Core.LocalIpc;
-using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Services;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging.Abstractions;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
@@ -13,118 +10,17 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// End-to-end coverage of the consent frames (ConsentSubscribe/ConsentResolve/
 /// ConsentRulesGet/ConsentRulesPut) over a REAL Unix-domain socket — the same
 /// LocalControlServer.HandleConnectionAsync routing switch a real `kcap` client talks to.
-/// The harness mirrors AgentOrchestratorLocalAttachTests's real-socket tests (temp
-/// per-test daemons directory, socket-file poll, Windows guard) but builds its own minimal
-/// AgentOrchestrator, since none of these tests exercise Spawn/Attach/List/Stop — the
-/// orchestrator only needs to exist to satisfy LocalControlServer's constructor.
 /// </summary>
 [ExcludeOn(OS.Windows)] // Unix-domain socket path
 public class LaunchConsentIpcTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     [TempHome] public required TempHome Home { get; init; }
 
-    sealed class NoopHostLifetime : IHostApplicationLifetime {
-        public CancellationToken ApplicationStarted  => CancellationToken.None;
-        public CancellationToken ApplicationStopping => CancellationToken.None;
-        public CancellationToken ApplicationStopped  => CancellationToken.None;
-        public void StopApplication() { }
-    }
-
-    sealed class NoopPtyProcessFactory : IPtyProcessFactory {
-        public IPtyProcess Spawn(
-                string command, string[] args, string cwd,
-                Dictionary<string, string>? extraEnv = null, ushort cols = 120, ushort rows = 40,
-                IReadOnlyCollection<string>? removeEnv = null
-            ) => throw new NotSupportedException("LaunchConsentIpcTests never spawns a PTY");
-    }
-
-    sealed class NoopHttpClientFactory : IHttpClientFactory {
-        public HttpClient CreateClient(string name) => new();
-    }
-
-    sealed class NoopRestartStrategy : IRestartStrategy {
-        public RestartOutcome Restart() => RestartOutcome.NoOp;
-    }
-
-    sealed record Harness(
-        TempDaemonStore Daemons, LocalControlServer Server, AgentOrchestrator Orchestrator, ServerConnection Connection,
-        LaunchConsentStore Store, LaunchConsentBroker Broker, LaunchConsentGate Gate, string SockPath);
-
-    async Task<Harness> StartAsync(
-            string daemonName, LaunchConsentDefault def, int promptTimeoutSeconds, CancellationToken ct
-        ) {
-        var daemons = new TempDaemonStore();
-        var stateRoot = daemons.Store.StateDirectory(daemonName);
-        var store = new LaunchConsentStore(stateRoot, NullLogger.Instance, TimeProvider.System);
-        store.TryReplace(new LaunchConsentPolicy(def, promptTimeoutSeconds, []), out _);
-        var broker = new LaunchConsentBroker();
-        var decisionLog = new LaunchConsentDecisionLog(stateRoot, NullLogger.Instance);
-        var gate = new LaunchConsentGate(store, decisionLog, broker, TimeProvider.System, NullLogger<LaunchConsentGate>.Instance);
-
-        var config = new DaemonConfig {
-            Name         = daemonName,
-            ServerUrl    = "http://127.0.0.1:1",
-            Store        = daemons.Store,
-            WorktreeRoot = daemons.PathTo("worktrees"),
-        };
-        var consentIpc = new LaunchConsentIpc(broker, store, config, NullLogger<LaunchConsentIpc>.Instance);
-
-        var tokens           = AuthFixtures.NewTokenStore(Config.Root);
-        var connection       = new ServerConnection(config, new FixedCredentialSource(), NullLoggerFactory.Instance, NullLogger<ServerConnection>.Instance, TimeProvider.System);
-        var worktreeManager  = new WorktreeManager(config, NullLogger<WorktreeManager>.Instance, NoSnapshotBarrier.Instance, TimeProvider.System);
-        var repoMatcher      = new RepoMatcher(config, NullLogger<RepoMatcher>.Instance, TimeProvider.System);
-        var permissionBridge = new LocalPermissionBridge(connection, NullLogger<LocalPermissionBridge>.Instance, EphemeralLoopbackPortSource.Instance, TimeProvider.System);
-
-        var orchestrator = new AgentOrchestrator(
-            config, Config.Root, TestHarnesses.Under(Home), connection, worktreeManager, repoMatcher,
-            new NoopPtyProcessFactory(), new NoopHttpClientFactory(), new FixedCapacitorHttpClient(),
-            tokens,
-            permissionBridge, new Dictionary<string, IHostedAgentLauncher>(),
-            new Dictionary<string, IHostedAgentRuntimeFactory>(), new NoopHostLifetime(),
-            NullLogger<AgentOrchestrator>.Instance, gate, TimeProvider.System);
-
-        var permissionIpc = new PermissionIpc(new PermissionPromptBroker(), NullLogger<PermissionIpc>.Instance);
-        var notifier = new DaemonStatusNotifier();
-        var statusIpc = new DaemonStatusIpc(config, orchestrator, connection, notifier, TimeProvider.System);
-        var settingsIpc = new DaemonSettingsIpc(config, orchestrator, notifier, NullLogger<DaemonSettingsIpc>.Instance);
-        var restart = RestartCoordinator.ForTest(daemons.Store, daemonName, daemonName, new NoopRestartStrategy(), TimeProvider.System);
-        var server = new LocalControlServer(config, orchestrator, restart, consentIpc, permissionIpc, statusIpc, settingsIpc, TestFences.Ipc(config, orchestrator), TestShutdown.Ipc(orchestrator, restart), TestAccountsIpc.Inert(), TestSteering.Switch(config), NullLogger<LocalControlServer>.Instance);
-        await server.StartAsync(ct);
-
-        var sockPath = daemons.Store.SocketPath(daemonName);
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!File.Exists(sockPath) && DateTime.UtcNow < deadline) await Task.Delay(20, ct);
-
-        return new Harness(daemons, server, orchestrator, connection, store, broker, gate, sockPath);
-    }
-
-    static async Task StopAsync(Harness h) {
-        await h.Orchestrator.DisposeAsync();
-        await h.Server.StopAsync(CancellationToken.None);
-        h.Server.Dispose();
-        await h.Connection.DisposeAsync();
-        h.Daemons.Dispose();
-    }
-
-    /// Wraps a test body with the harness lifecycle, mirroring
-    /// AgentOrchestratorLocalAttachTests's real-socket tests. The harness owns its own daemons
-    /// directory, so no test here shares state with another; each [Test] still carries its own
-    /// Windows guard, which must be visible on the test method itself.
-    async Task RunAsync(
+    Task RunAsync(
             string daemonName, LaunchConsentDefault def, int promptTimeoutSeconds,
-            Func<Harness, CancellationToken, Task> body
-        ) {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-
-        Harness? h = null;
-        try {
-            h = await StartAsync(daemonName, def, promptTimeoutSeconds, cts.Token);
-            await Assert.That(File.Exists(h.SockPath)).IsTrue();
-            await body(h, cts.Token);
-        } finally {
-            if (h is not null) await StopAsync(h);
-        }
-    }
+            Func<OrchestratorFixture, CancellationToken, Task> body
+        ) =>
+        new OrchestratorFixture(Config, Home, daemonName, consentPolicy: new LaunchConsentPolicy(def, promptTimeoutSeconds, [])).ServeAsync(body);
 
     static async Task<NetworkStream> ConnectAsync(string sockPath, CancellationToken ct) {
         var sock = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
@@ -144,7 +40,7 @@ public class LaunchConsentIpcTests {
     // tests), routed through the real LocalControlServer switch so the ConsentResolveV2/
     // ConsentSubscribeV2 routing added for the v2 consent surface is exercised, not bypassed. ═════
 
-    static async Task<ConsentAckDto> ResolveAsync(Harness h, string json, bool requireEcho, CancellationToken ct) {
+    static async Task<ConsentAckDto> ResolveAsync(OrchestratorFixture h, string json, bool requireEcho, CancellationToken ct) {
         await using var s = await ConnectAsync(h.SockPath, ct);
         var frameType = requireEcho ? FrameType.ConsentResolveV2 : FrameType.ConsentResolve;
         await FrameCodec.WriteAsync(s, LocalFrame.ConsentJson(frameType, json), ct);
@@ -162,9 +58,9 @@ public class LaunchConsentIpcTests {
             ConsentIpcJsonContext.Default.ConsentResolveDto);
     }
 
-    static IReadOnlyList<LaunchConsentRule> StoreRules(Harness h) => h.Store.Current.Rules;
+    static IReadOnlyList<LaunchConsentRule> StoreRules(OrchestratorFixture h) => h.ConsentStore.Current.Rules;
 
-    static bool PendingStillLive(Harness h, string requestId) =>
+    static bool PendingStillLive(OrchestratorFixture h, string requestId) =>
         h.Broker.PendingSnapshot().Any(p => p.RequestId == requestId);
 
     static async Task<ConsentPendingDto> FirstPendingFrom(Stream subscribeStream, CancellationToken ct) {
@@ -193,7 +89,7 @@ public class LaunchConsentIpcTests {
                 await Assert.That(resp!.Type).IsEqualTo(FrameType.ConsentAck);
                 var ack = JsonSerializer.Deserialize(resp.Text, ConsentIpcJsonContext.Default.ConsentAckDto);
                 await Assert.That(ack!.Ok).IsTrue();
-                await Assert.That(h.Store.Current.Default).IsEqualTo(LaunchConsentDefault.Deny);
+                await Assert.That(h.ConsentStore.Current.Default).IsEqualTo(LaunchConsentDefault.Deny);
             }
 
             // Act 3: an invalid rule action is rejected with an explanatory error.
@@ -269,7 +165,7 @@ public class LaunchConsentIpcTests {
                 await Assert.That(ack.Error).IsNull(); // the save succeeded — no partial-failure warning to report
             }
 
-            await Assert.That(h.Store.Current.Rules
+            await Assert.That(h.ConsentStore.Current.Rules
                 .Any(r => r.Action == "deny" && r.Kind == "review-flow")).IsTrue();
 
             var outcome = await decideTask;
@@ -382,7 +278,7 @@ public class LaunchConsentIpcTests {
             }
 
             // The invalid rule was never persisted.
-            await Assert.That(h.Store.Current.Rules.Count).IsEqualTo(0);
+            await Assert.That(h.ConsentStore.Current.Rules.Count).IsEqualTo(0);
 
             var outcome = await decideTask;
             await Assert.That(outcome.Allowed).IsTrue();

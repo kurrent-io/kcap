@@ -96,9 +96,10 @@ public class ImportSkipTitleTests : IDisposable {
             .RespondWith(Response.Create().WithStatusCode(404));
         foreach (var path in new[] {
                      "/hooks/transcript", "/hooks/session-start*", "/hooks/subagent-start",
-                     "/hooks/subagent-stop", "/hooks/session-title" })
+                     "/hooks/subagent-stop", "/hooks/session-title" }) {
             _server.Given(Request.Create().WithPath(path).UsingPost())
                 .RespondWith(Response.Create().WithStatusCode(200));
+        }
 
         _server.Given(Request.Create().WithPath("/hooks/session-end*").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));

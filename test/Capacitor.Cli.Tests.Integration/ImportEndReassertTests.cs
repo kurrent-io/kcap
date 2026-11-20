@@ -7,7 +7,7 @@ using Capacitor.Cli.Recording.PrDetection;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// Task A2.1: the Partial-resume branch must post exactly one
+/// The Partial-resume branch must post exactly one
 /// <c>session-end/{vendor}</c> AFTER a successful fail-closed transcript tail — end-only
 /// reassert, since SessionStarted uses random ids (re-asserting start would duplicate it)
 /// while session-end has server-side idempotency — and must NEVER finalize when the tail
@@ -115,7 +115,7 @@ public class ImportEndReassertTests : IDisposable {
 
         var posts = _server.LogEntries
             .Where(e => e.RequestMessage.Method == "POST")
-            .Select(e => e.RequestMessage.Path!)
+            .Select(e => e.RequestMessage.Path)
             .ToArray();
 
         await Assert.That(posts.Count(p => p.StartsWith("/hooks/session-start", StringComparison.Ordinal))).IsEqualTo(0);
@@ -143,7 +143,7 @@ public class ImportEndReassertTests : IDisposable {
         await Assert.That(result.Errored).IsEqualTo(1);
         await Assert.That(result.Resumed).IsEqualTo(0);
 
-        var endPosts = _server.LogEntries.Count(e => e.RequestMessage.Path!.StartsWith("/hooks/session-end", StringComparison.Ordinal));
+        var endPosts = _server.LogEntries.Count(e => e.RequestMessage.Path.StartsWith("/hooks/session-end", StringComparison.Ordinal));
         await Assert.That(endPosts).IsEqualTo(0); // never finalize on a gap
     }
 }

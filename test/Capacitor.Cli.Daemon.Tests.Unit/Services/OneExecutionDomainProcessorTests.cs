@@ -8,7 +8,7 @@ using Microsoft.Extensions.Time.Testing;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Spec §3.3 (ONE execution domain), processor level: <c>SubmitUnsequenced</c>, cross-format ordering,
+/// ONE execution domain, processor level: <c>SubmitUnsequenced</c>, cross-format ordering,
 /// stop admission, coalescing + key lifecycle, the queued-stop hysteresis alarm, active-launch instance
 /// tracking, fault isolation, and the lane's shutdown order. These live here rather than in an
 /// orchestrator test because the lane is the thing under test — a raw processor lets a test drive exact
@@ -177,9 +177,10 @@ public class OneExecutionDomainProcessorTests {
             Interlocked.Decrement(ref concurrent);
         };
 
-        for (var i = 0; i < 5; i++)
+        for (var i = 0; i < 5; i++) {
             await Assert.That(p.SubmitUnsequenced(h.Unseq(UnsequencedKind.Launch, "a" + i, "l" + i, "launch", body)))
                 .IsEqualTo(SubmitOutcome.Committed);
+        }
 
         await WaitBounded(p.WhenIdleForTest(), "the lane never drained its five launches");
         await Assert.That(maxConcurrent).IsEqualTo(1);
@@ -222,9 +223,10 @@ public class OneExecutionDomainProcessorTests {
         await WaitBounded(park.Started.Task, "the known-target stop never started executing");
         await Assert.That(p.QueuedStopDepth).IsEqualTo(0); // dequeued to start, so its key already retired
 
-        for (var i = 0; i < 12; i++)
+        for (var i = 0; i < 12; i++) {
             await Assert.That(p.SubmitUnsequenced(h.Unseq(UnsequencedKind.Stop, "ghost" + i, "ghost" + i)))
                 .IsEqualTo(SubmitOutcome.DroppedUnknownTarget);
+        }
 
         await Assert.That(p.QueuedStopDepth).IsEqualTo(0);
         park.Release();
@@ -283,9 +285,10 @@ public class OneExecutionDomainProcessorTests {
 
         await Assert.That(p.SubmitUnsequenced(h.Unseq(UnsequencedKind.Stop, "x", "x-stop")))
             .IsEqualTo(SubmitOutcome.Committed);
-        for (var i = 0; i < 9; i++)
+        for (var i = 0; i < 9; i++) {
             await Assert.That(p.SubmitUnsequenced(h.Unseq(UnsequencedKind.Stop, "x", "x-stop-dup" + i)))
                 .IsEqualTo(SubmitOutcome.Coalesced);
+        }
 
         await Assert.That(p.QueuedStopDepth).IsEqualTo(1); // ten submissions, one queued entry
 

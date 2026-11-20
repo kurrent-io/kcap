@@ -6,7 +6,7 @@ using Capacitor.Cli.Core.Setup;
 namespace Capacitor.Cli.Commands;
 
 /// <summary>
-/// The decision <c>kcap daemon service ensure</c> makes from a fresh status read (spec §3.4):
+/// The decision <c>kcap daemon service ensure</c> makes from a fresh status read:
 /// which verb to run, or which fail-closed attention row to report when no verb is safe. Pure —
 /// no I/O, no mutations — so the ladder is directly testable. Mirrors the wizard's step-7 matrix
 /// reduced to the flow's needs; every ambiguous row fails closed to attention, never guessed.

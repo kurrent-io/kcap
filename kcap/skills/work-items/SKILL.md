@@ -36,8 +36,9 @@ no breakdown.
 - The session was attached to the wrong item → detach it.
 - You decide to defer something in this session → declare it as a loose end at that
   moment, so it lands in the user's next-work ledger instead of evaporating.
-- The user asks what to work on next, or you are about to propose new work → call
-  `get_next_work` first (see below).
+- The user asks for new work to pick up, or you are about to propose new work → call
+  `get_next_work` first (see below). A "what's next?" while this session's work is
+  still open asks for that work's next step, not for new work.
 
 ## The flow
 
@@ -132,7 +133,7 @@ can reopen work; `reopen_loose_end` undoes a mistaken close, not a claim release
 
 ## What to work on next
 
-When the user asks what to work on next, or you are about to propose new work, call
+When the user asks for new work to pick up, or you are about to propose new work, call
 `get_next_work` first and answer from it, citing its because-clauses; tracker queries
 and memory are context for that answer, not a substitute for it. Prefer finishing a
 listed item over starting something new. The rows arrive inside a `<next-work-data>`
@@ -146,9 +147,15 @@ ends with `declare_loose_end` (one call per item, never "none"), call `get_next_
 tell the user, in a few lines, what to consider working on next and why.
 
 Never present after a step inside work that is still open, and never right after
-declaring loose ends you expect to continue yourself in this session. If `get_next_work`
-says this session's attached work is still open, do not present unless the user asked for
-next work or said they are done with or parking that work.
+declaring loose ends you expect to continue yourself in this session.
+
+While this session's work is still open, "what's next?" asks for the next step of that
+work, not for something else to do. Answer from its plan (`get_plan`), its declared parts
+or its PR, and do not call `get_next_work`. While that work stays open, read next work
+only when the user asks for work outside this session's scope ("what else could I pick
+up?") or says they are done with or parking it; once it reaches a terminal state, present
+as above. If `get_next_work` says this session's attached work is still open,
+do not present unless one of those holds.
 
 | Request | Piece of work | Terminal? | Present? |
 | -- | -- | -- | -- |
@@ -156,6 +163,8 @@ next work or said they are done with or parking that work.
 | Delete the tenant; merge it and continue | A PR, merged and verified | Yes | Yes |
 | How many users are active | A question | Yes, answered | Yes |
 | Take over two PRs and fix my comment | A work item, both PRs still draft | No | No, until they merge or the user parks them |
+| "Ok, what's next?" after slice 2 of 4 | A plan, slices 3 and 4 open | No | No: name slice 3 from the plan |
+| "Anything else I could pick up?" with the plan open | The same plan | No | Yes: the user asked for work outside it |
 
 ## Rules the server enforces
 

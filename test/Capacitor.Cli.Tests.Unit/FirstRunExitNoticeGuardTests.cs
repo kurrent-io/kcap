@@ -13,7 +13,7 @@ namespace Capacitor.Cli.Tests.Unit;
 /// terminal looks finished, and what breaks is a page on another machine that never stops waiting.
 /// Nothing in the CLI's own output would show it.</para>
 /// </summary>
-public class FirstRunExitNoticeGuardTests {
+public partial class FirstRunExitNoticeGuardTests {
     static string RepoRoot([CallerFilePath] string here = "") {
         var dir = Path.GetDirectoryName(here);
         while (dir is not null && !File.Exists(Path.Combine(dir, "Capacitor.slnx")))
@@ -27,8 +27,7 @@ public class FirstRunExitNoticeGuardTests {
         var program = await File.ReadAllTextAsync(
             Path.Combine(RepoRoot(), "src", "Capacitor.Cli", "Program.cs"));
 
-        var handler = Regex.Match(
-            program, @"AppDomain\.CurrentDomain\.ProcessExit\s*\+=.*?\n\};", RegexOptions.Singleline);
+        var handler = ProcessExitHandler().Match(program);
 
         await Assert.That(handler.Success).IsTrue()
                     .Because("no ProcessExit handler means no exit path reaches the notice at all");
@@ -36,4 +35,7 @@ public class FirstRunExitNoticeGuardTests {
         await Assert.That(handler.Value).Contains("FirstRunInterruptRelinquish.RunBeforeExit")
                     .Because("an Environment.Exit anywhere in the CLI otherwise leaves the browser waiting");
     }
+
+    [GeneratedRegex(@"AppDomain\.CurrentDomain\.ProcessExit\s*\+=.*?\n\};", RegexOptions.Singleline)]
+    private static partial Regex ProcessExitHandler();
 }

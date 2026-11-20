@@ -109,11 +109,12 @@ public static class SkillsLegacyMigration {
             if (handed) rows.Remove(handoff.Row.Path); else refused.Add(handoff.Row.Path);
         }
 
-        foreach (var row in plan.Delete)
+        foreach (var row in plan.Delete) {
             rows.Put(row with {
                 State = OwnedSkillState.Owed, Cause = cause,
                 IdentityRetired = cause == SkillDeletionCause.Retired ? retired ?? current : null,
             });
+        }
 
         Persist(plan.LedgerPath, ledger!, rows);
 

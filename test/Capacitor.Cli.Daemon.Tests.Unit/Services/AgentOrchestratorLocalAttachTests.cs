@@ -17,13 +17,10 @@ using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-/// Local-attach (Phase 1) behaviours on AgentOrchestrator. Partial of
-/// AgentOrchestratorVendorTests to reuse its BuildOrchestrator + test doubles.
+/// Local-attach behaviours on AgentOrchestrator.
 [ParallelLimiter<SubprocessLimit>]
 public class AgentOrchestratorLocalAttachTests {
     [TempHome] public required TempHome Home { get; init; }
-
-    sealed class NoopRestartStrategy : IRestartStrategy { public RestartOutcome Restart() => RestartOutcome.NoOp; }
 
     static RestartCoordinator TestCoordinator(DaemonStore store) =>
         RestartCoordinator.ForTest(store, "test", "test", new NoopRestartStrategy(), TimeProvider.System);
@@ -176,6 +173,36 @@ public class AgentOrchestratorLocalAttachTests {
         await Assert.That(Directory.Exists(worktree)).IsFalse();
         // Scoped to the worktree: the cleanup owns what it was handed, not the tree above it.
         await Assert.That(Directory.Exists(tmp.Path)).IsTrue();
+        await Assert.That(server.AgentUnregisteredWorktreeRemoved["owned-1"]).IsTrue();
+    }
+
+    /// <summary>An owned worktree holding work the agent never saved stays, and the unregister says so, which is what
+    /// keeps its Resume offered.</summary>
+    [Test]
+    public async Task Owned_worktree_kept_for_its_work_is_reported_kept() {
+        using var repo = GitRepo.CreateWithCommit();
+        var path = Path.Combine(repo.Path, ".capacitor", "worktrees", "kept");
+        repo.Do("worktree", "add", "--detach", path, "HEAD");
+        File.WriteAllText(Path.Combine(path, "notes.md"), "unsaved");
+
+        var server = new CaptureServerConnection();
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
+
+        var agent = new AgentInstance(
+            "kept-1", null, "", null, path, "claude",
+            new PtyHostedAgentRuntime("claude", new StubPtyProcess(), TimeProvider.System), new WorktreeInfo(path, "", repo.Path) { OwnsBranch = false }, new CancellationTokenSource()
+        ) {
+            ActivityClock = new AgentActivityClock(TimeProvider.System),
+            CreatedAt     = DateTime.UtcNow,
+            LastOutputAt  = DateTime.UtcNow,
+            Work = WorkLocation.OwnedWorktree
+        };
+
+        orch.RegisterAgentForTest(agent);
+        await orch.CleanupAgentForTest("kept-1");
+
+        await Assert.That(Directory.Exists(path)).IsTrue();
+        await Assert.That(server.AgentUnregisteredWorktreeRemoved["kept-1"]).IsFalse();
     }
 
     [Test]
@@ -203,7 +230,7 @@ public class AgentOrchestratorLocalAttachTests {
 
         await Assert.That(server.Calls.Count).IsEqualTo(0);
         await Assert.That(pty.LastEnv!.ContainsKey("KCAP_URL")).IsTrue();            // records as a plain local session
-        await Assert.That(pty.LastEnv!.ContainsKey("KCAP_AGENT_ID")).IsFalse();      // unregistered in Phase 1 → no agent_host_id tag
+        await Assert.That(pty.LastEnv!.ContainsKey("KCAP_AGENT_ID")).IsFalse();      // unregistered → no agent_host_id tag
         await Assert.That(pty.LastEnv!.ContainsKey("KCAP_RENDERED_AGENT")).IsFalse(); // native terminal permissions
         await Assert.That(pty.LastEnv!.ContainsKey("KCAP_DAEMON_URL")).IsFalse();
     }
@@ -1112,12 +1139,10 @@ public class AgentOrchestratorLocalAttachTests {
     }
 
     /// <summary>Every launch path must build its activity clock through the orchestrator's
-    /// <c>CreateActivityClock()</c>, which is what wires the stage-advance status-report hook. The
-    /// local-spawn path used to construct its <c>AgentInstance</c> without one, taking the record's
-    /// hookless default: inert today (a local spawn is PTY-only, and nothing PTY stamps a launch
-    /// stage), but silently arming the exact "feature is wired everywhere except here" failure the
-    /// moment this path gains an ACP runtime — which is how the ACP handshake stamps went no-op once
-    /// already. Asserting the HOOK (not merely that some clock exists) is the load-bearing part:
+    /// <c>CreateActivityClock()</c>, which is what wires the stage-advance status-report hook. A
+    /// local spawn built without one takes the record's hookless default: inert while a local spawn
+    /// is PTY-only (nothing PTY stamps a launch stage), but silently arming the exact "feature is
+    /// wired everywhere except here" failure the moment this path gains an ACP runtime. Asserting the HOOK (not merely that some clock exists) is the load-bearing part:
     /// the default clock is non-null too.</summary>
     [Test]
     public async Task Local_spawn_builds_its_activity_clock_through_the_shared_factory() {
@@ -1174,12 +1199,12 @@ public class AgentOrchestratorLocalAttachTests {
         public ConcurrentBag<object> RunEvents { get; } = [];
         public (int Cols, int Rows)? LastDims { get; private set; }
 
-        public override Task SendTerminalDimensionsAsync(string agentId, int cols, int rows) { LastDims = (cols, rows); Calls.Add(nameof(SendTerminalDimensionsAsync)); return Task.CompletedTask; }
+        public override Task SendTerminalDimensionsAsync(string agentId, int cols, int rows, CancellationToken ct = default) { LastDims = (cols, rows); Calls.Add(nameof(SendTerminalDimensionsAsync)); return Task.CompletedTask; }
         public override Task LaunchFailedAsync(string agentId, string reason) { Calls.Add(nameof(LaunchFailedAsync)); return Task.CompletedTask; }
         public ConcurrentBag<AgentStartTitle?> RegisteredTitles { get; } = [];
         public override Task<AgentRegisteredResponse> AgentRegisteredAsync(string agentId, string? prompt, string? model, string? effort, string? repoPath, string? sandboxPolicy = null, string? approvalPolicy = null, string? permissionPreset = null, string? runtimeTransport = null, string? vendor = null, AgentStartTitle? title = null, string? continuesAgentId = null, string? accountDirectory = null, string? accountId = null, string? accountLabel = null, string? resumedSessionId = null, bool resumeFirstAnnounce = false) { Calls.Add(nameof(AgentRegisteredAsync)); RegisteredTitles.Add(title); return Task.FromResult(AgentRegisteredResponse.Accepted); }
         public override Task AgentStatusChangedAsync(string agentId, string status, string? sessionId) { Calls.Add(nameof(AgentStatusChangedAsync)); return Task.CompletedTask; }
-        public override Task AgentUnregisteredAsync(string agentId, string? stopReason = null) { Calls.Add(nameof(AgentUnregisteredAsync)); return Task.CompletedTask; }
+        public override Task AgentUnregisteredAsync(string agentId, string? stopReason = null, bool? worktreeRemoved = null) { Calls.Add(nameof(AgentUnregisteredAsync)); return Task.CompletedTask; }
         public override Task UpdateRepoPathsAsync() { Calls.Add(nameof(UpdateRepoPathsAsync)); return Task.CompletedTask; }
         public override Task SendTerminalOutputAsync(string agentId, string base64Data, CancellationToken ct = default) { Calls.Add(nameof(SendTerminalOutputAsync)); return Task.CompletedTask; }
         public override Task AppendAgentRunEventAsync(string agentId, object evt) { Calls.Add(nameof(AppendAgentRunEventAsync)); RunEvents.Add(evt); return Task.CompletedTask; }

@@ -174,7 +174,7 @@ public class McpMemoryServerLogTests {
     [Arguments("list_memory_entries", "", true)]
     [Arguments("list_memory_entries", """{"title":"Not Found","status":404,"detail":"Memory 'x' not found."}""", false)]
     public async Task A_server_without_the_entry_routes_is_named_as_too_old_for_logs(string tool, string body, bool tooOld) {
-        var arguments = $$"""{"id_or_slug":"inbox","id":"{{MemoryId}}","entry_id":"{{EntryId}}","title":"t","body":"b"}""";
+        const string arguments = $$"""{"id_or_slug":"inbox","id":"{{MemoryId}}","entry_id":"{{EntryId}}","title":"t","body":"b"}""";
 
         var call = await CallAsync(tool, arguments, status: 404, body: body);
 
@@ -190,7 +190,7 @@ public class McpMemoryServerLogTests {
     [Arguments("reopen_memory_entry")]
     [Arguments("list_memory_entries")]
     public async Task A_405_on_an_entry_route_is_named_as_too_old_for_logs(string tool) {
-        var arguments = $$"""{"id_or_slug":"inbox","id":"{{MemoryId}}","entry_id":"{{EntryId}}","title":"t","body":"b"}""";
+        const string arguments = $$"""{"id_or_slug":"inbox","id":"{{MemoryId}}","entry_id":"{{EntryId}}","title":"t","body":"b"}""";
 
         var call = await CallAsync(tool, arguments, status: 405,
             body: """{"type":"https://tools.ietf.org/html/rfc9110#section-15.5.6","title":"Method Not Allowed","status":405}""");

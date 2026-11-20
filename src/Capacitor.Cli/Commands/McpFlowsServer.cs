@@ -4,7 +4,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
@@ -21,104 +20,32 @@ namespace Capacitor.Cli.Commands;
 partial class McpFlowsServer(
         ConfigRoot config, ProfileContext profiles, TokenStore store, ICapacitorHttpClient http,
         TelemetryStartup startup, GitProviderRouter router, WorkingDirectory workdir, TimeProvider time) {
-    public async Task<int> RunAsync(string? driverArg = null) {
-        var baseUrl = profiles.Resolution.ServerUrl!;
-
+    public Task<int> RunAsync(string? driverArg = null) {
         // The directory is resolved once; the session on each call, because a hosted agent is bound to
         // one only after this server has answered its handshake.
-        var cwd          = HarnessRequesterContext.ProjectDir() ?? workdir.Path;
-        var repoRoot     = GitRepository.FindRoot(cwd);
+        var cwd           = HarnessRequesterContext.ProjectDir() ?? workdir.Path;
+        var repoRoot      = GitRepository.FindRoot(cwd);
         // Prefer the `--driver` stamp from this server's own registration (deterministic for the JSON
         // harnesses); fall back to env inference for Claude/Codex, whose registrations are unstamped.
-        var driverVendor = DriverVendor.Infer(driverArg);
+        var driverVendor  = DriverVendor.Infer(driverArg);
         var callerAgentId = HostedAgent.FromEnvironment().AgentId;
-        var tools        = BuildToolsList();
+        var repository    = new CwdRepository(config, cwd, router, time);
 
-        var repository = new CwdRepository(config, cwd, router, time);
+        var server = new McpServerDescriptor("kcap-flows", "flows", null, BuildToolsList()) {
+            OrderKey               = RoundOrderKey,
+            RejectsNonStringMethod = false,
+            // A start or round POST can be held open server-side for an admission wait or a whole round, and a
+            // client-wide timeout would abort it, which the server reads as a cancel. Each lane bounds its own requests.
+            ConfigureClient        = client => client.Timeout = Timeout.InfiniteTimeSpan,
+        };
 
-        // Best-effort, and recorded even when the read throws: a stale token on disk must never
-        // block the server from starting, and an absent property is a different value in a funnel
-        // from a false one — "could not tell" belongs with "not logged in", not with a gap.
-        var loggedIn = false;
-        try { loggedIn = await store.LoadForProfileAsync(profiles.Name) is not null; } catch { }
-
-        // MCP servers are long-lived and denylisted under the top-level "mcp" command
-        // (CommandEvents.Denylisted) — a second facade under the reportable pseudo-command
-        // "mcp-server" is what lets per-tool-call events leave at all.
-        var telemetry = CliTelemetry.Start(startup with { Command = "mcp-server" }, config, time);
-        telemetry.AddSharedProperty("logged_in", loggedIn);
-
-        await using var mcp = new McpTelemetry(telemetry);
-
-        // Validate the server_url shape once, locally (pure string check — no network, token,
-        // or stderr). Used to fail gracefully instead of hard-exiting mid-request (below).
-        var urlOk = HttpClientExtensions.IsAcceptableUrl(baseUrl);
-
-        // Created on first use, so a session that never calls a flows tool stays local-only.
-        using var sessionClient = new OnDemand<HttpClient>(async () => {
-            var created = await http.ForSessionAsync();
-            // A start or round POST can be held open server-side for an admission wait or a
-            // whole round. The default 100s timeout would abort it, which the server sees as a
-            // cancel and tears the reviewer down — so no client-wide deadline; each lane bounds
-            // its own requests.
-            created.Timeout = System.Threading.Timeout.InfiniteTimeSpan;
-            return created;
-        });
-
-        // Guarded tool dispatch: never let the stdio JSON-RPC loop die on one bad request. An
-        // unexpected failure would otherwise bubble out of the loop and kill the server mid-protocol;
-        // return a JSON-RPC tool error instead so it keeps serving.
-        async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            if (!urlOk)
-                return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
-
-            try {
-                var client = await sessionClient.GetAsync();
-
-                return await HandleToolCallAsync(
-                    callId, callRequest, client, baseUrl, cwd, repoRoot, await repository.GetAsync(),
-                    clock: new FlowRetryClock(time),
-                    requestingSessionId: HarnessRequesterContext.Resolve().SessionId, driverVendor: driverVendor,
-                    reviewerVendorPreference: LoadReviewerVendorPreferenceAsync,
-                    callerAgentId: callerAgentId);
-            } catch (Exception ex) {
-                // Unexpected: log the detail to stderr (not to the client, which could leak local
-                // paths from IO errors) and return a generic tool error, keeping the loop alive.
-                await Console.Error.WriteLineAsync($"kcap mcp flows: unexpected error handling tools/call: {ex}");
-                return BuildToolResult(callId, "Error: internal error handling the request.", isError: true);
-            }
-        }
-
-        // Records which MCP tools agents actually reach for. Never touches the response path:
-        // the result (or the exception) is returned exactly as DispatchToolCallAsync produced it.
-        async Task<string> TimedDispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            var start = time.GetTimestamp();
-            var tool  = McpTelemetry.SafeToolName(callRequest);
-            var ok    = false;
-
-            try {
-                var response = await DispatchToolCallAsync(callId, callRequest);
-                ok = McpTelemetry.ResponseOk(response);
-                return response;
-            } finally {
-                mcp.ToolCalled("kcap-flows", tool, ok, CommandTiming.ElapsedMs(start, time));
-            }
-        }
-
-        await using var stdin  = Console.OpenStandardInput();
-        await using var stdout = Console.OpenStandardOutput();
-        using var       reader = new StreamReader(stdin, Encoding.UTF8);
-        await using var writer = new StreamWriter(stdout, new UTF8Encoding(false));
-        writer.AutoFlush = true;
-
-        await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
-            "initialize" => BuildInitializeResponse(id, request),
-            "tools/list" => BuildToolsListResponse(id, tools),
-            _            => McpProtocol.TryHandleStandardMethod(method, id)
-                            ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
-        }, "flows", RoundOrderKey);
-
-        return 0;
+        return McpServerHost.RunAsync(server, new(config, profiles, store, http, startup, time),
+            async (id, request, client, baseUrl) => await HandleToolCallAsync(
+                id, request, client, baseUrl, cwd, repoRoot, await repository.GetAsync(),
+                clock: new FlowRetryClock(time),
+                requestingSessionId: HarnessRequesterContext.Resolve().SessionId, driverVendor: driverVendor,
+                reviewerVendorPreference: LoadReviewerVendorPreferenceAsync,
+                callerAgentId: callerAgentId));
     }
 
     /// <summary>A flow's rounds run one at a time per participant, in the order they arrive: the server refuses a
@@ -204,7 +131,7 @@ partial class McpFlowsServer(
         var arguments  = paramsNode?["arguments"]?.AsObject();
 
         if (toolName is null) {
-            return BuildErrorResponse(id, -32602, "Missing params.name");
+            return McpResponses.Error(id, -32602, "Missing params.name");
         }
 
         try {
@@ -220,7 +147,7 @@ partial class McpFlowsServer(
                 ? await ResolveNamedCheckoutAsync(named)
                 : toolName is "start_review_flow" or "start_flow" && OtherRepository(arguments, repoRoot, repoInfo) is { } other
                     // No local checkout to borrow: a daemon that hosts that repository reviews it.
-                    ? ((string?)null, (string?)null, other)
+                    ? (null, null, other)
                     : (cwd, repoRoot, repoInfo);
 
             // The start/submit tools (and their generic aliases) may need async poll — handle separately.
@@ -276,20 +203,20 @@ partial class McpFlowsServer(
                     _                     => await SendWithSettlementRetryAsync(client, apiRoot, (c, ct) => SubmitRoundAsync(c, apiRoot, arguments, contextArgName: "message", participant: GetRequiredArg(arguments, "participant"), async: ParseAsyncArg(arguments), ct: ct), clock, backoff, extraRetryableCode: ParticipantUnreachableCode, absoluteBudget: sendBudget)
                 };
 
-                // Settlement-admission design (§3.2 G): the elapsed deadline is mapped HERE, at the
+                // The elapsed settlement-admission deadline is mapped HERE, at the
                 // only place that builds tool results, into a normal MCP tool error carrying the last
                 // coded rejection plus attempt/elapsed diagnostics. It must never escape as an
                 // unhandled stdio fault, and must never turn a retryable busy into something a caller
                 // reads as fatal — the guidance is explicitly "retry".
                 if (sendResult is SettlementSendResult.DeadlineExhausted exhausted)
-                    return BuildToolResult(id, FormatSettlementDeadlineError(exhausted), isError: true);
+                    return McpResponses.ToolResult(id, FormatSettlementDeadlineError(exhausted), isError: true);
 
                 using var postResponse = ((SettlementSendResult.Response)sendResult).Value;
 
                 var postBody = await postResponse.Content.ReadAsStringAsync();
 
                 if (postResponse.StatusCode == HttpStatusCode.Unauthorized)
-                    return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
+                    return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
 
                 // Catalog-start protocol-v2 skew seam (404 means an old server, before any run
                 // started) plus an explicit-vendor echo check once the route matched.
@@ -298,7 +225,7 @@ partial class McpFlowsServer(
                 // A patch start goes only to v5, and a server without that route answers 404 having started nothing.
                 if (startPatch is not null
                     && postResponse.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
-                    return BuildToolResult(id, PatchProtocolRequiredMessage, isError: true);
+                    return McpResponses.ToolResult(id, PatchProtocolRequiredMessage, isError: true);
 
                 if (wasModelStart) {
                     // The model-bearing start went to the v3 route — its own protocol/ack gate REPLACES
@@ -310,7 +237,7 @@ partial class McpFlowsServer(
                         if (modelRunIdToClose is not null)
                             await BestEffortCloseAsync(client, apiRoot, modelRunIdToClose, time);
 
-                        return BuildToolResult(id, modelCheck.Message, modelCheck.IsError);
+                        return McpResponses.ToolResult(id, modelCheck.Message, modelCheck.IsError);
                     }
 
                     // Valid MODEL ack — but the model/key are opaque and don't prove which VENDOR was
@@ -321,7 +248,7 @@ partial class McpFlowsServer(
                         if (modelVendorRunIdToClose is not null)
                             await BestEffortCloseAsync(client, apiRoot, modelVendorRunIdToClose, time);
 
-                        return BuildToolResult(id, modelVendorCheck.Message, modelVendorCheck.IsError);
+                        return McpResponses.ToolResult(id, modelVendorCheck.Message, modelVendorCheck.IsError);
                     }
                     // Both acks valid — fall through to the shared success/round rendering below, which
                     // echoes the reviewer-model audit fields alongside the result.
@@ -332,7 +259,7 @@ partial class McpFlowsServer(
                     if (flowRunIdToClose is not null)
                         await BestEffortCloseAsync(client, apiRoot, flowRunIdToClose, time);
 
-                    return BuildToolResult(id, vendorCheck.Message, vendorCheck.IsError);
+                    return McpResponses.ToolResult(id, vendorCheck.Message, vendorCheck.IsError);
                 }
 
                 // The saved-preference fallback. The server refuses a start it cannot resolve a
@@ -350,7 +277,7 @@ partial class McpFlowsServer(
                     var preference = string.IsNullOrWhiteSpace(saved.Vendor) ? null : NormalizeVendor(saved.Vendor);
 
                     if (preference is null)
-                        return BuildToolResult(
+                        return McpResponses.ToolResult(
                             id,
                             FormatFlowStartError((int)postResponse.StatusCode, postBody, wasDynamicStart)
                                 + PreferenceMissingGuidance(saved.ProfileName),
@@ -376,7 +303,7 @@ partial class McpFlowsServer(
                         clock, backoff, budgetStartedAt: settlementStartedAt, absoluteBudget: sendBudget);
 
                     if (retryResult is SettlementSendResult.DeadlineExhausted retryExhausted)
-                        return BuildToolResult(id, FormatSettlementDeadlineError(retryExhausted), isError: true);
+                        return McpResponses.ToolResult(id, FormatSettlementDeadlineError(retryExhausted), isError: true);
 
                     using var retryResponse = ((SettlementSendResult.Response)retryResult).Value;
 
@@ -386,17 +313,17 @@ partial class McpFlowsServer(
                     // send already had its go) is an auth problem, not a vendor one — say so, rather
                     // than printing a raw HTTP 401 the caller would read as a flow rejection.
                     if (retryResponse.StatusCode == HttpStatusCode.Unauthorized)
-                        return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
+                        return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
 
                     if (startPatch is not null
                         && retryResponse.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed)
-                        return BuildToolResult(id, PatchProtocolRequiredMessage, isError: true);
+                        return McpResponses.ToolResult(id, PatchProtocolRequiredMessage, isError: true);
 
                     if (CheckVendorOverrideResult(toolName, preference, retryResponse.StatusCode, retryResponse.IsSuccessStatusCode, retryBody, out var retryRunIdToClose) is { } retryVendorCheck) {
                         if (retryRunIdToClose is not null)
                             await BestEffortCloseAsync(client, apiRoot, retryRunIdToClose, time);
 
-                        return BuildToolResult(id, retryVendorCheck.Message, retryVendorCheck.IsError);
+                        return McpResponses.ToolResult(id, retryVendorCheck.Message, retryVendorCheck.IsError);
                     }
 
                     // Terminal either way: the retry is the whole budget. A failure that indicts the
@@ -407,7 +334,7 @@ partial class McpFlowsServer(
                         var stale = TryParseCodedError(retryBody, out var retryCode, out _)
                                     && StalePreferenceCodes.Contains(retryCode!);
 
-                        return BuildToolResult(
+                        return McpResponses.ToolResult(
                             id,
                             FormatFlowStartError((int)retryResponse.StatusCode, retryBody, wasDynamicStart)
                                 + (stale ? StalePreferenceGuidance(preference, saved.ProfileName) : ""),
@@ -418,17 +345,17 @@ partial class McpFlowsServer(
 
                     var (retryPayload, retryIsError) = await ResolveRoundResultAsync(client, apiRoot, retryBody, toolName, wasDynamicStart, clock, backoff, settlementStartedAt, roundPollCap, shortCallDeadline);
 
-                    return BuildToolResult(id, $"{PreferenceAppliedPrefix(preference)}\n{retryPayload}", retryIsError);
+                    return McpResponses.ToolResult(id, $"{PreferenceAppliedPrefix(preference)}\n{retryPayload}", retryIsError);
                 }
 
                 if (!postResponse.IsSuccessStatusCode)
-                    return BuildToolResult(id, FormatFlowStartError((int)postResponse.StatusCode, postBody, wasDynamicStart), isError: true);
+                    return McpResponses.ToolResult(id, FormatFlowStartError((int)postResponse.StatusCode, postBody, wasDynamicStart), isError: true);
 
                 if (toolName is "start_review_flow" or "start_flow")
                     await RecordStartedRunAsync(postBody, requestingSessionId, cwd, repoRoot);
 
                 var (payload, isError) = await ResolveRoundResultAsync(client, apiRoot, postBody, toolName, wasDynamicStart, clock, backoff, settlementStartedAt, roundPollCap, shortCallDeadline);
-                return BuildToolResult(id, payload, isError);
+                return McpResponses.ToolResult(id, payload, isError);
             }
 
             // `wait: true` blocks via bounded repeated GETs instead of the single GET below. Absent or
@@ -439,7 +366,7 @@ partial class McpFlowsServer(
             if (toolName is "get_review_flow_status" or "get_flow_status") {
                 statusDeadline = clock.UtcNow + ParseTimeoutArg(arguments);
                 var resolution = await ResolveStatusFlowRunIdAsync(client, apiRoot, arguments, requestingSessionId, cwd, repoRoot, clock, statusDeadline);
-                if (resolution.Error is { } unresolved) return BuildToolResult(id, unresolved, isError: true);
+                if (resolution.Error is { } unresolved) return McpResponses.ToolResult(id, unresolved, isError: true);
                 arguments = WithFlowRunId(arguments, resolution.FlowRunId!);
             }
 
@@ -449,7 +376,7 @@ partial class McpFlowsServer(
                 var waitResult = await PollStatusUntilTerminalAsync(
                     client, apiRoot, waitFlowRunId, toolName, clock, backoff,
                     statusDeadline is { } end ? Remaining(end, clock) : null);
-                return BuildToolResult(id, waitResult.Payload, waitResult.IsError);
+                return McpResponses.ToolResult(id, waitResult.Payload, waitResult.IsError);
             }
 
             // Read-only availability lookup: reads GET /api/daemons and computes, client-side, which
@@ -471,14 +398,14 @@ partial class McpFlowsServer(
                 // before any network call, so an unresolved repo can never surface as an auth/lookup
                 // error from GET /api/daemons instead of the contractual repo_unresolved result.
                 if (string.IsNullOrEmpty(hostRoot))
-                    return BuildToolResult(id, JsonSerializer.Serialize(
+                    return McpResponses.ToolResult(id, JsonSerializer.Serialize(
                         ReviewerVendorLookup.Aggregate(null, hostRoot, machineId, driverVendor, repoIdentity: repoIdentity),
                         McpJsonContext.Default.ReviewerVendorsResult));
 
                 using var daemonsResp = await client.GetAsync(apiRoot + "/api/daemons");
 
                 if (daemonsResp.StatusCode == HttpStatusCode.Unauthorized)
-                    return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
+                    return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
 
                 ReviewerVendorsResult result;
                 if (!daemonsResp.IsSuccessStatusCode) {
@@ -491,77 +418,77 @@ partial class McpFlowsServer(
                         schemaSkew: skew, skippedRecords: skipped, repoIdentity: repoIdentity);
                 }
 
-                return BuildToolResult(id, JsonSerializer.Serialize(result, McpJsonContext.Default.ReviewerVendorsResult));
+                return McpResponses.ToolResult(id, JsonSerializer.Serialize(result, McpJsonContext.Default.ReviewerVendorsResult));
             }
 
             if (toolName is "list_flow_definitions") {
                 var lookup = await GetBoundedAsync(client, apiRoot + "/api/flows/definitions", clock);
                 if (lookup.Response is null)
-                    return BuildToolResult(id, $"Error: listing flow definitions (GET /api/flows/definitions) {lookup.How}; nothing was started — retry the call, or start a built-in definition by id.", isError: true);
+                    return McpResponses.ToolResult(id, $"Error: listing flow definitions (GET /api/flows/definitions) {lookup.How}; nothing was started — retry the call, or start a built-in definition by id.", isError: true);
 
                 using var definitionsResp = lookup.Response;
                 var definitionsBody       = await definitionsResp.Content.ReadAsStringAsync();
 
                 if (definitionsResp.StatusCode == HttpStatusCode.Unauthorized)
-                    return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
+                    return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
 
                 // A server that predates the route 404s at the routing layer: a capability the driver
                 // works around, not a failed call.
                 if (definitionsResp.StatusCode == HttpStatusCode.NotFound)
-                    return BuildToolResult(id, ServerCannotListDefinitions);
+                    return McpResponses.ToolResult(id, ServerCannotListDefinitions);
 
                 if (!definitionsResp.IsSuccessStatusCode)
-                    return BuildToolResult(id, FormatFlowStartError((int)definitionsResp.StatusCode, definitionsBody, wasDynamicStart: false), isError: true);
+                    return McpResponses.ToolResult(id, FormatFlowStartError((int)definitionsResp.StatusCode, definitionsBody, wasDynamicStart: false), isError: true);
 
                 return FormatFlowDefinitions(definitionsBody) is { } listing
-                    ? BuildToolResult(id, listing)
-                    : BuildToolResult(id, "Error: unreadable flow definition list from GET /api/flows/definitions.", isError: true);
+                    ? McpResponses.ToolResult(id, listing)
+                    : McpResponses.ToolResult(id, "Error: unreadable flow definition list from GET /api/flows/definitions.", isError: true);
             }
 
             if (toolName is "get_flow_definition") {
                 var definitionId = arguments?["definition_id"] is JsonValue dv && dv.TryGetValue(out string? s) ? s?.Trim() : null;
                 if (string.IsNullOrEmpty(definitionId))
-                    return BuildToolResult(id, "Error: definition_id is required — pass an id from list_flow_definitions.", isError: true);
+                    return McpResponses.ToolResult(id, "Error: definition_id is required — pass an id from list_flow_definitions.", isError: true);
 
                 var lookup = await GetBoundedAsync(client, $"{apiRoot}/api/flows/definitions/{Uri.EscapeDataString(definitionId)}", clock);
                 if (lookup.Response is null)
-                    return BuildToolResult(id, $"Error: reading flow definition '{definitionId}' {lookup.How}; nothing was started — retry the call.", isError: true);
+                    return McpResponses.ToolResult(id, $"Error: reading flow definition '{definitionId}' {lookup.How}; nothing was started — retry the call.", isError: true);
 
                 using var detailResp = lookup.Response;
                 var detailBody       = await detailResp.Content.ReadAsStringAsync();
 
                 if (detailResp.StatusCode == HttpStatusCode.Unauthorized)
-                    return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
+                    return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
 
                 // A server that serves the route answers an unknown id with a problem body; a routing 404 has none.
                 if (detailResp.StatusCode == HttpStatusCode.NotFound)
                     return ProblemDetail(detailBody) is { } detail
-                        ? BuildToolResult(id, $"Error: {detail} Call list_flow_definitions for the ids this server can start.", isError: true)
-                        : BuildToolResult(id, ServerPublishesNoGuides);
+                        ? McpResponses.ToolResult(id, $"Error: {detail} Call list_flow_definitions for the ids this server can start.", isError: true)
+                        : McpResponses.ToolResult(id, ServerPublishesNoGuides);
 
                 if (!detailResp.IsSuccessStatusCode)
-                    return BuildToolResult(id, FormatFlowStartError((int)detailResp.StatusCode, detailBody, wasDynamicStart: false), isError: true);
+                    return McpResponses.ToolResult(id, FormatFlowStartError((int)detailResp.StatusCode, detailBody, wasDynamicStart: false), isError: true);
 
                 return FormatFlowDefinitionDetail(detailBody) is { } rendered
-                    ? BuildToolResult(id, rendered)
-                    : BuildToolResult(id, $"Error: unreadable flow definition from GET /api/flows/definitions/{definitionId}.", isError: true);
+                    ? McpResponses.ToolResult(id, rendered)
+                    : McpResponses.ToolResult(id, $"Error: unreadable flow definition from GET /api/flows/definitions/{definitionId}.", isError: true);
             }
 
             if (toolName is StartAgentOptionsTool.Name) {
                 var lookup = await GetBoundedAsync(client, apiRoot + StartAgentOptionsTool.Route, clock);
                 if (lookup.Response is null)
-                    return BuildToolResult(id, $"Error: listing daemons (GET {StartAgentOptionsTool.Route}) {lookup.How}. Nothing was started; retry the call.", isError: true);
+                    return McpResponses.ToolResult(id, $"Error: listing daemons (GET {StartAgentOptionsTool.Route}) {lookup.How}. Nothing was started; retry the call.", isError: true);
 
                 using var daemonsResp = lookup.Response;
 
                 if (daemonsResp.StatusCode == HttpStatusCode.Unauthorized)
-                    return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
+                    return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
 
                 var (text, isError) = StartAgentOptionsTool.Render(
                     (int)daemonsResp.StatusCode, await daemonsResp.Content.ReadAsStringAsync(), new MachineId(config).ReadPersisted(), driverVendor,
                     callerAgentId);
 
-                return BuildToolResult(id, text, isError);
+                return McpResponses.ToolResult(id, text, isError);
             }
 
             if (toolName is StartAgentTool.Name) {
@@ -571,29 +498,29 @@ partial class McpFlowsServer(
                     arguments, requestingSessionId, driverVendor, callerAgentId, new MachineId(config).ReadPersisted());
 
                 var (answer, how) = await StartAgentTool.PostAsync(client, apiRoot, start, clock);
-                if (answer is null) return BuildToolResult(id, StartAgentTool.Unanswered(how), isError: true);
+                if (answer is null) return McpResponses.ToolResult(id, StartAgentTool.Unanswered(how), isError: true);
 
                 using (answer) {
                     if (answer.StatusCode == HttpStatusCode.Unauthorized)
-                        return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
+                        return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
 
                     var (text, isError) = StartAgentTool.Render((int)answer.StatusCode, await answer.Content.ReadAsStringAsync(), start.WorkItem);
 
-                    return BuildToolResult(id, text, isError);
+                    return McpResponses.ToolResult(id, text, isError);
                 }
             }
 
             if (WakeUpTools.Handles(toolName)) {
                 var (answer, how) = await WakeUpTools.SendAsync(toolName, arguments, client, apiRoot, requestingSessionId, callerAgentId, clock);
-                if (answer is null) return BuildToolResult(id, WakeUpTools.Unanswered(toolName, how), isError: true);
+                if (answer is null) return McpResponses.ToolResult(id, WakeUpTools.Unanswered(toolName, how), isError: true);
 
                 using (answer) {
                     if (answer.StatusCode == HttpStatusCode.Unauthorized)
-                        return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
+                        return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
 
                     var (text, isError) = WakeUpTools.Render(toolName, (int)answer.StatusCode, await answer.Content.ReadAsStringAsync(), arguments);
 
-                    return BuildToolResult(id, text, isError);
+                    return McpResponses.ToolResult(id, text, isError);
                 }
             }
 
@@ -606,13 +533,13 @@ partial class McpFlowsServer(
             var body = await httpResponse.Content.ReadAsStringAsync();
 
             if (httpResponse.StatusCode == HttpStatusCode.Unauthorized) {
-                return BuildToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
+                return McpResponses.ToolResult(id, await AuthRejectionNotice.ForPersistentUnauthorizedAsync(store, profiles.Name, apiRoot, time), isError: true);
             }
 
             if (!httpResponse.IsSuccessStatusCode) {
-                // Decode coded envelopes here too (status/close previously printed the raw
-                // body) — FormatFlowStartError falls back to the raw HTTP line for uncoded bodies.
-                return BuildToolResult(id, FormatFlowStartError((int)httpResponse.StatusCode, body, wasDynamicStart: false), isError: true);
+                // Decode coded envelopes here too — FormatFlowStartError falls back to the raw HTTP
+                // line for uncoded bodies.
+                return McpResponses.ToolResult(id, FormatFlowStartError((int)httpResponse.StatusCode, body, wasDynamicStart: false), isError: true);
             }
 
             string statusPayload;
@@ -633,11 +560,11 @@ partial class McpFlowsServer(
                 statusPayload = FormatRoundResponse(body);
             }
 
-            return BuildToolResult(id, statusPayload);
+            return McpResponses.ToolResult(id, statusPayload);
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -783,58 +710,21 @@ partial class McpFlowsServer(
     }
 
     /// <summary>
-    /// Bounded, code-aware auto-retry for the two settlement-layer coded 409s a start/round POST
-    /// can return: flow_settlement_busy (a settlement CAS append exhausted its own retry budget)
-    /// and reviewer_launch_incarnation_superseded (the launch's incarnation was superseded by a
-    /// concurrent settlement transition). Both are documented server-side as retryable: retrying
-    /// the originating request re-resolves against the settlement layer's current state.
-    ///
-    /// For start_review_flow/start_flow, retrying re-POSTs the start — which mints a FRESH
-    /// flow_run_id and abandons the superseded attempt (see StartFlowAsync), so it's
-    /// unconditionally safe. For submit_review_round/send_to_participant, the server invariant
-    /// that no path appends FlowRoleAgentAssigned/FlowRoundSubmitted/FlowIntentCompleted unless
-    /// IsCurrentSettlementCompletion is true means a coded rejection here never recorded a round
-    /// — so retrying the same flow_run_id can't double-submit.
-    ///
-    /// Only these two codes (via <see cref="TryParseCodedError"/>) trigger a retry, plus whatever
-    /// single code the caller names in <paramref name="extraRetryableCode"/> (today only
-    /// <see cref="ParticipantUnreachableCode"/>). Every other coded 4xx, and an uncoded failure,
-    /// passes through untouched — an older server that has never heard of the extra code simply
-    /// never sends it, so this is additive, not a capability negotiation.
-    ///
-    /// <para><see cref="ParticipantUnreachableCode"/> never carries a <c>last_processed_seq</c>, so
-    /// the rolling no-progress window never re-arms for it and it always exhausts at the flat
-    /// <see cref="SettlementElapsedDeadline"/> (3 minutes). That bound is load-bearing, not
-    /// redundant with a faster server-side signal: the incarnation-cleared append that would let a
-    /// retry succeed lands in the reviewer gateway / settlement service, not in the reconciler, so
-    /// 3 minutes is sized to give that reconcile sweep (<c>FlowReconcilerService.SweepInterval</c>)
-    /// one full cycle to prove the prior agent's absence.</para>
-    ///
-    /// <para>Bounded by <see cref="SettlementElapsedDeadline"/> rather than an attempt count, on the
-    /// <see cref="SettlementBackoff"/> schedule, with the deadline's remaining time propagated as a
-    /// per-request <see cref="CancellationToken"/> so a held POST is abandoned instead of
-    /// overshooting. Each retried POST re-enters a fresh server-side admission wait, which is what
-    /// lets a burst of concurrent launches against one daemon absorb serially.</para>
-    ///
-    /// <para>Returns a discriminated result: <c>Response</c> carries the live response (the caller
-    /// owns it, exactly as before); <c>DeadlineExhausted</c> carries only the last observed coded
-    /// error plus attempt/elapsed diagnostics — this helper disposes every superseded failing
-    /// response, so an exhausted result never carries a live one. The deadline CTS is linked to the
-    /// caller's token; in production that token is <see cref="CancellationToken.None"/> (the stdio
-    /// loop has none), and caller-token cancellation is rethrown untouched — only this helper's OWN
-    /// deadline firing produces <c>DeadlineExhausted</c>.</para>
-    ///
-    /// <para>Sits above the lane's own 401 recovery, which still applies on every attempt. All
-    /// timing is injectable so unit tests run instantly on a virtual clock.</para>
-    ///
-    /// <para><paramref name="budgetStartedAt"/> lets a caller that sends TWICE within one tool call
-    /// (the preference fallback: a refused vendor-less start, then one re-send naming the saved
-    /// vendor) share ONE elapsed budget instead of opening a second full one. Two independent
-    /// budgets would put the worst case at 3m + 3m of settlement plus the poll cap — past the
-    /// harness MCP tool timeout this deadline was sized to stay under, with the specific hazard that
-    /// the second POST succeeds (a run minted, a paid reviewer launched) after the harness has
-    /// already given up, and the driver starts the flow again. Omitted, the budget starts now, which
-    /// is every other caller's behavior unchanged.</para>
+    /// Retries the two retryable settlement 409s, <c>flow_settlement_busy</c> and
+    /// <c>reviewer_launch_incarnation_superseded</c>, plus <paramref name="extraRetryableCode"/>; every
+    /// other failure passes through. A retried start mints a fresh flow_run_id, and a coded rejection of a
+    /// round never recorded it, so neither can double-submit.
+    /// <para>Bounded by time, not attempts, with the remaining time cancelling each POST. Two limits apply:
+    /// a no-progress window of <see cref="SettlementElapsedDeadline"/>, re-armed by a 409 whose
+    /// <c>last_processed_seq</c> advances, and an absolute cap of <paramref name="absoluteBudget"/> or
+    /// <see cref="SettlementAbsoluteDeadline"/>. <see cref="ParticipantUnreachableCode"/> carries no
+    /// <c>last_processed_seq</c>, so it never re-arms and gets at most 3 minutes from the budget start,
+    /// sized to give the server's reconcile sweep one cycle to prove the prior agent gone.</para>
+    /// <para>An exhausted result carries no live response; only this helper's own deadline produces it, and
+    /// caller cancellation is rethrown.</para>
+    /// <para><paramref name="budgetStartedAt"/> lets a caller that sends twice in one tool call share one
+    /// budget. Two budgets would outlast the harness's MCP tool timeout, and a second POST could launch a
+    /// paid reviewer after the harness had given up and retried.</para>
     /// </summary>
     internal static async Task<SettlementSendResult> SendWithSettlementRetryAsync(
             HttpClient                                                    client,
@@ -1161,7 +1051,7 @@ partial class McpFlowsServer(
                     ? (ReviewerModelProtocolRequiredMessage, true)
                     : null;
 
-            // Qodo #2: an UNCODED non-success body (e.g. a 5xx / proxy HTML-or-text error) is NOT an
+            // An UNCODED non-success body (e.g. a 5xx / proxy HTML-or-text error) is NOT an
             // old-server signal — only a clean 404/405 is (handled above). Return null so the caller's
             // FormatFlowStartError surfaces the real status/body, instead of masking a genuine
             // failure as a protocol-version skew.
@@ -1253,12 +1143,12 @@ partial class McpFlowsServer(
     }
 
     /// <summary>
-    /// Routes a review-flow start to the versioned start endpoint. §2.7 B3: a vendor-bearing,
+    /// Routes a review-flow start to the versioned start endpoint. A vendor-bearing,
     /// non-dynamic start POSTs to /api/flows/review/start/v4 (protocol 4, the resumable-park tier),
     /// falling back on HTTP 404 (old server) to /v3 when a model was given else /v2; a vendor-less or
-    /// dynamic (definition_yaml) start keeps the pre-B3 route (/v2 or the legacy generic route). Shared
+    /// dynamic (definition_yaml) start keeps the /v2 or legacy generic route. Shared
     /// by start_review_flow (reads the flow kind from the "kind" arg) and its generic alias start_flow
-    /// (reads it from "definition_id" — the server treats kind == definition id, phase C).
+    /// (reads it from "definition_id" — the server treats kind == definition id).
     /// start_flow additionally accepts an inline "definition_yaml" (dynamic flows): the MCP
     /// schema can't express the xor, so exactly-one is enforced here, BEFORE any HTTP call;
     /// start_review_flow stays catalog-only (kind remains required there). Internal (not private)
@@ -1268,7 +1158,7 @@ partial class McpFlowsServer(
     /// environment here — an inherited <c>KCAP_SESSION_ID</c> names the session that launched this
     /// one. It is a required parameter so no call site can acquire it ambiently by accident.</para>
     /// </summary>
-    internal async Task<System.Net.Http.HttpResponseMessage> StartFlowAsync(
+    internal async Task<HttpResponseMessage> StartFlowAsync(
             HttpClient         client,
             string             apiRoot,
             JsonObject?        arguments,
@@ -1324,7 +1214,7 @@ partial class McpFlowsServer(
                     "Pass the lowercase canonical vendor token (e.g. 'claude', 'codex') the model belongs to.");
         }
 
-        // B2: this machine's stable id, matched server-side against each connected daemon's
+        // This machine's stable id, matched server-side against each connected daemon's
         // registration id to prove the reviewer would run on the SAME host as this requester. Same
         // call the daemon reports at registration (ServerConnection), so the ids are identical — the
         // last piece that lets the server pick the borrow path instead of a mirrored worktree.
@@ -1360,9 +1250,9 @@ partial class McpFlowsServer(
             RequesterMachineId:   machineId,
             DefinitionYaml:       definitionYaml,
             Vendor:               vendor,
-            // The BASE-body protocol, used only on the pre-B3 fallback routes below: a reviewer-model
+            // The BASE-body protocol, used only on the v3/v2 fallback routes below: a reviewer-model
             // override is 3 (v3), every other catalog start is 2 (v2), a dynamic start sends none. The
-            // §2.7 B3 primary attempt overrides this to 4 for the /v4 route (see the routing below).
+            // primary attempt overrides this to 4 for the /v4 route (see the routing below).
             ClientFlowProtocolVersion: model is not null ? 3 : definitionYaml is null ? 2 : null,
             Model:                model,
             SessionTitle:         sessionTitle,
@@ -1378,24 +1268,24 @@ partial class McpFlowsServer(
                 JsonContent.Create(body with { ClientFlowProtocolVersion = 5 }, McpJsonContext.Default.StartReviewFlowDto),
                 ct);
 
-        // §2.7 B3: a participant_parked-capable client routes every non-dynamic, vendor-bearing
+        // A participant_parked-capable client routes every non-dynamic, vendor-bearing
         // start through /review/start/v4 (protocol 4), so the server returns the version-gated
         // `participant_parked` result when a resumable park crosses a round. An older server lacks the
-        // route and 404s it → fall back to the pre-B3 endpoint (protocol 3/2), where a park reports the
+        // route and 404s it → fall back to the v3/v2 endpoint (protocol 3/2), where a park reports the
         // legacy `participant_stopped`; both are resubmit triggers, so the crossed round never stalls
         // across the rollout. Only a 404 falls back — any other response (incl. a real 4xx) is returned
         // as-is, never a silent downgrade. A dynamic (definition_yaml) or vendor-less start keeps its
-        // pre-B3 route (v4 requires a vendor).
+        // v3/v2 route (v4 requires a vendor).
         if (vendor is not null && definitionYaml is null) {
             var v4Resp = await client.PostAsync(
                 $"{apiRoot}/api/flows/review/start/v4",
                 JsonContent.Create(body with { ClientFlowProtocolVersion = 4 }, McpJsonContext.Default.StartReviewFlowDto),
                 ct);
-            if (v4Resp.StatusCode != System.Net.HttpStatusCode.NotFound) return v4Resp;
-            v4Resp.Dispose(); // old server without /v4 — fall through to the pre-B3 route below
+            if (v4Resp.StatusCode != HttpStatusCode.NotFound) return v4Resp;
+            v4Resp.Dispose(); // old server without /v4 — fall through to the v3/v2 route below
         }
 
-        // Pre-B3 route selection (and the /v4 fallback), the server-capability signal that fails closed:
+        // v3/v2 route selection (and the /v4 fallback), the server-capability signal that fails closed:
         //  - a reviewer-model override → POST /review/start/v3 (an old server 404s it — mapped to
         //    reviewer_model_protocol_required, never downgraded to v2);
         //  - every other catalog start → POST /review/start/v2 (protocol 2);
@@ -1419,7 +1309,7 @@ partial class McpFlowsServer(
     /// send_to_participant (reads context from "message" and always sends a participant,
     /// which the server validates against the flow definition).
     /// </summary>
-    static Task<System.Net.Http.HttpResponseMessage> SubmitRoundAsync(
+    static Task<HttpResponseMessage> SubmitRoundAsync(
             HttpClient  client,
             string      apiRoot,
             JsonObject? arguments,
@@ -1672,7 +1562,7 @@ partial class McpFlowsServer(
     /// (round-full starts and old servers fall through to the existing logic unchanged). Today's
     /// server never puts pending_messages on a round-less start (a brand-new run has no
     /// participants), but the path renders + exposes them anyway so every returned response obeys
-    /// the same format-then-ack rule with no carve-outs (Qodo review on #278).</summary>
+    /// the same format-then-ack rule with no carve-outs.</summary>
     internal static string? TryFormatRoundlessStart(string postBody, out IReadOnlyList<string> pendingIds) {
         pendingIds = [];
 
@@ -2031,7 +1921,7 @@ partial class McpFlowsServer(
         );
     }
 
-    /// <summary>Implements `wait: true` on the two status tools (liveness design §6): repeated bounded
+    /// <summary>Implements `wait: true` on the two status tools: repeated bounded
     /// GETs against the SAME endpoint the plain call hits, sharing <see cref="PollUntilTerminalAsync"/>'s
     /// per-attempt timeout, cadence, transient budget and 409 backoff, until the run is terminal, the
     /// current round reaches a <see cref="TerminalRoundStatuses"/> value, or <see cref="PollCap"/> elapses.
@@ -2379,7 +2269,7 @@ partial class McpFlowsServer(
 
             // Type-safe extraction: a wrong-typed field degrades to "", never throws —
             // FormatPolledRoundResult has no exception boundary, so a throw here would turn a
-            // successful terminal poll into a generic internal error (Qodo review on #278).
+            // successful terminal poll into a generic internal error.
             var id   = StringField(o, "message_id");
             var from = StringField(o, "from_participant");
             var text = StringField(o, "text");
@@ -2576,8 +2466,8 @@ partial class McpFlowsServer(
         };
 
     /// <summary>
-    /// Parses the optional "wait" argument on get_review_flow_status/get_flow_status (§6 of the
-    /// liveness design). A missing key and an explicit JSON null both default to false — the
+    /// Parses the optional "wait" argument on get_review_flow_status/get_flow_status.
+    /// A missing key and an explicit JSON null both default to false — the
     /// single-GET behavior every existing caller already gets, unchanged. A JSON boolean is used
     /// as-is; anything else throws ArgumentException, turned into a clean tool error by
     /// HandleToolCallAsync's catch, mirroring ParseAsyncArg's contract.
@@ -2612,37 +2502,6 @@ partial class McpFlowsServer(
 
     static TimeSpan Remaining(DateTimeOffset deadline, FlowRetryClock clock) =>
         deadline - clock.UtcNow is var left && left > TimeSpan.Zero ? left : TimeSpan.Zero;
-
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
-        ToResponse<McpInitResult>(
-            id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-flows", "1.0.0")),
-            McpJsonContext.Default.McpInitResult
-        );
-
-    static string BuildToolsListResponse(JsonNode id, McpTool[] tools) =>
-        ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        };
-        return envelope.ToJsonString();
-    }
 
     /// <summary>Carried by every tool that holds the call open while a round runs. A harness that
     /// aborts the call words the error itself, so this is the only guidance the driver has read.</summary>

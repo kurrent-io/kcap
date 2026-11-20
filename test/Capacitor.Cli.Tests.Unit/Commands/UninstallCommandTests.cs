@@ -229,10 +229,9 @@ public class UninstallCommandTests {
 
     [Test]
     public async Task User_level_uninstall_removes_legacy_kapacitor_codex_hooks() {
-        // Regression: a user who installed via the pre-rename `kapacitor` CLI
-        // has hooks.json entries pointing at `kapacitor codex-hook`. Running
-        // `kcap uninstall` must clean those up — the rename PR did not migrate
-        // the detection marker, so legacy entries previously survived.
+        // A user who installed via the pre-rename `kapacitor` CLI has hooks.json
+        // entries pointing at `kapacitor codex-hook`, which were never migrated.
+        // `kcap uninstall` must clean those up too.
         await using var fixture = await Fixture.CreateAsync();
 
         var codexDir = Path.Combine(fixture.Home, ".codex");
@@ -586,10 +585,9 @@ public class UninstallCommandTests {
     [Test, ExcludeOn(OS.Windows)]
     [UnsupportedOSPlatform("windows")]
     public async Task Cursor_hooks_write_failure_propagates_to_exit_code() {
-        // Cursor's RemoveCursor previously returned 0 even when the helper's
-        // inner try/catch swallowed a write failure. The helper now throws,
-        // RemoveCursor catches + returns 1, and uninstall aggregates that
-        // into hadFailures.
+        // A write failure in the helper must not be swallowed: RemoveCursor
+        // catches it and returns 1, and uninstall aggregates that into
+        // hadFailures.
         await using var fixture = await Fixture.CreateAsync();
 
         var cursorDir = Path.Combine(fixture.Home, ".cursor");
@@ -614,9 +612,9 @@ public class UninstallCommandTests {
     [Test, ExcludeOn(OS.Windows)]
     [UnsupportedOSPlatform("windows")]
     public async Task Sweep_failure_propagates_to_exit_code() {
-        // SweepCapacitorPrefixedDirs previously logged Directory.Delete errors
-        // but never flipped hadFailures, so a stuck kcap-* folder under
-        // ~/.agents/skills/ would leave uninstall claiming success.
+        // A Directory.Delete error in SweepCapacitorPrefixedDirs must flip
+        // hadFailures, or a stuck kcap-* folder under ~/.agents/skills/ leaves
+        // uninstall claiming success.
         await using var fixture = await Fixture.CreateAsync();
 
         var skillsDir = Path.Combine(fixture.Home, ".agents", "skills");
@@ -1066,7 +1064,7 @@ public class UninstallCommandTests {
         await Assert.That(local.Service.IsInstalled(local.Unit)).IsFalse();
         // Ahead of every other step, the uninstall's own daemon stop included.
         await Assert.That(local.Log.IndexOf("uninstall")).IsLessThan(local.Log.LastIndexOf("recorders:stop"));
-        await Assert.That(Directory.EnumerateFileSystemEntries(fixture.ConfigDir).Select(path => Path.GetFileName(path)!).ToArray())
+        await Assert.That(Directory.EnumerateFileSystemEntries(fixture.ConfigDir).Select(path => Path.GetFileName(path)).ToArray())
             .IsEquivalentTo(new[] { "local", "local-retired.json", "local-unit.lock" });
     }
 
@@ -1422,13 +1420,13 @@ public class UninstallCommandTests {
         var vibe = TestHarnesses.Under(fixture.UserHome).Of<Capacitor.Cli.Core.Harness.MistralVibe.MistralVibeHarness>().Paths;
         Directory.CreateDirectory(vibe.Home);
         await File.WriteAllTextAsync(vibe.ConfigToml, "model = \"user-model\"\n");
-        Capacitor.Cli.Core.Harness.MistralVibe.MistralVibeHooksInstaller.Install(vibe.HooksToml);
-        Capacitor.Cli.Core.Harness.MistralVibe.MistralVibeConfigToml.RegisterKcapMcpServers(vibe.ConfigToml);
+        Core.Harness.MistralVibe.MistralVibeHooksInstaller.Install(vibe.HooksToml);
+        Core.Harness.MistralVibe.MistralVibeConfigToml.RegisterKcapMcpServers(vibe.ConfigToml);
 
         await Assert.That(await RunUninstall(fixture)).IsEqualTo(0);
-        await Assert.That(Capacitor.Cli.Core.Harness.MistralVibe.MistralVibeHooksInstaller.IsInstalled(vibe.HooksToml)).IsFalse();
+        await Assert.That(Core.Harness.MistralVibe.MistralVibeHooksInstaller.IsInstalled(vibe.HooksToml)).IsFalse();
         await Assert.That(await File.ReadAllTextAsync(vibe.ConfigToml)).Contains("user-model");
-        await Assert.That(Capacitor.Cli.Core.Harness.MistralVibe.MistralVibeConfigToml.OwnsAnything(vibe.ConfigToml)).IsFalse();
+        await Assert.That(Core.Harness.MistralVibe.MistralVibeConfigToml.OwnsAnything(vibe.ConfigToml)).IsFalse();
     }
 
     [Test]
@@ -1477,13 +1475,13 @@ public class UninstallCommandTests {
     public async Task Uninstall_reports_malformed_antigravity_hooks_instead_of_claiming_success() {
         await using var fixture = await Fixture.CreateAsync();
         var agy = TestHarnesses.Under(fixture.UserHome).Of<Capacitor.Cli.Core.Harness.Antigravity.AntigravityHarness>().Paths;
-        Capacitor.Cli.Core.Harness.Antigravity.AntigravityHooksInstaller.Install(agy.GlobalHooksJson);
+        Core.Harness.Antigravity.AntigravityHooksInstaller.Install(agy.GlobalHooksJson);
         await File.WriteAllTextAsync(agy.GlobalHooksJson, "{broken");
 
         await Assert.That(await RunUninstall(fixture)).IsEqualTo(1);
         await Assert.That(Directory.Exists(fixture.ConfigDir)).IsTrue();
         await Assert.That(await File.ReadAllTextAsync(agy.GlobalHooksJson)).IsEqualTo("{broken");
-        await Assert.That(Capacitor.Cli.Core.Harness.Antigravity.AntigravityHooksInstaller.IsInstalled(agy.GlobalHooksJson)).IsTrue();
+        await Assert.That(Core.Harness.Antigravity.AntigravityHooksInstaller.IsInstalled(agy.GlobalHooksJson)).IsTrue();
     }
 
     [Test]

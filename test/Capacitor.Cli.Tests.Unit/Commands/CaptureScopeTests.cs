@@ -56,6 +56,16 @@ public class CaptureScopeTests {
         await Assert.That(result[0].OutsideAllowlist).IsFalse();
     }
 
+    /// <summary>A folder entry names a repository with no remote, as it does for the live hooks and discovery.</summary>
+    [Test]
+    public async Task A_folder_entry_excludes_a_local_repository() {
+        var result = await Scope(excludedRepos: [LocalRepository.FolderEntryPrefix + "notes"],
+                repoDetector: Detects(LocalRepository.OwnerPrefix + "abc123", "notes"))
+            .ApplyAsync([Session("s1", "/tmp/anywhere")], NoResolved);
+
+        await Assert.That(result[0].ExcludedRepoKeys).IsEquivalentTo([LocalRepository.OwnerPrefix + "abc123/notes"]);
+    }
+
     /// <summary>An import places a session under the repository its harness recorded, so scope judges that one even
     /// when its folder now resolves elsewhere.</summary>
     [Test]
@@ -143,7 +153,7 @@ public class CaptureScopeTests {
     public async Task An_unresolvable_cwd_does_not_stop_the_sessions_beside_it() {
         var result = await Scope(
                 allowedRepos: ["acme/widgets"],
-                repoDetector: cwd => Task.FromResult<RepositoryPayload?>(
+                repoDetector: cwd => Task.FromResult(
                     cwd == "/tmp/widgets" ? new RepositoryPayload { Owner = "acme", RepoName = "widgets" } : null))
             .ApplyAsync([Session("unplaceable", "/tmp/not-a-repo"), Session("admitted", "/tmp/widgets")], NoResolved);
 
@@ -375,7 +385,7 @@ public class CaptureScopeTests {
     }
 
     static Func<string, Task<RepositoryPayload?>> DetectsAt(string repo) =>
-        cwd => Task.FromResult<RepositoryPayload?>(
+        cwd => Task.FromResult(
             cwd == repo ? new RepositoryPayload { Owner = "acme", RepoName = "widgets" } : null);
 
     /// <summary>

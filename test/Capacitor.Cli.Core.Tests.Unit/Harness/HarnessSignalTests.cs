@@ -125,8 +125,8 @@ public class HarnessSignalTests {
 
         tmp.CreateDir("logs");
 
-        await Assert.That(CopilotHarness.Over(new CopilotPaths(Nowhere, null)).Signals.HasUserData).IsFalse();
-        await Assert.That(CopilotHarness.Over(new CopilotPaths(Nowhere, tmp.Path)).Signals.HasUserData).IsTrue();
+        await Assert.That(CopilotHarness.Over(new CopilotPaths(Nowhere, null, null)).Signals.HasUserData).IsFalse();
+        await Assert.That(CopilotHarness.Over(new CopilotPaths(Nowhere, null, tmp.Path)).Signals.HasUserData).IsTrue();
     }
 
     /// <summary>Wiring Copilot writes these, so a machine must not detect Copilot from kcap's own files.</summary>
@@ -144,7 +144,7 @@ public class HarnessSignalTests {
         if (dir is not null) tmp.CreateDir(dir);
         if (file is not null) await File.WriteAllTextAsync(tmp.PathTo(file), "{}");
 
-        await Assert.That(CopilotHarness.Over(new CopilotPaths(Nowhere, tmp.Path)).Signals.HasUserData).IsEqualTo(expected);
+        await Assert.That(CopilotHarness.Over(new CopilotPaths(Nowhere, null, tmp.Path)).Signals.HasUserData).IsEqualTo(expected);
     }
 
     static string CopilotBinaryIn(TempDir tmp, params string[] directory) {
@@ -164,7 +164,7 @@ public class HarnessSignalTests {
         using var tmp = new TempDir();
         var binaries = BinaryProbe.Searching(CopilotBinaryIn(tmp, "Code", directory));
 
-        var found = HarnessRegistry.Over(binaries, CopilotHarness.Over(new CopilotPaths(Nowhere, tmp.PathTo("home")))).Detect(HarnessId.Copilot);
+        var found = HarnessRegistry.Over(binaries, CopilotHarness.Over(new CopilotPaths(Nowhere, null, tmp.PathTo("home")))).Detect(HarnessId.Copilot);
 
         await Assert.That(found.BinaryFound).IsTrue();
         await Assert.That(found.HostApp).IsEqualTo(expected);
@@ -177,10 +177,61 @@ public class HarnessSignalTests {
         tmp.CreateDir("home", "ide");
         var binaries = BinaryProbe.Searching(CopilotBinaryIn(tmp, "bin"));
 
-        var found = HarnessRegistry.Over(binaries, CopilotHarness.Over(new CopilotPaths(Nowhere, tmp.PathTo("home")))).Detect(HarnessId.Copilot);
+        var found = HarnessRegistry.Over(binaries, CopilotHarness.Over(new CopilotPaths(Nowhere, null, tmp.PathTo("home")))).Detect(HarnessId.Copilot);
 
         await Assert.That(found.DesktopAppFound).IsTrue();
         await Assert.That(found.HostApp).IsNull();
+    }
+
+    /// <summary>VS Code's launcher earlier on the PATH than a Copilot CLI still reads as the CLI: the launcher runs it.</summary>
+    [Test]
+    public async Task A_copilot_cli_behind_vs_code_s_launcher_reads_as_the_cli() {
+        using var tmp = new TempDir();
+        var binaries = BinaryProbe.Searching(
+            CopilotBinaryIn(tmp, "Code", "copilot-shim") + Path.PathSeparator + CopilotBinaryIn(tmp, "bin"));
+
+        var found = HarnessRegistry.Over(binaries, CopilotHarness.Over(new CopilotPaths(Nowhere, null, tmp.PathTo("home")))).Detect(HarnessId.Copilot);
+
+        await Assert.That(found.HostApp).IsNull();
+    }
+
+    /// <summary>VS Code's launcher is not a Copilot CLI: with no CLI behind it there is nothing to launch.</summary>
+    [Test]
+    public async Task The_copilot_cli_resolves_past_vs_code_s_launcher() {
+        using var tmp = new TempDir();
+        var shim = CopilotBinaryIn(tmp, "Code", "copilot-shim");
+        var cli  = CopilotBinaryIn(tmp, "bin");
+
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(shim), CopilotHarness.CliBinary)).IsNull();
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(shim + Path.PathSeparator + cli), CopilotHarness.CliBinary))
+            .IsEqualTo(BinaryProbe.Searching(cli).Resolve(CopilotHarness.CliBinary));
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(cli), Path.Combine(shim, CopilotHarness.CliBinary))).IsNull();
+    }
+
+    /// <summary>A link to VS Code's launcher is the launcher, on the search path or named outright.</summary>
+    [Test]
+    public async Task A_link_to_vs_code_s_launcher_is_not_the_copilot_cli() {
+        Skip.When(OperatingSystem.IsWindows(), "creating a symbolic link needs a privilege Windows runners lack");
+        using var tmp = new TempDir();
+        var shim = CopilotBinaryIn(tmp, "Code", "copilot-shim");
+        var link = Path.Combine(tmp.CreateDir("bin"), CopilotHarness.CliBinary);
+        File.CreateSymbolicLink(link, Path.Combine(shim, CopilotHarness.CliBinary));
+
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(Path.GetDirectoryName(link)), CopilotHarness.CliBinary)).IsNull();
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(null), link)).IsNull();
+    }
+
+    /// <summary>A folder linked to VS Code's launcher folder holds the launcher, on the search path or named outright.</summary>
+    [Test]
+    public async Task A_folder_linked_to_vs_code_s_launcher_folder_is_not_the_copilot_cli() {
+        Skip.When(OperatingSystem.IsWindows(), "creating a symbolic link needs a privilege Windows runners lack");
+        using var tmp = new TempDir();
+        var shim  = CopilotBinaryIn(tmp, "Code", "copilot-shim");
+        var alias = tmp.PathTo("copilot-bin");
+        Directory.CreateSymbolicLink(alias, shim);
+
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(alias), CopilotHarness.CliBinary)).IsNull();
+        await Assert.That(CopilotHarness.ResolveCli(BinaryProbe.Searching(null), Path.Combine(alias, CopilotHarness.CliBinary))).IsNull();
     }
 
     /// <summary>VS Code signs Copilot in through ide/ and keeps the extension's data in its own storage.</summary>
@@ -193,8 +244,8 @@ public class HarnessSignalTests {
         using var empty = new TempDir();
 
         var none = BinaryProbe.Searching(null);
-        var byIde = CopilotHarness.Over(new CopilotPaths(Nowhere, signedIn.Path));
-        var byStorage = CopilotHarness.Over(new CopilotPaths(Nowhere, empty.PathTo("absent")));
+        var byIde = CopilotHarness.Over(new CopilotPaths(Nowhere, null, signedIn.Path));
+        var byStorage = CopilotHarness.Over(new CopilotPaths(Nowhere, null, empty.PathTo("absent")));
 
         await Assert.That(byIde.Signals.HasDesktopApp(DesktopAppProbe.None)).IsTrue();
         await Assert.That(byIde.Signals.FindHostApp(none, DesktopAppProbe.None)).IsEqualTo("VS Code");
@@ -380,7 +431,7 @@ public class HarnessSignalTests {
         using var tmp  = new TempDir();
         var       kiro = KiroHarness.Over(new KiroPaths(Nowhere, tmp.CreateDir("kh").Path));
 
-        tmp.CreateDir(["kh", "agents"]);
+        tmp.CreateDir("kh", "agents");
         await Assert.That(kiro.Signals.IsWired).IsFalse();
 
         tmp.CreateFile(["kh", "agents", ".kcap-hooks-version"], "0.1.0");

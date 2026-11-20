@@ -956,10 +956,11 @@ public class DaemonRecorderTests {
         await recorder.RestoreAsync(InScope, CancellationToken.None);
         await recorder.SettleRestoredAsync(_ => false);
 
+        // The tail drain needs no time to pass, and its budgets run on this clock, so the clock waits for it.
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Any(batch => batch.SessionId == ended));
         await Stepping(time, () => claims.Read(gone.Key) is RecorderClaimState.None && recorder.ActiveKeys.Count == 1 && List.Load().Count == 1);
         await Assert.That(recorder.ActiveKeys).IsEquivalentTo([running.Key]);
         await Assert.That(List.Load().Select(s => s.Key)).IsEquivalentTo([running.Key]);
-        await Assert.That(Transport.Batches.Any(batch => batch.SessionId == ended)).IsTrue();
         await Assert.That(Ends.Select(end => end.Key)).IsEquivalentTo([gone.Key]);
     }
 

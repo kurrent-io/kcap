@@ -60,7 +60,7 @@ public class GrokToolAdmissionTests {
     /// them is not one.</summary>
     [Test]
     public async Task A_frame_whose_fields_disagree_is_not_admitted() {
-        var name = $"{Injected}__submit_review_result";
+        const string name = $"{Injected}__submit_review_result";
 
         await Assert.That(GrokToolAdmission.IsAdmitted(UseTool(name, title: $"Running {name}"), Admitted)).IsFalse();
         await Assert.That(GrokToolAdmission.IsAdmitted(UseTool(name, metaName: "run_terminal_command"), Admitted)).IsFalse();

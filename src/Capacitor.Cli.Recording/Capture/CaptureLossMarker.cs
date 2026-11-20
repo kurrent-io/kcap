@@ -1,7 +1,9 @@
+using Capacitor.Cli.Core.Transcripts;
+
 namespace Capacitor.Cli.Recording.Capture;
 
 public sealed record CaptureLossMarker {
-    public string Type { get; } = "kcap_capture_loss";
+    public string Type { get; } = CaptureLossLine.Type;
     public int Version { get; } = 1;
     public required string Reason { get; init; }
     public required int InputUtf16Length { get; init; }

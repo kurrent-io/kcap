@@ -51,6 +51,31 @@ public class PluginCommandKiroTests {
         await Assert.That(servers["my-tool"]!["autoApprove"]!.AsArray().Count).IsEqualTo(1); // its autoApprove preserved
     }
 
+    /// <summary>A same-version refresh leaves the agent, the default agent and the recorded previous default alone,
+    /// even though the marker carries the previous default on its second line.</summary>
+    [Test]
+    public async Task install_kiro_if_installed_at_current_version_is_a_noop() {
+        using var home   = new TempHome();
+        using var stdout = new StringWriter();
+        var env   = TestEnv(home.Path) with { Stdout = stdout };
+        var paths = env.Harnesses.Of<KiroHarness>().Paths;
+        SeedAgent(env);
+        Directory.CreateDirectory(Path.GetDirectoryName(paths.SettingsFile)!);
+        await File.WriteAllTextAsync(paths.SettingsFile, """{"chat.defaultAgent":"my_agent"}""");
+        var agentBefore = await File.ReadAllTextAsync(paths.KcapAgentJson);
+        var agentMtime  = File.GetLastWriteTimeUtc(paths.KcapAgentJson);
+
+        var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(
+            ["plugin", "install", "--kiro", "--if-installed", "--skip-kiro-mcp", "--skip-kiro-skills"]);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(stdout.ToString()).DoesNotContain("Kiro hooks refreshed");
+        await Assert.That(await File.ReadAllTextAsync(paths.KcapAgentJson)).IsEqualTo(agentBefore);
+        await Assert.That(File.GetLastWriteTimeUtc(paths.KcapAgentJson)).IsEqualTo(agentMtime);
+        await Assert.That(await File.ReadAllTextAsync(paths.SettingsFile)).IsEqualTo("""{"chat.defaultAgent":"my_agent"}""");
+        await Assert.That(KiroHooksInstaller.ReadPreviousDefault(paths.KcapAgentJson)).IsEqualTo("kiro_default");
+    }
+
     [Test]
     public async Task install_kiro_skip_mcp_flag_leaves_config_untouched() {
         using var home = new TempHome();
@@ -135,6 +160,41 @@ public class PluginCommandKiroTests {
 
         await Assert.That(File.Exists(env.Harnesses.Of<KiroHarness>().Paths.SettingsMcpJson)).IsFalse();
         await Assert.That(File.Exists(env.Harnesses.Of<KiroHarness>().Paths.KcapAgentJson)).IsFalse();
+    }
+
+    /// <summary>Kiro found by its data alone, with kcap on PATH and no kiro-cli: the clone is not tried, the reason is
+    /// said, the MCP servers still register, and the explicit install still fails because nothing will be recorded.</summary>
+    [Test]
+    public async Task install_kiro_without_kiro_cli_says_why_and_still_registers_mcp() {
+        using var home   = new TempHome();
+        using var bin    = new TempDir();
+        using var stderr = new StringWriter();
+        var binaries = TestBinaries.Searching(bin, "kcap");
+        var env      = TestEnv(home.Path) with { Stderr = stderr, Binaries = binaries, FindStaleAgents = _ => [] };
+
+        var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(["plugin", "install", "--kiro"]);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(stderr.ToString()).Contains("kiro-cli is not on PATH");
+        await Assert.That(File.Exists(env.Harnesses.Of<KiroHarness>().Paths.KcapAgentJson)).IsFalse();
+        await Assert.That(await File.ReadAllTextAsync(env.Harnesses.Of<KiroHarness>().Paths.SettingsMcpJson)).Contains("kcap-");
+    }
+
+    /// <summary>Under <c>--skip-kiro-skills</c> the missing-kiro-cli warning names only the MCP servers it still registers.</summary>
+    [Test]
+    public async Task install_kiro_without_kiro_cli_under_skip_kiro_skills_does_not_promise_skills() {
+        using var home   = new TempHome();
+        using var bin    = new TempDir();
+        using var stderr = new StringWriter();
+        var binaries = TestBinaries.Searching(bin, "kcap");
+        var env      = TestEnv(home.Path) with { Stderr = stderr, Binaries = binaries, FindStaleAgents = _ => [] };
+
+        await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory))
+            .HandleAsync(["plugin", "install", "--kiro", "--skip-kiro-skills"]);
+
+        var warning = stderr.ToString().Split(Environment.NewLine).Single(l => l.Contains("kiro-cli is not on PATH"));
+        await Assert.That(warning).Contains("MCP servers are still installed.");
+        await Assert.That(warning).DoesNotContain("skills");
     }
 
     // Deterministic native-binary path: registration writes the resolved binary as the command

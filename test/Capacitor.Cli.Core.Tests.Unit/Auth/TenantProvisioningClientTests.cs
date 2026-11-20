@@ -165,14 +165,10 @@ public class TenantProvisioningClientTests {
 
     [Test]
     public async Task GetStatusAsync_returns_status_zero_on_transport_failure() {
-        var server = WireMockServer.Start();
-        var url = server.Urls[0];
-        server.Stop();
-
-        using var http = new HttpClient();
+        using var http = new HttpClient(RefusingHandler.Create());
         var client = new TenantProvisioningClient(http, ClientAgent.Cli);
 
-        var status = await client.GetStatusAsync(url, "tok", "acme", CancellationToken.None);
+        var status = await client.GetStatusAsync("http://localhost:1", "tok", "acme", CancellationToken.None);
         await Assert.That(status.StatusCode).IsEqualTo(0);
         await Assert.That(status.Body).IsNull();
     }
@@ -194,16 +190,11 @@ public class TenantProvisioningClientTests {
 
     [Test]
     public async Task ProvisionAsync_returns_status_zero_on_transport_failure() {
-        // Start then stop the server so the connection is refused — a transport failure
-        // must degrade to StatusCode 0 (caller maps to a failed offer), never throw.
-        var server = WireMockServer.Start();
-        var url = server.Urls[0];
-        server.Stop();
-
-        using var http = new HttpClient();
+        // A transport failure must degrade to StatusCode 0 (caller maps to a failed offer), never throw.
+        using var http = new HttpClient(RefusingHandler.Create());
         var client = new TenantProvisioningClient(http, ClientAgent.Cli);
 
-        var outcome = await client.ProvisionAsync(url, "tok", "Acme", "acme", WorkspaceTier.Free, joinId: null, inviteCode: null, CancellationToken.None);
+        var outcome = await client.ProvisionAsync("http://localhost:1", "tok", "Acme", "acme", WorkspaceTier.Free, joinId: null, inviteCode: null, CancellationToken.None);
         await Assert.That(outcome.StatusCode).IsEqualTo(0);
         await Assert.That(outcome.Body).IsNull();
     }

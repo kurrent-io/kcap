@@ -28,7 +28,7 @@ public class LocalRootAccessTests {
         var ex = Assert.Throws<LocalLifecycleException>(() =>
             LocalRootAccess.Secure(dir, installed: false, _ => "its DACL grants S-1-5-32-545", NoOthers, CannotSecure, TextWriter.Null));
 
-        await Assert.That(ex!.Message).Contains(LocalRoot.EnvVar);
+        await Assert.That(ex.Message).Contains(LocalRoot.EnvVar);
     }
 
     [Test]

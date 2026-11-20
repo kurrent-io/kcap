@@ -150,4 +150,22 @@ public class RecapOutlineTests {
 
         await Assert.That(hint).Contains("<sessionId>");
     }
+
+    [Test]
+    public async Task FormatTurnOutline_leaves_a_byte_order_mark_out() {
+        const string turns = """
+            [ {"turn_index":0,"user_prompt":"\uFEFFread the README","prose":null,"tools":[{"name":"\uFEFFRead"}]}, {"turn_index":1,"prose":"\uFEFFRead it."} ]
+            """;
+
+        await Assert.That(RecapCommand.FormatTurnOutline(turns)).DoesNotContain("\uFEFF");
+    }
+
+    [Test]
+    public async Task FormatTurnOutline_falls_back_to_the_prompt_when_prose_is_only_a_byte_order_mark() {
+        const string turns = """
+            [ {"turn_index":0,"user_prompt":"read the README","prose":"\uFEFF"} ]
+            """;
+
+        await Assert.That(RecapCommand.FormatTurnOutline(turns)).Contains("read the README");
+    }
 }

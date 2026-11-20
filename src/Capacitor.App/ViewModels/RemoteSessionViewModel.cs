@@ -114,7 +114,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     internal void OpenCard(ToolCard card) {
         if (card.DocumentPath is { } path) {
             if (Artefacts.OpenDocument(path)) return;
-            if (Artefacts.HasAny) { Artefacts.RequestOpen(); return; }
+            if (Artefacts.HasDocumentOrOpenPage) { Artefacts.RequestOpen(); return; }
         }
         if (card.Url is { } url) Artefacts.OpenLink(url);
     }
@@ -204,6 +204,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     }
 
     bool _hasEstablishedAccess;
+    /// The session the artefacts last saw a grant for; a lease given back and taken again keeps it.
+    string? _artefactsGrantSession;
     bool _connectionFailed;
     readonly LocalServerRecoveryViewModel? _localServer;
     public ReactiveCommand<Unit, Unit> RetryConnectionCommand { get; }
@@ -249,6 +251,11 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     public bool ShowsChatPane =>
         (ShowsPanes || Access == RemoteSessionAccess.NoSession && !_hadSession && !OriginChangedToLocal) && IsChatActive && Subagent is null;
     public bool ShowsSubagentPane => ShowsPanes && IsChatActive && Subagent is not null;
+
+    /// Whether the header offers the progressive disclosure toggle: the chat on screen, the session's
+    /// or an open subagent's, has a graded reply.
+    public bool ShowsProgressiveDisclosure => _showsProgressiveDisclosure.Value;
+    readonly ObservableAsPropertyHelper<bool> _showsProgressiveDisclosure;
 
     SubagentPaneViewModel? _subagent;
     /// A subagent's own transcript, shown in place of the chat until the user goes back.
@@ -320,7 +327,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
 
     public RemoteSessionViewModel(
             AgentRow row, IAgentDirectory directory, SessionAccessService access, IPermissionService permissions,
-            AgentActionService actions, IServerLane lane, SessionDetailReader readDetail, IUrlOpener opener, TimeProvider time, IWorkContextSource workContext,
+            AgentActionService actions, IServerLane lane, SessionEventsReader readEvents, IUrlOpener opener, TimeProvider time, IWorkContextSource workContext,
             Func<ITerminalSurface>? surfaceFactory = null, IPlanArtifactSource? planArtifacts = null,
             SessionRunActivity? commands = null, IPullRequestSource? pullRequests = null,
             Action? requestSignIn = null, Action? linkGitHub = null, IObservable<Unit>? signInCompleted = null, IPlanSource? plans = null,
@@ -332,7 +339,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             Func<AgentRow, HandoffComposerViewModel>? handoff = null, LocalMachine? localMachine = null,
             HandoffOutcomeReader? handoffOutcomes = null, IHeldMessagesApi? heldMessages = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
-            Func<bool>? inAppPages = null, Func<Task>? retryConnection = null, LocalServerRecoveryViewModel? localServer = null) {
+            Func<bool>? inAppPages = null, Func<Task>? retryConnection = null, LocalServerRecoveryViewModel? localServer = null,
+            IAttachmentUploader? uploader = null, RemoteTranscriptCache? transcripts = null) {
         _drafts = drafts;
         _localMachine = localMachine;
         _handoffFactory = handoff;
@@ -397,21 +405,30 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         WorkContext.PullRequests = PullRequests;
         _accessStates.Where(s => s == SessionAccessState.Established)
             .ObserveOn(RxSchedulers.MainThreadScheduler)
-            .Subscribe(_ => Artefacts.Refresh()).DisposeWith(_disposables);
+            .Subscribe(_ => {
+                // A session's first grant finds the read the session switch started.
+                if (_leasedSession is not { } session) return;
+                if (session == _artefactsGrantSession) Artefacts.Refresh();
+                else Artefacts.RefreshUnlessReady();
+                _artefactsGrantSession = session;
+            }).DisposeWith(_disposables);
         var viewer = _rows.Select(r => AgentViewerAccess.From(r.ViewerRights) with { AtTerminal = r.IsAttached }).DistinctUntilChanged();
         // An attached agent has no terminal here: its session runs in its owner's.
         var hasTerminal = !row.IsAttached && HostedHarnessCatalog.ShowsTerminal(null, row.Vendor);
         ChatInput input = row.Origin == AgentOrigin.Server
             ? new ReadOnlyChatInput()
             : new ServerChatInput(row.Id, lane, _accessStates, _session, hasTerminal,
-                WorkContext.WhenAnyValue(context => context.ViewerIdentity), viewer);
+                WorkContext.WhenAnyValue(context => context.ViewerIdentity), viewer,
+                uploader is null || remoteAgents is null ? null
+                    : _rows.CombineLatest(remoteAgents.Daemons, appSubject ?? SignedInSubject.From(lane.Status), AcceptsAttachments)
+                        .DistinctUntilChanged());
         viewer.Subscribe(access => StopRefusal = access.CanPressKeys ? null : access.ControlRefusal).DisposeWith(_disposables);
         _held = heldMessages is null || row.Origin == AgentOrigin.Server
             ? null
             : new HeldMessagesViewModel(row.Id, heldMessages, lane.HeldMessagesChanged, HeldViewer(lane.Status, _rows));
         Chat = new ChatTabViewModel(
-            row.Id, AgentOrigin.Remote, _session, Observable.Return<string[]?>(null), input, new NoAttachmentUploader(),
-            key => new RemoteTranscriptFeed(key, row.Vendor, _accessStates, readDetail, lane, time, Log),
+            row.Id, AgentOrigin.Remote, _session, Observable.Return<string[]?>(null), input, uploader ?? new NoAttachmentUploader(),
+            key => new RemoteTranscriptFeed(key, row.Vendor, _accessStates, readEvents, lane, time, Log, cache: transcripts),
             // A session-only chat has no agent here to answer for it: no session, no cards, no send.
             opener, time, permissions, runs, missingNote: MissingNote, sessionId: IsSessionOnly ? Observable.Return<string?>(null) : _sessionIds,
             serverQueue: Observable.Switch(_sessionIds
@@ -423,12 +440,17 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             signInCompleted: signInCompleted,
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
                 .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending };
+            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending, Reclaimer = HeapReclaimer.Shared };
         this.WhenAnyValue(vm => vm.AccessNote).Subscribe(_ => RaiseConnectionNotice()).DisposeWith(_disposables);
         lane.Status.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(status => {
             _connectionFailed = status.State == ServerLaneState.Retrying && status.Failure is not null;
             RaiseConnectionNotice();
         }).DisposeWith(_disposables);
+        _showsProgressiveDisclosure = Observable.Switch(this.WhenAnyValue(vm => vm.IsChatActive, vm => vm.Chat, vm => vm.Subagent,
+                (active, chat, subagent) => active ? subagent?.Chat ?? chat : null)
+            .Select(static chat => chat is null ? Observable.Return(false) : chat.WhenAnyValue(c => c.HasProgressiveDisclosureMarks)))
+            .ToProperty(this, vm => vm.ShowsProgressiveDisclosure)
+            .DisposeWith(_disposables);
         Chat.Tasks.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
         lane.Status.Select(s => s.Subject).DistinctUntilChanged()
@@ -681,6 +703,15 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         };
         if (info != _session.Value) _session.OnNext(info);
     }
+
+    /// Only a session hosted by one of the signed-in account's daemons, which fetches the files with its
+    /// owner's credential. The daemon listing is that proof: the server folds it through the account's
+    /// aliases and the service empties it on an account switch, so a daemon kept under a merged older id
+    /// still qualifies. An attached terminal session submits text alone, so its daemon refuses files.
+    internal static bool AcceptsAttachments(AgentRow row, IReadOnlyList<DaemonInfo> daemons, string? viewer) =>
+        !row.IsAttached && viewer is { Length: > 0 } && row.OwnerUserId is { Length: > 0 } owner && row.MachineBadge is { } name
+        && daemons.FirstOrDefault(d => d.Name == name && d.OwnerUserId == owner) is { } daemon
+        && LaunchAttachments.IsCapable(daemon.Version);
 
     /// A session-only row's chat is never messageable: the notice says why, ended or in a terminal,
     /// unless the ended session's hand-off composer stands in its place.

@@ -201,7 +201,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         InitializeComponent();
         WindowControls.Spacing = RailClearance.Spacing;
         RailToggleButton.Margin = new Thickness(0, 0, RailClearance.ToggleGap - RailClearance.Spacing, 0);
-        foreach (var button in new[] { RailToggleButton, BackButton, ForwardButton }) {
+        foreach (var button in new[] { AppMenuButton, RailToggleButton, BackButton, ForwardButton }) {
             button.MinWidth = button.MinHeight = RailClearance.ButtonSize;
             button.Padding = new Thickness((RailClearance.ButtonSize - 16) / 2);
         }
@@ -240,6 +240,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         KeepContentClearOfCaptionButtons();
         ShowInstanceTitle();
         BindFullScreenShortcut();
+        BindAppMenu();
         Closing += (_, e) => {
             if (CloseInterceptor?.Invoke() == true) e.Cancel = true;
         };
@@ -316,6 +317,32 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             : new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, toggle) });
     }
 
+    WarmupHost? _warmup;
+    IInputElement? _focusBeforeWarmup;
+
+    /// Lays a view in the workspace's place, at its width, where nothing can reach it.
+    internal void HostWarmup(Control view) {
+        ReleaseWarmup();
+        _focusBeforeWarmup = FocusManager?.GetFocusedElement();
+        _warmup = new WarmupHost(view);
+        ContentPane.Children.Add(_warmup);
+    }
+
+    /// Focus is put back if anything managed to move it inside, so it is never left on nothing.
+    internal void ReleaseWarmup() {
+        if (_warmup is not { } warmup) return;
+        _warmup = null;
+        var focused = FocusManager?.GetFocusedElement() as Visual;
+        var regain = focused is not null && focused.GetSelfAndVisualAncestors().Contains(warmup);
+        ContentPane.Children.Remove(warmup);
+        warmup.Child = null;
+        var before = _focusBeforeWarmup;
+        _focusBeforeWarmup = null;
+        if (!regain) return;
+        if (before is Visual v && v.IsAttachedToVisualTree() && before.Focus()) return;
+        Focus();
+    }
+
     // ⌘F and ⌘G on macOS. Off macOS Ctrl+F and F3 yield to a focused terminal, where they are shell
     // and TUI keys.
     void BindFindShortcut() {
@@ -336,9 +363,12 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     /// The chat holding focus, else the first one showing: a subagent pane opens beside its parent's.
     ChatTabView? FindTarget() {
         var focused = FocusManager?.GetFocusedElement() as Visual;
-        return focused?.GetSelfAndVisualAncestors().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible)
-            ?? this.GetVisualDescendants().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible);
+        return focused?.GetSelfAndVisualAncestors().OfType<ChatTabView>().FirstOrDefault(Findable)
+            ?? this.GetVisualDescendants().OfType<ChatTabView>().FirstOrDefault(Findable);
     }
+
+    bool Findable(ChatTabView view) =>
+        view.IsEffectivelyVisible && (_warmup is not { } warmup || !view.GetSelfAndVisualAncestors().Contains(warmup));
 
     // ⌘K everywhere on macOS. Off macOS Ctrl+K is a terminal key, so it yields to a focused terminal.
     void BindSearchShortcuts() {
@@ -375,12 +405,13 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         DataContextChanged += (_, _) => Apply();
     }
 
-    // ⌘[ and ⌘] on macOS; Alt+Left and Alt+Right elsewhere, which yield to a focused terminal
-    // because a shell reads them as word moves. The mouse's back and forward buttons work anywhere.
+    // ⌘[ and ⌘] on macOS, plus ⌘← and ⌘→ where no caret claims them; Alt+Left and Alt+Right
+    // elsewhere, which yield to a focused terminal because a shell reads them as word moves. The
+    // mouse's back and forward buttons work anywhere.
     void BindHistoryShortcuts() {
         if (ShortcutLabels.UsesCommandKey) {
-            var back = new KeyBinding { Gesture = new KeyGesture(Key.OemOpenBrackets, KeyModifiers.Meta) };
-            var forward = new KeyBinding { Gesture = new KeyGesture(Key.OemCloseBrackets, KeyModifiers.Meta) };
+            var back = new KeyBinding { Gesture = HistoryShortcuts.Back };
+            var forward = new KeyBinding { Gesture = HistoryShortcuts.Forward };
             KeyBindings.Add(back);
             KeyBindings.Add(forward);
             void Apply() {
@@ -390,13 +421,23 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             }
             Apply();
             DataContextChanged += (_, _) => Apply();
+            TextBoxPresenters.Track();
+            // Tunnelled: a focused text box marks ⌘← and ⌘→ handled even when it is empty.
+            AddHandler(KeyDownEvent, (_, e) => {
+                if (DataContext is not MainWindowViewModel vm) return;
+                if (HistoryShortcuts.CaretArrowStep(e.Key, e.KeyModifiers, FocusedCaret) is not { } stepBack) return;
+                System.Windows.Input.ICommand command = stepBack ? vm.GoBackCommand : vm.GoForwardCommand;
+                if (!command.CanExecute(null)) return;
+                e.Handled = true;
+                command.Execute(null);
+            }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         } else {
             KeyBindings.Add(new KeyBinding {
-                Gesture = new KeyGesture(Key.Left, KeyModifiers.Alt),
+                Gesture = HistoryShortcuts.Back,
                 Command = new UnlessTerminalFocused(this, vm => vm.GoBackCommand),
             });
             KeyBindings.Add(new KeyBinding {
-                Gesture = new KeyGesture(Key.Right, KeyModifiers.Alt),
+                Gesture = HistoryShortcuts.Forward,
                 Command = new UnlessTerminalFocused(this, vm => vm.GoForwardCommand),
             });
         }
@@ -414,16 +455,22 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
     }
 
+    // The preedit lives on the presenter only: Text stays empty until the composition commits.
+    (bool TerminalFocused, string? Text, string? Preedit) FocusedCaret() {
+        var box = FocusManager?.GetFocusedElement() as TextBox;
+        return (TerminalFocus.Has(this), box?.Text, TextBoxPresenters.Of(box)?.PreeditText);
+    }
+
     public const string TitleEnvVar = "KCAP_APP_TITLE";
 
-    // Names the instance, so several running side by side can be told apart. Where the window paints
-    // into its title bar the app draws it centred and Title stays empty, because Windows still draws
-    // a non-empty Title at the top left; elsewhere the window manager draws Title. Onboarding puts
-    // its own step title in the same spot, so the label gives way to it.
+    // Names the instance, so several running side by side can be told apart. Title carries it everywhere
+    // (taskbar, Alt+Tab, screen readers); where the window paints into its title bar, whose drawn title
+    // text is hidden, the app also draws it centred. Onboarding puts its own step title in the same spot,
+    // so the label gives way to it.
     void ShowInstanceTitle() {
         if (Environment.GetEnvironmentVariable(TitleEnvVar) is not { } raw || raw.Trim() is not { Length: > 0 } title) return;
         InstanceTitle.Text = title;
-        this.GetObservable(IsExtendedIntoWindowDecorationsProperty).Subscribe(extended => Title = extended ? "" : title);
+        Title = title;
         InstanceTitle.Bind(IsVisibleProperty, this.GetObservable(IsExtendedIntoWindowDecorationsProperty)
             .CombineLatest(OnboardingPane.GetObservable(IsVisibleProperty), (extended, onboarding) => extended && !onboarding));
     }
@@ -474,13 +521,13 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     // entirely), is invisible to the user — stderr (AppNotifier's own mirroring) is the only
     // channel that survives either case.
     void ShowToast(string message) =>
-        _notifications?.Show(new Notification("kcap", message, NotificationType.Warning, ToastDuration(message)));
+        _notifications?.Show(new Notification(null, message, NotificationType.Warning, ToastDuration(message)));
 
     // About fifteen characters a second to read it, never under four seconds or past twenty.
     internal static TimeSpan ToastDuration(string message) => TimeSpan.FromSeconds(Math.Clamp(message.Length / 15.0, 4, 20));
 
     // The launcher header strip and the bottom-most drag strip — see WindowChrome.
-    void OnChromePointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e) =>
+    void OnChromePointerPressed(object? sender, PointerPressedEventArgs e) =>
         WindowChrome.BeginDrag(this, e);
 
     // IsVisible is what Show()/Hide() toggle, and hide-to-tray never fires Closed/Opened, so this
@@ -500,7 +547,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             var pullRequests = vm.CurrentWorkspace?.PullRequests;
             if (_foregroundPullRequests != pullRequests) _foregroundPullRequests?.SetForeground(false);
             _foregroundPullRequests = pullRequests;
-            pullRequests?.SetForeground(IsVisible && WindowState != Avalonia.Controls.WindowState.Minimized);
+            pullRequests?.SetForeground(IsVisible && WindowState != WindowState.Minimized);
         } else {
             _foregroundPullRequests?.SetForeground(false);
             _foregroundPullRequests = null;

@@ -420,7 +420,7 @@ public class McpSessionsServerTests {
     public async Task BuildTranscriptUrl_throws_when_session_id_missing() {
         var ex = Assert.Throws<ArgumentException>(() => InvokeBuildTranscriptUrl("http://srv", new JsonObject()));
 
-        await Assert.That(ex!.Message).Contains("session_id");
+        await Assert.That(ex.Message).Contains("session_id");
     }
 
     [Test]
@@ -447,31 +447,6 @@ public class McpSessionsServerTests {
         );
 
         await Assert.That(url).Contains("author_github_id=5000000000");
-    }
-
-    [Test]
-    public async Task TryReadInt_throws_on_long_overflow() {
-        var args = new JsonObject { ["limit"] = 5_000_000_000L };
-
-        Assert.Throws<ArgumentException>(() => McpSessionsServer.TryReadInt(args, "limit", out _));
-        await Task.CompletedTask;
-    }
-
-    [Test]
-    public async Task TryReadInt_returns_false_for_missing_key() {
-        var ok = McpSessionsServer.TryReadInt(new JsonObject(), "limit", out var value);
-
-        await Assert.That(ok).IsFalse();
-        await Assert.That(value).IsEqualTo(0);
-    }
-
-    [Test]
-    public async Task TryReadInt_returns_false_for_wrong_type() {
-        var args = new JsonObject { ["limit"] = "not-a-number" };
-
-        var ok = McpSessionsServer.TryReadInt(args, "limit", out _);
-
-        await Assert.That(ok).IsFalse();
     }
 
     [Test]
@@ -530,7 +505,7 @@ public class McpSessionsServerTests {
     public async Task BuildTurnsUrl_throws_when_session_id_missing() {
         var ex = Assert.Throws<ArgumentException>(() => McpSessionsServer.BuildTurnsUrl("http://srv", new JsonObject()));
 
-        await Assert.That(ex!.Message).Contains("session_id");
+        await Assert.That(ex.Message).Contains("session_id");
     }
 
     static string Body(params string[] sessionIds) {
@@ -587,8 +562,8 @@ public class McpSessionsServerTests {
 
     [Test]
     public async Task ShouldWiden_false_on_author_short_circuits() {
-        var disamb = "{\"hits\":[],\"disambiguation\":[{\"git_hub_id\":1}]}";
-        var noAuth = "{\"hits\":[],\"no_author_match\":true}";
+        const string disamb = "{\"hits\":[],\"disambiguation\":[{\"git_hub_id\":1}]}";
+        const string noAuth = "{\"hits\":[],\"no_author_match\":true}";
 
         await Assert.That(McpSessionsServer.ShouldWiden(new JsonObject { ["query"] = "x" }, "abc1234567890def", disamb, out _)).IsFalse();
         await Assert.That(McpSessionsServer.ShouldWiden(new JsonObject { ["query"] = "x" }, "abc1234567890def", noAuth, out _)).IsFalse();

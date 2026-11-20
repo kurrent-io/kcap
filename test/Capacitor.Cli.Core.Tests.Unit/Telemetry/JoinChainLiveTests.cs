@@ -32,7 +32,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.Telemetry;
 // Bare [NotInParallel]: this captures Console, which is
 // process-global, and ConsoleOutput rejects an overlapping capture. Ungrouped is strictly stronger.
 [NotInParallel]
-public class JoinChainLiveTests {
+public partial class JoinChainLiveTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     const string GateEnvVar = "KCAP_JOIN_E2E";
@@ -74,7 +74,7 @@ public class JoinChainLiveTests {
         // Stand in for the browser: carry the site's cookies, and follow redirects the way a
         // navigation would. $device_id only — see the class doc on firing no event.
         var jar = new CookieContainer();
-        var web = new Uri(baseUrl!);
+        var web = new Uri(baseUrl);
         jar.Add(web, new Cookie("kcap_consent", "accepted"));
         jar.Add(web, new Cookie("kcap_ab", "redesign"));
         jar.Add(web, new Cookie(PhCookie,
@@ -87,7 +87,7 @@ public class JoinChainLiveTests {
         var closing = await http.GetStringAsync($"{redirect}?code=e2e-fake-code&state={E2eState}");
         await Assert.That(closing).Contains("Authentication successful!");
 
-        var emitted = Regex.Match(closing, @"location\.replace\(""([^""]+)""\)");
+        var emitted = LocationReplace().Match(closing);
         await Assert.That(emitted.Success).IsTrue().Because("the closing page must carry the first hop");
 
         // JsonEncodedText escapes & as & inside the JS string literal.
@@ -119,4 +119,7 @@ public class JoinChainLiveTests {
         await Assert.That(printed).Contains("\"join_id\":\"[set]\"");
         await Assert.That(printed).DoesNotContain(key!);
     }
+
+    [GeneratedRegex(@"location\.replace\(""([^""]+)""\)")]
+    private static partial Regex LocationReplace();
 }

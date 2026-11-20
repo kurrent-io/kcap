@@ -37,7 +37,7 @@ public class LocalEmbeddingStepTests {
     [Test]
     public async Task A_partial_removal_reports_both_the_space_freed_and_what_is_left() {
         File.WriteAllBytes(Tmp.CreateFile(["local", "models", new string('a', 64), "model.onnx"]), new byte[1024 * 1024]);
-        string locked = Tmp.CreateDir(["local", "models", new string('c', 64), "held"]);
+        string locked = Tmp.CreateDir("local", "models", new string('c', 64), "held");
         File.WriteAllBytes(Path.Combine(locked, "model.onnx"), new byte[2 * 1024 * 1024]);
         File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserExecute);
 

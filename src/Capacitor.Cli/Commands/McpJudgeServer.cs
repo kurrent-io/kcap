@@ -2,7 +2,6 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Telemetry;
@@ -58,10 +57,10 @@ sealed class McpJudgeServer(ConfigRoot config, ProfileContext profiles, TokenSto
 
         // In arrival order: an evidence run's ledger, budgets and page handles form one sequence.
         await McpStdioLoop.RunAsync(reader, writer, tools, TimedDispatchToolCallAsync, (id, method, request) => method switch {
-            "initialize" => BuildInitializeResponse(id, request),
-            "tools/list" => BuildToolsListResponse(id, tools),
+            "initialize" => McpResponses.Initialize(id, request, "kcap-judge", null),
+            "tools/list" => McpResponses.ToolsList(id, tools),
             _            => McpProtocol.TryHandleStandardMethod(method, id)
-                            ?? BuildErrorResponse(id, -32601, $"Method not found: {method}")
+                            ?? McpResponses.Error(id, -32601, $"Method not found: {method}")
         }, "judge", McpStdioLoop.InArrivalOrder);
 
         return 0;
@@ -69,7 +68,7 @@ sealed class McpJudgeServer(ConfigRoot config, ProfileContext profiles, TokenSto
         // Report an unusable server_url as a JSON-RPC tool error rather than dying: a server is
         // expected to keep serving, and the caller can see the reason.
         async Task<string> DispatchToolCallAsync(JsonNode callId, JsonObject callRequest) {
-            if (!urlOk) return BuildToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
+            if (!urlOk) return McpResponses.ToolResult(callId, HttpClientExtensions.SchemeMissingHint, isError: true);
 
             var client = await sessionClient.GetAsync();
 
@@ -79,7 +78,7 @@ sealed class McpJudgeServer(ConfigRoot config, ProfileContext profiles, TokenSto
             try {
                 judgeTools = await evidence.GetAsync();
             } catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException or JsonException or KeyNotFoundException or InvalidOperationException) {
-                return BuildToolResult(callId, $"Error: the evidence run could not be opened: {e.Message}", isError: true);
+                return McpResponses.ToolResult(callId, $"Error: the evidence run could not be opened: {e.Message}", isError: true);
             }
 
             return await DispatchEvidenceCallAsync(callId, callRequest, judgeTools);
@@ -104,9 +103,9 @@ sealed class McpJudgeServer(ConfigRoot config, ProfileContext profiles, TokenSto
 
     internal static async Task<string> DispatchEvidenceCallAsync(JsonNode callId, JsonObject callRequest, McpEvidenceJudgeTools evidence) {
         var parameters = callRequest["params"] as JsonObject;
-        if (StringOf(parameters?["name"]) is not { } name) return BuildErrorResponse(callId, -32602, "Missing params.name");
+        if (StringOf(parameters?["name"]) is not { } name) return McpResponses.Error(callId, -32602, "Missing params.name");
         var (text, isError) = await evidence.CallAsync(name, parameters!["arguments"], CancellationToken.None);
-        return BuildToolResult(callId, text, isError);
+        return McpResponses.ToolResult(callId, text, isError);
     }
 
     static string? StringOf(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var s) ? s : null;
@@ -146,7 +145,7 @@ sealed class McpJudgeServer(ConfigRoot config, ProfileContext profiles, TokenSto
         var arguments  = paramsNode?["arguments"] as JsonObject;
 
         if (toolName is null) {
-            return BuildErrorResponse(id, -32602, "Missing params.name");
+            return McpResponses.Error(id, -32602, "Missing params.name");
         }
 
         try {
@@ -154,11 +153,11 @@ sealed class McpJudgeServer(ConfigRoot config, ProfileContext profiles, TokenSto
             var sessionId = arguments?["session_id"]?.GetValue<string>();
 
             if (sessionId is null) {
-                return BuildToolResult(id, "Error: missing required argument: session_id", isError: true);
+                return McpResponses.ToolResult(id, "Error: missing required argument: session_id", isError: true);
             }
 
             if (sessionId != expectedSessionId) {
-                return BuildToolResult(
+                return McpResponses.ToolResult(
                     id,
                     $"Error: session_id '{sessionId}' does not match this judge's bound session",
                     isError: true
@@ -187,14 +186,14 @@ sealed class McpJudgeServer(ConfigRoot config, ProfileContext profiles, TokenSto
             var body = await httpResponse.Content.ReadAsStringAsync();
 
             if (!httpResponse.IsSuccessStatusCode) {
-                return BuildToolResult(id, JudgeResultCap.Cap($"Error: HTTP {(int)httpResponse.StatusCode} — {body}", "The error body was cut."), isError: true);
+                return McpResponses.ToolResult(id, JudgeResultCap.Cap($"Error: HTTP {(int)httpResponse.StatusCode} — {body}", "The error body was cut."), isError: true);
             }
 
-            return BuildToolResult(id, Shape(toolName, body, arguments, sessionId, offset, limit));
+            return McpResponses.ToolResult(id, Shape(toolName, body, arguments, sessionId, offset, limit));
         } catch (ArgumentException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         } catch (HttpRequestException ex) {
-            return BuildToolResult(id, $"Error: {ex.Message}", isError: true);
+            return McpResponses.ToolResult(id, $"Error: {ex.Message}", isError: true);
         }
     }
 
@@ -236,39 +235,6 @@ sealed class McpJudgeServer(ConfigRoot config, ProfileContext profiles, TokenSto
         return value < min || value > max
             ? throw new ArgumentException(max == int.MaxValue ? $"{name} must be at least {min}" : $"{name} must be between {min} and {max}")
             : value;
-    }
-
-    static string BuildInitializeResponse(JsonNode id, JsonObject request) =>
-        ToResponse<McpInitResult>(
-            id,
-            new(McpProtocol.NegotiateVersion(request), new(new()), new("kcap-judge", "1.0.0")),
-            McpJsonContext.Default.McpInitResult
-        );
-
-    static string BuildToolsListResponse(JsonNode id, McpTool[] tools) =>
-        ToResponse(id, new McpToolsResult(tools), McpJsonContext.Default.McpToolsResult);
-
-    static string BuildToolResult(JsonNode id, string text, bool isError = false) =>
-        ToResponse<McpToolCallResult>(id, new([new("text", text)], isError ? true : null), McpJsonContext.Default.McpToolCallResult);
-
-    static string BuildErrorResponse(JsonNode id, int code, string message) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["error"]   = JsonSerializer.SerializeToNode(new McpError(code, message), McpJsonContext.Default.McpError)
-        };
-
-        return envelope.ToJsonString();
-    }
-
-    static string ToResponse<T>(JsonNode id, T result, JsonTypeInfo<T> typeInfo) {
-        var envelope = new JsonObject {
-            ["jsonrpc"] = "2.0",
-            ["id"]      = id.DeepClone(),
-            ["result"]  = JsonSerializer.SerializeToNode(result, typeInfo)
-        };
-
-        return envelope.ToJsonString();
     }
 
     internal static McpTool[] ToolsFor(bool evidence) => evidence ? McpEvidenceJudgeTools.ToolsList() : BuildToolsList();

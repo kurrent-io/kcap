@@ -5,17 +5,17 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 
 public class ArtefactListTests {
     static ArtefactDto Page(string id, string visibility, string title) =>
-        new(id, title, "github:1", visibility, 3, new DateTimeOffset(2026, 10, 29, 9, 0, 0, TimeSpan.Zero), true, "https://k/p/" + id);
+        new(id, title, "github:1", visibility, 3, new DateTimeOffset(2026, 10, 29, 9, 0, 0, TimeSpan.Zero), true, null, null, "https://k/p/" + id);
 
-    /// <summary>Under a header, a visibility of <c>none</c> reads as one rather than as a missing value.</summary>
+    /// <summary>Under a header, an older server's visibility of <c>none</c> reads as one rather than as a missing value.</summary>
     [Test]
     public async Task The_listing_has_a_header_and_each_value_sits_under_it() {
         string[] lines = [.. ArtefactCommand.ListLines([Page("art_01J9X", "none", "Migration plan"), Page("art_2", "org", "Report")])];
 
         await Assert.That(lines[0]).StartsWith("PAGE");
-        await Assert.That(lines[0]).Contains("VISIBILITY");
+        await Assert.That(lines[0]).Contains("SHARED WITH");
 
-        var column = lines[0].IndexOf("VISIBILITY", StringComparison.Ordinal);
+        var column = lines[0].IndexOf("SHARED WITH", StringComparison.Ordinal);
 
         await Assert.That(lines[1][column..].StartsWith("none ", StringComparison.Ordinal)).IsTrue();
         await Assert.That(lines[2][column..].StartsWith("org ", StringComparison.Ordinal)).IsTrue();

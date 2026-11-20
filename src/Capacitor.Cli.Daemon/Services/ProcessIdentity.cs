@@ -7,7 +7,7 @@ using Capacitor.Cli.Daemon.Pty.Unix;
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// Phase B (D4 §6.4(2)): exact process start-identity, liveness, and agent-env read for the
+/// Exact process start-identity, liveness, and agent-env read for the
 /// PID-record + env-marker reap. The start-identity REUSES the <see cref="ProcessStartToken"/>
 /// (Linux kernel <c>starttime</c> + <c>boot_id</c>; macOS/Windows absolute <c>StartTime.Ticks</c>) —
 /// exact-equality with NO tolerance window, cross-reader-stable, and PID-reuse-safe — so the spec's
@@ -58,7 +58,7 @@ internal static partial class ProcessIdentity {
             // may not signal it — e.g. it changed credentials). Only ESRCH is "gone"; any other errno
             // means present-or-indeterminate → treat as ALIVE so we never free capacity or delete a
             // record for a still-running child (fail closed). ESRCH is 3 on Linux and macOS.
-            return System.Runtime.InteropServices.Marshal.GetLastPInvokeError() != Esrch;
+            return Marshal.GetLastPInvokeError() != Esrch;
         }
 
         // A ZOMBIE (exited but not yet reaped by its parent) still answers kill(pid, 0), but it is
@@ -101,9 +101,10 @@ internal static partial class ProcessIdentity {
         try {
             if (OperatingSystem.IsLinux()) {
                 var raw = File.ReadAllText($"/proc/{pid}/environ");
-                foreach (var entry in raw.Split('\0', StringSplitOptions.RemoveEmptyEntries))
+                foreach (var entry in raw.Split('\0', StringSplitOptions.RemoveEmptyEntries)) {
                     if (entry.StartsWith(key + "=", StringComparison.Ordinal))
                         return entry[(key.Length + 1)..];
+                }
 
                 return null;
             }

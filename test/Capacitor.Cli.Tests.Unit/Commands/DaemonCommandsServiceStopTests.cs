@@ -43,7 +43,7 @@ public class DaemonCommandsServiceStopTests {
 
         await Assert.That(exit).IsEqualTo(0);
         var request = await received.WaitAsync(TimeSpan.FromSeconds(30));
-        await Assert.That(ShutdownIpc.Parse(request!.Text!)).IsEqualTo(new ShutdownRequestDto("end", "final"));
+        await Assert.That(ShutdownIpc.Parse(request!.Text)).IsEqualTo(new ShutdownRequestDto("end", "final"));
         await Assert.That(manager.Stopped).IsEquivalentTo([Name]);
         await Assert.That(ledger.ReadAll().Single() is { State: ResumeState.Interrupted, LastError: "stopped_by_operator" }).IsTrue();
     }

@@ -87,6 +87,12 @@ internal sealed class ToolPreviewImages : IDisposable {
         }
     }
 
+    /// Another reference to an image already held, for work that must outlive the holder's own.
+    internal ToolPreviewImages Lease() {
+        Interlocked.Increment(ref _references);
+        return this;
+    }
+
     public void Dispose() {
         if (Interlocked.Decrement(ref _references) == 0 && _source is IDisposable disposable) disposable.Dispose();
     }

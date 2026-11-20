@@ -40,6 +40,6 @@ public static partial class RemoteRepoLocator {
 
     static bool IsOwnerRepo(string label) => OwnerRepoRegex().IsMatch(label) && !label.Split('/').Any(s => s is "." or "..");
 
-    [GeneratedRegex(@"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)+$")]
+    [GeneratedRegex("^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)+$")]
     private static partial Regex OwnerRepoRegex();
 }

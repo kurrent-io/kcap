@@ -1,4 +1,5 @@
 using Capacitor.Models.Transcripts.Harness.Claude;
+using Google.Protobuf;
 using Google.Protobuf.WellKnownTypes;
 using Kurrent.Agent.Schema.Events;
 
@@ -93,7 +94,7 @@ public class ClaudeTranscriptEventsTests {
 
     [Test]
     public async Task Assistant_blocks_map_in_order_with_the_record_id_first_and_block_siblings_after() {
-        var line = $$$"""{"type":"assistant","uuid":"{{{Uuid}}}","timestamp":"2026-08-26T12:00:01Z","message":{"model":"claude-fable-5","content":[{"type":"thinking","thinking":"hmm","signature":"sig"},{"type":"text","text":"Hi"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}}""";
+        const string line = $$$"""{"type":"assistant","uuid":"{{{Uuid}}}","timestamp":"2026-08-26T12:00:01Z","message":{"model":"claude-fable-5","content":[{"type":"thinking","thinking":"hmm","signature":"sig"},{"type":"text","text":"Hi"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"ls"}}]}}""";
         var e = E(line);
 
         await Assert.That(e).Count().IsEqualTo(3);
@@ -210,7 +211,7 @@ public class ClaudeTranscriptEventsTests {
 
     [Test]
     public async Task A_queued_command_task_notification_attachment_projects_one_user_message() {
-        var line = $$$"""{"parentUuid":"p1","isSidechain":false,"attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"X\" finished</summary>\n</task-notification>","source_uuid":"s1","commandMode":"task-notification","timestamp":"2026-09-17T11:53:57.948Z"},"type":"attachment","uuid":"{{{Uuid}}}","timestamp":"2026-09-17T11:53:58.000Z"}""";
+        const string line = $$$"""{"parentUuid":"p1","isSidechain":false,"attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"X\" finished</summary>\n</task-notification>","source_uuid":"s1","commandMode":"task-notification","timestamp":"2026-09-17T11:53:57.948Z"},"type":"attachment","uuid":"{{{Uuid}}}","timestamp":"2026-09-17T11:53:58.000Z"}""";
         var e = E(line);
         await Assert.That(e).Count().IsEqualTo(1);
         await Assert.That(e[0].EventType).IsEqualTo(CanonicalEventTypes.UserMessageReceived);
@@ -228,7 +229,7 @@ public class ClaudeTranscriptEventsTests {
     /// record, and its event id is the record's own uuid.
     [Test]
     public async Task A_queued_command_prompt_attachment_projects_the_users_message() {
-        var line = $$$"""{"parentUuid":"p1","attachment":{"type":"queued_command","prompt":"also check the toggle","commandMode":"prompt","origin":{"kind":"human"}},"type":"attachment","uuid":"{{{Uuid}}}"}""";
+        const string line = $$$"""{"parentUuid":"p1","attachment":{"type":"queued_command","prompt":"also check the toggle","commandMode":"prompt","origin":{"kind":"human"}},"type":"attachment","uuid":"{{{Uuid}}}"}""";
         var e = E(line).Single();
         await Assert.That(((UserMessageReceived)e.Payload).Content).IsEqualTo("also check the toggle");
         await Assert.That(e.EventId).IsEqualTo(Guid.Parse(Uuid));
@@ -240,14 +241,14 @@ public class ClaudeTranscriptEventsTests {
 
     [Test]
     public async Task A_sidechain_attachment_notification_carries_is_sidechain() {
-        var line = """{"type":"attachment","isSidechain":true,"attachment":{"type":"queued_command","prompt":"<task-notification></task-notification>","commandMode":"task-notification"}}""";
+        const string line = """{"type":"attachment","isSidechain":true,"attachment":{"type":"queued_command","prompt":"<task-notification></task-notification>","commandMode":"task-notification"}}""";
         var e = E(line);
         await Assert.That(SchemaExtensions.Flag(SchemaExtensions.Slug(e[0].Payload, "claude_code"), "is_sidechain")).IsTrue();
     }
 
     [Test]
     public async Task A_meta_attachment_notification_carries_is_meta() {
-        var line = """{"type":"attachment","isMeta":true,"attachment":{"type":"queued_command","prompt":"<task-notification></task-notification>","commandMode":"task-notification"}}""";
+        const string line = """{"type":"attachment","isMeta":true,"attachment":{"type":"queued_command","prompt":"<task-notification></task-notification>","commandMode":"task-notification"}}""";
         var e = E(line);
         await Assert.That(SchemaExtensions.Flag(SchemaExtensions.Slug(e[0].Payload, "claude_code"), "is_meta")).IsTrue();
     }
@@ -278,7 +279,7 @@ public class ClaudeTranscriptEventsTests {
 
     [Test]
     public async Task Malformed_lines_are_rejected_with_a_reason_and_emit_nothing() {
-        foreach (var line in new[] { "", "   ", "not json", "[1,2]", "\"s\"", $$$"""{"type":"user","uuid":"not-a-guid","message":{"content":"x"}}""" }) {
+        foreach (var line in new[] { "", "   ", "not json", "[1,2]", "\"s\"", """{"type":"user","uuid":"not-a-guid","message":{"content":"x"}}""" }) {
             var r = P(line);
             await Assert.That(r.Rejected).IsNotNull().Because(line);
             await Assert.That(r.Events).IsEmpty().Because(line);
@@ -315,19 +316,45 @@ public class ClaudeTranscriptEventsTests {
     }
 
     [Test]
-    public async Task A_line_without_toolUseResult_or_with_a_non_object_one_adds_no_key() {
+    public async Task A_line_without_toolUseResult_or_with_a_null_one_adds_no_key() {
         var none = E("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}""");
         await Assert.That(SchemaExtensions.Slug(none[0].Payload, "claude_code")).IsNull();
 
-        foreach (var value in new[] { "\"text\"", "42", "[1]", "null", "true" }) {
-            var e = E($$$"""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{{{value}}}}""");
-            await Assert.That(SchemaExtensions.Slug(e[0].Payload, "claude_code")).IsNull().Because(value);
-        }
+        var nil = E("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":null}""");
+        await Assert.That(SchemaExtensions.Slug(nil[0].Payload, "claude_code")).IsNull();
+    }
 
+    /// The error a failed tool writes as its toolUseResult is kept as the string the server stores.
+    [Test]
+    public async Task A_string_toolUseResult_rides_the_extension_as_a_string() {
         var error = E("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"x","is_error":true}]},"toolUseResult":"Error: x"}""");
-        var slug = SchemaExtensions.Slug(error[0].Payload, "claude_code");
+        var slug  = SchemaExtensions.Slug(error[0].Payload, "claude_code");
+
         await Assert.That(SchemaExtensions.Flag(slug, "is_error")).IsTrue();
-        await Assert.That(slug!.Fields.ContainsKey("tool_use_result")).IsFalse();
+        await Assert.That(slug!.Fields["tool_use_result"].KindCase).IsEqualTo(Value.KindOneofCase.StringValue);
+        await Assert.That(slug.Fields["tool_use_result"].StringValue).IsEqualTo("Error: x");
+    }
+
+    [Test]
+    [Arguments("42")]
+    [Arguments("[1,\"a\"]")]
+    [Arguments("true")]
+    public async Task A_toolUseResult_of_any_other_kind_rides_the_extension_verbatim(string value) {
+        var e    = E($$$"""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{{{value}}}}""");
+        var slug = SchemaExtensions.Slug(e[0].Payload, "claude_code");
+
+        await Assert.That(slug).IsNotNull();
+        await Assert.That(JsonFormatter.Default.Format(slug!.Fields["tool_use_result"])).IsEqualTo(JsonFormatter.Default.Format(Value.Parser.ParseJson(value)));
+    }
+
+    /// JSON the protobuf parser refuses still yields the result, without the copy.
+    [Test]
+    public async Task A_toolUseResult_protobuf_cannot_hold_is_left_out() {
+        var e = E("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{"n":1e400}}""");
+
+        await Assert.That(e).Count().IsEqualTo(1);
+        await Assert.That(((ToolResultReceived)e[0].Payload).Result).IsEqualTo("ok");
+        await Assert.That(SchemaExtensions.Slug(e[0].Payload, "claude_code")).IsNull();
     }
 
     [Test]

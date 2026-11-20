@@ -49,6 +49,16 @@ public class SearchWireTests {
         await Assert.That(dto.Repositories[0].IsPrimary).IsTrue();
         await Assert.That(dto.Repositories[1].IsPrimary).IsFalse();
         await Assert.That(dto.Repositories[1].Owner).IsNull();
+        await Assert.That((dto.PermissionMode, dto.Effort)).IsEqualTo(((string?)null, (string?)null));
+    }
+
+    [Test]
+    public async Task Activity_session_reads_the_permission_mode_and_effort_the_session_reported() {
+        const string json = """
+        {"session_id":"s1","status":"ended","started_at":"2026-10-01T10:00:00Z","permission_mode":"acceptEdits","effort":"high"}
+        """;
+        var dto = JsonSerializer.Deserialize(json, RemoteModelsJsonContext.Default.ActivitySessionDto)!;
+        await Assert.That((dto.PermissionMode, dto.Effort)).IsEqualTo(("acceptEdits", "high"));
     }
 
     [Test]

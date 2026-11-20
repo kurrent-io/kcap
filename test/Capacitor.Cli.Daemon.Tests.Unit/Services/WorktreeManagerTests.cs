@@ -280,7 +280,7 @@ public class WorktreeManagerTests {
         await Assert.That(Directory.Exists(Path.Combine(repo, ".capacitor", "worktrees", "invalid-ref"))).IsFalse();
     }
 
-    public enum WorktreeState { Clean, ChangedFile, UntrackedFile, UniqueCommit, CommitOnAnotherBranch, DaemonEditsOnly, LinkToOverlay, LaunchWrittenConfig, LaunchConfigEditedAfter, AgentEditBeforeRelaunch, StagedConfigChange, CommitThenSwitchedAway }
+    public enum WorktreeState { Clean, ChangedFile, UntrackedFile, UniqueCommit, CommitOnAnotherBranch, DaemonEditsOnly, LinkToOverlay, LaunchWrittenConfig, LaunchConfigEditedAfter, AgentEditBeforeRelaunch, StagedConfigChange, StrippedConfigRecreated, CommitThenSwitchedAway }
 
     /// <summary>Removal never destroys work that exists only in the worktree: a change, an untracked
     /// file or a commit no other ref has, on HEAD or on the worktree's own branch, keeps the worktree and
@@ -288,6 +288,21 @@ public class WorktreeManagerTests {
     /// writes, a file identical to the source checkout's) are not work; that config edited after the
     /// daemon recorded it is, as is a staged change to it, and so is a link, even to an identical file,
     /// since the link itself would be lost.</summary>
+    /// <summary>On a case-insensitive volume a stripped <c>.MCP.JSON</c> is the file the daemon recorded as
+    /// <c>.mcp.json</c>; still holding what the daemon wrote, it is not the agent's work.</summary>
+    [Test]
+    [Arguments(true, 0)]
+    [Arguments(false, 1)]
+    public async Task HiddenEdits_matches_the_baseline_by_gits_case_rule(bool ignoreCase, int edits) {
+        using var tmp = new TempDir();
+        tmp.CreateFile(".MCP.JSON", "{}");
+        var stamp    = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData("{}"u8));
+        var baseline = new Dictionary<string, string>(StringComparer.Ordinal) { [".mcp.json"] = stamp };
+
+        await Assert.That(WorktreeManager.HiddenEdits(tmp.Path, baseline, "S .MCP.JSON\0", ignoreCase))
+            .IsEqualTo(edits);
+    }
+
     [Test]
     [Arguments(WorktreeState.Clean, false)]
     [Arguments(WorktreeState.ChangedFile, true)]
@@ -300,6 +315,7 @@ public class WorktreeManagerTests {
     [Arguments(WorktreeState.LaunchConfigEditedAfter, true)]
     [Arguments(WorktreeState.AgentEditBeforeRelaunch, true)]
     [Arguments(WorktreeState.StagedConfigChange, true)]
+    [Arguments(WorktreeState.StrippedConfigRecreated, true)]
     [Arguments(WorktreeState.CommitThenSwitchedAway, true)]
     public async Task RemoveAsync_keeps_a_worktree_holding_work_that_exists_nowhere_else(WorktreeState state, bool kept) {
         using var repo = MakeUpstreamWithSideRef("refs/pull/1/head", out _);
@@ -358,7 +374,11 @@ public class WorktreeManagerTests {
             }
             case WorktreeState.StagedConfigChange:
                 tree.CreateFile(".mcp.json", """{"mcpServers":{"mine":{}}}""");
-                tree.Do("add", ".mcp.json");
+                // The stripped config is skip-worktree, so a plain add refuses it.
+                tree.Do("add", "--sparse", ".mcp.json");
+                break;
+            case WorktreeState.StrippedConfigRecreated:
+                tree.CreateFile(".mcp.json", """{"mcpServers":{"mine":{}}}""");
                 break;
             case WorktreeState.LinkToOverlay:
                 Skip.When(OperatingSystem.IsWindows(), "creating a symlink needs privileges Windows CI lacks");
@@ -417,7 +437,7 @@ public class WorktreeManagerTests {
         var removal = await WorktreeManager.RemoveAsync(
             new WorktreeInfo(path, "", repo.Path) { OwnsBranch = false }, TimeProvider.System);
 
-        await Assert.That(removal.KeptBecause).IsNotNull();
+        await Assert.That((removal.KeptBecause is not null, removal.TreeRemoved)).IsEqualTo((true, false));
         await Assert.That(Directory.Exists(path)).IsTrue();
     }
 
@@ -768,7 +788,7 @@ public class WorktreeManagerTests {
             await manager.SyncFromSourceAsync(
                 repo.Clone, sourceCwd, snapshot.SnapshotRoot!, [], CancellationToken.None);
 
-            await Assert.That(holder!.HasExited).IsFalse();
+            await Assert.That(holder.HasExited).IsFalse();
             await Assert.That(Directory.Exists(snapshot.Path)).IsTrue();
             await Assert.That(File.ReadAllText(Path.Combine(snapshot.Path, "round.txt"))).IsEqualTo("two");
             await Assert.That(File.Exists(Path.Combine(snapshot.Path, "reviewer-created.txt"))).IsFalse();
@@ -780,7 +800,21 @@ public class WorktreeManagerTests {
                 await holder.WaitForExitAsync();
             }
             holder?.Dispose();
-            await WorktreeManager.RemoveAsync(snapshot, TimeProvider.System);
+            await RemoveReleasedSnapshotAsync(snapshot);
+        }
+    }
+
+    // The tree kill also ends processes nothing above waits for, such as the holder's console host on Windows,
+    // and one can hold the directory for a moment after the holder has exited.
+    static async Task RemoveReleasedSnapshotAsync(WorktreeInfo snapshot) {
+        var deadline = Stopwatch.StartNew();
+        while (true) {
+            try {
+                await WorktreeManager.RemoveAsync(snapshot, TimeProvider.System);
+                return;
+            } catch (IOException) when (OperatingSystem.IsWindows() && deadline.Elapsed < TimeSpan.FromSeconds(15)) {
+                await Task.Delay(250);
+            }
         }
     }
 
@@ -972,7 +1006,7 @@ public class WorktreeManagerTests {
         await Assert.That(scratch.Path).IsEqualTo(Path.Combine(tmp.PathTo("root"), WorktreeManager.ScratchDirectoryName, "scratch-agent"));
         await Assert.That(scratch.IsStandalone).IsTrue();
         await Assert.That(Directory.Exists(Path.Combine(scratch.Path, ".git"))).IsTrue();
-        await Assert.That(Directory.EnumerateFileSystemEntries(scratch.Path).Select(e => Path.GetFileName(e)!)).IsEquivalentTo([".git"]);
+        await Assert.That(Directory.EnumerateFileSystemEntries(scratch.Path).Select(e => Path.GetFileName(e))).IsEquivalentTo([".git"]);
 
         await WorktreeManager.RemoveAsync(scratch, TimeProvider.System);
 

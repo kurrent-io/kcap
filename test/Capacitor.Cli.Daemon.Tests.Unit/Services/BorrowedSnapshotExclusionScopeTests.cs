@@ -246,7 +246,7 @@ public class BorrowedSnapshotExclusionScopeTests {
     public async Task Nfd_prefix_fails_at_normalization_not_at_the_non_ascii_rule() {
         // Normalization (NormalizeRelativePath) runs BEFORE the case-dependent rule, so that rule can
         // assume an NFC operand. The consequence is that an NFD prefix never reaches it.
-        var nfd = "café/\n";
+        const string nfd = "café/\n";
 
         await Assert.That(() => WorktreeManager.ParseGitRelativeCwd(Encoding.UTF8.GetBytes(nfd)))
             .Throws<InvalidOperationException>();

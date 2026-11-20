@@ -19,7 +19,7 @@ internal sealed class WindowsDesktopNotificationSink : IDesktopNotificationSink,
 
     readonly INativeNotificationManager? _manager;
     readonly Action<Action> _dispatch;
-    readonly IDesktopNotificationAccess _access = UnknownDesktopNotificationAccess.Instance;
+    readonly IDesktopNotificationAccess _access;
     readonly Dictionary<string, Pending> _pending = new(StringComparer.Ordinal);
     bool _disposed;
 
@@ -28,9 +28,11 @@ internal sealed class WindowsDesktopNotificationSink : IDesktopNotificationSink,
         if (OperatingSystem.IsWindows()) _access = new WindowsDesktopNotificationAccess(AppUserModelId);
     }
 
-    internal WindowsDesktopNotificationSink(INativeNotificationManager? manager, Action<Action> dispatch) {
+    internal WindowsDesktopNotificationSink(INativeNotificationManager? manager, Action<Action> dispatch,
+            IDesktopNotificationAccess? access = null) {
         _manager = manager;
         _dispatch = dispatch;
+        _access = access ?? UnknownDesktopNotificationAccess.Instance;
         if (manager is not null) manager.NotificationCompleted += Completed;
     }
 
@@ -103,9 +105,12 @@ internal sealed class WindowsDesktopNotificationSink : IDesktopNotificationSink,
         } catch (Exception error) { DesktopNotifications.Report(error); }
     }
 
-    public Task<DesktopNotificationAccess> GetAsync() => _access.GetAsync();
-    public Task<DesktopNotificationAccess> RequestAsync() => _access.RequestAsync();
+    // The registry can allow toasts this process has no manager to show: that is not Allowed.
+    public Task<DesktopNotificationAccess> GetAsync() => CanShow ? _access.GetAsync() : Task.FromResult(DesktopNotificationAccess.Unknown);
+    public Task<DesktopNotificationAccess> RequestAsync() => CanShow ? _access.RequestAsync() : Task.FromResult(DesktopNotificationAccess.Unknown);
     public void OpenSystemSettings() => _access.OpenSystemSettings();
+
+    bool CanShow => !_disposed && _manager is not null;
 
     public void Close(string id) {
         if (!_pending.Remove(id, out var pending)) return;

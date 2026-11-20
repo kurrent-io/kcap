@@ -12,8 +12,8 @@ namespace Capacitor.Cli.Harness.Claude;
 sealed partial record ClaudeTaskListEvent(string SessionId, ClaudeTaskListEvent.Moment Kind, bool FromLedger = false) {
     public enum Moment { Created, Completed, PlanWritten }
 
-    /// <summary>A task the agent's own record moved: <see cref="Task"/> is its label there ("3" for
-    /// "Task 3"), <see cref="Status"/> the kcap status it implies.</summary>
+    /// <summary>A task the agent's own record moved: <see cref="Task"/> is its label there ("N" for
+    /// "Task N"), <see cref="Status"/> the kcap status it implies.</summary>
     public sealed record TaskMove(string Task, string Status);
 
     /// <summary>Superpowers' executing-plans and subagent-driven-development keep their ledger under this
@@ -97,9 +97,10 @@ sealed partial record ClaudeTaskListEvent(string SessionId, ClaudeTaskListEvent.
     /// task the session never saw in a plan result is skipped: the hook cannot tell whether it lags.</summary>
     public IReadOnlyList<(TaskMove Move, PlanTaskState Task)> Lagging(IReadOnlyList<PlanTaskState> plan) {
         var lagging = new List<(TaskMove, PlanTaskState)>();
-        foreach (var move in Moves)
+        foreach (var move in Moves) {
             if (PlanTaskState.Find(plan, move.Task) is { } task && task.Lags(move.Status))
                 lagging.Add((move, task));
+        }
         return lagging;
     }
 
@@ -138,7 +139,7 @@ sealed partial record ClaudeTaskListEvent(string SessionId, ClaudeTaskListEvent.
         }
     }
 
-    /// <summary>The ledger's own entry form, "Task 3: dispatched …" or "Task 3: complete …"; a bare
+    /// <summary>The ledger's own entry form, "Task N: dispatched …" or "Task N: complete …"; a bare
     /// "complete" elsewhere in a command, such as a commit message, says nothing about a task.</summary>
     static List<TaskMove> LedgerMoves(string written) =>
         LedgerEntry().Matches(written)
@@ -156,7 +157,7 @@ sealed partial record ClaudeTaskListEvent(string SessionId, ClaudeTaskListEvent.
     [GeneratedRegex(@"\bTask\s+([\w.-]+)\s*:\s*(dispatched|started|in[ _-]?progress|completed?|done)\b", RegexOptions.IgnoreCase)]
     private static partial Regex LedgerEntry();
 
-    /// <summary>Subagent-driven development describes each implementer dispatch as "Implement Task 3: …".</summary>
+    /// <summary>Subagent-driven development describes each implementer dispatch as "Implement Task N: …".</summary>
     [GeneratedRegex(@"^Implement\s+Task\s+([\w.-]+?)\s*:", RegexOptions.IgnoreCase)]
     private static partial Regex DispatchedTask();
 

@@ -122,9 +122,10 @@ public static class ClaudeElicitation {
             throw new ArgumentException($"expected {questions.Questions.Length} answer(s), got {answers.Count}", nameof(answers));
 
         var byQuestion = new Dictionary<string, ElicitationAnswer>(StringComparer.Ordinal);
-        foreach (var answer in answers)
+        foreach (var answer in answers) {
             if (!byQuestion.TryAdd(answer.Question, answer))
                 throw new ArgumentException($"duplicate answer for \"{answer.Question}\"", nameof(answers));
+        }
 
         var answersObj = new JsonObject();
         foreach (var question in questions.Questions) {

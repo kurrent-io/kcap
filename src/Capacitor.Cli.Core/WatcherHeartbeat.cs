@@ -54,10 +54,14 @@ public static class WatcherHeartbeat {
         File.Move(tmp, path, overwrite: true);
     }
 
-    /// <summary>The last-written heartbeat timestamp, or <c>null</c> if absent/unreadable/unparseable.</summary>
+    /// <summary>The last-written heartbeat timestamp, or <c>null</c> if absent/unreadable/unparseable. Opened sharing
+    /// write and delete: on Windows a writer's rename over the file would otherwise fail while it is read, and the
+    /// OpenCode plugin is such a writer.</summary>
     public static DateTimeOffset? Read(string path) {
         try {
-            var text = File.ReadAllText(path).Trim();
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream);
+            var text = reader.ReadToEnd().Trim();
 
             return DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var value)
                 ? value

@@ -473,9 +473,13 @@ public class AgentAttachClientTests {
                 // Detached. An accept that waits for the run waits for a client that is waiting for it.
                 //
                 // Bounded, because an aborted dial reaches no listener backlog: a timeout here means the
-                // dial never landed, which is the outcome under test.
+                // dial never landed, which is the outcome under test. A run that settles first never
+                // waited on this server, and any connect it completed is already queued, so the accept
+                // gets only a short grace after that.
                 using var acceptCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
-                try { await server.AcceptAndPumpInboundAsync(acceptCts.Token); } catch (OperationCanceledException) { }
+                var accept = server.AcceptAndPumpInboundAsync(acceptCts.Token);
+                if (await Task.WhenAny(accept, runTask) == runTask) acceptCts.CancelAfter(TimeSpan.FromMilliseconds(20));
+                try { await accept; } catch (OperationCanceledException) { }
 
                 // Half-close, so the client sees EOF and settles on the outcome it chose. Closing outright
                 // would settle it too, but would also discard anything not yet drained — and what was
@@ -514,7 +518,8 @@ public class AgentAttachClientTests {
             var run = client.RunAsync(80, 24, CancellationToken.None);
             await server.AcceptAndPumpInboundAsync();
             await server.SendAttachedAsync(AgentId, []);
-            await Task.Delay(50);
+            // The client's own resize after Attached would otherwise land after the baseline and count as the rejected one.
+            await server.WaitForReceivedAsync(FrameType.Resize);
             var before = server.SnapshotReceived().Count(f => f.Type == FrameType.Resize);
 
             await client.ResizeAsync(cols, rows);

@@ -36,8 +36,7 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 ///
 /// <para>The rule the rows below pin, one for all nine sources
 /// (<c>ImportContext.VisibilityStampFor</c>): <c>ForcePrivate</c> stamps <c>private</c> on every
-/// status, and the Step-3 default lands on <c>New</c> alone. Reasoning in
-/// docs/superpowers/specs/2026-08-26-ai2222-private-stamp-design.md.</para>
+/// status, and the Step-3 default lands on <c>New</c> alone.</para>
 /// Driven through each source's real <c>ImportSessionAsync</c> / <see cref="ImportCommand.ImportChainsAsync"/>
 /// / <see cref="ImportCommand.HandleImport"/> entry point — never through the private
 /// per-source <c>BuildSessionStartPayload</c> builders in isolation — per the spec's own
@@ -782,7 +781,7 @@ public class ImportVisibilityTests : IDisposable {
 
         using var client = new HttpClient();
         var ctx = new ImportContext(client, _server.Url!, ForcePrivate: false, DefaultVisibility: "org_public");
-        await new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, router: new GitProviderRouter(), time: TimeProvider.System).ImportSessionAsync(c, ctx, CancellationToken.None);
+        await new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, [], router: new GitProviderRouter(), time: TimeProvider.System).ImportSessionAsync(c, ctx, CancellationToken.None);
 
         var body = SessionStartBody("copilot");
         await Assert.That(body["default_visibility"]?.GetValue<string>()).IsEqualTo("org_public");
@@ -797,13 +796,13 @@ public class ImportVisibilityTests : IDisposable {
         var partialPath = WriteTranscript("copilot-partial.jsonl");
         var partial = RoutedClassification("copilot-partial-1", ImportCommand.ClassificationStatus.Partial,
             new() { ["TranscriptPath"] = partialPath }, resumeFromLine: 2);
-        await new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, router: new GitProviderRouter(), time: TimeProvider.System).ImportSessionAsync(partial, ctx, CancellationToken.None);
+        await new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, [], router: new GitProviderRouter(), time: TimeProvider.System).ImportSessionAsync(partial, ctx, CancellationToken.None);
         await Assert.That(SessionStartBody("copilot").ContainsKey("default_visibility")).IsFalse();
 
         var alreadyPath = WriteTranscript("copilot-already.jsonl");
         var already = RoutedClassification("copilot-already-1", ImportCommand.ClassificationStatus.AlreadyLoaded,
             new() { ["TranscriptPath"] = alreadyPath }, totalLines: 5);
-        await new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, router: new GitProviderRouter(), time: TimeProvider.System).ImportSessionAsync(already, ctx, CancellationToken.None);
+        await new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, [], router: new GitProviderRouter(), time: TimeProvider.System).ImportSessionAsync(already, ctx, CancellationToken.None);
 
         var alreadyBody = JsonNode.Parse(
             _server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/session-start/copilot")
@@ -821,7 +820,7 @@ public class ImportVisibilityTests : IDisposable {
 
         using var client = new HttpClient();
         var ctx = new ImportContext(client, _server.Url!, ForcePrivate: true, DefaultVisibility: "org_public");
-        await new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, router: new GitProviderRouter(), time: TimeProvider.System).ImportSessionAsync(c, ctx, CancellationToken.None);
+        await new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, [], router: new GitProviderRouter(), time: TimeProvider.System).ImportSessionAsync(c, ctx, CancellationToken.None);
 
         await Assert.That(SessionStartBody("copilot")["default_visibility"]?.GetValue<string>())
             .IsEqualTo("private");
@@ -1135,8 +1134,7 @@ public class ImportVisibilityTests : IDisposable {
         await Assert.That(body["default_visibility"]?.GetValue<string>()).IsEqualTo("private");
     }
 
-    // --- Cursor: the source the 2026-07-20 spec called out, because its live hook has no
-    //     default_visibility injection at all, so the import path is the only one that stamps.
+    // --- Cursor: its live hook has no default_visibility injection at all, so the import path is the only one that stamps.
     //     Direct-logic coverage plus one full WireMock round-trip through HandleImport. ---
 
     [Test]
@@ -1235,7 +1233,7 @@ public class ImportVisibilityTests : IDisposable {
     }
 
     // =====================================================================
-    // Section E — matrix completion (review finding): AlreadyLoaded gaps,
+    // Section E — matrix completion: AlreadyLoaded gaps,
     // forcePrivate × replay-status (Partial), and defaultVisibility:null,
     // for EACH of the 7 routed sources. DRY via RoutedSourceCase + shared
     // assertion helpers across the 6 "uniform-shaped" sources (Copilot,
@@ -1255,7 +1253,7 @@ public class ImportVisibilityTests : IDisposable {
         Func<string, Dictionary<string, object?>> MakeSourceMeta);
 
     RoutedSourceCase CopilotCase() =>
-        new(HarnessId.Copilot, () => new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, router: new GitProviderRouter(), time: TimeProvider.System), p => new() { ["TranscriptPath"] = p });
+        new(HarnessId.Copilot, () => new CopilotImportSource(Config.Root, CopilotHarness.FromEnvironment(Home).Paths, [], router: new GitProviderRouter(), time: TimeProvider.System), p => new() { ["TranscriptPath"] = p });
 
     RoutedSourceCase GeminiCase() =>
         new(HarnessId.Gemini, () => new GeminiImportSource(GeminiHarness.FromEnvironment(Home).Paths.TmpDir, TimeProvider.System), p => new() { ["TranscriptPath"] = p });

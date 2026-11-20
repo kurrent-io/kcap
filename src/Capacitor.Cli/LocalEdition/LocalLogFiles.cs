@@ -7,6 +7,9 @@ namespace Capacitor.Cli.LocalEdition;
 static class LocalLogFiles {
     public static string Directory(LocalRoot root) => Path.Combine(root.Directory, "logs");
 
+    /// <summary>What each bundle fetch and stage did; see <see cref="LocalInstallLog"/>.</summary>
+    public static string Install(LocalRoot root) => Path.Combine(Directory(root), "install.log");
+
     /// <summary>The newest rolling log, then the output log when it has anything; the files that exist, in that order.</summary>
     public static IReadOnlyList<string> Current(LocalRoot root) {
         var dir = Directory(root);

@@ -19,7 +19,7 @@ public partial class OpenCodeSessionStampTests {
     private static partial Regex StampedToolsLiteral();
 
     static IReadOnlyList<string> StampedTools() =>
-        [.. Regex.Matches(StampedToolsLiteral().Match(Content).Groups["list"].Value, "\"([^\"]+)\"").Select(m => m.Groups[1].Value)];
+        [.. QuotedName().Matches(StampedToolsLiteral().Match(Content).Groups["list"].Value).Select(m => m.Groups[1].Value)];
 
     static string Hook() => Content[Content.IndexOf("\"tool.execute.before\"", StringComparison.Ordinal)..];
 
@@ -60,4 +60,7 @@ public partial class OpenCodeSessionStampTests {
         await Assert.That(hook).DoesNotContain("output.args =");
         await Assert.That(hook).Contains("} catch {");
     }
+
+    [GeneratedRegex("\"([^\"]+)\"")]
+    private static partial Regex QuotedName();
 }

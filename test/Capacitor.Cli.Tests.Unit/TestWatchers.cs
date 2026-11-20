@@ -32,6 +32,17 @@ static class TestWatchers {
         };
     }
 
+    /// <summary>A manager whose drains replay within the test's budget.</summary>
+    public static WatcherManager For(ConfigRoot config, ProfileContext profiles, ICapacitorHttpClient http, TimeSpan drainReplayBudget) {
+        var paths   = WatcherPaths.FromEnvironment(config);
+        var starter = SystemProcessStarter.Instance;
+
+        return new WatcherManager(
+            config, profiles, http, starter, paths, new ProcessWatcherSpawner(config, profiles, paths, starter, TimeProvider.System), TimeProvider.System) {
+            DrainReplayBudget = drainReplayBudget
+        };
+    }
+
     /// <summary>A manager whose spawn decisions the test observes instead of launching.</summary>
     public static WatcherManager For(
             ConfigRoot config, ProfileContext profiles, ICapacitorHttpClient http, IWatcherSpawner spawner) =>

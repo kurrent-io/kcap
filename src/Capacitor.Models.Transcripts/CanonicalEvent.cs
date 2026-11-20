@@ -16,18 +16,37 @@ public sealed record CanonicalEvent(
         bool            UsageIsEcho         = false,
         long?           CacheCreationTokens = null,
         IReadOnlyList<TranscriptAttachment>? Attachments = null
-    );
+    ) {
+    /// Metadata keys the vendor's stored events carry beside the common ones, each written verbatim.
+    public IReadOnlyDictionary<string, string>? VendorMetadata { get; init; }
+
+    /// Vendor metadata stored as a JSON number or boolean: each value is a long or a bool, written as is.
+    public IReadOnlyDictionary<string, object>? VendorMetadataValues { get; init; }
+
+    /// The record's own transcript line, set when that is not the line being projected: a vendor that
+    /// holds a record until a later line completes it emits the record while projecting the later line,
+    /// and the record is stored under the line it came from.
+    public int? LineNumber { get; init; }
+}
 
 /// A whole extension block for one slug, to shallow-merge over what the target already holds.
 public sealed record EventAmendment(Guid TargetEventId, string Slug, Struct Extension);
 
 /// Usage to stamp onto earlier events of the same response cluster; the caller decides which
-/// targets it still holds. Never persisted as itself.
-public sealed record UsageApplied(TokenUsage Usage, Guid AnchorEventId, IReadOnlyList<UsageTarget> Targets);
+/// targets it still holds. Never persisted as itself. CacheCreationTokens rides beside Usage, as
+/// on a CanonicalEvent, because the schema's usage has no slot for cache writes.
+public sealed record UsageApplied(
+        TokenUsage                Usage,
+        Guid                      AnchorEventId,
+        long?                     CacheCreationTokens,
+        IReadOnlyList<UsageTarget> Targets
+    );
 
 public sealed record UsageTarget(Guid EventId, string EventType, string? ToolName, bool IsEcho);
 
-public sealed record TranscriptAttachment(Guid Id, string FileName, string ContentType, byte[] Data);
+/// <paramref name="MessageId"/> and <paramref name="BlockIndex"/> are what the id hashes besides the stream's scope, so
+/// a receiver can derive the id itself rather than take it on trust.
+public sealed record TranscriptAttachment(Guid Id, string FileName, string ContentType, byte[] Data, Guid MessageId, int BlockIndex);
 
 /// What one line projects to. Rejected is set for a line that is not a JSON object (or is
 /// unusable in a way the vendor names); both lists are then empty and no context state moved.

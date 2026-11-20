@@ -95,9 +95,10 @@ public class ServiceEnvironmentTests {
         var env = ServiceEnvironment.Build(profileName: null, source: src, config: Config.Root, isWindows: false);
 
         await Assert.That(env["KCAP_COPILOT_TOKEN_CMD"]).IsEqualTo("gh auth token");
-        foreach (var secret in new[] { "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN" })
+        foreach (var secret in new[] { "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN" }) {
             await Assert.That(env.ContainsKey(secret)).IsFalse()
                 .Because($"{secret} is a credential and the unit is a file on disk");
+        }
         // By value too, in case a future key name carries one through under a different spelling.
         await Assert.That(env.Values).DoesNotContain("secret-a");
         await Assert.That(env.Values).DoesNotContain("secret-b");
@@ -323,10 +324,11 @@ public class ServiceEnvironmentTests {
         await Assert.That(ServiceEnvironment.ReviewerConsentKeys).IsNotEmpty()
             .Because("an empty registry would make every assertion below vacuously true");
 
-        foreach (var key in ServiceEnvironment.ReviewerConsentKeys)
+        foreach (var key in ServiceEnvironment.ReviewerConsentKeys) {
             await Assert.That(env.TryGetValue(key, out var v) ? v : null).IsEqualTo("0")
                 .Because($"{key} is the operator's only lever for turning that reviewer off; a supervised "
                        + "daemon reads it from the unit or not at all");
+        }
     }
 
     [Test]

@@ -33,7 +33,7 @@ public class MuseAssistantWalkReaderTests {
 
     [Test]
     public async Task Lines_keep_the_item_verbatim_and_add_chat_and_turn_ids() {
-        var content = "She said \"done\" — {braces}, \\ backslash, 日本語, and a fake \"chat_id\": \"x\"";
+        const string content = "She said \"done\" — {braces}, \\ backslash, 日本語, and a fake \"chat_id\": \"x\"";
         var dir = new WalkBuilder(Tmp).AddPage(null, null, false, User(12, T0, content, "7c1e")).Write();
 
         var (walk, _) = MuseAssistantWalkReader.Load(dir);
@@ -58,7 +58,7 @@ public class MuseAssistantWalkReaderTests {
 
     [Test]
     public async Task A_pretty_printed_page_still_yields_one_line_per_item() {
-        var content = "two\nlines, \"quoted\", 日本語";
+        const string content = "two\nlines, \"quoted\", 日本語";
         var dir = new WalkBuilder(Tmp).AddPage(null, null, false, User(12, T0, content)).Write(tamper: d => {
             d.CreateFile("page-000.json", JsonNode.Parse(File.ReadAllText(d.PathTo("page-000.json")))!.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         });

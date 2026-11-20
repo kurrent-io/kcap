@@ -28,7 +28,9 @@ Reports:
              hooks trusted). --json carries it as last_hook_event.
              Codex hooks Codex has not trusted read ✗, with a line saying
              how to trust them; --json reports them as wired: false and
-             hooks_trust: "untrusted".
+             hooks_trust: "untrusted". Kiro found without kiro-cli on PATH
+             names kiro-cli to install first; --json carries it as
+             missing_cli.
   Git        Shown only when kcap's commit hook is installed and git is
              older than 2.54, which ignores it
   Daemon     Whether the daemon is running (PID file check)

@@ -8,14 +8,17 @@ using Capacitor.App.Platform.Mac;
 namespace Capacitor.App.Views;
 
 /// The Window and Help menus. Every window carries its own copy: on macOS Avalonia makes the key
-/// window's menu the menu bar, and a menu set only on the Application loses its order there.
-public sealed class AppMenuBar(IUrlOpener opener, Func<IReadOnlyList<Window>> windows, Func<Action?> showMainWindow) {
+/// window's menu the menu bar, and a menu set only on the Application loses its order there. Off
+/// macOS <see cref="AppMenuFlyout"/> draws them in the main window, where the OS caption buttons and
+/// taskbar already minimize, maximize and switch windows, so those items are left out.
+public sealed class AppMenuBar(IUrlOpener opener, Func<IReadOnlyList<Window>> windows, Func<Action?> showMainWindow, bool? inWindow = null) {
     public const string DocsUrl = "https://www.kurrent.io/docs/capacitor/";
     public const string ChangelogUrl = "https://github.com/kurrent-io/kcap-cli/releases";
 
     const string WindowMenuTitle = "Window";
     const string HelpMenuTitle = "Help";
 
+    readonly bool _inWindow = inWindow ?? !OperatingSystem.IsMacOS();
     Action<FeedbackCategory>? _openFeedback;
     Action? _showLaunchApprovals;
     readonly List<NativeMenuItem> _launchApprovalItems = [];
@@ -52,7 +55,9 @@ public sealed class AppMenuBar(IUrlOpener opener, Func<IReadOnlyList<Window>> wi
         new NativeMenuItem(HelpMenuTitle) { Menu = BuildHelpMenu(window) },
     };
 
-    NativeMenu BuildWindowMenu(Window window) {
+    NativeMenu BuildWindowMenu(Window window) => _inWindow ? BuildInWindowMenu(window) : BuildMacWindowMenu(window);
+
+    NativeMenu BuildMacWindowMenu(Window window) {
         var menu = new NativeMenu {
             Item("Minimize", () => window.WindowState = WindowState.Minimized, new KeyGesture(Key.M, KeyModifiers.Meta)),
             Item("Zoom", () => Toggle(window, WindowState.Maximized), enabled: window.CanResize),
@@ -61,21 +66,45 @@ public sealed class AppMenuBar(IUrlOpener opener, Func<IReadOnlyList<Window>> wi
             Item("Toggle Full Screen", () => Toggle(window, WindowState.FullScreen),
                 new KeyGesture(Key.F, KeyModifiers.Control | KeyModifiers.Meta), window.CanResize),
         };
-        if (RefreshItem(window) is { } refresh) menu.Add(refresh);
-        if (SearchItem(window) is { } search) menu.Add(search);
+        AddNavigation(menu, window, new KeyGesture(Key.K, KeyModifiers.Meta));
         menu.Add(new NativeMenuItemSeparator());
 
         if (showMainWindow() is { } show) {
             menu.Add(Item("kcap", show));
         }
 
-        var approvals = Item("Launch approvals…", () => _showLaunchApprovals?.Invoke(), enabled: _showLaunchApprovals is not null);
-        _launchApprovalItems.Add(approvals);
-        window.Closed += (_, _) => _launchApprovalItems.Remove(approvals);
-        menu.Add(approvals);
+        menu.Add(LaunchApprovalsItem(window));
         menu.Add(new NativeMenuItemSeparator());
         menu.Add(Item("Bring All to Front", () => BringAllToFront(window)));
         return menu;
+    }
+
+    // Each gesture shown here is one the main window binds on that platform.
+    NativeMenu BuildInWindowMenu(Window window) {
+        var menu = new NativeMenu();
+        AddNavigation(menu, window, new KeyGesture(Key.K, KeyModifiers.Control));
+        if (menu.Items.Count > 0) menu.Add(new NativeMenuItemSeparator());
+        var fullScreen = window is MainWindow main
+            ? Item("Toggle Full Screen", main.ToggleFullScreen, OperatingSystem.IsWindows() ? new KeyGesture(Key.F11) : null)
+            : Item("Toggle Full Screen", () => Toggle(window, WindowState.FullScreen), enabled: window.CanResize);
+        menu.Add(fullScreen);
+        menu.Add(new NativeMenuItemSeparator());
+        menu.Add(LaunchApprovalsItem(window));
+        return menu;
+    }
+
+    static void AddNavigation(NativeMenu menu, Window window, KeyGesture search) {
+        if (RefreshItem(window) is { } refresh) menu.Add(refresh);
+        if (MainWindowItem(window, "Search Sessions…", search, vm => vm.OpenSearchCommand) is { } found) menu.Add(found);
+        if (MainWindowItem(window, "Back", HistoryShortcuts.Back, vm => vm.GoBackCommand) is { } back) menu.Add(back);
+        if (MainWindowItem(window, "Forward", HistoryShortcuts.Forward, vm => vm.GoForwardCommand) is { } forward) menu.Add(forward);
+    }
+
+    NativeMenuItem LaunchApprovalsItem(Window window) {
+        var approvals = Item("Launch approvals…", () => _showLaunchApprovals?.Invoke(), enabled: _showLaunchApprovals is not null);
+        _launchApprovalItems.Add(approvals);
+        window.Closed += (_, _) => _launchApprovalItems.Remove(approvals);
+        return approvals;
     }
 
     NativeMenu BuildHelpMenu(Window window) {
@@ -118,11 +147,11 @@ public sealed class AppMenuBar(IUrlOpener opener, Func<IReadOnlyList<Window>> wi
         return item;
     }
 
-    static NativeMenuItem? SearchItem(Window window) {
+    static NativeMenuItem? MainWindowItem(Window window, string header, KeyGesture gesture, Func<MainWindowViewModel, System.Windows.Input.ICommand> pick) {
         if (window is not MainWindow main) return null;
-        var item = new NativeMenuItem("Search Sessions") { Gesture = new KeyGesture(Key.K, KeyModifiers.Meta), IsEnabled = false };
+        var item = new NativeMenuItem(header) { Gesture = gesture, IsEnabled = false };
         void Apply() {
-            item.Command = (main.DataContext as MainWindowViewModel)?.OpenSearchCommand;
+            item.Command = main.DataContext is MainWindowViewModel vm ? pick(vm) : null;
             if (item.Command is null) item.IsEnabled = false;
         }
         Apply();

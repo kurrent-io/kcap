@@ -692,9 +692,10 @@ public class LocalUninstallTests {
     public async Task A_purge_journal_this_build_did_not_write_is_left_as_it_is() {
         var installed = await InstallAsync();
 
-        using (var lease = await LifecycleLease.AcquireAsync(Root, TimeSpan.Zero, TimeProvider.System, CancellationToken.None))
+        using (var lease = await LifecycleLease.AcquireAsync(Root, TimeSpan.Zero, TimeProvider.System, CancellationToken.None)) {
             lease.Begin(LocalPurgeJournal.Operation, LocalPurgeJournal.Retiring, ServerStart.Deny, installed.InstallationId,
                 new Dictionary<string, string> { [LocalPurgeJournal.PortKey] = "0" });
+        }
 
         var refused = await Assert.ThrowsAsync<LocalLifecycleException>(
             () => Stack.RunAsync(_events, (_, s, _) => Task.FromResult(s), CancellationToken.None));

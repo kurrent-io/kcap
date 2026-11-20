@@ -7,35 +7,17 @@ using Duende.IdentityModel.OidcClient.Browser;
 namespace Capacitor.Cli.Core.Auth;
 
 /// <summary>
-/// OidcClient <see cref="IBrowser"/> backed by a 127.0.0.1 loopback HttpListener.
-/// Opens the system browser to the authorize URL, waits for the redirect callback,
-/// and returns its raw query string. WorkOS documents the loopback exception as
-/// 127.0.0.1 (not localhost). The bind exception is intentionally NOT caught so the
-/// GitHub flow can fall back to device flow on a bind failure. A caller cancel throws
-/// <see cref="OperationCanceledException"/>; only the independent timeout returns Timeout.
-///
-/// <para>With an <see cref="ILoopbackJoin"/> the closing page additionally navigates the browser
-/// out through kcap-web and back to <c>/joined</c> on THIS SAME listener — which means the listener
-/// must OUTLIVE <see cref="InvokeAsync"/>. That removes the <c>using var</c> safety net this class
-/// used to rely on, so ownership becomes explicit: exactly one owner stops and disposes, exactly
-/// once, decided by an <see cref="Interlocked"/> flip of <see cref="_tornDown"/>. Handoff happens at
-/// exactly ONE point — after a successful callback whose closing-page redirect was written cleanly.
-/// Every other exit (timeout, caller cancel, an auth-error callback, an injected <c>openBrowser</c>
-/// that throws, a closing-page write that throws) keeps ownership and disposes, exactly as before.</para>
-///
-/// <para>The redirect needs TWO things: the callback carried no <c>error=</c>, and it echoed the
-/// authorize URL's <c>state</c>. The second is a security control, not a success signal — this port
-/// is reachable by any local process, and without it a bare <c>/callback?code=junk</c> would be
-/// answered with a page containing the join key (see <see cref="StateEchoed"/>). It is still NOT an
-/// auth-success signal: the real CSRF validation and the token exchange both happen after this
-/// method returns, so a run that ends up failing authentication can still have emitted the redirect.
-/// Nothing here is on the critical path; the token exchange neither waits for the hops nor is
-/// affected by them.</para>
+/// OidcClient <see cref="IBrowser"/> backed by a 127.0.0.1 loopback listener (WorkOS's loopback
+/// exception is 127.0.0.1, not localhost). A bind failure is not caught, so the GitHub flow can fall
+/// back to device flow. Caller cancellation throws; only the independent timeout returns Timeout.
+/// <para>With an <see cref="ILoopbackJoin"/> the closing page sends the browser through kcap-web and back
+/// to <c>/joined</c> on this listener, so it must outlive <see cref="InvokeAsync"/>. Ownership passes
+/// only after a successful callback whose redirect was written cleanly; every other exit disposes it
+/// here. An <see cref="Interlocked"/> flip of <see cref="_tornDown"/> makes teardown happen once.</para>
+/// <para>The redirect also requires the callback to echo <c>state</c>: any local process can reach the
+/// port, and without it a bare <c>/callback?code=junk</c> would receive the join key. It is not an auth
+/// success signal; validation and token exchange happen later.</para>
 /// </summary>
-/// <param name="hint">
-/// An escape hatch offered while the wait runs, printed under the "visit:" line rather than before it:
-/// above, it reads as an alternative to signing in at all instead of an alternative to that URL.
-/// </param>
 public sealed class LoopbackBrowser(
         IBrowserLauncher    launcher,
         TimeProvider        time,
@@ -119,8 +101,8 @@ public sealed class LoopbackBrowser(
 
             // Gated on the callback echoing the authorize URL's CSRF state, because this port is
             // reachable by ANY local process and the closing page would otherwise HAND OUT the join
-            // key: a bare `/callback?code=junk` used to be answered with the first-hop URL, key
-            // included. A local process could read it from the HTML and spend it on
+            // key: answering a bare `/callback?code=junk` with the first-hop URL would include the
+            // key. A local process could read it from the HTML and spend it on
             // `/joined?j=<stolen>&w1=<its own id>` before the real browser arrived, consuming the
             // one-shot and merging values it chose. The downstream CSRF check cannot undo either —
             // it only makes authentication fail, after the disclosure.

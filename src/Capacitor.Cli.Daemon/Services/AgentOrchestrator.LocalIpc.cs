@@ -90,10 +90,11 @@ internal partial class AgentOrchestrator {
     /// it is pending and leaves admission only after it is published, so reading the admissions under the lock misses
     /// none. A launch still queued has not been admitted; it is no different from one that arrives after this.</summary>
     internal bool BusyForStatus() {
-        lock (_membership)
+        lock (_membership) {
             return _admission.InFlight > 0
                 || !_pendingLaunches.IsEmpty
                 || _agents.Values.Any(a => a.Status is "Starting" or "Running");
+        }
     }
 
     /// <summary>The live agents, then the ledger entries with no live agent. The ledger is read whole, before
@@ -111,7 +112,7 @@ internal partial class AgentOrchestrator {
     }
 
     /// <summary>No repository, worktree or terminal: the daemon knows the session and nothing it would host.</summary>
-    static AgentStatusDto AttachedStatusRow(Harness.Claude.ModAttachmentRecord attached) => new(
+    static AgentStatusDto AttachedStatusRow(ModAttachmentRecord attached) => new(
         attached.AgentId, AttachedKind, "claude", null, "Running", null, null, null, attached.AttachedAt.UtcDateTime, null, null,
         HasTerminal: false, SessionId: SessionIds.Canonical(attached.SessionId), TranscriptFormat: TranscriptFormats.Vendor);
 
@@ -136,6 +137,13 @@ internal partial class AgentOrchestrator {
             await Task.Delay(AgentSessionBindPoll, _time, ct);
 
         await FrameCodec.WriteAsync(stream, LocalFrame.AgentSessionReply(HeldSessionOf(agentId)), ct);
+    }
+
+    public Task HandleLocalAgentCommandsAsync(string agentId, Stream stream, CancellationToken ct) {
+        HostedAgentCommand[] commands = _agents.TryGetValue(agentId, out var agent) && agent.Commands is { } known ? [.. known] : [];
+        var json = JsonSerializer.Serialize(commands, AgentCommandsIpcJsonContext.Default.HostedAgentCommandArray);
+
+        return FrameCodec.WriteAsync(stream, LocalFrame.AgentCommandsReply(json), ct);
     }
 
     /// <summary>The agent's session once the server holds it. A transcript's session is held only once its
@@ -622,7 +630,7 @@ internal partial class AgentOrchestrator {
         }
     }
 
-    static SendTextAckDto Refuse(string reason, string? error) => new(false, reason, error, null);
+    static SendTextAckDto Refuse(string reason, string? error) => new(false, reason, error);
 
     /// <summary>
     /// Spawn a new agent from a local <c>agent start</c> request, then attach the requesting
@@ -1121,28 +1129,44 @@ internal partial class AgentOrchestrator {
                 try { await Send(LocalFrame.Exited(agent.Runtime.ExitCode ?? 0)); } catch { /* client already gone */ }
             }
         } finally {
+            bool queued;
+
             lock (agent.SinksLock) {
                 agent.LocalSinks.Remove(sink);
                 agent.ClientDims.Remove(sink);
                 ClampPtyLocked(agent); // a departing (possibly smaller) client must not leave the rest clamped
+                queued = QueueSizeLocked(agent);
             }
 
             // A detach can grow the PTY (the smaller client left) — re-announce so web viewers re-lock.
-            if (!agent.IsPrivate) _ = SafeSendDimsAsync(agent);
+            if (!queued && !agent.IsPrivate) _ = SafeSendDimsAsync(agent);
         }
     }
 
     internal static bool IsSubmit(byte[] input) => Array.IndexOf(input, (byte) '\r') >= 0 || Array.IndexOf(input, (byte) '\n') >= 0;
 
     void ApplyResizeClamp(AgentInstance agent, ITerminalSink sink, ushort cols, ushort rows) {
+        bool queued;
+
         lock (agent.SinksLock) {
             agent.ClientDims[sink] = new AgentInstance.Dim(cols, rows);
             ClampPtyLocked(agent);
+            queued = QueueSizeLocked(agent);
         }
 
-        // Announce the new clamped size so registered agents' web viewers re-lock. Outside the
-        // lock (best-effort, fire-and-forget); no-op for --private.
-        if (!agent.IsPrivate) _ = SafeSendDimsAsync(agent);
+        // Announce the new clamped size so registered agents' web viewers re-lock.
+        if (!queued && !agent.IsPrivate) _ = SafeSendDimsAsync(agent);
+    }
+
+    /// <summary>Caller holds <see cref="AgentInstance.SinksLock"/>, so the size is queued between the
+    /// output read before the resize and the output read after it. False when there is no cloud sink,
+    /// which leaves no output to order against, or no size yet.</summary>
+    static bool QueueSizeLocked(AgentInstance agent) {
+        if (agent.CloudSink is not { } cloud || agent.CurrentCols == 0 || agent.CurrentRows == 0) return false;
+
+        cloud.TryEnqueueSize(agent.CurrentCols, agent.CurrentRows);
+
+        return true;
     }
 
     async Task SafeSendDimsAsync(AgentInstance agent) {

@@ -4,8 +4,8 @@ namespace Capacitor.Cli.Core.Tests.Unit.Curation;
 
 public class CuratedTargetsTests {
     const string Root = "/repo";
-    static string Claude => System.IO.Path.Combine(Root, "CLAUDE.md");
-    static string Agents => System.IO.Path.Combine(Root, "AGENTS.md");
+    static string Claude => Path.Combine(Root, "CLAUDE.md");
+    static string Agents => Path.Combine(Root, "AGENTS.md");
 
     [Test]
     public async Task With_content_both_exist_targets_both() {

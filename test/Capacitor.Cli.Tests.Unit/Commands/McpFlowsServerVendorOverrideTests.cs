@@ -47,7 +47,7 @@ public class McpFlowsServerVendorOverrideTests {
 
     [Test]
     public async Task StartFlowAsync_with_vendor_posts_to_v4_with_protocol_4_and_carries_vendor() {
-        // §2.7 B3: a park-capable client routes every vendor-bearing catalog start to /v4
+        // A park-capable client routes every vendor-bearing catalog start to /v4
         // (protocol 4). A current server has the route, so a single POST lands on /v4 — no v2 hit.
         using var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath("/api/flows/review/start/v4").UsingPost())
@@ -175,7 +175,7 @@ public class McpFlowsServerVendorOverrideTests {
 
     [Test]
     public async Task CheckVendorOverrideResult_success_with_matching_echo_is_a_noop() {
-        var body = """{"flow_run_id":"f1","status":"running","applied_reviewer_vendor":"claude"}""";
+        const string body = """{"flow_run_id":"f1","status":"running","applied_reviewer_vendor":"claude"}""";
 
         var result = McpFlowsServer.CheckVendorOverrideResult(
             "start_review_flow", requestedVendor: "claude", HttpStatusCode.OK, isSuccess: true, body, out var flowRunIdToClose);
@@ -186,7 +186,7 @@ public class McpFlowsServerVendorOverrideTests {
 
     [Test]
     public async Task CheckVendorOverrideResult_success_with_mismatched_echo_fails_and_names_the_run_to_close() {
-        var body = """{"flow_run_id":"f1","status":"running","applied_reviewer_vendor":"codex"}""";
+        const string body = """{"flow_run_id":"f1","status":"running","applied_reviewer_vendor":"codex"}""";
 
         var result = McpFlowsServer.CheckVendorOverrideResult(
             "start_review_flow", requestedVendor: "claude", HttpStatusCode.OK, isSuccess: true, body, out var flowRunIdToClose);
@@ -203,7 +203,7 @@ public class McpFlowsServerVendorOverrideTests {
         // A 2xx body whose applied_reviewer_vendor is the wrong TYPE (a number, not a string) must
         // NOT throw past this method (which would skip the defensive close): it reads as "no valid
         // echo" → hard mismatch, and the still-valid flow_run_id is salvaged for the close.
-        var body = """{"flow_run_id":"f1","applied_reviewer_vendor":123}""";
+        const string body = """{"flow_run_id":"f1","applied_reviewer_vendor":123}""";
 
         var result = McpFlowsServer.CheckVendorOverrideResult(
             "start_review_flow", requestedVendor: "claude", HttpStatusCode.OK, isSuccess: true, body, out var flowRunIdToClose);

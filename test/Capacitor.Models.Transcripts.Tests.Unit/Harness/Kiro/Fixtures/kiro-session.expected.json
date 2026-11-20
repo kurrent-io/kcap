@@ -1,0 +1,117 @@
+[
+  {
+    "line": 0,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "e64903f7-a47d-58e2-89f8-632e007b4463",
+        "timestamp": "2026-06-17T20:16:03.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:16:03.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "How many Rust source files are under src/? Use the shell.",
+          "timestamp": "2026-06-17T20:16:03Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "9108b803-6f7b-556b-8b2e-f4441b7909ba",
+        "timestamp": "2026-06-17T20:16:03.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:16:03.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "I\u0027ll count the .rs files under src/.",
+          "timestamp": "2026-06-17T20:16:03Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "754e0fc2-e63c-52cc-8c35-0a5a381a6481",
+        "timestamp": "2026-06-17T20:16:03.0000001\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:16:03.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "tooluse_SD4NNj7zGBKl2HN6KK9YWk",
+              "toolName": "execute_bash",
+              "arguments": {
+                "__tool_use_purpose": "Count Rust source files",
+                "command": "find src -name \u0027*.rs\u0027 | wc -l"
+              },
+              "toolKind": "execute"
+            }
+          ],
+          "timestamp": "2026-06-17T20:16:03.000000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "ToolResultReceived",
+        "id": "81337a67-0f4c-587a-8df4-221190129359",
+        "timestamp": "2026-06-17T20:16:03.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:16:03.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "tooluse_SD4NNj7zGBKl2HN6KK9YWk",
+          "result": "12\n",
+          "timestamp": "2026-06-17T20:16:03Z",
+          "extensions": {
+            "kiro": {
+              "success": true,
+              "tool_name": null,
+              "status": "success"
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "batch": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "fa95118c-6c08-5ffa-a6b2-91b7ac29fe6a",
+        "timestamp": "2026-06-17T20:16:03.0000000\u002B00:00",
+        "recordTimestamp": "2026-06-17T20:16:03.0000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "There are 12 Rust source files under \u0060src/\u0060.",
+          "timestamp": "2026-06-17T20:16:03Z"
+        },
+        "usage": null,
+        "usageIsEcho": false
+      }
+    ],
+    "amendments": 0
+  }
+]

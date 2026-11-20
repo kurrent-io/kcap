@@ -238,11 +238,11 @@ internal sealed partial class ClaudeLauncher(
         argsNode.Add((JsonNode?)"flow-result");
 
         var server = new JsonObject {
-            ["command"] = (JsonNode?)config.CapacitorPath,
+            ["command"] = config.CapacitorPath,
             ["args"]    = argsNode,
             ["env"]     = new JsonObject {
-                [ProfileOverrides.UrlVar] = (JsonNode?)config.ServerUrl,
-                ["KCAP_FLOW_AGENT_ID"]    = (JsonNode?)ctx.AgentId
+                [ProfileOverrides.UrlVar] = config.ServerUrl,
+                ["KCAP_FLOW_AGENT_ID"]    = ctx.AgentId
             }
         };
 
@@ -267,10 +267,10 @@ internal sealed partial class ClaudeLauncher(
             foreach (var a in descriptor.Args) entryArgs.Add((JsonNode?)a);
 
             mcpServers[descriptor.Id] = new JsonObject {
-                ["command"] = (JsonNode?)config.CapacitorPath,
+                ["command"] = config.CapacitorPath,
                 ["args"]    = entryArgs,
                 ["env"]     = new JsonObject {
-                    [ProfileOverrides.UrlVar] = (JsonNode?)config.ServerUrl
+                    [ProfileOverrides.UrlVar] = config.ServerUrl
                 }
             };
         }
@@ -345,7 +345,7 @@ internal sealed partial class ClaudeLauncher(
 
         foreach (var tool in tools) {
             if (!existing.Contains(tool)) {
-                allow.Add((JsonNode)JsonValue.Create(tool)!);
+                allow.Add((JsonNode)JsonValue.Create(tool));
                 existing.Add(tool);
             }
         }
@@ -448,9 +448,13 @@ internal sealed partial class ClaudeLauncher(
             }
 
             var alreadyTrusted = entry["hasTrustDialogAccepted"] is JsonValue v && v.TryGetValue<bool>(out var b) && b;
+            // The auto-mode offer opens after a first reply, with nobody at the terminal, and would take
+            // the next remote message as its answer.
+            var offerSeen = root["hasSeenAutoDefaultNudge"] is JsonValue nv && nv.TryGetValue<bool>(out var nb) && nb;
 
-            if (!alreadyTrusted) {
+            if (!alreadyTrusted || !offerSeen) {
                 entry["hasTrustDialogAccepted"] = true;
+                root["hasSeenAutoDefaultNudge"] = true;
                 WriteJsonAtomic(claudeJsonPath, root);
             }
 

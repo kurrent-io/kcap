@@ -8,8 +8,8 @@ namespace Capacitor.Cli.Daemon.Tests.Unit;
 /// the properties that make deriving safer than listing, rather than merely tidier.
 ///
 /// <para>The hazard is specific to these switches being opt-OUTs. A row that reaches one surface and
-/// not another used to mean a reviewer that could not be turned ON — safe. It now means one that cannot
-/// be turned OFF, which on a service-installed daemon leaves the operator no lever at all.</para>
+/// not another means a reviewer that cannot be turned OFF, which on a service-installed daemon leaves
+/// the operator no lever at all.</para>
 /// </summary>
 public class GatedReviewerRegistryTests {
     /// <summary>
@@ -34,10 +34,9 @@ public class GatedReviewerRegistryTests {
             DaemonRunner.ConsentApplier(config, reviewer.Vendor)(false);
 
             // The other half is that it cleared THIS vendor's flag. Naming the expected property is
-            // what makes that real: an earlier version counted how many flags went false, which a
-            // copy-paste aliasing two vendors onto one property passes — a fresh config per iteration
-            // means exactly one flag clears either way. Verified by mutation; the count-based version
-            // survived pointing opencode at Kiro's property.
+            // what makes that real: counting how many flags went false passes a copy-paste aliasing two
+            // vendors onto one property, since a fresh config per iteration clears exactly one flag
+            // either way.
             var expected = ExpectedFlag(reviewer.Vendor);
 
             await Assert.That(expected(config)).IsFalse()
@@ -45,9 +44,10 @@ public class GatedReviewerRegistryTests {
                        + "another vendor's — aliasing would silently make one switch disable the wrong "
                        + "reviewer while leaving the named one running");
 
-            foreach (var (vendor, flag) in AllFlags().Where(f => f.Vendor != reviewer.Vendor))
+            foreach (var (vendor, flag) in AllFlags().Where(f => f.Vendor != reviewer.Vendor)) {
                 await Assert.That(flag(config)).IsTrue()
                     .Because($"{reviewer.Vendor}'s opt-out must not touch {vendor}");
+            }
         }
     }
 

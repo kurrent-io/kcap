@@ -9,8 +9,7 @@ namespace Capacitor.Cli.Commands.Harness;
 /// duration and checks every earlier/later sample pair with
 /// <see cref="CursorAppendOnlyProbe.PrefixStable"/>, printing a PASS/FAIL report.
 ///
-/// This is the evidence gate for the rest of the CLI-side work (Tasks 8-12 per the plan's Task 7
-/// header): a Cursor session's transcript is run through this while it's actively being written
+/// This is the evidence gate for the Cursor watcher design: a Cursor session's transcript is run through this while it's actively being written
 /// to; a FAIL means Cursor rewrites its own transcript in place and the whole watcher-promotion
 /// design needs to be reconsidered before proceeding. The runtime <see cref="CursorRewriteGuard"/>
 /// ships regardless, as defence-in-depth.

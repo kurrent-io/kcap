@@ -21,12 +21,8 @@ namespace Capacitor.Cli.Daemon.Services;
 internal readonly record struct UnattendedSupport(bool Supported, string? WithheldReason, bool ProbeFailed = false);
 
 /// <summary>
-/// Runtime-selection seam: one implementation per vendor family, chosen by
-/// <see cref="AgentOrchestrator.HandleLaunchAgent"/> via <c>cmd.Vendor</c> instead of the orchestrator
-/// itself building the vendor-specific runtime inline. <see cref="PtyHostedAgentRuntimeFactory"/>
-/// wraps an <see cref="IHostedAgentLauncher"/> + <see cref="Pty.IPtyProcessFactory"/> for the
-/// interactive CLIs (Claude, Codex); <see cref="AcpHostedAgentRuntimeFactory"/> spawns
-/// <c>cursor-agent acp</c> and speaks ACP JSON-RPC for Cursor.
+/// Runtime-selection seam, one implementation per vendor family, chosen by
+/// <see cref="AgentOrchestrator.HandleLaunchAgent"/> from <c>cmd.Vendor</c>.
 /// </summary>
 internal interface IHostedAgentRuntimeFactory {
     /// <summary>Vendor token this factory handles ("claude", "codex", "cursor").</summary>
@@ -38,11 +34,8 @@ internal interface IHostedAgentRuntimeFactory {
     /// </summary>
     bool IsAvailable();
 
-    /// <summary>The binary this factory would launch — the one whose <c>--version</c> identifies the
-    /// build a launch actually gets. Every factory already resolves it to answer
-    /// <see cref="IsAvailable"/>, so asking here is what keeps the advertised version and the admitted
-    /// build one answer: a vendor-keyed map beside them drifts, and the drift is silent (the operator
-    /// reads "CLI version unknown" for a vendor the gate just admitted on a resolved version).</summary>
+    /// <summary>The binary a launch gets, whose <c>--version</c> identifies the build. Asked here so the
+    /// advertised version and the admitted build cannot silently diverge.</summary>
     string CliPath { get; }
 
     /// <summary>
@@ -52,12 +45,9 @@ internal interface IHostedAgentRuntimeFactory {
     bool SupportsUnattended { get; }
 
     /// <summary>
-    /// <see cref="SupportsUnattended"/> and the reason it is withheld, in ONE evaluation — the gated
-    /// reviewers spawn their vendor binary to decide, so two calls would probe it twice per startup.
-    ///
-    /// <para><see cref="UnattendedSupport.WithheldReason"/> is populated ONLY for a vendor THIS daemon's
-    /// configuration is refusing, never for one that simply does not offer unattended hosting. That
-    /// asymmetry is what makes the reason worth surfacing to an operator.</para>
+    /// <see cref="SupportsUnattended"/> and why it is withheld, in one evaluation, since gated reviewers
+    /// spawn their binary to decide. The reason is set only when this daemon's configuration refuses a
+    /// vendor that could host unattended agents.
     /// </summary>
     UnattendedSupport DescribeUnattendedSupport() => new(SupportsUnattended, null);
 
@@ -77,45 +67,24 @@ internal interface IHostedAgentRuntimeFactory {
     bool BorrowedReviewRequiresIndependentSnapshot => false;
 
     /// <summary>
-    /// Whether a review-flow launch this runtime serves runs the vendor — and therefore every MCP
-    /// child the vendor spawns — under a <c>HOME</c> that is not the daemon user's.
-    ///
-    /// <para>That is a delivery fact, not a containment one. The <c>kcap-flow-result</c> channel
-    /// resolves its credential from the config dir, which hangs off <c>HOME</c>, so a redirected
-    /// launch's channel reads an empty directory and cannot authenticate.
-    /// Such a launch must be given the daemon-brokered delivery capability instead of
-    /// <c>KCAP_URL</c> — see <c>RuntimeStartContext.RequiresBrokeredResultDelivery</c>.</para>
-    ///
-    /// <para><b>Deliberately independent of borrowed-ness.</b> A borrowed snapshot is one CAUSE of a
-    /// redirected home (the Copilot sandbox moves it into a per-launch state dir), not the property
-    /// itself: Antigravity isolates <c>HOME</c> on every launch it serves and refuses a borrowed
-    /// workspace outright. Keying delivery on borrowed-ness alone therefore left that reviewer on the
-    /// path it cannot use — it produced a correct answer and then failed to submit it.</para>
-    ///
-    /// <para>Not a vendor test, and not an advertisement gate: a runtime that answers <c>true</c> is
-    /// simply promising that its review launches need brokered delivery, and the orchestrator mints
-    /// accordingly.</para>
+    /// Whether a review-flow launch runs the vendor, and so its MCP children, under a <c>HOME</c> that is
+    /// not the daemon user's. The <c>kcap-flow-result</c> channel finds its credential under <c>HOME</c>,
+    /// so such a launch needs brokered delivery
+    /// (<c>RuntimeStartContext.RequiresBrokeredResultDelivery</c>). Independent of borrowed-ness:
+    /// Antigravity redirects <c>HOME</c> on every launch and refuses borrowed workspaces.
     /// </summary>
     bool ReviewFlowRedirectsHome => false;
 
     /// <summary>
-    /// This runtime's reviewer MODEL override resolver, or <see langword="null"/> when the vendor has
-    /// no authoritative resolver yet. PTY factories delegate to their launcher-owned policy; ACP /
-    /// multi-provider factories return <see langword="null"/> (which does not remove their existing
-    /// vendor-only unattended support). Consumed at startup to advertise
+    /// The reviewer model resolver, or null when the vendor has no authoritative one, which does not
+    /// withdraw its unattended support. Advertised as
     /// <c>UnattendedVendorCapability.SupportsReviewerModelResolution</c>.
     /// </summary>
     IReviewerModelResolver? ReviewerModelResolver => null;
 
     /// <summary>
-    /// Whether this runtime can actually APPLY a caller-supplied model. When <see langword="false"/>, a
-    /// requested model is discarded by the runtime, so the orchestrator must not report it as the model
-    /// the process is running — see <see cref="ModelSelectionLaunchPolicy"/>.
-    ///
-    /// <para>Defaults to <see langword="true"/> because every runtime that existed before this seam
-    /// does honour a model: PTY launchers pass one on argv, and both ACP vendors carried a real
-    /// selector. A <see langword="false"/> value is the new case, introduced by a vendor whose
-    /// model-selection hook is unverified.</para>
+    /// Whether this runtime can apply a caller-supplied model. When false the model is discarded, so it
+    /// must not be reported as running (<see cref="ModelSelectionLaunchPolicy"/>).
     /// </summary>
     bool SupportsModelSelection => true;
 
@@ -149,12 +118,17 @@ internal interface IHostedAgentRuntimeFactory {
     Task<IReadOnlyList<VendorModelOption>?> ProbeModelsAsync(string? configDirectory, CancellationToken ct) =>
         ProbeModelsAsync(ct);
 
-    /// <summary>Files whose fingerprint change means the catalog may have changed. Statted, never read.</summary>
+    /// <summary>Files whose fingerprint change means the catalog may have changed.</summary>
     IReadOnlyList<string> CatalogFingerprintPaths => [];
 
     /// <summary><see cref="CatalogFingerprintPaths"/> for the account whose config directory is
     /// <paramref name="configDirectory"/>; null is the daemon's own default.</summary>
     IReadOnlyList<string> CatalogFingerprintPathsFor(string? configDirectory) => CatalogFingerprintPaths;
+
+    /// <summary>Whether <paramref name="content"/> of a catalog file describes the CLI this daemon probes.
+    /// A file several builds of the vendor share is rewritten by each in turn, and another build's write
+    /// says nothing about what this one launches, so it keeps the last fingerprint.</summary>
+    bool CatalogWrittenByProbedCli(string path, byte[] content) => true;
 
     /// <summary>Where this runtime's attachments land for a launch of <paramref name="kind"/>. The
     /// question is whether the process can be running, write-contained, while a fetch for it happens:
@@ -163,51 +137,31 @@ internal interface IHostedAgentRuntimeFactory {
     AttachmentPlacement AttachmentPlacementFor(LaunchKind kind) => AttachmentPlacement.Worktree;
 
     /// <summary>
-    /// Prepares and starts the hosted runtime for this launch. Throws
-    /// <see cref="CodexHooksNotInstalledException"/> for the orchestrator to map to a
-    /// <c>LaunchFailed</c> with worktree cleanup; any other exception is likewise mapped to
-    /// <c>LaunchFailed</c> (failed-launch path). Returns the started runtime plus any temp
-    /// mcp-config path the orchestrator must record on <see cref="AgentInstance"/> for cleanup.
+    /// Prepares and starts the hosted runtime. Any exception, including
+    /// <see cref="CodexHooksNotInstalledException"/>, becomes <c>LaunchFailed</c> with worktree cleanup.
     /// </summary>
     Task<HostedRuntimeStart> StartAsync(RuntimeStartContext ctx, CancellationToken ct);
 }
 
-/// <summary>Result of <see cref="IHostedAgentRuntimeFactory.StartAsync"/>: the started runtime and
-/// any temp mcp-config path the orchestrator must record on <see cref="AgentInstance.McpConfigPath"/>
-/// so it's cleaned up alongside the agent (PTY launchers only — the ACP factory returns null).
-///
-/// <b>Concrete bind-handoff:</b> <paramref name="Transcript"/>
-/// (renamed record — see below) exposes the ACP session metadata + aggregated transcript
-/// (<see cref="IAcpTranscriptSource"/>) the orchestrator needs to bind (<c>AcpSessionStarted</c>) and
-/// forward (<c>AcpSessionEvents</c>), without downcasting <see cref="Runtime"/> or re-deriving state
-/// the runtime already resolved. <see cref="AcpHostedAgentRuntimeFactory"/> sets it to the runtime it
-/// builds (which implements <see cref="IAcpTranscriptSource"/> directly); every PTY factory
-/// (<see cref="PtyHostedAgentRuntimeFactory"/>) leaves it at its default <see langword="null"/> — no
-/// PTY-side code needs to change for this field to exist.</summary>
+/// <summary>Result of <see cref="IHostedAgentRuntimeFactory.StartAsync"/>. <paramref name="McpConfigPath"/>
+/// is a temp file the orchestrator cleans up with the agent. <paramref name="Transcript"/> is the ACP
+/// session and transcript to bind and forward, without downcasting <see cref="Runtime"/>; PTY factories
+/// leave it null.</summary>
 internal readonly record struct HostedRuntimeStart(IHostedAgentRuntime Runtime, string? McpConfigPath, IAcpTranscriptSource? Transcript = null);
 
 /// <summary>
-/// Everything a runtime factory needs to prepare and start a hosted agent for one launch. Built by
-/// <see cref="AgentOrchestrator.HandleLaunchAgent"/> from the inbound <c>LaunchAgentCommand</c> plus
-/// daemon-local state (worktree, review-launch info, permission-bridge URL) after the pre-flight
-/// guards (vendor known, unattended support, repo allowed, worktree created) have already passed.
+/// Everything a runtime factory needs to start a hosted agent for one launch, built after the
+/// orchestrator's pre-flight guards have passed.
 /// </summary>
-/// <param name="CapacitorPath">
-/// Absolute path to the <c>kcap</c> binary (<c>DaemonConfig.CapacitorPath</c>), passed to
-/// <see cref="ReviewLaunchBuilder.BuildAsync"/> as the review-launch MCP server command. Never the
-/// vendor CLI path (<c>launcher.CliPath</c>): the review agent must run <c>kcap mcp review</c>, and
-/// neither the daemon process nor <c>claude</c>/<c>codex</c> has that subcommand.
-/// </param>
+/// <param name="CapacitorPath">The <c>kcap</c> binary, which <see cref="ReviewLaunchBuilder.BuildAsync"/> uses as the
+/// review MCP server command. Never the vendor CLI path: only <c>kcap</c> has <c>mcp review</c>.</param>
 internal sealed record RuntimeStartContext(
         string            AgentId,
         string            Vendor,
         string            SourceRepoPath,
         WorktreeInfo      Worktree,
         string?           Prompt,
-        // Nullable: a launch whose runtime cannot APPLY a model carries none, rather than carrying one
-        // the process will not run (see ModelSelectionLaunchPolicy). Every launcher already treats an
-        // absent model as "use the vendor default" — Claude and the ACP factory via
-        // string.IsNullOrEmpty, Codex via AddModelArg — so null is the value they are prepared for.
+        // Null when the runtime cannot apply a model; every launcher reads null as the vendor default.
         string?           Model,
         string?           Effort,
         string[]?         Tools,
@@ -219,19 +173,12 @@ internal sealed record RuntimeStartContext(
         string?           ServerUrl,
         string?           DaemonBridgeUrl,
         string            CapacitorPath,
-        // D-c: the review-flow definition's MCP allowlist, carried verbatim from
-        // LaunchAgentCommand.McpAllowlist. PTY launchers materialize it into a temp mcp-config;
-        // the ACP factory resolves it (TryResolveReviewFlowAllowlist) into extra session/new
-        // servers, admitted by an aliasing vendor's name gate under per-launch wire names.
+        // The review-flow definition's MCP allowlist. PTY launchers write it into a temp mcp-config; the ACP
+        // factory resolves it into extra session/new servers under per-launch wire names.
         string[]?         McpAllowlist = null,
-        // Phase A: owned worktree (daemon-created) vs borrowed cwd (the user's own
-        // checkout), carried from LaunchAgentCommand.Borrowed through to LauncherContext.Work.
-        // Defaults to OwnedWorktree — today's only exercised path — unchanged.
         WorkLocation       Work = WorkLocation.OwnedWorktree,
-        // Phase B (D4 §6.4(3)): daemon-identity env markers stamped into the spawned child so a
-        // RESTARTED daemon's OrphanReaper env-marker scan can recognize a recordless survivor as its
-        // own (KCAP_DAEMON_ID == this daemon) from a PRIOR incarnation (KCAP_DAEMON_EPOCH != current)
-        // and reap it. Empty when a test/legacy caller omits them — the markers are simply not written.
+        // Stamped into the child so a restarted daemon's OrphanReaper recognizes a recordless survivor from
+        // a prior incarnation (same KCAP_DAEMON_ID, different epoch). Empty writes no markers.
         string             DaemonId    = "",
         string             DaemonEpoch = "",
         // This daemon's name, which selects its control socket among the daemons on the machine.
@@ -250,56 +197,31 @@ internal sealed record RuntimeStartContext(
         // is not the daemon user's can report without a credential of its own. The daemon holds the
         // authenticated connection and forwards; nothing here is a backend URL.
         string?            FlowResultCapabilityUrl = null,
-        // Whether this launch's result channel MUST deliver through FlowResultCapabilityUrl rather
-        // than authenticating for itself, in which case the capability is required — not merely
-        // permitted — and its absence fails the launch instead of falling back to KCAP_URL.
-        //
-        // Derived by the orchestrator, because neither party alone determines it: a borrowed snapshot
-        // is one cause (the sandbox redirects HOME) and IHostedAgentRuntimeFactory
-        // .ReviewFlowRedirectsHome is the other. The ONE thing AcpReviewFlowMcp reads, so the two
-        // causes cannot end up expressed differently at the two ends of the same launch.
+        // Whether the result channel must deliver through FlowResultCapabilityUrl; if so, a missing
+        // capability fails the launch rather than falling back to KCAP_URL. Derived by the orchestrator from
+        // both causes (a borrowed snapshot, ReviewFlowRedirectsHome), and the one thing AcpReviewFlowMcp reads.
         bool               RequiresBrokeredResultDelivery = false,
-        // The model this launch asked for and did not get, when ModelSelectionLaunchPolicy cleared
-        // Model above so the dashboard is not told a model is live that isn't. Carried separately
-        // because the two answer different questions: Model is what the process runs, this is what
-        // the user is owed an explanation for.
+        // The model asked for and not applied, kept apart from Model so the user is told why.
         string?            DroppedModelPick = null,
         // Caller-selected Codex sandbox/approval posture, carried verbatim from
         // LaunchAgentCommand.CodexPosture through to LauncherContext.CodexPosture. Non-null only for
         // an interactive daemon-owned-worktree Codex launch that passed the orchestrator's guard.
         CodexLaunchPosture? CodexPosture = null,
-        // The per-launch generated names for THIS launch (result-channel wire name, unmatchable MCP name).
-        //
-        // NOT a caller input, despite living on the context: the factory overwrites it at the top of
-        // StartAsync, so a value supplied on the way in never reaches a launch (asserted by test). It sits
-        // here so one instance reaches both the session/new MCP list and the argv builder through the
-        // existing connectionSource seam — which is the whole point, since two independent derivations of
-        // these names is the defect LaunchIdentity exists to make unrepresentable.
-        //
-        // Null on any path that has not been through the factory, and on the PTY launchers, which have no
-        // MCP-name gate to defend.
+        // The per-launch generated names (result-channel wire name, unmatchable MCP name). Not a caller
+        // input: the factory overwrites it at the top of StartAsync. It lives here so one instance reaches
+        // both the session/new list and the argv builder. Null on PTY launchers.
         LaunchIdentity?     LaunchIdentity = null,
-        // The SAME per-launch clock the orchestrator threads onto the eventual AgentInstance and the
-        // reviewer permission-bridge grant. Handed to the factory so an ACP factory can wire it onto
-        // its runtime BEFORE StartAsync: assigned any later, every SetLaunchStage inside
-        // AcpHostedAgentRuntime.StartAsync is a silent no-op against a null clock. Null for the PTY
-        // launchers (AgentInstance owns their clock) and for constructions predating this field.
+        // The same clock the AgentInstance gets, handed over so an ACP factory wires it before StartAsync;
+        // later, every SetLaunchStage would hit a null clock. Null for PTY launchers.
         AgentActivityClock? ActivityClock = null,
-        // Caller-selected ACP permission preset, carried verbatim from
-        // LaunchAgentCommand.AcpPermissionPreset. The ACP factory resolves it (for non-review-flow
-        // launches only) into an AcpLaunchPermissionPreset and wires it onto the interaction bridge.
-        // Null for every non-preset launch and constructions predating this field.
+        // Resolved by the ACP factory, for non-review-flow launches only, onto the interaction bridge.
         string?             AcpPermissionPreset = null,
-        // The hosted Codex thread to RESUME, carried verbatim from LaunchAgentCommand.ResumeSessionId.
-        // Non-null only for a parked reviewer relaunch: the Codex app-server runtime reopens this thread
-        // via thread/resume instead of thread/start, and suppresses the second SessionStarted. Null for
-        // a fresh launch, every non-Codex/non-app-server launch, and constructions predating this field.
+        // The Codex thread a parked reviewer relaunch reopens via thread/resume, suppressing the second
+        // SessionStarted. Null for a fresh launch.
         string?             ResumeSessionId = null,
         string?             PermissionMode = null,
-        // The approval policy bound for THIS launch from the worktree above plus the daemon user's
-        // own file — the same instance the AgentInstance carries, so a factory and the permission
-        // seam judge against one set of documents. Null when no provider is wired, when the build
-        // failed, and for constructions predating this field.
+        // The same policy instance the AgentInstance carries, so factory and permission seam judge alike.
+        // Null when no provider is wired or the build failed.
         PolicySnapshot?     PolicySnapshot = null,
         // The launch's transcript journal, unopened. An envelope-emitting factory opens it before
         // constructing its runtime and hands it to the constructor; a PTY factory ignores it.
@@ -318,8 +240,7 @@ internal sealed record RuntimeStartContext(
         // The transport the server will validate this launch's registration against. Null from an
         // older server. A ledger transport above outranks it.
         string?             ExpectedRuntimeTransport = null,
-        // Which of the agent's user messages the server has stored, answered by its transcript forwarder once
-        // one is bound. Null for constructions predating this field.
+        // Which of the agent's user messages the server has stored, answered by its forwarder once bound.
         Func<IAcpPersistenceProbe?>? PersistenceProbe = null,
         // Null for a vendor without accounts.
         ResolvedAccount?    Account = null

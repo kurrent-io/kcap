@@ -41,8 +41,8 @@ public class DaemonCommandsServiceRefreshTests {
                 };
             });
 
-    DaemonServiceCommands Commands(LaunchdServiceManager manager, string id, Func<string, ReloadStop>? stopForReload) =>
-        new(Daemons.Store, Config.Root, Resolutions.None(Config.Root), manager, id, Home, TimeProvider.System) { ReloadStopper = stopForReload };
+    DaemonServiceCommands Commands(LaunchdServiceManager manager, string id, Func<string, ReloadStop>? stopForReload, TimeSpan? lockWait = null) =>
+        new(Daemons.Store, Config.Root, Resolutions.None(Config.Root), manager, id, Home, TimeProvider.System) { ReloadStopper = stopForReload, LockWait = lockWait };
 
     [Test]
     public async Task Forced_run_reloads_only_the_named_daemon_and_prints_one_token() {
@@ -159,7 +159,8 @@ public class DaemonCommandsServiceRefreshTests {
         var asked = false;
         using var console = ConsoleOutput.StartFullCapture();
 
-        var commands = Commands(Manager(calls, new() { ["a"] = "adaptive (6)" }), "a", _ => { asked = true; return ReloadStop.Exited; });
+        var commands = Commands(Manager(calls, new() { ["a"] = "adaptive (6)" }), "a", _ => { asked = true; return ReloadStop.Exited; },
+                                lockWait: TimeSpan.FromMilliseconds(100));
         var exit = await commands.Refresh(force: true, stabilize: s => s);
 
         await Assert.That(exit).IsEqualTo(1);
@@ -205,7 +206,7 @@ public class DaemonCommandsServiceRefreshTests {
 
         await Assert.That(exit).IsEqualTo(0);
         var request = await received.WaitAsync(TimeSpan.FromSeconds(30));
-        await Assert.That(ShutdownIpc.Parse(request!.Text!)).IsEqualTo(new ShutdownRequestDto("keep", "final", WhenIdle: true));
+        await Assert.That(ShutdownIpc.Parse(request!.Text)).IsEqualTo(new ShutdownRequestDto("keep", "final", WhenIdle: true));
         await Assert.That(aliveAtBootout).IsEquivalentTo([false]);
     }
 
@@ -224,7 +225,7 @@ public class DaemonCommandsServiceRefreshTests {
 
         await Assert.That(exit).IsEqualTo(0);
         var request = await received.WaitAsync(TimeSpan.FromSeconds(30));
-        await Assert.That(ShutdownIpc.Parse(request!.Text!)!.WhenIdle).IsTrue();
+        await Assert.That(ShutdownIpc.Parse(request!.Text)!.WhenIdle).IsTrue();
         await Assert.That(calls.Any(c => c[0] == "bootout")).IsFalse();
         await Assert.That(console.GetCapturedOutput()).Contains("is busy, so its service unit change waits");
     }
@@ -242,7 +243,7 @@ public class DaemonCommandsServiceRefreshTests {
 
         await Assert.That(exit).IsEqualTo(0);
         var request = await received.WaitAsync(TimeSpan.FromSeconds(30));
-        await Assert.That(ShutdownIpc.Parse(request!.Text!)).IsEqualTo(new ShutdownRequestDto("keep", "final"));
+        await Assert.That(ShutdownIpc.Parse(request!.Text)).IsEqualTo(new ShutdownRequestDto("keep", "final"));
     }
 
     DummyProcess StartDaemon(string id) {

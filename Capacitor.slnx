@@ -1,7 +1,7 @@
 <Solution>
   <Folder Name="/files/">
     <File Path=".editorconfig" />
-    <File Path="CLAUDE.md" />
+    <File Path="AGENTS.md" />
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
     <File Path="nuget.config" />
@@ -9,6 +9,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src\Capacitor.App\Capacitor.App.csproj" />
+    <Project Path="src\Capacitor.Client\Capacitor.Client.csproj" />
     <Project Path="src\Capacitor.Cli.Core\Capacitor.Cli.Core.csproj" />
     <Project Path="src\Capacitor.Cli.Daemon\Capacitor.Cli.Daemon.csproj" />
     <Project Path="src\Capacitor.Cli.Recording\Capacitor.Cli.Recording.csproj" />
@@ -21,6 +22,8 @@
     <File Path="test\Directory.Build.props" />
     <Project Path="test\Capacitor.App.Tests.Unit\Capacitor.App.Tests.Unit.csproj" />
     <Project Path="test\Capacitor.Tests.Helpers\Capacitor.Tests.Helpers.csproj" />
+    <Project Path="test\Capacitor.Client.Tests.Unit\Capacitor.Client.Tests.Unit.csproj" />
+    <Project Path="test\Capacitor.Tests.Helpers.Kcap\Capacitor.Tests.Helpers.Kcap.csproj" />
     <Project Path="test\Capacitor.Cli.Core.Tests.Unit\Capacitor.Cli.Core.Tests.Unit.csproj" />
     <Project Path="test\Capacitor.Cli.Daemon.Tests.Unit\Capacitor.Cli.Daemon.Tests.Unit.csproj" />
     <Project Path="test\Capacitor.Cli.Recording.Tests.Unit\Capacitor.Cli.Recording.Tests.Unit.csproj" />
@@ -30,5 +33,6 @@
     <Project Path="test\Capacitor.Cli.Tests.Unit\Capacitor.Cli.Tests.Unit.csproj" />
     <Project Path="test\Capacitor.Cli.Tests.Unit.NativeTestHost\Capacitor.Cli.Tests.Unit.NativeTestHost.csproj" />
     <Project Path="test\Capacitor.Models.Transcripts.Tests.Unit\Capacitor.Models.Transcripts.Tests.Unit.csproj" />
+    <Project Path="test\Capacitor.SourceGuards.Tests.Unit\Capacitor.SourceGuards.Tests.Unit.csproj" />
   </Folder>
 </Solution>

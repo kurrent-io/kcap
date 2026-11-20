@@ -93,7 +93,7 @@ public class OpenCodeSessionStartMemoryTests {
     /// </summary>
     [Test]
     public async Task the_plugin_declares_the_memory_contract_without_dropping_the_lifecycle_args() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
 
         await Assert.That(content).Contains("\"--memory-contract\", \"1\"");
 
@@ -166,7 +166,7 @@ public class OpenCodeSessionStartMemoryTests {
     /// </summary>
     [Test]
     public async Task the_plugin_appends_to_the_system_array_and_never_assigns_into_it() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
 
         await Assert.That(content).Contains("system.push(fragment)");
         await Assert.That(content).DoesNotContain("system[0] =");
@@ -201,7 +201,7 @@ public class OpenCodeSessionStartMemoryTests {
     /// </summary>
     [Test]
     public async Task the_plugin_bounds_its_cached_state() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
 
         await Assert.That(content).Contains("MEMORY_MAX_SESSIONS");
         await Assert.That(content).Contains("memory.size >= MEMORY_MAX_SESSIONS");
@@ -215,9 +215,9 @@ public class OpenCodeSessionStartMemoryTests {
     /// </summary>
     [Test]
     public async Task the_plugin_transform_cannot_throw() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
-        var start   = content.IndexOf("\"experimental.chat.system.transform\"", StringComparison.Ordinal);
-        var end     = content.IndexOf("event: async", StringComparison.Ordinal);
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
+        var start            = content.IndexOf("\"experimental.chat.system.transform\"", StringComparison.Ordinal);
+        var end              = content.IndexOf("event: async", StringComparison.Ordinal);
 
         await Assert.That(start).IsGreaterThan(-1);
         await Assert.That(end).IsGreaterThan(start);
@@ -234,7 +234,7 @@ public class OpenCodeSessionStartMemoryTests {
     /// </summary>
     [Test]
     public async Task the_plugin_never_overwrites_a_cached_fragment_with_an_empty_one() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
 
         await Assert.That(content).Contains("if (!fragment) return");
         await Assert.That(content).Contains("if (memory.has(sid)) return");
@@ -253,7 +253,7 @@ public class OpenCodeSessionStartMemoryTests {
     /// </summary>
     [Test]
     public async Task the_plugin_publishes_the_in_flight_marker_before_classifying() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
 
         await Assert.That(content).Contains("function ensureStarted(");
         // The transform awaits the marker ensureStarted owns...
@@ -273,7 +273,7 @@ public class OpenCodeSessionStartMemoryTests {
     /// </summary>
     [Test]
     public async Task the_plugin_bounds_request_path_cold_start_retries() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
 
         await Assert.That(content).Contains("MEMORY_COLD_START_ATTEMPTS");
         await Assert.That(content).Contains("attempts < MEMORY_COLD_START_ATTEMPTS");
@@ -288,7 +288,7 @@ public class OpenCodeSessionStartMemoryTests {
     /// </summary>
     [Test]
     public async Task the_plugin_captures_the_hook_stdout() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
 
         await Assert.That(content).Contains("res?.stdout");
         await Assert.That(content).Contains("rememberMemory(sid, (await runKcap(args)).trim())");
@@ -300,7 +300,7 @@ public class OpenCodeSessionStartMemoryTests {
     /// </summary>
     [Test]
     public async Task Plugin_writes_a_session_title_line_on_session_updated() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
 
         await Assert.That(content).Contains("type === \"session.updated\"");
         await Assert.That(content).Contains("type: \"session_title\"");
@@ -312,8 +312,8 @@ public class OpenCodeSessionStartMemoryTests {
     /// plugin invented.</summary>
     [Test]
     public async Task Plugin_emits_time_only_when_opencode_supplied_it() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
-        var branch  = content[content.IndexOf("type === \"session.updated\"", StringComparison.Ordinal)..];
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
+        var branch           = content[content.IndexOf("type === \"session.updated\"", StringComparison.Ordinal)..];
         branch = branch[..branch.IndexOf("type === \"session.deleted\"", StringComparison.Ordinal)];
 
         await Assert.That(branch).Contains("if (typeof info?.time?.updated === \"number\") line.time = info.time.updated");
@@ -326,8 +326,8 @@ public class OpenCodeSessionStartMemoryTests {
     /// </summary>
     [Test]
     public async Task Plugin_skips_title_lines_for_child_sessions() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
-        var branch  = content[content.IndexOf("type === \"session.updated\"", StringComparison.Ordinal)..];
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
+        var branch           = content[content.IndexOf("type === \"session.updated\"", StringComparison.Ordinal)..];
         branch = branch[..branch.IndexOf("type === \"session.deleted\"", StringComparison.Ordinal)];
 
         await Assert.That(branch).Contains("if (id && info?.parentID) { children.add(id); return }");
@@ -343,7 +343,7 @@ public class OpenCodeSessionStartMemoryTests {
     /// </summary>
     [Test]
     public async Task Session_deleted_id_falls_back_to_the_info_shape() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
 
         await Assert.That(content)
             .Contains("const id = event?.properties?.info?.id ?? event?.properties?.sessionID");
@@ -356,8 +356,8 @@ public class OpenCodeSessionStartMemoryTests {
     /// handler's catch) must leave the title eligible for the next <c>session.updated</c>.</summary>
     [Test]
     public async Task Plugin_records_a_title_as_written_only_after_the_append() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
-        var branch  = content[content.IndexOf("type === \"session.updated\"", StringComparison.Ordinal)..];
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
+        var branch           = content[content.IndexOf("type === \"session.updated\"", StringComparison.Ordinal)..];
         branch = branch[..branch.IndexOf("type === \"session.deleted\"", StringComparison.Ordinal)];
 
         await Assert.That(branch.IndexOf("rememberTitle(id, title)", StringComparison.Ordinal))
@@ -368,7 +368,7 @@ public class OpenCodeSessionStartMemoryTests {
     /// plugin process would otherwise keep every session it ever titled.</summary>
     [Test]
     public async Task Plugin_bounds_the_title_dedupe_map() {
-        var content = OpenCodeExtensionInstaller.ExtensionContent;
+        const string content = OpenCodeExtensionInstaller.ExtensionContent;
 
         await Assert.That(content).Contains("const TITLE_MAX_SESSIONS = 64");
         await Assert.That(content).Contains("lastTitle.size >= TITLE_MAX_SESSIONS");

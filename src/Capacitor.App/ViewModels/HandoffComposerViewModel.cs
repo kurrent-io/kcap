@@ -3,9 +3,13 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using Capacitor.App.Services;
+using Capacitor.App.Services.Composer;
+using Capacitor.App.ViewModels.Composer;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Handoff;
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
 using ReactiveUI.Reactive;
@@ -18,7 +22,7 @@ namespace Capacitor.App.ViewModels;
 /// start, and what launches is exactly what the strip shows. The strip is read from the checkout's own
 /// refs; origin is contacted only once the user starts the hand-off, since showing the composer is no
 /// request to reach off the machine.
-public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAttachmentSink {
+public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IComposer {
     public const string NeedsFullAccess = "You need full access to this session to hand it off";
     public const string ServerTooOld = "Your kcap server doesn't support hand-off yet";
     public const string DaemonTooOld = "Your local kcap daemon doesn't support hand-off yet. Update kcap to use it.";
@@ -30,8 +34,6 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     public const string ProbeFailed = "Your local kcap daemon didn't answer, so the starting point couldn't be checked";
     public const string CheckoutUnreadable = "Your local kcap daemon couldn't read this checkout, so the starting point couldn't be checked";
     public const string CheckingOrigin = "Checking origin…";
-    public const string OriginMoved =
-        "Origin has moved on since this was checked, so nothing was started. Check where the new session would start and start again.";
     public const string AccountMoved =
         "Origin points to another checkout, which uses a different account, so nothing was started. Check the account and start again.";
     public const string OriginSignInNeeded = "Couldn't sign in to origin, so nothing was started. Set up git's sign-in for it on this machine and start again.";
@@ -120,6 +122,9 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     bool _recheckAfterLaunch;
     IReadOnlySet<string>? _features;
     HandoffContextDto? _context;
+    // Seeded once: a later check must not move a chip the user has been looking at.
+    bool _choicesSeeded;
+    Task<ActivitySessionDto?>? _source;
     string? _checkout;
     ProbePlan? _plan;
     bool _originChecked;
@@ -152,7 +157,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             Action<int>? onUnauthorized = null, TimeProvider? time = null,
             Func<string?>? localMachineId = null,
             AccountReadings? accounts = null, AppStateStore? accountMemory = null,
-            CancellationToken shutdown = default) {
+            ComposerPickers? pickers = null, CancellationToken shutdown = default) {
         _session = session;
         _daemon = daemon;
         _launch = launch;
@@ -174,6 +179,11 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         _localMachineId = localMachineId;
         _shutdown = shutdown;
         _choices = new HandoffChoicesViewModel(daemon, session.Vendor, modelCatalog, session.Cwd, accounts, accountMemory)
+            .DisposeWith(_disposables);
+        Picker = pickers?.Create(this.WhenAnyValue(x => x.ResumeVisible)
+                .CombineLatest(_choices.WhenAnyValue(x => x.RepoPath, x => x.SelectedVendor, x => x.AccountRows,
+                        (repo, vendor, accounts) => PickerContext(repo, vendor, ComposerContext.AccountOf(accounts))),
+                    (resume, handoff) => resume ? PickerContext(_session.Cwd, _session.Vendor, RecordedAccount()) : handoff))
             .DisposeWith(_disposables);
         // A pick answers the refusal of the one before it.
         _choices.WhenAnyValue(x => x.AccountRows)
@@ -202,6 +212,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
                 if (c) {
                     _features = null;
                     _context = null;
+                    if (!_choicesSeeded) _source = null;
                 }
                 Recheck();
             })
@@ -234,7 +245,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             .CombineLatest(canAttach, HomeViewModel.AttachHintFor)
             .DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler)
-            .ToProperty(this, x => x.AttachHint, initialValue: (string?)null)
+            .ToProperty(this, x => x.AttachHint, initialValue: null)
             .DisposeWith(_disposables);
 
         var canStart = this.WhenAnyValue(x => x.ProbedStart, x => x.StartsFromOrigin, x => x.DisabledReason, x => x.IsLaunching, x => x.IsResuming,
@@ -275,6 +286,17 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
     }
 
     public ILaunchChoices Choices => _choices;
+
+    public ComposerPicker? Picker { get; }
+
+    static ComposerContext? PickerContext(string? repo, string? vendor, ResolvedAccount? account) =>
+        repo is { Length: > 0 } ? new ComposerContext(repo, HarnessId.From(vendor), Account: account) : null;
+
+    ResolvedAccount? RecordedAccount() =>
+        _session.Recording is { ConfigDir: { Length: > 0 } store } recording
+            ? new ResolvedAccount(store, recording.AccountId, AccountRows.LastSegment(store))
+            : null;
+
     internal HandoffChoicesViewModel ChoicesForTesting => _choices;
     public ReactiveCommand<Unit, Unit> StartCommand { get; }
     public ReactiveCommand<Unit, Unit> ResumeCommand { get; }
@@ -542,6 +564,12 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
                 });
             _context = fetched;
         }
+        if (!_choicesSeeded) {
+            _source ??= ReadSourceAsync();
+            var source = await _source.WaitAsync(ct);
+            _choices.Seed(source?.Model, source?.Effort, source?.PermissionMode);
+            _choicesSeeded = true;
+        }
         if (_context is not { RepoOwner: { Length: > 0 } owner, RepoName: { Length: > 0 } name } context)
             return new(NoRepository);
         // The daemon proves a checkout by its origin, which a repository with no remote does not have.
@@ -595,11 +623,9 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
         return refused!;
     }
 
-    /// The hand-off's one read of origin, made when the user starts it. A start other than the one the strip
-    /// shows is shown rather than launched; with nothing shown, the user started from origin's answer.
+    /// The hand-off's one read of origin, made when the user starts it. Origin's answer is what launches, even
+    /// when it has moved on from the start the strip showed: the strip is updated to it first.
     async Task<bool> CheckOriginAsync(ProbePlan plan) {
-        var shown = ProbedStart;
-        var shownCheckout = _checkout;
         _checkingOrigin = true;
         Progress = CheckingOrigin;
         Evaluation result;
@@ -618,10 +644,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
             return false;
         }
         Show(result);
-        if (result.Reason is not null) return false;
-        if (shown is null || (shown == result.Start && shownCheckout == result.Checkout)) return true;
-        Error = OriginMoved;
-        return false;
+        return result.Reason is null;
     }
 
     static bool HasAvailableHarness(IReadOnlyList<HarnessOption> options) => options.Any(o => o.Available);
@@ -936,6 +959,11 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, IAtt
 
     static bool HasResume(AttachStatus status) =>
         status.State == AttachState.Connected && status.Capabilities?.Contains(ResumeInPlaceWire.Capability) == true;
+
+    async Task<ActivitySessionDto?> ReadSourceAsync() {
+        var summary = await _sessions.ReadSummaryAsync(_session.SessionId, _shutdown);
+        return summary is { Outcome: ServerReadOutcome.Ok, Session: { } source } ? source : null;
+    }
 
     /// A verified fork's head, or a head in the session's own repository; anything else, including a
     /// head the server could not classify, falls back to the recorded branch.

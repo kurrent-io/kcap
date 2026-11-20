@@ -2,7 +2,6 @@ using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.LocalIpc;
 using ReactiveUI.Reactive;
@@ -13,6 +12,7 @@ namespace Capacitor.App.ViewModels;
 /// store the CLI shares, with the daemon's own report of whether each took effect.
 public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable {
     readonly ExperimentalSettingsStore _store;
+    readonly Action? _saved;
     readonly string _profile;
     readonly CancellationTokenSource _lifetime = new();
     readonly CompositeDisposable _subscriptions = new();
@@ -28,8 +28,9 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
     long _appliedSequence;
 
     public ExperimentalSettingsViewModel(ExperimentalSettingsStore store, string profile, IDaemonClientService service,
-            IReadOnlyList<ExperimentalFeature>? features = null) {
+            IReadOnlyList<ExperimentalFeature>? features = null, Action? saved = null) {
         _store = store;
+        _saved = saved;
         _profile = profile;
 
         // The switches stay locked until the first read lands; it runs off the UI thread like every other.
@@ -138,6 +139,7 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
             _saving.Remove(row.Id);
             Interlocked.Increment(ref _saveEpoch);
         }
+        _saved?.Invoke();
 
         await LoadAsync();
     }

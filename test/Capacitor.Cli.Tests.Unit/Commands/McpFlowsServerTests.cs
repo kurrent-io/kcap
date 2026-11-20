@@ -41,7 +41,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task Roundless_start_renders_started_envelope() {
-        var body = """{"flow_run_id":"f1","round_id":null,"round_number":null,"status":"running","result_kind":null,"result_text":null,"reviewer_agent_id":null,"reviewer_session_id":null}""";
+        const string body = """{"flow_run_id":"f1","round_id":null,"round_number":null,"status":"running","result_kind":null,"result_text":null,"reviewer_agent_id":null,"reviewer_session_id":null}""";
 
         var text = McpFlowsServer.TryFormatRoundlessStart(body, out var pendingIds);
 
@@ -54,7 +54,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task Roundless_start_renders_and_exposes_pending_messages() {
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","round_id":null,"round_number":null,"status":"running",
              "pending_messages":[
                 {"message_id":"msg-a1","from_participant":"tester","text":"early note","received_at":"2026-07-06T00:00:00Z"}
@@ -71,7 +71,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task Single_participant_start_with_round_is_not_roundless() {
-        var body = """{"flow_run_id":"f1","round_id":"r1","round_number":1,"status":"running"}""";
+        const string body = """{"flow_run_id":"f1","round_id":"r1","round_number":1,"status":"running"}""";
         await Assert.That(McpFlowsServer.TryFormatRoundlessStart(body, out _)).IsNull();
     }
 
@@ -82,7 +82,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task Wrong_typed_pending_fields_render_empty_instead_of_throwing() {
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","status":"running","definition_id":"code-review","target_title":"t",
              "pending_messages":[
                 {"message_id":123,"from_participant":{"x":1},"text":"still shown","received_at":"2026-07-06T00:00:00Z"},
@@ -100,7 +100,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task Status_response_renders_pending_messages_and_returns_ids() {
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","status":"running","definition_id":"code-review","target_title":"t",
              "pending_messages":[
                 {"message_id":"msg-a1","from_participant":"tester","text":"found a broken symlink in scripts/","received_at":"2026-07-06T00:00:00Z"},
@@ -135,7 +135,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task Status_response_renders_vendor_audit_and_participants() {
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","status":"running","definition_id":"code-review","target_title":"t",
              "requested_reviewer_vendor":"claude","applied_reviewer_vendor":"claude",
              "reviewer_vendor_source":"explicit",
@@ -154,7 +154,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task Status_response_warns_when_reviewer_vendor_disagrees_with_applied_echo() {
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","status":"running","definition_id":"code-review","target_title":"t",
              "applied_reviewer_vendor":"codex",
              "participants":[{"role":"reviewer","vendor":"claude","model":"sonnet","stopped":false}]}
@@ -171,7 +171,7 @@ public class McpFlowsServerTests {
     public async Task Status_response_warns_from_server_flag_even_without_participants() {
         // A read-model-lagged response can omit the participant list while the server's own
         // fold-side check still flagged the disagreement — the flag alone must warn.
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","status":"running","definition_id":"code-review","target_title":"t",
              "applied_reviewer_vendor":"codex","reviewer_vendor_mismatch":true}
             """;
@@ -186,7 +186,7 @@ public class McpFlowsServerTests {
     public async Task Status_response_ignores_stopped_reviewer_vendor_differences() {
         // A rotated-out (stopped) reviewer entry is historical: only the ACTIVE reviewer's vendor
         // compares against the applied echo locally.
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","status":"running","definition_id":"code-review","target_title":"t",
              "applied_reviewer_vendor":"codex",
              "participants":[{"role":"reviewer","vendor":"claude","model":"sonnet","stopped":true},
@@ -202,7 +202,7 @@ public class McpFlowsServerTests {
     public async Task Status_response_ignores_non_reviewer_vendor_differences() {
         // The run-level echo describes only the "reviewer" role — a multi-participant flow's other
         // roles legitimately run different vendors and must never trip the warning.
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","status":"running","definition_id":"pair-flow","target_title":"t",
              "applied_reviewer_vendor":"codex",
              "participants":[{"role":"tester","vendor":"claude","model":"sonnet","stopped":false},
@@ -216,7 +216,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task Polled_round_result_warns_before_the_result_text_on_vendor_mismatch() {
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","round_number":2,"status":"findings","round_status":"findings",
              "round_result_text":"FINDINGS:\n- looks fine",
              "applied_reviewer_vendor":"codex",
@@ -233,7 +233,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task Round_response_renders_pending_messages() {
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","round_id":"r1","status":"findings","result_kind":"findings","result_text":"some findings",
              "pending_messages":[
                 {"message_id":"msg-a1","from_participant":"tester","text":"found a broken symlink in scripts/"},
@@ -255,7 +255,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task Close_response_renders_pending_messages() {
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","status":"closed",
              "pending_messages":[
                 {"message_id":"msg-a1","from_participant":"tester","text":"found a broken symlink in scripts/"}
@@ -271,14 +271,14 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task Polled_round_result_renders_pending_messages() {
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","round_number":2,"status":"closed","round_status":"clean","round_result_text":"all clean",
              "pending_messages":[
                 {"message_id":"msg-a1","from_participant":"tester","text":"found a broken symlink in scripts/"},
                 {"message_id":"msg-b2","from_participant":"reviewer","text":"heads-up, migration file also touched"}
              ]}
             """;
-        var node = System.Text.Json.Nodes.JsonNode.Parse(body)!.AsObject();
+        var node = JsonNode.Parse(body)!.AsObject();
 
         var text = McpFlowsServer.FormatPolledRoundResult(node, "f1", out var pendingIds);
 
@@ -309,7 +309,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task Malformed_pending_entry_is_skipped() {
-        var body = """
+        const string body = """
             {"flow_run_id":"f1","round_number":2,"status":"closed","round_status":"clean","round_result_text":"all clean",
              "pending_messages":[
                 {"message_id":"msg-a1","from_participant":"tester","text":"first"},
@@ -319,7 +319,7 @@ public class McpFlowsServerTests {
             """;
         var node = JsonNode.Parse(body)!.AsObject();
 
-        // Pins the carried Minor from Task 2's review: a malformed (non-object) array entry must
+        // A malformed (non-object) array entry must
         // be skipped, not throw — FormatPolledRoundResult has no try/catch, so a throw here would
         // turn a terminal result into a generic internal error.
         var text = McpFlowsServer.FormatPolledRoundResult(node, "f1", out var pendingIds);
@@ -424,7 +424,7 @@ public class McpFlowsServerTests {
     /// </summary>
     [Test]
     public async Task Ordering_pin_format_then_ack_sends_exactly_the_rendered_ids() {
-        var statusBody = """
+        const string statusBody = """
             {"flow_run_id":"f1","status":"running","definition_id":"code-review","target_title":"t",
              "pending_messages":[
                 {"message_id":"msg-a1","from_participant":"tester","text":"found a broken symlink in scripts/"},
@@ -476,7 +476,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task StartFlowAsync_with_model_posts_exactly_one_v4_request_with_protocol_4_body() {
-        // §2.7 B3: a model override is orthogonal to park-capability, so a v4 client routes a
+        // A model override is orthogonal to park-capability, so a v4 client routes a
         // model start to /v4 too (the superset route applies the model AND records protocol 4).
         using var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath("/api/flows/review/start/v4").UsingPost())
@@ -692,7 +692,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task CheckReviewerModelResult_uncoded_non_success_body_is_surfaced_not_masked() {
-        // Qodo #2: a non-404/405 uncoded body (e.g. a 5xx / proxy HTML-or-text error) is NOT an
+        // A non-404/405 uncoded body (e.g. a 5xx / proxy HTML-or-text error) is NOT an
         // old-server signal — it returns null so the caller surfaces the real status/body, rather
         // than masking a genuine failure as reviewer_model_protocol_required.
         var result = McpFlowsServer.CheckReviewerModelResult(
@@ -707,7 +707,7 @@ public class McpFlowsServerTests {
     public async Task CheckReviewerModelResult_genuine_coded_rejection_passes_through_to_generic_handler() {
         // A real v3 rejection (e.g. the model isn't launchable on the daemon) must NOT be masked as
         // a protocol issue — it surfaces via FormatFlowStartError instead (this helper returns null).
-        var body = """{"error":"reviewer_model_unavailable","message":"the requested model is not available"}""";
+        const string body = """{"error":"reviewer_model_unavailable","message":"the requested model is not available"}""";
 
         var result = McpFlowsServer.CheckReviewerModelResult(
             "start_review_flow", HttpStatusCode.BadRequest, isSuccess: false, body, out var runIdToClose);
@@ -718,7 +718,7 @@ public class McpFlowsServerTests {
 
     [Test]
     public async Task CheckReviewerModelResult_success_with_full_ack_is_a_noop() {
-        var body = """{"flow_run_id":"f1","status":"running","applied_reviewer_model":"claude/opus-4","reviewer_model_equivalence_key":"claude/opus"}""";
+        const string body = """{"flow_run_id":"f1","status":"running","applied_reviewer_model":"claude/opus-4","reviewer_model_equivalence_key":"claude/opus"}""";
 
         var result = McpFlowsServer.CheckReviewerModelResult(
             "start_review_flow", HttpStatusCode.OK, isSuccess: true, body, out var runIdToClose);

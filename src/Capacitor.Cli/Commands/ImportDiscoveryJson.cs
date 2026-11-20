@@ -13,11 +13,13 @@ namespace Capacitor.Cli.Commands;
 /// </remarks>
 /// <param name="UnmatchedFolders">The folders behind <paramref name="UnmatchedSessions"/>, each one a value
 /// <c>kcap import --folder</c> and <c>--skip-folder</c> accept; a null folder counts sessions with none recorded.</param>
+/// <param name="Ignored">Sessions the capture scope keeps out of any import, counted in no other field.</param>
 public sealed record ImportDiscoveryJson(
     IReadOnlyList<ImportDiscoveryRepoJson>   Repos,
     int                                      UnmatchedSessions,
     IReadOnlyList<ImportDiscoveryWindowJson> Windows,
-    IReadOnlyList<ImportDiscoveryFolderJson> UnmatchedFolders);
+    IReadOnlyList<ImportDiscoveryFolderJson> UnmatchedFolders,
+    ImportDiscoveryIgnoredJson               Ignored);
 
 /// <param name="Windows">This repository's sessions in each window, in the order of the report's own
 /// <see cref="ImportDiscoveryJson.Windows"/>.</param>
@@ -51,7 +53,8 @@ public static class ImportDiscoveryRender {
                         : null,
                     f.Folder is { } split && summary.UnmatchedFolderVendors.TryGetValue(split, out var vendors)
                         ? VendorsOf(summary, vendors)
-                        : null))]),
+                        : null))],
+                new ImportDiscoveryIgnoredJson(summary.IgnoredCount, summary.IgnoredFolders)),
             ImportDiscoveryJsonContext.Default.ImportDiscoveryJson);
 
     static IReadOnlyList<ImportDiscoveryVendorJson> VendorsOf(
@@ -81,6 +84,11 @@ public static class ImportDiscoveryRender {
             lines.AddRange(UnmatchedFolderLines(summary.UnmatchedFolders));
         }
 
+        if (summary.IgnoredCount > 0) {
+            lines.Add($"  left out by kcap ignore, excluded_repos or an allow list: {summary.IgnoredCount}");
+            lines.AddRange(FolderLines([.. summary.IgnoredFolders.Select(f => new ImportUnmatchedFolder(f.Folder, f.Sessions))]));
+        }
+
         lines.Add("");
         lines.Add("By window:");
 
@@ -96,6 +104,13 @@ public static class ImportDiscoveryRender {
     /// <summary>Each folder behind the unmatched count: a folder is matched through a git checkout
     /// with a remote, so naming it is what tells the user which ones to remap or fix.</summary>
     internal static IEnumerable<string> UnmatchedFolderLines(IReadOnlyList<ImportUnmatchedFolder> folders) {
+        foreach (var line in FolderLines(folders)) yield return line;
+
+        if (folders.Any(f => f.Folder is not null))
+            yield return "    A folder matches when it is a git checkout with a remote. Map a moved one with `kcap remap <from> <to>`.";
+    }
+
+    static IEnumerable<string> FolderLines(IReadOnlyList<ImportUnmatchedFolder> folders) {
         var named = folders.Where(f => f.Folder is not null).ToList();
 
         foreach (var f in named.Take(ListedFolders))
@@ -110,8 +125,5 @@ public static class ImportDiscoveryRender {
 
         if (folders.FirstOrDefault(f => f.Folder is null) is { } unknown)
             yield return $"    no folder recorded  ({unknown.Sessions} session{(unknown.Sessions == 1 ? "" : "s")})";
-
-        if (named.Count > 0)
-            yield return "    A folder matches when it is a git checkout with a remote. Map a moved one with `kcap remap <from> <to>`.";
     }
 }

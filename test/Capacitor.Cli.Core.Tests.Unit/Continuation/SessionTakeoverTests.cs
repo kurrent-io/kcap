@@ -153,7 +153,7 @@ public class SessionTakeoverTests {
     /// <summary>The server makes the last declared item primary, so the previous primary must go last.</summary>
     [Test]
     public async Task The_previous_sessions_primary_work_item_is_declared_last() {
-        var items = """[{"work_item_id":"w1","label":"One","is_primary":false},{"work_item_id":"w2","label":"Two","is_primary":true},{"work_item_id":"w3","label":"Three","is_primary":false}]""";
+        const string items = """[{"work_item_id":"w1","label":"One","is_primary":false},{"work_item_id":"w2","label":"Two","is_primary":true},{"work_item_id":"w3","label":"Three","is_primary":false}]""";
         var routes = Server(Ended(), items: items);
         routes.Post("/api/work-items/declare", 200, "{}");
 
@@ -175,7 +175,7 @@ public class SessionTakeoverTests {
 
         var declared = routes.Posts.Where(p => p.Path == "/api/work-items/declare").Select(p => p.Body!["work_item_id"]!.GetValue<string>()).ToList();
         await Assert.That(declared).IsEquivalentTo(new[] { "w2" });
-        await Assert.That(o["work_items"]!["items"]!.AsArray().Select(i => (Str(i!["work_item_id"]), i!["attached"]!.GetValue<bool>())))
+        await Assert.That(o["work_items"]!["items"]!.AsArray().Select(i => (Str(i!["work_item_id"]), i["attached"]!.GetValue<bool>())))
             .IsEquivalentTo(new (string?, bool)[] { ("w1", true), ("w2", true) });
     }
 
@@ -206,7 +206,7 @@ public class SessionTakeoverTests {
 
         await Assert.That(routes.Posts.Count(p => p.Path == "/api/work-items/declare")).IsEqualTo(1);
         await Assert.That(routes.Posts.Single(p => p.Path == "/api/work-items/declare").Body!["work_item_id"]!.GetValue<string>()).IsEqualTo("w2");
-        await Assert.That(Outcome(r)["work_items"]!["items"]!.AsArray().Select(i => (Str(i!["work_item_id"]), i!["attached"]!.GetValue<bool>())))
+        await Assert.That(Outcome(r)["work_items"]!["items"]!.AsArray().Select(i => (Str(i!["work_item_id"]), i["attached"]!.GetValue<bool>())))
             .IsEquivalentTo(new (string?, bool)[] { ("w1", false), ("w2", true), ("w3", true) });
         await Assert.That(((TakeoverResult.Completed)r).Unsuccessful).IsTrue();
     }
@@ -214,9 +214,9 @@ public class SessionTakeoverTests {
     /// <summary>An adoption makes its plan current, so a plan ordered before one the session joined is not retried.</summary>
     [Test]
     public async Task Skipping_attached_items_does_not_retry_a_plan_ordered_before_a_joined_one() {
-        var joined = $"[\"{Current}\"]";
-        var plans  = $"[{Plan("p1", false, $"[{Task("t1", 1, "pending")}]")},{Plan("p2", true, $"[{Task("t2", 1, "in_progress")}]", sessions: joined)}]";
-        var routes = Server(Ended(), plans: plans);
+        const string joined = $"[\"{Current}\"]";
+        var plans           = $"[{Plan("p1", false, $"[{Task("t1", 1, "pending")}]")},{Plan("p2", true, $"[{Task("t2", 1, "in_progress")}]", sessions: joined)}]";
+        var routes          = Server(Ended(), plans: plans);
         routes.Get($"/api/work-items/session/{Current}", 200, "[]");
         routes.Post("/api/plans/p1/tasks/t1", 200, "{}");
 
@@ -224,7 +224,7 @@ public class SessionTakeoverTests {
 
         await Assert.That(routes.Posts.Any(p => p.Path.StartsWith("/api/plans/", StringComparison.Ordinal))).IsFalse();
         await Assert.That(Outcome(r)["current_plan_id"]).IsNull();
-        await Assert.That(Outcome(r)["plans"]!.AsArray().Select(e => (Str(e!["plan_id"]), e!["attached"]!.GetValue<bool>())))
+        await Assert.That(Outcome(r)["plans"]!.AsArray().Select(e => (Str(e!["plan_id"]), e["attached"]!.GetValue<bool>())))
             .IsEquivalentTo(new (string?, bool)[] { ("p1", false), ("p2", true) });
         await Assert.That(((TakeoverResult.Completed)r).Unsuccessful).IsTrue();
     }
@@ -241,7 +241,7 @@ public class SessionTakeoverTests {
         var o = Outcome(await Run(routes));
 
         await Assert.That(routes.Posts.Select(p => p.Path).Where(p => p.StartsWith("/api/plans/", StringComparison.Ordinal)).ToList())
-            .IsEquivalentTo(new[] { "/api/plans/p1/tasks/t1", "/api/plans/p2/tasks/t2" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            .IsEquivalentTo(new[] { "/api/plans/p1/tasks/t1", "/api/plans/p2/tasks/t2" }, CollectionOrdering.Matching);
         await Assert.That(o["current_plan_id"]!.GetValue<string>()).IsEqualTo("p2");
     }
 
@@ -273,7 +273,7 @@ public class SessionTakeoverTests {
 
         await Assert.That(routes.Posts.Select(p => p.Path).Where(p => p.StartsWith("/api/plans/", StringComparison.Ordinal)).ToList()).IsEquivalentTo(new[] { "/api/plans/p2/tasks/t2" });
         await Assert.That(o["current_plan_id"]!.GetValue<string>()).IsEqualTo("p2");
-        await Assert.That(o["plans"]!.AsArray().Select(e => (Str(e!["plan_id"]), e!["attached"]!.GetValue<bool>())))
+        await Assert.That(o["plans"]!.AsArray().Select(e => (Str(e!["plan_id"]), e["attached"]!.GetValue<bool>())))
             .IsEquivalentTo(new (string?, bool)[] { ("p1", true), ("p2", true) });
     }
 
@@ -376,7 +376,7 @@ public class SessionTakeoverTests {
 
     [Test]
     public async Task Tasks_without_ids_are_not_adopted() {
-        var tasks = """[{"ordinal":1,"title":"x","status":"in_progress","source":"mcp"},{"task_id":"t2","ordinal":2,"title":"y","status":"weird","source":"mcp"}]""";
+        const string tasks = """[{"ordinal":1,"title":"x","status":"in_progress","source":"mcp"},{"task_id":"t2","ordinal":2,"title":"y","status":"weird","source":"mcp"}]""";
         var o = Outcome(await Run(Server(Ended(), plans: $"[{Plan("p1", true, tasks)}]")));
         await Assert.That(o["skipped_plans"]!.AsArray()[0]!["reason"]!.GetValue<string>()).IsEqualTo("no_open_task");
     }

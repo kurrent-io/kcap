@@ -135,7 +135,7 @@ public class MuseImportSourceTests : IDisposable {
             var found = await Source().DiscoverAsync(NoFilters, CancellationToken.None);
 
             await Assert.That(found.Count).IsEqualTo(1);
-            await Assert.That((string?)found[0].SourceMeta!["LogPath"]).IsEqualTo(readable);
+            await Assert.That((string?)found[0].SourceMeta["LogPath"]).IsEqualTo(readable);
         }
     }
 
@@ -250,7 +250,7 @@ public class MuseImportSourceTests : IDisposable {
             .ToArray();
 
         await Assert.That(bodies.All(b => (string?)b["vendor"] == "muse")).IsTrue();
-        await Assert.That(bodies.Select(b => (string?)b["agent_id"])).IsEquivalentTo(new string?[] {
+        await Assert.That(bodies.Select(b => (string?)b["agent_id"])).IsEquivalentTo(new[] {
             null, GoalChild.Replace("-", ""), VerifyChild.Replace("-", ""),
         });
     }
@@ -465,9 +465,20 @@ public class MuseImportSourceTests : IDisposable {
 
         await ImportProbeAsync();
 
-        foreach (var route in new[] { "/hooks/subagent-start", "/hooks/subagent-stop" })
+        foreach (var route in new[] { "/hooks/subagent-start", "/hooks/subagent-stop" }) {
             for (var i = 0; i < 2; i++)
                 await Assert.That((bool?)PostedBody(route, i)["strict"]).IsTrue();
+        }
+
+        var start = _server.LogEntries.First(e => e.RequestMessage.Path == "/hooks/subagent-start").RequestMessage.Body!;
+        var stop  = _server.LogEntries.First(e => e.RequestMessage.Path == "/hooks/subagent-stop").RequestMessage.Body!;
+        var node  = JsonNode.Parse(start)!;
+        var (sid, aid, type, path) = ((string)node["session_id"]!, (string)node["agent_id"]!, (string)node["agent_type"]!, node["transcript_path"]!.ToJsonString());
+        await Assert.That(sid).IsEqualTo(ParentId.Replace("-", ""));
+        await Assert.That(start).IsEqualTo(
+            $$"""{"hook_event_name":"subagent_start","session_id":"{{sid}}","agent_id":"{{aid}}","agent_type":"{{type}}","transcript_path":{{path}},"cwd":"","strict":true}""");
+        await Assert.That(stop).IsEqualTo(
+            $$"""{"hook_event_name":"subagent_stop","session_id":"{{sid}}","agent_id":"{{aid}}","agent_type":"{{type}}","transcript_path":{{path}},"cwd":"","stop_hook_active":false,"agent_transcript_path":{{path}},"last_assistant_message":"","strict":true}""");
     }
 
     [Test]

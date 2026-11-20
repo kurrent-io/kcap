@@ -28,14 +28,14 @@ public sealed record UninstallFactsSource(
             Read(LocalServerUrl, "the local server", null),
             AttachedDaemon,
             Read(Activity, "the daemon's activity", null),
-            Read<IReadOnlyList<string>?>(LiveDaemons, "the running daemons", null),
+            Read(LiveDaemons, "the running daemons", null),
             Read(HostedServerUrl, "the server", null),
             terminalPath is null
                 ? null
-                : Read<IReadOnlyList<OtherKcapInstall>?>(
+                : Read(
                     () => FindOtherInstalls is { } find ? find(terminalPath) : OtherKcapInstalls.Find(terminalPath, BundleRoot),
                     "other kcap installs", null),
-            PathProfiles is null ? [] : Read<IReadOnlyList<string>?>(PathProfiles, "shell profiles", null),
+            PathProfiles is null ? [] : Read(PathProfiles, "shell profiles", null),
             UserPathFolder is null ? null : Read(UserPathFolder, "the user PATH", null));
     }
 

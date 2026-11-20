@@ -1,3 +1,4 @@
+using System.Globalization;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Setup;
@@ -16,6 +17,8 @@ public sealed class HarnessSettingsRow : ReactiveObject {
     bool _tools;
     bool _setupUnverified;
     bool _untrusted;
+    int? _earlierChats;
+    int _importLookup;
 
     internal HarnessSettingsRow(HarnessIdentity identity, DetectedAgent detected, bool? wired, bool tools, bool setupUnverified = false,
             bool untrusted = false) {
@@ -127,6 +130,28 @@ public sealed class HarnessSettingsRow : ReactiveObject {
     public string? Details { get => _details; private set => this.RaiseAndSetIfChanged(ref _details, value); }
     /// The callout reports a change that finished with warnings rather than one that failed.
     public bool IsWarning { get => _isWarning; private set => this.RaiseAndSetIfChanged(ref _isWarning, value); }
+
+    /// Sessions this tool wrote before recording was turned on, which the row offers to import; null when it offers none.
+    public int? EarlierChats {
+        get => _earlierChats;
+        private set {
+            this.RaiseAndSetIfChanged(ref _earlierChats, value);
+            this.RaisePropertyChanged(nameof(OffersImport));
+            this.RaisePropertyChanged(nameof(ImportOffer));
+        }
+    }
+    public bool OffersImport => EarlierChats is > 0;
+    public string? ImportOffer => EarlierChats switch {
+        1          => "Import 1 earlier chat?",
+        { } count  => $"Import {count.ToString("N0", CultureInfo.CurrentCulture)} earlier chats?",
+        null       => null,
+    };
+
+    internal void OfferImport(int? earlierChats) => EarlierChats = earlierChats is > 0 ? earlierChats : null;
+
+    /// Each change to the row starts a new look for earlier chats, so an answer to an older one is dropped.
+    internal int StartImportLookup() => ++_importLookup;
+    internal bool IsCurrentImportLookup(int lookup) => lookup == _importLookup;
 
     internal void Report(string? message, string? errorTitle = null, string? details = null, bool warning = false) {
         Message = message;

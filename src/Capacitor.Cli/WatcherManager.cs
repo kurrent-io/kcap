@@ -1,7 +1,6 @@
 using Capacitor.Cli.Recording;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Commands;
@@ -11,6 +10,7 @@ using Capacitor.Cli.Core.Config;
 
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli;
@@ -54,6 +54,10 @@ public sealed partial class WatcherManager(
 
     /// <summary>Replaces the commit observation a drain starts from, for a test with no git hook to read.</summary>
     internal CommitObservation? DrainCommits { get; init; }
+
+    /// <summary>The most a drain's replay of the lines the server holds may take before the drain sends raw lines. The
+    /// drain runs inside the agent's SessionEnd hook, and a replay over a 200 MB transcript measured 6–9 s.</summary>
+    internal TimeSpan DrainReplayBudget { get; init; } = TimeSpan.FromSeconds(2);
 
     internal string GetWatcherDir() => paths.Directory;
 
@@ -100,7 +104,7 @@ public sealed partial class WatcherManager(
             }
         }
 
-        removed += Directory.GetFiles(dir, "*.spawnlock").Count(WatcherLiveness.TryDeleteSpawnLock);
+        removed += Directory.GetFiles(dir, "*.spawnlock").Concat(Directory.GetFiles(dir, "*.copilot-pending-end.lock")).Count(WatcherLiveness.TryDeleteSpawnLock);
 
         return removed;
     }
@@ -378,7 +382,26 @@ public sealed partial class WatcherManager(
     }
 
     /// <summary>
-    /// Stops every watcher in <paramref name="keys"/> concurrently (#550, a session watcher's
+    /// Asks the watcher for <paramref name="key"/> to stop and returns without waiting for it to go, for a caller
+    /// that hands the wait to someone else. Signals nothing a claim or a recycled pid would make wrong.
+    /// </summary>
+    public void RequestWatcherStop(string key) {
+        if (_claims.Read(key) is not RecorderClaimState.None) return;
+
+        try {
+            var lines = File.ReadAllLines(paths.PidFile(key));
+
+            if (lines.Length == 0 || !int.TryParse(lines[0].Trim(), out var pid)) return;
+            if (lines.Length > 1 && lines[1].Trim() is { Length: > 0 } token && ProcessStartToken.Matches(pid, token) == false) return;
+
+            if (!TrySignalTerm(pid)) WatcherStopSignal.TryRequest(pid);
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            // No pid file, or one that cannot be read: there is no watcher to ask.
+        }
+    }
+
+    /// <summary>
+    /// Stops every watcher in <paramref name="keys"/> concurrently (a session watcher's
     /// teardown of its spawned children). <see cref="KillWatcher"/>'s SIGTERM-first gives each
     /// child its final drain; its 5s force-kill bound keeps a wedged child from stalling the caller.
     /// </summary>
@@ -574,11 +597,9 @@ public sealed partial class WatcherManager(
                 RedirectStandardError  = true,
                 UseShellExecute        = false,
                 CreateNoWindow         = true,
-                Environment = {
-                    [ProfileOverrides.UrlVar]    = Url,
-                    [ConfigRoot.ConfigDirEnvVar] = config.Directory
-                }
+                Environment = { [ConfigRoot.ConfigDirEnvVar] = config.Directory }
             };
+            ChildProfile.Apply(psi, profiles);
             psi.ArgumentList.Add("generate-whats-done");
             psi.ArgumentList.Add(sessionId);
 
@@ -618,11 +639,9 @@ public sealed partial class WatcherManager(
                 RedirectStandardError  = true,
                 UseShellExecute        = false,
                 CreateNoWindow         = true,
-                Environment = {
-                    [ProfileOverrides.UrlVar]    = Url,
-                    [ConfigRoot.ConfigDirEnvVar] = config.Directory
-                }
+                Environment = { [ConfigRoot.ConfigDirEnvVar] = config.Directory }
             };
+            ChildProfile.Apply(psi, profiles);
             psi.ArgumentList.Add(GenerateTitleCommand.Name);
             psi.ArgumentList.Add(sessionId);
             psi.ArgumentList.Add(vendor);
@@ -638,17 +657,16 @@ public sealed partial class WatcherManager(
 
     /// <summary>
     /// Spawns a detached, short-lived <c>kcap copilot-finalize</c> process that delivers the transcript
-    /// tail Copilot writes after its sessionEnd hook, then <paramref name="endBody"/>. Being detached it
-    /// survives Copilot killing the hook. Fire-and-forget and idempotent; mirrors
-    /// <see cref="SpawnWhatsDoneGenerator"/>.
+    /// tail Copilot writes after its sessionEnd hook, then the session's spooled end and <paramref name="endBody"/>. Being detached it
+    /// survives Copilot killing the hook. False when it did not start.
     /// </summary>
-    public void SpawnCopilotFinalizeDrain(string sessionId, string transcriptPath, string endBody) {
+    public bool SpawnCopilotFinalizeDrain(string sessionId, string transcriptPath, string? endBody) {
         // A detached child that would poll for up to 45s and then exit 2 on an unusable URL, leaving
         // no marker any assertion could observe. Refuse to launch it at all.
         if (!HookHttp.IsPostable(Url)) {
             Console.Error.WriteLine(
                 UnusableUrlDiagnostic.Build(profiles.Resolution.Source, Url, $"copilot finalize drain not started for {sessionId}"));
-            return;
+            return false;
         }
 
         try {
@@ -660,15 +678,13 @@ public sealed partial class WatcherManager(
                 RedirectStandardError  = true,
                 UseShellExecute        = false,
                 CreateNoWindow         = true,
-                Environment = {
-                    [ProfileOverrides.UrlVar]    = Url,
-                    [ConfigRoot.ConfigDirEnvVar] = config.Directory
-                }
+                Environment = { [ConfigRoot.ConfigDirEnvVar] = config.Directory }
             };
+            ChildProfile.Apply(psi, profiles);
             psi.ArgumentList.Add("copilot-finalize");
             psi.ArgumentList.Add(sessionId);
             psi.ArgumentList.Add(transcriptPath);
-            psi.ArgumentList.Add(endBody);
+            if (endBody is not null) psi.ArgumentList.Add(endBody);
 
             // Don't let this detached child inherit the agent's pipe descriptors —
             // same pipe-leak hazard as the spawns above. The child writes its own output to a
@@ -676,12 +692,16 @@ public sealed partial class WatcherManager(
             if (starter.StartDetached(psi) is not { } pid) {
                 Console.Error.WriteLine($"Failed to spawn copilot finalize drain for {sessionId}");
 
-                return;
+                return false;
             }
 
             Console.Error.WriteLine($"Spawned copilot finalize drain for {sessionId} (PID {pid})");
+
+            return true;
         } catch (Exception ex) {
             Console.Error.WriteLine($"Failed to spawn copilot finalize drain for {sessionId}: {ex.Message}");
+
+            return false;
         }
     }
 
@@ -751,7 +771,7 @@ public sealed partial class WatcherManager(
             int startLine;
 
             try {
-                var query = agentId is not null ? $"?agentId={agentId}" : "";
+                var query = agentId is not null ? $"?agentId={Uri.EscapeDataString(agentId)}" : "";
                 var resp  = await httpClient.GetWithRetryAsync($"{Url}/api/sessions/{sessionId}/last-line{query}", time);
 
                 if (resp.IsSuccessStatusCode && resp.StatusCode != System.Net.HttpStatusCode.NoContent) {
@@ -775,6 +795,10 @@ public sealed partial class WatcherManager(
             var newLineNumbers = new List<int>();
             var commits        = DrainCommits ?? await GitHook.ObservationAsync(config, sessionId, agentId, cwd: null, time);
             var sentAny        = false;
+
+            // Opened for the first lines sent, not before: the replay reads the transcript up to them, and a drain
+            // with nothing to send has no use for it.
+            Task<CanonicalRoute?>? route = null;
 
             await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var       reader = new StreamReader(stream);
@@ -834,11 +858,16 @@ public sealed partial class WatcherManager(
                     ObservedCommits = commits.Pending,
                 };
 
+                if (newLines.Count > 0)
+                    route ??= TranscriptPost.RouteAsync(
+                        new IngestCapability(httpClient, Url!, time, IngestCapability.DrainBudget), vendor, sessionId, agentId, transcriptPath, startLine,
+                        DrainReplayBudget, ReplayCapture.With(redaction.Redact), time, CancellationToken.None);
+
+                var canonical = route is null ? null : await route;
+
                 try {
                     foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
-                        var batchJson = JsonSerializer.Serialize(chunk, CapacitorJsonContext.Default.TranscriptBatch);
-                        using var content = new StringContent(batchJson, Encoding.UTF8, "application/json");
-                        using var resp = await httpClient.PostWithRetryAsync($"{Url}/hooks/transcript", content, time, mayAttempt: () => !Disabled());
+                        using var resp = await TranscriptPost.SendAsync(httpClient, Url!, chunk, canonical, time, () => !Disabled(), CancellationToken.None);
                         // A refusal the guard kept from being sent again, after a bearer rotation, is the disable's.
                         if (!resp.IsSuccessStatusCode && Disabled()) {
                             await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: the session was disabled; sending nothing more");

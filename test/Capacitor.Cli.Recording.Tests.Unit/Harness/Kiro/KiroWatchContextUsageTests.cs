@@ -25,7 +25,7 @@ public class KiroWatchContextUsageTests {
     // Writes the sibling {stem}.json and returns the (non-existent-is-fine) {stem}.jsonl transcript path.
     // stem is a DASHED id to prove the sibling is derived from the transcript path, not a dashless session id.
     static string SeedSibling(TempDir tmp, string metaJson) {
-        var stem = "11111111-2222-3333-4444-555555555555";   // dashed, like Kiro's on-disk files
+        const string stem = "11111111-2222-3333-4444-555555555555";   // dashed, like Kiro's on-disk files
         tmp.CreateFile(stem + ".json", metaJson);
         return tmp.PathTo(stem + ".jsonl");
     }
@@ -66,7 +66,7 @@ public class KiroWatchContextUsageTests {
 
     [Test]
     public async Task Preserves_batch_order_and_count_when_flushing_a_buffer() {
-        // Simulates enriching a flushed buffer (finding 2): a mixed batch keeps order + count,
+        // Simulates enriching a flushed buffer: a mixed batch keeps order + count,
         // with only the anchor assistant line enriched.
         using var tmp = new TempDir();
         var transcriptPath = SeedSibling(tmp, Meta);

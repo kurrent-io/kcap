@@ -103,9 +103,9 @@ public partial class ServiceFilesTests {
     /// <summary>If the final mode cannot be guaranteed, no unit is left at the live path.
     ///
     /// <para>The failure is injected, because on a normal filesystem a rename preserves the mode and this
-    /// branch is unreachable. It is worth proving anyway: an earlier revision ran the post-rename check
-    /// outside the cleanup scope, so a failure there threw while leaving a readable credential-bearing unit
-    /// exactly where launchd would consume it — a failed install that still published the secret.</para></summary>
+    /// branch is unreachable. It is worth proving anyway: a post-rename check outside the cleanup scope
+    /// would throw while leaving a readable credential-bearing unit exactly where launchd consumes it — a
+    /// failed install that still published the secret.</para></summary>
     [Test]
     public async Task WriteOwnerOnly_removes_the_live_unit_when_the_final_check_fails() {
         using var tmp = new TempDir();
@@ -114,7 +114,7 @@ public partial class ServiceFilesTests {
             path, "SECRET-COMMAND", null,
             verifyFinal: _ => throw new InvalidOperationException("mode could not be guaranteed")));
 
-        await Assert.That(ex!.Message).Contains("guaranteed");
+        await Assert.That(ex.Message).Contains("guaranteed");
         await Assert.That(File.Exists(path)).IsFalse()
             .Because("a failed install must not leave a unit at the path launchd reads");
         await Assert.That(Directory.GetFiles(tmp.Path)).IsEmpty()
@@ -202,7 +202,7 @@ public partial class ServiceFilesTests {
                 () => ServiceFiles.WriteOwnerOnly(tmp.PathTo("unit.plist"), "x", null,
                     tightenDirectory: _ => { }));
 
-            await Assert.That(ex!.Message).Contains("writable");
+            await Assert.That(ex.Message).Contains("writable");
             await Assert.That(File.Exists(tmp.PathTo("unit.plist"))).IsFalse();
         } finally {
             // Restored before the TempDir is disposed — the recursive delete needs the mode back.
@@ -231,7 +231,7 @@ public partial class ServiceFilesTests {
 
             var ex = Assert.Throws<InvalidOperationException>(() => ServiceFiles.WriteOwnerOnly(path, "x"));
 
-            await Assert.That(ex!.Message).Contains("world-writable");
+            await Assert.That(ex.Message).Contains("world-writable");
             await Assert.That(ex.Message).Contains(parent);
             await Assert.That(File.Exists(path)).IsFalse();
         } finally {

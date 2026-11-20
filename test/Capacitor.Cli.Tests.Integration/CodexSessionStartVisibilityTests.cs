@@ -82,7 +82,7 @@ public class CodexSessionStartVisibilityTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/session-start/codex").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
 
-        var payload =
+        const string payload =
             $$"""
               {
                 "hook_event_name": "SessionStart",

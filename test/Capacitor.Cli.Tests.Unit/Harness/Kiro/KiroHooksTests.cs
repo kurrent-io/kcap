@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Kiro;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.Kiro;
@@ -79,6 +80,25 @@ public class KiroHooksTests {
         // A version-only marker (kcap was already the default) records no previous.
         KiroHooksInstaller.WriteMarker(agentPath);
         await Assert.That(KiroHooksInstaller.ReadPreviousDefault(agentPath)).IsNull();
+    }
+
+    /// <summary>The version is the marker's first line only: neither the previous default after it nor a later
+    /// line standing in for a blank first one counts as the installed version.</summary>
+    [Test]
+    public async Task marker_version_is_the_first_line_only() {
+        using var tmp = new TempDir();
+        var agentPath = tmp.PathTo("agents", "kcap.json");
+        var marker    = tmp.PathTo("agents", KiroHooksInstaller.MarkerFileName);
+        Directory.CreateDirectory(Path.GetDirectoryName(agentPath)!);
+
+        KiroHooksInstaller.WriteMarker(agentPath, "kiro_default");
+        await Assert.That(KiroHooksInstaller.ReadMarker(agentPath)).IsEqualTo(CapacitorVersion.Current());
+
+        await File.WriteAllTextAsync(marker, $"{CapacitorVersion.Current()}\r\nkiro_default");
+        await Assert.That(KiroHooksInstaller.ReadMarker(agentPath)).IsEqualTo(CapacitorVersion.Current());
+
+        await File.WriteAllTextAsync(marker, $"\n{CapacitorVersion.Current()}\nkiro_default");
+        await Assert.That(KiroHooksInstaller.ReadMarker(agentPath)).IsEqualTo("");
     }
 
     [Test]

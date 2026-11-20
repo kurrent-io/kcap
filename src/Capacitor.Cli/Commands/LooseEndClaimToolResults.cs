@@ -62,9 +62,10 @@ static class LooseEndClaimToolResults {
         var id = NextWorkUntrustedText.Render(claim.Str("claim_id"), 128);
         if (id.Length == 0) return null;
         var fields = new List<string> { $"claim_id: {id}" };
-        foreach (var field in (string[])["status", "session_id", "agent_id", "previous_claim_id", "requesting_session_id"])
+        foreach (var field in (string[])["status", "session_id", "agent_id", "previous_claim_id", "requesting_session_id"]) {
             if (claim.Str(field) is { Length: > 0 } value)
                 fields.Add($"{field}: {NextWorkUntrustedText.Render(value, 128)}");
+        }
         if (claim.Arr("loose_end_ids") is { } ends) {
             var ids = ends.EnumerateArray().Where(x => x.IsString).Select(x => NextWorkUntrustedText.Render(x.GetString(), 128));
             fields.Add("loose_end_ids: " + string.Join(", ", ids));

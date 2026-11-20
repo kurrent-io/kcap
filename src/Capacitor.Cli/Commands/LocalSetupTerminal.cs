@@ -221,6 +221,7 @@ sealed class LocalSetupTerminal(ILocalInstallerFactory factory, LocalSetupArgs a
             LocalInstallEvent.Downloading d     => $"Downloading kcap local {version} ({Megabytes(d.Bytes)} MB)…",
             LocalInstallEvent.Verified          => "Verified",
             LocalInstallEvent.Unpacked u        => $"Unpacked into {u.Path}",
+            LocalInstallEvent.Starting { AlreadyRunning: true } => "The local server is already running.",
             LocalInstallEvent.Starting          => "Starting the local server…",
             LocalInstallEvent.Ready r           => $"Ready on {r.ServerUrl}",
             LocalInstallEvent.Committing        => "Committing…",

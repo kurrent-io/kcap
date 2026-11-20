@@ -542,9 +542,9 @@ public class SetupCommandTests {
 
     [Test]
     public async Task InstallPlugin_CreatesNewSettingsFile() {
-        using var tmp          = new TempDir();
-        var       settingsPath = tmp.PathTo("settings.json");
-        var       marketplace  = "/opt/kcap";
+        using var tmp            = new TempDir();
+        var       settingsPath   = tmp.PathTo("settings.json");
+        const string marketplace = "/opt/kcap";
 
         var result = SetupCommand.InstallPlugin(settingsPath, marketplace);
 
@@ -1247,8 +1247,9 @@ public class SetupCommandTests {
             CodingAgentsStep.Paths? paths = null, bool browserFinished = false, Func<bool>? nameSessions = null,
             ImportSkip? leaveOut = null,
             Func<IReadOnlyList<SetupImportChoice>, IReadOnlyList<SetupImportChoice>>? choose = null,
-            Core.Setup.Intelligence.IntelligenceSetupResponse? intelligence = null, bool? outcomes = null) => new(
-        AuthSatisfied: auth, SkipImport: skip, NoPrompt: noPrompt, PromptYesNo: prompt ?? (() => true),
+            Core.Setup.Intelligence.IntelligenceSetupResponse? intelligence = null, bool? outcomes = null,
+            Func<string, bool>? ask = null) => new(
+        AuthSatisfied: auth, SkipImport: skip, NoPrompt: noPrompt, PromptYesNo: ask ?? (_ => prompt?.Invoke() ?? true),
         Profiles: Resolutions.At("https://example.test", Config.Root), ProfileName: "work", ServerUrl: "https://example.test",
         DefaultVisibility: visibility, CurrentRepo: null, WorkingDirectory: Config.Directory,
         Paths: paths ?? PathsWithEvalWatchFor(HarnessId.Codex), BrowserImport: browser, BrowserImportFailed: false,
@@ -1515,6 +1516,48 @@ public class SetupCommandTests {
 
         await Assert.That(offered).IsNotNull();
         await Assert.That(runner.Captured!.Skip!.IsEmpty).IsTrue();
+    }
+
+    [Test]
+    public async Task The_import_question_says_the_project_checklist_follows_when_it_will() {
+        string? asked = null;
+
+        await Command(FakeImportRunner.Succeeding().Discovering(DiscoveredProjects()), FakeBackgroundImportSpawner.Running(),
+                FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(choose: choices => choices, ask: q => { asked = q; return true; }));
+
+        await Assert.That(asked).IsEqualTo(SetupCommand.ImportPromptBeforeChecklist);
+    }
+
+    [Test]
+    public async Task The_import_question_stays_plain_for_a_lone_project() {
+        string? asked = null;
+
+        await Command(FakeImportRunner.Succeeding().Discovering(Discovered(1, 3, 0)), FakeBackgroundImportSpawner.Running(),
+                FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(choose: choices => choices, ask: q => { asked = q; return true; }));
+
+        await Assert.That(asked).IsEqualTo(SetupCommand.ImportPrompt);
+    }
+
+    /// <summary>A run that cannot show the checklist must not promise it.</summary>
+    [Test]
+    public async Task The_import_question_stays_plain_when_no_checklist_can_be_shown() {
+        string? asked = null;
+
+        await Command(FakeImportRunner.Succeeding().Discovering(DiscoveredProjects()), FakeBackgroundImportSpawner.Running(),
+                FakeHandoffAgentLauncher.Ran(), Config.Directory)
+            .RunImportStepAsync(Inputs(ask: q => { asked = q; return true; }));
+
+        await Assert.That(asked).IsEqualTo(SetupCommand.ImportPrompt);
+    }
+
+    [Test]
+    public async Task The_checklist_count_line_names_repositories_and_folders() {
+        var choices = SetupImportChoice.From(DiscoveredProjects().Summary, ImportSkip.None);
+
+        await Assert.That(SetupCommand.ChecklistCountLine(choices)).IsEqualTo("2 repositories and 1 folder found; the next step lists them.");
+        await Assert.That(SetupCommand.ChecklistCountLine([choices[0], choices[1]])).IsEqualTo("2 repositories found; the next step lists them.");
     }
 
     [Test]
@@ -1895,6 +1938,8 @@ public class SetupCommandTests {
     [Test]
     public async Task Pinned_prompts() {
         await Assert.That(SetupCommand.ImportPrompt).IsEqualTo("Import past sessions from this machine?");
+        await Assert.That(SetupCommand.ImportPromptBeforeChecklist)
+            .IsEqualTo("Import past sessions from this machine? You choose which projects next.");
         await Assert.That(SetupCommand.EvalWatchPrompt).IsEqualTo("Follow my kcap import");
         await Assert.That(SetupCommand.HandoffPromptText("abc")).IsEqualTo("Follow my kcap import\n(run: abc)");
     }
@@ -1995,7 +2040,7 @@ public class SetupCommandTests {
     public async Task Step_three_offers_what_the_tenant_can_honour(VisibilityOptionsResponse? offer, string[] keys, string preselected) {
         var choices = SetupCommand.VisibilityChoices(offer);
 
-        await Assert.That(choices.Keys).IsEquivalentTo(keys, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await Assert.That(choices.Keys).IsEquivalentTo(keys, CollectionOrdering.Matching);
         await Assert.That(choices.Preselected).IsEqualTo(preselected);
         await Assert.That(choices.Label(keys[0])).IsEqualTo(offer is null ? SetupCommand.VisibilityLabel(keys[0]) : $"label {keys[0]} [dim]— detail {keys[0]}[/]");
     }
@@ -2038,8 +2083,8 @@ public class SetupCommandTests {
             InstallRegistry.Empty.WithActive(new("0123456789abcdef0123456789abcdef", new Uri(server.Url!).Port, server.Url!, "1.3.0")));
         await using var fixture = await HandleAsyncE2EFixture.CreateAsync("acme-local-visibility", "widgets", Config.Root);
         await ConfigMutator.MutateAsync(Config.Root, c => c with {
-            Profiles = new Dictionary<string, Capacitor.Cli.Core.Config.Profile>(c.Profiles) {
-                [c.ActiveName] = (c.Profiles.GetValueOrDefault(c.ActiveName) ?? new Capacitor.Cli.Core.Config.Profile()) with { DefaultVisibility = "project" },
+            Profiles = new Dictionary<string, Core.Config.Profile>(c.Profiles) {
+                [c.ActiveName] = (c.Profiles.GetValueOrDefault(c.ActiveName) ?? new Core.Config.Profile()) with { DefaultVisibility = "project" },
             },
         });
 
@@ -2564,7 +2609,7 @@ public class SetupCommandTests {
         Home.CreateFile(".config/kcap", "a file where kcap's config directory belongs");
         var lines = new List<string>();
 
-        await Assert.That(SetupCommand.InstallMuseHooks(settings, Home, muse, lines.Add)).IsTrue();
+        await Assert.That(SetupCommand.InstallMuseHooks(settings, Home, muse, lines.Add)).IsEqualTo(SettingsEdit.Changed);
 
         await Assert.That(lines).HasSingleItem();
         await Assert.That(lines[0]).Contains("Could not write");
@@ -2576,7 +2621,7 @@ public class SetupCommandTests {
         var settings = Home.CreateFile(".config/muse/settings.json",
             """{"schema_version":1,"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"kcap hook --muse --no-update-check","timeout":5}]}],"Stop":"nope"}}""");
 
-        await Assert.That(SetupCommand.InstallMuseHooks(settings, Home, muse, _ => { })).IsFalse();
+        await Assert.That(SetupCommand.InstallMuseHooks(settings, Home, muse, _ => { })).IsEqualTo(SettingsEdit.Failed);
 
         await Assert.That(MuseHookRoots.Read(Home).DataHome).IsEqualTo(Home.PathTo("data"));
     }

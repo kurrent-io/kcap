@@ -75,7 +75,7 @@ public sealed class OuroMascot : Image {
                 .Replace("<g class=\"hop\">", $"<g transform=\"translate(0 {p.Hop})\">")
                 .Replace("<g class=\"wing\">", $"<g transform=\"rotate({p.Wing})\">")
                 .Replace("<g class=\"wing right\">", $"<g transform=\"rotate({-p.Wing})\">")
-                .Replace("<g class=\"tail\">", $"<g transform=\"rotate({p.Tail})\">"))), null)
+                .Replace("<g class=\"tail\">", $"<g transform=\"rotate({p.Tail})\">"))))
         })];
     }
 }

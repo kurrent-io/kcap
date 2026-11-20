@@ -86,10 +86,11 @@ public static class MistralVibeUnifiedStore {
     /// session with no readable generation yet replays every segment from an empty history.</summary>
     static (FoldState State, IReadOnlyList<(string Path, long FirstSequence)> Segments) Snapshot(string sessionDir) {
         if (ReadJson(Path.Combine(sessionDir, "CURRENT")) is { } current) {
-            using (current)
+            using (current) {
                 if (current.RootElement.Str("generation") is { Length: > 0 } generation && generation.All(char.IsAsciiDigit)
                  && Generation(sessionDir, Path.Combine(sessionDir, "generations", generation)) is { } published)
                     return published;
+            }
         }
 
         var journalDir = Path.Combine(sessionDir, "journal");

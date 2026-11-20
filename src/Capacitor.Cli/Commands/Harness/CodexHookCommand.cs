@@ -162,7 +162,7 @@ sealed class CodexHookCommand(
             var provider = SessionStartMemoryHookSupport.CompositeProvider(router, config, workdir, http.ForMemoryAsync, clock.Time);
 
             return await new SessionStartMemoryOrchestrator(store, provider, clock.Time).GetFragmentAsync(
-                new SessionMemoryLifecycle(HarnessId.Codex, sessionId!, LifecycleInstanceId: null,
+                new SessionMemoryLifecycle(HarnessId.Codex, sessionId, LifecycleInstanceId: null,
                     IsTopLevel: true, ClassificationAuthoritative: true, SessionLifecycleReason.New,
                     CallbackMayRepeat: false),
                 new SessionStartMemoryContextRequest(Url, scopeRoot, disabled, budget, CancellationToken.None,

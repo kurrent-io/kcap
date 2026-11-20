@@ -6,7 +6,7 @@ using Capacitor.Cli.LocalEdition;
 
 namespace Capacitor.Cli.Tests.Unit.LocalEdition;
 
-public class LocalRootIdentityTests {
+public partial class LocalRootIdentityTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     static OwnerReading.Root At(string path) => new(path);
@@ -83,7 +83,7 @@ public class LocalRootIdentityTests {
             // The first device row names the image's whole disk; detaching that releases the image, not just its volume.
             device = attachOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries)
                          .Select(line => line.Split((char[])[' ', '\t'], 2)[0])
-                         .FirstOrDefault(WholeDisk.IsMatch) ?? mount;
+                         .FirstOrDefault(WholeDisk().IsMatch) ?? mount;
 
             var upper = Directory.CreateDirectory(Path.Combine(mount, "Root")).FullName;
             Directory.CreateDirectory(Path.Combine(mount, "root"));
@@ -212,7 +212,8 @@ public class LocalRootIdentityTests {
     }
 
     // A whole disk, not one of its slices (/dev/disk4s1): detaching the slice can leave the image attached.
-    static readonly Regex WholeDisk = new(@"^/dev/disk\d+$");
+    [GeneratedRegex(@"^/dev/disk\d+$")]
+    private static partial Regex WholeDisk();
 
     static int Run(string file, params string[] args) => RunWithOutput(file, args).Exit;
 

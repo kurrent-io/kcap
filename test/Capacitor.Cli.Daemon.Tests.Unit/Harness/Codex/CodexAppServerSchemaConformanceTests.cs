@@ -16,7 +16,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Codex;
 /// <c>KCAP_CODEX_SCHEMA_PIN_UPDATE=1</c>. Behavioural conformance (the isolation / sandbox probes)
 /// lives with the live smoke, not here.
 /// </summary>
-public class CodexAppServerSchemaConformanceTests {
+public partial class CodexAppServerSchemaConformanceTests {
     const string SchemaCheckEnvVar = "KCAP_CODEX_SCHEMA_CHECK";
     const string PinUpdateEnvVar = "KCAP_CODEX_SCHEMA_PIN_UPDATE";
     static readonly TimeSpan ProcessGuard = TimeSpan.FromSeconds(30);
@@ -41,6 +41,8 @@ public class CodexAppServerSchemaConformanceTests {
             "threadId", "input", "sandboxPolicy", "approvalPolicy", "approvalsReviewer", "model", "effort");
         await AssertProperties(combined, "ThreadStartParams",
             "cwd", "sandbox", "approvalPolicy", "approvalsReviewer", "model");
+        await AssertProperties(combined, "ThreadCompactStartParams", "threadId");
+        await AssertProperties(combined, "TurnStartedNotification", "threadId", "turn");
         await AssertProperties(combined, "ThreadTokenUsageUpdatedNotification",
             "threadId", "turnId", "tokenUsage");
         await AssertProperties(combined, "TokenUsageBreakdown",
@@ -197,7 +199,7 @@ public class CodexAppServerSchemaConformanceTests {
 
         using (process) {
             var (stdout, _, _) = await ReadToExitAsync(process);
-            var match = Regex.Match(stdout, @"\d+\.\d+\.\d+");
+            var match = SemVer().Match(stdout);
             // codex present but no parseable version → treat as not-found and skip, rather than run the
             // drift arm with an empty, misleading version stamp.
             return match.Success ? (true, match.Value) : (false, "");
@@ -238,4 +240,7 @@ public class CodexAppServerSchemaConformanceTests {
         }
         return (await stdoutTask, await stderrTask, false);
     }
+
+    [GeneratedRegex(@"\d+\.\d+\.\d+")]
+    private static partial Regex SemVer();
 }

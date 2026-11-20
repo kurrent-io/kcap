@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core.Config;
+using TUnit.Core.Enums;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -10,6 +11,9 @@ namespace Capacitor.Cli.Tests.Integration.Config;
 /// <see cref="ServerUrlNormalizer.NormalizeAsync"/> reaches a real HTTP server
 /// (here, WireMock) and resolves the scheme correctly.
 /// </summary>
+// Not Windows: an https probe against the plain-HTTP WireMock server (localhost/::1 resolution,
+// TLS to an HTTP port) is environment-flaky there.
+[RunOn(OS.Linux | OS.MacOs)]
 public class ServerUrlProbeIntegrationTests : IDisposable {
     static readonly Func<string, TimeSpan, CancellationToken, Task<bool>> Probe =
         ServerUrlNormalizer.ProbeWith(new FixedCapacitorHttpClient());
@@ -55,7 +59,7 @@ public class ServerUrlProbeIntegrationTests : IDisposable {
     [Test]
     public async Task UnreachableHost_FallsBackToLoopbackDefault_Warns() {
         // 127.0.0.1:1 is reserved (tcpmux) and reliably unbound on dev machines.
-        var input = "127.0.0.1:1";
+        const string input = "127.0.0.1:1";
 
         var result = await ServerUrlNormalizer.NormalizeAsync(
             input,

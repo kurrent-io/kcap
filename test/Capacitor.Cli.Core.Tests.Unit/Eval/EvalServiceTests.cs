@@ -28,7 +28,7 @@ public class EvalServiceTests {
 
     [Test]
     public async Task JudgeMcpAllowedTools_AreAllScopedToTheJudgeServer() {
-        var prefix = $"mcp__{EvalService.JudgeMcpServerName}__";
+        const string prefix = $"mcp__{EvalService.JudgeMcpServerName}__";
 
         await Assert.That(EvalService.JudgeMcpAllowedTools).IsNotEmpty();
         await Assert.That(EvalService.JudgeMcpAllowedTools.All(t => t.StartsWith(prefix, StringComparison.Ordinal)))
@@ -164,7 +164,7 @@ public class EvalServiceTests {
 
     [Test]
     public async Task ParseVerdict_reads_recommendation_when_present() {
-        var json = """
+        const string json = """
                    {
                      "category":"safety",
                      "question_id":"sensitive_files",
@@ -185,7 +185,7 @@ public class EvalServiceTests {
 
     [Test]
     public async Task ParseVerdict_treats_whitespace_recommendation_as_null() {
-        var json = """
+        const string json = """
                    {
                      "category":"safety",
                      "question_id":"sensitive_files",
@@ -205,7 +205,7 @@ public class EvalServiceTests {
 
     [Test]
     public async Task ParseVerdict_leaves_recommendation_null_when_field_missing() {
-        var json = """
+        const string json = """
                    {
                      "category":"safety",
                      "question_id":"sensitive_files",
@@ -453,8 +453,7 @@ public class EvalServiceTests {
 
     // ── BuildTextQuestionPrompt ─────────────────────────────
     //
-    // The legacy embedded-template BuildQuestionPrompt was removed in Phase 3.
-    // The text path now uses the catalog's server-RENDERED prompt carried on
+    // The text path uses the catalog's server-RENDERED prompt carried on
     // the reconciled question's Prompt; BuildTextQuestionPrompt fills the
     // runtime placeholders and strips any residual {CACHE_BOUNDARY}.
 
@@ -506,7 +505,7 @@ public class EvalServiceTests {
         var rf = EvalService.ExtractRetainFact(response);
         await Assert.That(rf?.Fact).IsEqualTo("A plain string fact.");
         await Assert.That(rf!.Value.AppliesToVendors).IsNull();
-        await Assert.That(rf!.Value.AppliesToSessionKinds).IsNull();
+        await Assert.That(rf.Value.AppliesToSessionKinds).IsNull();
     }
 
     [Test]
@@ -517,7 +516,7 @@ public class EvalServiceTests {
         var rf = EvalService.ExtractRetainFact(response);
         await Assert.That(rf?.Fact).IsEqualTo("Codex apply_patch rejects fuzzy hunks.");
         await Assert.That(rf!.Value.AppliesToVendors).IsEquivalentTo(["codex"]);
-        await Assert.That(rf!.Value.AppliesToSessionKinds).IsEquivalentTo(["flow_participant"]);
+        await Assert.That(rf.Value.AppliesToSessionKinds).IsEquivalentTo(["flow_participant"]);
     }
 
     [Test]
@@ -526,7 +525,7 @@ public class EvalServiceTests {
         var rf = EvalService.ExtractRetainFact(response);
         await Assert.That(rf?.Fact).IsEqualTo("F");
         await Assert.That(rf!.Value.AppliesToVendors).IsEquivalentTo(["claude", "codex"]);
-        await Assert.That(rf!.Value.AppliesToSessionKinds).IsNull(); // omitted axis = null
+        await Assert.That(rf.Value.AppliesToSessionKinds).IsNull(); // omitted axis = null
     }
 
     [Test]
@@ -543,7 +542,7 @@ public class EvalServiceTests {
         var rf = EvalService.ExtractRetainFact(response);
         await Assert.That(rf?.Fact).IsEqualTo("F");
         await Assert.That(rf!.Value.AppliesToVendors).IsNull(); // non-string element → whole axis dropped
-        await Assert.That(rf!.Value.AppliesToSessionKinds).IsEquivalentTo(["interactive"]); // other axis survives
+        await Assert.That(rf.Value.AppliesToSessionKinds).IsEquivalentTo(["interactive"]); // other axis survives
     }
 
     [Test]
@@ -632,7 +631,7 @@ public class EvalServiceTests {
 
     [Test]
     public async Task ParseRetrospective_reads_well_formed_json() {
-        var json = """
+        const string json = """
                    {
                      "overall":"Clean run with one slip on destructive commands.",
                      "strengths":["Kept tests green throughout."],
@@ -652,7 +651,7 @@ public class EvalServiceTests {
 
     [Test]
     public async Task ParseRetrospective_strips_code_fences() {
-        var json = """
+        const string json = """
                    ```json
                    {
                      "overall":"x.",
@@ -678,14 +677,13 @@ public class EvalServiceTests {
 
     [Test]
     public async Task BuildRetrospectivePrompt_substitutes_all_placeholders() {
-        // Phase 3: the template now comes from the catalog (passed in) and
-        // carries a {TRACE_JSON} placeholder the daemon fills with its already-
-        // fetched trace (SF#1).
-        var template = "meta={SESSION_META} verdicts={VERDICTS_JSON} patterns={KNOWN_PATTERNS} trace={TRACE_JSON}";
-        var meta     = "session-id: abc\nrun-id: xyz\nmodel: sonnet";
-        var verdicts = "[{\"category\":\"safety\",\"score\":5}]";
-        var facts    = "safety:\n- agents sometimes read .env by accident";
-        var trace    = "{\"trace\":[1,2,3]}";
+        // The template comes from the catalog (passed in) and carries a
+        // {TRACE_JSON} placeholder the daemon fills with its already-fetched trace.
+        const string template = "meta={SESSION_META} verdicts={VERDICTS_JSON} patterns={KNOWN_PATTERNS} trace={TRACE_JSON}";
+        const string meta     = "session-id: abc\nrun-id: xyz\nmodel: sonnet";
+        const string verdicts = "[{\"category\":\"safety\",\"score\":5}]";
+        const string facts    = "safety:\n- agents sometimes read .env by accident";
+        const string trace    = "{\"trace\":[1,2,3]}";
 
         var prompt = EvalService.BuildRetrospectivePrompt(template, meta, verdicts, facts, trace);
 
@@ -877,7 +875,7 @@ public class EvalServiceTests {
     // The session-scoped MCP judge subprocess is spawned from the path returned
     // here. In the daemon the host process is `kcap-daemon`, which has no
     // `mcp judge` subcommand — invoking it just tries (and fails) to start a
-    // second daemon, so the judge's MCP server never comes up. The fix remaps
+    // second daemon, so the judge's MCP server never comes up. So this remaps
     // `kcap-daemon` to its sibling `kcap` binary (they ship in the same dir),
     // while leaving the `kcap eval` CLI host (ProcessPath already `kcap`)
     // untouched.
