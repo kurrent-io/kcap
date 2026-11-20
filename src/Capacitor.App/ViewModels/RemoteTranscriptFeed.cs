@@ -20,10 +20,14 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     internal const int Window = 300;
     /// The server's cap on one page.
     const int MaxPage = 1000;
+    /// Events a session loads without the reader scrolling up. Each older page grows the scroll range
+    /// under the reader, so paging in behind the tail settles the scrollbar before it is used.
+    internal const int Prefetch = 5000;
 
     readonly string _sessionId;
     /// Null seeds the whole session.
     readonly int? _window;
+    readonly int _prefetch;
     readonly IChatDisplayRules? _rules;
     /// A seed fills its own and it replaces this one only when the seed is taken, so a seed abandoned
     /// half way leaves nothing behind. Tails add to it in stream order, locked on the instance: a
@@ -76,15 +80,19 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// Whether events before the oldest loaded one remain on the server.
     internal bool HasOlder { get { lock (_lock) return _earliest > 0; } }
 
+    /// Whether the next older page is loaded without the reader asking for it.
+    internal bool PrefetchesOlder { get { lock (_lock) return _earliest > 0 && _position - _oldest + 1 < _prefetch; } }
+
     internal Task? PendingRunForTesting { get; private set; }
     internal Task? PendingOlderForTesting { get; private set; }
     internal bool WaitingToRetryForTesting => _waitingToRetry;
 
     public RemoteTranscriptFeed(
             string sessionId, string vendor, IObservable<SessionAccessState> access, SessionEventsReader readEvents,
-            IServerLane lane, TimeProvider time, Action<string> log, int? window = Window) {
+            IServerLane lane, TimeProvider time, Action<string> log, int? window = Window, int prefetch = Prefetch) {
         _sessionId = sessionId;
         _window = window;
+        _prefetch = prefetch;
         _rules = TranscriptChat.RulesFor(vendor);
         _readEvents = readEvents;
         _lane = lane;

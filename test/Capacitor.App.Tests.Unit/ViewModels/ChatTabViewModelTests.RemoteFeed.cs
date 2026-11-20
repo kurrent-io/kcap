@@ -77,7 +77,7 @@ public partial class ChatTabViewModelTests {
         var server = new FakeSessionEvents([.. events]);
         RemoteTranscriptFeed? feed = null;
         var chat = new ChatTabViewModel("a1", AgentOrigin.Remote, Observable.Return(Ended("s1")), Observable.Return<string[]?>(null),
-            new AcceptingChatInput(), new NoAttachmentUploader(), key => feed = new RemoteTranscriptFeed(key, "gemini", access, server.Reader, lane, time, _ => { }),
+            new AcceptingChatInput(), new NoAttachmentUploader(), key => feed = new RemoteTranscriptFeed(key, "gemini", access, server.Reader, lane, time, _ => { }, prefetch: 0),
             new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time));
         try {
             await WaitUntilAsync(() => chat.Items.Count > 0, what: "the seed");
@@ -100,13 +100,13 @@ public partial class ChatTabViewModelTests {
 
     static ChatSessionInfo Ended(string feedKey) => new("Ended", "Ended", "gemini", null, null, null, true, "", feedKey);
 
-    /// An ended session pages back only when asked, which is what these tests drive.
+    /// With no prefetch an ended session pages back only when asked, which is what most of these tests drive.
     static ChatTabViewModel RemoteChat(FakeSessionEvents server, Action<RemoteTranscriptFeed> opened, FakeTimeProvider time,
             BehaviorSubject<SessionAccessState> access, PlanActivity? planActivity = null, FakePermissionService? permissions = null, bool live = false,
-            string vendor = "gemini") =>
+            string vendor = "gemini", int prefetch = 0) =>
         new("a1", AgentOrigin.Remote, Observable.Return(live ? Session("s1") : Ended("s1")), Observable.Return<string[]?>(null),
             new AcceptingChatInput(), new NoAttachmentUploader(), key => {
-                var feed = new RemoteTranscriptFeed(key, vendor, access, server.Reader, new FakeServerLane(), time, _ => { });
+                var feed = new RemoteTranscriptFeed(key, vendor, access, server.Reader, new FakeServerLane(), time, _ => { }, prefetch: prefetch);
                 opened(feed);
                 return feed;
             },
@@ -210,6 +210,30 @@ public partial class ChatTabViewModelTests {
             await feed!.PendingOlderForTesting!;
 
             await WaitUntilAsync(() => permissions.Withdrawn.Count > 0, what: "the card withdrawn");
+        } finally { await chat.TeardownAsync(); }
+    });
+
+    /// An ended session pages back by itself while fewer events than the prefetch are loaded, then waits
+    /// for the reader: the page that crosses it is the last one read unasked.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_ended_session_pages_back_unasked_up_to_the_prefetch() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 1500).Select(TextEvent)]);
+        RemoteTranscriptFeed? feed = null;
+        var chat = RemoteChat(server, f => feed = f, time, access, prefetch: 700);
+        try {
+            await WaitUntilAsync(() => chat.Items.Count == 900, what: "pages read up to the prefetch");
+            await feed!.PendingOlderForTesting!;
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+
+            await Assert.That(chat.Items.Count).IsEqualTo(900);
+            await Assert.That((chat.Items[0] as AssistantTextItem)?.Text).IsEqualTo("m600");
+            await Assert.That(feed.PrefetchesOlder).IsFalse();
+            await Assert.That(chat.RequestOlder()).IsTrue();
+            await feed.PendingOlderForTesting!;
+            await WaitUntilAsync(() => chat.Items.Count == 1200, what: "the page asked for");
         } finally { await chat.TeardownAsync(); }
     });
 

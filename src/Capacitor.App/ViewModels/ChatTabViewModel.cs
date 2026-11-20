@@ -2096,7 +2096,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// Older rows go above the ones on screen. A call they leave open is settled by a result already
     /// shown, and the runs fold again from the start of what is loaded.
     /// A page that adds no rows asks for the next one at once: no scroll would ask for it. A live session
-    /// pages all the way back, so a run started before the window still shows as running.
+    /// pages all the way back, so a run started before the window still shows as running, and any
+    /// session pages back while the feed prefetches.
     void InsertOlder(LineCursor older, ReceiptCandidates candidates) {
         var matched = new List<AcpEventEnvelope>();
         foreach (var (id, call) in older.Pending) {
@@ -2113,6 +2114,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // read has not applied yet still holds the calls these results settle.
         foreach (var (id, result) in older.Orphans) _orphanResults.TryAdd(id, result);
         var hasOlder = _lease?.Feed is RemoteTranscriptFeed { HasOlder: true };
+        var prefetch = _lease?.Feed is RemoteTranscriptFeed { PrefetchesOlder: true };
         _settledTools.UnionWith(older.Settled);
         _questionAsks.InsertRange(0, older.Questions);
         _planActivity?.Apply(older.Restored.Append(new ChatProjectionResult(matched, [], [])));
@@ -2136,7 +2138,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         }
         Reconcile();
         SyncPendingCardItems();
-        if (hasOlder && (older.Fresh.Count == 0 || !_ended)) RequestOlder();
+        if (hasOlder && (older.Fresh.Count == 0 || !_ended || prefetch)) RequestOlder();
     }
 
     void Finish(FeedRead read, LineCursor? cursor, ReceiptCandidates candidates) {
@@ -2174,7 +2176,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             if (read.Status == FeedStatus.Reset) {
                 SyncPendingCardItems();
                 RefreshActivityNote();
-                RequestOlderWhileEmpty();
+                RequestOlderUnasked();
             }
             return;
         }
@@ -2182,13 +2184,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         Reconcile();
         SyncPendingCardItems();
         RefreshActivityNote();
-        if (read.Status == FeedStatus.Reset) RequestOlderWhileEmpty();
+        if (read.Status == FeedStatus.Reset) RequestOlderUnasked();
     }
 
     /// A seed whose events show no rows leaves nothing to scroll, so older pages are read until one does;
-    /// a live session's are read regardless, for the runs they start.
-    void RequestOlderWhileEmpty() {
-        if (_items.Count == 0 || !_ended) RequestOlder();
+    /// a live session's are read regardless, for the runs they start, and any session's while the feed prefetches.
+    void RequestOlderUnasked() {
+        if (_items.Count == 0 || !_ended || _lease?.Feed is RemoteTranscriptFeed { PrefetchesOlder: true }) RequestOlder();
     }
 
     /// A remote feed's offset is the line's number in the session's root stream; a local one's is a file

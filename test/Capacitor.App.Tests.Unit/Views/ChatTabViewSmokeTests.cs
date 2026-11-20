@@ -252,7 +252,7 @@ public class ChatTabViewSmokeTests {
         RemoteTranscriptFeed? feed = null;
         var chat = new ChatTabViewModel("a1", AgentOrigin.Remote,
             Observable.Return(new ChatSessionInfo("Ended", "Ended", "gemini", null, null, null, true, "", "s1")), Observable.Return<string[]?>(null),
-            new ViewModels.AcceptingChatPromptInput(), new NoAttachmentUploader(), key => feed = new RemoteTranscriptFeed(key, "gemini", access, server.Reader, lane, time, _ => { }),
+            new ViewModels.AcceptingChatPromptInput(), new NoAttachmentUploader(), key => feed = new RemoteTranscriptFeed(key, "gemini", access, server.Reader, lane, time, _ => { }, prefetch: 0),
             new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time));
         var view = new ChatTabView { DataContext = chat };
         var window = new Window { Content = view, Width = 800, Height = 600 };
