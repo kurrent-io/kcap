@@ -22,7 +22,7 @@ public class PageBridgeTests {
     static string Results(string etag, bool closed = false) =>
         $$$"""{"mode":"aggregate","version":3,"closed":{{{(closed ? "true" : "false")}}},"revealed":true,"etag":"{{{etag}}}","tallies":{"a":1}}""";
 
-    static string Wrap(string data, string nonce = Nonce) => $$$"""{"nonce":"{{{nonce}}}","data":{{{data}}}}""";
+    static string Wrap(string data, string nonce = Nonce) => $$"""{"nonce":"{{nonce}}","data":{{data}}}""";
 
     sealed class Harness : IAsyncDisposable {
         public FakePageContentSource Source { get; } = new();

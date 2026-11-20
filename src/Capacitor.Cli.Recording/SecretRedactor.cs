@@ -322,7 +322,7 @@ public static partial class SecretRedactor {
     [GeneratedRegex(EnvVarSecretPattern, RegexOptions.IgnoreCase, OutOfProcessMatchTimeoutMs)]
     private static partial Regex EnvVarSecretOutOfProcessRx();
 
-    const string YamlStyleSecretPattern = """((?:""" + SecretKeywords + """)[\w.\-]*:[ \t]+)([^\s"\\]{8,})""";
+    const string YamlStyleSecretPattern = "((?:" + SecretKeywords + """)[\w.\-]*:[ \t]+)([^\s"\\]{8,})""";
 
     [GeneratedRegex(YamlStyleSecretPattern, RegexOptions.IgnoreCase, WatcherMatchTimeoutMs)]
     private static partial Regex YamlStyleSecretRx();
@@ -344,7 +344,7 @@ public static partial class SecretRedactor {
     [GeneratedRegex(ConnectionStringPwdPattern, RegexOptions.IgnoreCase, OutOfProcessMatchTimeoutMs)]
     private static partial Regex ConnectionStringPwdOutOfProcessRx();
 
-    const string AuthHeaderPattern = """((?:""" + AuthHeaderNames + """)(?:\\?")?\s*:\s*(?:\\?")?\s*)([^\r\n"\\]+)""";
+    const string AuthHeaderPattern = "((?:" + AuthHeaderNames + """)(?:\\?")?\s*:\s*(?:\\?")?\s*)([^\r\n"\\]+)""";
 
     [GeneratedRegex(AuthHeaderPattern, RegexOptions.IgnoreCase, WatcherMatchTimeoutMs)]
     private static partial Regex AuthHeaderRx();

@@ -119,7 +119,7 @@ public class OpenCodeTranscriptEventsTests {
     [Arguments("""{"tokens":{"output":1}}""", true)]
     public async Task Usage_is_stamped_only_when_the_message_reports_counts_the_server_would_write(string fields, bool stamped) {
         var info   = """{"role":"assistant","id":"msg_a","time":{"created":1782242800000},""" + fields[1..];
-        var events = E($$$"""{"info":{{{info}}},"parts":[{"type":"text","text":"x","id":"prt_t"}]}""");
+        var events = E($$"""{"info":{{info}},"parts":[{"type":"text","text":"x","id":"prt_t"}]}""");
 
         await Assert.That(events[0].Usage is not null).IsEqualTo(stamped);
     }
@@ -179,7 +179,7 @@ public class OpenCodeTranscriptEventsTests {
     [Arguments(null)]
     public async Task A_tool_part_that_has_not_settled_emits_nothing(string? status) {
         var state = status is null ? "{}" : $$$"""{"status":"{{{status}}}","input":{}}""";
-        await Assert.That(E($$$"""{"info":{"role":"assistant","id":"msg_r"},"parts":[{"type":"tool","id":"prt_run","tool":"read","callID":"c1","state":{{{state}}}}]}""").Count).IsEqualTo(0);
+        await Assert.That(E($$"""{"info":{"role":"assistant","id":"msg_r"},"parts":[{"type":"tool","id":"prt_run","tool":"read","callID":"c1","state":{{state}}}]}""").Count).IsEqualTo(0);
     }
 
     [Test]
@@ -201,7 +201,7 @@ public class OpenCodeTranscriptEventsTests {
     [Arguments("task", """{"status":"completed","metadata":{"sessionId":""}}""")]
     [Arguments("read", """{"status":"completed","metadata":{"sessionId":"ses_child"}}""")]
     public async Task Only_a_task_call_with_a_child_session_carries_the_slug(string tool, string state) {
-        var calls = (AssistantToolCallsGenerated)E($$$"""{"info":{"role":"assistant","id":"m"},"parts":[{"type":"tool","id":"p","tool":"{{{tool}}}","callID":"c","state":{{{state}}}}]}""")[0].Payload;
+        var calls = (AssistantToolCallsGenerated)E($$"""{"info":{"role":"assistant","id":"m"},"parts":[{"type":"tool","id":"p","tool":"{{tool}}","callID":"c","state":{{state}}}]}""")[0].Payload;
         await Assert.That(Slug(calls)).IsNull();
     }
 

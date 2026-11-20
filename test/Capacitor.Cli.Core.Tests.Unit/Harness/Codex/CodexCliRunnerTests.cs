@@ -47,7 +47,7 @@ public class CodexCliRunnerTests {
         var usage = reported
             ? """echo '{"type":"turn.completed","usage":{"input_tokens":9,"cached_input_tokens":4,"cache_write_input_tokens":0,"output_tokens":2}}'"""
             : "";
-        bin.CreateExecutable("codex", $$"""
+        bin.CreateExecutable("codex", $"""
             #!/bin/sh
             while [ $# -gt 0 ]; do
               if [ "$1" = "--output-last-message" ]; then out="$2"; fi
@@ -55,7 +55,7 @@ public class CodexCliRunnerTests {
             done
             cat > /dev/null
             printf 'ok' > "$out"
-            {{usage}}
+            {usage}
             exit 0
             """);
 

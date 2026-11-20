@@ -27,7 +27,7 @@ public class ClaudeTranscriptEventsTests {
 
     [Test]
     public async Task String_user_content_is_one_user_message_on_the_record_id_with_its_timestamps() {
-        var e = E($$$"""{"type":"user","uuid":"{{{Uuid}}}","parentUuid":"p1","message":{"role":"user","content":"hello"},"timestamp":"2026-08-26T12:00:00Z"}""");
+        var e = E($$"""{"type":"user","uuid":"{{Uuid}}","parentUuid":"p1","message":{"role":"user","content":"hello"},"timestamp":"2026-08-26T12:00:00Z"}""");
         await Assert.That(e).Count().IsEqualTo(1);
         await Assert.That(e[0].EventType).IsEqualTo(CanonicalEventTypes.UserMessageReceived);
         await Assert.That(((UserMessageReceived)e[0].Payload).Content).IsEqualTo("hello");
@@ -211,7 +211,7 @@ public class ClaudeTranscriptEventsTests {
 
     [Test]
     public async Task A_queued_command_task_notification_attachment_projects_one_user_message() {
-        const string line = $$$"""{"parentUuid":"p1","isSidechain":false,"attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"X\" finished</summary>\n</task-notification>","source_uuid":"s1","commandMode":"task-notification","timestamp":"2026-09-17T11:53:57.948Z"},"type":"attachment","uuid":"{{{Uuid}}}","timestamp":"2026-09-17T11:53:58.000Z"}""";
+        const string line = $$"""{"parentUuid":"p1","isSidechain":false,"attachment":{"type":"queued_command","prompt":"<task-notification>\n<task-id>a1</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n<summary>Agent \"X\" finished</summary>\n</task-notification>","source_uuid":"s1","commandMode":"task-notification","timestamp":"2026-09-17T11:53:57.948Z"},"type":"attachment","uuid":"{{Uuid}}","timestamp":"2026-09-17T11:53:58.000Z"}""";
         var e = E(line);
         await Assert.That(e).Count().IsEqualTo(1);
         await Assert.That(e[0].EventType).IsEqualTo(CanonicalEventTypes.UserMessageReceived);
@@ -340,7 +340,7 @@ public class ClaudeTranscriptEventsTests {
     [Arguments("[1,\"a\"]")]
     [Arguments("true")]
     public async Task A_toolUseResult_of_any_other_kind_rides_the_extension_verbatim(string value) {
-        var e    = E($$$"""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{{{value}}}}""");
+        var e    = E($$"""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},"toolUseResult":{{value}}}""");
         var slug = SchemaExtensions.Slug(e[0].Payload, "claude_code");
 
         await Assert.That(slug).IsNotNull();

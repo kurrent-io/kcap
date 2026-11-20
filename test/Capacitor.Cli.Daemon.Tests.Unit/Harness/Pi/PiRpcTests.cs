@@ -447,10 +447,10 @@ public class PiRpcTests {
     public async Task PromptCommand_emits_streamingBehavior_followUp() {
         var json = PiRpc.PromptCommand("req-1", "hello");
 
-        await Assert.That(json).Contains(""""streamingBehavior":"followUp"""");
-        await Assert.That(json).Contains(""""type":"prompt"""");
-        await Assert.That(json).Contains(""""id":"req-1"""");
-        await Assert.That(json).Contains(""""message":"hello"""");
+        await Assert.That(json).Contains("""streamingBehavior":"followUp""");
+        await Assert.That(json).Contains("""type":"prompt""");
+        await Assert.That(json).Contains("""id":"req-1""");
+        await Assert.That(json).Contains("""message":"hello""");
     }
 
     [Test]

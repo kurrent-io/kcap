@@ -234,7 +234,7 @@ public class CanonicalRouteTests {
     [Test]
     public async Task A_batch_that_cannot_be_projected_falls_the_route_back() {
         var deep  = string.Concat(Enumerable.Repeat("[", 58)) + string.Concat(Enumerable.Repeat("]", 58));
-        var line  = $$$$"""{"type":"assistant","uuid":"{{{{Id(2)}}}}","timestamp":"2026-11-16T08:00:02Z","message":{"model":"claude-x","content":[{"type":"tool_use","id":"t1","name":"X","input":{"a":{{{{deep}}}}}}]}}""";
+        var line  = $$$"""{"type":"assistant","uuid":"{{{Id(2)}}}","timestamp":"2026-11-16T08:00:02Z","message":{"model":"claude-x","content":[{"type":"tool_use","id":"t1","name":"X","input":{"a":{{{deep}}}}}]}}""";
         var route = Route();
 
         await Assert.That(() => route.Encode(Raw(0, line), Received)).Throws<CanonicalEncodingException>();
@@ -245,7 +245,7 @@ public class CanonicalRouteTests {
     [Test]
     public async Task A_replay_that_fails_falls_the_route_back() {
         var deep  = string.Concat(Enumerable.Repeat("[", 58)) + string.Concat(Enumerable.Repeat("]", 58));
-        var line  = $$$$"""{"type":"assistant","uuid":"{{{{Id(2)}}}}","timestamp":"2026-11-16T08:00:02Z","message":{"model":"claude-x","content":[{"type":"tool_use","id":"t1","name":"X","input":{"a":{{{{deep}}}}}}]}}""";
+        var line  = $$$"""{"type":"assistant","uuid":"{{{Id(2)}}}","timestamp":"2026-11-16T08:00:02Z","message":{"model":"claude-x","content":[{"type":"tool_use","id":"t1","name":"X","input":{"a":{{{deep}}}}}]}}""";
         var path  = Tmp.CreateFile("bad.jsonl", $"{User(1)}\n{line}\n");
         var route = Route();
 

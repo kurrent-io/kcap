@@ -50,7 +50,7 @@ public class ServerReaderProviderTests {
         internal string? Versions;
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
             var discovery = request.RequestUri!.AbsolutePath == "/auth/config";
-            var body = discovery ? (Versions is null ? """{"provider":"workos"}""" : $$$"""{"provider":"workos","pull_request_reads_versions":{{{Versions}}}}""")
+            var body = discovery ? (Versions is null ? """{"provider":"workos"}""" : $$"""{"provider":"workos","pull_request_reads_versions":{{Versions}}}""")
                 : """{"status":"ready","subject":{"provider":"github","host":"github.com","repo_hash":"hash","owner":"example","repo_name":"repo","number":1},"data":{"title":"Server PR"},"fetched_at":"2026-09-08T10:00:00Z","poll_after_seconds":30,"access_valid_for_seconds":30}""";
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { RequestMessage = request, Content = new StringContent(body, Encoding.UTF8, "application/json") });
         }

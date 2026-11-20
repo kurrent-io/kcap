@@ -186,7 +186,7 @@ public class ClaudeSessionEndHandoffTests {
     [Arguments("""{"session_id":"9dc27753-7645-4e46-91ec-c2d69973c152"}""", "9dc2775376454e4691ecc2d69973c152")]
     [Arguments("""{"session_id":"../../etc/passwd"}""", "claude-session-end")]
     [Arguments("""{"session_id":""}""", "claude-session-end")]
-    [Arguments("""{}""", "claude-session-end")]
+    [Arguments("{}", "claude-session-end")]
     [Arguments("not json", "claude-session-end")]
     public async Task Log_name_is_the_watcher_key_or_a_fixed_name(string body, string expected) {
         await Assert.That(ClaudeSessionEndHandoff.LogName(body)).IsEqualTo(expected);

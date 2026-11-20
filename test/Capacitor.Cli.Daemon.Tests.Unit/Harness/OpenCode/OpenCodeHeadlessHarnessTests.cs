@@ -51,11 +51,11 @@ public class OpenCodeHeadlessHarnessTests {
         var harness = Harness(TestBinaries.Searching(Bin, "opencode"),
             () => new Dictionary<string, string?> { ["PATH"] = "/usr/bin:/bin", ["KCAP_PROBE"] = "from-daemon" });
 
-        Bin.CreateExecutable("opencode", $$"""
+        Bin.CreateExecutable("opencode", $"""
             #!/bin/sh
-            printf '%s\n' "$@" > '{{argsFile}}'
-            printf '%s' "$KCAP_PROBE" > '{{envFile}}'
-            cat > '{{promptCopy}}'
+            printf '%s\n' "$@" > '{argsFile}'
+            printf '%s' "$KCAP_PROBE" > '{envFile}'
+            cat > '{promptCopy}'
             exit 0
             """);
 

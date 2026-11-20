@@ -74,7 +74,7 @@ public class VsCodeChatSessionLogTests {
     [Arguments("""{"k":["customTitle"],"v":"x"}""", "has no kind")]
     [Arguments("""{"kind":1,"k":["requests",7,"completionTokens"],"v":1}""", "does not fit")]
     [Arguments("""{"kind":1,"k":[{"a":1}],"v":1}""", "does not fit")]
-    [Arguments("""not json at all""", "not JSON")]
+    [Arguments("not json at all", "not JSON")]
     [Arguments("""{"kind":2,"k":["requests"],"i":0,"v":{}}""", "does not fit")]
     [Arguments("""{"kind":2,"k":["requests"],"i":"0","v":[]}""", "does not fit")]
     [Arguments("""{"kind":1,"k":["requests"]}""", "does not fit")]

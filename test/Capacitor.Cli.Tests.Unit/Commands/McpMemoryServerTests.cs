@@ -298,7 +298,7 @@ public class McpMemoryServerTests {
     [Arguments("""{"form":"log"}""", """{"memory":{"memory_id":"m","form":"log"},"slug_conflict":false}""", false)]
     [Arguments("""{"form":"log"}""", """{"memory":{"memory_id":"m","form":"document"},"slug_conflict":true}""", false)]
     [Arguments("""{"form":"document"}""", """{"memory":{"memory_id":"m"},"slug_conflict":false}""", false)]
-    [Arguments("""{}""", """{"memory":{"memory_id":"m"},"slug_conflict":false}""", false)]
+    [Arguments("{}", """{"memory":{"memory_id":"m"},"slug_conflict":false}""", false)]
     public async Task A_log_save_a_server_made_as_an_ordinary_memory_says_so(string args, string body, bool noticed) {
         var result = McpMemoryServer.WithLogFormNotice(Args(args), body);
 

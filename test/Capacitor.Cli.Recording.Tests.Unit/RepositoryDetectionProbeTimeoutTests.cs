@@ -10,11 +10,11 @@ public class RepositoryDetectionProbeTimeoutTests {
     [Test, ExcludeOn(OS.Windows)]
     public async Task A_timed_out_probe_dies_with_its_children() {
         var pids  = Tmp.PathTo("pids");
-        var probe = Tmp.CreateExecutable("probe", $$"""
+        var probe = Tmp.CreateExecutable("probe", $"""
             #!/bin/sh
             sleep 30 &
-            echo "$$ $!" > "{{pids}}.tmp"
-            mv "{{pids}}.tmp" "{{pids}}"
+            echo "$$ $!" > "{pids}.tmp"
+            mv "{pids}.tmp" "{pids}"
             wait
             """);
 

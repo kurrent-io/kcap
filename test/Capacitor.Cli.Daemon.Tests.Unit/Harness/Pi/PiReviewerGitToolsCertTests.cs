@@ -25,7 +25,7 @@ public class PiReviewerGitToolsCertTests {
         CommitTwoRevisions(bench);
 
         var run = await bench.RunAsync(null,
-            new PiScriptedStep(Tool: "git_log",  ArgsJson: """{}""", Id: "g1"),
+            new PiScriptedStep(Tool: "git_log",  ArgsJson: "{}", Id: "g1"),
             new PiScriptedStep(Tool: "git_diff", ArgsJson: """{"base":"HEAD~1","head":"HEAD"}""", Id: "g2"),
             new PiScriptedStep(Tool: "git_show", ArgsJson: """{"rev":"HEAD~1:inside.txt"}""", Id: "g3"),
             new PiScriptedStep(Text: "done"));
