@@ -20,6 +20,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     internal const int Window = 300;
     /// The server's cap on one page.
     const int MaxPage = 1000;
+    /// Corrections one page may take for events aging out while it is asked for, before its gap is accepted.
+    const int MaxRealignments = 3;
     /// Events a session loads without the reader scrolling up. Each older page grows the scroll range
     /// under the reader, so paging in behind the tail settles the scrollbar before it is used.
     internal const int Prefetch = 5000;
@@ -344,14 +346,15 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             CancellationToken ct, long? after = null) {
         long? first = null;
         long? last = after;
-        var realigned = false;
+        var realigned = 0;
         while (true) {
             var fetch = await _readEvents(_sessionId, from, MaxPage, ct).ConfigureAwait(false);
             if (fetch.Page is not { } page) return (fetch, first);
-            if (last is { } seen && !realigned && from > 0) {
+            // Events can age out again while a corrected page is asked for, so the check runs on every retry.
+            if (last is { } seen && realigned < MaxRealignments && from > 0) {
                 if (page.Events is [var lead, ..] && lead.EventNumber > seen) {
                     from = Math.Max(0, from - (lead.EventNumber - seen));
-                    realigned = true;
+                    realigned++;
                     continue;
                 }
                 // So many events aged out that the count ran past the end: only the oldest event held can place it.
@@ -359,11 +362,11 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
                     var probe = await _readEvents(_sessionId, 0, 1, ct).ConfigureAwait(false);
                     if (probe.Page is not { Events: [var held, ..] }) return (probe, first);
                     from = Math.Max(0, seen - held.EventNumber);
-                    realigned = true;
+                    realigned++;
                     continue;
                 }
             }
-            realigned = false;
+            realigned = 0;
             var number = ProjectInto(page, lines, scheduled, above: last ?? long.MinValue);
             first ??= number;
             if (page.Events is [.., var tail]) last = Math.Max(last ?? tail.EventNumber, tail.EventNumber);

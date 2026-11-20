@@ -778,6 +778,23 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(feed.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 2500).Select(i => (long)i));
     }
 
+    /// Events aging out again while a corrected page is asked for are corrected too: nothing after the first page is skipped.
+    [Test]
+    public async Task A_forward_read_across_two_agings_of_one_page_skips_nothing() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 2500).Select(i => Text(i, $"m{i}"))]);
+        var calls = 0;
+        server.Gate = () => {
+            if (Interlocked.Increment(ref calls) is 2 or 3) server.Events.RemoveRange(0, 5);
+            return Task.CompletedTask;
+        };
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, window: null);
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+
+        await Assert.That(feed.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 2500).Select(i => (long)i));
+    }
+
     /// Enough events aging out between two pages leaves the next page's count past the end. The read places the
     /// count again from the oldest event held and reads every event still held after the first page.
     [Test]
