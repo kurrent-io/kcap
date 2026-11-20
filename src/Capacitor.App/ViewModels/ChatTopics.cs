@@ -24,6 +24,8 @@ public sealed class ChatTopics : ReactiveObject {
     bool _used;
     // Marks made for messages being sent, in the order sent, each waiting for its message to land.
     readonly List<ChatItemViewModel> _pending = [];
+    // How each waiting mark knows its message; a mark with none takes the next one the user sent.
+    readonly Dictionary<ChatItemViewModel, Func<UserTurnItem, bool>> _echoes = new(ReferenceEqualityComparer.Instance);
 
     public ChatTopics(AvaloniaList<ChatItemViewModel> items, ChatMarks? store = null) {
         _items = items;
@@ -75,31 +77,41 @@ public sealed class ChatTopics : ReactiveObject {
 
     /// Starts a topic at the end of the chat for the message about to be sent. It stays at the end
     /// until that message lands, so rows that land first stay out of it.
-    public ChatTopicItem Start() {
+    public ChatTopicItem Start(Func<UserTurnItem, bool>? isEcho = null) {
         var topic = NewTopic();
         Edit(() => {
             var tail = TailStart();
             if (tail > 0 && _items[tail - 1] is ChatTopicEndItem end && !_pending.Contains(end)) _items.Remove(end);
             _items.Insert(TailStart(), topic);
         });
-        _pending.Add(topic);
+        Wait(topic, isEcho);
         return topic;
     }
 
     /// Ends the open topic at the end of the chat, so the message about to be sent falls outside it.
     /// Null when no topic is open there.
-    public ChatTopicEndItem? End() {
+    public ChatTopicEndItem? End(Func<UserTurnItem, bool>? isEcho = null) {
         if (!CanEnd) return null;
         var end = new ChatTopicEndItem();
         Edit(() => _items.Insert(TailStart(), end));
-        _pending.Add(end);
+        Wait(end, isEcho);
         return end;
+    }
+
+    void Wait(ChatItemViewModel mark, Func<UserTurnItem, bool>? isEcho) {
+        _pending.Add(mark);
+        if (isEcho is not null) _echoes[mark] = isEcho;
+    }
+
+    bool Unwait(ChatItemViewModel mark) {
+        _echoes.Remove(mark);
+        return _pending.Remove(mark);
     }
 
     /// Takes back a mark made for a message that never went out, unless that message has landed.
     public void Discard(ChatItemViewModel mark) => Edit(() => {
         Settle();
-        if (_pending.Remove(mark)) _items.Remove(mark);
+        if (Unwait(mark)) _items.Remove(mark);
     });
 
     /// Marks <paramref name="row"/> as where a new topic starts, or unmarks it, which joins its topic to
@@ -119,6 +131,7 @@ public sealed class ChatTopics : ReactiveObject {
         _feed = feed;
         _folding.Clear();
         _pending.Clear();
+        _echoes.Clear();
         All.Clear();
         Any = false;
         _restoring = feed is not null && _store is not null ? new(_store.Topics(feed)) : [];
@@ -224,7 +237,7 @@ public sealed class ChatTopics : ReactiveObject {
     }
 
     public void RemoveEnd(ChatTopicEndItem end) => Edit(() => {
-        _pending.Remove(end);
+        Unwait(end);
         var index = _items.IndexOf(end);
         if (index < 0) return;
         if (TopicBefore(index) is { IsExpanded: false } previous) Unfold(previous);
@@ -237,7 +250,7 @@ public sealed class ChatTopics : ReactiveObject {
         var index = _items.IndexOf(topic);
         if (TopicBefore(index) is { IsExpanded: false } previous) Unfold(previous);
         _folding.Remove(topic);
-        _pending.Remove(topic);
+        Unwait(topic);
         _items.Remove(topic);
     });
 
@@ -248,19 +261,20 @@ public sealed class ChatTopics : ReactiveObject {
         foreach (var mark in _pending.ToList()) {
             var index = _items.IndexOf(mark);
             if (index < 0) {
-                _pending.Remove(mark);
+                Unwait(mark);
                 continue;
             }
             var tail = TailStart();
             var target = Math.Max(index + 1, after is null ? 0 : _items.IndexOf(after) + 1);
-            while (target < tail && _items[target] is not UserTurnItem) target++;
+            var isEcho = _echoes.GetValueOrDefault(mark);
+            while (target < tail && !(_items[target] is UserTurnItem turn && (isEcho?.Invoke(turn) ?? true))) target++;
             var bound = target < tail;
             if (target != index + 1) {
                 _items.RemoveAt(index);
                 _items.Insert(target - 1, mark);
             }
             if (bound) {
-                _pending.Remove(mark);
+                Unwait(mark);
                 after = _items[target];
             } else after = mark;
         }
@@ -316,9 +330,12 @@ public sealed class ChatTopics : ReactiveObject {
         var open = false;
         for (var i = 0; i < _items.Count; i++) {
             if (_items[i] is ChatTopicItem topic) open = !Ended(topic);
-            else if (_items[i] is ChatTopicEndItem) {
+            else if (_items[i] is ChatTopicEndItem end) {
                 if (open) open = false;
-                else _items.RemoveAt(i--);
+                else {
+                    Unwait(end);
+                    _items.RemoveAt(i--);
+                }
             }
         }
     }
@@ -395,9 +412,12 @@ public sealed class ChatTopics : ReactiveObject {
     // A folded topic holds its end, if it has one.
     static bool Ended(ChatTopicItem topic) => !topic.IsExpanded && topic.Hidden is [.., ChatTopicEndItem];
 
-    // The end of a topic's rows, an end of its own included, so folding takes the end in too.
+    // The end of a topic's rows, an end of its own included, so folding takes the end in too. Marks
+    // still waiting for their message stay out: they move once it lands.
     int EndOf(int header) {
         var tail = TailStart();
+        foreach (var mark in _pending)
+            if (_items.IndexOf(mark) is var at && at > header && at < tail) tail = at;
         for (var i = header + 1; i < tail; i++) {
             if (_items[i] is ChatTopicItem) return i;
             if (_items[i] is ChatTopicEndItem) return i + 1;

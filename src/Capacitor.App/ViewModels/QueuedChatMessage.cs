@@ -189,6 +189,9 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
 
     internal bool MatchesText(string text) => Normalize(Text) == Normalize(text);
 
+    /// The feed line its echo landed on, once matched there.
+    internal long? EchoLine { get; set; }
+
     /// A new transcript may contain either replayed history or the lost echo. Neither is safe
     /// evidence. Retain the message, then allow only subsequent appends in this generation.
     internal void Rebase(int generation, long? offset) {

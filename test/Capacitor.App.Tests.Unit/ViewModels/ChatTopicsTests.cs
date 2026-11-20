@@ -240,6 +240,7 @@ public class ChatTopicsTests {
             var end = topics.End()!;
             var aside = new UserTurnItem("Unrelated") { Key = new(2, 0) };
             items.Add(aside);
+            topics.Restore();
             var topic = (ChatTopicItem)items[0];
             await Assert.That(topics.CanEnd).IsFalse();
             await Assert.That(done.Topic).IsSameReferenceAs(topic);
@@ -365,6 +366,53 @@ public class ChatTopicsTests {
             items.Add(landed);
             topics.Restore();
             await Assert.That(landed.Topic).IsSameReferenceAs(accepted);
+        });
+    }
+
+    /// Folding a topic leaves out an end still waiting for its message, so the end can still move
+    /// before that message when it lands.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Folding_a_topic_leaves_out_an_end_still_waiting_for_its_message() {
+        await RunOnUiAsync(async () => {
+            var one   = new UserTurnItem("Point 1");
+            var items = new AvaloniaList<ChatItemViewModel> { one };
+            var topics = new ChatTopics(items);
+            topics.ToggleChange(one);
+            var topic = (ChatTopicItem)items[0];
+            var end = topics.End()!;
+
+            topic.ToggleCommand.Execute().Subscribe();
+            var reply = new AssistantTextItem("Still on point 1");
+            var aside = new UserTurnItem("Unrelated");
+            items.AddRange([reply, aside]);
+            topics.Restore();
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { topic, reply, end, aside }, CollectionOrdering.Matching);
+        });
+    }
+
+    /// A mark made for a send waits for that send's own message: an earlier queued message landing
+    /// first stays outside it, and a failed send can still take it back.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_topic_started_for_a_send_skips_an_earlier_message_landing_first() {
+        await RunOnUiAsync(async () => {
+            var items  = new AvaloniaList<ChatItemViewModel> { new UserTurnItem("Before") };
+            var topics = new ChatTopics(items);
+
+            var topic = topics.Start(static turn => turn.Text == "Point 2");
+            var earlier = new UserTurnItem("Point 1");
+            items.Add(earlier);
+            topics.Restore();
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { items[0], earlier, topic }, CollectionOrdering.Matching);
+
+            var failed = topics.Start(static turn => turn.Text == "Never sent");
+            topics.Discard(failed);
+            var mine = new UserTurnItem("Point 2");
+            items.Add(mine);
+            topics.Restore();
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { items[0], earlier, topic, mine }, CollectionOrdering.Matching);
+            await Assert.That(earlier.Topic).IsNull();
         });
     }
 }

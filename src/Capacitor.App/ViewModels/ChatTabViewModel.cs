@@ -1169,20 +1169,26 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             _queuedSendBusy,
             this.WhenAnyValue(x => x.HasSeed),
             Tray.WhenAnyValue(t => t.HasAttachments),
-            (text, can, readOnly, menu, busy, _, files) => can && !readOnly && !menu && !busy
-                && (files || !string.IsNullOrWhiteSpace(text)) && CanSendBeforeSeed);
+            this.WhenAnyValue(x => x.SendMode),
+            // A topic mark needs the seed: the replay that brings it clears the chat, mark and all.
+            (text, can, readOnly, menu, busy, seed, files, mode) => can && !readOnly && !menu && !busy
+                && (files || !string.IsNullOrWhiteSpace(text)) && CanSendBeforeSeed && (seed || mode == ChatSendMode.Send));
         // The composer keeps whatever the user typed while the channel was deciding: only the
         // snapshot that was actually sent is cleared, and only once the channel commits it. The
         // edit count is what the text alone cannot say — an edit that lands back on the sent text
         // is still the user's own draft, not the snapshot.
         SendCommand = ReactiveCommand.CreateFromTask(async () => {
             // The mark goes in before the message goes out, so the message's echo lands after it.
+            QueuedChatMessage? sent = null;
+            bool IsEcho(UserTurnItem turn) => sent is { } queued && (queued.EchoLine is { } line
+                ? turn.Key?.Line == line
+                : queued.Acknowledged && queued.MatchesText(turn.Text));
             ChatItemViewModel? opened = SendMode switch {
-                ChatSendMode.NewTopic => Topics.Start(),
-                ChatSendMode.EndTopic => Topics.End(),
+                ChatSendMode.NewTopic => Topics.Start(IsEcho),
+                ChatSendMode.EndTopic => Topics.End(IsEcho),
                 _ => null,
             };
-            var outcome = await SendComposerAsync(ComposerText, includeTray: true, bypassRecall: false);
+            var outcome = await SendComposerAsync(ComposerText, includeTray: true, bypassRecall: false, onQueued: queued => sent = queued);
             if (outcome is ChatSendOutcome.Accepted or ChatSendOutcome.Unconfirmed) SendMode = ChatSendMode.Send;
             else if (opened is not null) Topics.Discard(opened);
         }, canSend);
@@ -2064,6 +2070,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                     if (TakeSupersededEcho(text, offset)) continue;
                     var acknowledged = Tracked.FirstOrDefault(q => !q.Acknowledged && q.Matches(text, _inputGeneration, offset));
                     if (acknowledged is null) continue;
+                    acknowledged.EchoLine = offset;
                     Acknowledge(acknowledged);
                 }
             }

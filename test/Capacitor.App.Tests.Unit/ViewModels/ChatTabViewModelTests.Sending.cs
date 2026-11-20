@@ -88,6 +88,28 @@ public partial class ChatTabViewModelTests {
         });
     }
 
+    /// A local chat takes a plain send before its seed, but not one that marks a topic: the replay
+    /// that brings the seed clears the chat, and the mark with it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_topic_send_waits_for_the_seed() {
+        await RunOnUiAsync(async () => {
+            var input = new ScriptedInput { HonoursCancellation = false };
+            var time = new FakeTimeProvider();
+            var chat = new ChatTabViewModel(
+                "a1", AgentOrigin.Local, new BehaviorSubject<ChatSessionInfo>(Session("s1")), Observable.Return<string[]?>(null), input,
+                new NoAttachmentUploader(), _ => new ScriptedFeed(), new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time),
+                sessionId: new BehaviorSubject<string?>("s1"));
+            try {
+                chat.ComposerText = "point 1";
+                await Assert.That(chat.HasSeed).IsFalse();
+                await Assert.That(await chat.SendCommand.CanExecute.FirstAsync()).IsTrue();
+                chat.SendMode = ChatSendMode.NewTopic;
+                await Assert.That(await chat.SendCommand.CanExecute.FirstAsync()).IsFalse();
+            } finally { await chat.TeardownAsync(); }
+        });
+    }
+
     /// The session is captured as each prompt goes out, and only a prompt the channel accepted can
     /// have answered its open questions, whether or not its tab outlived the send.
     [Test]
