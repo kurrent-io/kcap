@@ -73,17 +73,67 @@
         <StyleInclude Source="avares://kcap-desktop/Views/ChatBubbleStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/Onboarding/OnboardingStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/StatusStyles.axaml" />
-        <!-- Fluent's notification template cuts a long message off after a few lines, which can drop the instruction it
-             ends with. -->
+        <!-- Toasts are the launcher's notice card, floating: the status shows as the icon, never a coloured bar. The
+             template keeps Fluent's part names, which its open and close animations target. The message wraps in
+             full, because a toast often ends with the instruction the user needs. -->
         <Style Selector="NotificationCard">
+            <Setter Property="Width" Value="360" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <LayoutTransformControl Name="PART_LayoutTransformControl" UseRenderTransform="True">
+                        <Border Margin="6,6,6,10" CornerRadius="{TemplateBinding CornerRadius}" BoxShadow="0 8 24 0 #66000000"
+                                Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}">
+                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="14,12,8,12">
+                                <Panel Width="16" Height="16" Margin="0,2,10,0" VerticalAlignment="Top">
+                                    <views:AppIcon x:Name="ToastInfoIcon" Kind="Info" Size="16" Foreground="{StaticResource KcapInfoBrush}" />
+                                    <views:AppIcon x:Name="ToastSuccessIcon" Kind="CircleCheck" Size="16" Foreground="{StaticResource KcapSuccessBrush}" IsVisible="False" />
+                                    <views:AppIcon x:Name="ToastWarningIcon" Kind="CircleAlert" Size="16" Foreground="{StaticResource KcapWarningBrush}" IsVisible="False" />
+                                    <views:AppIcon x:Name="ToastErrorIcon" Kind="CircleX" Size="16" Foreground="{StaticResource KcapDangerBrush}" IsVisible="False" />
+                                </Panel>
+                                <ContentPresenter Name="PART_ContentPresenter" Grid.Column="1" Content="{TemplateBinding Content}"
+                                                  ContentTemplate="{TemplateBinding ContentTemplate}" VerticalAlignment="Center" />
+                                <Button Grid.Column="2" Classes="kcapGhost toastClose" NotificationCard.CloseOnClick="True"
+                                        Width="22" Height="22" Padding="0" Margin="8,0,0,0" VerticalAlignment="Top"
+                                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                        AutomationProperties.Name="Dismiss notification">
+                                    <views:AppIcon Kind="X" Size="12" Foreground="{StaticResource KcapMutedBrush}" />
+                                </Button>
+                            </Grid>
+                        </Border>
+                    </LayoutTransformControl>
+                </ControlTemplate>
+            </Setter>
             <Setter Property="ContentTemplate">
                 <DataTemplate DataType="notifications:INotification">
-                    <StackPanel Margin="12,10" Spacing="2">
-                        <TextBlock Text="{Binding Title}" FontWeight="Medium" />
-                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="{Binding Title}" FontSize="13" FontWeight="Medium" LineHeight="20" TextWrapping="Wrap"
+                                   Foreground="{StaticResource KcapTextBrush}"
+                                   IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <TextBlock Text="{Binding Message}" FontSize="13" LineHeight="20" TextWrapping="Wrap"
+                                   Foreground="{StaticResource KcapTextBrush}" />
                     </StackPanel>
                 </DataTemplate>
             </Setter>
+        </Style>
+        <Style Selector="NotificationCard:success /template/ views|AppIcon#ToastInfoIcon,
+                         NotificationCard:warning /template/ views|AppIcon#ToastInfoIcon,
+                         NotificationCard:error /template/ views|AppIcon#ToastInfoIcon">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="NotificationCard:success /template/ views|AppIcon#ToastSuccessIcon">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <Style Selector="NotificationCard:warning /template/ views|AppIcon#ToastWarningIcon">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <Style Selector="NotificationCard:error /template/ views|AppIcon#ToastErrorIcon">
+            <Setter Property="IsVisible" Value="True" />
         </Style>
         <!-- Popup panels drawn on our tokens: the flyout presenter IS the panel (no inner Border
              fighting the theme's own chrome). Opted into per flyout via FlyoutPresenterClasses.
@@ -554,6 +604,11 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
             <Setter Property="Opacity" Value="0.55" />
+        </Style>
+        <!-- Ghost hover is the raised surface, which is the toast's own fill. -->
+        <Style Selector="Button.kcapGhost.toastClose:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.kcapGhost.toastClose:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
         </Style>
         <!-- Ghost sizes. Declared after the ghost rules on purpose: a later style wins, so a
              size that also recolours has to come after the colour it replaces. -->
