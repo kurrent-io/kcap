@@ -1183,7 +1183,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             // A retry carries the send on, so its echo counts as this send's.
             bool IsEcho(UserTurnItem turn) {
                 for (var queued = sent; queued is not null; queued = queued.RetriedAs)
-                    if (queued.EchoLine is { } line ? turn.Key?.Line == line : queued.Acknowledged && queued.MatchesText(turn.Text)) return true;
+                    if (queued.EchoLine is { } line ? turn.Key?.Line == line : queued.Acknowledged && queued.MatchesEcho(turn.Text)) return true;
                 return false;
             }
             ChatItemViewModel? opened = SendMode switch {

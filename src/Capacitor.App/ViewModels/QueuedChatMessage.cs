@@ -204,8 +204,14 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     /// bare text, which may be replayed history — is the only receipt an attachment send has. The
     /// trailer follows the prompt untrimmed, so whatever trailing whitespace Normalize took off the
     /// sent text still stands between the two in the echo.
-    internal bool Matches(string text, int generation, long offset) {
-        if (_generation != generation || _offset is not { } baseline || offset < baseline) return false;
+    internal bool Matches(string text, int generation, long offset) =>
+        _generation == generation && _offset is { } baseline && offset >= baseline && IsReceipt(text);
+
+    /// Whether a turn reads as this send's echo, in any form its receipt takes. Without a feed
+    /// position to check, this is only safe for a send already acknowledged.
+    internal bool MatchesEcho(string text) => MatchesText(text) || IsReceipt(text);
+
+    bool IsReceipt(string text) {
         var sent = Normalize(Text);
         var seen = Normalize(text);
         if (AttachmentIds.Count == 0) return SamePrompt(sent, seen);
