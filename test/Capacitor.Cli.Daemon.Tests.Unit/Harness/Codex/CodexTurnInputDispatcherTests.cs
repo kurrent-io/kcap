@@ -290,7 +290,7 @@ public class CodexTurnInputDispatcherTests {
         var sink = new FakeTurnSink();
         var d    = Dispatcher(sink);
 
-        var ack1 = d.EnqueueAsync("a");
+        _ = d.EnqueueAsync("a");
         await sink.NextStart();     // in flight (pending start)
         var ack2 = d.EnqueueAsync("b"); // queued behind it
 

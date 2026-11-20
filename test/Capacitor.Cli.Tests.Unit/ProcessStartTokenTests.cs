@@ -95,7 +95,7 @@ public class ProcessStartTokenTests {
     public async Task ForPid_OnMacOS_TwoDistinctProcessesGetDistinctUniqueIds() {
         if (!OperatingSystem.IsMacOS()) return;
 
-        using var dummy = Capacitor.Tests.Helpers.DummyProcess.StartSleep(5);
+        using var dummy = DummyProcess.StartSleep(5);
         var       mine  = ProcessStartToken.ForPid(Environment.ProcessId);
         var       other = ProcessStartToken.ForPid(dummy.Pid);
 
@@ -140,7 +140,7 @@ public class ProcessStartTokenTests {
     static unsafe string? CaptureSelfIdentityViaNativeShim() {
         Span<byte> buf = stackalloc byte[128];
         fixed (byte* p = buf) {
-            if (Capacitor.Cli.Daemon.Pty.Unix.UnixPtyInterop.pty_capture_mac_identity(Environment.ProcessId, p, (nuint) buf.Length) == 0)
+            if (Daemon.Pty.Unix.UnixPtyInterop.pty_capture_mac_identity(Environment.ProcessId, p, (nuint) buf.Length) == 0)
                 return null;
 
             var len = 0;

@@ -634,9 +634,10 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         // Pages past a short or failed one are dropped unread, exactly as a one-by-one read would never ask.
         void Abandon() {
             abandon.Cancel();
-            foreach (var pending in inFlight)
+            foreach (var pending in inFlight) {
                 _ = pending.ContinueWith(static t => _ = t.Exception, CancellationToken.None,
                     TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+            }
         }
         try {
             Launch();

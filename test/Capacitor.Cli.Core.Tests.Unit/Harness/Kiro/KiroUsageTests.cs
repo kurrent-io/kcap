@@ -33,18 +33,18 @@ public class KiroUsageTests {
     public async Task enrich_line_injects_usage_on_anchor_assistant_line_only() {
         var map = KiroUsage.AnchorMap(Meta);
 
-        var anchor = """{"version":"v1","kind":"AssistantMessage","data":{"message_id":"a2","content":[{"kind":"text","data":"done"}]}}""";
+        const string anchor = """{"version":"v1","kind":"AssistantMessage","data":{"message_id":"a2","content":[{"kind":"text","data":"done"}]}}""";
         var enriched = KiroUsage.EnrichLine(anchor, map);
         await Assert.That(enriched).Contains("_kcap_usage");
         await Assert.That(enriched).Contains("0.75");
         await Assert.That(enriched).Contains("5.2612");
 
         // A non-anchor assistant line is untouched.
-        var other = """{"version":"v1","kind":"AssistantMessage","data":{"message_id":"a1","content":[{"kind":"text","data":"x"}]}}""";
+        const string other = """{"version":"v1","kind":"AssistantMessage","data":{"message_id":"a1","content":[{"kind":"text","data":"x"}]}}""";
         await Assert.That(KiroUsage.EnrichLine(other, map)).DoesNotContain("_kcap_usage");
 
         // Only AssistantMessage lines are enriched — a Prompt with the anchor id is left alone.
-        var prompt = """{"version":"v1","kind":"Prompt","data":{"message_id":"a2","content":[]}}""";
+        const string prompt = """{"version":"v1","kind":"Prompt","data":{"message_id":"a2","content":[]}}""";
         await Assert.That(KiroUsage.EnrichLine(prompt, map)).DoesNotContain("_kcap_usage");
     }
 
@@ -87,8 +87,8 @@ public class KiroUsageTests {
 
     [Test]
     public async Task enrich_line_injects_token_counts_and_model_when_present() {
-        var map    = KiroUsage.AnchorMap(MetaWithTokens);
-        var anchor = """{"version":"v1","kind":"AssistantMessage","data":{"message_id":"a1","content":[{"kind":"text","data":"done"}]}}""";
+        var map             = KiroUsage.AnchorMap(MetaWithTokens);
+        const string anchor = """{"version":"v1","kind":"AssistantMessage","data":{"message_id":"a1","content":[{"kind":"text","data":"done"}]}}""";
 
         var enriched = KiroUsage.EnrichLine(anchor, map);
 
@@ -130,8 +130,8 @@ public class KiroUsageTests {
         await Assert.That(map["a2"].InputTokens).IsNull();
         await Assert.That(map["a2"].OutputTokens).IsNull();
 
-        var anchor   = """{"version":"v1","kind":"AssistantMessage","data":{"message_id":"a2","content":[{"kind":"text","data":"done"}]}}""";
-        var enriched = KiroUsage.EnrichLine(anchor, map);
+        const string anchor = """{"version":"v1","kind":"AssistantMessage","data":{"message_id":"a2","content":[{"kind":"text","data":"done"}]}}""";
+        var enriched        = KiroUsage.EnrichLine(anchor, map);
 
         await Assert.That(enriched).DoesNotContain("input_token_count");
         await Assert.That(enriched).DoesNotContain("output_token_count");

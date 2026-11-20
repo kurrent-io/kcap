@@ -78,7 +78,7 @@ public class GeminiSessionStartMemoryTests {
         var hookSpecific = doc.RootElement.Obj("hookSpecificOutput");
         await Assert.That(hookSpecific).IsNotNull();
         await Assert.That(hookSpecific!.Value.Str("hookEventName")).IsEqualTo("SessionStart");
-        await Assert.That(hookSpecific!.Value.Str("additionalContext")).IsEqualTo(fragment);
+        await Assert.That(hookSpecific.Value.Str("additionalContext")).IsEqualTo(fragment);
     }
 
     /// <summary>Inverse of the Kiro contract: Gemini reads JSON, so the fragment MUST be escaped.

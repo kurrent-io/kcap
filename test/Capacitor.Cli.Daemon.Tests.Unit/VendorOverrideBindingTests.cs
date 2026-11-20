@@ -61,9 +61,10 @@ public class VendorOverrideBindingTests {
             await Assert.That(read(config)).IsEqualTo($"/opt/{vendor}/bin")
                 .Because($"{variable} is {vendor}'s binary override");
 
-            foreach (var (other, _, readOther, _) in Paths().Where(p => p.Vendor != vendor))
+            foreach (var (other, _, readOther, _) in Paths().Where(p => p.Vendor != vendor)) {
                 await Assert.That(readOther(config)).IsEqualTo(readOther(untouched))
                     .Because($"{variable} must leave {other}'s binary at its default");
+            }
         }
     }
 
@@ -79,9 +80,10 @@ public class VendorOverrideBindingTests {
             await Assert.That(read(config)).IsEqualTo($"{vendor}-model")
                 .Because($"{variable} is {vendor}'s model override");
 
-            foreach (var (other, _, readOther) in Models().Where(m => m.Vendor != vendor))
+            foreach (var (other, _, readOther) in Models().Where(m => m.Vendor != vendor)) {
                 await Assert.That(readOther(config)).IsEqualTo(readOther(untouched))
                     .Because($"{variable} must leave {other}'s model at its default");
+            }
         }
     }
 
@@ -118,8 +120,9 @@ public class VendorOverrideBindingTests {
 
         DaemonRunner.BindVendorOverrides(config, EveryVendor, read);
 
-        foreach (var (vendor, _, readPath, bare) in Paths())
+        foreach (var (vendor, _, readPath, bare) in Paths()) {
             await Assert.That(readPath(config)).IsEqualTo(bare)
                 .Because($"{vendor} keeps the command its harness ships");
+        }
     }
 }

@@ -68,6 +68,7 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
         _localDaemon     = localDaemon;
         _canLaunch       = canLaunch;
         _enabled         = enabled ?? (() => true);
+        _switchShown     = _enabled();
         _fill            = fill;
         _localCheckout   = localCheckout;
         _preferredVendor = preferredVendor;
@@ -78,6 +79,11 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     /// <summary>The list shows from the moment the switch is on, loading until its first read, so the launcher keeps
     /// its shape; only a server without next work, or no sign-in, hides it.</summary>
     public bool IsAvailable => _enabled() && !_unavailable;
+
+    volatile bool _switchShown;
+
+    /// <summary>The switch as the band last raised its status with, safe to read off the UI thread.</summary>
+    public bool SwitchShown => _switchShown;
 
     /// <summary>True until the first snapshot arrives.</summary>
     public bool IsLoading => IsAvailable && !_loaded && !_failed;
@@ -204,6 +210,7 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     }
 
     void RaiseStatus() {
+        _switchShown = _enabled();
         this.RaisePropertyChanged(nameof(IsAvailable));
         this.RaisePropertyChanged(nameof(IsLoading));
         this.RaisePropertyChanged(nameof(Note));

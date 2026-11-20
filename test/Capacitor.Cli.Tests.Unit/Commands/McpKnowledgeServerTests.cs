@@ -179,7 +179,7 @@ public class McpKnowledgeServerTests {
     async Task<string> CallAsync(HttpMessageHandler handler, string tool, string argsJson, TimeProvider? time = null) {
         using var client = new HttpClient(handler);
         var request = new JsonObject { ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = JsonNode.Parse(argsJson) } };
-        return await Server(time).HandleToolCallAsync(JsonValue.Create(1)!, request, client, "http://x", "abc123");
+        return await Server(time).HandleToolCallAsync(JsonValue.Create(1), request, client, "http://x", "abc123");
     }
 
     [Test]

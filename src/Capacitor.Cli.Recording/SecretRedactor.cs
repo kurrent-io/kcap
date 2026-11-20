@@ -21,13 +21,19 @@ public static partial class SecretRedactor {
     internal const string UnparsableOutputPlaceholder =
         $$"""{"type":"{{CaptureLossLine.UnparsableType}}","reason":"redacted line was no longer valid JSON"}""";
 
+    internal const int WatcherMatchTimeoutMs = 100;
+
+    // With the record budget this holds a line for about 1.4 s at most, inside the shortest cap a
+    // hook puts around a drain, about 2 s.
+    internal const int InlineRetryMatchTimeoutMs = 400;
+
     // A deadline only a super-linear pattern reaches: the linear patterns together cost about
     // 90 ns per char, so a 16M-char value takes under two seconds, while the JSON-key pattern is
     // quadratic on a quote-less run of keywords and would otherwise never return.
-    internal static readonly TimeSpan OutOfProcessMatchTimeout = TimeSpan.FromSeconds(30);
+    internal const int OutOfProcessMatchTimeoutMs = 30_000;
 
-    // The generated patterns carry the watcher's per-call deadline; a caller scanning a whole
-    // recording has no loop to keep responsive and gets the same vocabulary under the one above.
+    // One vocabulary under three deadlines. A generated pattern's deadline is fixed at compile
+    // time, so each set declares its own; a copy built at runtime reads IgnoreCase by the culture.
     public static readonly SecretPatterns WatcherPatterns = new() {
         SecretKeyNameRegex       = SecretKeyNameRx(),
         PemBlockRegex            = PemBlockRx(),
@@ -43,8 +49,35 @@ public static partial class SecretRedactor {
         UrlUserinfoRegex         = UrlUserinfoRx()
     };
 
-    internal static readonly Lazy<SecretPatterns> OutOfProcessPatterns =
-        new(() => WatcherPatterns.WithMatchTimeout(OutOfProcessMatchTimeout));
+    internal static readonly SecretPatterns InlineRetryPatterns = new() {
+        SecretKeyNameRegex       = SecretKeyNameRetryRx(),
+        PemBlockRegex            = PemBlockRetryRx(),
+        AwsUniqueIdRegex         = AwsUniqueIdRetryRx(),
+        VendorTokenRegex         = VendorTokenRetryRx(),
+        JsonKeySecretRegex       = JsonKeySecretRetryRx(),
+        EnvVarSecretRegex        = EnvVarSecretRetryRx(),
+        YamlStyleSecretRegex     = YamlStyleSecretRetryRx(),
+        ConnectionStringPwdRegex = ConnectionStringPwdRetryRx(),
+        AuthHeaderRegex          = AuthHeaderRetryRx(),
+        LabeledSecretRegex       = LabeledSecretRetryRx(),
+        UrlQuerySecretRegex      = UrlQuerySecretRetryRx(),
+        UrlUserinfoRegex         = UrlUserinfoRetryRx()
+    };
+
+    internal static readonly SecretPatterns OutOfProcessPatterns = new() {
+        SecretKeyNameRegex       = SecretKeyNameOutOfProcessRx(),
+        PemBlockRegex            = PemBlockOutOfProcessRx(),
+        AwsUniqueIdRegex         = AwsUniqueIdOutOfProcessRx(),
+        VendorTokenRegex         = VendorTokenOutOfProcessRx(),
+        JsonKeySecretRegex       = JsonKeySecretOutOfProcessRx(),
+        EnvVarSecretRegex        = EnvVarSecretOutOfProcessRx(),
+        YamlStyleSecretRegex     = YamlStyleSecretOutOfProcessRx(),
+        ConnectionStringPwdRegex = ConnectionStringPwdOutOfProcessRx(),
+        AuthHeaderRegex          = AuthHeaderOutOfProcessRx(),
+        LabeledSecretRegex       = LabeledSecretOutOfProcessRx(),
+        UrlQuerySecretRegex      = UrlQuerySecretOutOfProcessRx(),
+        UrlUserinfoRegex         = UrlUserinfoOutOfProcessRx()
+    };
 
     public static string RedactLine(string rawJsonlLine) => RedactLineWithOutcome(rawJsonlLine).Line;
 
@@ -87,10 +120,10 @@ public static partial class SecretRedactor {
     }
 
     public static bool IsSecretKey(ReadOnlySpan<char> propertyName) =>
-        OutOfProcessPatterns.Value.IsSecretKey(propertyName, RedactionBudget.Unlimited);
+        OutOfProcessPatterns.IsSecretKey(propertyName, RedactionBudget.Unlimited);
 
     public static string? RedactValue(ReadOnlySpan<char> value, bool keyIsSecret) =>
-        OutOfProcessPatterns.Value.Redact(value, keyIsSecret, RedactionBudget.Unlimited);
+        OutOfProcessPatterns.Redact(value, keyIsSecret, RedactionBudget.Unlimited);
 
     static string? RedactJsonStringValues(string line, int byteCount, RedactionBudget budget, SecretPatterns patterns) {
         if (line.Length == 0) return null;
@@ -214,66 +247,152 @@ public static partial class SecretRedactor {
     // database or map key far more often than a credential.
     const string UpperSecretSuffixName = "(?-i:[A-Z0-9_]*(?:KEYS?|PASS))";
 
-    [GeneratedRegex("(?:" + AuthHeaderNames + "|auth)$|(?:" + SecretKeywords + ")|^" + UpperSecretSuffixName + "$", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100)]
+    const string SecretKeyNamePattern =
+        "(?:" + AuthHeaderNames + "|auth)$|(?:" + SecretKeywords + ")|^" + UpperSecretSuffixName + "$";
+
+    [GeneratedRegex(SecretKeyNamePattern, RegexOptions.IgnoreCase, WatcherMatchTimeoutMs)]
     private static partial Regex SecretKeyNameRx();
 
-    [GeneratedRegex(@"-----BEGIN[A-Z\s]*PRIVATE KEY-----[\s\S]{0,16384}?-----END[A-Z\s]*PRIVATE KEY-----", RegexOptions.None, matchTimeoutMilliseconds: 100)]
+    [GeneratedRegex(SecretKeyNamePattern, RegexOptions.IgnoreCase, InlineRetryMatchTimeoutMs)]
+    private static partial Regex SecretKeyNameRetryRx();
+
+    [GeneratedRegex(SecretKeyNamePattern, RegexOptions.IgnoreCase, OutOfProcessMatchTimeoutMs)]
+    private static partial Regex SecretKeyNameOutOfProcessRx();
+
+    const string PemBlockPattern =
+        @"-----BEGIN[A-Z\s]*PRIVATE KEY-----[\s\S]{0,16384}?-----END[A-Z\s]*PRIVATE KEY-----";
+
+    [GeneratedRegex(PemBlockPattern, RegexOptions.None, WatcherMatchTimeoutMs)]
     private static partial Regex PemBlockRx();
 
-    [GeneratedRegex("(?:AKIA|ASIA|AROA|AIDA|AIPA|AGPA|ANPA|ANVA|ASCA|APKA|ABIA|ACCA)[0-9A-Z]{16,128}(?![0-9A-Z])", RegexOptions.None, matchTimeoutMilliseconds: 100)]
+    [GeneratedRegex(PemBlockPattern, RegexOptions.None, InlineRetryMatchTimeoutMs)]
+    private static partial Regex PemBlockRetryRx();
+
+    [GeneratedRegex(PemBlockPattern, RegexOptions.None, OutOfProcessMatchTimeoutMs)]
+    private static partial Regex PemBlockOutOfProcessRx();
+
+    const string AwsUniqueIdPattern =
+        "(?:AKIA|ASIA|AROA|AIDA|AIPA|AGPA|ANPA|ANVA|ASCA|APKA|ABIA|ACCA)[0-9A-Z]{16,128}(?![0-9A-Z])";
+
+    [GeneratedRegex(AwsUniqueIdPattern, RegexOptions.None, WatcherMatchTimeoutMs)]
     private static partial Regex AwsUniqueIdRx();
+
+    [GeneratedRegex(AwsUniqueIdPattern, RegexOptions.None, InlineRetryMatchTimeoutMs)]
+    private static partial Regex AwsUniqueIdRetryRx();
+
+    [GeneratedRegex(AwsUniqueIdPattern, RegexOptions.None, OutOfProcessMatchTimeoutMs)]
+    private static partial Regex AwsUniqueIdOutOfProcessRx();
 
     // Anchored: SecretPatterns finds candidates by prefix and confirms each one here.
     internal const string VendorTokenPattern =
         @"\G(?:ghp_|gho_|ghs_|github_pat_|cfat_|(?<![A-Za-z0-9])sk-(?:proj-|live_|test_)?|sk_live_|sk_test_|xoxb-|xoxp-|xoxa-|pypi-|npm_|glpat-|dckr_pat_|dckr_oat_)[A-Za-z0-9\-_]{10,}";
 
-    [GeneratedRegex(VendorTokenPattern, RegexOptions.None, matchTimeoutMilliseconds: 100)]
+    [GeneratedRegex(VendorTokenPattern, RegexOptions.None, WatcherMatchTimeoutMs)]
     private static partial Regex VendorTokenRx();
 
-    [GeneratedRegex(
-        """((?:\\"|")(?:[^"\\]*(?:""" + SecretKeywords + """)[^"\\]*|""" + UpperSecretSuffixName + """)(?:\\"|")[ \t]*:[ \t]*(?:\\"|"))([^"\\]+)((?:\\"|")|$)""",
-        RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100
-    )]
+    [GeneratedRegex(VendorTokenPattern, RegexOptions.None, InlineRetryMatchTimeoutMs)]
+    private static partial Regex VendorTokenRetryRx();
+
+    [GeneratedRegex(VendorTokenPattern, RegexOptions.None, OutOfProcessMatchTimeoutMs)]
+    private static partial Regex VendorTokenOutOfProcessRx();
+
+    const string JsonKeySecretPattern =
+        """((?:\\"|")(?:[^"\\]*(?:""" + SecretKeywords + """)[^"\\]*|""" + UpperSecretSuffixName + """)(?:\\"|")[ \t]*:[ \t]*(?:\\"|"))([^"\\]+)((?:\\"|")|$)""";
+
+    [GeneratedRegex(JsonKeySecretPattern, RegexOptions.IgnoreCase, WatcherMatchTimeoutMs)]
     private static partial Regex JsonKeySecretRx();
+
+    [GeneratedRegex(JsonKeySecretPattern, RegexOptions.IgnoreCase, InlineRetryMatchTimeoutMs)]
+    private static partial Regex JsonKeySecretRetryRx();
+
+    [GeneratedRegex(JsonKeySecretPattern, RegexOptions.IgnoreCase, OutOfProcessMatchTimeoutMs)]
+    private static partial Regex JsonKeySecretOutOfProcessRx();
 
     // The match starts at `=` and finds the name behind it, so letters without one cost nothing;
     // the name is the whole [A-Za-z_] run before it, so a digit ends it, as in OAUTH2_TOKEN.
     internal const string EnvVarSecretPattern =
         @"(?<=(?<![A-Za-z_])(?:[A-Z_]*(?:SECRETS?|TOKENS?|PASSWORDS?|PASSWD|PWD|API_?KEYS?|PRIVATE_?KEYS?|CREDENTIALS?|CLIENT_?SECRETS?|ACCESS_?KEYS?|AUTH_?TOKENS?)[A-Z_]*|(?-i:[A-Z_]*(?:KEYS?|PASS))))=([^\s""\\]+)";
 
-    [GeneratedRegex(EnvVarSecretPattern, RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100)]
+    [GeneratedRegex(EnvVarSecretPattern, RegexOptions.IgnoreCase, WatcherMatchTimeoutMs)]
     private static partial Regex EnvVarSecretRx();
 
-    [GeneratedRegex("""((?:""" + SecretKeywords + """)[\w.\-]*:[ \t]+)([^\s"\\]{8,})""", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100)]
+    [GeneratedRegex(EnvVarSecretPattern, RegexOptions.IgnoreCase, InlineRetryMatchTimeoutMs)]
+    private static partial Regex EnvVarSecretRetryRx();
+
+    [GeneratedRegex(EnvVarSecretPattern, RegexOptions.IgnoreCase, OutOfProcessMatchTimeoutMs)]
+    private static partial Regex EnvVarSecretOutOfProcessRx();
+
+    const string YamlStyleSecretPattern = """((?:""" + SecretKeywords + """)[\w.\-]*:[ \t]+)([^\s"\\]{8,})""";
+
+    [GeneratedRegex(YamlStyleSecretPattern, RegexOptions.IgnoreCase, WatcherMatchTimeoutMs)]
     private static partial Regex YamlStyleSecretRx();
 
-    [GeneratedRegex(@"((?:Password|Pwd)\s*=\s*)([^;""\\]+)(;|$)", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100)]
+    [GeneratedRegex(YamlStyleSecretPattern, RegexOptions.IgnoreCase, InlineRetryMatchTimeoutMs)]
+    private static partial Regex YamlStyleSecretRetryRx();
+
+    [GeneratedRegex(YamlStyleSecretPattern, RegexOptions.IgnoreCase, OutOfProcessMatchTimeoutMs)]
+    private static partial Regex YamlStyleSecretOutOfProcessRx();
+
+    const string ConnectionStringPwdPattern = @"((?:Password|Pwd)\s*=\s*)([^;""\\]+)(;|$)";
+
+    [GeneratedRegex(ConnectionStringPwdPattern, RegexOptions.IgnoreCase, WatcherMatchTimeoutMs)]
     private static partial Regex ConnectionStringPwdRx();
 
-    [GeneratedRegex(
-        """((?:""" + AuthHeaderNames + """)(?:\\?")?\s*:\s*(?:\\?")?\s*)([^\r\n"\\]+)""",
-        RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100
-    )]
+    [GeneratedRegex(ConnectionStringPwdPattern, RegexOptions.IgnoreCase, InlineRetryMatchTimeoutMs)]
+    private static partial Regex ConnectionStringPwdRetryRx();
+
+    [GeneratedRegex(ConnectionStringPwdPattern, RegexOptions.IgnoreCase, OutOfProcessMatchTimeoutMs)]
+    private static partial Regex ConnectionStringPwdOutOfProcessRx();
+
+    const string AuthHeaderPattern = """((?:""" + AuthHeaderNames + """)(?:\\?")?\s*:\s*(?:\\?")?\s*)([^\r\n"\\]+)""";
+
+    [GeneratedRegex(AuthHeaderPattern, RegexOptions.IgnoreCase, WatcherMatchTimeoutMs)]
     private static partial Regex AuthHeaderRx();
 
-    [GeneratedRegex("""\b((?:""" + SecretKeywords + """)\b[ \t]+)([^\s"\\]{16,})""", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100)]
+    [GeneratedRegex(AuthHeaderPattern, RegexOptions.IgnoreCase, InlineRetryMatchTimeoutMs)]
+    private static partial Regex AuthHeaderRetryRx();
+
+    [GeneratedRegex(AuthHeaderPattern, RegexOptions.IgnoreCase, OutOfProcessMatchTimeoutMs)]
+    private static partial Regex AuthHeaderOutOfProcessRx();
+
+    const string LabeledSecretPattern = """\b((?:""" + SecretKeywords + """)\b[ \t]+)([^\s"\\]{16,})""";
+
+    [GeneratedRegex(LabeledSecretPattern, RegexOptions.IgnoreCase, WatcherMatchTimeoutMs)]
     private static partial Regex LabeledSecretRx();
 
-    [GeneratedRegex(
-        """([?&](?:access_token|refresh_token|id_token|client_secret|signature|sig|x-amz-signature|awsaccesskeyid|api_key|apikey|api-key|token|password|secret|auth_token|sas)=)([^&\s"\\#]+)""",
-        RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100
-    )]
+    [GeneratedRegex(LabeledSecretPattern, RegexOptions.IgnoreCase, InlineRetryMatchTimeoutMs)]
+    private static partial Regex LabeledSecretRetryRx();
+
+    [GeneratedRegex(LabeledSecretPattern, RegexOptions.IgnoreCase, OutOfProcessMatchTimeoutMs)]
+    private static partial Regex LabeledSecretOutOfProcessRx();
+
+    const string UrlQuerySecretPattern =
+        """([?&](?:access_token|refresh_token|id_token|client_secret|signature|sig|x-amz-signature|awsaccesskeyid|api_key|apikey|api-key|token|password|secret|auth_token|sas)=)([^&\s"\\#]+)""";
+
+    [GeneratedRegex(UrlQuerySecretPattern, RegexOptions.IgnoreCase, WatcherMatchTimeoutMs)]
     private static partial Regex UrlQuerySecretRx();
 
-    [GeneratedRegex(
-        // Redis-family clients read a colon-free userinfo as the password, in every scheme variant
-        // (rediss, redis+tls, redis-sentinel, valkey); elsewhere a bare userinfo is only a username.
-        // The password runs to the authority's last @, since clients accept one unencoded, but a
-        // segment after an @ holds only RFC 3986 userinfo characters and never crosses a , or ; that
-        // opens a key= field, so a later field's address stays out of it. JSON
-        // text held in a string can escape the delimiters as \/ and \u0040.
-        """((?<![A-Za-z0-9+.\-])(?:[A-Za-z][A-Za-z0-9+.\-]*:(?:\\?/){2}[^:/?#\s"\\@]*:|(?:redis|valkey)[A-Za-z0-9+.\-]*:(?:\\?/){2}))([^\s"\\/?#@]+(?:(?:@|\\u0040)(?:[A-Za-z0-9\-._~%!$&'()*+=:]|[,;](?![A-Za-z0-9\-._~%!$&'()*+:]*=))+)*)(@|\\u0040)""",
-        RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 100
-    )]
+    [GeneratedRegex(UrlQuerySecretPattern, RegexOptions.IgnoreCase, InlineRetryMatchTimeoutMs)]
+    private static partial Regex UrlQuerySecretRetryRx();
+
+    [GeneratedRegex(UrlQuerySecretPattern, RegexOptions.IgnoreCase, OutOfProcessMatchTimeoutMs)]
+    private static partial Regex UrlQuerySecretOutOfProcessRx();
+
+    // Redis-family clients read a colon-free userinfo as the password, in every scheme variant
+    // (rediss, redis+tls, redis-sentinel, valkey); elsewhere a bare userinfo is only a username.
+    // The password runs to the authority's last @, since clients accept one unencoded, but a
+    // segment after an @ holds only RFC 3986 userinfo characters and never crosses a , or ; that
+    // opens a key= field, so a later field's address stays out of it. JSON
+    // text held in a string can escape the delimiters as \/ and \u0040.
+    const string UrlUserinfoPattern =
+        """((?<![A-Za-z0-9+.\-])(?:[A-Za-z][A-Za-z0-9+.\-]*:(?:\\?/){2}[^:/?#\s"\\@]*:|(?:redis|valkey)[A-Za-z0-9+.\-]*:(?:\\?/){2}))([^\s"\\/?#@]+(?:(?:@|\\u0040)(?:[A-Za-z0-9\-._~%!$&'()*+=:]|[,;](?![A-Za-z0-9\-._~%!$&'()*+:]*=))+)*)(@|\\u0040)""";
+
+    [GeneratedRegex(UrlUserinfoPattern, RegexOptions.IgnoreCase, WatcherMatchTimeoutMs)]
     private static partial Regex UrlUserinfoRx();
+
+    [GeneratedRegex(UrlUserinfoPattern, RegexOptions.IgnoreCase, InlineRetryMatchTimeoutMs)]
+    private static partial Regex UrlUserinfoRetryRx();
+
+    [GeneratedRegex(UrlUserinfoPattern, RegexOptions.IgnoreCase, OutOfProcessMatchTimeoutMs)]
+    private static partial Regex UrlUserinfoOutOfProcessRx();
 }

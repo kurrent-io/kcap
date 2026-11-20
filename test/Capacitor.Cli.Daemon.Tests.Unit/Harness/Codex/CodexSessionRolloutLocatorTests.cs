@@ -44,7 +44,7 @@ public class CodexSessionRolloutLocatorTests {
     public async Task RootLevelCwd_IsIgnored_ReturnsUnknown() {
         // Claude puts cwd at the root; Codex does NOT. A root-level cwd must not be treated
         // as a Codex match, or a Claude transcript would be mis-parsed.
-        var claudeShaped = $$"""{"type":"user","cwd":"{{Cwd}}"}""";
+        const string claudeShaped = $$"""{"type":"user","cwd":"{{Cwd}}"}""";
 
         await Assert.That(CodexSessionRolloutLocator.MatchRollout([claudeShaped], Cwd, StringComparison.Ordinal))
             .IsEqualTo(CodexSessionRolloutLocator.CwdMatch.Unknown);
@@ -53,7 +53,7 @@ public class CodexSessionRolloutLocatorTests {
     [Test]
     public async Task NoCwdYet_ReturnsUnknown() {
         // A freshly-created rollout whose session_meta line isn't flushed yet.
-        var eventOnly = """{"type":"event_msg","payload":{"type":"task_started"}}""";
+        const string eventOnly = """{"type":"event_msg","payload":{"type":"task_started"}}""";
 
         await Assert.That(CodexSessionRolloutLocator.MatchRollout([eventOnly], Cwd, StringComparison.Ordinal))
             .IsEqualTo(CodexSessionRolloutLocator.CwdMatch.Unknown);
@@ -107,9 +107,9 @@ public class CodexSessionRolloutLocatorTests {
     [Test]
     public async Task TryLocate_returns_dashless_session_id_of_the_matching_rollout() {
         using var tmp = new TempDir();
-        var spawn = DateTime.UtcNow;
-        var uuid  = "019f0022-1702-7a02-a630-edbfb043add4";
-        var wt    = tmp.PathTo("worktree");
+        var spawn         = DateTime.UtcNow;
+        const string uuid = "019f0022-1702-7a02-a630-edbfb043add4";
+        var wt            = tmp.PathTo("worktree");
         WriteRollout(tmp.Path, uuid, wt, creationUtc: spawn);
 
         var id = CodexSessionRolloutLocator.TryLocate(tmp.Path, wt, spawn.AddSeconds(-1));
@@ -122,10 +122,10 @@ public class CodexSessionRolloutLocatorTests {
     [Test]
     public async Task TryLocateWinner_returns_matching_id_and_file_path() {
         using var tmp = new TempDir();
-        var spawn = DateTime.UtcNow;
-        var uuid  = "019f0022-1702-7a02-a630-edbfb043add4";
-        var wt    = tmp.PathTo("worktree");
-        var file  = WriteRollout(tmp.Path, uuid, wt, creationUtc: spawn);
+        var spawn         = DateTime.UtcNow;
+        const string uuid = "019f0022-1702-7a02-a630-edbfb043add4";
+        var wt            = tmp.PathTo("worktree");
+        var file          = WriteRollout(tmp.Path, uuid, wt, creationUtc: spawn);
 
         var winner = CodexSessionRolloutLocator.TryLocateWinner(tmp.Path, wt, spawn.AddSeconds(-1));
 

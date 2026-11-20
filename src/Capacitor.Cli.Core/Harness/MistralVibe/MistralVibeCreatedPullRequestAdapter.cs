@@ -101,6 +101,6 @@ public sealed partial class MistralVibeCreatedPullRequestAdapter : ICreatedPullR
         return (stdout, exitCode, truncated);
     }
 
-    [GeneratedRegex(@"^(?<key>command|shell|stdout|stderr|returncode|exit_code|was_truncated|end): ?(?<value>.*)$")]
+    [GeneratedRegex("^(?<key>command|shell|stdout|stderr|returncode|exit_code|was_truncated|end): ?(?<value>.*)$")]
     private static partial Regex Field();
 }

@@ -839,7 +839,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             var sink = new CloudTerminalSink(
                 agent.Id, agent.SinksLock, agent.OutputBuffer,
-                _server.SendTerminalOutputAsync, () => _server.IsReady,
+                _server.SendTerminalOutputAsync,
+                _server.SendTerminalDimensionsAsync,
+                () => _server.IsReady,
                 _logger, _time, CloudSinkOptions, _shutdownCts.Token);
 
             _cloudSinks.Add(sink);
@@ -1239,8 +1241,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <summary>An app-server Codex on auto-review raises its person-lane prompts through the bridge rather
     /// than its own approval bridge, so they keep that bridge's fail-closed deadline.</summary>
     TimeSpan? PersonDeadlineOf(AgentInstance agent) =>
-        agent is { ApprovalsReviewer: Core.Harness.Codex.CodexApprovalsReviewers.AutoReview,
-                   RuntimeTransport: Harness.Codex.CodexTransportDecision.AppServer }
+        agent is { ApprovalsReviewer: CodexApprovalsReviewers.AutoReview,
+                   RuntimeTransport: CodexTransportDecision.AppServer }
             ? TimeSpan.FromSeconds(Math.Max(1, _config.CodexAppServerApprovalTimeoutSeconds))
             : null;
 
@@ -1461,7 +1463,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// the transport label rather than type-switching the runtime — the same value the server validates
     /// its launch decision against on registration.</summary>
     static bool IsResumableReviewer(AgentInstance a) =>
-        a.RuntimeTransport == Harness.Codex.CodexTransportDecision.AppServer;
+        a.RuntimeTransport == CodexTransportDecision.AppServer;
 
     internal IReadOnlyList<ReapCandidate> FindReviewersToReap() {
         var result = new List<ReapCandidate>();
@@ -1563,7 +1565,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     // BuildStatusReport only reads the cache (stays pure); the send path refreshes.
     static readonly TimeSpan HarnessInventoryTtl = TimeSpan.FromHours(6);
     readonly object _harnessInventoryGate = new();
-    Capacitor.Cli.Core.Setup.HarnessInventory? _harnessInventory;
+    HarnessInventory? _harnessInventory;
     DateTimeOffset _harnessInventoryEvaluatedAt;
 
     /// <summary>Recomputes the cached harness inventory if it's never been evaluated or is older than
@@ -1590,7 +1592,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
-    Capacitor.Cli.Core.Setup.HarnessInventory? CurrentHarnessInventory() {
+    HarnessInventory? CurrentHarnessInventory() {
         lock (_harnessInventoryGate) return _harnessInventory;
     }
 
@@ -1796,8 +1798,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     if (vendorsChanged) {
                         Volatile.Write(ref _discoveryPublicationPending, true);
                         _config.SupportedVendors = installed;
-                        _config.AcpPresetVendors = installed.Where(Acp.AcpPermissionPresets.RoutedVendors.Contains).ToArray();
-                        _config.PermissionModeVendors = Harness.Claude.ClaudePermissionModePolicy.AdvertisedVendors(installed);
+                        _config.AcpPresetVendors = installed.Where(AcpPermissionPresets.RoutedVendors.Contains).ToArray();
+                        _config.PermissionModeVendors = ClaudePermissionModePolicy.AdvertisedVendors(installed);
                         _config.PrReviewVendors = DaemonRunner.AdvertisedPrReviewVendors(_runtimeFactories.Values);
                         probeCatalog = true;
                     }
@@ -2466,9 +2468,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             string agentId, LaunchKind kind, string? flowRunId, string? flowRole, AgentActivityClock clock,
             string? vendor = null, string? repoPath = null, string? title = null, DateTime? createdAt = null,
             ResolvedAccount? account = null) {
-        lock (_membership)
+        lock (_membership) {
             _pendingLaunches[agentId] = new PendingLaunch(
                 agentId, kind, createdAt ?? _time.GetUtcNow().UtcDateTime, flowRunId, flowRole, clock, vendor, repoPath, title, account);
+        }
         _statusNotifier.Pulse();
 
         return new PendingLaunchScope(this, agentId);
@@ -4236,9 +4239,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             // Under the lock a stop marks itself requested by, so a stop already under way keeps its report.
             bool reportsItself;
-            lock (_ledgerLock)
+            lock (_ledgerLock) {
                 reportsItself = agent.Status is not "Completed" and not "Failed" && !agent.StopRequested
                     && ClaimRunReport(agent, RunReportSent);
+            }
 
             if (reportsItself) {
                 if (!agent.Runtime.HasExited) LogOutputEndedWhileRunning(agent.Id);
@@ -6272,15 +6276,16 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             var valid = cmd is { Cols: > 0 and <= ushort.MaxValue, Rows: > 0 and <= ushort.MaxValue };
 
             if (clear || valid) {
+                bool queued;
+
                 lock (agent.SinksLock) {
                     agent.WebDims = clear ? null : new AgentInstance.Dim((ushort)cmd.Cols, (ushort)cmd.Rows);
                     ClampPtyLocked(agent);
+                    queued = QueueSizeLocked(agent);
                 }
 
-                // Announce the clamped size so every web viewer re-locks (and reconnect resends the
-                // real size, not stale ones). Outside the lock, best-effort, fire-and-forget — same
-                // as the local resize path in ApplyResizeClamp.
-                _ = SafeSendDimsAsync(agent);
+                // Announce the clamped size so every web viewer re-locks.
+                if (!queued) _ = SafeSendDimsAsync(agent);
             }
         }
 

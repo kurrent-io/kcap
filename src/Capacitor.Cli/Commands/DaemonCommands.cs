@@ -293,10 +293,17 @@ public sealed class DaemonCommands(
     /// leave hosted Antigravity without it just because the daemon didn't come from a service install.
     /// </summary>
     void ApplyEnvironment(IDictionary<string, string?> env) {
-        var gcloud = GcloudConfig.ConfigDir(home);
+        var isWindows = OperatingSystem.IsWindows();
+
+        // gcloud's state is read only when the trio will be completed from it: looking and then
+        // discarding the result is still the probe the daemon's credential boundary forbids.
+        env.TryGetValue(Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.FlagKey, out var flag);
+        var gcloud = Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.Derives(isWindows, flag)
+            ? GcloudConfig.ConfigDir(home)
+            : null;
 
         ApplySpawnEnvironment(
-            env, store.Directory, config.Directory, OperatingSystem.IsWindows(),
+            env, store.Directory, config.Directory, isWindows,
             adcCredentialsPath: Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.ExistingCredentialsPath(gcloud),
             gcloudProject:      GcloudConfig.DefaultProject(gcloud));
     }
@@ -304,9 +311,8 @@ public sealed class DaemonCommands(
     /// <summary>Pure half of <see cref="ApplyEnvironment"/>: the daemon/config roots are written, not
     /// left to the child to derive (a derived root is one HOME change away from a different one, and
     /// the sandboxes that do rewrite HOME name their own root anyway), and the trio is completed via
-    /// <see cref="Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.Complete"/> — on Windows too:
-    /// this environment lives only in the spawned process, whereas a service unit is a file on disk,
-    /// which is why <c>ServiceEnvironment</c> leaves the credential path out of a Windows unit.
+    /// <see cref="Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.Complete"/> wherever
+    /// <see cref="Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.Derives"/> allows it.
     /// <c>Complete</c> is seeded from what the environment already carries, so a trio member the
     /// operator exported wins over the derived default — it only fills what is absent, and handing it
     /// an empty view would let the derived default overwrite the exported value on the copy back.
@@ -329,7 +335,10 @@ public sealed class DaemonCommands(
                 trio[k] = v;
         }
 
-        Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.Complete(trio, adcCredentialsPath, gcloudProject);
+        trio.TryGetValue(Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.FlagKey, out var flag);
+
+        if (Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.Derives(isWindows, flag))
+            Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.Complete(trio, adcCredentialsPath, gcloudProject);
 
         foreach (var (k, v) in trio) env[k] = v;
     }

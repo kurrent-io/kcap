@@ -55,9 +55,10 @@ public class VendorConfigSlotsTests {
                 .Because($"{vendor}'s slot must name {vendor}'s own binary property");
             await Assert.That(config.PathSlot(vendor).Read()).IsEqualTo($"/opt/{vendor}/bin");
 
-            foreach (var (other, readOther, _) in Paths().Where(p => p.Vendor != vendor))
+            foreach (var (other, readOther, _) in Paths().Where(p => p.Vendor != vendor)) {
                 await Assert.That(readOther(config)).IsEqualTo(readOther(untouched))
                     .Because($"writing {vendor}'s slot must leave {other}'s binary at its default");
+            }
         }
     }
 
@@ -74,9 +75,10 @@ public class VendorConfigSlotsTests {
                 .Because($"{vendor}'s slot must name {vendor}'s own model property");
             await Assert.That(config.ModelSlot(vendor)!.Read()).IsEqualTo($"{vendor}-model");
 
-            foreach (var (other, readOther) in Models().Where(m => m.Vendor != vendor))
+            foreach (var (other, readOther) in Models().Where(m => m.Vendor != vendor)) {
                 await Assert.That(readOther(config)).IsEqualTo(readOther(untouched))
                     .Because($"writing {vendor}'s slot must leave {other}'s model at its default");
+            }
         }
     }
 
@@ -102,8 +104,9 @@ public class VendorConfigSlotsTests {
     public async Task A_vendor_has_a_model_slot_exactly_when_it_names_a_model_variable() {
         var config = new DaemonConfig();
 
-        foreach (var vendor in EveryVendor)
+        foreach (var vendor in EveryVendor) {
             await Assert.That(config.ModelSlot(vendor) is not null).IsEqualTo(vendor.ModelEnvVar is not null)
                 .Because($"{vendor} must either have both a model variable and a slot, or neither");
+        }
     }
 }

@@ -50,10 +50,11 @@ public sealed class HandoffDrafts : IDisposable {
             .DisposeWith(_subscriptions);
         directory?.Rows.Connect()
             .Subscribe(changes => {
-                foreach (var change in changes)
+                foreach (var change in changes) {
                     if (change.Reason is ChangeReason.Add or ChangeReason.Update
                      && change.Current is { IsPlaceholder: false, Origin: AgentOrigin.Local } row)
                         ConfirmStarted(row.Id);
+                }
             })
             .DisposeWith(_subscriptions);
     }

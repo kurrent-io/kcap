@@ -4,12 +4,14 @@ using System.Reactive.Linq;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
@@ -23,6 +25,53 @@ public partial class SessionRailView : UserControl {
         InitializeComponent();
         DataContextChanged += (_, _) => BindSearchLabel();
         foreach (var anchor in new[] { RailHelpButton, RailGroupButton, RailSortButton }) KeyboardDismissible(anchor);
+    }
+
+    /// Calls <paramref name="painted"/> once, on the UI thread, with the time the first frame showing a
+    /// session row was drawn: a row inside the scrolled viewport of a visible rail. Data alone does not
+    /// count: a collapsed rail paints nothing, and folded groups can fill the viewport with every
+    /// expanded row below it.
+    public void OnFirstSessionsPainted(TimeProvider time, Action<DateTimeOffset> painted) {
+        var rowLists = new Dictionary<Control, ItemsControl>();
+        RenderedFrame.WhenDrawn(this, () => IsEffectivelyVisible && ShowsSessionRow(rowLists), time, at => {
+            rowLists.Clear();
+            painted(at);
+        });
+    }
+
+    // The group's row list is looked up once per container and kept for later layout passes.
+    bool ShowsSessionRow(Dictionary<Control, ItemsControl> rowLists) {
+        if (DataContext is not MainWindowViewModel { Rail: { } rail }) return false;
+        var viewport = new Rect(RailScroll.Viewport);
+        for (var i = 0; i < rail.Groups.Count; i++) {
+            if (rail.Groups[i] is not { IsExpanded: true, Sessions.Count: > 0 } || RailGroups.ContainerFromIndex(i) is not { } group) continue;
+            if (!rowLists.TryGetValue(group, out var rows)) {
+                if (group.FindDescendantOfType<ItemsControl>() is not { } found) continue;
+                rowLists[group] = rows = found;
+            }
+            if (RowInside(rows, viewport)) return true;
+        }
+        return false;
+    }
+
+    // Rows stack top to bottom, so the first whose bottom is below the viewport's top is the only one
+    // that can be inside it.
+    bool RowInside(ItemsControl rows, Rect viewport) {
+        // The container's child, not the container: the row's top margin is inside the container's bounds.
+        Rect? Row(int index) => rows.ContainerFromIndex(index) is { } container
+            && (container is ContentPresenter { Child: { } child } ? child : container) is var row
+            && row.TranslatePoint(default, RailScroll) is { } at
+            ? new Rect(at, row.Bounds.Size) : null;
+        int low = 0, high = rows.ItemCount - 1, first = -1;
+        while (low <= high) {
+            var mid = (low + high) / 2;
+            if (Row(mid) is not { } rect) return false;
+            if (rect.Bottom > viewport.Top) {
+                first = mid;
+                high = mid - 1;
+            } else low = mid + 1;
+        }
+        return first >= 0 && Row(first) is { } candidate && candidate.Height > 0 && candidate.Intersects(viewport);
     }
 
     // A pointer-opened flyout leaves focus on its button, outside the popup, where Escape never reaches it.

@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
@@ -23,7 +24,7 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 /// and bundle are fakes. Console, the Spectre singleton, <c>KCAP_URL</c> and the interrupt seam are process-global.
 /// </summary>
 [NotInParallel, ExcludeOn(OS.Windows)]
-internal sealed class SetupLocalArmTests : IDisposable {
+internal sealed partial class SetupLocalArmTests : IDisposable {
     const string Version = "1.3.0";
 
     static readonly LocalPlatform MacArm = new(true, false, false, Architecture.Arm64);
@@ -325,7 +326,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
         await Assert.That(exit).IsEqualTo(0).Because(string.Join('\n', stdout) + spectre + stderr);
         await Assert.That(body).IsEqualTo("seen");
         await Assert.That(_log).Contains("POST /api/admin/intelligence");
-        await Assert.That(System.Text.RegularExpressions.Regex.Replace(string.Join('\n', stdout) + spectre, @"\s+", " "))
+        await Assert.That(Whitespace().Replace(string.Join('\n', stdout) + spectre, " "))
             .Contains("Background intelligence: your local agent, claude.");
     }
 
@@ -342,7 +343,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
         ]);
 
         await Assert.That(exit).IsEqualTo(0).Because(string.Join('\n', stdout) + spectre + stderr);
-        await Assert.That(System.Text.RegularExpressions.Regex.Replace(string.Join('\n', stdout) + spectre, @"\s+", " "))
+        await Assert.That(Whitespace().Replace(string.Join('\n', stdout) + spectre, " "))
             .Contains($"This server does not run background work on a local agent. {LocalIntelligenceStep.Later}");
     }
 
@@ -354,7 +355,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
             "setup", "--local", "--single-user", "--yes", "--no-prompt", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
         ]);
 
-        var said = System.Text.RegularExpressions.Regex.Replace(string.Join('\n', stdout) + spectre, @"\s+", " ");
+        var said = Whitespace().Replace(string.Join('\n', stdout) + spectre, " ");
 
         await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(said + stderr);
         await Assert.That(_log).DoesNotContain("POST /api/admin/intelligence");
@@ -375,7 +376,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
             "setup", "--local", "--no-embeddings", "--no-prompt", "--skip-import", .. SetupCommandTests.SkipAllAgentInstallFlags,
         ]);
 
-        var said = System.Text.RegularExpressions.Regex.Replace(string.Join('\n', stdout) + spectre, @"\s+", " ");
+        var said = Whitespace().Replace(string.Join('\n', stdout) + spectre, " ");
 
         await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(said + stderr);
         await Assert.That(said).Contains("Reusing");
@@ -434,7 +435,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
             "setup", "--local", "--no-prompt", .. SetupCommandTests.SkipAllAgentInstallFlags,
         ]);
 
-        var said = System.Text.RegularExpressions.Regex.Replace(string.Join('\n', stdout) + spectre, @"\s+", " ");
+        var said = Whitespace().Replace(string.Join('\n', stdout) + spectre, " ");
 
         await Assert.That(exit).IsEqualTo(SetupExit.Done).Because(said + stderr);
         await Assert.That(said).Contains("Not importing past sessions");
@@ -710,4 +711,7 @@ internal sealed class SetupLocalArmTests : IDisposable {
             onMarker();
         }
     }
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex Whitespace();
 }

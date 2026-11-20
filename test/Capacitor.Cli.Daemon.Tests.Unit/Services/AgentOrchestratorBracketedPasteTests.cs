@@ -16,8 +16,8 @@ public class AgentOrchestratorBracketedPasteTests {
     /// the reason for every later failure with it.</summary>
     string WorktreePath => Worktree.CreateDir("worktree");
 
-    const string PasteStart = "\x1b[200~";
-    const string PasteEnd   = "\x1b[201~";
+    const string PasteStart = "\e[200~";
+    const string PasteEnd   = "\e[201~";
 
     [Test]
     public async Task HandleSendInput_wraps_the_message_in_a_bracketed_paste_and_submits_with_repeated_Enter() {

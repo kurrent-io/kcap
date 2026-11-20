@@ -295,8 +295,8 @@ public class AgentHookPosterTests : IDisposable {
         const string payload = """{"hook_event_name":"SessionEnd","reason":"exit"}""";
         var paths     = WatcherPaths.FromEnvironment(Config.Root);
         var lifecycle = new HookSpool(Config.Root, TimeProvider.System, server: null);
-        Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.Write(paths, session, payload);
-        File.SetLastWriteTimeUtc(Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest.PathFor(paths, session, payload), DateTime.UtcNow.AddMinutes(-10));
+        Core.Harness.Muse.MuseSessionEndRequest.Write(paths, session, payload);
+        File.SetLastWriteTimeUtc(Core.Harness.Muse.MuseSessionEndRequest.PathFor(paths, session, payload), DateTime.UtcNow.AddMinutes(-10));
 
         await Poster.DrainSpoolsCoreAsync(lifecycle, new TranscriptSpool(Config.Root, TimeProvider.System, server: null), null,
             _ => Task.FromResult(new AuthAttempt(new HttpClient(), AuthStatus.Expired)));

@@ -230,7 +230,7 @@ static class ServiceFiles {
     static void RequireOwnerOnlyPath(string path) {
         if (OperatingSystem.IsWindows()) return;
 
-        using var handle = File.OpenHandle(path, FileMode.Open, FileAccess.Read);
+        using var handle = File.OpenHandle(path);
 
         RequireOwnerOnlyHandle(handle, path);
     }

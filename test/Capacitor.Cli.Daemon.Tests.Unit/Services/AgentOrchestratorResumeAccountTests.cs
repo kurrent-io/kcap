@@ -185,7 +185,7 @@ public class AgentOrchestratorResumeAccountTests {
         var expected = new ResolvedAccount(AccountDirectory.Normalize(personal), null, ".claude-personal");
         await Assert.That(_launcher.LastContext!.Account).IsEqualTo(expected);
         await Assert.That(orch.GetAgentForTest("resume-personal")!.Account).IsEqualTo(expected);
-        await Assert.That(Recorded(orch.ResumeLedger!.TryRead("resume-personal")!)).IsEqualTo((personal, (string?)null, ".claude-personal"));
+        await Assert.That(Recorded(orch.ResumeLedger!.TryRead("resume-personal")!)).IsEqualTo((personal, null, ".claude-personal"));
         await Assert.That(Store.TryLoad()!.Accounts.Select(a => a.Id)).IsEquivalentTo([WorkId]);
     }
 

@@ -30,7 +30,7 @@ public class GeminiCreatedPullRequestAdapterTests {
 
     [Test]
     public async Task The_older_labelled_report_is_read_too() {
-        var report = "Command: gh pr create --fill\nDirectory: (root)\nStdout: " + Url + "\nStderr: (empty)\nError: (none)\nExit Code: 0\nSignal: (none)\nBackground PIDs: (none)\nProcess Group PGID: 4242";
+        const string report = "Command: gh pr create --fill\nDirectory: (root)\nStdout: " + Url + "\nStderr: (empty)\nError: (none)\nExit Code: 0\nSignal: (none)\nBackground PIDs: (none)\nProcess Group PGID: 4242";
 
         await Assert.That(Observe(ShellTurn("c1", "gh pr create --fill", report)).Select(f => f.Pr.Number)).IsEquivalentTo([1945]);
     }
@@ -38,7 +38,7 @@ public class GeminiCreatedPullRequestAdapterTests {
     // gh's refusal exits 1, which the report states even though the tool call itself completed.
     [Test]
     public async Task A_create_gh_refused_because_the_pr_exists_is_not_found() {
-        var report = "Output: a pull request for branch \"feature\" into branch \"main\" already exists:\n" + Url + "\nExit Code: 1\nProcess Group PGID: 4242";
+        const string report = "Output: a pull request for branch \"feature\" into branch \"main\" already exists:\n" + Url + "\nExit Code: 1\nProcess Group PGID: 4242";
 
         await Assert.That(Observe(ShellTurn("c1", "gh pr create --fill", report))).IsEmpty();
         await Assert.That(Observe(ShellTurn("c2", "gh pr create --fill", "Output: " + Url, status: "error"))).IsEmpty();

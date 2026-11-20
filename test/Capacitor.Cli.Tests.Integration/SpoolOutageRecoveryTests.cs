@@ -189,7 +189,7 @@ public class SpoolOutageRecoveryTests : IDisposable {
     public async Task Replayed_session_end_with_generate_whats_done_true_drains_without_error() {
         // Seed a spooled session-end directly (simulates a previous outage).
         var spool = MakeSpool();
-        var sessionEndBody = $$"""{"hook_event_name":"session-end","session_id":"{{Sid}}","cwd":"/tmp/test","reason":"eof"}""";
+        const string sessionEndBody = $$"""{"hook_event_name":"session-end","session_id":"{{Sid}}","cwd":"/tmp/test","reason":"eof"}""";
         spool.Append(Sid, "session-end", sessionEndBody);
 
         // Confirm the spool file exists before the test.
@@ -233,7 +233,7 @@ public class SpoolOutageRecoveryTests : IDisposable {
     public async Task A_delivered_snapshot_upload_is_marked_delivered(int status, bool delivered) {
         _server.Given(Request.Create().WithPath("/hooks/policy-snapshot").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(status));
-        var upload = $$"""
+        const string upload = $$"""
             {"session_id":"{{Sid}}","snapshot_id":"abc123","engine_version":"1","degraded":false,"degradations":[],"documents":[]}
             """;
         MakeSpool().Append(Sid, "policy-snapshot", upload);

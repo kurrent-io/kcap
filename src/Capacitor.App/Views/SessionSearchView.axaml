@@ -56,7 +56,7 @@
                                 Padding="6,2" FontSize="11" CornerRadius="5" Focusable="False" VerticalAlignment="Center"
                                 Command="{Binding DismissSearchCommand}" AutomationProperties.Name="Close search" />
                     </Grid>
-                    <ProgressBar x:Name="SearchProgress" Height="2" MinHeight="2" IsIndeterminate="True"
+                    <ProgressBar x:Name="SearchProgress" Height="2" MinHeight="2" views:BusyIndicator.IsBusy="True"
                                  Foreground="{StaticResource KcapMutedBrush}" Background="Transparent">
                         <ProgressBar.IsVisible>
                             <MultiBinding Converter="{x:Static BoolConverters.And}">
@@ -170,7 +170,7 @@
                                             <TextBlock Text="{Binding WhenText}" Classes="searchMeta" IsVisible="{Binding !IsOpening}" />
                                             <views:AppIcon Kind="LoaderCircle" Size="12" Foreground="{StaticResource KcapMutedBrush}"
                                                            HorizontalAlignment="Right" IsVisible="{Binding IsOpening}"
-                                                           Classes.kcapSpinning="{Binding IsOpening}" />
+                                                           views:BusyIndicator.IsBusy="{Binding IsOpening}" />
                                         </Panel>
                                     </Grid>
                                 </Button>

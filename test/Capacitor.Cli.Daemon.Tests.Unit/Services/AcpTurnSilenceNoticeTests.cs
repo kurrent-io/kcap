@@ -89,9 +89,10 @@ public class AcpTurnSilenceNoticeTests {
         var deadline = DateTime.UtcNow + HangGuard;
 
         while (DateTime.UtcNow < deadline) {
-            while (transcript.Envelopes.TryRead(out var envelope))
+            while (transcript.Envelopes.TryRead(out var envelope)) {
                 if (envelope.Kind == AcpEventKind.SystemNote && envelope.Text?.Contains("No output") == true)
                     return envelope.Text;
+            }
 
             time.Advance(TimeSpan.FromSeconds(30));
             await Task.Delay(10);
@@ -147,9 +148,10 @@ public class AcpTurnSilenceNoticeTests {
         }
 
         var extra = 0;
-        while (start.Transcript!.Envelopes.TryRead(out var envelope))
+        while (start.Transcript!.Envelopes.TryRead(out var envelope)) {
             if (envelope.Kind == AcpEventKind.SystemNote && envelope.Text?.Contains("No output") == true)
                 extra++;
+        }
 
         await Assert.That(extra).IsEqualTo(0);
 
@@ -173,9 +175,10 @@ public class AcpTurnSilenceNoticeTests {
         }
 
         var notes = 0;
-        while (start.Transcript!.Envelopes.TryRead(out var envelope))
+        while (start.Transcript!.Envelopes.TryRead(out var envelope)) {
             if (envelope.Kind == AcpEventKind.SystemNote && envelope.Text?.Contains("No output") == true)
                 notes++;
+        }
 
         await Assert.That(notes).IsEqualTo(0);
 

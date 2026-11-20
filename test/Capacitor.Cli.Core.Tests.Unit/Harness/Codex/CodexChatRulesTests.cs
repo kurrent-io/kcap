@@ -163,9 +163,10 @@ public class CodexChatRulesTests {
         await Assert.That(e[1].ToolCallId).IsEqualTo(e[0].ToolCallId);
         await Assert.That(e[0].ToolCallId).IsNotNull();
 
-        foreach (var action in new[] { """{"type":"openPage","url":"https://x/y"}""", """{"type":"find_in_page","url":"https://x/y","pattern":"acp"}""" })
+        foreach (var action in new[] { """{"type":"openPage","url":"https://x/y"}""", """{"type":"find_in_page","url":"https://x/y","pattern":"acp"}""" }) {
             await Assert.That(P(Item($$$"""{"type":"web_search_call","status":"completed","action":{{{action}}}}"""))[0].ToolKind)
                 .IsEqualTo(AcpToolKind.Fetch).Because(action);
+        }
     }
 
     [Test]
@@ -271,7 +272,7 @@ public class CodexChatRulesTests {
     /// The message's own slug is Codex's record; what the server kept beside it only fills what the slug lacks.
     [Test]
     public async Task Kinds_the_payload_carries_win_over_the_servers() {
-        var payload = """{"content":"<environment_context> is what I mean by context","extensions":{"codex":{"content_item_kinds":["environments.environment_context"]}}}""";
+        const string payload = """{"content":"<environment_context> is what I mean by context","extensions":{"codex":{"content_item_kinds":["environments.environment_context"]}}}""";
         await Assert.That(Stored(payload, """{"codex":{"content_item_kinds":["user.text"]}}""")).IsEmpty();
     }
 

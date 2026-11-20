@@ -57,7 +57,7 @@
 
             <StackPanel x:Name="CardActions" Classes="nwbActs" Orientation="Horizontal" Spacing="2"
                         HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
-                <views:AppIcon Classes="kcapSpinning" Kind="LoaderCircle" Size="14" Foreground="{StaticResource KcapMutedBrush}"
+                <views:AppIcon views:BusyIndicator.IsBusy="{Binding Busy}" Kind="LoaderCircle" Size="14" Foreground="{StaticResource KcapMutedBrush}"
                                Margin="0,0,6,0" IsVisible="{Binding Busy}" />
                 <Button x:Name="CardStart" Classes="kcapGhost nwbIconAction" Command="{Binding StartCommand}" IsVisible="{Binding CanWorkOn}"
                         ToolTip.Tip="Start an agent on this now, on this machine"

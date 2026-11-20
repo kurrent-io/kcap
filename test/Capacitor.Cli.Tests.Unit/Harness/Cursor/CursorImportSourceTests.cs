@@ -1329,7 +1329,7 @@ public class CursorImportSourceTests {
         var repo      = startNode["repository"];
         await Assert.That(repo).IsNotNull();
         await Assert.That(repo!["owner"]!.GetValue<string>()).IsEqualTo("kurrent-io");
-        await Assert.That(repo!["repo_name"]!.GetValue<string>()).IsEqualTo("kcap-server");
+        await Assert.That(repo["repo_name"]!.GetValue<string>()).IsEqualTo("kcap-server");
     }
 
     [Test]
@@ -1473,7 +1473,7 @@ public class CursorImportSourceTests {
         // import (return Failed) BEFORE the parent session-end, so a re-run repairs it — rather
         // than posting subagent-stop + session-end over a child whose transcript wasn't accepted.
         using var fx = new ProjectsDirFixture();
-        var (parentId, childId, classified, src) = await SetupParentChildAsync(fx);
+        var (parentId, _, classified, src) = await SetupParentChildAsync(fx);
         var parentClass = classified.Single(c => c.SessionId == parentId);
 
         var posted = new List<string>();
@@ -1502,7 +1502,7 @@ public class CursorImportSourceTests {
         // the child would create a standalone top-level session AND post subagent lifecycle
         // out of order with the parent.
         using var fx = new ProjectsDirFixture();
-        var (parentId, childId, classified, src) = await SetupParentChildAsync(fx);
+        var (_, childId, classified, src) = await SetupParentChildAsync(fx);
 
         var childClass = classified.Single(c => c.SessionId == childId);
         await Assert.That(childClass.SourceMeta!.ContainsKey("IsSubagentChild")).IsTrue();
@@ -1571,7 +1571,7 @@ public class CursorImportSourceTests {
         var jsonl = fx.AddSession(
             "Users-me-proj", "11111111-1111-1111-1111-111111111111", "{\"a\":1}\n{\"b\":2}\n{\"c\":3}\n");
         var src = new CursorImportSource(Config.Root, fx.ProjectsDir, fx.WorkspaceStorageDir, router: new GitProviderRouter(), time: TimeProvider.System);
-        var sessionId = "11111111111111111111111111111111";
+        const string sessionId = "11111111111111111111111111111111";
 
         var posted = new List<string>();
         using var handler = new StubHandler(

@@ -820,7 +820,7 @@ public partial class ChatTabViewModelTests {
     public async Task Recall_leaves_out_the_attachment_trailer_the_daemon_appended() {
         await RunOnUiAsync(async () => {
             var h = Claude();
-            var withFiles = """{"type":"user","message":{"role":"user","content":"look at this\n\n[Attached files: /x/a.png]"}}""";
+            const string withFiles = """{"type":"user","message":{"role":"user","content":"look at this\n\n[Attached files: /x/a.png]"}}""";
             await h.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [withFiles])));
             await AssertRecallOrder(h.Chat, "look at this");
             await h.TeardownAsync();

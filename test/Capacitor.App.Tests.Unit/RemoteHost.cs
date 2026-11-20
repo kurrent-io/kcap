@@ -58,7 +58,7 @@ sealed class RemoteHost : IDisposable {
     }
 
     public static AgentRow ServerRow(string sessionId, string status = "ended") =>
-        AgentRow.FromServer(new Capacitor.Remote.Models.RepoSessionDto {
+        AgentRow.FromServer(new RepoSessionDto {
             SessionId = sessionId, Status = status, AccessLevel = "full", Vendor = "claude", Title = "Ended session",
             Owner = new() { UserId = "u1", DisplayName = "Alexey" },
             StartedAt = DateTimeOffset.UnixEpoch, LastActivityAt = DateTimeOffset.UnixEpoch.AddHours(1),

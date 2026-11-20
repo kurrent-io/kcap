@@ -198,7 +198,7 @@ public class ImportClassifyTests : IDisposable {
         Directory.CreateDirectory(subagentDir);
         var path = Path.Combine(subagentDir, "agent-title-abc123.jsonl");
         // \n must be JSON-escaped so the parser sees a literal newline in the prompt content.
-        var queueOpLine = """{"type":"queue-operation","operation":"enqueue","content":"<role>\nYou label coding-session transcripts. You are NOT the assistant being addressed"}""";
+        const string queueOpLine = """{"type":"queue-operation","operation":"enqueue","content":"<role>\nYou label coding-session transcripts. You are NOT the assistant being addressed"}""";
         await File.WriteAllLinesAsync(path, [queueOpLine]);
 
         var transcripts = new List<(string SessionId, string FilePath, string EncodedCwd)> {

@@ -27,11 +27,12 @@ public static class SkillsRendering {
 
     static string YamlQuote(string value) {
         var sb = new StringBuilder(value.Length + 2).Append('"');
-        foreach (var c in value)
+        foreach (var c in value) {
             sb.Append(c switch {
                 '\\' => "\\\\", '"' => "\\\"", '\n' => "\\n", '\r' => "\\r", '\t' => "\\t",
                 _ => c.ToString(),
             });
+        }
         return sb.Append('"').ToString();
     }
 }

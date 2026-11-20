@@ -1,6 +1,6 @@
 namespace Capacitor.Cli.Core.Tests.Unit;
 
-using Capacitor.Cli.Core;
+using Core;
 
 public class TitleGenerationTests {
     [Test]

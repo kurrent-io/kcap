@@ -20,7 +20,7 @@ public class XmlRepresentableValueTests {
     static async Task Rejects(string value, string because) {
         var ex = Assert.Throws<InvalidOperationException>(() => Check(value));
 
-        await Assert.That(ex!.Message).Contains("KCAP_TEST").Because(because);
+        await Assert.That(ex.Message).Contains("KCAP_TEST").Because(because);
     }
 
     static async Task Accepts(string value) =>
@@ -74,7 +74,7 @@ public class XmlRepresentableValueTests {
     public async Task Names_the_offending_code_point_in_the_message() {
         var ex = Assert.Throws<InvalidOperationException>(() => Check("a\u0001b"));
 
-        await Assert.That(ex!.Message).Contains("U+0001");
+        await Assert.That(ex.Message).Contains("U+0001");
     }
 
     // ── rejected: what char.IsControl wrongly accepted ──
@@ -129,7 +129,7 @@ public class XmlRepresentableValueTests {
     static async Task PlistRejects(ServiceSpec spec, string because) {
         var ex = Assert.Throws<InvalidOperationException>(() => LaunchdUnit.Plist(spec));
 
-        await Assert.That(ex!.Message).Contains("U+0001").Because(because);
+        await Assert.That(ex.Message).Contains("U+0001").Because(because);
     }
 
     [Test]

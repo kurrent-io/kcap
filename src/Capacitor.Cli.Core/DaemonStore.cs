@@ -38,7 +38,7 @@ public sealed partial class DaemonStore(string directory) {
     /// kcap owns everything in it.</summary>
     public static string DefaultDirectory(UserHome home) => Path.Combine(home.Path, ".config", "kcap", "daemons");
 
-    [GeneratedRegex(@"[^a-z0-9._-]")]
+    [GeneratedRegex("[^a-z0-9._-]")]
     private static partial Regex DisallowedChars();
 
     /// <summary>

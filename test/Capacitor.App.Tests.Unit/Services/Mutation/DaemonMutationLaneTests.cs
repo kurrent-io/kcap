@@ -1489,7 +1489,7 @@ public class DaemonMutationLaneTests {
         var observation = new ScriptedObservation {
             Behavior = (_, _) => {
                 pollCount++;
-                return Task.FromResult<ObservedEvidence?>(pollCount >= 3 ? MatchingEvidence() : null);
+                return Task.FromResult(pollCount >= 3 ? MatchingEvidence() : null);
             },
         };
         var lane = MakeLane(factory, oneShotFactory: _ => observation, time: time);
@@ -1512,7 +1512,7 @@ public class DaemonMutationLaneTests {
         var cli = new FakeKcapCli { DetachedStartBehavior = _ => Task.FromResult(new ProcessResult(0, "", "", false)) };
         var factory = new RecordingExecutorFactory { Behavior = (_, _) => cli };
         var observation = new ScriptedObservation {
-            Behavior = (_, _) => Task.FromResult<ObservedEvidence?>(
+            Behavior = (_, _) => Task.FromResult(
                 time.GetUtcNow() - start >= DaemonMutationLane.DetachedConfirmWindow - TimeSpan.FromSeconds(1)
                     ? MatchingEvidence()
                     : null),
@@ -1536,7 +1536,7 @@ public class DaemonMutationLaneTests {
         var observation = new ScriptedObservation {
             // Never observed within the window (the loop stops polling once the deadline passes), so
             // this proves expiry is enforced against the real const rather than a hardcoded 10s.
-            Behavior = (_, _) => Task.FromResult<ObservedEvidence?>(
+            Behavior = (_, _) => Task.FromResult(
                 time.GetUtcNow() - start > DaemonMutationLane.DetachedConfirmWindow ? MatchingEvidence() : null),
         };
         var lane = MakeLane(factory, oneShotFactory: _ => observation, time: time);
@@ -1888,7 +1888,7 @@ public class DaemonMutationLaneTests {
         var cli = Repointed();
         var observation = new ScriptedObservation {
             Sequence = new Queue<ObservedEvidence?>([MatchingEvidence(pid: 100, instanceId: "inst-old")]),
-            Behavior = (_, _) => Task.FromResult<ObservedEvidence?>(
+            Behavior = (_, _) => Task.FromResult(
                 time.GetUtcNow() - start > DaemonMutationLane.DetachedConfirmWindow + TimeSpan.FromSeconds(15)
                     ? MatchingEvidence(pid: 200, instanceId: "inst-new")
                     : null),

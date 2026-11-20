@@ -17,9 +17,10 @@ public sealed class ScheduledPrompts {
 
         switch (payload) {
             case AssistantToolCallsGenerated calls when !IsSidechain(calls):
-                foreach (var call in calls.ToolCalls)
+                foreach (var call in calls.ToolCalls) {
                     if (IsWakeUpTool(call.ToolName) && Key(SchemaExtensions.Text(call.Arguments, "prompt")) is { Length: > 0 } wake)
                         _wakeUps.Add(wake);
+                }
                 break;
 
             case UserMessageReceived message when IsPersons(message) && LoopArgs(message.Content) is { } loopArgs && Key(LoopPrompt(loopArgs)) is { Length: > 0 } loop:

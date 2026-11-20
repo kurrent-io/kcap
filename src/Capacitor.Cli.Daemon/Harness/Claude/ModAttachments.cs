@@ -266,18 +266,20 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
             case true:
                 return true;
             case false:
-                lock (_gate)
+                lock (_gate) {
                     foreach (var agentId in agentIds)
                         if (_live.TryGetValue(agentId, out var runtime)) Forget(runtime, AgentRegistrationRefusal.SteeringUnsupported, retry: true);
+                }
 
                 Save();
                 _status?.Pulse();
 
                 return false;
             default:
-                lock (_gate)
+                lock (_gate) {
                     foreach (var agentId in agentIds.Where(_live.ContainsKey))
                         _unregistered.Add(agentId);
+                }
 
                 return false;
         }
@@ -469,10 +471,11 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     }
 
     SteeringNextReply GoneReply(string agentId, string processKey) {
-        lock (_gate)
+        lock (_gate) {
             return _gone.TryGetValue(agentId, out var gone) && gone.ProcessKey == processKey
                 ? SteeringNextReply.GoneAs(gone.Reason, gone.Retry)
                 : SteeringNextReply.GoneAs(LostAnswer, retry: true);
+        }
     }
 
     /// <summary>Reports a dispatch the server holds as With the mod, which the mod has no record of, under the agent it was
@@ -860,9 +863,10 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     }
 
     void QueueUnconfirmed(ModAttachedAgentRuntime lapsed) {
-        foreach (var (dispatchId, handover) in _handedOver)
+        foreach (var (dispatchId, handover) in _handedOver) {
             if (handover.ProcessKey == lapsed.ProcessKey && !_reports.Holds(dispatchId))
                 _reports.Enqueue(new ModInputReport(ModInputReport.Unconfirmed, dispatchId, handover.AgentId, Reason: LapsedReason));
+        }
     }
 
     // What the server said goes with the connection too: the next one may be to an upgraded server.
@@ -913,7 +917,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         lock (_saveGate) {
             ModAttachmentFile file;
 
-            lock (_gate)
+            lock (_gate) {
                 file = new ModAttachmentFile(
                     [.. _live.Values.Select(r => r.Attachment)],
                     _handedOver.ToDictionary(h => h.Key.ToString("D"), h => h.Value),
@@ -922,6 +926,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
                     [.. _stopped],
                     new Dictionary<string, string>(_carriedFrom, StringComparer.Ordinal),
                     [.. _reportedOrder.Select(id => id.ToString("D"))]);
+            }
 
             return _store.TrySave(file);
         }

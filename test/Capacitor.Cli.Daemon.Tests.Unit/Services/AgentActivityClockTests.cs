@@ -618,7 +618,7 @@ public class LocalPermissionBridgeActivityWiringTests {
     /// whose sequence goes backwards, and the lifetime backstop counts the whole run.</summary>
     [Test]
     public async Task A_seeded_clock_starts_above_the_sequence_and_carries_the_prior_age() {
-        var time  = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var time  = new FakeTimeProvider();
         var clock = new AgentActivityClock(time, initialSeq: 42, priorAgeMs: 90_000);
 
         time.Advance(TimeSpan.FromSeconds(1));

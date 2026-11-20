@@ -32,6 +32,13 @@ sealed class CloudTerminalSinkMirror {
         Sent.Enqueue(bytes);
     }
 
+    /// <summary>Records a size as <c>&lt;SIZE colsxrows&gt;</c> in <see cref="Sent"/>, in order with the chunks.</summary>
+    public Task SendSize(string agentId, int cols, int rows, CancellationToken ct) {
+        Sent.Enqueue(Encoding.UTF8.GetBytes($"<SIZE {cols}x{rows}>"));
+
+        return Task.CompletedTask;
+    }
+
     public static bool IsReset(byte[] chunk) => chunk.AsSpan().SequenceEqual(ResetBytes);
 
     public string[] SentText() => [.. Sent.Select(c => IsReset(c) ? "<RIS>" : Encoding.UTF8.GetString(c))];

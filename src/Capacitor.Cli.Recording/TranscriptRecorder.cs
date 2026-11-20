@@ -1296,6 +1296,12 @@ public sealed class TranscriptRecorder(
                     return newLines;
             }
 
+            // After the threshold decision, so the drain that flushes the buffered lines carries it.
+            if (vendor == "copilot" && agentId is null && !CopilotPaths.IsVsCodeLocalTranscript(transcriptPath)) {
+                CopilotMoveMarker.Append(
+                    state, newLines, newLineNumbers, transcriptPath, sessionId, context.Housekeeping.VsCodeWorkspaceStorageDirs, time.GetUtcNow(), log);
+            }
+
             // Kiro's live context-% has to be on the first send: the server dedupes Kiro events by canonical id.
             if (vendor == "kiro" && newLines.Count > 0) {
                 newLines = KiroLiveUsage.EnrichKiroContextUsage(newLines, transcriptPath, _kiroWarnings);
@@ -1469,6 +1475,8 @@ public sealed class TranscriptRecorder(
                     state.KiroUsageEmittedAnchors.Add(anchor);
 
                 state.CopilotLocalUsage?.Commit();
+
+                if (state.CopilotMoveMarkerStaged) (state.CopilotMoveMarkerSent, state.CopilotMoveMarkerStaged) = (true, false);
 
                 if (repoToSend is not null) {
                     state.LastSentRepository = repoToSend;
@@ -1795,8 +1803,10 @@ public sealed class TranscriptRecorder(
 
             if (!await ApplyReconnectRewindAsync(state, serverPosition, cursorGuard, ct)) return false;
 
-            // Usage lines sit above the server's frontier, so it cannot say whether it lost them with the gap.
+            // Usage lines and the move marker sit above the server's frontier, so it cannot say whether it lost them
+            // with the gap.
             state.CopilotLocalUsage?.ForgetSent();
+            (state.CopilotMoveMarkerSent, state.CopilotMoveLookups, state.CopilotMoveNextLookupAt) = (false, 0, default);
             return true;
         } finally {
             gate.Release();

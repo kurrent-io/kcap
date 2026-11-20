@@ -68,6 +68,10 @@ public static class ApiRoutes {
         $"api/search?q={Uri.EscapeDataString(query)}&mode={mode}&limit={limit}";
     public static string SessionSummary(string sessionId) =>
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/summary";
+    /// from is a count of events already received, which is the next event number on a stream the
+    /// server has not truncated.
+    public static string SessionEvents(string sessionId, long from) =>
+        $"api/sessions/{Uri.EscapeDataString(sessionId)}/events?from={from}";
     public static string SubagentEvents(string sessionId, string agentId, long from) =>
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/agents/{Uri.EscapeDataString(agentId)}/events?from={from}";
     public static string PermissionResponse(string sessionId, string requestId) =>

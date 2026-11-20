@@ -44,9 +44,10 @@ public class GatedReviewerRegistryTests {
                        + "another vendor's — aliasing would silently make one switch disable the wrong "
                        + "reviewer while leaving the named one running");
 
-            foreach (var (vendor, flag) in AllFlags().Where(f => f.Vendor != reviewer.Vendor))
+            foreach (var (vendor, flag) in AllFlags().Where(f => f.Vendor != reviewer.Vendor)) {
                 await Assert.That(flag(config)).IsTrue()
                     .Because($"{reviewer.Vendor}'s opt-out must not touch {vendor}");
+            }
         }
     }
 

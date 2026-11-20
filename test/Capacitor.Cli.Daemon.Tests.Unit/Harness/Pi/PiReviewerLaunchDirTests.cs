@@ -46,7 +46,7 @@ public class PiReviewerLaunchDirTests {
         var ex = Assert.Throws<InvalidOperationException>(
             () => PiReviewerLaunchDir.Create(Tmp.Path, "epoch1", "agent-1", "{}"));
 
-        await Assert.That(ex!.Message).StartsWith("pi_reviewer_launch_dir_not_owner_only");
+        await Assert.That(ex.Message).StartsWith("pi_reviewer_launch_dir_not_owner_only");
     }
 
     [Test]

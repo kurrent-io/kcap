@@ -46,12 +46,12 @@ public class ConfigRootTests {
         using var home = EnvScope.Exclusive("HOME", Home.Path);
         var fallback   = Path.Combine(Home.Path, ".config", "kcap");
 
-        using (var env = EnvScope.Exclusive(ConfigRoot.ConfigDirEnvVar, "/elsewhere"))
+        using (EnvScope.Exclusive(ConfigRoot.ConfigDirEnvVar, "/elsewhere"))
             await Assert.That(ConfigRoot.FromEnvironment().Directory).IsEqualTo("/elsewhere");
 
         // Empty reads as unset, or `export KCAP_CONFIG_DIR=` puts every config file in the cwd —
         // which is what the old `?? Path.Combine(...)` static did.
-        using (var env = EnvScope.Exclusive(ConfigRoot.ConfigDirEnvVar, ""))
+        using (EnvScope.Exclusive(ConfigRoot.ConfigDirEnvVar, ""))
             await Assert.That(ConfigRoot.FromEnvironment().Directory).IsEqualTo(fallback);
     }
 }

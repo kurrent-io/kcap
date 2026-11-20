@@ -158,7 +158,7 @@ public sealed class EvidenceScopeClient(HttpClient http, string baseUrl, string 
         if (first!.Held == true) _heldToken = first.Token;
         else if (first.Held == false) HoldRefused = true;
 
-        var sources = new List<EvidenceSourceDto>(first!.Sources);
+        var sources = new List<EvidenceSourceDto>(first.Sources);
         var next    = first.NextCursor;
         for (var pages = 1; next is not null; pages++) {
             if (pages >= MaxManifestPages) { LastError = $"the evidence scope manifest exceeded {MaxManifestPages} pages"; return (EvidenceScopeStatus.Failed, null); }

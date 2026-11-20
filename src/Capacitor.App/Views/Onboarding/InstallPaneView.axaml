@@ -21,7 +21,7 @@
             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                 <Panel Classes="onboardingSpinner" Width="14" Height="14" VerticalAlignment="Center">
                     <icons:AppIcon Kind="LoaderCircle" Size="14" Foreground="{StaticResource OnboardingAccentBrush}"
-                                   Classes.kcapSpinning="{Binding Repairing}" />
+                                   icons:BusyIndicator.IsBusy="{Binding Repairing}" />
                 </Panel>
                 <TextBlock Grid.Column="1" x:Name="RepairingText" Classes="onboardingBody" VerticalAlignment="Center"
                            Text="{x:Static vm:InstallStepViewModel.RepairingText}" />
@@ -81,7 +81,7 @@
                                            IsVisible="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Running}">
                                         <icons:AppIcon Kind="LoaderCircle" Size="14" Foreground="{StaticResource OnboardingAccentBrush}"
                                                        AutomationProperties.Name="In progress"
-                                                       Classes.kcapSpinning="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Running}" />
+                                                       icons:BusyIndicator.IsBusy="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Running}" />
                                     </Panel>
                                     <icons:AppIcon Kind="Check" Size="14" Foreground="{StaticResource KcapSuccessBrush}"
                                                    AutomationProperties.Name="Done"
@@ -97,7 +97,7 @@
                 </ItemsControl>
 
                 <ProgressBar Height="2" MinHeight="2" Minimum="0" Maximum="100"
-                             Value="{Binding DownloadPercent}" IsIndeterminate="{Binding DownloadIndeterminate}"
+                             Value="{Binding DownloadPercent}" icons:BusyIndicator.IsBusy="{Binding DownloadIndeterminate}"
                              Background="{StaticResource OnboardingDividerBrush}" Foreground="{StaticResource OnboardingAccentBrush}"
                              IsVisible="{Binding DownloadBarVisible}" />
 
@@ -106,7 +106,7 @@
                         <TextBlock x:Name="EmbeddingPullText" Classes="onboardingDetail" Text="{Binding PullText}" />
                         <ProgressBar Height="2" MinHeight="2" Minimum="0" Maximum="1"
                                      Value="{Binding PullFraction, FallbackValue=0, TargetNullValue=0}"
-                                     IsIndeterminate="{Binding PullFraction, Converter={x:Static ObjectConverters.IsNull}}"
+                                     icons:BusyIndicator.IsBusy="{Binding PullFraction, Converter={x:Static ObjectConverters.IsNull}}"
                                      Background="{StaticResource OnboardingDividerBrush}" Foreground="{StaticResource OnboardingAccentBrush}" />
                     </StackPanel>
                     <TextBlock x:Name="EmbeddingSummaryText" Classes="onboardingDetail" TextWrapping="Wrap" Text="{Binding Summary}"

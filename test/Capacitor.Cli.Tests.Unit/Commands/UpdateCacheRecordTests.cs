@@ -13,8 +13,8 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 public class UpdateCacheRecordTests {
     [Test]
     public async Task LegacyTwoFieldCache_ReadsAsSuccessRecord() {
-        var json = """{"latest_version":"0.11.10","checked_at":"2026-08-08T10:00:00Z"}""";
-        var rec  = UpdateCommand.UpdateCacheRecord.Parse(json);
+        const string json = """{"latest_version":"0.11.10","checked_at":"2026-08-08T10:00:00Z"}""";
+        var rec           = UpdateCommand.UpdateCacheRecord.Parse(json);
 
         await Assert.That(rec).IsNotNull();
         await Assert.That(rec!.LatestVersion).IsEqualTo("0.11.10");

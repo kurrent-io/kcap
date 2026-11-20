@@ -512,9 +512,10 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
 
         try {
             foreach (var path in Directory.EnumerateFiles(DirectoryPath, $"{key}.jsonl").Concat(Temps(key)))
-            foreach (var line in File.ReadLinesShared(path))
+            foreach (var line in File.ReadLinesShared(path)) {
                 if (Entry(line) is { } e && e.Route != RunStartedRoute && (marked || IsTerminalRoute(e.Route)))
                     ids.Add((JsonNode)JsonValue.Create(EntryId(e.Route, e.Body)));
+            }
         } catch {
             // Unreadable: what could not be read stays queued, and the drain's position rule judges it
         }

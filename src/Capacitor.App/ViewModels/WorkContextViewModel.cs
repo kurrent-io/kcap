@@ -34,7 +34,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
                 value.PropertyChanged += OnPullRequestChanged;
                 _disposables.Add(Disposable.Create(() => value.PropertyChanged -= OnPullRequestChanged));
             }
-            this.RaisePropertyChanged(nameof(PullRequests));
+            this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(IsStale));
             RebuildLinks();
             RaisePlanProgress();
@@ -294,7 +294,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         private set {
             if (_isStale == value) return;
             _isStale = value;
-            this.RaisePropertyChanged(nameof(IsStale));
+            this.RaisePropertyChanged();
         }
     }
     bool _isReading;

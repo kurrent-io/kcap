@@ -389,6 +389,6 @@ public class TokenServerBindingTests {
     async Task WriteLegacyAsync(StoredTokens tokens) {
         Directory.CreateDirectory(Path.GetDirectoryName(LegacyPath)!);
         await File.WriteAllTextAsync(LegacyPath,
-            System.Text.Json.JsonSerializer.Serialize(tokens, CapacitorJsonContext.Default.StoredTokens));
+            JsonSerializer.Serialize(tokens, CapacitorJsonContext.Default.StoredTokens));
     }
 }

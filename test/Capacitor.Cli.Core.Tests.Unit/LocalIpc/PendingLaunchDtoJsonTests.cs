@@ -22,7 +22,7 @@ public class PendingLaunchDtoJsonTests {
     /// A daemon that predates the field sends no `pending` member; the client reads that as unknown.
     [Test]
     public async Task A_payload_without_pending_reads_as_null() {
-        var json =
+        const string json =
             """{"daemon":{"name":"m","version":"1","server_url":"u","connection":"connected","max_agents":5,"active_agents":0},"agents":[]}""";
 
         var dto = JsonSerializer.Deserialize(json, StatusIpcJsonContext.Default.DaemonStatusDto)!;

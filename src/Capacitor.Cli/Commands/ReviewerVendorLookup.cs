@@ -197,9 +197,10 @@ public static class ReviewerVendorLookup {
 
     static string[] StringArray(JsonElement arr) {
         var list = new List<string>();
-        foreach (var e in arr.EnumerateArray())
+        foreach (var e in arr.EnumerateArray()) {
             if (e.IsString && e.GetString() is { } s)
                 list.Add(s);
+        }
         return list.ToArray();
     }
 }

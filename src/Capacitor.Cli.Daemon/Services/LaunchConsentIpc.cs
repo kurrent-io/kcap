@@ -16,7 +16,7 @@ internal sealed class LaunchConsentIpc(
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             // EOF watcher: a subscriber that disappears must flip HasSubscriber promptly,
             // otherwise prompt-mode launches would wait the full timeout for nobody.
-            var eof = Task.Run(async () => {
+            _ = Task.Run(async () => {
                 try { while (await FrameCodec.ReadAsync(stream, cts.Token) is not null) { } }
                 catch { }
                 // The enclosing `using` can dispose this CTS (method already returned via the

@@ -102,7 +102,6 @@ internal sealed class GeminiImportSource : IImportSource {
                 }
             } catch {
                 // A hostile/inaccessible project subtree must not abort the whole scan.
-                continue;
             }
         }
 

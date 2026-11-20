@@ -102,7 +102,7 @@ public class ToolGroupItemTests {
     public async Task Folded_summary_keeps_file_paths_in_the_expanded_calls() {
         await RunOnUiAsync(async () => {
             var group = new ToolGroupItem();
-            var path = "/Users/example/.config/kcap/sessions/transcript.jsonl";
+            const string path = "/Users/example/.config/kcap/sessions/transcript.jsonl";
             var first = new ToolCallItem("Read", path, ToolCategory.Read);
             var second = Call("Bash", ToolCategory.Command);
             group.Add(first);

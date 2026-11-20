@@ -101,11 +101,11 @@ public class LocalPreflightTests {
     const int LongestSuffix = 28;
 
     static LocalRoot RootWithBytes(int rootBytes, string fill = "a") {
-        var baseDir = "/tmp";
-        var probe   = LocalPreflight.SocketPaths(new(Path.Combine(baseDir, "a"))).Min(p => p.Bytes) - "/run/.s.PGSQL.5432".Length;
-        var room    = rootBytes - (probe - 1);
-        var name    = new StringBuilder();
-        var width   = Encoding.UTF8.GetByteCount(fill);
+        const string baseDir = "/tmp";
+        var probe            = LocalPreflight.SocketPaths(new(Path.Combine(baseDir, "a"))).Min(p => p.Bytes) - "/run/.s.PGSQL.5432".Length;
+        var room             = rootBytes - (probe - 1);
+        var name             = new StringBuilder();
+        var width            = Encoding.UTF8.GetByteCount(fill);
 
         for (var used = 0; used + width <= room; used += width) name.Append(fill);
         while (Encoding.UTF8.GetByteCount(name.ToString()) < room) name.Append('a');

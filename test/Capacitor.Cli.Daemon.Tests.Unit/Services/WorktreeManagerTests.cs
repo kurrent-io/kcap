@@ -788,7 +788,7 @@ public class WorktreeManagerTests {
             await manager.SyncFromSourceAsync(
                 repo.Clone, sourceCwd, snapshot.SnapshotRoot!, [], CancellationToken.None);
 
-            await Assert.That(holder!.HasExited).IsFalse();
+            await Assert.That(holder.HasExited).IsFalse();
             await Assert.That(Directory.Exists(snapshot.Path)).IsTrue();
             await Assert.That(File.ReadAllText(Path.Combine(snapshot.Path, "round.txt"))).IsEqualTo("two");
             await Assert.That(File.Exists(Path.Combine(snapshot.Path, "reviewer-created.txt"))).IsFalse();
@@ -1006,7 +1006,7 @@ public class WorktreeManagerTests {
         await Assert.That(scratch.Path).IsEqualTo(Path.Combine(tmp.PathTo("root"), WorktreeManager.ScratchDirectoryName, "scratch-agent"));
         await Assert.That(scratch.IsStandalone).IsTrue();
         await Assert.That(Directory.Exists(Path.Combine(scratch.Path, ".git"))).IsTrue();
-        await Assert.That(Directory.EnumerateFileSystemEntries(scratch.Path).Select(e => Path.GetFileName(e)!)).IsEquivalentTo([".git"]);
+        await Assert.That(Directory.EnumerateFileSystemEntries(scratch.Path).Select(e => Path.GetFileName(e))).IsEquivalentTo([".git"]);
 
         await WorktreeManager.RemoveAsync(scratch, TimeProvider.System);
 

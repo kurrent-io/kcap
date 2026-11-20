@@ -68,7 +68,7 @@ sealed class SystemdServiceManager(
     /// <summary>The unit-writing half of <see cref="Install"/>, split out so it is testable without
     /// invoking systemctl.</summary>
     internal void WriteUnitFiles(ServiceSpec spec) =>
-        _writeUnit(SystemdUnit.UnitPath(home, spec.ServiceId), SystemdUnit.Unit(spec), null);
+        _writeUnit(SystemdUnit.UnitPath(home, spec.ServiceId), SystemdUnit.Unit(spec));
 
     /// <summary>
     /// Points an installed unit's binary at what <paramref name="stabilize"/> maps it to, and reloads
@@ -87,7 +87,7 @@ sealed class SystemdServiceManager(
         if (binary is null) return false;
 
         if (SystemdUnit.WithBinary(text, stabilize(binary)) is { } rewritten) {
-            _writeUnit(path, rewritten, null);
+            _writeUnit(path, rewritten);
             Reload();
             return true;
         }
@@ -112,12 +112,12 @@ sealed class SystemdServiceManager(
         if (SystemdUnit.WithEnvironmentValue(previous, key, value) is not { } rewritten)
             throw new InvalidOperationException($"its {key} line is not one kcap wrote, so it was left unchanged");
 
-        _writeUnit(path, rewritten, null);
+        _writeUnit(path, rewritten);
         try {
             Reload();
         } catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception
                                           or IOException or UnauthorizedAccessException) {
-            _writeUnit(path, previous, null);
+            _writeUnit(path, previous);
             try {
                 Systemctl(SystemdUnit.DaemonReloadArgs());
             } catch (Exception again) when (again is System.ComponentModel.Win32Exception or IOException) {
@@ -130,7 +130,7 @@ sealed class SystemdServiceManager(
     }
 
     public void RestoreUnit(string serviceId, string unitText) {
-        _writeUnit(SystemdUnit.UnitPath(home, serviceId), unitText, null);
+        _writeUnit(SystemdUnit.UnitPath(home, serviceId), unitText);
         Reload();
     }
 
@@ -148,7 +148,7 @@ sealed class SystemdServiceManager(
         error = Systemctl(SystemdUnit.DaemonReloadArgs()) ?? Systemctl(SystemdUnit.EnableArgs(spec.ServiceId));
         if (error is not null) {
             if (previous is null) File.Delete(path);
-            else _writeUnit(path, previous, null);
+            else _writeUnit(path, previous);
             if (Systemctl(SystemdUnit.DaemonReloadArgs()) is { } reloadError)
                 error += $"; the previous unit file was put back, but {reloadError}, so systemd may still hold the new "
                        + "definition until the next `systemctl --user daemon-reload`";

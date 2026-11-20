@@ -28,7 +28,7 @@ sealed class WindowsDaemonHost : IDaemonHost<Enrollment> {
 
         var (enrollment, reason) = token.Impersonate<(Enrollment?, string?)>(() => {
             using var key = Registry.Users.OpenSubKey($@"{user.Sid}\{ServiceIdentity.EnrollmentKey}");
-            if (key is null) return ((Enrollment?)null, "not enrolled");
+            if (key is null) return (null, "not enrolled");
             var parsed = Enrollment.Parse(
                 key.GetValue("Name") as string, key.GetValue("DaemonPath") as string,
                 key.GetValue("Profile") as string, key.GetValue("MaxAgents"), out var why,

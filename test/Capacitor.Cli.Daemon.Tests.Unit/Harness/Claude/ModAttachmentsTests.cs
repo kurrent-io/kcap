@@ -1201,7 +1201,7 @@ public class ModAttachmentsTests {
         attachments.Link(agentId, Key, refused, Session, lateRow);
         attachments.Link(agentId, Key, landed, Session, row);
         server.Ready = true;
-        server.AttachedRejectionThrow = new Microsoft.AspNetCore.SignalR.HubException("Caller is not the daemon owning agent");
+        server.AttachedRejectionThrow = new HubException("Caller is not the daemon owning agent");
         await Within(attachments.FlushReportsAsync());
         await Within(attachments.FlushReportsAsync());
 
@@ -1228,7 +1228,7 @@ public class ModAttachmentsTests {
     public async Task A_report_the_server_keeps_refusing_is_dropped_at_its_bound_counted_across_a_restart() {
         var refused = Guid.NewGuid();
         var row     = Guid.NewGuid();
-        var error   = new Microsoft.AspNetCore.SignalR.HubException("Caller is not the daemon owning agent");
+        var error   = new HubException("Caller is not the daemon owning agent");
         var before  = new CaptureServerConnection { AttachedRejectionThrow = error };
 
         await using (var attachments = Attachments(before)) {

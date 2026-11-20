@@ -79,9 +79,10 @@ public class FirstRunHeartbeatTests {
             FirstRunHeartbeatOutcome? sequenced = null;
 
             if (Sequence is { } queue)
-                lock (queue)
+                lock (queue) {
                     if (queue.Count > 0)
                         sequenced = queue.Dequeue();
+                }
 
             if (BlockForever) await Task.Delay(Timeout.Infinite, ct);
             if (HoldAnswers) await _held.Task;

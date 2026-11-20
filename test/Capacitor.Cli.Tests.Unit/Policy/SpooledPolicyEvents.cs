@@ -1,7 +1,7 @@
 namespace Capacitor.Cli.Tests.Unit.Policy;
 
 using System.Text.Json.Nodes;
-using Capacitor.Cli.Core;
+using Core;
 
 /// <summary>
 /// Reads back what the policy emitter appended to a session's hook spool. Policy events are never

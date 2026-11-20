@@ -19,9 +19,10 @@ public sealed class ExperimentalSettingsStore(ConfigRoot root) {
 
         var features = new Dictionary<string, bool>();
         if (document[profile] is JsonObject section)
-            foreach (var (id, value) in section)
+            foreach (var (id, value) in section) {
                 if (value is JsonValue v && v.TryGetValue<bool>(out var on))
                     features[id] = on;
+            }
 
         return new(true, features, null);
     }

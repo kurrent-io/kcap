@@ -78,6 +78,6 @@ public class ClaudeBorrowedReviewLiveTests {
         await Assert.That(File.Exists(markerPath)).IsTrue();
         await Assert.That(File.ReadAllText(protectedPath)).IsEqualTo("ORIGINAL\n");
         await Assert.That(Directory.GetFiles(repo.Path, "*", SearchOption.AllDirectories)
-            .Select(path => Path.GetFileName(path)!).ToArray()).IsEquivalentTo(["protected.txt"]);
+            .Select(path => Path.GetFileName(path)).ToArray()).IsEquivalentTo(["protected.txt"]);
     }
 }

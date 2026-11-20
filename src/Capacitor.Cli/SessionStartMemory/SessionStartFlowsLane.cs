@@ -104,7 +104,7 @@ internal sealed class SessionStartFlowsLane(Func<CancellationToken, Task<HttpCli
             : SessionStartMemoryContextResult.Empty;
 
     public static string? BuildFragment(JsonNode? root) {
-        if (root is not JsonObject { } obj || obj["definitions"] is not JsonArray definitions) return null;
+        if (root is not JsonObject obj || obj["definitions"] is not JsonArray definitions) return null;
 
         var offered = definitions.OfType<JsonObject>()
             .Where(d => Str(d, "offer") == "proactive")

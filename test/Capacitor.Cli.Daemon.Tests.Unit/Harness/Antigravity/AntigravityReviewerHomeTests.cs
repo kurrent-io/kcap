@@ -269,7 +269,7 @@ public class AntigravityReviewerHomeTests {
             [ResultChannel, new AcpMcpServerSpec("kcap-review-context", "kcap", ["mcp", "review"], [])],
             grantInjectedMcpTools: true));
 
-        await Assert.That(ex!.Message).StartsWith("antigravity_reviewer_permission_unknown_server");
+        await Assert.That(ex.Message).StartsWith("antigravity_reviewer_permission_unknown_server");
         await Assert.That(ex.Message).Contains("kcap-review-context");
     }
 
@@ -324,7 +324,7 @@ public class AntigravityReviewerHomeTests {
         var ex = Assert.Throws<InvalidOperationException>(
             () => AntigravityReviewerHome.ResolveInsideHome(home, outside, "file.txt"));
 
-        await Assert.That(ex!.Message).StartsWith("antigravity_reviewer_home_escaped_root");
+        await Assert.That(ex.Message).StartsWith("antigravity_reviewer_home_escaped_root");
     }
 
     /// <summary>The guard appends a directory separator before comparing, so a sibling whose name
@@ -339,6 +339,6 @@ public class AntigravityReviewerHomeTests {
         var ex = Assert.Throws<InvalidOperationException>(
             () => AntigravityReviewerHome.ResolveInsideHome(home, sibling, "x"));
 
-        await Assert.That(ex!.Message).StartsWith("antigravity_reviewer_home_escaped_root");
+        await Assert.That(ex.Message).StartsWith("antigravity_reviewer_home_escaped_root");
     }
 }

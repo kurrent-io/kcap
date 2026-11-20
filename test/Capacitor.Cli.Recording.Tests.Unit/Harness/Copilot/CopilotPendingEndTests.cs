@@ -435,7 +435,7 @@ public class CopilotPendingEndTests {
     [Test, RunOn(OS.Linux | OS.MacOs)]
     public async Task A_long_transcript_read_does_not_hold_back_a_watchers_write() {
         var transcript = Config.PathTo("events.fifo");
-        using (var mkfifo = System.Diagnostics.Process.Start("mkfifo", [transcript])!) await mkfifo.WaitForExitAsync();
+        using (var mkfifo = System.Diagnostics.Process.Start("mkfifo", [transcript])) await mkfifo.WaitForExitAsync();
         CopilotPendingEnd.Write(Paths, Session, End, Server, runtimePid: null, transcript, TimeProvider.System, runId: "run-a");
 
         var sweep = Task.Run(Sweep);

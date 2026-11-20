@@ -76,8 +76,8 @@ public class ClaudeMemoryIndexLiveCertTests {
                 tmp.Path,
                 "A team-memory index may have been injected into your context under a " +
                 "'## Team memory' heading. If a memory slug looks relevant, call get_memory " +
-                $"on it and reply with ONLY the exact string it contains matching this pattern: " +
-                $"kcap-live-nonce-<32 hex chars>. Reply with nothing else.");
+                "on it and reply with ONLY the exact string it contains matching this pattern: " +
+                "kcap-live-nonce-<32 hex chars>. Reply with nothing else.");
 
             await Assert.That(answer).Contains(nonce);
         } finally {
@@ -114,7 +114,7 @@ public class ClaudeMemoryIndexLiveCertTests {
             using var tmp = new TempDir();
             var answer = await RunClaudePrintAsync(
                 tmp.Path,
-                $"Reply with ONLY the string kcap-live-nonce-<32 hex chars> if you can see it " +
+                "Reply with ONLY the string kcap-live-nonce-<32 hex chars> if you can see it " +
                 "anywhere in your context; otherwise reply NONE.");
 
             await Assert.That(answer).DoesNotContain(nonce);
@@ -295,7 +295,7 @@ public class ClaudeMemoryIndexLiveCertTests {
             UseShellExecute        = false,
             RedirectStandardOutput = true,
             RedirectStandardError  = true,
-            WorkingDirectory       = workingDirectory ?? Capacitor.Cli.Core.WorkingDirectory.FromProcess().Path
+            WorkingDirectory       = workingDirectory ?? WorkingDirectory.FromProcess().Path
         };
         foreach (var arg in args) psi.ArgumentList.Add(arg);
 
@@ -339,7 +339,7 @@ public class ClaudeMemoryIndexLiveCertParsingTests {
 
     [Test]
     public async Task Newline_delimited_json_stream_extracts_the_first_matching_text_field() {
-        var stdout = """
+        const string stdout = """
                      {"type":"system","subtype":"init"}
                      {"type":"assistant","message":{"content":[{"type":"text","text":"kcap-live-nonce-abc123"}]}}
                      """;
@@ -355,8 +355,8 @@ public class ClaudeMemoryIndexLiveCertParsingTests {
 
     [Test]
     public async Task Leading_json_block_extraction_splits_on_an_lf_blank_line() {
-        var stdout = "{\"active_profile\":\"default\"}\n\nPath: ~/.config/kcap/config.json\n";
-        var result = ClaudeMemoryIndexLiveCertTests.ExtractLeadingJsonBlock(stdout);
+        const string stdout = "{\"active_profile\":\"default\"}\n\nPath: ~/.config/kcap/config.json\n";
+        var result          = ClaudeMemoryIndexLiveCertTests.ExtractLeadingJsonBlock(stdout);
         await Assert.That(result).IsEqualTo("{\"active_profile\":\"default\"}");
     }
 
@@ -364,8 +364,8 @@ public class ClaudeMemoryIndexLiveCertParsingTests {
     public async Task Leading_json_block_extraction_tolerates_a_crlf_blank_line() {
         // Windows `kcap config show` stdout: the same "JSON, blank line, Path:" shape but with
         // \r\n line endings — must still isolate the JSON, not the whole CRLF blob.
-        var stdout = "{\"active_profile\":\"default\"}\r\n\r\nPath: C:\\Users\\me\\config.json\r\n";
-        var result = ClaudeMemoryIndexLiveCertTests.ExtractLeadingJsonBlock(stdout);
+        const string stdout = "{\"active_profile\":\"default\"}\r\n\r\nPath: C:\\Users\\me\\config.json\r\n";
+        var result          = ClaudeMemoryIndexLiveCertTests.ExtractLeadingJsonBlock(stdout);
         await Assert.That(result).IsEqualTo("{\"active_profile\":\"default\"}");
     }
 }
@@ -403,7 +403,7 @@ public class ClaudeMemoryIndexLiveCertProcessTests {
         var stillAlive  = true;
         while (DateTime.UtcNow < deadline) {
             try {
-                using var proc = System.Diagnostics.Process.GetProcessById(pid!.Value);
+                using var proc = Process.GetProcessById(pid!.Value);
                 if (proc.HasExited) { stillAlive = false; break; }
             } catch (ArgumentException) {
                 stillAlive = false; // no such process — already reaped

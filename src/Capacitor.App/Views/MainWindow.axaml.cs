@@ -498,7 +498,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     internal static TimeSpan ToastDuration(string message) => TimeSpan.FromSeconds(Math.Clamp(message.Length / 15.0, 4, 20));
 
     // The launcher header strip and the bottom-most drag strip — see WindowChrome.
-    void OnChromePointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e) =>
+    void OnChromePointerPressed(object? sender, PointerPressedEventArgs e) =>
         WindowChrome.BeginDrag(this, e);
 
     // IsVisible is what Show()/Hide() toggle, and hide-to-tray never fires Closed/Opened, so this
@@ -518,7 +518,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             var pullRequests = vm.CurrentWorkspace?.PullRequests;
             if (_foregroundPullRequests != pullRequests) _foregroundPullRequests?.SetForeground(false);
             _foregroundPullRequests = pullRequests;
-            pullRequests?.SetForeground(IsVisible && WindowState != Avalonia.Controls.WindowState.Minimized);
+            pullRequests?.SetForeground(IsVisible && WindowState != WindowState.Minimized);
         } else {
             _foregroundPullRequests?.SetForeground(false);
             _foregroundPullRequests = null;

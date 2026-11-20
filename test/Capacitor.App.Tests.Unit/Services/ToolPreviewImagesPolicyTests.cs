@@ -72,7 +72,7 @@ public class ToolPreviewImagesPolicyTests {
         var pngPath = tmp.CreateFile("bitmap.png");
         File.WriteAllBytes(pngPath, png);
         var dataPng = "data:image/png;base64," + Convert.ToBase64String(png);
-        var local = "<defs><rect id='local' width='16' height='16' fill='lime'/></defs><use href='#local'/>";
+        const string local = "<defs><rect id='local' width='16' height='16' fill='lime'/></defs><use href='#local'/>";
         var dataCss = "<style>@import url('data:text/css;base64," + Convert.ToBase64String(Encoding.UTF8.GetBytes(Css)) + "');</style>";
         await AvaloniaSession.RunOnUiAsync(async () => {
             try {

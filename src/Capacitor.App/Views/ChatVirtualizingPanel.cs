@@ -86,9 +86,10 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         _lastWidth = availableSize.Width;
         var overscan = view?.IsSmoothScrolling == true ? KeepAliveOverscan : 0;
         // Keep the presenter's anchor until arrange has compensated for any newly measured rows.
-        foreach (var entry in _realized.ToArray())
+        foreach (var entry in _realized.ToArray()) {
             if ((entry.Key < first || entry.Key > anchor && _starts[entry.Key] >= end) && !KeepAlive(entry.Value, focused, scrollAnchor, overscan))
                 Unrealize(entry.Key);
+        }
         var last = first;
         var width = 0.0;
         var adjustment = 0.0;

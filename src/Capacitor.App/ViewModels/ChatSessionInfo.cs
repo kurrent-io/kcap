@@ -39,6 +39,10 @@ public sealed record ChatSessionInfo(
     /// A terminal session the daemon steers rather than hosts.
     public bool IsAttached { get; init; }
 
+    /// Nothing writes the transcript any more. Only the local lane knows: the daemon drops an agent
+    /// after completing its journal, while its status reads ended before the agent has exited.
+    public bool WriterDone { get; init; }
+
     /// The daemon dropped the agent before this pane ever saw it.
     public static readonly ChatSessionInfo Gone = new("Completed", "Completed", "", null, null, null, true, "", null);
 

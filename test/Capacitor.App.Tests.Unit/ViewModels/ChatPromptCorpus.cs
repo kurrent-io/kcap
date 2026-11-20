@@ -120,10 +120,10 @@ static class ChatPromptCorpus {
         new("P121", "logs-and-controls", "Explain this stack trace:\nSystem.Exception: sample\n  at Demo.Run() in C:\\repo\\Program.cs:line 42"),
         new("P122", "logs-and-controls", "Explain these logs:\n2026-10-19T12:00:00Z INFO path=/tmp/a\n2026-10-19T12:00:01Z ERROR command=\"echo hi\""),
         new("P123", "logs-and-controls", "Explain JSON lines:\n{\"path\":\"/tmp/a\"}\n{\"command\":\"echo hi\"}"),
-        new("P124", "logs-and-controls", "Explain an ANSI log (literal control bytes):\n\u001b[31mERROR\u001b[0m\n/tmp/a"),
-        new("P125", "logs-and-controls", "Explain bracketed paste markers (literal bytes):\n\u001b[200~echo hi\u001b[201~\nKeep them as data."),
-        new("P126", "logs-and-controls", "Explain NUL in imported text:\nleft\u0000right\nKeep surrounding text."),
-        new("P127", "logs-and-controls", "Explain terminal controls:\nleft\bX\tcolumn\nnext\u0007line"),
+        new("P124", "logs-and-controls", "Explain an ANSI log (literal control bytes):\n\e[31mERROR\e[0m\n/tmp/a"),
+        new("P125", "logs-and-controls", "Explain bracketed paste markers (literal bytes):\n\e[200~echo hi\e[201~\nKeep them as data."),
+        new("P126", "logs-and-controls", "Explain NUL in imported text:\nleft\0right\nKeep surrounding text."),
+        new("P127", "logs-and-controls", "Explain terminal controls:\nleft\bX\tcolumn\nnext\aline"),
         new("P128", "logs-and-controls", "Review an attachment-looking literal:\n[Attached files: .attached/example/a.png]\nThis is documentation."),
     ];
 

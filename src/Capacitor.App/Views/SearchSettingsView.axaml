@@ -41,7 +41,7 @@
                         <TextBlock x:Name="SearchPullText" Classes="kcapHint" Text="{Binding PullText}" TextWrapping="Wrap" />
                         <ProgressBar x:Name="SearchPullBar" Height="3" Minimum="0" Maximum="1"
                                      Value="{Binding PullFraction, FallbackValue=0, TargetNullValue=0}"
-                                     IsIndeterminate="{Binding PullFraction, Converter={x:Static ObjectConverters.IsNull}}"
+                                     views:BusyIndicator.IsBusy="{Binding PullFraction, Converter={x:Static ObjectConverters.IsNull}}"
                                      Foreground="{StaticResource KcapMutedBrush}" />
                     </StackPanel>
                     <TextBlock x:Name="SearchSummaryText" Classes="kcapHint" Text="{Binding Summary}" TextWrapping="Wrap"

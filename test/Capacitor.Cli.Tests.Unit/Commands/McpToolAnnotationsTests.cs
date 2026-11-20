@@ -30,9 +30,10 @@ public class McpToolAnnotationsTests {
     [Test]
     public async Task Every_tool_of_every_server_says_whether_it_reads_or_writes() {
         foreach (var (server, tools) in AllServers)
-        foreach (var tool in tools)
+        foreach (var tool in tools) {
             await Assert.That(tool.Annotations.ReadOnlyHint).IsNotNull()
                 .Because($"{server}.{tool.Name} must advertise readOnlyHint");
+        }
     }
 
     [Test]

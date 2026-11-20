@@ -628,9 +628,10 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     /// its own position, so a refusal reaches only the stream it was for.
     /// Only the tails subscribed on `hub`: a retired hub coming back must leave its replacement's alone.
     void EndTails(HubConnection hub) {
-        lock (_tailLock)
+        lock (_tailLock) {
             foreach (var slot in _tails.Values)
                 if (ReferenceEquals(slot.Hub, hub)) slot.Cts.Cancel();
+        }
     }
 
     readonly Dictionary<string, TailSlot> _tails = new(StringComparer.Ordinal);

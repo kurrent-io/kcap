@@ -132,7 +132,7 @@ public class AntigravityImportUsagePassTests : IDisposable {
 
         var ordered = _server.LogEntries
             .Where(e => e.RequestMessage.Method == "POST")
-            .Select(e => (Path: e.RequestMessage.Path!, Body: e.RequestMessage.Body ?? ""))
+            .Select(e => (Path: e.RequestMessage.Path, Body: e.RequestMessage.Body ?? ""))
             .ToList();
 
         // The USAGE line is nested JSON-as-a-string inside the batch's "lines" array, so its
@@ -185,7 +185,7 @@ public class AntigravityImportUsagePassTests : IDisposable {
 
         var ordered = _server.LogEntries
             .Where(e => e.RequestMessage.Method == "POST")
-            .Select(e => (Path: e.RequestMessage.Path!, Body: e.RequestMessage.Body ?? ""))
+            .Select(e => (Path: e.RequestMessage.Path, Body: e.RequestMessage.Body ?? ""))
             .ToList();
 
         var usagePosts = ordered.Where(x => x.Path == "/hooks/transcript" && x.Body.Contains("USAGE")).ToList();

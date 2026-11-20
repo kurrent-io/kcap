@@ -58,7 +58,7 @@ public static class GrokHooksInstaller {
         if (!File.Exists(hooksPath)) return false;
 
         try {
-            return JsonNode.Parse(File.ReadAllText(hooksPath)) is JsonObject { } root
+            return JsonNode.Parse(File.ReadAllText(hooksPath)) is JsonObject root
                 && root["hooks"] is JsonObject hooks
                 && hooks.Any(h => h.Value?.ToJsonString().Contains(HookCommand, StringComparison.Ordinal) == true);
         } catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException) {

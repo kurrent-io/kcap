@@ -24,12 +24,13 @@ public partial class WorkspaceView : UserControl {
             ContextShowButton);
         RailClearance.Attach(this, SessionHeader);
         TerminalClipboard.Attach(this, TerminalHost);
-        // The control draws its caret and takes keystrokes only while focused; a Model assignment
-        // is the "terminal became live" moment — but only the Terminal tab may take focus, or a
-        // reattach under the Chat tab would steal it from the composer.
+        // Focus when the terminal becomes usable, including after a quiet attach. The active-tab
+        // check keeps a background attach from taking focus from the composer.
         TerminalHost.PropertyChanged += (_, e) => {
-            if (e.Property == SvcSystems.UI.Terminal.TerminalControl.ModelProperty && TerminalHost.Model is not null
-                && DataContext is WorkspaceViewModel { IsTerminalActive: true })
+            if ((e.Property == SvcSystems.UI.Terminal.TerminalControl.ModelProperty || e.Property == IsEnabledProperty)
+                && TerminalHost.IsEnabled && TerminalHost.Model is not null
+                && DataContext is WorkspaceViewModel { IsTerminalActive: true }
+                && TerminalFocus.CanTakeFocus(TerminalHost, TerminalTabButton, TerminalNotice))
                 TerminalHost.Focus();
         };
         // The PR reader is created on first use, including for sessions without a PTY.

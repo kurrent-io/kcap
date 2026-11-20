@@ -103,7 +103,7 @@ public sealed record FirstRunMachineReport(
 
     static string? MachineIdOrNull(ConfigRoot config) {
         try {
-            return new Core.MachineId(config).Get();
+            return new MachineId(config).Get();
         } catch (Exception) {
             return null;
         }

@@ -2801,7 +2801,7 @@ public class ClaudeHookCommandTests {
                 if (req.Method == HttpMethod.Get) return new HttpResponseMessage(HttpStatusCode.NotFound);
                 if (HoldOnPost > TimeSpan.Zero) await Task.Delay(HoldOnPost, ct);
                 var resp = new HttpResponseMessage(PostStatus);
-                if (RespondJson is not null) resp.Content = new System.Net.Http.StringContent(RespondJson, System.Text.Encoding.UTF8, "application/json");
+                if (RespondJson is not null) resp.Content = new StringContent(RespondJson, System.Text.Encoding.UTF8, "application/json");
                 return resp;
             }));
         }

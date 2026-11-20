@@ -323,7 +323,7 @@ public class AdoptionPathStepTests {
     [Test]
     public async Task Put_back_restores_only_a_link_still_pointing_at_its_replacement_and_can_run_again() {
         var bundle          = Bundle();
-        var (install, kcap) = Script();
+        var (_, kcap) = Script();
         var ours            = Link("home/.local/bin", bundle);
         var moved           = Link("home/bin", "/Applications/Moved.app/Contents/MacOS/kcap");
         var built           = Build(() => null, [Folder(ours), Folder(moved)]);

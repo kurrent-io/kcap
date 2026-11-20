@@ -125,10 +125,10 @@ public class SharingCommandTests {
 
     [Test]
     public async Task Names_from_the_server_cannot_drive_the_terminal() {
-        var lines = SharingCommand.GrantLines(new(true, null, [new(new("user:7", "Eve\u001b[2J\nRoot", "user", null, null, false), View, [], false)])).ToList();
+        var lines = SharingCommand.GrantLines(new(true, null, [new(new("user:7", "Eve\e[2J\nRoot", "user", null, null, false), View, [], false)])).ToList();
 
         await Assert.That(lines.Count).IsEqualTo(2);
-        await Assert.That(lines[1]).DoesNotContain("\u001b");
+        await Assert.That(lines[1]).DoesNotContain("\e");
         await Assert.That(lines[1]).EndsWith("Eve\\u001b[2J Root");
     }
 

@@ -159,7 +159,7 @@ public class CaptureRepairCommandTests {
         using var output = ConsoleOutput.StartFullCapture();
         var command = new CaptureRepairCommand(Resolutions.At(server.Url!, Config.Root), new FixedCapacitorHttpClient(), TimeProvider.System);
         await Assert.That(await command.HandleAsync(sid, false, [source])).IsEqualTo(1);
-        await Assert.That(server.LogEntries.Any(e => e.RequestMessage.Path!.EndsWith("/complete", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(server.LogEntries.Any(e => e.RequestMessage.Path.EndsWith("/complete", StringComparison.Ordinal))).IsFalse();
         await Assert.That(output.GetCapturedError()).Contains("UTF-8");
     }
 

@@ -143,7 +143,7 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
 
         return await RelayAsync(id, response, baseUrl, task => new JsonObject {
             ["plan_id"] = planId,
-            ["task"]    = TryParseObject(task) ?? (JsonNode)JsonValue.Create(task)!
+            ["task"]    = TryParseObject(task) ?? (JsonNode)JsonValue.Create(task)
         }.ToJsonString());
     }
 

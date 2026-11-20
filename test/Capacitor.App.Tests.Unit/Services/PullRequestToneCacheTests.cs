@@ -256,7 +256,7 @@ public class PullRequestToneCacheTests {
     static AgentRow Ended(string sessionId) => ServerRow(sessionId, "ended");
 
     /// The viewer's own listed session, as the directory marks it once the owners read has landed.
-    static AgentRow ServerRow(string sessionId, string status) => AgentRow.FromServer(new Capacitor.Remote.Models.RepoSessionDto {
+    static AgentRow ServerRow(string sessionId, string status) => AgentRow.FromServer(new RepoSessionDto {
         SessionId = sessionId, Status = status, AccessLevel = "full", Vendor = "claude", Title = "Session",
         Owner = new() { UserId = "u1", DisplayName = "Alexey" },
         StartedAt = DateTimeOffset.UnixEpoch, LastActivityAt = DateTimeOffset.UnixEpoch.AddHours(1),
@@ -616,7 +616,7 @@ public class PullRequestToneCacheTests {
 
     [Test]
     public async Task The_strongest_tone_across_a_sessions_links_wins() {
-        var (directory, source, time, cache) = Build();
+        var (directory, source, _, cache) = Build();
         using var _c = cache;
         using var _d = directory;
         source.OverviewResponses.Enqueue((subject, _) => Task.FromResult(source.Overview(subject)));
@@ -770,6 +770,119 @@ public class PullRequestToneCacheTests {
         await WaitUntilAsync(() => cache.CurrentSummaries.ContainsKey("s1"), "the returning session's own read");
         await Assert.That(cache.CurrentSummaries["s1"].Subject!.Number).IsEqualTo(2);
         await Assert.That(source.Lists).IsEqualTo(2);
+    }
+
+    /// The timer is armed once for the next due read rather than ticking, and once an ended
+    /// session's PRs have all settled and its titles have dropped, nothing is armed at all.
+    [Test]
+    public async Task The_timer_is_armed_for_the_next_due_moment_and_left_idle_when_nothing_can_change() {
+        using var directory = new FakeAgentDirectory();
+        var time = new RecordingTimeProvider();
+        var source = new FakePullRequestSource(time) { AccessSeconds = 300 };
+        using var cache = new PullRequestToneCache(directory, source, time);
+        directory.Rows.AddOrUpdate(Row("a1", "s1"));
+        await WaitUntilAsync(() => cache.CurrentSummaries.ContainsKey("s1"), "summary");
+        await WaitUntilAsync(() => time.LastDue == TimeSpan.FromMinutes(2), "armed for the cadence");
+        await Assert.That(time.LastPeriod).IsEqualTo(Timeout.InfiniteTimeSpan);
+
+        time.Advance(TimeSpan.FromMinutes(2) - TimeSpan.FromMilliseconds(1));
+        await Task.Delay(50);
+        await Assert.That(source.Lists).IsEqualTo(1);
+        time.Advance(TimeSpan.FromMilliseconds(1));
+        await WaitUntilAsync(() => source.Lists == 2, "the read at its due time");
+
+        directory.Rows.Clear();
+        source.Lifecycles[1] = "merged";
+        source.Links = [FakePullRequestSource.Link(1)];
+        directory.Rows.AddOrUpdate(Ended("s2"));
+        await WaitUntilAsync(() => cache.CurrentSummaries.ContainsKey("s2"), "ended summary");
+        await WaitUntilAsync(() => time.LastDue == TimeSpan.FromSeconds(295), "armed only for the titles to drop");
+        time.Advance(TimeSpan.FromSeconds(295));
+        await WaitUntilAsync(() => cache.CurrentSummaries["s2"].MenuItems[0].Title is null, "titles dropped");
+        await WaitUntilAsync(() => time.LastDue == Timeout.InfiniteTimeSpan, "nothing armed");
+    }
+
+    /// A hold that lapses between the drain picking its reads and arming the timer is still armed
+    /// for: the drain decides both from one reading of the clock.
+    [Test]
+    public async Task A_hold_lapsing_during_a_drain_is_still_armed_for() {
+        using var directory = new FakeAgentDirectory();
+        var time = new RecordingTimeProvider();
+        var source = new FakePullRequestSource(time) { AccessSeconds = 3600 };
+        using var cache = new PullRequestToneCache(directory, source, time);
+        directory.Rows.AddOrUpdate(Row("a1", "s1"));
+        await WaitUntilAsync(() => cache.Current.ContainsKey("s1"), what: "tone for s1");
+        var heldUntil = time.GetUtcNow().UtcDateTime.AddMinutes(2).AddSeconds(30);
+        source.ListResponses.Enqueue(new(PullRequestReadKind.Unavailable, Reason: "server_unavailable", AccessFailure: "transient",
+            RetryAt: heldUntil, StatusCode: 429));
+        time.Advance(TimeSpan.FromMinutes(2));
+        await WaitUntilAsync(() => source.Lists == 2, what: "the refused read");
+        time.Advance(TimeSpan.FromSeconds(30) - TimeSpan.FromMilliseconds(1));
+
+        time.SkewAfterReads(1, TimeSpan.FromMilliseconds(1));
+        directory.Rows.AddOrUpdate(Row("a2", "s2"));
+        time.Advance(TimeSpan.FromSeconds(1));
+
+        await WaitUntilAsync(() => source.Lists == 4, what: "both read once the hold lapses");
+    }
+
+    /// A retry time beyond what a system timer accepts arms the longest wake it does accept.
+    [Test]
+    public async Task A_retry_time_beyond_the_timer_range_arms_the_longest_wake() {
+        using var directory = new FakeAgentDirectory();
+        var time = new RecordingTimeProvider();
+        var source = new FakePullRequestSource(time) { AccessSeconds = 3600 };
+        using var cache = new PullRequestToneCache(directory, source, time);
+        source.ListResponses.Enqueue(new(PullRequestReadKind.Unavailable, Reason: "server_unavailable", AccessFailure: "transient",
+            RetryAt: time.GetUtcNow().UtcDateTime.AddDays(100), StatusCode: 429));
+        directory.Rows.AddOrUpdate(Row("a1", "s1"));
+        await WaitUntilAsync(() => source.Lists == 1, what: "the refused read");
+
+        await WaitUntilAsync(() => time.LastDue == TimeSpan.FromMilliseconds(uint.MaxValue - 1), what: "the longest wake armed");
+    }
+
+    sealed class RecordingTimeProvider : FakeTimeProvider {
+        long _lastDueTicks = -1;
+        public TimeSpan LastDue => TimeSpan.FromTicks(Interlocked.Read(ref _lastDueTicks));
+        public TimeSpan LastPeriod { get; private set; }
+
+        int _skewAfter = -1;
+        long _skewTicks;
+
+        /// From the read after the next <paramref name="reads"/>, the wall clock reads <paramref name="skew"/>
+        /// ahead without moving the timers, as a clock read late in a drain would.
+        public void SkewAfterReads(int reads, TimeSpan skew) {
+            Interlocked.Exchange(ref _skewTicks, skew.Ticks);
+            Volatile.Write(ref _skewAfter, reads);
+        }
+
+        [ThreadStatic] static bool _readingTimestamp;
+
+        public override long GetTimestamp() {
+            _readingTimestamp = true;
+            try { return base.GetTimestamp(); } finally { _readingTimestamp = false; }
+        }
+
+        public override DateTimeOffset GetUtcNow() {
+            var now = base.GetUtcNow();
+            var after = Volatile.Read(ref _skewAfter);
+            if (after < 0 || _readingTimestamp) return now;
+            if (after > 0) { Interlocked.Decrement(ref _skewAfter); return now; }
+            return now + TimeSpan.FromTicks(Interlocked.Read(ref _skewTicks));
+        }
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            new Recorded(this, base.CreateTimer(callback, state, dueTime, period));
+
+        sealed class Recorded(RecordingTimeProvider owner, ITimer inner) : ITimer {
+            public bool Change(TimeSpan dueTime, TimeSpan period) {
+                owner.LastPeriod = period;
+                Interlocked.Exchange(ref owner._lastDueTicks, dueTime.Ticks);
+                return inner.Change(dueTime, period);
+            }
+            public void Dispose() => inner.Dispose();
+            public ValueTask DisposeAsync() => inner.DisposeAsync();
+        }
     }
 
     static Task WaitUntilAsync(Func<bool> condition, string what) => WorkspaceFixtures.WaitUntilAsync(condition, what: what);

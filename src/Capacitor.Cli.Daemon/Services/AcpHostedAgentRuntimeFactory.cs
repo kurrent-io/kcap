@@ -737,9 +737,10 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
     /// ends up with a guessable literal again.</para>
     /// </summary>
     static List<string> SubstituteUnmatchableNames(List<string> argv, LaunchIdentity identity) {
-        for (var i = 0; i < argv.Count; i++)
+        for (var i = 0; i < argv.Count; i++) {
             if (argv[i] == AcpVendorDescriptors.UnmatchableMcpNamePlaceholder)
                 argv[i] = identity.UnmatchableMcpName;
+        }
 
         return argv;
     }
@@ -895,9 +896,10 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
             if (UsesMcpNameAllowlistArgv(descriptor)) {
                 var reviewMcp = ValidateAndBuildReviewFlowMcp(ctx, descriptor, resolved)!;
                 reviewGate = string.Join(",", reviewMcp.Select(s => s.Name));
-                for (var i = 0; i < argv.Count; i++)
+                for (var i = 0; i < argv.Count; i++) {
                     if (argv[i] == identity.UnmatchableMcpName)
                         argv[i] = reviewGate;
+                }
             }
 
             if (descriptor.ReviewFlowMcpTransport == AcpReviewFlowMcpTransport.CopilotAdditionalConfig) {

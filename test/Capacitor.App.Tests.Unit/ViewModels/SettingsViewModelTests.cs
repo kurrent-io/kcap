@@ -58,7 +58,7 @@ public class SettingsViewModelTests {
         await Assert.That(store.Load().AutoResume).IsFalse();
         await Assert.That(vm.AutoResumeMessage).IsEqualTo("Saved. The daemon reads this when it starts.");
         ConfigMutator.TryLoadPure(AppConfig.GetConfigPath(Config.Root), out var saved);
-        await Assert.That(saved!.Profiles["another"].Daemon!.AutoResume).IsNull();
+        await Assert.That(saved.Profiles["another"].Daemon!.AutoResume).IsNull();
 
         using var reopened = Make(store, Connected());
         await Assert.That(reopened.AutoResume).IsFalse();

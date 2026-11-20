@@ -88,7 +88,7 @@ public class AntigravityImportSourceTests {
         await Assert.That(root.Vendor).IsEqualTo(HarnessId.Antigravity);
         await Assert.That(root.FirstTimestamp).IsEqualTo(DateTimeOffset.Parse("2026-07-02T19:00:00Z", CultureInfo.InvariantCulture));
 
-        var children = (List<string>)root.SourceMeta!["Children"]!;
+        var children = (List<string>)root.SourceMeta["Children"]!;
         await Assert.That(children).Contains(Child);
     }
 
@@ -109,7 +109,7 @@ public class AntigravityImportSourceTests {
 
         await Assert.That(discovered.Count).IsEqualTo(1);
         await Assert.That(discovered[0].SessionId).IsEqualTo(Dashless(Root));
-        var children = (List<string>)discovered[0].SourceMeta!["Children"]!;
+        var children = (List<string>)discovered[0].SourceMeta["Children"]!;
         await Assert.That(children.OrderBy(x => x).ToList()).IsEquivalentTo(new List<string> { Child, Grand }.OrderBy(x => x).ToList());
     }
 
@@ -130,10 +130,10 @@ public class AntigravityImportSourceTests {
         await Assert.That(discovered.Count).IsEqualTo(1);
         await Assert.That(discovered[0].SessionId).IsEqualTo(Dashless(CliRoot));
         // The session carries its own product root so children resolve under antigravity-cli.
-        await Assert.That((string)discovered[0].SourceMeta!["ProductRoot"]!)
+        await Assert.That((string)discovered[0].SourceMeta["ProductRoot"]!)
             .EndsWith(CliSub);
         // ...and the transcript path it surfaces is under the CLI root, not the GUI's.
-        await Assert.That((string)discovered[0].SourceMeta!["TranscriptPath"]!)
+        await Assert.That((string)discovered[0].SourceMeta["TranscriptPath"]!)
             .Contains(Path.Combine(CliSub, "brain"));
     }
 
@@ -170,7 +170,7 @@ public class AntigravityImportSourceTests {
 
         await Assert.That(discovered.Count).IsEqualTo(1); // only the root is a session
         await Assert.That(discovered[0].SessionId).IsEqualTo(Dashless(CliRoot));
-        var children = (List<string>)discovered[0].SourceMeta!["Children"]!;
+        var children = (List<string>)discovered[0].SourceMeta["Children"]!;
         await Assert.That(children).Contains(CliChild);
     }
 

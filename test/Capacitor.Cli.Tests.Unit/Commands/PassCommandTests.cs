@@ -11,7 +11,7 @@ using WireMock.Server;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
-public class PassCommandTests {
+public partial class PassCommandTests {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
     const string Url = "https://kcap.test";
@@ -164,8 +164,11 @@ public class PassCommandTests {
     public async Task PassCommand_OmittedFromHelp() {
         var usage = EmbeddedResources.Load("help-usage.txt");
 
-        await Assert.That(Regex.IsMatch(usage, @"(?m)^\s+(pass|message)\b")).IsFalse();
+        await Assert.That(PassOrMessageLine().IsMatch(usage)).IsFalse();
         await Assert.That(EmbeddedResources.TryLoad("help-pass.txt")).IsNull();
         await Assert.That(EmbeddedResources.TryLoad("help-message.txt")).IsNull();
     }
+
+    [GeneratedRegex(@"(?m)^\s+(pass|message)\b")]
+    private static partial Regex PassOrMessageLine();
 }

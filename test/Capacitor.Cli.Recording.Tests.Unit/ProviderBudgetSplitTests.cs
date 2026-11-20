@@ -110,7 +110,7 @@ public class ProviderBudgetSplitTests {
     /// miss, and the PR is still found through HEAD's history.</summary>
     [Test]
     public async Task Falls_back_to_the_history_lookup_when_no_name_matches() {
-        CommandRunner run = (cmd, args, _, _) => Task.FromResult<string?>((cmd, args) switch {
+        CommandRunner run = (cmd, args, _, _) => Task.FromResult((cmd, args) switch {
             ("git", "rev-list -n 100 HEAD --not --remotes=*/HEAD") => "local\npushed",
             ("gh", _) when args.StartsWith("pr list ", StringComparison.Ordinal)
                 => """[{"number":1500,"headRefName":"fix/renamed","headRefOid":"pushed","isCrossRepository":false}]""",

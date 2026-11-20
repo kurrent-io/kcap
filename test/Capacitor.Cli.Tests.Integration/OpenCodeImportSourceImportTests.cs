@@ -20,9 +20,10 @@ public class OpenCodeImportSourceImportTests : IDisposable {
     public void Dispose() { _server.Stop(); _fix.Dispose(); }
 
     void StubOk(params string[] paths) {
-        foreach (var p in paths)
+        foreach (var p in paths) {
             _server.Given(Request.Create().WithPath(p).UsingPost())
                    .RespondWith(Response.Create().WithStatusCode(200));
+        }
     }
 
     [Test]

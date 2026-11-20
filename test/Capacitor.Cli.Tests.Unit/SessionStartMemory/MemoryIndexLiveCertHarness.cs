@@ -71,7 +71,7 @@ internal static partial class MemoryIndexLiveCertHarness {
         if (_indexCleanlinessUnconfirmed is { } reason) {
             throw new InvalidOperationException(
                 "Refusing to start a live cert: an earlier case in this run could not confirm its nonce "
-              + $"memory was removed, so the injected index may carry a stale nonce and a positive case "
+              + "memory was removed, so the injected index may carry a stale nonce and a positive case "
               + $"could pass on it. Clean up, then re-run. Reason: {reason}");
         }
     }
@@ -293,9 +293,10 @@ internal static partial class MemoryIndexLiveCertHarness {
 
                 if (text is null || JsonNode.Parse(text) is not JsonArray hits) continue;
 
-                foreach (var hit in hits)
+                foreach (var hit in hits) {
                     if (hit?["slug"]?.GetValue<string>() == slug && hit["memory_id"]?.GetValue<string>() is { } id)
                         found.Add(id);
+                }
             } catch {
                 // Transient or terminal — indistinguishable from here. Keep polling; the caller fails
                 // closed on anything it could not positively clean up.
@@ -633,7 +634,7 @@ internal static partial class MemoryIndexLiveCertHarness {
             RedirectStandardOutput = true,
             RedirectStandardError  = true,
             RedirectStandardInput  = stdin is not null,
-            WorkingDirectory       = workingDirectory ?? Capacitor.Cli.Core.WorkingDirectory.FromProcess().Path
+            WorkingDirectory       = workingDirectory ?? WorkingDirectory.FromProcess().Path
         };
         foreach (var arg in args) psi.ArgumentList.Add(arg);
 

@@ -380,7 +380,7 @@ class RecapCommand(
         var prose = turn.TryGetProperty("prose", out var p) && p.ValueKind == JsonValueKind.String ? RecapTranscript.Printable(p.GetString() ?? "") : null;
 
         if (!string.IsNullOrWhiteSpace(prose)) {
-            return $"{index,3}  {CollapseWhitespace(prose!)}";
+            return $"{index,3}  {CollapseWhitespace(prose)}";
         }
 
         var raw     = turn.TryGetProperty("user_prompt", out var up) && up.ValueKind == JsonValueKind.String ? RecapTranscript.Printable(up.GetString() ?? "") : "";

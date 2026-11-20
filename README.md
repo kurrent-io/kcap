@@ -1741,11 +1741,10 @@ the kcap capture plugin inside it do not reach the reviewer, and your interactiv
 unaffected. The restriction is read back before every launch, and a home that cannot be made owner-only
 refuses the launch rather than running with review context other users could read.
 
-**Not offered on Windows yet.** A Windows daemon withholds Antigravity, hosted agents and reviewers alike,
-with `antigravity_reviewer_unsupported_platform`. The home itself is ready there — a protected ACL admitting
-only you and SYSTEM, with `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and `TEMP`/`TMP` redirected into it
-alongside `HOME` — but no real `agy` run on Windows has yet confirmed that `agy` writes nothing outside it,
-and containment here is proven by a real run, not assumed.
+**Windows works the same way.** There the home carries a protected ACL admitting only you and SYSTEM, and
+`USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and `TEMP`/`TMP` are redirected into it alongside `HOME`. A real
+`agy` run under that home wrote nothing into your own `.gemini` or app-data folders and left no process
+behind.
 
 That home also carries a small `settings.json` holding `permissions.allow` rules for exactly the MCP tools
 the launch injected — the `kcap-flow-result` submit channel, plus any read-only servers the flow definition
@@ -1756,9 +1755,11 @@ reasons, and can never deliver its result. The grant admits those named tools an
 
 **Give the daemon durable credentials.** An unattended reviewer's stdin is closed, so it cannot complete an
 interactive login — an unauthenticated `agy` fails the launch with a coded
-`antigravity_reviewer_auth_unavailable` rather than hanging. Application Default Credentials are the
-supported setup, and every CLI-driven daemon start completes them for you — `daemon start`, `-d`, and
-`service install` alike:
+`antigravity_reviewer_auth_unavailable` rather than hanging. On Windows an `agy` you have already signed
+in to needs nothing more: its sign-in is not kept in the profile the launch redirects, so a daemon started
+with none of the three variables below launches it as it is. Elsewhere, Application Default Credentials
+are the supported setup, and every CLI-driven daemon start completes them for you — `daemon start`, `-d`,
+and `service install` alike:
 
 ```bash
 gcloud auth application-default login
@@ -1777,12 +1778,30 @@ launch redirects `HOME` (and on Windows `APPDATA`) to a per-launch state directo
 location is not visible to the child. Derivation happens in the CLI, at your command; the daemon itself
 still never reads a credential location of its own accord — it only forwards what it was started with.
 
-On Windows, `service install` derives nothing and never carries the credential path, as it carries no
-secret-capable value into a Windows unit, so a Windows daemon gets the trio from `kcap daemon start`/`-d`
-— which is how the desktop app starts it.
+On Windows nothing is derived unless you ask for it. A gcloud credentials file that merely exists does not
+set `AGY_ADC_AUTH=1` there: that flag turns `agy` away from its own sign-in, and with it set and no project
+`agy` fails with `plan model not specified`. ADC on Windows is therefore for a daemon you start yourself
+from a shell: log gcloud in, give it a project, stop the daemon that is running, and set the flag for the
+start command alone; `kcap daemon start`/`-d` then fills in the other two as above:
+
+```powershell
+gcloud auth application-default login
+gcloud config set project <id>
+kcap daemon stop --name $env:USERNAME      # a service-managed one: kcap daemon service stop --name $env:USERNAME
+$env:AGY_ADC_AUTH = '1'; kcap daemon start -d --name $env:USERNAME; Remove-Item Env:AGY_ADC_AUTH
+```
+
+The stop comes first because a start under the name of a running daemon is refused. Removing the flag
+afterwards matters too: left set in your shell, it is the export the end of this section warns against.
+Neither the desktop app nor a service does this for you. With no service installed the app runs
+`kcap daemon start -d` from its own environment, where the flag is normally unset; with one installed it
+starts that service, and `service install` derives nothing on Windows and never carries the credential
+path, as it carries no secret-capable value into a Windows unit. A service-managed daemon on Windows
+therefore has no ADC.
 
 A daemon already running from before you logged in needs a fresh start to pick the trio up — `kcap daemon
-stop` then `kcap daemon start`/`-d` (or re-run `service install`). `kcap daemon restart` reuses the running
+stop` then `kcap daemon start`/`-d` (or, on macOS and Linux, re-run `service install`); on Windows that start
+is the one above, with the flag set for it. `kcap daemon restart` reuses the running
 process's own environment rather than re-deriving, so it will not.
 
 Deliberately unit-only: do **not** export `AGY_ADC_AUTH=1` in your interactive shell — under ADC auth agy
@@ -1898,8 +1917,7 @@ consents specifically to an *unattended review*, whose risk is that it runs unde
 and returns what it read to whoever asked for the review — someone who need not be you. A hosted agent has
 no such gap: the server only ever launches on a daemon you own, so the person launching it is you.
 
-What a hosted launch *does* share with the reviewer is the **minimum `agy` version** (and not being offered
-on Windows yet), because
+What a hosted launch *does* share with the reviewer is the **minimum `agy` version**, because
 the containment that protects is the isolated `HOME` both shapes rely on. Your daemon records that minimum
 at startup whenever `agy` resolves, so there is normally nothing to do; if you installed `agy` after the
 daemon started, restart it or run `kcap daemon reviewer affirm --vendor antigravity`.

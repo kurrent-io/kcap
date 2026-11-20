@@ -276,24 +276,24 @@ public sealed class BrowserFirstRunFlow(
                     progress.Waiting(FirstRunFlowOutcomes.Step(last!.Step), healthy: true);
 
                     // Then the ticks, so "chose your agents" precedes the scan it starts.
-                    Announce(last!, announced);
+                    Announce(last, announced);
 
                     // Before the finished test, so a request made on the last screen is not abandoned by a
                     // flow that settles in the same tick — and the finished test then runs again below,
                     // because the budget can pass while a machine action runs.
-                    await PerformRequestedAsync(serverUrl, flowId, last!, performed, reported, ct);
+                    await PerformRequestedAsync(serverUrl, flowId, last, performed, reported, ct);
 
                     // Both lanes can outlast a poll interval by minutes, so the budget is measured
                     // against time spent WAITING: a disk scan or an upload is work, not a terminal
                     // nobody is sitting at, and letting it eat the backstop would abandon a flow that
                     // is progressing.
-                    deadline += await RunImportLaneAsync(serverUrl, flowId, last!, report, import, ct);
-                    deadline += await ActOnImportDecisionAsync(serverUrl, flowId, last!, import, ct);
+                    deadline += await RunImportLaneAsync(serverUrl, flowId, last, report, import, ct);
+                    deadline += await ActOnImportDecisionAsync(serverUrl, flowId, last, import, ct);
 
-                    if (FirstRunFlowOutcomes.IsFinished(last!)) {
+                    if (FirstRunFlowOutcomes.IsFinished(last)) {
                         await FlushReportsAsync(serverUrl, flowId, performed, reported, import, ct);
 
-                        return new FirstRunFlowResult.Finished(last!);
+                        return new FirstRunFlowResult.Finished(last);
                     }
 
                     break;

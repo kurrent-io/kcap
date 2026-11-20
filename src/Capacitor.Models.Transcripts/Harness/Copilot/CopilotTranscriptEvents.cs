@@ -26,7 +26,10 @@ namespace Capacitor.Models.Transcripts.Harness.Copilot;
 ///   <c>kcap.vscode_request_credits</c>: tokens and billing.</item>
 /// </list>
 /// A subagent's lines sit in its parent's transcript, tagged with an envelope <c>agentId</c>. A fork's transcript
-/// repeats its parent's lines after its own start, and those project to nothing. Copilot's vocabulary is undocumented
+/// repeats its parent's lines after its own start, and those project to nothing. So does the Local chat's history that
+/// a chat VS Code moved from Local to Copilot repeats, from its <see cref="MovedFromLocalProducer"/> start to its first
+/// <c>session.resume</c>; kcap's watcher writes a <see cref="MovedFromMarker"/> line naming the Local chat, which links
+/// the two. Copilot's vocabulary is undocumented
 /// and changes often, so any other type is noise.
 /// </summary>
 public sealed partial class CopilotTranscriptEvents : ITranscriptProjection {
@@ -38,6 +41,18 @@ public sealed partial class CopilotTranscriptEvents : ITranscriptProjection {
 
     static readonly FrozenDictionary<string, string> ForkMarker =
         new Dictionary<string, string> { [ForkMarkerKey] = "true" }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// Metadata key, value <c>true</c>, on the SessionStarted that links a chat moved from Local to its Local session.
+    public const string MoveMarkerKey = "$copilotMoveMarker";
+
+    static readonly FrozenDictionary<string, string> MoveMarker =
+        new Dictionary<string, string> { [MoveMarkerKey] = "true" }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// The <c>session.start</c> producer of a chat VS Code moved from Local to Copilot.
+    public const string MovedFromLocalProducer = "vscode-copilot-migration";
+
+    /// The line kcap's watcher writes naming the Local chat a moved chat came from, as <c>data.sessionId</c>.
+    public const string MovedFromMarker = "kcap.vscode_moved_from";
 
     CopilotTranscriptEvents() { }
 
@@ -60,7 +75,7 @@ public sealed partial class CopilotTranscriptEvents : ITranscriptProjection {
             var recordTs = root.Str("timestamp");
             var at       = ParseTime(recordTs);
 
-            if (IsCopiedFromParent(type, data, at, ctx)) return ProjectionResult.Empty;
+            if (IsCopiedFromParent(type, data, at, lineNumber, ctx)) return ProjectionResult.Empty;
 
             var e = new Envelope(TranscriptIds.CopilotRecord(root.Str("id"), line), at, recordTs, root.Str("agentId"));
 
@@ -73,6 +88,7 @@ public sealed partial class CopilotTranscriptEvents : ITranscriptProjection {
             return type switch {
                 "session.start"               => SessionStart(data, e),
                 "session.info"                => ForkLink(data, e, ctx),
+                MovedFromMarker               => MoveLink(data, e, ctx),
                 "session.binary_asset"        => BinaryAsset(data, ctx),
                 "user.message"                => UserMessage(data, e, ctx),
                 "assistant.message"           => AssistantMessage(data, e, ctx),
@@ -88,12 +104,15 @@ public sealed partial class CopilotTranscriptEvents : ITranscriptProjection {
 
     /// A fork's copied line, which keeps only the parent's last totals: the fork's own cumulative totals include them.
     /// A usage record after those totals makes them stale.
-    static bool IsCopiedFromParent(string type, JsonElement data, DateTimeOffset at, CopilotContext ctx) {
+    static bool IsCopiedFromParent(string type, JsonElement data, DateTimeOffset at, int lineNumber, CopilotContext ctx) {
         if (type == "session.start") {
             var start = ParseTime(data.Str("startTime"));
             ctx.CopiedLinesBefore        = start == DateTimeOffset.MinValue ? null : start;
             ctx.StartUnknown             = false;
             ctx.IsFork                   = false;
+            ctx.MovedFromLocal           = data.Str("producer") == MovedFromLocalProducer;
+            ctx.InMovedHistory           = ctx.MovedFromLocal;
+            ctx.MovedHistoryEndsAtLine   = null;
             ctx.InheritedNanoAiu         = null;
             ctx.InheritedPremiumRequests = null;
 
@@ -101,6 +120,22 @@ public sealed partial class CopilotTranscriptEvents : ITranscriptProjection {
         }
 
         if (ctx.StartUnknown) return true;
+
+        if (ctx.InMovedHistory) {
+            // The watcher sends the marker only once the history has ended, so a marker reaching a context still inside
+            // it (one rebuilt after the resume) ends it there.
+            if (type == MovedFromMarker) {
+                ctx.InMovedHistory = false;
+                return false;
+            }
+
+            if (type != "session.resume") return true;
+
+            ctx.InMovedHistory         = false;
+            ctx.MovedHistoryEndsAtLine = lineNumber;
+        }
+
+        if (ctx.MovedHistoryEndsAtLine is { } historyEnd && lineNumber < historyEnd) return true;
 
         if (ctx.CopiedLinesBefore is not { } before || at == DateTimeOffset.MinValue) return false;
 
@@ -156,6 +191,20 @@ public sealed partial class CopilotTranscriptEvents : ITranscriptProjection {
         ctx.IsFork = true;
 
         return ProjectionResult.Of([Event(started, e.Id, e.At, e.RecordTs) with { VendorMetadata = ForkMarker }]);
+    }
+
+    /// The Local chat the watcher found for a chat moved from Local. Unlike a fork's parent, the moved history carries no
+    /// spend, so the moved chat's totals are its own.
+    static ProjectionResult MoveLink(JsonElement data, Envelope e, CopilotContext ctx) {
+        if (data.Str("sessionId") is not { Length: > 0 } named) return ProjectionResult.Empty;
+
+        var local = Canonical(named);
+        if (local == ctx.SessionId) return ProjectionResult.Empty;
+
+        var started = new SessionStarted { Timestamp = Timestamp.FromDateTimeOffset(e.At), PreviousSessionId = local };
+        started.Extensions[CopilotExtension.Slug] = CopilotExtension.Session(source: "move");
+
+        return ProjectionResult.Of([Event(started, e.Id, e.At, e.RecordTs) with { VendorMetadata = MoveMarker }]);
     }
 
     static ProjectionResult BinaryAsset(JsonElement data, CopilotContext ctx) {

@@ -148,7 +148,7 @@ public class AcpInteractionBridgePresetTests {
             preset: Preset(AcpPermissionPresets.Auto),
             notifyAutoApproval: notices.Add, time: TimeProvider.System);
         const string schema = """{"type":"object","properties":{"proceed":{"type":"string","enum":["yes","no"]}}}""";
-        var frame = $$"""{"sessionId":"{{AcpSessionId}}","message":"Proceed?","mode":"form","requestedSchema":{{schema}}}""";
+        const string frame = $$"""{"sessionId":"{{AcpSessionId}}","message":"Proceed?","mode":"form","requestedSchema":{{schema}}}""";
 
         var result = await bridge.HandleAsync(
             new AcpRequest(1, "elicitation/create", JsonDocument.Parse(frame).RootElement.Clone()), CancellationToken.None);

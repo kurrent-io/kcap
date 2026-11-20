@@ -577,7 +577,7 @@ internal sealed class AgentCommand(
         (string Head, Func<AgentRow, string> Cell, int? Least)[] columns = [
             ("AGENT", a => Clean(a.Id), null),
             ("STATUS", a => Clean(a.Status), null),
-            ("STATE", a => Clean(a.State), agents.Any(a => a.State is not null) ? (int?)null : -1),
+            ("STATE", a => Clean(a.State), agents.Any(a => a.State is not null) ? null : -1),
             ("ACTIVITY", a => Activity(Detail(a)), 0),
             ("KIND", a => Clean(a.Kind), null),
             ("HARNESS", a => Clean(Detail(a)?.Vendor), 0),

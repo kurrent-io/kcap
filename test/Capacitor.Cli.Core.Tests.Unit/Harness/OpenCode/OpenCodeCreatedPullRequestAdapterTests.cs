@@ -41,7 +41,7 @@ public class OpenCodeCreatedPullRequestAdapterTests {
     // OpenCode settles a non-zero exit as completed; the metadata's exit code says gh refused.
     [Test]
     public async Task A_create_gh_refused_because_the_pr_exists_is_not_found() {
-        var output = "a pull request for branch \"feature\" into branch \"main\" already exists:\n" + Url + "\n";
+        const string output = "a pull request for branch \"feature\" into branch \"main\" already exists:\n" + Url + "\n";
 
         await Assert.That(Observe(Message(Settled("gh pr create --fill 2>&1", output, 1)))).IsEmpty();
         await Assert.That(Observe(Message(Settled("gh pr create --fill 2>&1", output, 1, status: "error")))).IsEmpty();

@@ -25,7 +25,7 @@ public class ScriptUpdaterTests {
     static async Task AssertNothingInstalled(ScriptReleaseFixture f, string version) {
         await Assert.That(f.CurrentTarget).IsEqualTo("versions/1.0.0");
         await Assert.That(Directory.Exists(f.Layout.VersionDir(version))).IsFalse();
-        await Assert.That(Directory.EnumerateDirectories(f.Layout.Versions).Select(p => Path.GetFileName(p)!).ToArray()).IsEquivalentTo(["1.0.0"]);
+        await Assert.That(Directory.EnumerateDirectories(f.Layout.Versions).Select(p => Path.GetFileName(p)).ToArray()).IsEquivalentTo(["1.0.0"]);
     }
 
     [Test]
@@ -202,7 +202,7 @@ public class ScriptUpdaterTests {
         ScriptUpdater.SwitchLink(link, "versions/b");
 
         await Assert.That(new DirectoryInfo(link).LinkTarget).IsEqualTo("versions/b");
-        await Assert.That(Directory.EnumerateFileSystemEntries(tmp.Path).Select(p => Path.GetFileName(p)!).ToArray())
+        await Assert.That(Directory.EnumerateFileSystemEntries(tmp.Path).Select(p => Path.GetFileName(p)).ToArray())
             .IsEquivalentTo(["versions", "current"]);
     }
 
@@ -219,7 +219,7 @@ public class ScriptUpdaterTests {
 
         await Assert.That(ok).IsTrue();
         await Assert.That(output).Contains("Removed 1 unused kcap version.");
-        await Assert.That(Directory.EnumerateDirectories(f.Layout.Versions).Select(p => Path.GetFileName(p)!).ToArray())
+        await Assert.That(Directory.EnumerateDirectories(f.Layout.Versions).Select(p => Path.GetFileName(p)).ToArray())
             .IsEquivalentTo(["1.0.0", "1.5.0"]);
     }
 
@@ -236,7 +236,7 @@ public class ScriptUpdaterTests {
         var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.3.0-beta.1"), layout.VersionDir("1.2.0"), null], TextWriter.Null);
 
         await Assert.That(pruned).IsEqualTo(2);
-        await Assert.That(Directory.EnumerateDirectories(layout.Versions).Select(p => Path.GetFileName(p)!).ToArray())
+        await Assert.That(Directory.EnumerateDirectories(layout.Versions).Select(p => Path.GetFileName(p)).ToArray())
             .IsEquivalentTo(["0.9.0", "1.1.0", "1.2.0", "1.3.0-beta.1", ".update-12-def", ".staging-34", "notes"]);
         await Assert.That(File.Exists(unrelated)).IsTrue();
     }
@@ -411,7 +411,7 @@ public class ScriptUpdaterTests {
         var pruned = updater.PruneVersions(layout, keep: [layout.VersionDir("1.0.0"), layout.VersionDir("1.1.0")], TextWriter.Null);
 
         await Assert.That(pruned).IsEqualTo(1);
-        await Assert.That(Directory.EnumerateDirectories(layout.Versions).Select(p => Path.GetFileName(p)!).ToArray())
+        await Assert.That(Directory.EnumerateDirectories(layout.Versions).Select(p => Path.GetFileName(p)).ToArray())
             .IsEquivalentTo(["1.0.0", "1.1.0"]);
     }
 

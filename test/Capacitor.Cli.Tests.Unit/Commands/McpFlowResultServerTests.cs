@@ -19,15 +19,15 @@ public class McpFlowResultServerTests {
 
     static JsonObject Args(string? roundToken = "round-1", string? kind = "findings", string? findings = "1. issue") {
         var o = new JsonObject();
-        if (roundToken is not null) o["round_token"] = (JsonNode?)roundToken;
-        if (kind is not null) o["kind"] = (JsonNode?)kind;
-        if (findings is not null) o["findings"] = (JsonNode?)findings;
+        if (roundToken is not null) o["round_token"] = roundToken;
+        if (kind is not null) o["kind"] = kind;
+        if (findings is not null) o["findings"] = findings;
         return o;
     }
 
     static JsonObject MessageArgs(string? text = "heads up: found something outside this round's scope") {
         var o = new JsonObject();
-        if (text is not null) o["text"] = (JsonNode?)text;
+        if (text is not null) o["text"] = text;
         return o;
     }
 

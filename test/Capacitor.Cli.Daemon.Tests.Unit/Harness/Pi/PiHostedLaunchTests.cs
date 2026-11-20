@@ -426,12 +426,12 @@ public class PiHostedLaunchTests {
     public async Task DaemonRunnerRegistrationShape_ResolvesPiFromTheVendorDictionary() {
         var services = new ServiceCollection();
         services.AddSingleton(new DaemonConfig());
-        services.AddSingleton<Microsoft.Extensions.Logging.ILoggerFactory>(NullLoggerFactory.Instance);
+        services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
 
         services.AddSingleton<IHostedAgentRuntimeFactory>(sp =>
             new PiRpcHostedAgentRuntimeFactory(
                 sp.GetRequiredService<DaemonConfig>(),
-                sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()
+                sp.GetRequiredService<ILoggerFactory>()
             ,
             TimeProvider.System)
         );

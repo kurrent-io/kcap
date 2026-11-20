@@ -44,7 +44,7 @@ sealed class LocalServerSystemdService(
 
     public void Install(LocalServerUnit unit) {
         unit.PrepareLogDirectory();
-        _writeUnit(LocalServerSystemdUnit.UnitPath(home, unit), LocalServerSystemdUnit.Unit(unit), null);
+        _writeUnit(LocalServerSystemdUnit.UnitPath(home, unit), LocalServerSystemdUnit.Unit(unit));
 
         Check(LocalServerSystemdUnit.DaemonReloadArgs());
         Check(LocalServerSystemdUnit.EnableArgs(unit));

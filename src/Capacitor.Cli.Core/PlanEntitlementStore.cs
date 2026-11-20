@@ -75,7 +75,7 @@ public static class PlanEntitlementStore {
                 ["seen_at"] = at,
             };
 
-            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(tempPath, obj.ToJsonString());
             // Atomic publish. Last writer wins, which is the semantics we want: the newest observation
             // of a tenant's plan is the right one, whichever process made it.

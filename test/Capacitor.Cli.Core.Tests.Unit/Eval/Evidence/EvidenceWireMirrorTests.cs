@@ -45,7 +45,7 @@ public class EvidenceWireMirrorTests {
 
         var response = JsonSerializer.Deserialize("""{"scope_version":"v","citations":[{"ref":"s@1","state":"certified","digest":"ab","code":null},{"ref":"s@2","state":"refused","digest":null,"code":"work_budget"}]}""",
             CapacitorJsonContext.Default.EvidenceCitationsResponseDto)!;
-        await Assert.That(response.Citations.Select(c => (c.Ref, c.State, c.Code))).IsEquivalentTo([("s@1", "certified", (string?)null), ("s@2", "refused", "work_budget")]);
+        await Assert.That(response.Citations.Select(c => (c.Ref, c.State, c.Code))).IsEquivalentTo([("s@1", "certified", null), ("s@2", "refused", "work_budget")]);
     }
 
     [Test]
