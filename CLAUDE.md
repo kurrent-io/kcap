@@ -116,6 +116,7 @@ running notes file that every PR edits.
   contains its pattern. The PTY launch spawns the agent without its prompt and pastes it into the
   composer once startup output has settled, so the real prompt is the agent's first message; only
   a slash command stays inline, because the agent runs one only as the literal first message.
+  Antigravity, which runs one process per turn, reads every turn's prompt from stdin.
 - **A Claude launch prompt waits for SessionStart with no time limit.** A first-run screen fires no
   hook and reads as a settled composer, so a paste or a retry Enter on a timer answers it and the
   prompt is lost. With hooks wired only SessionStart, a relayed turn or a fresh agent's transcript

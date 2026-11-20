@@ -111,7 +111,6 @@ public class AntigravityContainmentTests {
             var psi = AntigravityHostedAgentRuntimeFactory.BuildTurnPsi(
                 config: config,
                 ctx: Ctx(workspace),
-                prompt: "Reply with the single word OK. Do not use any tools.",
                 conversationId: null,
                 home: home);
 
@@ -130,7 +129,8 @@ public class AntigravityContainmentTests {
             }
 
             // The daemon resolves the binary the same way, an npm shim included.
-            var turn = await RunTurnAsync(WindowsLaunchCommand.Apply(psi, config.Binaries));
+            var turn = await RunTurnAsync(
+                WindowsLaunchCommand.Apply(psi, config.Binaries), "Reply with the single word OK. Do not use any tools.");
 
             Console.WriteLine($"[agy-containment] conversation={turn.ConversationId} status={turn.Status} "
                             + $"exit={turn.ExitCode} detail={turn.Detail}");
@@ -241,13 +241,14 @@ public class AntigravityContainmentTests {
     /// snapshot as soon as the conversation id is known — a watcher spawned by a hook would be alive
     /// then, and might have exited by the time the turn ends.
     /// </summary>
-    static async Task<TurnOutcome> RunTurnAsync(ProcessStartInfo psi) {
+    static async Task<TurnOutcome> RunTurnAsync(ProcessStartInfo psi, string prompt) {
         using var cts  = new CancellationTokenSource(TurnTimeout);
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("agy did not start — is it on PATH?");
 
-        // Closed immediately, exactly as the production turn process does: nothing can consume a
-        // pasted OAuth code, so an unauthenticated agy fails against the deadline rather than waiting
-        // on a human who is not there.
+        // The prompt and then end of input, exactly as the production turn process does: nothing can
+        // consume a pasted OAuth code, so an unauthenticated agy fails against the deadline rather than
+        // waiting on a human who is not there.
+        await proc.StandardInput.WriteLineAsync(AgyTurnProcess.InputLine(prompt));
         proc.StandardInput.Close();
 
         var stderrDrain = Task.Run(async () => {
