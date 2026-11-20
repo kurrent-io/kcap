@@ -379,8 +379,12 @@ public sealed class ChatTopics : ReactiveObject {
 
     // A topic is named by the first thing the user said in it, or failing that, the first thing said.
     static string? LabelOf(IReadOnlyList<ChatItemViewModel> rows) {
-        var text = rows.OfType<UserTurnItem>().FirstOrDefault(static turn => turn.HasText)?.Text
-            ?? rows.OfType<AssistantTextItem>().FirstOrDefault()?.Text;
+        // The message the topic starts at, whoever wrote it.
+        var text = rows.Select(static row => row switch {
+            UserTurnItem { HasText: true } turn => turn.Text,
+            AssistantTextItem reply => reply.Text,
+            _ => null,
+        }).FirstOrDefault(static t => t is not null);
         var line = text?.Split('\n').Select(static l => l.Trim()).FirstOrDefault(static l => l.Length > 0);
         return line is null ? null : TextElision.End(line, LabelLength);
     }

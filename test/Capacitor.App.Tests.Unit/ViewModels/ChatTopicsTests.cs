@@ -111,10 +111,10 @@ public class ChatTopicsTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_topic_without_a_user_message_is_named_by_the_agent() {
+    public async Task A_topic_is_named_by_the_message_it_starts_at_whoever_wrote_it() {
         await RunOnUiAsync(async () => {
             var reply  = new AssistantTextItem("\nLooking at the retry policy");
-            var items  = new AvaloniaList<ChatItemViewModel> { reply };
+            var items  = new AvaloniaList<ChatItemViewModel> { reply, new UserTurnItem("Make it grey") };
             var topics = new ChatTopics(items);
 
             topics.ToggleChange(reply);
