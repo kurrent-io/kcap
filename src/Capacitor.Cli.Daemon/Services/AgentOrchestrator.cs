@@ -7447,10 +7447,17 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <summary>True when the worktree is gone, false when it holds work and stays.</summary>
     async Task<bool> RemoveOwnedWorktreeAsync(WorktreeInfo worktree, string agentId) {
         var removal = await WorktreeManager.RemoveAsync(worktree, _time);
-        if (removal.KeptBecause is { } reason) LogWorktreeKept(agentId, worktree.Path, worktree.Branch, reason);
 
-        return !removal.Kept;
+        if (removal.KeptBecause is { } reason) {
+            if (removal.TreeRemoved) LogCleanupStoppedAfterRemoval(agentId, worktree.Path, worktree.Branch, reason);
+            else LogWorktreeKept(agentId, worktree.Path, worktree.Branch, reason);
+        }
+
+        return removal.TreeRemoved;
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Removed the worktree of agent {AgentId} at {Path} but stopped the rest of its cleanup (branch {Branch}): {Reason}")]
+    partial void LogCleanupStoppedAfterRemoval(string agentId, string path, string branch, string reason);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Agent {AgentId} did not exit after a stop; reporting it Failed rather than Completed")]
     partial void LogStopUnconfirmed(string agentId);

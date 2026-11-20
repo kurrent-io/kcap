@@ -814,6 +814,7 @@ public partial class WorktreeManager(
         var pinned       = CanonicalPath.TryResolve(worktree.SourceRepo, out var resolved) ? resolved : null;
         var pinnedCommon = pinned is null ? null : await ResolvedCommonDirAsync(worktree.SourceRepo, time);
         var moved        = false;
+        var treeRemoved  = false;
 
         async Task<bool> StillThereAsync() {
             if (pinned is null || await RepositoryStillAtAsync(worktree.SourceRepo, pinned, pinnedCommon, time)) return true;
@@ -831,6 +832,7 @@ public partial class WorktreeManager(
         await WithWorktreeMetadataGate(worktree.SourceRepo, time, async () => {
             if (!await StillThereAsync()) return;
             await RunGit(worktree.SourceRepo, GitTimeout, time, "worktree", "remove", worktree.Path, "--force");
+            treeRemoved = true;
 
             if (deleteBranch && worktree.OwnsBranch && !string.IsNullOrEmpty(worktree.Branch) && await StillThereAsync()) {
                 await RunGitBestEffort(worktree.SourceRepo, time, "branch", "-D", worktree.Branch);
@@ -841,9 +843,13 @@ public partial class WorktreeManager(
             await RunGitBestEffort(worktree.SourceRepo, time, "update-ref", "-d", worktree.FetchedRef);
         }
 
-        return moved
-            ? WorktreeRemoval.Keep($"nothing the daemon may remove: its source repository {worktree.SourceRepo} moved during cleanup")
-            : WorktreeRemoval.Removed;
+        if (!moved) return WorktreeRemoval.Removed;
+
+        var moving = $"its source repository {worktree.SourceRepo} moved during cleanup";
+
+        return treeRemoved
+            ? WorktreeRemoval.KeepAfterRemoving($"what is left of its branch and fetched ref: {moving}")
+            : WorktreeRemoval.Keep($"nothing the daemon may remove: {moving}");
     }
 
     /// <summary>Files the daemon itself deletes or writes in an owned worktree: the MCP configs it removes
