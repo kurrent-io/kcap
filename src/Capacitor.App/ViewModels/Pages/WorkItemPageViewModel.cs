@@ -26,6 +26,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     readonly TimeProvider _time;
     readonly ISet<string> _flipped;
     readonly HashSet<string> _openedParts = new(StringComparer.Ordinal);
+    readonly HashSet<string> _opening = new(StringComparer.Ordinal);
     // A status the viewer just set, shown until a read reports it: the read right after the change can come back
     // before the server's read model has it.
     readonly Dictionary<string, string> _setStatuses = new(StringComparer.Ordinal);
@@ -208,7 +209,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
 
     // Opens the slice it lands in, so the session is seen there.
     Task MoveSessionAsync(WorkItemPageSession session, string containerId) {
-        if (containerId != WorkItemId) _openedParts.Add(containerId);
+        if (containerId != WorkItemId && !_openedParts.Contains(containerId)) _opening.Add(containerId);
         return ShiftAsync([session.SessionId], containerId, ct => _api.MoveSessionAsync(containerId, session.SessionId, ct), "Couldn't move that session");
     }
 
@@ -453,7 +454,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         });
         return new WorkItemPagePart(id, part.Title, status, tip, needsYou, LinksOf(part.Links),
             [.. sessionIds.Select(sessionId => SessionOf(id, sessionId, rows, named))], _openedParts.Contains(id),
-            expanded => { if (expanded) _openedParts.Add(id); else _openedParts.Remove(id); }, setStatus, _arrivals.Remove(id));
+            expanded => {
+                _opening.Remove(id);
+                if (expanded) _openedParts.Add(id);
+                else _openedParts.Remove(id);
+            }, setStatus, _arrivals.Remove(id), _opening.Contains(id));
     }
 
     static IReadOnlyList<WorkItemPageLink> LinksOf(IEnumerable<WorkItemLinkDto> links) =>

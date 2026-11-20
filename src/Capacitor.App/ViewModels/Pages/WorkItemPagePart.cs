@@ -14,6 +14,8 @@ public sealed class WorkItemPagePart : ReactiveObject {
     public string? Tip { get; }
     public bool NeedsYou { get; }
     public bool Arrives { get; }
+    /// Shown closed, to be opened once on screen so it unfolds.
+    public bool Opens { get; }
     public IReadOnlyList<WorkItemPageLink> Links { get; }
     public IReadOnlyList<WorkItemPageSession> Sessions { get; }
     public ReactiveCommand<Unit, Unit> ToggleCommand { get; }
@@ -24,22 +26,33 @@ public sealed class WorkItemPagePart : ReactiveObject {
 
     public WorkItemPagePart(string id, string title, WorkStatus status, string? tip, bool needsYou,
             IReadOnlyList<WorkItemPageLink> links, IReadOnlyList<WorkItemPageSession> sessions, bool isExpanded,
-            Action<bool> expandedChanged, ReactiveCommand<string, Unit> setStatusCommand, bool arrives = false) {
+            Action<bool> expandedChanged, ReactiveCommand<string, Unit> setStatusCommand, bool arrives = false, bool opens = false) {
         Id = id;
         Title = title;
         Status = status;
         Tip = tip;
         NeedsYou = needsYou;
         Arrives = arrives;
+        Opens = opens;
         Links = links;
         Sessions = sessions;
         _isExpanded = isExpanded;
         SetStatusCommand = setStatusCommand;
+        _expandedChanged = expandedChanged;
         ToggleCommand = ReactiveCommand.Create(() => {
-            if (!HasSessions) return;
-            IsExpanded = !IsExpanded;
-            expandedChanged(IsExpanded);
+            if (HasSessions) Expand(!IsExpanded);
         });
+    }
+
+    readonly Action<bool> _expandedChanged;
+
+    public void Open() {
+        if (!IsExpanded) Expand(true);
+    }
+
+    void Expand(bool expanded) {
+        IsExpanded = expanded;
+        _expandedChanged(expanded);
     }
 
     public LucideIconKind Icon => Status.Icon();

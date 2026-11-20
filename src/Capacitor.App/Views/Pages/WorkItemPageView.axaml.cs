@@ -52,9 +52,11 @@ public partial class WorkItemPageView : UserControl {
             _ = Motion.Standard.RunAsync(_page!.IsBoard ? WorkItemBoardView : WorkItemGroups, CancellationToken.None, (OpacityProperty, 0d, 1d));
     }
 
+    // Opened after the fold has loaded, since a fold that is not yet loaded snaps open.
     void OnRowAttached(object? sender, VisualTreeAttachmentEventArgs e) {
-        if (sender is Control { DataContext: WorkItemPagePart { Arrives: true } } row)
-            _ = Motion.Arrive.RunAsync(row, CancellationToken.None, (OpacityProperty, 0d, 1d));
+        if (sender is not Control { DataContext: WorkItemPagePart part } row) return;
+        if (part.Arrives) _ = Motion.Arrive.RunAsync(row, CancellationToken.None, (OpacityProperty, 0d, 1d));
+        if (part.Opens) Dispatcher.UIThread.Post(part.Open, DispatcherPriority.Background);
     }
 
     // A rebuild replaces the group, and with it the field being typed in, so the new field takes focus back.
