@@ -16,6 +16,8 @@ public interface IWorkItemPageApi {
     Task<bool> RenameAsync(string workItemId, string title, CancellationToken ct);
     /// A null goal clears it.
     Task<bool> SetGoalAsync(string workItemId, string? goal, CancellationToken ct);
+    /// <paramref name="partIds"/> names every slice the viewer can see, first to last.
+    Task<bool> OrderPartsAsync(string workItemId, IReadOnlyList<string> partIds, CancellationToken ct);
     Task<bool> MakePartAsync(string workItemId, string looseEndId, CancellationToken ct);
     /// The new part's id, or null when the server refused it.
     Task<string?> AddPartAsync(string workItemId, string title, CancellationToken ct);

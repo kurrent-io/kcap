@@ -25,6 +25,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     // A status the viewer just set, shown until a read reports it: the read right after the change can come back
     // before the server's read model has it.
     readonly Dictionary<string, string> _setStatuses = new(StringComparer.Ordinal);
+    // A slice order the viewer just set, shown until a read reports it, for the same reason.
+    List<string>? _setOrder;
+    List<string> _order = [];
+    // Rows just dropped, marked as arriving the first time they are built where they landed.
+    readonly HashSet<string> _arrivals = new(StringComparer.Ordinal);
     readonly Subject<Unit> _reread = new();
     readonly CompositeDisposable _disposables = new();
     WorkItemPartsDto? _read;
@@ -145,11 +150,72 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
             () => _ = ChangeAsync(ct => _api.RemoveSessionAsync(WorkItemId, session.SessionId, ct), "Couldn't remove that session")),
     ];
 
-    public IReadOnlyList<RowMenuItem> MenuFor(WorkItemPagePart part) => [
-        .. Enum.GetValues<WorkStatus>().Where(status => status != part.Status)
-            .Select(status => new RowMenuItem(status.Icon(), $"Move to {status.Label()}", () => part.SetStatusCommand.Execute(status.Wire()).Subscribe(), status.BrushKey())),
-        new(LucideIconKind.Link, "Work it out from links", () => part.SetStatusCommand.Execute("").Subscribe()),
-    ];
+    public IReadOnlyList<RowMenuItem> MenuFor(WorkItemPagePart part) {
+        var items = new List<RowMenuItem>();
+        if (Neighbour(part, -1) is { } above && PlaceAt(part, above, after: false) is { } up) items.Add(new(LucideIconKind.ArrowUp, "Move up", up));
+        if (Neighbour(part, 1) is { } below && PlaceAt(part, below, after: true) is { } down) items.Add(new(LucideIconKind.ArrowDown, "Move down", down));
+        items.AddRange(Enum.GetValues<WorkStatus>().Where(status => status != part.Status)
+            .Select(status => new RowMenuItem(status.Icon(), $"Move to {status.Label()}", () => part.SetStatusCommand.Execute(status.Wire()).Subscribe(), status.BrushKey())));
+        items.Add(new(LucideIconKind.Link, "Work it out from links", () => part.SetStatusCommand.Execute("").Subscribe()));
+        return items;
+    }
+
+    /// What dropping a dragged slice or session on <paramref name="target"/>, a slice or a group, does; null when it does
+    /// nothing there. <paramref name="after"/> puts a dropped slice below the target slice rather than above it, and a
+    /// slice dropped among another status's slices takes that status.
+    public Action? DropOn(object dragged, object target, bool after) => (dragged, target) switch {
+        (WorkItemPageSession session, WorkItemPagePart part) when part.Sessions.All(s => s.SessionId != session.SessionId) =>
+            () => _ = MoveSessionAsync(session, part.Id),
+        (WorkItemPageSession session, WorkItemPageGroupViewModel { Key: OnWorkItemKey } group) when group.Sessions.All(s => s.SessionId != session.SessionId) =>
+            () => _ = MoveSessionAsync(session, WorkItemId),
+        (WorkItemPagePart part, WorkItemPagePart onto) => PlaceAt(part, onto, after),
+        (WorkItemPagePart part, WorkItemPageGroupViewModel { Status: { } status }) when status != part.Status =>
+            () => part.SetStatusCommand.Execute(status.Wire()).Subscribe(),
+        _ => null,
+    };
+
+    // Opens the slice it lands in, so the session is seen arriving.
+    async Task MoveSessionAsync(WorkItemPageSession session, string containerId) {
+        var arrival = ArrivalKey(containerId, session.SessionId);
+        _arrivals.Add(arrival);
+        if (containerId != WorkItemId) _openedParts.Add(containerId);
+        if (!await ChangeAsync(ct => _api.MoveSessionAsync(containerId, session.SessionId, ct), "Couldn't move that session")) _arrivals.Remove(arrival);
+    }
+
+    WorkItemPagePart? Neighbour(WorkItemPagePart part, int step) {
+        if (Groups.FirstOrDefault(group => group.Parts.Contains(part))?.Parts.ToList() is not { } inGroup) return null;
+        var at = inGroup.IndexOf(part) + step;
+        return at >= 0 && at < inGroup.Count ? inGroup[at] : null;
+    }
+
+    Action? PlaceAt(WorkItemPagePart part, WorkItemPagePart onto, bool after) {
+        if (part.Id == onto.Id) return null;
+        var order = _order.Where(id => id != part.Id).ToList();
+        order.Insert(order.IndexOf(onto.Id) + (after ? 1 : 0), part.Id);
+        var status = onto.Status == part.Status ? (WorkStatus?)null : onto.Status;
+        if (status is null && order.SequenceEqual(_order)) return null;
+        return () => _ = PlaceAsync(part, order, status);
+    }
+
+    // A refused order puts the slice back, which says so without a message, and reads again in case another slice came or went.
+    async Task PlaceAsync(WorkItemPagePart part, List<string> order, WorkStatus? status) {
+        var reorders = !order.SequenceEqual(_order);
+        if (status is { } moved) {
+            if (!reorders) _arrivals.Add(part.Id);
+            await part.SetStatusCommand.Execute(moved.Wire());
+        }
+        if (!reorders) return;
+        _arrivals.Add(part.Id);
+        _setOrder = order;
+        Rebuild();
+        var recorded = await _api.OrderPartsAsync(WorkItemId, order, CancellationToken.None);
+        if (_disposables.IsDisposed || _setOrder != order) return;
+        if (!recorded) {
+            _setOrder = null;
+            Rebuild();
+        }
+        _reread.OnNext(Unit.Default);
+    }
 
     void ShowPage(PageViewerViewModel viewer) {
         ClosePage();
@@ -204,7 +270,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         Pages = [.. read.Pages.Select(page => new WorkItemPublishedPage(
             page.ArtefactId, string.IsNullOrWhiteSpace(page.Title) ? "Untitled page" : page.Title, $"v{page.LatestVersion} · {Ago(page.UpdatedAt)}", page.Url))];
 
-        var parts = read.Parts.Select(part => PartOf(part, rows)).ToList();
+        var readOrder = read.Parts.Select(part => part.WorkItemId).ToList();
+        if (_setOrder is { } set && (set.SequenceEqual(readOrder) || !set.ToHashSet(StringComparer.Ordinal).SetEquals(readOrder))) _setOrder = null;
+        var parts = (_setOrder is { } order ? read.Parts.OrderBy(part => order.IndexOf(part.WorkItemId)) : read.Parts.AsEnumerable())
+            .Select(part => PartOf(part, rows)).ToList();
+        _order = [.. parts.Select(part => part.Id)];
         var done = parts.Count(part => part.Status == WorkStatus.Done);
         ProgressText = parts.Count == 0 ? "" : $"{done}/{parts.Count}";
         ProgressSweep = parts.Count == 0 ? 0 : 360.0 * done / parts.Count;
@@ -218,7 +288,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         var looseEnds = read.LooseEnds.Select(looseEnd => new WorkItemPageLooseEnd(looseEnd.LooseEndId, looseEnd.Text)).ToList();
         if (looseEnds.Count > 0) groups.Add(Group(LooseEndsKey, null, "Loose ends", LucideIconKind.Flag, looseEnds: looseEnds));
         AddStatus(WorkStatus.Done);
-        var sessions = read.SessionIds.Select(id => SessionOf(id, rows, read.Sessions)).ToList();
+        var sessions = read.SessionIds.Select(id => SessionOf(WorkItemId, id, rows, read.Sessions)).ToList();
         if (sessions.Count > 0) groups.Add(Group(OnWorkItemKey, null, "Other sessions", LucideIconKind.MessagesSquare, sessions: sessions));
         Groups = groups;
     }
@@ -247,25 +317,29 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         });
         var id = part.WorkItemId;
         return new WorkItemPagePart(id, part.Title, status, tip, needsYou, LinksOf(part.Links),
-            [.. part.SessionIds.Select(sessionId => SessionOf(sessionId, rows, part.Sessions))], _openedParts.Contains(id),
-            expanded => { if (expanded) _openedParts.Add(id); else _openedParts.Remove(id); }, setStatus);
+            [.. part.SessionIds.Select(sessionId => SessionOf(id, sessionId, rows, part.Sessions))], _openedParts.Contains(id),
+            expanded => { if (expanded) _openedParts.Add(id); else _openedParts.Remove(id); }, setStatus, _arrivals.Remove(id));
     }
 
     static IReadOnlyList<WorkItemPageLink> LinksOf(IEnumerable<WorkItemLinkDto> links) =>
         [.. links.Where(link => link.LinkClass != "reference")
             .Select(link => new WorkItemPageLink(link.ShortKey, link.Title, link.State, link.Url, link.Kind == "pr"))];
 
-    WorkItemPageSession SessionOf(string sessionId, Dictionary<string, AgentRow> rows, IReadOnlyList<WorkItemPartSessionDto> named) {
+    static string ArrivalKey(string containerId, string sessionId) => $"{containerId}/{sessionId}";
+
+    /// <param name="containerId">The slice, or the work item itself, the session sits in.</param>
+    WorkItemPageSession SessionOf(string containerId, string sessionId, Dictionary<string, AgentRow> rows, IReadOnlyList<WorkItemPartSessionDto> named) {
+        var arrives = _arrivals.Remove(ArrivalKey(containerId, sessionId));
         if (!rows.TryGetValue(sessionId, out var row)) {
             if (named.FirstOrDefault(session => session.SessionId == sessionId) is not { } known)
-                return new(sessionId, $"Session {sessionId[..Math.Min(8, sessionId.Length)]}", null, null);
+                return new(sessionId, $"Session {sessionId[..Math.Min(8, sessionId.Length)]}", null, null, arrives);
             return new(sessionId, known.Title is { Length: > 0 } knownTitle ? knownTitle : "Untitled session",
-                known.LastActivityAt is { } moved ? Ago(moved) : null, known.Vendor);
+                known.LastActivityAt is { } moved ? Ago(moved) : null, known.Vendor, arrives);
         }
         var stamp = row.LastActivityAt ?? row.CreatedAt;
         var age = Ago(new DateTimeOffset(stamp.Kind == DateTimeKind.Local ? stamp.ToUniversalTime() : DateTime.SpecifyKind(stamp, DateTimeKind.Utc)));
         return new(sessionId, row.Title is { Length: > 0 } title ? title : "Untitled session",
-            row.RepoGroupLabel is { Length: > 0 } repo ? $"{repo} · {age}" : age, row.Vendor);
+            row.RepoGroupLabel is { Length: > 0 } repo ? $"{repo} · {age}" : age, row.Vendor, arrives);
     }
 
     string Ago(DateTimeOffset at) => RelativeTime.Ago(at, _time.GetUtcNow(), _time.LocalTimeZone);

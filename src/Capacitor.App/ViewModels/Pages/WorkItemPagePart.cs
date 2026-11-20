@@ -6,13 +6,14 @@ using ReactiveUI.Reactive;
 namespace Capacitor.App.ViewModels.Pages;
 
 /// One slice's row. <see cref="Tip"/> names what a blocked slice waits on. <see cref="NeedsYou"/> comes from the
-/// viewer's own sessions, so it never moves the slice between groups.
+/// viewer's own sessions, so it never moves the slice between groups. <see cref="Arrives"/> when it was just dropped here.
 public sealed class WorkItemPagePart : ReactiveObject {
     public string Id { get; }
     public string Title { get; }
     public WorkStatus Status { get; }
     public string? Tip { get; }
     public bool NeedsYou { get; }
+    public bool Arrives { get; }
     public IReadOnlyList<WorkItemPageLink> Links { get; }
     public IReadOnlyList<WorkItemPageSession> Sessions { get; }
     public ReactiveCommand<Unit, Unit> ToggleCommand { get; }
@@ -23,12 +24,13 @@ public sealed class WorkItemPagePart : ReactiveObject {
 
     public WorkItemPagePart(string id, string title, WorkStatus status, string? tip, bool needsYou,
             IReadOnlyList<WorkItemPageLink> links, IReadOnlyList<WorkItemPageSession> sessions, bool isExpanded,
-            Action<bool> expandedChanged, ReactiveCommand<string, Unit> setStatusCommand) {
+            Action<bool> expandedChanged, ReactiveCommand<string, Unit> setStatusCommand, bool arrives = false) {
         Id = id;
         Title = title;
         Status = status;
         Tip = tip;
         NeedsYou = needsYou;
+        Arrives = arrives;
         Links = links;
         Sessions = sessions;
         _isExpanded = isExpanded;
