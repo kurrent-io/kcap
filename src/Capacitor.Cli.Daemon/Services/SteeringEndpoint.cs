@@ -180,10 +180,16 @@ internal sealed partial class SteeringEndpoint(
 
             if (await AnswerAsync(stream, ct) is not { } response) return;
 
-            using var deadline = new CancellationTokenSource(RequestDeadline, time);
-            using var writing  = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
+            // Told before the shutdown, so a client that reads to the end has always been answered by then.
+            try {
+                using var deadline = new CancellationTokenSource(RequestDeadline, time);
+                using var writing  = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
 
-            await response.WriteAsync(stream, writing.Token);
+                await response.WriteAsync(stream, writing.Token);
+            } finally {
+                response.Written?.Invoke();
+            }
+
             connection.Shutdown(SocketShutdown.Send);
         } catch (Exception ex) when (ex is OperationCanceledException or IOException or SocketException or ObjectDisposedException) {
             // Past the deadline, cut off by an unbind, or the client went away: there is no one to answer.

@@ -86,6 +86,9 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     readonly HashSet<string> _unregistered      = new(StringComparer.Ordinal);
     readonly HashSet<string> _unregisterPending = new(StringComparer.Ordinal);
     readonly Dictionary<Guid, ModHandover> _handedOver = [];
+
+    // Handed over, with the reply carrying them to the mod not yet written: an idle poll may come before it arrives.
+    readonly HashSet<Guid> _replying = [];
     readonly Dictionary<string, string> _replaced    = new(StringComparer.Ordinal);
     readonly Dictionary<string, string> _carriedFrom = new(StringComparer.Ordinal);
 
@@ -400,7 +403,9 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
     /// <see cref="NextBudget"/>. A hold behind a dispatch the mod has no record of proves that one cannot land, since the
     /// mod records a dispatch before it submits one, so it is reported dropped and the next poll asks again. A report the
     /// mod made about it is that record: one that has not reached the server yet is sent instead, and one that went
-    /// without reaching it still keeps the dispatch from being called lost. Null when there is nothing to hand over.
+    /// without reaching it still keeps the dispatch from being called lost. An idle poll that holds nothing proves the
+    /// same of a handover to its process that the mod never reported on, once the reply carrying it is written. Null when
+    /// there is nothing to hand over.
     /// </summary>
     public async Task<SteeringNextReply?> NextAsync(string agentId, string processKey, bool idle, Guid? outstanding) {
         ModAttachedAgentRuntime? runtime;
@@ -412,7 +417,11 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         }
 
         if (!attached) return GoneReply(agentId, processKey);
-        if (!idle || outstanding is not null || !runtime!.TryBeginHandover()) return null;
+        if (!idle || outstanding is not null) return null;
+
+        RejectUnheld(processKey);
+
+        if (!runtime!.TryBeginHandover()) return null;
 
         var started = _time.GetTimestamp();
 
@@ -432,7 +441,10 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
                         lock (_gate) {
                             current = _live.GetValueOrDefault(agentId) == runtime;
-                            if (current) _handedOver[held.DispatchId] = new ModHandover(agentId, runtime.ProcessKey);
+                            if (current) {
+                                _handedOver[held.DispatchId] = new ModHandover(agentId, runtime.ProcessKey);
+                                _replying.Add(held.DispatchId);
+                            }
                         }
 
                         // The attachment ended while the server answered: the dispatch never reaches the mod.
@@ -468,6 +480,34 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
         } finally {
             runtime.EndHandover();
         }
+    }
+
+    /// <summary>The reply handing the dispatch over has been written, or failed to be.</summary>
+    public void HandoverWritten(Guid dispatchId) {
+        lock (_gate) _replying.Remove(dispatchId);
+    }
+
+    /// <summary>The mod records a handover before it polls again, and a reload's new load polls only once the old one
+    /// is retired, which records none. So once its reply is written, a handover to this process that the mod holds no
+    /// dispatch for and never reported on did not reach it: it is reported dropped under the agent it was sent to.</summary>
+    void RejectUnheld(string processKey) {
+        var queued = false;
+
+        lock (_gate) {
+            foreach (var (dispatchId, handover) in _handedOver) {
+                if (handover.ProcessKey != processKey || _replying.Contains(dispatchId) || _reported.Contains(dispatchId) || _reports.Holds(dispatchId))
+                    continue;
+
+                _reports.Enqueue(new ModInputReport(ModInputReport.Rejected, dispatchId, handover.AgentId, Reason: NotHeldByModReason));
+                queued = true;
+                LogUnheldDispatchRejected(dispatchId, handover.AgentId);
+            }
+        }
+
+        if (!queued) return;
+
+        Save();
+        _ = _reports.FlushAsync();
     }
 
     SteeringNextReply GoneReply(string agentId, string processKey) {
@@ -903,6 +943,7 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
             _live.Clear();
             _unregistered.Clear();
             _handedOver.Clear();
+            _replying.Clear();
             _replaced.Clear();
             _carriedFrom.Clear();
             _stopped.Clear();
@@ -962,6 +1003,9 @@ internal sealed partial class ModAttachments : IAsyncDisposable {
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Dispatch {DispatchId} of attached agent {AgentId} reported dropped: its mod has no record of it")]
     partial void LogLostDispatchRejected(Guid dispatchId, string agentId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Dispatch {DispatchId} handed over to attached agent {AgentId} never reached its mod; reported dropped")]
+    partial void LogUnheldDispatchRejected(Guid dispatchId, string agentId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Input for attached agent {AgentId} carried no dispatch id, so it can be neither held nor refused")]
     partial void LogUnnamedInput(string agentId);
