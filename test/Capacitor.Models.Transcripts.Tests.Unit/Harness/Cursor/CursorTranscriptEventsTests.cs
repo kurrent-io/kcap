@@ -232,7 +232,7 @@ public class CursorTranscriptEventsTests {
     [Arguments(""","input":null""")]
     [Arguments("")]
     public async Task An_input_that_is_not_an_object_leaves_no_arguments(string input) {
-        var call = ((AssistantToolCallsGenerated)E(Line("assistant", $$$"""{"type":"tool_use","name":"Shell"{{{input}}}}""")).Single().Payload).ToolCalls.Single();
+        var call = ((AssistantToolCallsGenerated)E(Line("assistant", $$"""{"type":"tool_use","name":"Shell"{{input}}}""")).Single().Payload).ToolCalls.Single();
 
         await Assert.That(call.Arguments).IsNull();
         await Assert.That(call.ToolName).IsEqualTo("Shell");

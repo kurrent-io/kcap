@@ -143,6 +143,17 @@ public static class TranscriptIds {
 
     public static Guid OpenCodeToolResult(string partId) => OpenCode(partId + ":result");
 
+    /// An OpenCode v2 message's text or reasoning, which has no id of its own: the message id and the part's position
+    /// in the message's content.
+    public static Guid OpenCodeContent(string messageId, int position) =>
+        OpenCode(string.Create(CultureInfo.InvariantCulture, $"{messageId}:{position}"));
+
+    /// An OpenCode v2 tool call is keyed by its message and call id, as OpenCode keys it: a call id is unique only
+    /// within its message.
+    public static Guid OpenCodeCall(string messageId, string callId) => OpenCodeToolCall(messageId + "/" + callId);
+
+    public static Guid OpenCodeCallResult(string messageId, string callId) => OpenCodeToolResult(messageId + "/" + callId);
+
     /// RFC 4122 name-based (v5) UUID: SHA-1 over the namespace's big-endian bytes, then the name's UTF-8.
     public static Guid Uuid5(Guid ns, string name) {
         var input = new byte[16 + Encoding.UTF8.GetByteCount(name)];

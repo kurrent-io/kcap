@@ -96,6 +96,6 @@ public sealed record InterruptReconciliation(IReadOnlyList<PendingInterrupt> Pen
     static JsonElement? Elem(JsonElement? obj, string snake, string camel) =>
         obj is { ValueKind: JsonValueKind.Object } o ? (o.Prop(snake) ?? o.Prop(camel)) is { ValueKind: not JsonValueKind.Null } e ? e : null : null;
     static string? Read(JsonElement obj, string snake, string camel) => Elem(obj, snake, camel) is { ValueKind: JsonValueKind.String } e ? e.GetString() : null;
-    static bool? Bool(JsonElement obj, string snake, string camel) => Elem(obj, snake, camel) is { } e && e.ValueKind is JsonValueKind.True or JsonValueKind.False ? e.GetBoolean() : null;
+    static bool? Bool(JsonElement obj, string snake, string camel) => Elem(obj, snake, camel) is { ValueKind: JsonValueKind.True or JsonValueKind.False } e ? e.GetBoolean() : null;
     static int? Int(JsonElement obj, string snake, string camel) => Elem(obj, snake, camel) is { ValueKind: JsonValueKind.Number } e && e.TryGetInt32(out var i) ? i : null;
 }

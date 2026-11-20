@@ -186,19 +186,19 @@ internal partial class AgentOrchestrator {
                 Branch: string.IsNullOrWhiteSpace(a.Worktree.Branch) ? null : a.Worktree.Branch,
                 // Only a live agent can wait on the user; a terminal one keeps whatever its clock
                 // last recorded, which must not read as a pending ask.
-                AwaitingInput: a.Status == "Running" && a.ActivityClock.AwaitingInput,
+                AwaitingInput: a is { Status: "Running", ActivityClock.AwaitingInput: true },
                 TranscriptFormat: TranscriptFormatOf(a),
                 // Null until the agent's first subagent report, a number from then on: the clock's
                 // count only while the agent is live, since nothing runs under a terminal one.
                 LiveSubagents: a.ActivityClock.LiveSubagents is { } live ? (a.Status == "Running" ? live : 0) : null,
                 UsageLimit: a.Status == "Running" ? a.UsageLimit : null,
                 TerminalDialog: a.Status == "Running" ? a.TerminalDialog : null,
-                WorkingSince: a.Status == "Running" && a.ActivityClock.WorkingFor is { } working
+                WorkingSince: a is { Status: "Running", ActivityClock.WorkingFor: { } working }
                     ? (_time.GetUtcNow() - working).UtcDateTime : null,
                 AccountDirectory: a.Account?.Directory, AccountId: a.Account?.AccountId, AccountLabel: CurrentAccountLabel(a.Account?.AccountId, a.Account?.Label),
-                TurnAttested: a.Status == "Running" && a.ActivityClock.TurnAttested,
+                TurnAttested: a is { Status: "Running", ActivityClock.TurnAttested: true },
                 IsPrivate: a.IsPrivate,
-                LaunchPromptUnconfirmed: a.Status == "Running" && a.Runtime.LaunchPromptUnconfirmed))];
+                LaunchPromptUnconfirmed: a is { Status: "Running", Runtime.LaunchPromptUnconfirmed: true }))];
 
     /// The checkout is resolved as the live agent's is, so a row keeps its rail group across the handoff.
     AgentStatusDto LedgerStatusRow(ResumeLedgerEntry entry, string status) {
@@ -600,7 +600,7 @@ internal partial class AgentOrchestrator {
         if (attachmentIds is { Length: > 0 }) {
             if (AttachmentIds.Validate(attachmentIds) is { } invalid) return Refuse(SendTextReasons.AttachmentsRefused, invalid);
 
-            if (agent.Placement == AttachmentPlacement.Worktree && agent.Work is WorkLocation.BorrowedCwd or WorkLocation.InPlace)
+            if (agent is { Placement: AttachmentPlacement.Worktree, Work: WorkLocation.BorrowedCwd or WorkLocation.InPlace })
                 return Refuse(SendTextReasons.AttachmentsRefused, AttachmentRefusals.NeedsOwnedWorktree);
 
             if (!agent.Runtime.EmitsTerminalOutput && IsQuitCommand(text))

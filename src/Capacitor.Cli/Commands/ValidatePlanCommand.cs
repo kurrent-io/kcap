@@ -76,7 +76,7 @@ class ValidatePlanCommand(ISessionsApi sessionsApi) {
 
         // The declared plan document leads: it is the one the agent said it executes, whatever
         // discovery ranked first.
-        var lead = artifacts.FirstOrDefault(a => a.Source == "declared" && a.Kind == "plan") ?? primary;
+        var lead = artifacts.FirstOrDefault(a => a is { Source: "declared", Kind: "plan" }) ?? primary;
 
         var leadUnavailable = await RenderPlanArtifacts(lead, artifacts);
         await RenderTasks(ledger);
@@ -138,7 +138,7 @@ class ValidatePlanCommand(ISessionsApi sessionsApi) {
             // "truncated" with null Content is treated like "unavailable": the server contract pairs content_state=="truncated" with non-null
             // Content, but a malformed/edge response with Content == null must not render the
             // nonsensical "first 0 of ... bytes" — fall through to the unavailable placeholder.
-            var effectiveState = artifact.ContentState == "truncated" && artifact.Content is null
+            var effectiveState = artifact is { ContentState: "truncated", Content: null }
                 ? "unavailable"
                 : artifact.ContentState;
 

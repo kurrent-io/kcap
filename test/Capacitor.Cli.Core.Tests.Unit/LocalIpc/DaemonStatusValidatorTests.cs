@@ -31,7 +31,7 @@ public class DaemonStatusValidatorTests {
     }
 
     [Test]
-    [Arguments("""[null]""")]                                                             // null element
+    [Arguments("[null]")]                                                             // null element
     [Arguments("""[{"id":null,"kind":"agent","vendor":"v","repo_path":null,"status":"S","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null}]""")]
     [Arguments("""[{"id":"  ","kind":"agent","vendor":"v","repo_path":null,"status":"S","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null}]""")]
     [Arguments("""[{"id":"a1","kind":null,"vendor":"v","repo_path":null,"status":"S","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null}]""")]

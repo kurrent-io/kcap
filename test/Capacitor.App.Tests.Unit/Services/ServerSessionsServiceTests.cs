@@ -419,7 +419,7 @@ public class ServerSessionsServiceTests {
         var afterSwitch = false;
         var staleLivePublished = false;
         using var watch = service.Live.Connect().Subscribe(changes => {
-            if (afterSwitch && changes.Any(c => c.Key == "live-me" && c.Reason == ChangeReason.Add)) staleLivePublished = true;
+            if (afterSwitch && changes.Any(c => c is { Key: "live-me", Reason: ChangeReason.Add })) staleLivePublished = true;
         });
         listing.Gate = null;
         listing.Answer("active", "me", 0, 1, Row("u2-live", "active"));

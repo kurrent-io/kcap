@@ -33,19 +33,12 @@ public sealed class PaneLayout {
 
     public static bool HidesAt(double width, double min) => width < min - HideTolerance;
 
-    double _railWidth = RailMinWidth;
-    bool _railCollapsed;
-    double _contextWidth = ContextMinWidth;
-    bool _contextCollapsed;
-    double _chatColumnFraction = ChatColumnDefaultFraction;
-    double _chatLaneWidth = ChatMessageMinWidth;
-
-    public double RailWidth { get => _railWidth; set => Set(ref _railWidth, value); }
-    public bool RailCollapsed { get => _railCollapsed; set => Set(ref _railCollapsed, value); }
-    public double ContextWidth { get => _contextWidth; set => Set(ref _contextWidth, value); }
-    public bool ContextCollapsed { get => _contextCollapsed; set => Set(ref _contextCollapsed, value); }
-    public double ChatColumnFraction { get => _chatColumnFraction; set => Set(ref _chatColumnFraction, value); }
-    public double ChatLaneWidth { get => _chatLaneWidth; set => Set(ref _chatLaneWidth, value); }
+    public double RailWidth { get; set => Set(ref field, value); } = RailMinWidth;
+    public bool RailCollapsed { get; set => Set(ref field, value); }
+    public double ContextWidth { get; set => Set(ref field, value); } = ContextMinWidth;
+    public bool ContextCollapsed { get; set => Set(ref field, value); }
+    public double ChatColumnFraction { get; set => Set(ref field, value); } = ChatColumnDefaultFraction;
+    public double ChatLaneWidth { get; set => Set(ref field, value); } = ChatMessageMinWidth;
 
     /// What the rail leaves beside it: the launcher's minimum, or a session's beside the open work-context pane.
     public double RailRestMinWidth =>

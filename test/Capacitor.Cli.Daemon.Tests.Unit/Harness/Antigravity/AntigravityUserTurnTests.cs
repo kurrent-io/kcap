@@ -36,7 +36,7 @@ public class AntigravityUserTurnTests {
         await Assert.That(users.Select(u => u.Text!)).IsEquivalentTo(new[] { "first", "second" }, CollectionOrdering.Matching);
         await Assert.That(users.All(u => u.TimestampIso == "2026-09-09T10:00:00.0000000+00:00")).IsTrue();
         await Assert.That(envelopes[0].Kind).IsEqualTo(AcpEventKind.UserMessage);
-        var secondIndex = envelopes.FindIndex(e => e.Kind == AcpEventKind.UserMessage && e.Text == "second");
+        var secondIndex = envelopes.FindIndex(e => e is { Kind: AcpEventKind.UserMessage, Text: "second" });
         await Assert.That(envelopes.Take(secondIndex).Count(e => e.Kind != AcpEventKind.UserMessage)).IsGreaterThan(0);
     }
 
@@ -68,7 +68,7 @@ public class AntigravityUserTurnTests {
         await Task.Delay(100);
         var seen = new List<AcpEventEnvelope>();
         while (rt.Envelopes.TryRead(out var e)) seen.Add(e);
-        await Assert.That(seen.Count(e => e.Kind == AcpEventKind.UserMessage && e.Text == "refused")).IsEqualTo(0);
+        await Assert.That(seen.Count(e => e is { Kind: AcpEventKind.UserMessage, Text: "refused" })).IsEqualTo(0);
         await Assert.That(seen.Any(e => e.Kind == AcpEventKind.SystemNote && e.Text!.Contains("not delivered"))).IsTrue();
     }
 

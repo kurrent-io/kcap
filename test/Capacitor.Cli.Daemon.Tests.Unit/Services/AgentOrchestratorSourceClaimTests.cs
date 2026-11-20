@@ -53,6 +53,65 @@ public class AgentOrchestratorSourceClaimTests {
 
     }
 
+    /// <summary>A launch refused for its connection holds its first turn until a registration takes the agent, then
+    /// claims the session as a registered launch does.</summary>
+    [Test]
+    public async Task A_launch_refused_for_its_connection_claims_once_a_registration_takes_it() {
+        using var repoPath = GitRepo.CreateWithCommit();
+        var server  = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_a_daemon") };
+        var factory = DeferredFactory();
+
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(),
+            allowedRepoPath: repoPath, extraRuntimeFactories: [factory]);
+        orch.AcpFinalDrainBudget = TimeSpan.FromMilliseconds(200);
+
+        await orch.HandleLaunchAgentForTest(AgentOrchestratorHarness.NewCursorLaunch("agent-sc-displaced", repoPath));
+        var turnsWhileRefused = factory.LastRuntime!.BeginFirstTurnCalls;
+        bool claimedWhileRefused;
+        lock (server.AcpCallOrder) claimedWhileRefused = server.AcpCallOrder.Contains("sourceClaim:agent-sc-displaced");
+
+        server.RegistrationResponse = null;
+        await server.ReRegisterAgentsHook!();
+        await server.ConfirmSignal.Reader.ReadAsync().AsTask().WaitAsync(WaitHarness.AcpHangGuard);
+
+        await Assert.That(turnsWhileRefused).IsEqualTo(0);
+        await Assert.That(claimedWhileRefused).IsFalse();
+        await Assert.That(factory.LastRuntime!.BeginFirstTurnCalls).IsEqualTo(1);
+
+        await orch.HandleStopAgentForTest("agent-sc-displaced");
+    }
+
+    /// <summary>A refusal about the agent that follows a launch's refusal for its connection sends the held first turn
+    /// without a claim, as a refused launch does, so the agent is not left idle.</summary>
+    [Test]
+    public async Task A_launch_refused_for_its_connection_and_then_for_itself_starts_its_turn_without_a_claim() {
+        using var repoPath = GitRepo.CreateWithCommit();
+        var server  = new CaptureServerConnection { RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_a_daemon") };
+        var factory = DeferredFactory();
+
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(),
+            allowedRepoPath: repoPath, extraRuntimeFactories: [factory]);
+        orch.AcpFinalDrainBudget = TimeSpan.FromMilliseconds(200);
+
+        await orch.HandleLaunchAgentForTest(AgentOrchestratorHarness.NewCursorLaunch("agent-sc-refused", repoPath));
+        var turnsWhileDisplaced = factory.LastRuntime!.BeginFirstTurnCalls;
+
+        server.RegistrationResponse = _ => new AgentRegisteredResponse(false, "superseded");
+        await server.ReRegisterAgentsHook!();
+        await factory.LastRuntime!.BeginFirstTurnSignal.Reader.ReadAsync().AsTask().WaitAsync(WaitHarness.AcpHangGuard);
+
+        bool claimed;
+        lock (server.AcpCallOrder) claimed = server.AcpCallOrder.Contains("sourceClaim:agent-sc-refused");
+
+        await Assert.That(turnsWhileDisplaced).IsEqualTo(0);
+        await Assert.That(factory.LastRuntime!.BeginFirstTurnCalls).IsEqualTo(1);
+        await Assert.That(claimed).IsFalse();
+
+        await orch.HandleStopAgentForTest("agent-sc-refused");
+    }
+
     // ── The source-claim AcceptedSeq drives the forwarder's resume/fresh mode ─────────────
 
     [Test]

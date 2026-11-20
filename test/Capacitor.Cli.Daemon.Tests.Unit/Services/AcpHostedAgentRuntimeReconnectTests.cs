@@ -54,14 +54,14 @@ public class AcpHostedAgentRuntimeReconnectTests {
 
     sealed class Harness : IAsyncDisposable {
         public readonly List<(FakeAcpAgent Fake, FakeAcpProcess Process)> Incarnations = [];
-        public readonly List<AcpEventEnvelope> Envelopes = [];
+        readonly List<AcpEventEnvelope> Envelopes = [];
         public readonly List<int> RecordedPids = [];
         public int  ClearRecordCalls;
         public bool FailPidRecord;
 
-        public CancellationTokenSource Cts { get; } = new();
+        CancellationTokenSource Cts { get; } = new();
         public AcpHostedAgentRuntime Runtime { get; }
-        public AcpReconnectSupport?  Support { get; }
+        AcpReconnectSupport?  Support { get; }
 
         /// <summary>Scripts a candidate BEFORE its read loop starts; index 1 = first candidate.</summary>
         public Action<FakeAcpAgent, int>? ConfigureCandidate { get; set; }

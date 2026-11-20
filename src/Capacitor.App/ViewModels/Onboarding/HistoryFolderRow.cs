@@ -9,8 +9,6 @@ namespace Capacitor.App.ViewModels.Onboarding;
 /// once checked: with no repository there is no owner to tell who else should read it.
 /// </summary>
 public sealed class HistoryFolderRow : ReactiveObject {
-    bool _included;
-    bool _onlyMe = true;
 
     internal HistoryFolderRow(
             string path, int sessions, IReadOnlyList<ImportDiscoveryWindow>? windows,
@@ -34,22 +32,22 @@ public sealed class HistoryFolderRow : ReactiveObject {
     public string SignalLine => $"{HistoryStepViewModel.SessionCount(Sessions)} on disk · no repository";
 
     public bool Included {
-        get => _included;
+        get;
         set {
-            if (_included == value) return;
-            this.RaiseAndSetIfChanged(ref _included, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Level));
         }
     }
 
     public bool OnlyMe {
-        get => _onlyMe || Local;
+        get => field || Local;
         set {
-            if (Local || _onlyMe == value) return;
-            this.RaiseAndSetIfChanged(ref _onlyMe, value);
+            if (Local || field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Level));
         }
-    }
+    } = true;
 
     public ImportLevel Level => !Included ? ImportLevel.Skip : OnlyMe ? ImportLevel.OnlyMe : ImportLevel.Shared;
 

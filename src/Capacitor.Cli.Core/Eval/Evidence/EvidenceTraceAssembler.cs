@@ -137,7 +137,7 @@ public sealed class EvidenceTraceAssembler(EvidenceReadClient reader, string tok
         if (entry.Str("plan_kind") is { } planKind) w.WriteString("plan_kind", planKind);
         if (entry.Prop("plan_content") is { IsNull: false } planContent) { w.WritePropertyName("plan_content"); planContent.WriteTo(w); }
         if (entry.Arr("calls") is { } calls) {
-            var resolvedArguments = bodies.Where(b => b.Field == "arguments" && b.Ordinal is not null)
+            var resolvedArguments = bodies.Where(b => b is { Field: "arguments", Ordinal: not null })
                 .ToDictionary(b => b.Ordinal!.Value, b => b.Content);
             w.WriteStartArray("calls");
             foreach (var call in calls.EnumerateArray()) {

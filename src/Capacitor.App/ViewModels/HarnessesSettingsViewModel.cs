@@ -21,10 +21,6 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
     readonly Action<HistoryImportRun>? _showImport;
     readonly Action<Action> _post;
     readonly CancellationTokenSource _lifetime;
-    IReadOnlyList<HarnessSettingsRow> _rows = [];
-    bool _busy;
-    bool _scanning;
-    string? _message;
 
     public HarnessesSettingsViewModel(SettingsProfileStore store, IKcapCli cli,
             Func<CancellationToken, Task<IReadOnlyDictionary<HarnessId, DetectedAgent>>> detect,
@@ -52,17 +48,17 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
     }
 
     public IReadOnlyList<HarnessSettingsRow> Rows {
-        get => _rows;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _rows, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(RescanPrompt));
         }
-    }
+    } = [];
     /// Connecting or disconnecting a tool: the harness operation closing Settings must wait for.
-    public bool Busy { get => _busy; private set => this.RaiseAndSetIfChanged(ref _busy, value); }
+    public bool Busy { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// Looking for installed tools: read-only, so closing may abandon it.
-    public bool Scanning { get => _scanning; private set => this.RaiseAndSetIfChanged(ref _scanning, value); }
-    public string? Message { get => _message; private set => this.RaiseAndSetIfChanged(ref _message, value); }
+    public bool Scanning { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? Message { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     public string RescanPrompt => Rows.Count == 0
         ? "No coding tools found. Install one, then rescan."

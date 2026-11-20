@@ -43,7 +43,7 @@ internal static class DirectoryAcl {
                 .RunAsync(ls, [flags, "--", directory], new RunOptions(EnvOverlay: CLocale, Timeout: LsTimeout), CancellationToken.None)
                 .GetAwaiter().GetResult();
 
-            return !result.TimedOut && result.ExitCode == 0 ? result.Stdout : null;
+            return result is { TimedOut: false, ExitCode: 0 } ? result.Stdout : null;
         } catch (Exception) {
             return null;
         }

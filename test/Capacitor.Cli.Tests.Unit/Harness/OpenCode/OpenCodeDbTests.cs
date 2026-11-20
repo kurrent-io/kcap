@@ -1,5 +1,7 @@
+using System.Text.Json.Nodes;
 using Capacitor.Cli.Harness.OpenCode;
 using Microsoft.Data.Sqlite;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Tests.Unit.Harness.OpenCode;
 
@@ -497,36 +499,93 @@ public class OpenCodeDbTests {
         await Assert.That(parts.GetArrayLength()).IsEqualTo(0);
     }
 
+    /// <summary>A line counts toward an import when the OpenCode projection maps it to an event, whichever schema it
+    /// came from.</summary>
     [Test]
-    public async Task IsImportRelevantLine_matches_server_normalizer_rules() {
-        // Importable:
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"user"},"parts":[{"id":"p","type":"text","text":"hi"}]}""")).IsTrue();
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"assistant"},"parts":[{"id":"p","type":"reasoning","text":"thinking"}]}""")).IsTrue();
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"assistant"},"parts":[{"id":"p","type":"tool","callID":"c","tool":"bash","state":{"status":"completed"}}]}""")).IsTrue();
+    [Arguments("""{"info":{"role":"user"},"parts":[{"id":"p","type":"text","text":"hi"}]}""", true)]
+    [Arguments("""{"info":{"role":"assistant"},"parts":[{"id":"p","type":"reasoning","text":"thinking"}]}""", true)]
+    [Arguments("""{"info":{"role":"assistant"},"parts":[{"id":"p","type":"tool","callID":"c","tool":"bash","state":{"status":"completed"}}]}""", true)]
+    [Arguments("""{"info":{"role":"assistant"},"parts":[{"id":"p","type":"text","text":" "}]}""", true)]
+    [Arguments("""{"info":{"role":"assistant"},"parts":[{"type":"step-start"},{"type":"step-finish"}]}""", false)]
+    [Arguments("""{"info":{"role":"user"},"parts":[{"id":"p","type":"text","text":""}]}""", false)]
+    [Arguments("""{"info":{"role":"user"},"parts":[{"id":"p","type":"reasoning","text":"x"}]}""", false)]
+    [Arguments("""{"info":{"role":"user"},"parts":[{"id":"p","type":"tool","callID":"c","tool":"bash","state":{"status":"completed"}}]}""", false)]
+    [Arguments("""{"info":{"role":"assistant"},"parts":[{"id":"p","type":"text","text":"x","synthetic":true}]}""", false)]
+    [Arguments("""{"info":{"role":"assistant"},"parts":[{"id":"p","type":"text","text":"x","ignored":true}]}""", false)]
+    [Arguments("""{"info":{"role":"assistant"},"parts":[{"id":"p","type":"tool","state":{"status":"completed"}}]}""", false)]
+    [Arguments("""{"info":{"role":"assistant"},"parts":[{"id":"p","type":"tool","callID":"c","tool":"bash","state":{"status":"running"}}]}""", false)]
+    [Arguments("""{"info":{"role":"assistant"},"parts":[{"type":"text","text":"no id"}]}""", false)]
+    [Arguments("""{"id":"msg_u","type":"user","time":{"created":1},"text":"hi"}""", true)]
+    [Arguments("""{"id":"msg_a","type":"assistant","time":{"created":1},"content":[{"type":"tool","id":"c","name":"read","state":{"status":"running","input":{}}}]}""", false)]
+    [Arguments("""{"id":"msg_i","type":"idle","time":{"created":1},"outcome":"succeeded"}""", false)]
+    public async Task IsImportRelevantLine_counts_a_line_the_projection_maps_to_an_event(string line, bool relevant) =>
+        await Assert.That(OpenCodeDb.IsImportRelevantLine(line)).IsEqualTo(relevant);
 
-        // NOT importable:
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"assistant"},"parts":[{"type":"step-start"},{"type":"step-finish"}]}""")).IsFalse();
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"user"},"parts":[{"id":"p","type":"text","text":""}]}""")).IsFalse();
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"user"},"parts":[{"id":"p","type":"reasoning","text":"x"}]}""")).IsFalse();
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"user"},"parts":[{"id":"p","type":"tool","callID":"c","tool":"bash","state":{"status":"completed"}}]}""")).IsFalse();
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"assistant"},"parts":[{"id":"p","type":"text","text":"x","synthetic":true}]}""")).IsFalse();
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"assistant"},"parts":[{"id":"p","type":"text","text":"x","ignored":true}]}""")).IsFalse();
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"assistant"},"parts":[{"id":"p","type":"tool","state":{"status":"completed"}}]}""")).IsFalse();
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"assistant"},"parts":[{"id":"p","type":"tool","callID":"c","tool":"bash","state":{"status":"running"}}]}""")).IsFalse();
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"assistant"},"parts":[{"type":"text","text":"no id"}]}""")).IsFalse();
-        await Assert.That(OpenCodeDb.IsImportRelevantLine(
-            """{"info":{"role":"assistant"},"parts":[{"id":"p","type":"text","text":" "}]}""")).IsTrue();
+    static JsonObject Text(string text) => new() { ["type"] = "text", ["text"] = text };
+
+    static JsonObject Assistant(long t, params JsonObject[] content) =>
+        new() { ["time"] = new JsonObject { ["created"] = t, ["completed"] = t + 1 }, ["agent"] = "build", ["content"] = new JsonArray(content) };
+
+    /// <summary>A v2 message is the message v2's context returns: its row's data with its id and type, an assistant's
+    /// content its part rows in ordinal order and then what the row holds inline; message types with no conversation
+    /// are left out.</summary>
+    [Test]
+    public async Task A_v2_message_is_rebuilt_as_v2_returns_it() {
+        using var db = new OpenCodeDbFixture(v1: false, v2: true);
+        db.AddV2Session("ses_2", null, "/w", "Two", 100);
+        db.AddV2Message("ses_2", "msg_u", "user", 1, 101, new JsonObject { ["time"] = new JsonObject { ["created"] = 101 }, ["text"] = "hi" });
+        db.AddV2Message("ses_2", "msg_a", "assistant", 2, 102, Assistant(102, Text("inline")));
+        db.AddV2Part("ses_2", "msg_a", 0, Text("first"));
+        db.AddV2Part("ses_2", "msg_a", 1, new JsonObject { ["type"] = "tool", ["id"] = "call_1", ["name"] = "read" });
+        db.AddV2Message("ses_2", "msg_i", "idle", 3, 103, new JsonObject { ["time"] = new JsonObject { ["created"] = 103 }, ["outcome"] = "succeeded" });
+
+        using var reader = new OpenCodeDb(db.DbPath);
+        var lines = reader.SynthesizeLines("ses_2").Select(l => JsonNode.Parse(l)!.AsObject()).ToList();
+
+        await Assert.That(lines.Select(l => (string)l["id"]!)).IsEquivalentTo(["msg_u", "msg_a"], CollectionOrdering.Matching);
+        await Assert.That((string?)lines[0]["type"]).IsEqualTo("user");
+        await Assert.That((string?)lines[0]["text"]).IsEqualTo("hi");
+        await Assert.That(lines[1]["content"]!.AsArray().Select(p => (string)(p!["text"] ?? p["id"])!))
+            .IsEquivalentTo(["first", "call_1", "inline"], CollectionOrdering.Matching);
+        await Assert.That((string?)lines[1]["agent"]).IsEqualTo("build");
+    }
+
+    /// <summary>v2 copies a v1 session into its own tables and leaves the v1 rows in place: a message the v1 tables hold
+    /// is read from them, under the part ids v1's events are keyed by, and only the messages v2 added come from v2. The
+    /// session is listed once, with its v2 row, beside sessions only one schema holds.</summary>
+    [Test]
+    public async Task A_copied_v1_session_reads_each_message_from_the_schema_that_first_held_it() {
+        using var db = new OpenCodeDbFixture(v1: true, v2: true);
+        db.AddSession("ses_c", null, "/w", "Copied (v1)", 100);
+        db.AddMessageWithText("ses_c", "msg_1", "from v1", 101);
+        db.AddV2Session("ses_c", null, "/w", "Copied", 100);
+        db.AddV2Message("ses_c", "msg_1", "user", 1, 101, new JsonObject { ["time"] = new JsonObject { ["created"] = 101 }, ["text"] = "from v1, copied" });
+        db.AddV2Message("ses_c", "msg_2", "user", 2, 102, new JsonObject { ["time"] = new JsonObject { ["created"] = 102 }, ["text"] = "from v2" });
+        db.AddSession("ses_v1", null, "/w", "Only v1", 90);
+        db.AddV2Session("ses_v2", null, "/w", "Only v2", 110);
+
+        using var reader = new OpenCodeDb(db.DbPath);
+        var lines = reader.SynthesizeLines("ses_c").ToList();
+
+        await Assert.That(lines.Count).IsEqualTo(2);
+        await Assert.That(lines[0]).Contains("\"prt_msg_1\"");
+        await Assert.That(lines[0]).Contains("from v1");
+        await Assert.That(lines[1]).Contains("from v2");
+        await Assert.That(reader.QueryRoots().Select(r => (r.Id, r.Title)))
+            .IsEquivalentTo([("ses_v1", "Only v1"), ("ses_c", "Copied"), ("ses_v2", "Only v2")], CollectionOrdering.Matching);
+    }
+
+    /// <summary>A v2 subagent session is found through its parent, as a v1 one is.</summary>
+    [Test]
+    public async Task A_v2_child_session_is_a_descendant_of_its_parent() {
+        using var db = new OpenCodeDbFixture(v1: false, v2: true);
+        db.AddV2Session("ses_p", null, "/w", "Parent", 100);
+        db.AddV2Session("ses_k", "ses_p", "/w", null, 101);
+
+        using var reader = new OpenCodeDb(db.DbPath);
+
+        await Assert.That(reader.QueryRoots().Select(r => r.Id)).IsEquivalentTo(["ses_p"]);
+        await Assert.That(reader.QueryDescendants("ses_p").Descendants.Select(d => (d.Row.Id, d.Row.Title)))
+            .IsEquivalentTo([("ses_k", "")]);
     }
 }

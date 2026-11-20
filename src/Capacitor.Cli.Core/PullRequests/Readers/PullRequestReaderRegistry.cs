@@ -115,7 +115,7 @@ public sealed class PullRequestReaderRegistry(IPullRequestSource sessionLinks, I
                 PullRequestReaderStatusKind.Failed when status.Reason == "unsupported_version" => $"Update {tool.Name} to read pull requests here.",
                 _ => null
             };
-            var update = status.Kind == PullRequestReaderStatusKind.Failed && status.Reason == "unsupported_version";
+            var update = status is { Kind: PullRequestReaderStatusKind.Failed, Reason: "unsupported_version" };
             var showInstall = status.Kind == PullRequestReaderStatusKind.ToolMissing || update;
             if (text is not null) return new(text, showInstall ? tool.InstallUrl : null, showInstall ? (update ? "Update " : "Install ") + tool.Name : null);
         }

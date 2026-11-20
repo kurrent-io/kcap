@@ -116,6 +116,7 @@ public partial class App : Application {
     readonly AppStateStore _appState;
 
     readonly UiScaleSetting _uiScale;
+    ChatMarksFiles? _chatMarksFiles;
     readonly ProgressiveDisclosurePreferences? _progressiveDisclosure;
     readonly BetaUpdatesSetting _betaUpdates;
     // The constructor's read of app-state.json, handed to the first main window and then dropped:
@@ -1359,6 +1360,11 @@ public partial class App : Application {
         var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
         var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
         var drafts = new ComposerDrafts();
+        var chatMarksOn = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.ChatMarks);
+        _chatMarksFiles = new ChatMarksFiles(_config.Path("chat-marks"));
+        var chatMarks = new ChatMarks(_chatMarksFiles);
+        // Off, a chat shows no topic or bookmark controls and its saved marks stay on disk unread.
+        ChatMarks? ChatMarksIfOn() => chatMarksOn.IsOn ? chatMarks : null;
         var finds = new ChatFindMemory();
         var workContextLayout = new WorkContextLayout();
         var transcripts = new LocalTranscripts();
@@ -1382,7 +1388,7 @@ public partial class App : Application {
             appSubject: appSubject, notifier: notifier, serverLane: serverLane.Status, workContextLayout: workContextLayout,
             handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
             pickers: pickers,
-            inAppPages: () => inAppPages.IsOn);
+            inAppPages: () => inAppPages.IsOn, chatMarks: ChatMarksIfOn());
         // The origin lookup below and this call are two reads of a cache the directory's own
         // background recompute mutates, so the row can be gone by the time this runs: no row, no
         // host, and the click opens nothing.
@@ -1397,7 +1403,7 @@ public partial class App : Application {
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
                     heldMessages: heldMessages, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
                     inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer,
-                    uploader: uploader)
+                    uploader: uploader, chatMarks: ChatMarksIfOn())
                 : null;
         // One for the app's life: a failed hand-off's draft outlives the composer that sent it.
         var handoffDrafts = new HandoffDrafts(serverLane.LaunchFailures, directory, _time);
@@ -1434,7 +1440,8 @@ public partial class App : Application {
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
                     handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
-                    inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer)
+                    inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer,
+                    chatMarks: ChatMarksIfOn())
                 : null;
 
         // Windows hides the main window to the notification area on close, where nothing else says kcap is still there.
@@ -3329,6 +3336,10 @@ public partial class App : Application {
         // Keep the UI context for the dialog closes below. Later quiesce awaits may resume on a
         // worker thread; the final UI disposal explicitly returns to the dispatcher.
         await _workspaceTeardown.DrainAsync();
+        // Mark saves run in the background, and a background write does not hold the process open.
+        if (_chatMarksFiles is { } marks) {
+            try { await marks.FlushAsync().WaitAsync(TimeSpan.FromSeconds(2), _time); } catch (TimeoutException) { }
+        }
 
         // Still on the UI thread (required by Close), and before the quiesce below: the dialog's
         // own close path cancels a live re-auth attempt — or lets a commit already past the

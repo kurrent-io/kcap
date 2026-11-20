@@ -66,7 +66,7 @@ internal static class CodexPosturePolicy {
             return $"codex_posture_invalid: unknown approval policy '{posture.Approval}'. "
                  + "Valid values: untrusted, on-request, never.";
 
-        if (posture.ApprovalsReviewer is null || posture.ApprovalsReviewer == CodexApprovalsReviewers.User)
+        if (posture.ApprovalsReviewer is null or CodexApprovalsReviewers.User)
             return null;
 
         if (posture.ApprovalsReviewer != CodexApprovalsReviewers.AutoReview)

@@ -19,25 +19,22 @@ public sealed class LocalInstallController(
         Func<IKcapCli> cli, LocalRoot root, Func<bool> committedLocal, Action<Action> post, SetupFunnel funnel,
         LocalBundlePrefetch? prefetch = null, bool settlesUnpublished = false)
     : ReactiveObject {
-    LocalSetupProgress    _progress = new();
-    bool                  _running;
-    LocalInstallOutcome?  _outcome;
     CancellationTokenSource? _interrupt;
     TaskCompletionSource  _exited = CompletedSource();
 
     public LocalSetupProgress Progress {
-        get => _progress;
-        private set => this.RaiseAndSetIfChanged(ref _progress, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = new();
 
     public bool Running {
-        get => _running;
-        private set => this.RaiseAndSetIfChanged(ref _running, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public LocalInstallOutcome? Outcome {
-        get => _outcome;
-        private set => this.RaiseAndSetIfChanged(ref _outcome, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Raised once per run, through <c>post</c>, with the durable state the outcome was decided from,

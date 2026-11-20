@@ -18,7 +18,7 @@ public class ServerConnectionRepoPathsTests {
         public readonly TaskCompletionSource SendEntered = new();
         public          TaskCompletionSource? SendGate;
         public          Exception?            SendThrow;
-        public          bool                  Ready = true;
+        readonly bool                  Ready = true;
 
         internal override bool IsReady => Ready;
 

@@ -322,7 +322,7 @@ internal static class WizardComposition {
             auth, connect, options.Bridges, claims, options.AppState, options.UrlOpener, time: options.Time,
             passThrough: () => signedInAtStart || OnLocalPath(), signingUp: () => edition.Choice == EditionChoice.Cloud);
         if (signedInAtStart) signIn.RestoreCommitted();
-        var pathFix  = options.ShimApplicable && options.ShimInstaller is { } installer
+        var pathFix  = options is { ShimApplicable: true, ShimInstaller: { } installer }
             ? new PathFixViewModel(installer, options.AppState, options.ShimTarget, OnLocalPath)
             : null;
         // The name persists to the same fresh identity the enabler gates on, falling back to ActiveProfile.

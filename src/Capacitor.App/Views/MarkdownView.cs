@@ -12,6 +12,7 @@ using Avalonia.VisualTree;
 using Capacitor.App.GitHubHtml;
 using Capacitor.App.ProgressiveDisclosure;
 using Capacitor.App.Services;
+using Capacitor.App.ViewModels;
 using MarkView.Avalonia;
 using MarkView.Avalonia.Rendering.Inlines;
 using MarkView.Avalonia.SyntaxHighlighting;
@@ -129,6 +130,7 @@ public sealed class MarkdownView : ContentControl {
         };
         AddHandler(ContextRequestedEvent, (_, e) => {
             ContextLinkUrl = LinkAt(e);
+            ContextListItems = ListAt(e);
             ContextImage = ImageUnder(e.Source as Visual) is { ShowsPicture: true } image ? image : null;
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
         MarkViewSelection.Attach(this, _viewer, CopySelectionAsync);
@@ -220,6 +222,52 @@ public sealed class MarkdownView : ContentControl {
         e.TryGetPosition(_viewer, out var point)
             ? FindHyperlinkAt(_viewer, point)?.NavigateUri?.ToString() ?? ImageUnder(e.Source as Visual)?.Target
             : _linkKeys.CurrentUrl;
+
+    /// The items of the list a context menu was opened on, if it was opened on one.
+    internal IReadOnlyList<string>? ContextListItems { get; private set; }
+
+    IReadOnlyList<string>? ListAt(ContextRequestedEventArgs e) =>
+        Content is MarkdownViewer && e.TryGetPosition(_viewer, out var point) && MarkViewSelection.BlockAt(_viewer, point) is { } block
+            ? MarkdownLists.ItemsAround(Text, block.Text, block.Occurrence)
+            : null;
+
+    /// Where this text bookmarks to; null outside a chat that lists bookmarks.
+    internal ChatBookmarks? Bookmarks => _selectionHost?.BookmarksFor(this);
+
+    public void BookmarkSelection() {
+        var text = Content is SelectableTextBlock plain ? plain.SelectedText ?? "" : MarkViewSelection.SelectedText(_viewer);
+        if (Bookmarks is { } bookmarks && DataContext is ChatItemViewModel source) bookmarks.Add([text], source);
+    }
+
+    public void BookmarkListItems() {
+        if (Bookmarks is { } bookmarks && DataContext is ChatItemViewModel source && ContextListItems is { } items)
+            bookmarks.Add(items, source);
+    }
+
+    public void BookmarkMessage() {
+        if (Bookmarks is { } bookmarks && DataContext is ChatItemViewModel { Bookmark: null } source)
+            bookmarks.ToggleMessageCommand.Execute(source).Subscribe();
+    }
+
+    /// Selects the first run of text reading as <paramref name="quote"/>, with keyboard focus so Copy
+    /// takes it, and returns where it starts, in this view's coordinates; null when the view shows no
+    /// such text.
+    internal Rect? Highlight(string quote) {
+        Rect? found;
+        if (Content is SelectableTextBlock plain) {
+            var index = plain.Text?.IndexOf(quote, StringComparison.Ordinal) ?? -1;
+            if (index < 0) return null;
+            plain.SelectionStart = index;
+            plain.SelectionEnd = index + quote.Length;
+            plain.Focus();
+            found = new Rect(default, new Size(plain.Bounds.Width, 0));
+        } else if (MarkViewSelection.Select(_viewer, quote) is { } rect && _viewer.TranslatePoint(rect.Position, this) is { } at) {
+            _viewer.Focus();
+            found = new Rect(at, rect.Size);
+        } else return null;
+        _selectionHost?.UpdateSelection(this);
+        return found;
+    }
 
     /// The picture a context menu was opened on, once it has loaded.
     internal MarkdownImage? ContextImage { get; private set; }

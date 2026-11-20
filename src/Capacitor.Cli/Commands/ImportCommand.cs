@@ -1952,7 +1952,10 @@ class ImportCommand(
                 Progress: new CallbackProgress(ev => {
                     if (ev is ImportWarning w) WarnSession(w.SessionId, w.Message);
                 })
-            ) { Stderr = console.Error, TranscriptLedger = routedLedger, StopAtLoss = filterSession is not null };
+            ) {
+                Stderr = console.Error, TranscriptLedger = routedLedger, StopAtLoss = filterSession is not null,
+                Canonical = new IngestCapability(httpClient, baseUrl, time),
+            };
 
             async Task<ImportSessionResult> ImportOne(SessionClassification c) {
                 if (!sourceBySession.TryGetValue((c.Vendor, c.SessionId), out var src)) {
@@ -3123,11 +3126,11 @@ class ImportCommand(
                       || sessionCwds.TryGetValue(j.SessionId, out var effective) && !string.Equals(effective, j.Cwd, StringComparison.Ordinal)))
             .Select(j => j.Cwd!);
         var placedDetect = judged
-            .Where(j => judgesRepo && !j.Recorded && j.PlacedCwd is not null)
+            .Where(j => judgesRepo && j is { Recorded: false, PlacedCwd: not null })
             .Select(j => j.PlacedCwd!);
         // A recorded repository names where the session goes, but the import still excludes the checkout it ran in.
         var checkoutDetect = judged
-            .Where(j => excludesRepo && j.Recorded && j.EffectiveCwd is not null)
+            .Where(j => excludesRepo && j is { Recorded: true, EffectiveCwd: not null })
             .Select(j => j.EffectiveCwd!);
         var detect = rawDetect.Concat(placedDetect).Concat(checkoutDetect)
             .Where(Directory.Exists)

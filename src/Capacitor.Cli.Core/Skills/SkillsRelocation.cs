@@ -31,10 +31,12 @@ public static class SkillsRelocation {
     /// rename interrupted between the write and the prune leaves two. A settled row never is: it
     /// holds no claim, and relocation must not give it one.</summary>
     public static bool IsCandidate(OwnedSkillRow row, string anchor) =>
-        row.Origin == SkillOrigin.Repository
-        && row.Confirmed is not null
-        && row.State is OwnedSkillState.Published or OwnedSkillState.Owed
-        && row.Anchor is { } recorded
+        row is {
+            Origin: SkillOrigin.Repository,
+            Confirmed: not null,
+            State: OwnedSkillState.Published or OwnedSkillState.Owed,
+            Anchor: { } recorded
+        }
         && !PathComparison.Equal(CanonicalPath.Resolve(recorded), CanonicalPath.Resolve(anchor));
 
     public static SkillRelocation Resolve(OwnedSkillRow row, SkillDestination here) {

@@ -17,7 +17,7 @@ public class MessageSenderLookupTests {
     sealed class Rig {
         public FakeTimeProvider Time { get; } = new(Now);
         public FakeMessageSenderSource Source { get; } = new();
-        public List<string> Logged { get; } = [];
+        List<string> Logged { get; } = [];
         public List<Guid> Delivered { get; } = [];
         public CancellationTokenSource Lifetime { get; } = new();
         public MessageSenderLookup Lookup { get; }

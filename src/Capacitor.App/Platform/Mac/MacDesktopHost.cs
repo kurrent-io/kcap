@@ -30,6 +30,6 @@ public sealed class MacDesktopHost(string cliDirectory, bool updateRelaunch, Sin
         if (InstallLocation.BundleRoot(Environment.ProcessPath) is not { } bundle) return false;
         var result = await new ProcessRunner(time).RunAsync("/usr/bin/open", ["-n", bundle],
             new RunOptions(Timeout: TimeSpan.FromSeconds(10)), ct);
-        return !result.TimedOut && result.ExitCode == 0;
+        return result is { TimedOut: false, ExitCode: 0 };
     }
 }

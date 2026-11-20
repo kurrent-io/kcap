@@ -234,7 +234,7 @@ public class CursorOrphanedChildStandaloneTests {
     sealed class ProjectsDirFixture : IDisposable {
         readonly TempDir _root = new("cursorprojects");
 
-        public string Root                { get; }
+        string Root                { get; }
         public string ProjectsDir         => Path.Combine(Root, ".cursor", "projects");
         public string WorkspaceStorageDir => Path.Combine(Root, "workspaceStorage");
 

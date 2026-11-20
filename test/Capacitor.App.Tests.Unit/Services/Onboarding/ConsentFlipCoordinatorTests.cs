@@ -27,10 +27,10 @@ public class ConsentFlipCoordinatorTests {
     /// Deliberately returns the server in a non-canonical form by default (no explicit port) —
     /// the happy-path test therefore also proves the coordinator canonicalizes before matching.
     sealed class ScriptedResolver {
-        public string Profile = "default";
+        readonly string Profile = "default";
         public string Server = "https://example.test";
         public string DaemonName = "kcap-daemon";
-        public int Calls;
+        int Calls;
 
         /// Invoked AFTER the return value for this call has been captured, so a hook mutating
         /// these fields only affects calls that happen afterwards, never the call in progress.

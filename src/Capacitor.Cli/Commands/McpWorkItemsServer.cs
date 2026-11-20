@@ -324,7 +324,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
                     if (!arm.IsObject) continue;
 
                     var state = arm.Str("state");
-                    if (state is null || state == "current") continue;
+                    if (state is null or "current") continue;
 
                     arms.Add((arm.Str("arm"), state, arm.Str("error_code")));
                 }

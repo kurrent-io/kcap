@@ -42,14 +42,14 @@ public class AttachmentDropPasteTests {
     sealed class Harness : IDisposable {
         public RecordingSink Sink { get; } = new();
         public TextBox Box { get; } = new();
-        public Button Pick { get; } = new() { Content = "+" };
+        Button Pick { get; } = new() { Content = "+" };
         public Border Card { get; }
-        public Window Window { get; }
+        Window Window { get; }
         public AttachmentDropPaste Behaviour { get; }
-        public FakeTimeProvider Time { get; } = new(Staged);
+        FakeTimeProvider Time { get; } = new(Staged);
         public int ClipboardReads { get; private set; }
 
-        public Func<Task<IAsyncDataTransfer?>> Clipboard { get; set; } = () => Task.FromResult<IAsyncDataTransfer?>(null);
+        Func<Task<IAsyncDataTransfer?>> Clipboard { get; set; } = () => Task.FromResult<IAsyncDataTransfer?>(null);
         public Func<Task<IReadOnlyList<IStorageFile>>> Picker { get; set; } = () => Task.FromResult<IReadOnlyList<IStorageFile>>([]);
 
         public Harness() {

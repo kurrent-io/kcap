@@ -15,9 +15,6 @@ public sealed class AboutSettingsViewModel : ReactiveObject, IDisposable {
     readonly CompositeDisposable _subscriptions = new();
     readonly CancellationTokenSource _lifetime;
     readonly Func<CancellationToken, Task<string?>> _cliVersion;
-    string? _daemonVersion;
-    string? _cliVersionText;
-    UpdateMenuItem? _update;
     readonly Func<bool, Task>? _setBetaUpdates;
     bool _betaUpdates;
 
@@ -61,9 +58,9 @@ public sealed class AboutSettingsViewModel : ReactiveObject, IDisposable {
     public LocalStackViewModel? LocalStack { get; }
 
     public string? DaemonVersion {
-        get => _daemonVersion;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _daemonVersion, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(VersionReport));
         }
     }
@@ -89,17 +86,17 @@ public sealed class AboutSettingsViewModel : ReactiveObject, IDisposable {
     internal static string DaemonStatusFor(AttachStatus status, DaemonInfoDto? daemon) => DaemonStatusText.Attach(status, daemon);
 
     public string? CliVersion {
-        get => _cliVersionText;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _cliVersionText, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(VersionReport));
         }
     }
 
     public UpdateMenuItem? Update {
-        get => _update;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _update, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(UpdateVisible));
             this.RaisePropertyChanged(nameof(BetaUpdatesVisible));
         }

@@ -120,7 +120,7 @@ public class ChatTabViewSmokeTests {
         public FakeTerminalAttachClientFactory Attach { get; } = new();
         public RecordingOpener Opener { get; } = new();
         public FakePermissionService Permissions { get; } = new();
-        public SessionRuns Runs { get; }
+        SessionRuns Runs { get; }
         public TerminalTabViewModel Terminal { get; }
         public ChatTabViewModel Chat { get; }
         public ChatTabView View { get; }
@@ -133,14 +133,14 @@ public class ChatTabViewSmokeTests {
         /// ScrollViewer until Show() is called — the order production takes, where the tab's
         /// first read starts before the workspace view exists.
         public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null,
-                ChatFindMemory? findMemory = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null) {
+                ChatFindMemory? findMemory = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, bool marks = true) {
             Runs = new SessionRuns(Time);
             Terminal = new TerminalTabViewModel("a1", Daemon, Attach.Factory, () => new FakeTerminalSurface(), Time);
             Chat = new ChatTabViewModel(
                 "a1", Daemon, new TerminalChatInput(Terminal, "a1", Daemon, new ScriptedLocalControlOps(), _presence), new NoAttachmentUploader(), TranscriptChat.For("claude"), Opener, Time, Permissions, Runs,
                 sessionId: sessionId, localDaemonOnAppServer: Observable.Return(true),
                 accountReadings: accountReadings, usageClock: Observable.Return(StripReadings.Now), findMemory: findMemory,
-                handoffOutcome: handoffOutcome);
+                handoffOutcome: handoffOutcome, chatMarks: marks ? new ChatMarks() : null);
             View = new ChatTabView { DataContext = Chat };
             Window = new Window { Content = View, Width = 800, Height = 600 };
             if (!show) return;
@@ -926,7 +926,7 @@ public class ChatTabViewSmokeTests {
 
     /// The column keeps its share of the window and the agent's lane its width. The edge handles drag
     /// the column about the centre, the lane handle the lane's right edge; the composer follows the
-    /// column and a user turn keeps to its right edge.
+    /// column, a user turn keeps to its right edge, and an agent's row starts past the topic rail's gutter.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Dragging_the_chat_handles_resizes_the_column_and_the_agents_lane() => RunOnUiAsync(async () => {
@@ -947,8 +947,8 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(composer.Bounds.Width).IsEqualTo(column).Within(1);
                 await Assert.That(Centre(presenter)).IsEqualTo(window / 2).Within(1);
                 await Assert.That(Right(bubble)).IsEqualTo(Right(presenter)).Within(1);
-                await Assert.That(Left(AgentRow())).IsEqualTo(Left(presenter)).Within(1);
-                await Assert.That(AgentRow().Bounds.Width).IsEqualTo(lane).Within(1);
+                await Assert.That(Left(AgentRow())).IsEqualTo(Left(presenter) + ChatVirtualizingPanel.RailWidth).Within(1);
+                await Assert.That(Right(AgentRow())).IsEqualTo(Left(presenter) + lane).Within(1);
             }
             void Drag(string name, double dx) {
                 var start = PresentAndLocate(host, host.View.FindControl<Border>(name)!);
@@ -1329,6 +1329,343 @@ public class ChatTabViewSmokeTests {
         });
     }
 
+    /// Picking a send mode from the menu sets it and closes the menu.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_send_menu_sets_the_mode() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("send-menu.jsonl", Enumerable.Repeat(UserLine, 3).ToArray());
+                await host.AttachAsync(path);
+                var caret = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "SendModeButton");
+                var menu = (StackPanel)((Flyout)caret.Flyout!).Content!;
+
+                Click(host, caret);
+                await Assert.That(menu.Children.OfType<Button>().Single(b => (string?)b.Content == "End topic").IsEnabled).IsFalse();
+                Invoke(menu.Children.OfType<Button>().Single(b => (string?)b.Content == "New topic"));
+                host.Settle();
+                await Assert.That(host.Chat.SendMode).IsEqualTo(ChatSendMode.NewTopic);
+                await Assert.That(caret.Flyout!.IsOpen).IsFalse();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    /// A marked message keeps its toggle, lit, and that toggle takes the topic away again; a click
+    /// just past the chevron, or at the header's very edge, folds.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_topic_header_icon_removes_the_topic() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("topic-unmark.jsonl", Enumerable.Repeat(UserLine, 3).ToArray());
+                await host.AttachAsync(path);
+                var turn = host.Chat.Items.OfType<UserTurnItem>().Last();
+                host.Chat.Topics.ToggleChange(turn);
+                host.Settle();
+                var toggles = host.View.GetVisualDescendants().OfType<Button>().Where(b => b.Classes.Contains("topicHere")).ToList();
+                await Assert.That(toggles.Count(b => b.IsVisible)).IsEqualTo(3);
+                var lit = toggles.Single(b => b.Classes.Contains("on"));
+                await Assert.That(lit.DataContext).IsSameReferenceAs(turn);
+
+                var topic = host.Chat.Items.OfType<ChatTopicItem>().Single();
+                var chevron = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TopicToggle")
+                    .GetVisualDescendants().OfType<Panel>().First(p => p.Width == 12);
+                var pastChevron = chevron.TranslatePoint(new Point(chevron.Bounds.Width + 3, chevron.Bounds.Height / 2), host.Window)!.Value;
+                host.Window.MouseDown(pastChevron, MouseButton.Left);
+                host.Window.MouseUp(pastChevron, MouseButton.Left);
+                host.Settle();
+                await Assert.That(topic.IsExpanded).IsFalse();
+                topic.ToggleCommand.Execute().Subscribe();
+                host.Settle();
+
+                var header = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TopicToggle");
+                var edge = header.TranslatePoint(new Point(2, header.Bounds.Height / 2), host.Window)!.Value;
+                host.Window.MouseMove(edge);
+                host.Window.MouseDown(edge, MouseButton.Left);
+                host.Settle();
+                host.Window.MouseUp(edge, MouseButton.Left);
+                host.Settle();
+                await Assert.That(topic.IsExpanded).IsFalse();
+                topic.ToggleCommand.Execute().Subscribe();
+                host.Settle();
+
+                Click(host, host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("topicHere") && b.Classes.Contains("on")));
+                host.Settle();
+                await Assert.That(host.Chat.Items.OfType<ChatTopicItem>()).IsEmpty();
+                await Assert.That(turn.StartsTopic).IsFalse();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    /// The header lands above the message, so the chat scrolls by its height, and every row keeps the
+    /// rail's space, so the toggle stays under the pointer for a second click; taking the topic away
+    /// again leaves it there too. An agent's reply sits at the left, where an indent would show.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_message_topic_toggle_stays_where_it_was_clicked() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                const string reply = """{"type":"assistant","message":{"content":[{"type":"text","text":"Noted."}]}}""";
+                await host.LoadAsync(Tmp.CreateFile("topic-in-place.jsonl", Enumerable.Range(0, 40).Select(i => i % 2 == 0 ? UserLine : reply).ToArray()));
+                WheelUp(host);
+                host.Settle();
+                var turn = host.Chat.Items.OfType<AssistantTextItem>().ElementAt(10);
+                host.View.FindControl<ItemsControl>("ChatItems")!.ScrollIntoView(turn);
+                host.Settle();
+                // Mid-viewport: at the top the list keeps its first row still on its own.
+                host.Scroll.Offset = new Vector(0, host.Scroll.Offset.Y - host.Scroll.Viewport.Height / 2);
+                host.Settle();
+                Button Toggle() => host.View.GetVisualDescendants().OfType<Button>()
+                    .Single(b => b.Classes.Contains("topicHere") && ReferenceEquals(b.DataContext, turn));
+                Point At() => Toggle().TranslatePoint(default, host.Scroll)!.Value;
+                var before = At();
+
+                Click(host, Toggle());
+                host.Settle();
+                await Assert.That(turn.StartsTopic).IsTrue();
+                await Assert.That(Math.Abs(At().Y - before.Y)).IsLessThan(2);
+                await Assert.That(Math.Abs(At().X - before.X)).IsLessThan(1);
+
+                Click(host, Toggle());
+                host.Settle();
+                await Assert.That(turn.StartsTopic).IsFalse();
+                await Assert.That(Math.Abs(At().Y - before.Y)).IsLessThan(2);
+                await Assert.That(Math.Abs(At().X - before.X)).IsLessThan(1);
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Unfolding_a_topic_at_the_bottom_stays_at_the_bottom() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("topic-unfold.jsonl", Enumerable.Repeat(UserLine, 30).ToArray());
+                await host.AttachAsync(path);
+                var turns = host.Chat.Items.OfType<UserTurnItem>().ToList();
+                host.Chat.Topics.ToggleChange(turns[0]);
+                host.Chat.Topics.ToggleChange(turns[^1]);
+                host.Chat.Items.OfType<ChatTopicItem>().First().ToggleCommand.Execute().Subscribe();
+                host.Settle();
+                await Assert.That(host.AtBottom()).IsTrue();
+
+                var toggle = host.View.GetVisualDescendants().OfType<Button>().First(b => b.Name == "TopicToggle" && b.DataContext is ChatTopicItem { IsExpanded: false });
+                Click(host, toggle);
+                host.Settle();
+                host.Settle();
+                await Assert.That(host.Chat.Items.Count).IsGreaterThan(2);
+                await Assert.That(host.AtBottom()).IsTrue();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    /// A click on a topic's name renames it in place and leaves it open; Enter keeps the new name,
+    /// Escape keeps the old one, and neither key reaches the fold button around the field.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Clicking_a_topic_name_renames_it_without_folding_it() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("topic-rename.jsonl", Enumerable.Repeat(UserLine, 3).ToArray());
+                await host.AttachAsync(path);
+                host.Chat.Topics.ToggleChange(host.Chat.Items.OfType<UserTurnItem>().First());
+                host.Settle();
+                var topic = host.Chat.Items.OfType<ChatTopicItem>().Single();
+                Button Name() => host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("topicName"));
+                TextBox Field() => host.View.GetVisualDescendants().OfType<TextBox>().Single(b => b.Classes.Contains("topicNameField"));
+
+                Click(host, Name());
+                host.Settle();
+                await Assert.That(topic.IsRenaming).IsTrue();
+                await Assert.That(topic.IsExpanded).IsTrue();
+                await Assert.That(Field().IsFocused).IsTrue();
+
+                host.Window.KeyTextInput("Retry");
+                host.Press(PhysicalKey.Space);
+                host.Window.KeyTextInput("policy");
+                host.Press(PhysicalKey.Enter);
+                await Assert.That(topic.Label).IsEqualTo("Retry policy");
+                await Assert.That(topic.IsRenaming).IsFalse();
+                await Assert.That(topic.IsExpanded).IsTrue();
+
+                Click(host, Name());
+                host.Settle();
+                host.Window.KeyTextInput("Something else");
+                host.Press(PhysicalKey.Escape);
+                await Assert.That(topic.Label).IsEqualTo("Retry policy");
+                await Assert.That(topic.IsExpanded).IsTrue();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    /// Picking a topic from the list scrolls its header to the top of the transcript, and stops
+    /// following the tail so the next row to land does not take the reader away again.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Revealing_a_topic_scrolls_its_header_to_the_top() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("topic-reveal.jsonl", Enumerable.Repeat(UserLine, 40).ToArray());
+                await host.AttachAsync(path);
+                host.Chat.Topics.ToggleChange(host.Chat.Items.OfType<UserTurnItem>().ElementAt(3));
+                host.Settle();
+                await Assert.That(host.AtBottom()).IsTrue();
+                var topic = host.Chat.Topics.All.Single();
+
+                host.Chat.Topics.RevealCommand.Execute(topic).Subscribe();
+                host.Settle();
+                host.Settle();
+                var header = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "TopicToggle");
+                var top = header.TranslatePoint(default, host.Scroll)!.Value.Y;
+                await Assert.That(top).IsBetween(0, 40);
+                await Assert.That(host.AtBottom()).IsFalse();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    /// Right-clicking an item of a list in a message offers to bookmark every item of that list, and a
+    /// selection can be bookmarked whole.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Right_clicking_a_list_bookmarks_each_of_its_items() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("bookmark-list.jsonl", [UserLine,
+                    """{"type":"assistant","message":{"content":[{"type":"text","text":"To cover:\n\n1. Lock order\n2. Retry jitter\n3. Logging"}]}}"""]);
+                await host.AttachAsync(path);
+                var reply = host.View.GetVisualDescendants().OfType<MarkdownView>().Single(v => v.DataContext is AssistantTextItem);
+                var item = reply.GetVisualDescendants().OfType<TextBlock>()
+                    .First(t => MarkdownViewHarness.Reads(t).EndsWith("Retry jitter", StringComparison.Ordinal));
+
+                var menu = OpenContextMenu(host, reply, item);
+                await Assert.That(MenuRow(menu, "Bookmark selection").IsEnabled).IsFalse();
+                Invoke(MenuRow(menu, "Bookmark each list item"));
+                host.Settle();
+                await Assert.That(host.Chat.Bookmarks.All.Select(b => b.Text)).IsEquivalentTo(["Lock order", "Retry jitter", "Logging"]);
+
+                reply.SelectAll();
+                menu = OpenContextMenu(host, reply, MarkdownViewHarness.Paragraphs(reply).First());
+                await Assert.That(MenuRow(menu, "Bookmark each list item").IsVisible).IsFalse();
+                Invoke(MenuRow(menu, "Bookmark selection"));
+                host.Settle();
+                await Assert.That(host.Chat.Bookmarks.All.Last().Text).StartsWith("To cover:");
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    /// A bookmark leads back to its message and selects the text it was taken from, ready to copy, in place of whatever
+    /// else was selected; a whole message's bookmark, taken with the message's toggle, selects nothing.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Revealing_a_bookmark_selects_its_text_in_the_message() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("bookmark-reveal.jsonl", [UserLine,
+                    """{"type":"assistant","message":{"content":[{"type":"text","text":"To cover:\n\n1. Lock order\n2. Retry jitter\n3. Logging"}]}}"""]);
+                await host.AttachAsync(path);
+                var reply = host.View.GetVisualDescendants().OfType<MarkdownView>().Single(v => v.DataContext is AssistantTextItem);
+                var viewer = (MarkView.Avalonia.MarkdownViewer)reply.Content!;
+
+                var toggle = host.View.GetVisualDescendants().OfType<Button>()
+                    .Single(b => b.Classes.Contains("bookmarkHere") && b.DataContext is AssistantTextItem);
+                var pastToggle = toggle.TranslatePoint(new Point(toggle.Bounds.Width + 12, toggle.Bounds.Height / 2), host.Window)!.Value;
+                host.Window.MouseMove(pastToggle);
+                host.Settle();
+                await Assert.That(toggle.Opacity).IsEqualTo(1);
+                Click(host, toggle);
+                host.Settle();
+                var message = host.Chat.Bookmarks.All.Single();
+                await Assert.That(message.Text).IsEqualTo("To cover: 1. Lock order 2. Retry jitter 3. Logging");
+                await Assert.That(message.Quote).IsNull();
+                await Assert.That(toggle.Classes.Contains("on")).IsTrue();
+
+                var item = reply.GetVisualDescendants().OfType<TextBlock>()
+                    .First(t => MarkdownViewHarness.Reads(t).EndsWith("Retry jitter", StringComparison.Ordinal));
+                Invoke(MenuRow(OpenContextMenu(host, reply, item), "Bookmark each list item"));
+                host.Settle();
+                var jitter = host.Chat.Bookmarks.All.Single(b => b.Text == "Retry jitter");
+
+                reply.SelectAll();
+                host.Composer.Focus();
+                host.Chat.Bookmarks.RevealCommand.Execute(jitter).Subscribe();
+                host.Settle();
+                // A selection from an item's start reads with its marker, as a copy of it would.
+                await Assert.That(MarkViewSelection.SelectedText(viewer)).IsEqualTo("2. Retry jitter");
+                var copy = Application.Current!.PlatformSettings!.HotkeyConfiguration.Copy[0];
+                host.Window.KeyPressQwerty(PhysicalKey.C, (RawInputModifiers)copy.KeyModifiers);
+                host.Settle();
+                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("2. Retry jitter");
+
+                host.Chat.Bookmarks.RevealCommand.Execute(message).Subscribe();
+                host.Settle();
+                await Assert.That(MarkViewSelection.SelectedText(viewer)).IsEmpty();
+
+                Click(host, toggle);
+                host.Settle();
+                await Assert.That(host.Chat.Bookmarks.All).DoesNotContain(message);
+                await Assert.That(toggle.Classes.Contains("on")).IsFalse();
+
+                Invoke(MenuRow(OpenContextMenu(host, reply, item), "Bookmark message"));
+                host.Settle();
+                await Assert.That(toggle.Classes.Contains("on")).IsTrue();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    /// A chat given nowhere to keep topics and bookmarks offers no way to make them: no message
+    /// toggles, no send modes, no bookmark rows in the text menu.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_chat_without_marks_offers_no_topics_or_bookmarks() {
+        await RunOnUiAsync(async () => {
+            var host = new Host(marks: false);
+            try {
+                var path = Tmp.CreateFile("no-marks.jsonl", [UserLine,
+                    """{"type":"assistant","message":{"content":[{"type":"text","text":"To cover:\n\n1. Lock order\n2. Retry jitter"}]}}"""]);
+                await host.AttachAsync(path);
+                var buttons = host.View.GetVisualDescendants().OfType<Button>().ToList();
+                await Assert.That(buttons.Where(b => b.Classes.Contains("topicHere") || b.Classes.Contains("bookmarkHere"))
+                    .Any(b => b.IsEffectivelyVisible)).IsFalse();
+                await Assert.That(buttons.Single(b => b.Name == "SendModeButton").IsEffectivelyVisible).IsFalse();
+                await Assert.That(buttons.Single(b => b.Name == "SendButton").CornerRadius).IsEqualTo(new CornerRadius(7));
+
+                var reply = host.View.GetVisualDescendants().OfType<MarkdownView>().Single(v => v.DataContext is AssistantTextItem);
+                var item = reply.GetVisualDescendants().OfType<TextBlock>()
+                    .First(t => MarkdownViewHarness.Reads(t).EndsWith("Retry jitter", StringComparison.Ordinal));
+                var menu = OpenContextMenu(host, reply, item);
+                await Assert.That(menu.GetVisualDescendants().OfType<Button>()
+                    .Any(b => b.IsEffectivelyVisible && b.Content is string text && text.StartsWith("Bookmark", StringComparison.Ordinal))).IsFalse();
+                await Assert.That(MenuRow(menu, "Select all").IsEffectivelyVisible).IsTrue();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    static FlyoutPresenter OpenContextMenu(Host host, Control owner, Control target) {
+        var point = PresentAndLocate(host, target);
+        host.Window.MouseMove(point);
+        host.Window.MouseDown(point, MouseButton.Right);
+        host.Window.MouseUp(point, MouseButton.Right);
+        host.Settle();
+        return owner.ContextFlyout is Flyout { IsOpen: true, Content: Control { Parent: FlyoutPresenter presenter } }
+            ? presenter
+            : throw new InvalidOperationException("no flyout opened");
+    }
+
+    static Button MenuRow(FlyoutPresenter menu, string label) =>
+        menu.GetVisualDescendants().OfType<Button>().Single(b => b.Content is string text && text == label);
+
+    // What a pointer or key press on a row does: its Click handlers, then its command.
+    static void Invoke(Button button) =>
+        typeof(Button).GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(button, null);
+
     [Test]
     [Arguments(false)]
     [Arguments(true)]
@@ -1532,18 +1869,18 @@ public class ChatTabViewSmokeTests {
             var path = Tmp.CreateFile("pub.jsonl", [PublishCallLine]);
             await host.LoadAsync(path);
 
-            var label = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowLabel" && t.IsEffectivelyVisible);
-            var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolRowDetail" && t.IsEffectivelyVisible && t.Text == "Retention brief");
+            var label = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t is { Name: "ToolRowLabel", IsEffectivelyVisible: true });
+            var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t is { Name: "ToolRowDetail", IsEffectivelyVisible: true, Text: "Retention brief" });
             await Assert.That(label.Text).IsEqualTo("Published page");
             await Assert.That(label.FontFamily.Name).IsEqualTo(detail.FontFamily.Name);
             await Assert.That(label.LineHeight).IsEqualTo(detail.LineHeight);
             await Assert.That(label.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
             await Assert.That(detail.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
-            await Assert.That(host.View.GetVisualDescendants().OfType<Control>().Any(c => c.Name == "ToolCard" && c.IsEffectivelyVisible)).IsFalse();
+            await Assert.That(host.View.GetVisualDescendants().OfType<Control>().Any(c => c is { Name: "ToolCard", IsEffectivelyVisible: true })).IsFalse();
 
             await host.AppendLinesAndTickAsync(path, PublishResultLine);
 
-            var card = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "ToolCard" && b.IsEffectivelyVisible);
+            var card = host.View.GetVisualDescendants().OfType<Border>().Single(b => b is { Name: "ToolCard", IsEffectivelyVisible: true });
             await Assert.That(card.Margin.Left).IsEqualTo(0);
             await Assert.That(card.Margin.Right).IsEqualTo(0);
             var title = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolCardTitle");
@@ -1818,6 +2155,30 @@ public class ChatTabViewSmokeTests {
         });
     }
 
+    /// A request drafted from elsewhere, such as a sidebar menu, follows what the user typed and takes
+    /// the focus with the caret at its end, so Enter sends it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_drafted_request_takes_the_focus_so_Enter_sends_it() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            var client = await host.AttachAsync(Tmp.CreateFile("draft.jsonl", UserLine));
+            host.Type("note");
+            host.View.GetVisualDescendants().OfType<Button>().First(b => b.Focusable && b.IsEffectivelyVisible).Focus();
+            host.Settle();
+
+            host.Chat.Draft("File it");
+            host.Settle();
+            await Assert.That(host.Composer.IsFocused).IsTrue();
+            await Assert.That(host.Composer.CaretIndex).IsEqualTo("note\n\nFile it".Length);
+
+            host.PressEnter(RawInputModifiers.None);
+            await WaitUntilAsync(() => client.SentInput.Count == 1, what: "paste written");
+            await Assert.That(client.SentInput[0]).IsEquivalentTo(TerminalInputEncoder.Paste("note\n\nFile it"));
+            await host.CloseAsync();
+        });
+    }
+
     [Test]
     [Arguments(false)]
     [Arguments(true)]
@@ -1974,15 +2335,15 @@ public class ChatTabViewSmokeTests {
             var banner = host.View.FindControl<Border>("QueuedMessagesBanner")!;
             await Assert.That(banner.IsVisible).IsTrue();
             await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "queued follow-up")).IsTrue();
-            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Delivery unconfirmed" && t.IsVisible)).IsFalse();
+            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: "Delivery unconfirmed", IsVisible: true })).IsFalse();
             // The paste is still in flight, so Send appears once the channel will take text.
             host.Time.Advance(CrDelay);
             await host.Terminal.PendingDeliveryForTesting!;
             host.Settle();
-            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == QueuedChatMessage.IdlePickupNote && t.IsVisible)).IsTrue();
-            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == QueuedChatMessage.AwaitingPickupNote && t.IsVisible)).IsFalse();
+            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: QueuedChatMessage.IdlePickupNote, IsVisible: true })).IsTrue();
+            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: QueuedChatMessage.AwaitingPickupNote, IsVisible: true })).IsFalse();
             var queued = host.Chat.QueuedMessages.Single();
-            var send = banner.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "SendQueuedButton" && b.IsVisible);
+            var send = banner.GetVisualDescendants().OfType<Button>().Single(b => b is { Name: "SendQueuedButton", IsVisible: true });
             await Assert.That(send.Content).IsEqualTo("Send again");
             host.Type("queued follow-up");
             Click(host, send);
@@ -1995,12 +2356,12 @@ public class ChatTabViewSmokeTests {
             await Assert.That(client.SentInput[3]).IsEquivalentTo(new byte[] { 13 });
             host.Daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path, Status = "Running", AwaitingInput = false });
             host.Settle();
-            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == QueuedChatMessage.AwaitingPickupNote && t.IsVisible)).IsTrue();
-            await Assert.That(banner.GetVisualDescendants().OfType<Button>().Any(b => b.Name == "SendQueuedButton" && b.IsVisible)).IsFalse();
+            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: QueuedChatMessage.AwaitingPickupNote, IsVisible: true })).IsTrue();
+            await Assert.That(banner.GetVisualDescendants().OfType<Button>().Any(b => b is { Name: "SendQueuedButton", IsVisible: true })).IsFalse();
             host.Daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path, Status = "Completed" });
             host.Settle();
-            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Delivery unconfirmed" && t.IsVisible)).IsTrue();
-            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == QueuedChatMessage.AwaitingPickupNote && t.IsVisible)).IsFalse();
+            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: "Delivery unconfirmed", IsVisible: true })).IsTrue();
+            await Assert.That(banner.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: QueuedChatMessage.AwaitingPickupNote, IsVisible: true })).IsFalse();
             await host.AppendLinesAndTickAsync(path, UserLine.Replace("hello", "queued follow-up"));
             await Assert.That(banner.IsVisible).IsFalse();
             await Assert.That(host.Composer.Text).IsEqualTo("queued follow-up");
@@ -2311,7 +2672,7 @@ public class ChatTabViewSmokeTests {
             await Assert.That(copies.All(c => c.Opacity == 0)).IsTrue();
 
             var assistant = copies[1];
-            var row = assistant.GetVisualAncestors().OfType<StackPanel>().First(p => p.Classes.Contains("messageRow"));
+            var row = assistant.GetVisualAncestors().OfType<Panel>().First(p => p.Classes.Contains("messageRow"));
             host.Window.MouseMove(row.TranslatePoint(new Point(4, 4), host.Window)!.Value);
             host.Settle();
             await Assert.That(assistant.Opacity).IsEqualTo(1);
@@ -2464,7 +2825,7 @@ public class ChatTabViewSmokeTests {
             await Assert.That(call.IsRunning).IsFalse();
             var glyph = host.View.GetVisualDescendants().OfType<AppIcon>()
                 .Single(icon => icon.DataContext is ToolCallItem &&
-                                icon.Kind == Lucide.Avalonia.LucideIconKind.CircleQuestionMark && icon.IsEffectivelyVisible);
+                                icon is { Kind: Lucide.Avalonia.LucideIconKind.CircleQuestionMark, IsEffectivelyVisible: true });
             await Assert.That(glyph.Foreground).IsSameReferenceAs(Brush(isError: false));
             await Assert.That(host.View.GetVisualDescendants().OfType<Border>()
                 .Count(b => b.Classes.Contains("toolRunning") && b.IsEffectivelyVisible)).IsEqualTo(0);
@@ -2538,9 +2899,9 @@ public class ChatTabViewSmokeTests {
             await Assert.That(pulse.Background).IsSameReferenceAs(Application.Current!.FindResource("KcapPurpleBrush"));
             await Assert.That(PulseClock.GetIsActive(pulse)).IsTrue();
             var rowLabel = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
-                .Single(t => t.Name == "ToolRowLabel" && t.IsEffectivelyVisible);
+                .Single(t => t is { Name: "ToolRowLabel", IsEffectivelyVisible: true });
             var detail = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
-                .Single(t => t.IsEffectivelyVisible && t.Text == "ls -la");
+                .Single(t => t is { IsEffectivelyVisible: true, Text: "ls -la" });
             await Assert.That(rowLabel.Text).IsEqualTo("Ran command");
             await Assert.That(rowLabel.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
             await Assert.That(detail.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
@@ -2946,7 +3307,7 @@ public class ChatTabViewSmokeTests {
             var first = (Button)host.Window.FocusManager.GetFocusedElement()!;
             var second = Option(host, "Wait");
             await Assert.That(first.Classes.Contains(":focus-visible")).IsTrue();
-            await Assert.That(first.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Ship it (Recommended)" && t.IsEffectivelyVisible)).IsTrue();
+            await Assert.That(first.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: "Ship it (Recommended)", IsEffectivelyVisible: true })).IsTrue();
 
             var presenter = first.GetVisualDescendants().OfType<ContentPresenter>().First(p => p.Name == "PART_ContentPresenter");
             await Assert.That(presenter.BorderBrush).IsSameReferenceAs(host.View.FindResource("KcapPurpleBrush"));
@@ -3209,8 +3570,8 @@ public class ChatTabViewSmokeTests {
             var prose = string.Join("\\n\\n", Enumerable.Range(1, 60).Select(i => $"Paragraph {i} of a long reply that wraps across the column."));
             var tall = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + prose + "\"}]}}";
             var tags = string.Join(",", Enumerable.Range(1, 8).Select(i =>
-                $$$"""{"label":"Tag {{{i}}}","description":"A longer description of tag {{{i}}} that wraps across the column and adds height."}"""));
-            var question = $$$"""{"questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]},{"question":"Tags","multiSelect":true,"options":[{{{tags}}}]}]}""";
+                $$"""{"label":"Tag {{i}}","description":"A longer description of tag {{i}} that wraps across the column and adds height."}"""));
+            var question = $$"""{"questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]},{"question":"Tags","multiSelect":true,"options":[{{tags}}]}]}""";
             var ask = $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"q-tool","name":"AskUserQuestion","input":{{{question}}}}]}}""";
             var path = Tmp.CreateFile("series.jsonl", [tall, tall, tall, .. Enumerable.Repeat(UserLine, 20), ask]);
             await host.LoadAsync(path);
@@ -3492,7 +3853,7 @@ public class ChatTabViewSmokeTests {
             var host = new Host();
             host.Window.Width = width;
             const string text = "Run every integration suite against the staging server and collect the coverage";
-            var input = described ? $$$"""{"command":"make it","description":"{{{text}}}"}""" : $$$"""{"command":"{{{text}}}"}""";
+            var input = described ? $$"""{"command":"make it","description":"{{text}}"}""" : $$"""{"command":"{{text}}"}""";
             await host.LoadAsync(Tmp.CreateFile("sh.jsonl", [ShellCall("toolu_S", input), ShellLaunch("toolu_S", "b1")]));
             Click(host, host.View.FindControl<Button>("BackgroundTasksToggle")!);
 

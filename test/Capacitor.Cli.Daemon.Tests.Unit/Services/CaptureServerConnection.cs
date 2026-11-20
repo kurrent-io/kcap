@@ -521,10 +521,18 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>Terminal output as text and sizes as <c>&lt;SIZE colsxrows&gt;</c>, in the order they arrived.</summary>
     public ConcurrentQueue<(string AgentId, string Entry)> TerminalStream { get; } = new();
 
-    public override Task SendTerminalDimensionsAsync(string agentId, int cols, int rows, CancellationToken ct = default) {
-        TerminalStream.Enqueue((agentId, $"<SIZE {cols}x{rows}>"));
+    /// <summary>Holds every terminal-size send while set, until its token is cancelled.</summary>
+    public TaskCompletionSource? DimensionsGate { get; set; }
 
-        return Task.CompletedTask;
+    int _dimensionsSends;
+    public int DimensionsSends => Volatile.Read(ref _dimensionsSends);
+
+    public override async Task SendTerminalDimensionsAsync(string agentId, int cols, int rows, CancellationToken ct = default) {
+        Interlocked.Increment(ref _dimensionsSends);
+
+        if (DimensionsGate is { } gate) await gate.Task.WaitAsync(ct).ConfigureAwait(false);
+
+        TerminalStream.Enqueue((agentId, $"<SIZE {cols}x{rows}>"));
     }
 
     /// <summary>Every (agentId, event) pair passed to AppendAgentRunEventAsync, in call order.</summary>

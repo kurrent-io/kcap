@@ -58,10 +58,10 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
 
     sealed class FakeAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int  Pid       { get; init; } = 4242;
+        public int  Pid       { get; } = 4242;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
-        public void SignalExited(int exitCode = 0) { HasExited = true; ExitCode = exitCode; _exited.TrySetResult(); }
+        void SignalExited(int exitCode = 0) { HasExited = true; ExitCode = exitCode; _exited.TrySetResult(); }
         public Task WaitForExitAsync(TimeSpan? timeout = null) => _exited.Task;
         public Task TerminateAsync(TimeSpan? timeout = null) { SignalExited(); return Task.CompletedTask; }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -84,7 +84,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         public readonly TaskCompletionSource ReleaseTerminate = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public readonly TaskCompletionSource TerminateEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public int  Pid       { get; init; } = 4343;
+        public int  Pid       { get; } = 4343;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
 
@@ -130,7 +130,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         // that derailed the handshake before it ever reached model selection.
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public int  Pid       { get; init; } = 4444;
+        public int  Pid       { get; } = 4444;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
 
@@ -3237,7 +3237,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     /// BEFORE <c>ReclassifyIfReaped</c> runs, replacing the coded verdict with a teardown exception.</summary>
     sealed class ThrowingDisposeAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int  Pid       { get; init; } = 4545;
+        public int  Pid       { get; } = 4545;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
         public Task WaitForExitAsync(TimeSpan? timeout = null) => _exited.Task;
@@ -3309,7 +3309,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     /// connection disposal above it faulted.</summary>
     sealed class DisposeTrackingAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int  Pid            { get; init; } = 4646;
+        public int  Pid            { get; } = 4646;
         public bool HasExited      { get; private set; }
         public int? ExitCode       { get; private set; }
         public int  TerminateCalls { get; private set; }

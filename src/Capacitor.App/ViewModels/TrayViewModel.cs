@@ -236,7 +236,7 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
             ? snap.Agents.Count(a => a.Status == "Running" && UsageLimitNoticeDto.IsQuestion(a.UsageLimit))
             : 0;
         var terminalDialogs = status.State == AttachState.Connected && snap is not null
-            ? snap.Agents.Count(a => a.Status == "Running" && a.TerminalDialog is not null && !UsageLimitNoticeDto.IsQuestion(a.UsageLimit))
+            ? snap.Agents.Count(a => a is { Status: "Running", TerminalDialog: not null } && !UsageLimitNoticeDto.IsQuestion(a.UsageLimit))
             : 0;
         var pendingAttention = ((status.State == AttachState.Connected && (pendingConsent > 0 || pendingSummary.LocalCount > 0 || usageLimits > 0 || terminalDialogs > 0))
             || (remote.LaneConnected && (pendingSummary.ServerCount > 0 || remote.SessionsNeedingAttention > 0)))
@@ -266,7 +266,7 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
     /// a hosted agent with the same id elsewhere is a different agent.
     static RemoteTraySummary WithoutSteeredHere(RemoteTraySummary remote, AttachStatus status, DaemonStatusDto? snap) {
         if (status.State != AttachState.Connected || snap is null || remote.AttentionEntries is not { Count: > 0 } entries) return remote;
-        var steered = snap.Agents.Where(a => a.Kind == AgentActionService.AttachedKind && a.Status is "Starting" or "Running")
+        var steered = snap.Agents.Where(a => a is { Kind: AgentActionService.AttachedKind, Status: "Starting" or "Running" })
             .Select(a => a.Id).ToHashSet(StringComparer.Ordinal);
         if (steered.Count == 0) return remote;
         var kept = entries.Where(e => !(e.Kind == AgentActionService.AttachedKind && steered.Contains(e.Id))).ToList();
@@ -316,7 +316,7 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
             AttachStatus status, DaemonStatusDto? snap, RemoteTraySummary remote) {
         var (state, count) = Project(status, snap);
         var total = count + remote.RemoteLiveAgents;
-        if (state is TrayState.Stopped or TrayState.Idle && remote.LaneConnected && remote.RemoteLiveAgents > 0)
+        if (state is TrayState.Stopped or TrayState.Idle && remote is { LaneConnected: true, RemoteLiveAgents: > 0 })
             return (TrayState.Running, total);
         if (state is TrayState.Running) return (TrayState.Running, total);
         return (state, count);
@@ -333,7 +333,7 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
             IAgentDirectory directory, IObservable<IReadOnlySet<string>>? sessionsWithAttention = null) {
         var attention = sessionsWithAttention ?? Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty);
         var remoteRows = directory.Rows.Connect()
-            .Filter(r => r.Origin == AgentOrigin.Remote && r.Status is "Starting" or "Running" or "Idle")
+            .Filter(r => r is { Origin: AgentOrigin.Remote, Status: "Starting" or "Running" or "Idle" })
             .QueryWhenChanged(q => (IReadOnlyList<AgentRow>)q.Items.ToList())
             .StartWith((IReadOnlyList<AgentRow>)[]);
         var laneConnected = directory.RemoteStale.Select(stale => !stale);
@@ -353,7 +353,7 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
             string daemonName, AttachStatus status, DaemonStatusDto? snap, TrayState state, int count,
             bool pendingAttention, int pendingConsent, string? lifecycleAttentionText, PendingSummary pendingSummary,
             int remoteSessionsNeedingAttention, int usageLimits, int terminalDialogs) {
-        if (state == TrayState.Attention && status.State == AttachState.Unreachable && status.Reason == IncompatibleReason)
+        if (state == TrayState.Attention && status is { State: AttachState.Unreachable, Reason: IncompatibleReason })
             return SkewMessage; // no daemon-name prefix
 
         if (lifecycleAttentionText is not null) return $"{daemonName}: {lifecycleAttentionText}";

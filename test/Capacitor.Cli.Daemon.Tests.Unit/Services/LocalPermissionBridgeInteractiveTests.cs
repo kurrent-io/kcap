@@ -15,8 +15,8 @@ public class LocalPermissionBridgeInteractiveTests {
     sealed class Harness : IAsyncDisposable {
         public FakeServerConnection Server { get; } = new(respond: null);
         public PermissionPromptBroker Broker { get; } = new();
-        public TempDir Tmp { get; } = new();
-        public PermissionDecisionLog Log { get; }
+        TempDir Tmp { get; } = new();
+        PermissionDecisionLog Log { get; }
         public LocalPermissionBridge Bridge { get; }
         public HttpClient Client { get; } = new() { Timeout = TimeSpan.FromSeconds(30) };
 

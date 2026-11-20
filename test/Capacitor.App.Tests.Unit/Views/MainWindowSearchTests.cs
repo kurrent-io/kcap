@@ -14,7 +14,7 @@ public class MainWindowSearchTests {
 
     sealed class Harness : IDisposable {
         public RemoteHost Host { get; } = new();
-        public FakeDaemonClientService Service { get; } = new();
+        FakeDaemonClientService Service { get; } = new();
         public HistoricalScheduler Scheduler { get; } = new();
         public List<string> Built { get; } = [];
         public List<SearchRequest> Requests { get; } = [];

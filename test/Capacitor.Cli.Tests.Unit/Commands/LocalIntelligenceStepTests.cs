@@ -18,7 +18,7 @@ public class LocalIntelligenceStepTests {
         readonly Queue<string> _choices = new(choices);
 
         public List<IReadOnlyList<string>> Offered { get; } = [];
-        public string? TypedKey { get; init; } = "typed";
+        string? TypedKey { get; } = "typed";
         public bool Outcomes { get; init; } = true;
         public int OutcomeQuestions { get; private set; }
 

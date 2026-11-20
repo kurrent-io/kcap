@@ -202,14 +202,14 @@ public class AcpEventEnvelopeWireCompatTests {
     public async Task AcpSourceClaimOutcome_deserializes_the_servers_wire_shape() {
         // Exactly what the server's AcpSessionSourceClaim emits for a Bound claim.
         var bound = JsonSerializer.Deserialize(
-            @"{""outcome"":""bound"",""ownership_token"":3,""accepted_seq"":-1}",
+            """{"outcome":"bound","ownership_token":3,"accepted_seq":-1}""",
             CapacitorJsonContext.Default.AcpSourceClaimOutcome);
         await Assert.That(bound.Outcome).IsEqualTo(AcpBindOutcome.Bound);
         await Assert.That(bound.OwnershipToken).IsEqualTo(3L);
         await Assert.That(bound.AcceptedSeq).IsEqualTo(-1L);
 
         var rejected = JsonSerializer.Deserialize(
-            @"{""outcome"":""rejected"",""ownership_token"":0,""accepted_seq"":0}",
+            """{"outcome":"rejected","ownership_token":0,"accepted_seq":0}""",
             CapacitorJsonContext.Default.AcpSourceClaimOutcome);
         await Assert.That(rejected.Outcome).IsEqualTo(AcpBindOutcome.Rejected);
     }

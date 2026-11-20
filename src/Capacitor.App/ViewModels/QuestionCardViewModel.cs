@@ -10,7 +10,6 @@ namespace Capacitor.App.ViewModels;
 
 public sealed class QuestionOptionViewModel : ReactiveObject {
     readonly Action _selectionChanged;
-    bool _isSelected;
 
     public string Label { get; }
     public string? Description { get; }
@@ -18,10 +17,10 @@ public sealed class QuestionOptionViewModel : ReactiveObject {
     public ReactiveCommand<Unit, Unit> PickCommand { get; }
 
     public bool IsSelected {
-        get => _isSelected;
+        get;
         set {
-            if (_isSelected == value) return;
-            this.RaiseAndSetIfChanged(ref _isSelected, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             _selectionChanged();
         }
     }
@@ -42,8 +41,6 @@ public sealed class QuestionOptionViewModel : ReactiveObject {
 public sealed class QuestionGroupViewModel : ReactiveObject {
     readonly BehaviorSubject<bool> _answered = new(false);
     string _otherText = "";
-    bool _inFastPath;
-    bool _showsHeader;
 
     public int Index { get; }
     public string? Header { get; }
@@ -56,14 +53,14 @@ public sealed class QuestionGroupViewModel : ReactiveObject {
     public ReactiveCommand<Unit, Unit> EditCommand { get; }
     internal IObservable<bool> Answered => _answered;
     internal bool InFastPath {
-        get => _inFastPath;
-        set => this.RaiseAndSetIfChanged(ref _inFastPath, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The header rides the step chip once there is a series; alone, it sits above the question.
     public bool ShowsHeader {
-        get => _showsHeader;
-        internal set => this.RaiseAndSetIfChanged(ref _showsHeader, value);
+        get;
+        internal set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string OtherText {
@@ -121,8 +118,6 @@ public sealed class QuestionGroupViewModel : ReactiveObject {
 
 /// One chip in the card's step row: a question, or the closing Review step.
 public sealed class QuestionStepViewModel : ReactiveObject {
-    bool _isCurrent;
-    bool _isAnswered;
 
     public int Index { get; }
     public string Title { get; }
@@ -130,13 +125,13 @@ public sealed class QuestionStepViewModel : ReactiveObject {
     public ReactiveCommand<Unit, Unit> GoCommand { get; }
 
     public bool IsCurrent {
-        get => _isCurrent;
-        internal set => this.RaiseAndSetIfChanged(ref _isCurrent, value);
+        get;
+        internal set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool IsAnswered {
-        get => _isAnswered;
-        internal set => this.RaiseAndSetIfChanged(ref _isAnswered, value);
+        get;
+        internal set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     internal QuestionStepViewModel(int index, string title, bool isReview, Action<int> go, IObservable<bool> idle) {

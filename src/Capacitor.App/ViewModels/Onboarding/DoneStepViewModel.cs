@@ -75,7 +75,7 @@ public sealed class DoneStepViewModel : ReactiveObject, IWizardStep {
 
     HistoryImportRun? Import => _current.Import;
 
-    bool Imported => Import is { Imported: > 0 } || Import is { Running: true };
+    bool Imported => Import is { Imported: > 0 } or { Running: true };
 
     bool CapturePromised => _current.Recording.Count > 0 && !_current.PathHazard;
 
@@ -164,7 +164,7 @@ public sealed class DoneStepViewModel : ReactiveObject, IWizardStep {
 
     public bool FirstSessionVisible => Import is null && CapturePromised;
 
-    public bool PathHazardVisible => _current.PathHazard && _current.Recording.Count > 0;
+    public bool PathHazardVisible => _current is { PathHazard: true, Recording.Count: > 0 };
 
     public bool CodexNoteVisible => _current.CodexRecording;
 
@@ -174,7 +174,7 @@ public sealed class DoneStepViewModel : ReactiveObject, IWizardStep {
 
     /// The CLI's own import is named only where the machine has a terminal command to offer.
     public IReadOnlyList<DisclosureSpan>? ImportHint =>
-        !_current.Local && _current.Recording.Count > 0 && Import is null
+        _current is { Local: false, Recording.Count: > 0 } && Import is null
             ? [new("kcap import", Code: true), new(" brings your existing history over whenever you want")]
             : null;
 

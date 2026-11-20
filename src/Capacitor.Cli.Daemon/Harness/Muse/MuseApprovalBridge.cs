@@ -46,8 +46,7 @@ internal static class MuseApprovalBridge {
     public static MuseApprovalDecision ToDecision(AcpInteractionDecision decision, JsonElement approvalParams) {
         var choices = Choices(approvalParams);
 
-        if (decision.SelectedOptionId is { } id
-         && decision.Outcome is "allow" or "allow_once" or "allow_always" or "deny") {
+        if (decision is { SelectedOptionId: { } id, Outcome: "allow" or "allow_once" or "allow_always" or "deny" }) {
             foreach (var choice in choices) {
                 if (!string.Equals(choice.Str("choiceId"), id, StringComparison.Ordinal)) continue;
 

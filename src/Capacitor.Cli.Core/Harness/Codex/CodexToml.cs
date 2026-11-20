@@ -27,7 +27,7 @@ public static class CodexToml {
                 case '\r': sb.Append("\\r");  break;
                 default:
                     // Remaining C0 controls (and DEL) have no short escape — emit \uXXXX.
-                    if (c < ' ' || c == (char) 0x7f) {
+                    if (c is < ' ' or (char) 0x7f) {
                         sb.Append("\\u").Append(((int) c).ToString("X4", System.Globalization.CultureInfo.InvariantCulture));
                     } else {
                         sb.Append(c);

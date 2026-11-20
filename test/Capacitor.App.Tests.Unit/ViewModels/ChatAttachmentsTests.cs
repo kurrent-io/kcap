@@ -48,8 +48,8 @@ public class ChatAttachmentsTests {
     }
 
     sealed class Harness {
-        public FakeDaemonClientService Daemon { get; } = new();
-        public FakeTimeProvider Time { get; } = new();
+        FakeDaemonClientService Daemon { get; } = new();
+        FakeTimeProvider Time { get; } = new();
         public ScriptedInput Input { get; } = new();
         public ScriptedUploader Uploader { get; } = new();
         public ChatTabViewModel Chat { get; }

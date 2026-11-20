@@ -52,7 +52,7 @@ public sealed class McpMarker(string harness, UserHome home, Func<string, string
         // v1 marker (no fingerprint recorded): legacy command == "kcap" check.
         var cmd = obj["command"];
         return cmd is JsonValue v && v.TryGetValue(out string? s) && s == KcapMcpServers.Command
-            || cmd is JsonArray a && a.Count > 0 && a[0] is JsonValue fv && fv.TryGetValue(out string? fs) && fs == KcapMcpServers.Command;
+            || cmd is JsonArray { Count: > 0 } a && a[0] is JsonValue fv && fv.TryGetValue(out string? fs) && fs == KcapMcpServers.Command;
     }
 
     public void Record(string configPath, IReadOnlyList<KeyValuePair<string, JsonNode?>> entries) {

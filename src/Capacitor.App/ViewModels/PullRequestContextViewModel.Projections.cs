@@ -200,7 +200,7 @@ public sealed partial class PullRequestContextViewModel {
     PullRequestRow ToRow(PullRequestCommentDto item, PullRequestSubjectDto subject) => item.Availability == "available"
         ? new(item.Id, Author(item.Author), Dated(item.CreatedAt), item.Body, null, PrLink(item.Url, subject), "available", item.BodyTruncated, ActorKind: item.Author?.Kind)
         : Unavailable(item.Id, "Comment", PrLink(item.Url, subject), item.Availability);
-    PullRequestRow ToRow(PullRequestReviewDto item, PullRequestSubjectDto subject) => item.Availability == "available" && item.State is not ("pending" or "PENDING")
+    PullRequestRow ToRow(PullRequestReviewDto item, PullRequestSubjectDto subject) => item is { Availability: "available", State: not ("pending" or "PENDING") }
         ? new(item.Id, Author(item.Author), Joined(ReviewState(item.State), Dated(item.SubmittedAt)), item.Body, null, PrLink(item.Url, subject), "available", item.BodyTruncated)
         : Unavailable(item.Id, "Review", PrLink(item.Url, subject), item.Availability);
     PullRequestRow ToRow(PullRequestReviewerDto item, PullRequestSubjectDto subject) {
@@ -208,7 +208,7 @@ public sealed partial class PullRequestContextViewModel {
         var status = ReviewRowStatus(item.ReviewState, item.Requested == true);
         return new(item.Id, Author(item.Actor), (item.Requested == true ? "Review requested · " : "") + status.Text,
             null, null, PrLink(item.Url, subject), "available", IsReviewer: true, ActorKind: item.Actor?.Kind, AvatarUrl: AvatarUrl(item.Actor, subject),
-            Status: status, ReRequested: item.Requested == true && item.ReviewState is not null);
+            Status: status, ReRequested: item is { Requested: true, ReviewState: not null });
     }
     PullRequestRow ToRow(PullRequestCheckDto item, PullRequestSubjectDto subject) => item.Availability == "available"
         ? new(item.Id, item.Name ?? "Unnamed check",

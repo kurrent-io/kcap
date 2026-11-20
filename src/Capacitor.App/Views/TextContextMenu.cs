@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
+using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
@@ -25,7 +26,13 @@ public static class TextContextMenu {
         new("Copy image", _ => true, c => _ = ((MarkdownView)c).CopyImageAsync(), c => ((MarkdownView)c).ContextImage is not null),
         new("Copy link", _ => true, c => _ = ((MarkdownView)c).CopyLinkAsync(), c => ((MarkdownView)c).ContextLinkUrl is not null),
         new("Copy", c => ((MarkdownView)c).HasSelection, c => _ = ((MarkdownView)c).CopySelectionAsync()),
-        new("Select all", _ => true, c => ((MarkdownView)c).SelectAll()));
+        new("Select all", _ => true, c => ((MarkdownView)c).SelectAll()),
+        new("Bookmark selection", c => ((MarkdownView)c).HasSelection, c => ((MarkdownView)c).BookmarkSelection(),
+            c => ((MarkdownView)c).Bookmarks is not null),
+        new("Bookmark each list item", _ => true, c => ((MarkdownView)c).BookmarkListItems(),
+            c => ((MarkdownView)c).Bookmarks is not null && ((MarkdownView)c).ContextListItems is not null),
+        new("Bookmark message", _ => true, c => ((MarkdownView)c).BookmarkMessage(),
+            c => ((MarkdownView)c) is { Bookmarks: not null, DataContext: ChatItemViewModel { Bookmark: null } }));
 
     public static FlyoutBase ForImage { get; } = Build<ToolImagePreview>(
         new Row("Copy image", c => ((ToolImagePreview)c).CanCopyImage, c => _ = ((ToolImagePreview)c).CopyImageAsync()));

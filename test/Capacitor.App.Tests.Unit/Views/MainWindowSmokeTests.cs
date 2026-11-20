@@ -1026,7 +1026,7 @@ public class MainWindowSmokeTests {
                 await Assert.That(pr.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "PR #142")).IsTrue();
                 var mark = pr.GetVisualDescendants().OfType<PullRequestStatusLabel>().Single();
                 await Assert.That(mark.ShowText).IsFalse();
-                await Assert.That(pr.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Open" && t.IsEffectivelyVisible)).IsFalse();
+                await Assert.That(pr.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: "Open", IsEffectivelyVisible: true })).IsFalse();
                 await Assert.That((mark.DataContext as PullRequestStatus)!.Kind).IsEqualTo("open");
                 await Assert.That(ToolTip.GetTip(pr) as string).Contains("Open");
                 await Assert.That((pr.Background as ISolidColorBrush)!.Color.A).IsEqualTo((byte)0);
@@ -1295,8 +1295,8 @@ public class MainWindowSmokeTests {
                     MarkLeft: Left(mark),
                     MarkRight: Right(mark),
                     MetaLeft: Left(meta),
-                    ModelInRow: row.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text == "opus"),
-                    ChildTips: row.GetVisualDescendants().Count(v => v is Control c && c.IsEffectivelyVisible && ToolTip.GetTip(c) is not null),
+                    ModelInRow: row.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { IsEffectivelyVisible: true, Text: "opus" }),
+                    ChildTips: row.GetVisualDescendants().Count(v => v is Control { IsEffectivelyVisible: true } c && ToolTip.GetTip(c) is not null),
                     RowTipIsStatus: ToolTip.GetTip(row) is StackPanel tip && tip.Children.OfType<AgentStatusTip>().Any(),
                     RowTip: ((RailSessionViewModel)row.DataContext!).Tooltip,
                     HasMark: vendor.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().Any(),

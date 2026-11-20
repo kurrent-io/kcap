@@ -204,7 +204,7 @@ public class McpWorkItemEvalToolsTests {
 
     [Test]
     public async Task A_response_past_the_read_bound_is_an_error_and_is_not_rendered() {
-        var huge = $$$"""{"runs":[],"next_cursor":null,"pad":"{{{new string('x', WorkItemEvalToolResults.MaxResponseBytes)}}}"}""";
+        var huge = $$"""{"runs":[],"next_cursor":null,"pad":"{{new string('x', WorkItemEvalToolResults.MaxResponseBytes)}}"}""";
         var (_, text, isError) = await DispatchAsync("list_work_item_evals", """{"work_item_id":"wi-1"}""", body: huge);
 
         await Assert.That(isError).IsTrue();
@@ -215,10 +215,10 @@ public class McpWorkItemEvalToolsTests {
     /// still render, so the caps are what cut the rest.</summary>
     [Test]
     public async Task Questions_and_citations_past_their_caps_are_counted_not_rendered() {
-        var citations = string.Join(",", Enumerable.Range(0, 25).Select(i => $$$"""{"ref":"c{{{i}}}","session_id":"s1","agent_id":null}"""));
+        var citations = string.Join(",", Enumerable.Range(0, 25).Select(i => $$"""{"ref":"c{{i}}","session_id":"s1","agent_id":null}"""));
         var questions = string.Join(",", Enumerable.Range(0, WorkItemEvalToolResults.MaxQuestions + 3).Select(i =>
-            $$$"""{"ordinal":{{{i}}},"category":"p","question_id":"q{{{i}}}","outcome":"assessed","citations":[{{{citations}}}]}"""));
-        var text = WorkItemEvalToolResults.RenderRun($$$"""{"run":{{{Summary()}}},"session_count":1,"source_count":1,"questions":[{{{questions}}}]}""")!;
+            $$"""{"ordinal":{{i}},"category":"p","question_id":"q{{i}}","outcome":"assessed","citations":[{{citations}}]}"""));
+        var text = WorkItemEvalToolResults.RenderRun($$"""{"run":{{Summary()}},"session_count":1,"source_count":1,"questions":[{{questions}}]}""")!;
 
         await Assert.That(text).Contains("Q0 [p] q0: assessed");
         await Assert.That(text).DoesNotContain($"q{WorkItemEvalToolResults.MaxQuestions}:");
@@ -233,7 +233,7 @@ public class McpWorkItemEvalToolsTests {
     public async Task Retrospective_lists_and_scope_reasons_past_their_caps_say_how_many_were_left_out() {
         const int over      = WorkItemEvalToolResults.MaxListItems + 3;
         string Strings(string prefix) => string.Join(",", Enumerable.Range(0, over).Select(i => $"\"{prefix}{i}\""));
-        var suggestions = string.Join(",", Enumerable.Range(0, over).Select(i => $$$"""{"text":"s{{{i}}}","audience":"agent"}"""));
+        var suggestions = string.Join(",", Enumerable.Range(0, over).Select(i => $$"""{"text":"s{{i}}","audience":"agent"}"""));
         var text = WorkItemEvalToolResults.RenderRun($$$"""
             {"run":{{{Summary()}}},"session_count":1,"source_count":1,"scope_complete":false,"scope_incomplete_reasons":[{{{Strings("reason_")}}}],"questions":[],
              "retrospective":{"overall":"o","strengths":[{{{Strings("st")}}}],"issues":[{{{Strings("is")}}}],"suggestions":[{{{suggestions}}}]}}
@@ -252,7 +252,7 @@ public class McpWorkItemEvalToolsTests {
     [Arguments("request_work_item_eval", """{"work_item_id":"wi-1"}""")]
     [Arguments("cancel_work_item_eval", """{"work_item_id":"wi-1","run_id":"0123456789abcdef0123456789abcdef"}""")]
     public async Task An_oversized_reply_to_a_write_is_refused_like_a_read(string tool, string args) {
-        var huge = $$$"""{"outcome":"queued","pad":"{{{new string('x', WorkItemEvalToolResults.MaxResponseBytes)}}}"}""";
+        var huge = $$"""{"outcome":"queued","pad":"{{new string('x', WorkItemEvalToolResults.MaxResponseBytes)}}"}""";
         var (_, text, isError) = await DispatchAsync(tool, args, body: huge);
 
         await Assert.That(isError).IsTrue();

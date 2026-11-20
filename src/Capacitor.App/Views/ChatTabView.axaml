@@ -60,6 +60,84 @@
         <Style Selector="Border.toolGroup.packsWithCard">
             <Setter Property="Margin" Value="0,4,0,4" />
         </Style>
+        <!-- Send splits off its mode arrow only where topics can be made. -->
+        <Style Selector="Button#SendButton">
+            <Setter Property="CornerRadius" Value="7,0,0,7" />
+        </Style>
+        <Style Selector="Button#SendButton.alone">
+            <Setter Property="CornerRadius" Value="7" />
+        </Style>
+        <!-- A message's change-of-topic toggle shows only while the message is pointed at or the
+             toggle has keyboard focus, so it does not repeat down every row. A message counts as
+             pointed at across its whole row, so a short one does not hide the toggles under the
+             pointer just past them. -->
+        <Style Selector="Button.topicHere">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="ToolTip.Tip" Value="Start a new topic at this message" />
+            <Setter Property="AutomationProperties.Name" Value="Change of topic" />
+            <Setter Property="Content">
+                <Template>
+                    <views:AppIcon Kind="Signpost" Size="12" />
+                </Template>
+            </Setter>
+        </Style>
+        <Style Selector="Button.topicEndRemove">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Grid.topicEnd:pointerover Button.topicEndRemove, Button.topicEndRemove:focus-visible">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Panel.turn:pointerover Button.topicHere, Button.topicHere:focus-visible">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <!-- A message's bookmark toggle shows on hover like the topic toggle, and stays once taken. -->
+        <Style Selector="Button.bookmarkHere">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="ToolTip.Tip" Value="Bookmark this message" />
+            <Setter Property="AutomationProperties.Name" Value="Bookmark message" />
+        </Style>
+        <Style Selector="Button.bookmarkHere.on">
+            <Setter Property="Opacity" Value="1" />
+            <Setter Property="ToolTip.Tip" Value="Remove this message's bookmark" />
+            <Setter Property="AutomationProperties.Name" Value="Remove message bookmark" />
+        </Style>
+        <Style Selector="Panel.turn:pointerover Button.bookmarkHere, Button.bookmarkHere:focus-visible">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <!-- A marked message keeps its toggle lit, so a second click in the same place undoes it. -->
+        <Style Selector="Button.topicHere.on">
+            <Setter Property="Opacity" Value="1" />
+            <Setter Property="ToolTip.Tip" Value="Remove this topic" />
+            <Setter Property="AutomationProperties.Name" Value="Remove topic" />
+        </Style>
+        <Style Selector="Button.topicHere.on /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{StaticResource KcapTopicBrush}" />
+        </Style>
+        <!-- The caret reads as half of Send, so it greys out with it while staying usable. -->
+        <Style Selector="Button.kcapPrimary.sendIdle /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+        </Style>
+        <Style Selector="Button.kcapPrimary.sendIdle:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapBorderStrongBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+        </Style>
+        <Style Selector="Button.sendModeRow">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
         <!-- Fluent paints the presenter, so rest and hover both pin it — same raised fill as
              a rail row / expandable section header. Local Background on the Button would
              outrank the hover and leave Fluent's wash on the dark card. -->
@@ -76,9 +154,18 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
+        <!-- Fluent shrinks a pressed button, which on a row this wide pulls its edge several pixels
+             inward, so a click near the edge (a topic's chevron) is released outside it and never fires. -->
+        <Style Selector="Button.toolSummary:pressed">
+            <Setter Property="RenderTransform" Value="none" />
+        </Style>
         <Style Selector="Button.toolSummary /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
+        </Style>
+        <!-- A folded topic is a band, so it reads as content tucked away rather than a divider. -->
+        <Style Selector="Button.topicHeader.folded /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
         </Style>
         <Style Selector="Button.toolSummary:pointerover /template/ ContentPresenter#PART_ContentPresenter,
                          Button.toolSummary:pressed /template/ ContentPresenter#PART_ContentPresenter">
@@ -317,78 +404,106 @@
             </ItemsControl.ItemsPanel>
             <ItemsControl.DataTemplates>
                 <DataTemplate x:DataType="vm:UserTurnItem">
-                    <Border Classes="userTurn" Classes.undelivered="{Binding IsUndelivered}"
-                            HorizontalAlignment="Right" MaxWidth="520" Margin="0,8,0,12" Padding="14,11" CornerRadius="10">
-                        <StackPanel Spacing="6">
-                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
-                                <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
-                                    <TextBlock.Text>
-                                        <MultiBinding Converter="{x:Static views:FirstTextConverter.Instance}">
-                                            <Binding Path="Sender.Title" />
-                                            <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
-                                        </MultiBinding>
-                                    </TextBlock.Text>
-                                </TextBlock>
+                    <Panel Classes="turn" Background="Transparent" Margin="0,8,0,12">
+                        <Border Classes="userTurn" Classes.undelivered="{Binding IsUndelivered}"
+                                HorizontalAlignment="Right" MaxWidth="520" Padding="14,11" CornerRadius="10">
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                                    <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
+                                        <TextBlock.Text>
+                                            <MultiBinding Converter="{x:Static views:FirstTextConverter.Instance}">
+                                                <Binding Path="Sender.Title" />
+                                                <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                    <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
+                                               IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <views:MessageCopyButton Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}" />
+                                    <Button Classes="kcapGhost topicHere" IsVisible="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ShowsMarks}" Classes.on="{Binding StartsTopic}" Click="OnToolSummaryClick"
+                                            Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
+                                            CommandParameter="{Binding}" />
+                                    <Button Classes="kcapGhost bookmarkHere" IsVisible="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ShowsMarks}" Classes.on="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                            Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Bookmarks.ToggleMessageCommand}"
+                                            CommandParameter="{Binding}">
+                                        <Panel>
+                                            <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNull}}" />
+                                            <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                                           Foreground="{Binding Bookmark.Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}, FallbackValue={x:Null}}" />
+                                        </Panel>
+                                    </Button>
+                                </StackPanel>
+                                <views:MarkdownView Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}"
+                                                    FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
+                                                    OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
+                                                    RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
+                                <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:UserAttachment">
+                                            <Panel Margin="0,2,8,2">
+                                                <views:ToolImagePreview x:Name="AttachmentPreview" Classes="kcapGhost" Path="{Binding PreviewPath}" ExpandsOnClick="False"
+                                                                        ToolTip.Tip="{Binding FileName}"
+                                                                        AutomationProperties.Name="{Binding FileName}"
+                                                                        Command="{Binding $parent[views:ChatTabView].((vm:ChatTabViewModel)DataContext).OpenAttachmentCommand}"
+                                                                        CommandParameter="{Binding}" />
+                                                <Border IsVisible="{Binding #AttachmentPreview.Unavailable}" Padding="8,4" CornerRadius="8"
+                                                        Background="{StaticResource KcapSurfaceBrush}"
+                                                        BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
+                                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                                        <views:AppIcon Kind="Paperclip" Size="14" VerticalAlignment="Center"
+                                                                       Foreground="{StaticResource KcapMutedBrush}" />
+                                                        <TextBlock Text="{Binding FileName}" FontSize="12" MaxWidth="240"
+                                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                                   Foreground="{StaticResource KcapTextBrush}" />
+                                                    </StackPanel>
+                                                </Border>
+                                            </Panel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6" IsVisible="{Binding IsUndelivered}">
+                                    <views:AppIcon Kind="CircleMinus" Size="14" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource KcapMutedBrush}" />
+                                    <TextBlock Grid.Column="1" Text="{x:Static vm:UserTurnItem.UndeliveredNote}" FontSize="12" TextWrapping="Wrap"
+                                               VerticalAlignment="Center" Foreground="{StaticResource KcapMutedBrush}" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </Panel>
+                </DataTemplate>
+                <DataTemplate x:DataType="vm:AssistantTextItem">
+                    <Panel Classes="turn messageRow" Background="Transparent" Margin="0,8,0,12">
+                        <StackPanel HorizontalAlignment="Left" Spacing="6">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Classes="toolKindChip"
+                                           Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
                                 <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
                                            IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                                <views:MessageCopyButton Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}" />
+                                <views:MessageCopyButton Text="{Binding Text}" />
+                                <Button Classes="kcapGhost topicHere" IsVisible="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ShowsMarks}" Classes.on="{Binding StartsTopic}" Click="OnToolSummaryClick"
+                                        Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
+                                        CommandParameter="{Binding}" />
+                                <Button Classes="kcapGhost bookmarkHere" IsVisible="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ShowsMarks}" Classes.on="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                        Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Bookmarks.ToggleMessageCommand}"
+                                        CommandParameter="{Binding}">
+                                    <Panel>
+                                        <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNull}}" />
+                                        <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                                       Foreground="{Binding Bookmark.Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}, FallbackValue={x:Null}}" />
+                                    </Panel>
+                                </Button>
                             </StackPanel>
-                            <views:MarkdownView Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}"
+                            <views:MarkdownView Text="{Binding Text}"
                                                 FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
                                                 OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
                                                 RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
-                            <ItemsControl ItemsSource="{Binding Attachments}" IsVisible="{Binding HasAttachments}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <WrapPanel Orientation="Horizontal" />
-                                    </ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:UserAttachment">
-                                        <Panel Margin="0,2,8,2">
-                                            <views:ToolImagePreview x:Name="AttachmentPreview" Classes="kcapGhost" Path="{Binding PreviewPath}" ExpandsOnClick="False"
-                                                                    ToolTip.Tip="{Binding FileName}"
-                                                                    AutomationProperties.Name="{Binding FileName}"
-                                                                    Command="{Binding $parent[views:ChatTabView].((vm:ChatTabViewModel)DataContext).OpenAttachmentCommand}"
-                                                                    CommandParameter="{Binding}" />
-                                            <Border IsVisible="{Binding #AttachmentPreview.Unavailable}" Padding="8,4" CornerRadius="8"
-                                                    Background="{StaticResource KcapSurfaceBrush}"
-                                                    BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
-                                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                                    <views:AppIcon Kind="Paperclip" Size="14" VerticalAlignment="Center"
-                                                                   Foreground="{StaticResource KcapMutedBrush}" />
-                                                    <TextBlock Text="{Binding FileName}" FontSize="12" MaxWidth="240"
-                                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                                               Foreground="{StaticResource KcapTextBrush}" />
-                                                </StackPanel>
-                                            </Border>
-                                        </Panel>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="6" IsVisible="{Binding IsUndelivered}">
-                                <views:AppIcon Kind="CircleMinus" Size="14" VerticalAlignment="Center"
-                                               Foreground="{StaticResource KcapMutedBrush}" />
-                                <TextBlock Grid.Column="1" Text="{x:Static vm:UserTurnItem.UndeliveredNote}" FontSize="12" TextWrapping="Wrap"
-                                           VerticalAlignment="Center" Foreground="{StaticResource KcapMutedBrush}" />
-                            </Grid>
                         </StackPanel>
-                    </Border>
-                </DataTemplate>
-                <DataTemplate x:DataType="vm:AssistantTextItem">
-                    <StackPanel Classes="messageRow" HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="6">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Classes="toolKindChip"
-                                       Text="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" />
-                            <TextBlock Classes="chatTime" Text="{Binding Time.Label}" ToolTip.Tip="{Binding Time.Tip}" AutomationProperties.HelpText="{Binding Time.Tip}"
-                                       IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                            <views:MessageCopyButton Text="{Binding Text}" />
-                        </StackPanel>
-                        <views:MarkdownView Text="{Binding Text}"
-                                            FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
-                                            OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
-                                            RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
-                    </StackPanel>
+                    </Panel>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantThinkingItem">
                     <StackPanel HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="4">
@@ -617,6 +732,52 @@
                             </StackPanel>
                         </Border>
                     </views:ChatCardRow>
+                </DataTemplate>
+                <DataTemplate x:DataType="vm:ChatTopicItem">
+                    <!-- Padding and margin cancel so the icon sits over the topic's rail. -->
+                    <Button x:Name="TopicToggle" Classes="toolSummary topicHeader" Classes.folded="{Binding !IsExpanded}"
+                            Padding="6,5" Margin="-6,6"
+                            Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
+                            ToolTip.Tip="{Binding ToggleTip}"
+                            AutomationProperties.Name="{Binding ToggleAccessibleName}">
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="8">
+                            <Panel Width="12" Height="12" VerticalAlignment="Center">
+                                <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
+                                               Foreground="{StaticResource KcapTopicBrush}" />
+                                <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
+                                               Foreground="{StaticResource KcapTopicBrush}" />
+                            </Panel>
+                            <!-- The name is its own button inside the fold button, so a click on it renames. -->
+                            <Panel Grid.Column="1" VerticalAlignment="Center">
+                                <Button Classes="kcapGhost topicName" IsVisible="{Binding !IsRenaming}" Click="OnTopicNameClick"
+                                        Padding="4,1" Margin="-4,0" Cursor="Ibeam"
+                                        ToolTip.Tip="Rename this topic" AutomationProperties.Name="Rename topic">
+                                    <TextBlock Classes="toolKindChip" Text="{Binding Label}" MaxWidth="420" TextTrimming="CharacterEllipsis"
+                                               Foreground="{StaticResource KcapTopicBrush}" />
+                                </Button>
+                                <TextBox Classes="kcapField topicNameField" IsVisible="{Binding IsRenaming}" Text="{Binding Draft}" MinWidth="260" MaxWidth="420"
+                                         Margin="-4,-2" Padding="4,2" MinHeight="0" FontSize="13"
+                                         PlaceholderText="Name this topic" AutomationProperties.Name="Topic name"
+                                         PropertyChanged="OnTopicNameFieldChanged" KeyDown="OnTopicNameKeyDown"
+                                         LostFocus="OnTopicNameLostFocus" />
+                            </Panel>
+                            <TextBlock Grid.Column="2" Text="{Binding Summary}" FontSize="12" VerticalAlignment="Center"
+                                       IsVisible="{Binding !IsExpanded}" Foreground="{StaticResource KcapMutedBrush}" />
+                            <Rectangle Grid.Column="3" Height="1" VerticalAlignment="Center" Opacity="0.45"
+                                       Fill="{StaticResource KcapTopicBrush}" />
+                        </Grid>
+                    </Button>
+                </DataTemplate>
+                <DataTemplate x:DataType="vm:ChatTopicEndItem">
+                    <Grid Classes="topicEnd" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="6" Margin="0,2,0,8" Background="Transparent">
+                        <TextBlock Text="End of topic" FontSize="11.5" VerticalAlignment="Center" Foreground="{StaticResource KcapMutedBrush}" />
+                        <Button Grid.Column="1" Classes="kcapGhost topicEndRemove" Padding="3" VerticalAlignment="Center"
+                                Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.RemoveEndCommand}"
+                                CommandParameter="{Binding}"
+                                ToolTip.Tip="Remove this end, so the topic runs on" AutomationProperties.Name="Remove end of topic">
+                            <views:AppIcon Kind="X" Size="11" />
+                        </Button>
+                    </Grid>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:PendingCardItem">
                     <views:ChatCardRow>
@@ -1008,10 +1169,33 @@
                                     ToolTip.Tip="{Binding InterruptTip}" ToolTip.ShowOnDisabled="True" Margin="12,0,0,0"
                                     BorderThickness="1" Height="24" Padding="10,0" VerticalContentAlignment="Center"
                                     FontSize="13" FontWeight="SemiBold" CornerRadius="7" Cursor="Hand" />
-                            <Button x:Name="SendButton" Grid.Column="3" Classes="kcapPrimary" Content="Send" Command="{Binding SendCommand}" Margin="8,0,0,0"
-                                    Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="13" FontWeight="SemiBold" CornerRadius="7"
-                                    Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
-                                    IsVisible="{Binding ShowsComposer}" />
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="1" Margin="8,0,0,0" IsVisible="{Binding ShowsComposer}">
+                                <Button x:Name="SendButton" Classes="kcapPrimary" Classes.alone="{Binding !ShowsMarks}" Content="{Binding SendLabel}" Command="{Binding SendCommand}"
+                                        Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="13" FontWeight="SemiBold"
+                                        Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}" />
+                                <Button x:Name="SendModeButton" Classes="kcapPrimary" IsVisible="{Binding ShowsMarks}" Classes.sendIdle="{Binding !#SendButton.IsEffectivelyEnabled}" Width="22" Height="24" Padding="0" CornerRadius="0,7,7,0"
+                                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand"
+                                        Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
+                                        ToolTip.Tip="Send, or start or end a topic with this message"
+                                        AutomationProperties.Name="Choose what Send does">
+                                    <views:AppIcon Kind="ChevronDown" Size="12" />
+                                    <Button.Flyout>
+                                        <Flyout Placement="TopEdgeAlignedRight" VerticalOffset="-6" FlyoutPresenterClasses="kcapPanel">
+                                            <StackPanel Spacing="2" Margin="6" MinWidth="200">
+                                                <Button Classes="kcapGhost sendModeRow" Content="Send" Click="OnSendModeClick"
+                                                        Tag="{x:Static vm:ChatSendMode.Send}" />
+                                                <Button Classes="kcapGhost sendModeRow" Content="New topic" Click="OnSendModeClick"
+                                                        ToolTip.Tip="Send this message as the start of a new topic"
+                                                        Tag="{x:Static vm:ChatSendMode.NewTopic}" />
+                                                <Button Classes="kcapGhost sendModeRow" Content="End topic" Click="OnSendModeClick"
+                                                        IsEnabled="{Binding Topics.CanEnd}" ToolTip.ShowOnDisabled="True"
+                                                        ToolTip.Tip="End the open topic at the previous message, so this one starts outside it"
+                                                        Tag="{x:Static vm:ChatSendMode.EndTopic}" />
+                                            </StackPanel>
+                                        </Flyout>
+                                    </Button.Flyout>
+                                </Button>
+                            </StackPanel>
                         </Grid>
                     </StackPanel>
                 </Border>

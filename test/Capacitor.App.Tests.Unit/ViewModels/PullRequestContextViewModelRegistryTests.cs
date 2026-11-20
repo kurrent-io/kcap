@@ -229,11 +229,11 @@ public class PullRequestContextViewModelRegistryTests {
     });
 
     sealed class Harness {
-        internal BehaviorSubject<AgentStatusDto?> Presence { get; } = new(null);
+        BehaviorSubject<AgentStatusDto?> Presence { get; } = new(null);
         internal FakeTimeProvider Time { get; } = new();
         internal FakePullRequestSource Links { get; }
         internal StubReaderProvider Provider { get; }
-        internal PullRequestReaderRegistry Registry { get; }
+        PullRequestReaderRegistry Registry { get; }
         internal RecordingOpener Opener { get; } = new();
         internal PullRequestContextViewModel Vm { get; }
         internal Harness(string host, PullRequestRepository? primary = null) {

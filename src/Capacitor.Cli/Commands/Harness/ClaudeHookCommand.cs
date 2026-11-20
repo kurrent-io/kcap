@@ -289,7 +289,7 @@ public sealed class ClaudeHookCommand(
             var budget = clock.Budget(Ceiling(evt.Command));
             if (await ShouldSuppressCaptureAsync(evt.SessionId, body, evt.Command, profiles.Effective, budget)) return 0;
             // A worktree the turn moved into is gated on its own path, which the payload's cwd may not name.
-            if (evt.Open == WorkspaceOpen.Join && evt.Dir is { } destination
+            if (evt is { Open: WorkspaceOpen.Join, Dir: { } destination }
              && await IsSessionExcludedAsync(profiles.Effective, CwdBody(destination), budget)) return 0;
 
             // An open blocks the prompt or the agent's next tool, so it never waits on the server; the
@@ -1565,7 +1565,7 @@ public sealed class ClaudeHookCommand(
         try {
             var snapshot = new PolicySnapshotStore(config).LoadOrBuild(sessionId, repoRoot);
 
-            return snapshot.Degraded && snapshot.Degradations.Count > 0
+            return snapshot is { Degraded: true, Degradations.Count: > 0 }
                 ? $"[kcap] approval policy degraded: {snapshot.Degradations[0]}"
                 : null;
         } catch {

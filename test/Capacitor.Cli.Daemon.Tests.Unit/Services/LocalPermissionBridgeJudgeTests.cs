@@ -38,7 +38,7 @@ public class LocalPermissionBridgeJudgeTests {
         public WireMockServer         Judge  { get; } = WireMockServer.Start();
         public PolicyServerConnection Server { get; } = new();
         public PermissionPromptBroker Broker { get; } = new();
-        public TempDir                Tmp    { get; } = new();
+        TempDir                Tmp    { get; } = new();
         public HttpClient             Client { get; } = new() { Timeout = TimeSpan.FromSeconds(30) };
         public LocalPermissionBridge  Bridge { get; }
 

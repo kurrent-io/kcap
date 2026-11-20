@@ -7,9 +7,9 @@ namespace Capacitor.Cli.Core.WorkItems;
 /// <see cref="EnrichedTitle"/> is the tracker's title when <see cref="Title"/> is a key, else null.
 /// <see cref="SessionCount"/> counts only attached sessions the caller can see.
 public sealed record WorkItemDto {
-    List<WorkItemLinkDto> _links = [];
-    List<WorkItemPartDto> _parts = [];
-    List<WorkItemContributorDto> _contributors = [];
+    readonly List<WorkItemLinkDto> _links = [];
+    readonly List<WorkItemPartDto> _parts = [];
+    readonly List<WorkItemContributorDto> _contributors = [];
 
     [JsonPropertyName("work_item_id")]           public required string             WorkItemId           { get; init; }
     [JsonPropertyName("title")]                  public required string             Title                { get; init; }

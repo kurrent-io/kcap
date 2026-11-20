@@ -43,7 +43,7 @@ sealed class AcpRuntimeHarness : IAsyncDisposable {
     }
 
     sealed class FakeAcpProcess : IAcpProcess {
-        public int  Pid       { get; init; } = 4242;
+        public int  Pid       { get; } = 4242;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
         public Task WaitForExitAsync(TimeSpan? timeout = null) => timeout is { } t ? Task.Delay(t) : Task.Delay(Timeout.InfiniteTimeSpan);

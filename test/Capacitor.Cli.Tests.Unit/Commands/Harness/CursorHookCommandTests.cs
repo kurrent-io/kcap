@@ -1198,7 +1198,7 @@ public class CursorHookCommandTests {
         public List<string> Sent       { get; } = [];
         public List<string> RouteOrder { get; } = [];
         public HookSpool    Spool      { get; }
-        public ConfigRoot   Config     { get; }
+        ConfigRoot   Config     { get; }
         /// When set, the hook POST waits on this and signals <see cref="PostReturned"/> once released.
         public TaskCompletionSource? ReleasePost { get; set; }
 
@@ -1212,7 +1212,7 @@ public class CursorHookCommandTests {
         // Lets a test fake the shared SessionStart memory-index endpoint
         // distinctly from the generic transcript-watermark GET (which stays 404).
         public string         MemoryIndexBody      { get; set; } = "[]";
-        public HttpStatusCode MemoryIndexStatus    { get; set; } = HttpStatusCode.OK;
+        HttpStatusCode MemoryIndexStatus    { get; } = HttpStatusCode.OK;
         public bool           MemoryIndexRequested { get; private set; }
         public Uri?           MemoryIndexRequestUri { get; private set; }
 

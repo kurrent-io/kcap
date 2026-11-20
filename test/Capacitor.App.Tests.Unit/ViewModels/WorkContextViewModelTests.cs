@@ -37,10 +37,10 @@ public class WorkContextViewModelTests {
         public List<string> OpenedWorkItems { get; } = [];
         public SessionRuns Runs { get; }
         public FakePlanSource Plans { get; } = new();
-        public PlanActivity PlanActivity { get; } = new();
+        PlanActivity PlanActivity { get; } = new();
         public BehaviorSubject<ServerLaneStatus> Lane { get; } = new(new(ServerLaneState.Connected));
         public bool CanSend { get; set; } = true;
-        public bool SendResult { get; set; } = true;
+        public bool SendResult { get; init; } = true;
         public List<string> Sent { get; } = [];
         public WorkContextViewModel Vm { get; }
 

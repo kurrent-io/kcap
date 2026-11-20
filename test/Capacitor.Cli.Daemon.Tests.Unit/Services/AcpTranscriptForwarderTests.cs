@@ -587,7 +587,7 @@ public class AcpTranscriptForwarderTests {
 
         // ...and it consumed no sequence number: the later canonical still lands at seq 1.
         var canonicalAfterInitial = observed.SelectMany(static b => b)
-            .Where(static e => !e.Ephemeral && e.Seq > 0).ToArray();
+            .Where(static e => e is { Ephemeral: false, Seq: > 0 }).ToArray();
         await Assert.That(canonicalAfterInitial.Length).IsEqualTo(1);
         await Assert.That(canonicalAfterInitial[0].Seq).IsEqualTo(1L);
     }
@@ -613,7 +613,7 @@ public class AcpTranscriptForwarderTests {
 
             // Batch 1 is the initial envelope (seq 0) — accept it. On the first batch carrying
             // canonical seq 1, report a gap at 1 exactly once, forcing a resend from the buffer.
-            if (!gapReported && batch.Any(static e => !e.Ephemeral && e.Seq == 1)) {
+            if (!gapReported && batch.Any(static e => e is { Ephemeral: false, Seq: 1 })) {
                 gapReported = true;
 
                 return Task.FromResult(new AcpBatchAck(0, 0, ExpectedNextSeq: 1));

@@ -70,7 +70,7 @@ public sealed class ConsentFlipCoordinator(
             return;
         }
 
-        var isFactory = policy.Default == "allow" && policy.Rules.Count == 0; // factory guard: only a factory-looking policy flips
+        var isFactory = policy is { Default: "allow", Rules.Count: 0 }; // factory guard: only a factory-looking policy flips
         // Resurrected claim: still routes through the identity-conditional put below (unchanged, a no-op) — Get's answer alone proves nothing about which daemon instance answered.
         var alreadyApplied = policy.Default == "prompt";
         if (!isFactory && !alreadyApplied) return; // deny, or allow-with-rules: not factory-looking, retain

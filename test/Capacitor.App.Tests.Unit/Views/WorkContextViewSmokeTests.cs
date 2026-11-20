@@ -1,7 +1,9 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Automation.Peers;
+using Avalonia.Collections;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
@@ -43,11 +45,14 @@ public class WorkContextViewSmokeTests {
         public FakePlanArtifactSource Artefacts { get; } = new();
         public WorkContextViewModel Vm { get; }
         public Window Window { get; }
+        public List<string> Drafted { get; } = [];
+        public bool CanDraft { get; set; } = true;
 
         public Host() {
             Runs = new SessionRuns(Time);
             Vm = new WorkContextViewModel(Presence, Source, Time, Opener, Runs, plans: Plans, planActivity: PlanActivity,
-                artefacts: new ArtefactsTabViewModel(Artefacts, PlanActivity, Time, opener: Opener));
+                artefacts: new ArtefactsTabViewModel(Artefacts, PlanActivity, Time, opener: Opener),
+                canDraftForAgent: () => CanDraft, draftForAgent: Drafted.Add);
             Window = new Window { Content = new WorkContextView { DataContext = Vm }, Width = 320, Height = 900 };
         }
 
@@ -1003,6 +1008,101 @@ public class WorkContextViewSmokeTests {
             host.Window.MouseMove(new Point(1, 1));
             Dispatcher.UIThread.RunJobs();
             await Assert.That(ToolTip.GetTip(button) as string).IsEqualTo(SessionA);
+        });
+    }
+
+    /// The section lists each topic with its bookmarks under it, the topic gone to in bold; a
+    /// bookmark is recoloured from the swatches under its icon, handed to the session's agent from its
+    /// right-click menu, whose rows lead with the agent's mark, only while the agent can take a
+    /// message, and removed from its row.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Topics_list_their_bookmarks_which_recolour_and_remove() {
+        await RunOnUiAsync(async () => {
+            await using var host = new Host();
+            var ask   = new UserTurnItem("Locks");
+            var reply = new AssistantTextItem("Three points");
+            var items = new AvaloniaList<ChatItemViewModel> { ask, reply };
+            var topics = new ChatTopics(items);
+            topics.ToggleChange(ask);
+            var bookmarks = new ChatBookmarks(topics);
+            bookmarks.Add(["Lock order", "Retry jitter"], reply);
+            host.Vm.Topics = topics;
+            host.Vm.Bookmarks = bookmarks;
+            await host.ShowAsync(KeyOnlyRead());
+            var outline = host.Find<ItemsControl>("OutlineList");
+            outline.BringIntoView();
+            Settle();
+            Point At(Control control, double x, double y) => control.TranslatePoint(new Point(x, y), host.Window)!.Value;
+            List<T> All<T>(string cls) where T : Control => outline.GetVisualDescendants().OfType<T>().Where(c => c.Classes.Contains(cls) && c.IsEffectivelyVisible).ToList();
+
+            var topicLinks = All<Button>("topicLink");
+            await Assert.That(topicLinks.Select(b => AutomationProperties.GetName(b)))
+                .IsEquivalentTo(new string?[] { "Go to topic Locks", "Go to bookmark Lock order", "Go to bookmark Retry jitter" }, CollectionOrdering.Matching);
+            await Assert.That(topicLinks[1].TranslatePoint(default, outline)!.Value.X).IsGreaterThan(topicLinks[0].TranslatePoint(default, outline)!.Value.X);
+
+            Press(topicLinks[0]);
+            await Assert.That(All<TextBlock>("topicName").Single().FontWeight).IsEqualTo(FontWeight.Bold);
+
+            Press(All<Button>("bookmarkColor")[0]);
+            var pink = host.Window.GetVisualDescendants().OfType<Button>().First(b => b.Classes.Contains("bookmarkSwatch") && b.Tag is ChatBookmarkColor.Pink);
+            Press(pink);
+            await Assert.That(bookmarks.All[0].Color).IsEqualTo(ChatBookmarkColor.Pink);
+
+            var row = (Control)All<Button>("bookmarkColor")[1].GetVisualParent()!;
+            Button Ask(ChatBookmarkAsk ask) {
+                var at = At(row, row.Bounds.Width / 2, row.Bounds.Height / 2);
+                host.Window.MouseMove(at);
+                host.Window.MouseDown(at, MouseButton.Right);
+                host.Window.MouseUp(at, MouseButton.Right);
+                Settle();
+                return host.Window.GetVisualDescendants().OfType<Button>().First(b => b.Classes.Contains("bookmarkAsk") && b.Tag is ChatBookmarkAsk t && t == ask);
+            }
+
+            Press(Ask(ChatBookmarkAsk.FileLooseEnd));
+            await Assert.That(host.Drafted).Count().IsEqualTo(1);
+            await Assert.That(host.Drafted[0]).Contains("declare_loose_end").And.Contains("> Retry jitter");
+
+            var topicRow = (Control)topicLinks[0].GetVisualParent()!;
+            var onTopic = At(topicRow, topicRow.Bounds.Width / 2, topicRow.Bounds.Height / 2);
+            host.Window.MouseMove(onTopic);
+            host.Window.MouseDown(onTopic, MouseButton.Right);
+            host.Window.MouseUp(onTopic, MouseButton.Right);
+            Settle();
+            var fileAll = host.Window.GetVisualDescendants().OfType<Button>().First(b => b.Classes.Contains("topicAsk"));
+            await Assert.That(AutomationProperties.GetName(fileAll)).IsEqualTo("File 2 bookmarks as loose ends");
+            await Assert.That(((StackPanel)fileAll.Content!).Children[0]).IsTypeOf<Avalonia.Controls.Shapes.Path>();
+            Press(fileAll);
+            await Assert.That(host.Drafted).Count().IsEqualTo(2);
+            await Assert.That(host.Drafted[1]).Contains("\"Locks\"").And.Contains("> Lock order").And.Contains("> Retry jitter");
+
+            host.CanDraft = false;
+            var start = Ask(ChatBookmarkAsk.StartSession);
+            await Assert.That(start.IsEnabled).IsFalse();
+            Press(start);
+            await Assert.That(host.Drafted).Count().IsEqualTo(2);
+            row.ContextFlyout!.Hide();
+            Settle();
+
+            var removes = All<Button>("markRemove");
+            Press(removes[^1]);
+            await Assert.That(bookmarks.All.Select(b => b.Text)).IsEquivalentTo(["Lock order"]);
+
+            void Settle() {
+                Dispatcher.UIThread.RunJobs();
+                host.Window.UpdateLayout();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+                Dispatcher.UIThread.RunJobs();
+            }
+
+            void Press(Control target) {
+                Settle();
+                var point = At(target, target.Bounds.Width / 2, target.Bounds.Height / 2);
+                host.Window.MouseMove(point);
+                host.Window.MouseDown(point, MouseButton.Left);
+                host.Window.MouseUp(point, MouseButton.Left);
+                Settle();
+            }
         });
     }
 

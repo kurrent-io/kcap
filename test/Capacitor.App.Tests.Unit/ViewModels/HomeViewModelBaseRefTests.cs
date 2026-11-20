@@ -35,7 +35,7 @@ public class HomeViewModelBaseRefTests {
 
     sealed class Branches : IBranchReader {
         public readonly List<string> Asked = [];
-        public Dictionary<string, string> Origins = new(StringComparer.Ordinal);
+        public readonly Dictionary<string, string> Origins = new(StringComparer.Ordinal);
 
         public Task<BranchListing?> ListLocalAsync(string repoPath, CancellationToken ct) {
             Asked.Add($"local {repoPath}");

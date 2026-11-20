@@ -9,7 +9,6 @@ namespace Capacitor.App.Services.LocalSetup;
 /// Ollama probe setup makes without a flag.
 public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) : ReactiveObject {
     long _bytes;
-    double? _pullFraction;
     bool _pulling, _builtin;
     string? _model, _configuredModel, _replacedModel, _skipCode, _skipMessage, _removed;
 
@@ -30,8 +29,8 @@ public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) :
     }
 
     public double? PullFraction {
-        get => _pullFraction;
-        private set => this.RaiseAndSetIfChanged(ref _pullFraction, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? ConfiguredModel {

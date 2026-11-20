@@ -19,27 +19,20 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
 
     public string Id { get; }
     public string Key { get; }
-    DateTime _createdAt;
-    public DateTime CreatedAt { get => _createdAt; private set => this.RaiseAndSetIfChanged(ref _createdAt, value); }
+    public DateTime CreatedAt { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// The server's last activity for a listed session; null for a row only a daemon knows.
     DateTime? _lastActivityAt;
     public DateTime? LastActivityAt { get => _lastActivityAt; private set => this.RaiseAndSetIfChanged(ref _lastActivityAt, value); }
-    string? _checkoutPath;
-    public string? CheckoutPath { get => _checkoutPath; private set => this.RaiseAndSetIfChanged(ref _checkoutPath, value); }
+    public string? CheckoutPath { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// Null when the row has no title, in which case the chips line stands alone as the row.
     string? _primary;
     public string? Primary { get => _primary; private set => this.RaiseAndSetIfChanged(ref _primary, value); }
-    bool _hasTitle;
-    public bool HasTitle { get => _hasTitle; private set => this.RaiseAndSetIfChanged(ref _hasTitle, value); }
+    public bool HasTitle { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string SessionAccessibleName => Primary ?? (HasVendor ? Vendor : "Session");
-    string _vendor = "";
-    public string Vendor { get => _vendor; private set => this.RaiseAndSetIfChanged(ref _vendor, value); }
-    bool _hasVendor;
-    public bool HasVendor { get => _hasVendor; private set => this.RaiseAndSetIfChanged(ref _hasVendor, value); }
-    string? _model;
-    public string? Model { get => _model; private set => this.RaiseAndSetIfChanged(ref _model, value); }
-    string _meta = "";
-    public string Meta { get => _meta; private set => this.RaiseAndSetIfChanged(ref _meta, value); }
+    public string Vendor { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public bool HasVendor { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? Model { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string Meta { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
     public string Tooltip => MachineBadge is { Length: > 0 } machine
         ? $"{Status.Tip}\n\n{machine}\nMachine · remote daemon" : Status.Tip;
     /// The daemon name badge for a remote row; null for a local one.
@@ -47,8 +40,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public string? MachineBadge { get => _machineBadge; private set => this.RaiseAndSetIfChanged(ref _machineBadge, value); }
     public string MachineLabel => $"on {MachineBadge}";
     public string MachineTooltip => $"This session runs on the remote daemon ‘{MachineBadge}’.";
-    bool _isRemote;
-    public bool IsRemote { get => _isRemote; private set => this.RaiseAndSetIfChanged(ref _isRemote, value); }
+    public bool IsRemote { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// A session the server lists with no daemon row behind it.
     bool _isServer;
     public bool IsServer { get => _isServer; private set => this.RaiseAndSetIfChanged(ref _isServer, value); }
@@ -58,21 +50,15 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     /// A terminal session a daemon steers: labelled as one, never as an agent a daemon hosts.
     bool _isAttached;
     public bool IsAttached { get => _isAttached; private set => this.RaiseAndSetIfChanged(ref _isAttached, value); }
-    bool _isEnded;
-    public bool IsEnded { get => _isEnded; private set => this.RaiseAndSetIfChanged(ref _isEnded, value); }
+    public bool IsEnded { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// Up to two initials of the owner's name, for a row that is not the signed-in user's.
     string? _ownerInitials;
     public string? OwnerInitials { get => _ownerInitials; private set => this.RaiseAndSetIfChanged(ref _ownerInitials, value); }
-    string? _ownerAvatarUrl;
-    public string? OwnerAvatarUrl { get => _ownerAvatarUrl; private set => this.RaiseAndSetIfChanged(ref _ownerAvatarUrl, value); }
-    bool _showsOwner;
-    public bool ShowsOwner { get => _showsOwner; private set => this.RaiseAndSetIfChanged(ref _showsOwner, value); }
-    string? _ownerName;
-    public string? OwnerName { get => _ownerName; private set => this.RaiseAndSetIfChanged(ref _ownerName, value); }
-    string _ownerTooltip = "";
-    public string OwnerTooltip { get => _ownerTooltip; private set => this.RaiseAndSetIfChanged(ref _ownerTooltip, value); }
-    string _repoLabel = "";
-    public string RepoLabel { get => _repoLabel; private set => this.RaiseAndSetIfChanged(ref _repoLabel, value); }
+    public string? OwnerAvatarUrl { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool ShowsOwner { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? OwnerName { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string OwnerTooltip { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public string RepoLabel { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
     readonly ObservableAsPropertyHelper<bool> _showsRepo;
     /// The repository name moves onto the row when the groups no longer say it.
     public bool ShowsRepo => _showsRepo.Value;
@@ -274,7 +260,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     /// so it shows no time.
     string MetaFor(AgentRow row) {
         var created = AsUtc(row.CreatedAt);
-        if (row.IsEndedSession && row.EndedAt is { } endedRaw) {
+        if (row is { IsEndedSession: true, EndedAt: { } endedRaw }) {
             var ended = AsUtc(endedRaw);
             var shown = _sort == RailSort.Created ? created : AsUtc(row.LastActivityAt ?? endedRaw);
             return $"{Since(shown)} · {UptimeFormat.Format(ended - created)}";

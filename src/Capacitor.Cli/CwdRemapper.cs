@@ -170,7 +170,7 @@ static class CwdRemapper {
         return true;
     }
 
-    internal static bool IsSeparator(char c) => c == '/' || c == '\\';
+    internal static bool IsSeparator(char c) => c is '/' or '\\';
 
     static bool IsSeparator(char c, bool windows) => c == '/' || (windows && c == '\\');
 

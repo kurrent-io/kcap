@@ -256,4 +256,22 @@ public class MarkViewSelectionTests {
             } finally { window.Close(); }
         });
     }
+
+    /// The viewer and the markdown count blocks reading the same alike, code blocks included, so a
+    /// right-click on a list item finds the list it was made on.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_block_counts_the_blocks_before_it_that_read_the_same_as_the_markdown_does() {
+        await RunOnUiAsync(async () => {
+            var (window, view, _) = Show(MarkdownListsTests.CodeThenTwoLists);
+            try {
+                var viewer = Viewer(view);
+                var firstList = All<TextBlock>(view).Where(t => Reads(t) == "Retry").SkipLast(1).Last();
+                var block = MarkViewSelection.BlockAt(viewer, firstList.TranslatePoint(new Point(2, 2), viewer)!.Value);
+                await Assert.That(block).IsNotNull();
+                await Assert.That(MarkdownLists.ItemsAround(MarkdownListsTests.CodeThenTwoLists, block!.Value.Text, block.Value.Occurrence))
+                    .IsEquivalentTo(["Retry", "Lock order"]);
+            } finally { window.Close(); }
+        });
+    }
 }

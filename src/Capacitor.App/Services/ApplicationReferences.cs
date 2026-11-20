@@ -20,11 +20,11 @@ internal sealed class ApplicationReferences(IProcessRunner runner, UserHome home
         string? domainOverride = null, IReadOnlyList<string>? shimFolders = null) : IApplicationReferences {
     static readonly string[] Binaries = ["kcap", "kcap-daemon"];
     sealed class Unit(string path, string name, string original, string replacement, bool loaded) {
-        public string Path = path, Name = name, Original = original, Replacement = replacement;
+        public readonly string Path = path, Name = name, Original = original, Replacement = replacement;
         public bool Loaded = loaded, Stopped, Changed, Started;
     }
     sealed class Link(string path, string original, string replacement) {
-        public string Path = path, Original = original, Replacement = replacement;
+        public readonly string Path = path, Original = original, Replacement = replacement;
         public bool Changed;
     }
     readonly List<Unit> _units = [];

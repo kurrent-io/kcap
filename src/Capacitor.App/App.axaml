@@ -44,6 +44,17 @@
             <SolidColorBrush x:Key="KcapInfoBrush" Color="#7BA7F7" />
             <SolidColorBrush x:Key="KcapInfoDimBrush" Color="#1B2740" />
             <SolidColorBrush x:Key="KcapSelectionBrush" Color="#1E2E52" />
+            <!-- Chat topics: a grey, since a topic is a label rather than state or selection. -->
+            <SolidColorBrush x:Key="KcapTopicBrush" Color="#B0B7C6" />
+            <!-- Bookmark colours: the user's own labels, deliberately not tied to the status tokens. -->
+            <SolidColorBrush x:Key="KcapBookmarkRedBrush" Color="#F87171" />
+            <SolidColorBrush x:Key="KcapBookmarkOrangeBrush" Color="#FB923C" />
+            <SolidColorBrush x:Key="KcapBookmarkYellowBrush" Color="#FACC15" />
+            <SolidColorBrush x:Key="KcapBookmarkGreenBrush" Color="#4ADE80" />
+            <SolidColorBrush x:Key="KcapBookmarkBlueBrush" Color="#60A5FA" />
+            <SolidColorBrush x:Key="KcapBookmarkPurpleBrush" Color="#C084FC" />
+            <SolidColorBrush x:Key="KcapBookmarkPinkBrush" Color="#F472B6" />
+            <SolidColorBrush x:Key="KcapBookmarkGreyBrush" Color="#9CA3AF" />
             <Color x:Key="ScrollBarThumbBackgroundColor">#3A66B8</Color>
             <Color x:Key="ScrollBarPanningThumbBackgroundColor">#3A66B8</Color>
             <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#3A66B8" />

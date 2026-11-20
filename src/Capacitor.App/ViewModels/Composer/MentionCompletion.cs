@@ -11,7 +11,7 @@ public sealed partial class MentionCompletion(
     readonly Dictionary<string, Task<IReadOnlyList<string>>> _folders = new(StringComparer.Ordinal);
     Task<IReadOnlyList<string>>? _repo;
 
-    [GeneratedRegex(@"(?:^|\s)(@(?:""(?<q>[^""]*)|(?<q>\S*)))$")]
+    [GeneratedRegex("""(?:^|\s)(@(?:"(?<q>[^"]*)|(?<q>\S*)))$""")]
     private static partial Regex Query();
 
     /// Null when no "@query" ends at the caret.

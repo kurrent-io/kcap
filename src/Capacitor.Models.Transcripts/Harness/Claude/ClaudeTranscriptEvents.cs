@@ -130,7 +130,7 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
         public IReadOnlyList<CanonicalEvent> Events => _events;
 
         /// The record's usage, for its first emitted event only.
-        public (TokenUsage Usage, long? CacheCreation)? Usage { get; set; }
+        public (TokenUsage Usage, long? CacheCreation)? Usage { get; init; }
 
         public void Add(int blockIndex, IMessage payload, Struct? claudeCode, IReadOnlyList<TranscriptAttachment>? attachments = null) {
             if (claudeCode is not null) SchemaExtensions.Of(payload)![ClaudeCodeExtension.Slug] = claudeCode;

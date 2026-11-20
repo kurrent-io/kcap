@@ -12,7 +12,7 @@ public class CodexRolloutEventsTests {
     static IReadOnlyList<CanonicalEvent> E(string line) => P(line).Events;
 
     static string Item(string payload, string ts = "2026-08-25T00:00:00Z") =>
-        $$$"""{"timestamp":"{{{ts}}}","ordinal":1,"type":"response_item","payload":{{{payload}}}}""";
+        $$"""{"timestamp":"{{ts}}","ordinal":1,"type":"response_item","payload":{{payload}}}""";
 
     [Test]
     public async Task User_and_assistant_messages_join_their_text_blocks_on_the_line_hash_id() {
@@ -134,7 +134,7 @@ public class CodexRolloutEventsTests {
             """{"type":"openPage","url":"https://x/y"}""",
             """{"type":"find_in_page","url":"https://x/y","pattern":"kind"}""",
         }) {
-            var e    = E(Item($$$"""{"type":"web_search_call","status":"completed","action":{{{action}}}}"""));
+            var e    = E(Item($$"""{"type":"web_search_call","status":"completed","action":{{action}}}"""));
             var call = ((AssistantToolCallsGenerated)e[0].Payload).ToolCalls[0];
             await Assert.That(call.ToolKind).IsEqualTo(AcpToolKind.Fetch).Because(action);
         }

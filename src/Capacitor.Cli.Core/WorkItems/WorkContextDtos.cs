@@ -27,9 +27,9 @@ public sealed record WorkItemTopologyPartDto {
 /// none|cyclic|indeterminate. <see cref="Item"/> is nullable on the wire. There is no completion
 /// figure: the server does not compute one.
 public sealed record WorkItemTopologyDto {
-    List<WorkItemTopologyPartDto> _parts = [];
-    List<WorkItemRefDto> _blocks = [];
-    List<WorkItemRefDto> _blockedBy = [];
+    readonly List<WorkItemTopologyPartDto> _parts = [];
+    readonly List<WorkItemRefDto> _blocks = [];
+    readonly List<WorkItemRefDto> _blockedBy = [];
 
     [JsonPropertyName("parts")]      public List<WorkItemTopologyPartDto> Parts     { get => _parts; init => _parts = value ?? []; }
     [JsonPropertyName("part_of")]    public WorkItemRefDto?               PartOf    { get; init; }
@@ -60,8 +60,8 @@ public sealed record SessionPullRequestDto {
 /// The subset of <c>GET /api/sessions/{id}/summary</c> the sidebar reads; every other member of
 /// the server's record is ignored on deserialization.
 public sealed record SessionSummaryDto {
-    List<SessionRepositoryDto> _repositories = [];
-    List<SessionPullRequestDto> _pullRequests = [];
+    readonly List<SessionRepositoryDto> _repositories = [];
+    readonly List<SessionPullRequestDto> _pullRequests = [];
 
     [JsonPropertyName("session_id")]    public required string                 SessionId    { get; init; }
     [JsonPropertyName("title")]         public string?                         Title        { get; init; }

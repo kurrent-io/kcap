@@ -42,13 +42,13 @@ public sealed record SentinelComponent : ActionComponent;
 public static class PolicyComponents {
     /// <summary>What deny/ask rules match (any hit decides). Never empty.</summary>
     public static IReadOnlyList<ActionComponent> RestrictionOf(CanonicalAction a) => a.Kind switch {
-        ActionKind.Shell when a.Analyzed && a.Segments.Count > 0 =>
+        ActionKind.Shell when a is { Analyzed: true, Segments.Count: > 0 } =>
             [.. a.Segments.Select(s => (ActionComponent)new ShellSegmentComponent(s))],
         ActionKind.Shell => [new RawShellComponent(a.Command ?? "")],
         ActionKind.FileEdit or ActionKind.FileRead when a.Paths.Count > 0 =>
             [.. a.Paths.Select(p => (ActionComponent)new PathComponent(p))],
         ActionKind.Network when a.Host is { Length: > 0 } => [new HostComponent(a.Host, a.Port)],
-        ActionKind.McpTool when a.Server is { Length: > 0 } && a.Tool is { Length: > 0 } =>
+        ActionKind.McpTool when a is { Server.Length: > 0, Tool.Length: > 0 } =>
             [new McpToolComponent(a.Server, a.Tool)],
         ActionKind.Other when a.RawToolName is { Length: > 0 } => [new OtherToolComponent(a.RawToolName)],
         _ => [new SentinelComponent()],

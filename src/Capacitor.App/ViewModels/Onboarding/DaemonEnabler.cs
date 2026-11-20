@@ -69,13 +69,6 @@ public sealed class DaemonEnabler : ReactiveObject {
     ObservedEvidence? _evidence;
     string? _replacedName;
 
-    DaemonRow _row = DaemonRow.StatusUnknown;
-    DaemonAffordance _affordance;
-    bool _busy;
-    bool _satisfied;
-    string? _message;
-    string? _status;
-
     /// <param name="pickName">The name to save before enabling, or null to keep the configured one.</param>
     public DaemonEnabler(
             IKcapCli cli,
@@ -107,35 +100,35 @@ public sealed class DaemonEnabler : ReactiveObject {
     /// Set ONLY by the lane's own success outcome or the already-enabled row, and never cleared —
     /// a later re-classification must not re-derive (or revoke) a mutation's success from a snapshot.
     public bool Satisfied {
-        get => _satisfied;
-        private set => this.RaiseAndSetIfChanged(ref _satisfied, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public DaemonRow Row {
-        get => _row;
-        private set => this.RaiseAndSetIfChanged(ref _row, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = DaemonRow.StatusUnknown;
 
     public DaemonAffordance Affordance {
-        get => _affordance;
-        private set => this.RaiseAndSetIfChanged(ref _affordance, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Busy {
-        get => _busy;
-        private set => this.RaiseAndSetIfChanged(ref _busy, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// What the current row found.
     public string? Message {
-        get => _message;
-        private set => this.RaiseAndSetIfChanged(ref _message, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The last action's result, mapped from the lane's own outcome — never a re-derived one.
     public string? Status {
-        get => _status;
-        private set => this.RaiseAndSetIfChanged(ref _status, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Completes once no <see cref="EnsureAsync"/> is in flight.

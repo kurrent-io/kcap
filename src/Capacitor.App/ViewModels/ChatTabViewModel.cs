@@ -151,6 +151,30 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     long? CurrentOffset => _lease?.Feed.CurrentOffset;
 
     public IAvaloniaReadOnlyList<ChatItemViewModel> Items => _items;
+    public ChatTopics Topics => _topics;
+    readonly ChatTopics _topics;
+    public ChatBookmarks Bookmarks { get; }
+
+    /// Whether the user can make topics and bookmarks here: only where they are kept, which a chat
+    /// given no <see cref="ChatMarks"/> is not.
+    public bool ShowsMarks { get; }
+
+    ChatSendMode _sendMode;
+    /// Whether Send also starts or ends a topic; back to a plain send once a message goes out.
+    public ChatSendMode SendMode {
+        get => _sendMode;
+        set {
+            this.RaiseAndSetIfChanged(ref _sendMode, value);
+            this.RaisePropertyChanged(nameof(SendLabel));
+        }
+    }
+
+    public string SendLabel => _sendMode switch {
+        ChatSendMode.NewTopic => "New topic",
+        ChatSendMode.EndTopic => "End topic",
+        _ => "Send",
+    };
+
     public ChatFindViewModel Find => _find ??= CreateFind();
 
     ChatFindViewModel CreateFind() {
@@ -370,6 +394,20 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             _drafts?.Set(_origin, _agentId, value);
         }
     }
+
+    /// Adds a prompt to the composer for the user to read and send.
+    public void Draft(string prompt) {
+        ComposerText = WithDraft(_composerText, prompt);
+        Drafted?.Invoke();
+    }
+
+    /// The draft the user has not sent stays, with the prompt after it; a draft already holding the prompt is left as is.
+    internal static string WithDraft(string draft, string prompt) =>
+        string.IsNullOrWhiteSpace(draft) ? prompt
+        : draft.Contains(prompt, StringComparison.Ordinal) ? draft
+        : draft.TrimEnd() + "\n\n" + prompt;
+
+    public event Action? Drafted;
 
     readonly ComposerDrafts? _drafts;
     readonly AgentOrigin _origin;
@@ -887,13 +925,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             IMessageSenderSource? senders = null, IObservable<AccountsSnapshotDto?>? accountReadings = null,
             IObservable<DateTimeOffset>? usageClock = null, IObservable<Unit>? signInCompleted = null,
             IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, Action<string>? openLink = null,
-            IObservable<AgentViewerAccess>? viewerAccess = null, ChatFindMemory? findMemory = null)
+            IObservable<AgentViewerAccess>? viewerAccess = null, ChatFindMemory? findMemory = null,
+            ChatMarks? chatMarks = null)
         : this(agentId, AgentOrigin.Local, LocalSession(agentId, daemon), daemon.Snapshots.Select(s => s.Daemon.SupportedVendors),
                input, uploader, projection is null ? null : LocalFeed(agentId, projection, time, transcripts), opener, time, permissions,
                runs, unavailableNote, null, sessionId, localDaemonOnAppServer, planActivity: planActivity, openCard: openCard,
                drafts: drafts, senders: senders, accountReadings: accountReadings, usageClock: usageClock,
                signInCompleted: signInCompleted, handoffOutcome: handoffOutcome, openLink: openLink, viewerAccess: viewerAccess,
-               findMemory: findMemory) { }
+               findMemory: findMemory, chatMarks: chatMarks) { }
 
     public ChatTabViewModel(
             string agentId, AgentOrigin origin, IObservable<ChatSessionInfo> session, IObservable<string[]?> supportedVendors,
@@ -905,7 +944,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             IObservable<AccountsSnapshotDto?>? accountReadings = null, IObservable<DateTimeOffset>? usageClock = null,
             IObservable<Unit>? signInCompleted = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null,
             Action<string>? openLink = null, IObservable<AgentViewerAccess>? viewerAccess = null,
-            HeldMessagesViewModel? heldMessages = null, ChatFindMemory? findMemory = null) {
+            HeldMessagesViewModel? heldMessages = null, ChatFindMemory? findMemory = null,
+            ChatMarks? chatMarks = null) {
+        _topics = new ChatTopics(_items, chatMarks);
+        Bookmarks = new ChatBookmarks(_topics, chatMarks) { LoadOlder = LoadOlderForBookmark };
+        ShowsMarks = chatMarks is not null;
         _tracksAccountReadings = accountReadings is not null;
         _drafts = drafts;
         _findMemory = findMemory;
@@ -945,9 +988,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         admittedSessionId?.Subscribe(id => _sessionId = id).DisposeWith(_disposables);
         if (_senders is { } lookup) {
             admittedSessionId?.ObserveOn(RxSchedulers.MainThreadScheduler)
-                .Subscribe(id => lookup.SetSession(id, SenderLabels(_items))).DisposeWith(_disposables);
+                .Subscribe(id => lookup.SetSession(id, SenderLabels(Topics.Everything()))).DisposeWith(_disposables);
             signInCompleted?.ObserveOn(RxSchedulers.MainThreadScheduler)
-                .Subscribe(_ => lookup.Restart(SenderLabels(_items))).DisposeWith(_disposables);
+                .Subscribe(_ => lookup.Restart(SenderLabels(Topics.Everything()))).DisposeWith(_disposables);
         }
         Cards = new PendingCardsViewModel(
             agentId, origin, sessionId ?? Observable.Return<string?>(null), permissions, _rootSubject,
@@ -1126,14 +1169,31 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             _queuedSendBusy,
             this.WhenAnyValue(x => x.HasSeed),
             Tray.WhenAnyValue(t => t.HasAttachments),
-            (text, can, readOnly, menu, busy, _, files) => can && !readOnly && !menu && !busy
-                && (files || !string.IsNullOrWhiteSpace(text)) && CanSendBeforeSeed);
+            this.WhenAnyValue(x => x.SendMode),
+            // A topic mark needs the seed: the replay that brings it clears the chat, mark and all.
+            (text, can, readOnly, menu, busy, seed, files, mode) => can && !readOnly && !menu && !busy
+                && (files || !string.IsNullOrWhiteSpace(text)) && CanSendBeforeSeed && (seed || mode == ChatSendMode.Send));
         // The composer keeps whatever the user typed while the channel was deciding: only the
         // snapshot that was actually sent is cleared, and only once the channel commits it. The
         // edit count is what the text alone cannot say — an edit that lands back on the sent text
         // is still the user's own draft, not the snapshot.
         SendCommand = ReactiveCommand.CreateFromTask(async () => {
-            await SendComposerAsync(ComposerText, includeTray: true, bypassRecall: false);
+            // The mark goes in before the message goes out, so the message's echo lands after it.
+            QueuedChatMessage? sent = null;
+            // A retry carries the send on, so its echo counts as this send's.
+            bool IsEcho(UserTurnItem turn) {
+                for (var queued = sent; queued is not null; queued = queued.RetriedAs)
+                    if (queued.EchoLine is { } line ? turn.Key?.Line == line : queued.Acknowledged && queued.MatchesEcho(turn.Text)) return true;
+                return false;
+            }
+            ChatItemViewModel? opened = SendMode switch {
+                ChatSendMode.NewTopic => Topics.Start(IsEcho),
+                ChatSendMode.EndTopic => Topics.End(IsEcho),
+                _ => null,
+            };
+            var outcome = await SendComposerAsync(ComposerText, includeTray: true, bypassRecall: false, onQueued: queued => sent = queued);
+            if (outcome is ChatSendOutcome.Accepted or ChatSendOutcome.Unconfirmed) SendMode = ChatSendMode.Send;
+            else if (opened is not null) Topics.Discard(opened);
         }, canSend);
         _disposables.Add(SendCommand);
         SendCommand.IsExecuting
@@ -1162,6 +1222,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                     message.Text, includeTray: false, bypassRecall: true, ownsDraft: ownsDraft,
                     onQueued: row => {
                         replacement = row;
+                        message.RetriedAs = row;
                         RetargetSuperseded(message, row);
                         _superseded.Add((message, row));
                     });
@@ -1176,6 +1237,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             if (_lifetimeToken.IsCancellationRequested) return;
             if (outcome is null or ChatSendOutcome.Rejected) {
                 _superseded.RemoveAll(pair => ReferenceEquals(pair.Old, message));
+                message.RetriedAs = null;
                 if (replacement?.Acknowledged == true) message.Acknowledged = true;
                 else if (replacement is not null) RetargetSuperseded(replacement, message);
                 RestoreQueuedRow(message);
@@ -1300,9 +1362,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             if (over is { IsDelivered: true, IsForeign: false, Acknowledged: false }) Acknowledge(over);
             RetireDiscarded(over, restorePredecessors: !over.IsDelivered);
         }
-        foreach (var gone in _queuedMessages.Where(q => q.IsForeign && q.DispatchId is { } id && !listed.Contains(id)).ToList())
+        foreach (var gone in _queuedMessages.Where(q => q is { IsForeign: true, DispatchId: { } id } && !listed.Contains(id)).ToList())
             _queuedMessages.Remove(gone);
-        foreach (var own in _queuedMessages.Where(q => !q.IsForeign && q.DispatchId is { } id && !listed.Contains(id)))
+        foreach (var own in _queuedMessages.Where(q => q is { IsForeign: false, DispatchId: { } id } && !listed.Contains(id)))
             own.MarkUnlisted();
         RefreshQueue();
     }
@@ -1336,7 +1398,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _writerDone = writerDone;
         if (_ended != info.Ended) {
             _ended = info.Ended;
-            foreach (var call in _items.OfType<ToolGroupItem>().SelectMany(static group => group.Calls).Where(static call => !call.IsSettled))
+            foreach (var call in Topics.Everything().OfType<ToolGroupItem>().SelectMany(static group => group.Calls).Where(static call => !call.IsSettled))
                 call.SessionOver = _ended;
             RaisePhaseNote();
         }
@@ -1515,6 +1577,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     void SwitchFeed(string key, Func<string, IChatTranscriptFeed> open) {
         // A released tab's runs belong to the monitor that took its feed; this tab reads nothing more.
         if (_feedReleased) return;
+        _topics.Reset(key);
+        Bookmarks.Reset(key);
         HasProgressiveDisclosureMarks = false;
         _items.Clear();
         // A recall on screen gives way to the draft it replaced, or that draft would be stranded.
@@ -1665,12 +1729,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             // A known server predecessor can echo after its removal snapshot and after a
             // retry was queued. That echo cannot prove delivery of a retry the server still holds.
             if (old.DispatchId is not null && replacement.IsServerHeld) {
+                old.EchoLine = offset;
                 Acknowledge(old);
                 AbsorbSuperseded(old);
                 return true;
             }
             if (!replacement.Acknowledged && Tracked.Contains(replacement)
                 && replacement.Matches(text, _inputGeneration, offset)) {
+                replacement.EchoLine = offset;
                 Acknowledge(replacement);
                 return true;
             }
@@ -1693,6 +1759,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             if (earliest is null || queued.SendOrder < earliest.SendOrder) earliest = queued;
         }
         if (earliest is null) return false;
+        earliest.EchoLine = offset;
         Acknowledge(earliest);
         return true;
     }
@@ -1708,7 +1775,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (!bypassRecall) {
             var already = edits == _recallEdits
                 ? _queuedMessages.FirstOrDefault(q =>
-                    !q.IsForeign && !q.Acknowledged && q.AttachmentIds.Count == 0 && q.MatchesText(snapshot))
+                    q is { IsForeign: false, Acknowledged: false, AttachmentIds.Count: 0 } && q.MatchesText(snapshot))
                 : null;
             if (already is not null && Tray.Snapshot().Count == 0) {
                 if (_composerEdits == edits && ComposerText == snapshot) ComposerText = DraftAfterSending(snapshot);
@@ -1961,6 +2028,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 // Skip everything the new source replays: it may be history, not receipts. The feed
                 // names where that history ends — anything past it arrived after and can acknowledge.
                 RebaseQueuedMessages(read.SnapshotOffset ?? CurrentOffset ?? 0);
+                _topics.Reset(_feedKey);
+                Bookmarks.Reset(_feedKey);
                 _items.Clear();
                 _history.ClearForReplay();
                 _pendingTools.Clear();
@@ -2009,9 +2078,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                     if (TakeSupersededEcho(text, offset)) continue;
                     var acknowledged = Tracked.FirstOrDefault(q => !q.Acknowledged && q.Matches(text, _inputGeneration, offset));
                     if (acknowledged is null) continue;
+                    acknowledged.EchoLine = offset;
                     Acknowledge(acknowledged);
                 }
             }
+            var message = 0;
             foreach (var e in projected.Envelopes) {
                 switch (e.Kind) {
                     case AcpEventKind.UserMessage when e.ToolKind == ChatDisplayKind.Shell:
@@ -2024,12 +2095,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                         cursor.OpenShell = null;
                         var (typed, files) = AttachmentTrailer.Split(e.Text ?? "");
                         cursor.Fresh.Add(new UserTurnItem(typed, [.. files.Select(file => UserAttachment.From(file, _origin == AgentOrigin.Local ? _root : null))],
-                            SenderOf(e, offset), TimeOf(e), undelivered: e.ToolKind == ChatDisplayKind.Undelivered));
+                            SenderOf(e, offset), TimeOf(e), undelivered: e.ToolKind == ChatDisplayKind.Undelivered) { Key = new(offset, message++) });
                         break;
                     case AcpEventKind.AssistantText:
                         cursor.OpenGroup = null;
                         cursor.OpenShell = null;
-                        cursor.Fresh.Add(new AssistantTextItem(e.Text ?? "", TimeOf(e)));
+                        cursor.Fresh.Add(new AssistantTextItem(e.Text ?? "", TimeOf(e)) { Key = new(offset, message++) });
                         break;
                     case AcpEventKind.AssistantThinking when !string.IsNullOrWhiteSpace(e.Text):
                         cursor.OpenGroup = null;
@@ -2112,6 +2183,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// Asks the feed for the lines before the oldest one shown; false when it has none or cannot page.
     public bool RequestOlder() => _lease?.Feed is RemoteTranscriptFeed remote && remote.RequestOlder();
 
+    // A page already on its way counts as asked for: its rows come back through the bookmarks' outline.
+    bool LoadOlderForBookmark() {
+        if (_lease?.Feed is not RemoteTranscriptFeed { HasOlder: true } remote) return false;
+        remote.RequestOlder();
+        return true;
+    }
+
     /// Older rows go above the ones on screen. A call they leave open is settled by a result already
     /// shown, and the runs fold again from the start of what is loaded.
     /// A page that adds no rows asks for the next one at once: no scroll would ask for it. A live session
@@ -2157,6 +2235,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         }
         Reconcile();
         SyncPendingCardItems();
+        _topics.Restore();
         if (hasOlder && (older.Fresh.Count == 0 || !_ended || prefetch)) RequestOlder();
     }
 
@@ -2198,12 +2277,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 RefreshActivityNote();
                 RequestOlderUnasked();
             }
+            _topics.Restore();
             return;
         }
         RefreshQueue();
         Reconcile();
         SyncPendingCardItems();
         RefreshActivityNote();
+        _topics.Restore();
         if (read.Status == FeedStatus.Reset) RequestOlderUnasked();
     }
 
@@ -2294,7 +2375,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     bool HidesBehindQuestionCard(ToolGroupItem group, bool questionPending) =>
         _input.Availability != SendAvailability.Ended
         && (questionPending || !ReferenceEquals(_questionCardHost, group))
-        && group.Calls.Any(static c => c.Category == ToolCategory.Question && !c.IsSettled);
+        && group.Calls.Any(static c => c is { Category: ToolCategory.Question, IsSettled: false });
 
     bool TrailingCardsMatch(int start, ReadOnlyObservableCollection<PendingCardViewModel> cards) {
         if (_items.Count - start != cards.Count) return false;
@@ -2452,6 +2533,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // the cancellation before the channel it is sending through goes away.
         foreach (var choice in _terminalMenuChoices) choice.Choose.Dispose();
         try { _lifetime.Cancel(); } catch (ObjectDisposedException) { }
+        // The bookmark list outlives the tab, so the tab lets go of it.
+        Bookmarks.Reset(null);
         _disposables.Dispose();
         Cards.Dispose();
         Tasks.Dispose();

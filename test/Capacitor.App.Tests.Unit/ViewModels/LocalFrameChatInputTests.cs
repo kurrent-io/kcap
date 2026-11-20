@@ -16,7 +16,7 @@ public class LocalFrameChatInputTests {
     const string Id = "0123456789abcdef0123456789abcdef";
 
     sealed class Rig {
-        public FakeDaemonClientService Daemon { get; } = new();
+        FakeDaemonClientService Daemon { get; } = new();
         public ScriptedLocalControlOps Ops { get; } = new();
         public BehaviorSubject<AgentPresence> Presence { get; } = new(new AgentPresence(null, false));
         public LocalFrameChatInput Input { get; }

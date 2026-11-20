@@ -84,9 +84,9 @@ public class LocalEmbeddingFileTests {
         static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
 
         sealed class Wire {
-            public string? Provider { get; set; }
-            public string? Model { get; set; }
-            public bool Pending { get; set; }
+            public string? Provider { get; init; }
+            public string? Model { get; init; }
+            public bool Pending { get; init; }
         }
 
         public static string Read(byte[] bytes) {

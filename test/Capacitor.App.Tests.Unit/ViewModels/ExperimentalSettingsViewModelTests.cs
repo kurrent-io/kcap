@@ -172,7 +172,7 @@ public class ExperimentalSettingsViewModelTests {
         service.SnapshotsSubject.OnNext(Reporting(resolved: true, active: true));
 
         await Assert.That(row.IsEnabled).IsFalse();
-        await Until(() => row.IsEnabled && row.StatusText == "Active", "the snapshot's read");
+        await Until(() => row is { IsEnabled: true, StatusText: "Active" }, "the snapshot's read");
     });
 
     [Test]
@@ -201,7 +201,7 @@ public class ExperimentalSettingsViewModelTests {
         await store.SetAsync("work", Id, true, CancellationToken.None);
         service.SnapshotsSubject.OnNext(Reporting(resolved: true, active: true));
 
-        await Until(() => row.IsEnabled && row.StatusText == "Active", "the CLI's flip");
+        await Until(() => row is { IsEnabled: true, StatusText: "Active" }, "the CLI's flip");
 
         await File.WriteAllTextAsync(store.Path, "{ not json");
         service.SnapshotsSubject.OnNext(Reporting(resolved: true, active: true));
