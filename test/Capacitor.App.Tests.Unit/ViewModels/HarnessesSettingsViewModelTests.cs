@@ -83,6 +83,31 @@ public class HarnessesSettingsViewModelTests {
         await Assert.That(cli.ReceivedCalls()).IsEmpty();
     });
 
+    /// <summary>A gateway records with no Grok Bot app on the computer, so a profile that is recording keeps
+    /// its switch there: hidden, it would leave nowhere to turn recording off.</summary>
+    [Test]
+    public Task A_recording_profile_keeps_the_grok_bot_switch_where_no_app_is_found() => AvaloniaSession.RunOnUiAsync(async () => {
+        var store = Seed();
+        var found = true;
+        using var vm = new HarnessesSettingsViewModel(store, Substitute.For<IKcapCli>(),
+            _ => Task.FromResult<IReadOnlyDictionary<HarnessId, DetectedAgent>>(new Dictionary<HarnessId, DetectedAgent>()),
+            grokBotFound: () => found);
+
+        await vm.RescanAsync();
+        await vm.ToggleGrokBotAsync();
+        found = false;
+        await vm.RescanAsync();
+
+        await Assert.That(vm.GrokBotShown).IsTrue();
+        await Assert.That(vm.GrokBotRecording).IsTrue();
+
+        await vm.ToggleGrokBotAsync();
+        await Assert.That(store.LoadProfile().GrokBot!.Record!.Value).IsFalse();
+
+        await vm.RescanAsync();
+        await Assert.That(vm.GrokBotShown).IsFalse();
+    });
+
     /// <summary>The daemon keeps its last answer when the config cannot be read, so the switch keeps what it
     /// showed and says it is unsure: off would read as an opt-out the daemon never saw.</summary>
     [Test]

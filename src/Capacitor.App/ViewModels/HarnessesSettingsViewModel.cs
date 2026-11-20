@@ -124,11 +124,16 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
     }
 
     (bool Shown, bool? Recording) ReadGrokBot() {
-        if (_grokBotFound?.Invoke() != true) return (false, false);
+        if (_grokBotFound is null) return (false, false);
+
+        var found = _grokBotFound();
         try {
-            return (true, _store.LoadProfile().GrokBot?.Record == true);
+            var recording = _store.LoadProfile().GrokBot?.Record == true;
+
+            // A gateway records with no app on the computer, and this switch is where that is turned off.
+            return (found || recording, recording);
         } catch (InvalidOperationException) {
-            return (true, null);
+            return (found, null);
         }
     }
 

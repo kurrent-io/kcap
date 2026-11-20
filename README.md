@@ -1403,7 +1403,7 @@ On a computer with the desktop app, `kcap setup` finds the app and asks once whe
 kcap config set grok_bot.record true    # or false to stop; the running daemon follows within half a minute
 ```
 
-The kcap desktop app shows the same switch under Settings → Harnesses on a computer where it finds the Grok Bot app. A setup run with `--no-prompt` asks nothing and prints that command instead. `kcap grok-bot watch` remains for running the watcher by hand, and `kcap grok-bot watch --once --dry-run` shows what it would send even while the daemon's watcher is running. The watcher reads the gateway where the computer has one and the desktop app's chats otherwise; `--gateway <gateway.json>` and `--desktop <dir>` name one explicitly.
+The kcap desktop app shows the same switch under Settings → Harnesses on a computer where it finds the Grok Bot app, or where the profile is already recording. A setup run with `--no-prompt` asks nothing and prints that command instead. `kcap grok-bot watch` remains for running the watcher by hand, and `kcap grok-bot watch --once --dry-run` shows what it would send even while the daemon's watcher is running. The watcher reads the gateway where the computer has one and the desktop app's chats otherwise; `--gateway <gateway.json>` and `--desktop <dir>` name one explicitly.
 
 - **Both at once is safe.** The two read the same entries and cut them into the same sessions under the same ids, so a chat recorded from both places is stored once.
 
