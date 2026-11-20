@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -111,7 +112,8 @@ public class ControlVariantTests {
         rig.TabFocus();
         await Assert.That(rig.Button.IsFocused).IsTrue();
         var focused = rig.Read();
-        var adorned = rig.Window.GetVisualDescendants().Any(v => v.GetType().Name.Contains("Adorner", StringComparison.Ordinal) && v.IsVisible);
+        var layer = AdornerLayer.GetAdornerLayer(rig.Button);
+        var adorned = layer?.Children.Any(c => c.IsVisible && ReferenceEquals(AdornerLayer.GetAdornedElement(c), rig.Button)) == true;
         await Assert.That(focused != rest || adorned).IsTrue();
     });
 

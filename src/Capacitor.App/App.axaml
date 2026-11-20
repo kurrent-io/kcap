@@ -988,6 +988,10 @@
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
             <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
+        <Style Selector="Button.kcapVendorTab.active:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapTextBrush}" />
+        </Style>
         <Style Selector="Button.artefactRow:disabled /template/ ContentPresenter#PART_ContentPresenter,
                          Button.sectionHeader:disabled /template/ ContentPresenter#PART_ContentPresenter,
                          Button.copyValue:disabled /template/ ContentPresenter#PART_ContentPresenter,
