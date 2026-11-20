@@ -596,7 +596,12 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// A transcript whose turned-down prompt checks outgrow that limit is not kept: they hold message text.
     RemoteTranscriptSnapshot? SnapshotLocked() {
         if (_lost || _projecting > 0 || _loaded is null || _position is not { } position || _base is not { } origin || _earliest is not { } earliest) return null;
-        lock (_scheduled) if (_scheduled.Declined!.Count > RemoteTranscriptCache.MaxLines) return null;
+        // A copy: an older page still projecting merges into the live state after the feed has closed.
+        ScheduledPrompts scheduled;
+        lock (_scheduled) {
+            if (_scheduled.Declined!.Count > RemoteTranscriptCache.MaxLines) return null;
+            scheduled = _scheduled.Copy();
+        }
         var skip = Math.Max(0, _loaded.Count - RemoteTranscriptCache.MaxLines);
         var lines = _loaded.GetRange(skip, _loaded.Count - skip);
         var oldest = _oldest;
@@ -604,7 +609,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             earliest = Math.Max(earliest, lines[0].Offset - origin);
             oldest = lines[0].Offset;
         }
-        return new(lines, position, earliest, oldest, origin, _scheduled);
+        return new(lines, position, earliest, oldest, origin, scheduled);
     }
 
     /// A superseded attempt's failure would mark a reason the current attempt has not hit.

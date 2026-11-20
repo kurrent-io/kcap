@@ -41,6 +41,15 @@ public sealed class ScheduledPrompts {
     /// A typed `/compact` is still waiting for its command-tag copy, which the events after these would carry.
     public bool AwaitsCompactEcho => _typedCompact is not null;
 
+    /// A copy that later events observed by either one leave the other untouched by.
+    public ScheduledPrompts Copy() {
+        var copy = new ScheduledPrompts { Declined = Declined is null ? null : new HashSet<string>(Declined, StringComparer.Ordinal) };
+        copy._wakeUps.UnionWith(_wakeUps);
+        copy._loops.UnionWith(_loops);
+        copy._typedCompact = _typedCompact;
+        return copy;
+    }
+
     /// Adds the prompts an earlier stretch of the same session scheduled.
     public void Include(ScheduledPrompts earlier) {
         _wakeUps.UnionWith(earlier._wakeUps);
