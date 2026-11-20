@@ -38,6 +38,15 @@ public class TranscriptChatCanonicalTests {
     public async Task A_vendor_without_the_rule_reads_a_resumed_session_start_as_nothing() =>
         await Assert.That(TranscriptChat.Project(SessionStart("Resume"), rules: null).Runs).IsEmpty();
 
+    /// The summary record after the boundary is the compaction's row, so the stored boundary shows none
+    /// for Claude; a vendor without rules still shows it.
+    [Test]
+    public async Task A_stored_compaction_boundary_shows_no_row_for_claude() {
+        var evt = Event(CanonicalEventTypes.ContextCompacted, new ContextCompactedEvent());
+        await Assert.That(TranscriptChat.Project(evt, ClaudeChatRules.Instance).Envelopes).IsEmpty();
+        await Assert.That(TranscriptChat.Project(evt, rules: null).Envelopes.Single().Text).IsEqualTo(TranscriptEnvelopes.CompactedNote);
+    }
+
     const string OrphanReport = "<task-notification>\n<task-id>b7k2</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n<summary>1 background shell command tasks didn't finish before the previous session ended.</summary>\n<note>No completion record was found for them in the previous session.</note>\n</task-notification>";
 
     static CanonicalEvent StoredReport(string? promptSource) {

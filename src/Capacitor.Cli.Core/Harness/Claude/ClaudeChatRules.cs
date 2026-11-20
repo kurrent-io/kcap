@@ -81,6 +81,8 @@ public sealed partial class ClaudeChatRules : IChatDisplayRules {
         var slug = SchemaExtensions.Slug(evt.Payload, ClaudeCodeExtension.Slug);
         if (SchemaExtensions.Text(slug, ClaudeCodeExtension.LocalCommand) is not null) return null;
         if (!_ownTranscript && SchemaExtensions.Flag(slug, ClaudeCodeExtension.IsSidechain)) return null;
+        // The compact summary record that follows the boundary is the compaction's one row.
+        if (evt.Payload is ContextCompactedEvent) return null;
         // A peer message delivered while the session is idle is a meta record, and it is the
         // only record of that message.
         if (envelope.Kind == AcpEventKind.UserMessage && PeerMessage(slug, envelope.Text) is { } peer)
