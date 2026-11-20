@@ -449,7 +449,12 @@ A watcher stays running while the workspace refuses everything it sends, so
 running is not recording. The sentence after the profile says which:
 
 - `The server last accepted a delivery at …`: recording is active there, as
-  them. Say so and stop.
+  them. Say so and stop. The time must be later than any sign-in made in this
+  run: an earlier delivery went in under the sign-in before it, so read it as
+  `Nothing has needed sending`.
+- `could not read N chat(s)`, alone or after an accepted delivery: those chats
+  are not being recorded yet. Say how many; the watcher reads them again by
+  itself.
 - `Its first cycle has not finished`: ask again after a few seconds.
 - `Nothing has needed sending since it started`: the watcher is running and
   nothing has yet shown that the workspace accepts what it sends. Say exactly

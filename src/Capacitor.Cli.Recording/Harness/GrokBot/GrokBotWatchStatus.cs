@@ -7,7 +7,8 @@ namespace Capacitor.Cli.Recording.Harness.GrokBot;
 /// <param name="AcceptedAt">When the server last accepted a call from this run, if it has.</param>
 /// <param name="Failure">Why the last cycle stopped short; null when it did not.</param>
 /// <param name="Cycled">Whether a cycle has finished. Until one has, no delivery says nothing.</param>
-public sealed record GrokBotWatchStatus(string? Server, string? Profile, int? Pid, DateTimeOffset? AcceptedAt = null, string? Failure = null, bool Cycled = false) {
+/// <param name="Unread">Chats the last cycle could not read, and so sent nothing for.</param>
+public sealed record GrokBotWatchStatus(string? Server, string? Profile, int? Pid, DateTimeOffset? AcceptedAt = null, string? Failure = null, bool Cycled = false, int Unread = 0) {
     /// <summary>A watcher holds its lock while a server refuses everything it sends, so the sentence about
     /// delivery is what tells a running watcher from a recording one.</summary>
     public static string Describe(GrokBotWatchStatus? status) => status switch {
@@ -17,9 +18,12 @@ public sealed record GrokBotWatchStatus(string? Server, string? Profile, int? Pi
     };
 
     string Delivery => this switch {
-        { Failure: { } failure } => $"Its last cycle failed: {failure}.",
-        { AcceptedAt: { } at }   => $"The server last accepted a delivery at {at.UtcDateTime:yyyy-MM-dd HH:mm:ss}Z.",
-        { Cycled: true }         => "Nothing has needed sending since it started.",
-        _                        => "Its first cycle has not finished."
+        { Failure: { } failure }  => $"Its last cycle failed: {failure}.",
+        { AcceptedAt: { } at }    => $"The server last accepted a delivery at {at.UtcDateTime:yyyy-MM-dd HH:mm:ss}Z.{(Unread > 0 ? $" {Unreadable}" : "")}",
+        { Cycled: true, Unread: > 0 } => Unreadable,
+        { Cycled: true }          => "Nothing has needed sending since it started.",
+        _                         => "Its first cycle has not finished."
     };
+
+    string Unreadable => $"Its last cycle could not read {Unread} chat{(Unread == 1 ? "" : "s")}, so nothing is sent for {(Unread == 1 ? "it" : "them")} yet.";
 }

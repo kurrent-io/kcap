@@ -56,7 +56,7 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
 
                 var accepted = DateTimeOffset.TryParse(status["accepted"]?.GetValue<string>(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at) ? at : (DateTimeOffset?)null;
 
-                return new GrokBotWatchStatus(server, profile, pid, accepted, status["failure"]?.GetValue<string>(), status["cycled"]?.GetValue<bool>() ?? false);
+                return new GrokBotWatchStatus(server, profile, pid, accepted, status["failure"]?.GetValue<string>(), status["cycled"]?.GetValue<bool>() ?? false, status["unread"]?.GetValue<int>() ?? 0);
             }
         } catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException or FormatException) {
             // Unreadable, or left by a process that is gone.
@@ -87,7 +87,7 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
 
         string? published = null;
 
-        void Publish(DateTimeOffset? accepted, string? failure, bool cycled) {
+        void Publish(DateTimeOffset? accepted, string? failure, bool cycled, int unread = 0) {
             if (held is null) return;
 
             var status = new JsonObject {
@@ -96,7 +96,8 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
                 ["profile"]  = profiles.Name,
                 ["accepted"] = accepted?.ToString("O", CultureInfo.InvariantCulture),
                 ["failure"]  = failure,
-                ["cycled"]   = cycled
+                ["cycled"]   = cycled,
+                ["unread"]   = unread
             }.ToJsonString();
 
             if (status == published) return;
@@ -111,8 +112,18 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
             }
         }
 
-        // First thing under the lock, so a held lock never vouches for the watcher before this one.
+        // First thing under the lock, so a held lock never vouches for the watcher before this one. That
+        // one may have run in this same process, where its file still names a live pid: a file this run
+        // could not write is removed rather than left to speak for it.
         Publish(null, null, cycled: false);
+
+        if (held is not null && published is null) {
+            try {
+                File.Delete(StatusPath);
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                // Nothing more to try; each cycle writes again.
+            }
+        }
 
         var store   = GrokBotStateStore.For(config, profiles.Resolution.ServerUrl!, profiles.Name);
         var run     = new Run(source, store, store.Load(), options, log);
@@ -138,7 +149,7 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
                 log($"{report}; retrying with backoff, next in {backoff.NextDelay.TotalSeconds:0}s");
             }
 
-            Publish(run.AcceptedAt, failure, cycled: true);
+            Publish(run.AcceptedAt, failure, cycled: true, run.Unread.Count);
 
             if (options.Once) return failure is null ? GrokBotWatchOutcome.Completed : GrokBotWatchOutcome.Failed;
 

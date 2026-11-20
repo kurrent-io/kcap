@@ -179,6 +179,28 @@ public class GrokBotWatcherTests {
         await Assert.That(GrokBotWatchStatus.Describe(found with { Cycled = true })).EndsWith("Nothing has needed sending since it started.");
         await Assert.That(GrokBotWatchStatus.Describe(found with { Cycled = true, AcceptedAt = at })).EndsWith("The server last accepted a delivery at 2026-03-04 05:06:07Z.");
         await Assert.That(GrokBotWatchStatus.Describe(found with { Cycled = true, AcceptedAt = at, Failure = "refused" })).EndsWith("Its last cycle failed: refused.");
+        await Assert.That(GrokBotWatchStatus.Describe(found with { Cycled = true, Unread = 1 })).EndsWith("default. Its last cycle could not read 1 chat, so nothing is sent for it yet.");
+        await Assert.That(GrokBotWatchStatus.Describe(found with { Cycled = true, AcceptedAt = at, Unread = 2 })).EndsWith("05:06:07Z. Its last cycle could not read 2 chats, so nothing is sent for them yet.");
+    }
+
+    /// <summary>A chat that could not be read is skipped without failing the cycle, so a cycle that sent
+    /// nothing because it read nothing must not pass for one that had nothing to send.</summary>
+    [Test]
+    public async Task A_running_watcher_says_how_many_chats_it_could_not_read() {
+        var watcher = Watcher(new Server());
+        var options = OneOldChat() with { Once = false };
+        await File.WriteAllTextAsync(Directory.GetFiles(Tmp.PathTo("chats")).Single(), "{\"schemaVersion\":1,\"value\":{\"entr");
+        using var stop = new CancellationTokenSource();
+
+        var running = watcher.RunAsync(options, _ => { }, stop.Token);
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        GrokBotWatchStatus? status;
+        while ((status = watcher.Running()) is not { Cycled: true }) await Task.Delay(10, limit.Token);
+
+        await Assert.That(status with { Pid = null }).IsEqualTo(new GrokBotWatchStatus("https://acme.kcap.ai", "default", null, Cycled: true, Unread: 1));
+
+        await stop.CancelAsync();
+        await Assert.That(await running).IsEqualTo(GrokBotWatchOutcome.Stopped);
     }
 
     /// <summary>A status left by an earlier watcher sits under a lock a later one holds until that one writes
