@@ -18,13 +18,13 @@ public partial class WorkItemPageView : UserControl {
             row is WorkItemPageSession session && DataContext is WorkItemPageViewModel page ? page.MenuFor(session) : []);
         _ = new RowMenu(this, "partRow", row =>
             row is WorkItemPagePart part && DataContext is WorkItemPageViewModel page ? page.MenuFor(part) : []);
-        _ = new RowDrag(this, WorkItemGroups, DragGhost, "dragRow", row => row, DropTargetAt,
-            started: carried => DragGhostLabel.Text = carried switch {
-                WorkItemPagePart part       => part.Title,
-                WorkItemPageSession session => session.Title,
-                _                           => "",
-            },
-            line: DropLine);
+        _ = new RowDrag(this, WorkItemGroups, DragGhost, DragGhostSnapshot, "dragRow", row => row, DropTargetAt,
+            line: DropLine,
+            keyOf: row => row switch {
+                WorkItemPagePart part       => part.Id,
+                WorkItemPageSession session => session.SessionId,
+                _                           => row,
+            });
     }
 
     void OnRowAttached(object? sender, VisualTreeAttachmentEventArgs e) {

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Controls;
@@ -23,9 +24,10 @@ public partial class SessionRailView : UserControl {
             (RailGroupViewModel group, { } rail) => rail.MenuFor(group),
             _ => [],
         });
-        _ = new RowDrag(this, RailGroups, RailDragGhost, "railRow",
+        _ = new RowDrag(this, RailGroups, RailDragGhost, RailDragGhostSnapshot, "railRow",
             row => row is RailSessionViewModel session && RailModel is { ShowsWorkItems: true } rail ? rail.Picked(session) : null,
-            DropTargetAt, OnDragStarted, OnDragEnded, () => RailModel?.ClearMarks());
+            DropTargetAt, OnDragStarted, OnDragEnded, () => RailModel?.ClearMarks(),
+            keyOf: row => row is RailSessionViewModel session ? session.Key : row);
         AddHandler(KeyDownEvent, OnRailKeyDown, RoutingStrategies.Bubble);
     }
 
@@ -88,15 +90,12 @@ public partial class SessionRailView : UserControl {
 
     void OnDragStarted(object carried) {
         if (carried is not IReadOnlyList<RailSessionViewModel> { Count: > 0 } rows || RailModel is not { } rail) return;
-        RailDragGhost.DataContext = rows[0];
-        RailDragGhostLabel.Text = rows.Count > 1 ? $"{rows.Count} sessions" : rows[0].Primary;
+        RailDragGhostCount.IsVisible = rows.Count > 1;
+        RailDragGhostCountText.Text = rows.Count.ToString(CultureInfo.InvariantCulture);
         RailDropOut.IsVisible = rail.DropOn(rows, null) is not null && !rail.Groups.Any(g => !g.IsWorkItem);
     }
 
-    void OnDragEnded() {
-        RailDragGhost.DataContext = null;
-        RailDropOut.IsVisible = false;
-    }
+    void OnDragEnded() => RailDropOut.IsVisible = false;
 
     RowDropTarget? DropTargetAt(object carried, Point at) {
         if (RailModel is not { } rail || carried is not IReadOnlyList<RailSessionViewModel> rows) return null;

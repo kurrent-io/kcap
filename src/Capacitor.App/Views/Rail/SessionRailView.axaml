@@ -814,15 +814,16 @@
     </Border>
     <!-- The ghost follows the pointer out of the rail: the view is unclipped and raised over the content pane. -->
     <Canvas IsHitTestVisible="False">
-        <Border x:Name="RailDragGhost" IsVisible="False" DataContext="{x:Null}" x:DataType="vm:RailSessionViewModel"
-                Height="32" MaxWidth="220" Padding="12,0" CornerRadius="6" BorderThickness="1"
+        <Border x:Name="RailDragGhost" IsVisible="False" CornerRadius="5" BorderThickness="1"
                 Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderStrongBrush}">
-            <DockPanel VerticalAlignment="Center">
-                <ContentControl DockPanel.Dock="Left" Margin="0,0,8,0" VerticalAlignment="Center"
-                                Content="{Binding Vendor, FallbackValue={x:Null}, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=13}" />
-                <TextBlock x:Name="RailDragGhostLabel" FontSize="13" FontWeight="Medium" Foreground="{StaticResource KcapTextBrush}"
-                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-            </DockPanel>
+            <Panel>
+                <Image x:Name="RailDragGhostSnapshot" Stretch="None" />
+                <Border x:Name="RailDragGhostCount" IsVisible="False" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-8,-8,0"
+                        MinWidth="18" Height="18" Padding="5,0" CornerRadius="9" Background="{StaticResource KcapPrimaryBrush}">
+                    <TextBlock x:Name="RailDragGhostCountText" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource KcapOnPrimaryBrush}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+            </Panel>
         </Border>
     </Canvas>
     </Panel>
