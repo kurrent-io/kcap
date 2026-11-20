@@ -1180,9 +1180,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         SendCommand = ReactiveCommand.CreateFromTask(async () => {
             // The mark goes in before the message goes out, so the message's echo lands after it.
             QueuedChatMessage? sent = null;
-            bool IsEcho(UserTurnItem turn) => sent is { } queued && (queued.EchoLine is { } line
-                ? turn.Key?.Line == line
-                : queued.Acknowledged && queued.MatchesText(turn.Text));
+            // A retry carries the send on, so its echo counts as this send's.
+            bool IsEcho(UserTurnItem turn) {
+                for (var queued = sent; queued is not null; queued = queued.RetriedAs)
+                    if (queued.EchoLine is { } line ? turn.Key?.Line == line : queued.Acknowledged && queued.MatchesText(turn.Text)) return true;
+                return false;
+            }
             ChatItemViewModel? opened = SendMode switch {
                 ChatSendMode.NewTopic => Topics.Start(IsEcho),
                 ChatSendMode.EndTopic => Topics.End(IsEcho),
@@ -1219,6 +1222,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                     message.Text, includeTray: false, bypassRecall: true, ownsDraft: ownsDraft,
                     onQueued: row => {
                         replacement = row;
+                        message.RetriedAs = row;
                         RetargetSuperseded(message, row);
                         _superseded.Add((message, row));
                     });
@@ -1233,6 +1237,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             if (_lifetimeToken.IsCancellationRequested) return;
             if (outcome is null or ChatSendOutcome.Rejected) {
                 _superseded.RemoveAll(pair => ReferenceEquals(pair.Old, message));
+                message.RetriedAs = null;
                 if (replacement?.Acknowledged == true) message.Acknowledged = true;
                 else if (replacement is not null) RetargetSuperseded(replacement, message);
                 RestoreQueuedRow(message);
@@ -1724,12 +1729,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             // A known server predecessor can echo after its removal snapshot and after a
             // retry was queued. That echo cannot prove delivery of a retry the server still holds.
             if (old.DispatchId is not null && replacement.IsServerHeld) {
+                old.EchoLine = offset;
                 Acknowledge(old);
                 AbsorbSuperseded(old);
                 return true;
             }
             if (!replacement.Acknowledged && Tracked.Contains(replacement)
                 && replacement.Matches(text, _inputGeneration, offset)) {
+                replacement.EchoLine = offset;
                 Acknowledge(replacement);
                 return true;
             }
@@ -1752,6 +1759,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             if (earliest is null || queued.SendOrder < earliest.SendOrder) earliest = queued;
         }
         if (earliest is null) return false;
+        earliest.EchoLine = offset;
         Acknowledge(earliest);
         return true;
     }

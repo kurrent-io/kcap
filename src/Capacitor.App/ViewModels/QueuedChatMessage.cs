@@ -192,6 +192,9 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     /// The feed line its echo landed on, once matched there.
     internal long? EchoLine { get; set; }
 
+    /// The send that retried it, while that retry stands.
+    internal QueuedChatMessage? RetriedAs { get; set; }
+
     /// A new transcript may contain either replayed history or the lost echo. Neither is safe
     /// evidence. Retain the message, then allow only subsequent appends in this generation.
     internal void Rebase(int generation, long? offset) {
