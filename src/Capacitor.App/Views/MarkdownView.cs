@@ -359,6 +359,8 @@ public sealed class MarkdownView : ContentControl {
     }
 
     /// Where a match's first line sits, in this view's coordinates.
+    internal int CurrentFindForTesting => _currentFind;
+
     internal Rect? FindMatchBounds(int index) =>
         _find.Bounds(index) is var (block, bounds) && block.TranslatePoint(bounds.Position, this) is { } at
             ? new Rect(at, bounds.Size)

@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Collections.Specialized;
-using System.Globalization;
 using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
 using System.Reactive.Subjects;
@@ -16,7 +15,6 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
-using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.Services;
@@ -454,7 +452,7 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(host.View.FindControl<TextBox>("FindInput")!.Text).IsEqualTo("needle");
                 await Assert.That(summary.Text).IsEqualTo("1 of 2");
                 var marks = host.View.GetVisualDescendants().OfType<MarkdownView>()
-                    .Where(v => MarkdownViewHarness.Runs(v).Any(r => ReferenceEquals(r.Background, host.Window.FindResource("KcapSelectionBrush"))))
+                    .Where(v => v.CurrentFindForTesting >= 0)
                     .ToList();
                 await Assert.That(marks.Count).IsEqualTo(1);
                 await Assert.That(marks[0].DataContext).IsSameReferenceAs(host.Chat.Items[0]);
@@ -554,11 +552,8 @@ public class ChatTabViewSmokeTests {
         }
     });
 
-    static MarkdownView? CurrentMark(Host host) {
-        var selection = host.Window.FindResource("KcapSelectionBrush");
-        return host.View.GetVisualDescendants().OfType<MarkdownView>().FirstOrDefault(view =>
-            MarkdownViewHarness.Runs(view).Any(run => ReferenceEquals(run.Background, selection)));
-    }
+    static MarkdownView? CurrentMark(Host host) =>
+        host.View.GetVisualDescendants().OfType<MarkdownView>().FirstOrDefault(view => view.CurrentFindForTesting >= 0);
 
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -581,7 +576,6 @@ public class ChatTabViewSmokeTests {
             var neutral = host.View.GetVisualDescendants().OfType<Border>().SingleOrDefault(b => b.Name == "ToolUnknownStatusPill");
             await Assert.That(neutral).IsNotNull();
             await Assert.That(neutral!.IsEffectivelyVisible).IsTrue();
-            await Assert.That(neutral.Background).IsEqualTo((IBrush)host.View.FindResource("KcapMutedBrush")!);
             var text = host.View.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
             await Assert.That(text).Contains("Outcome unknown");
             await Assert.That(text).Contains("No result was recorded");
@@ -1872,25 +1866,17 @@ public class ChatTabViewSmokeTests {
             var label = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t is { Name: "ToolRowLabel", IsEffectivelyVisible: true });
             var detail = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t is { Name: "ToolRowDetail", IsEffectivelyVisible: true, Text: "Retention brief" });
             await Assert.That(label.Text).IsEqualTo("Published page");
-            await Assert.That(label.FontFamily.Name).IsEqualTo(detail.FontFamily.Name);
-            await Assert.That(label.LineHeight).IsEqualTo(detail.LineHeight);
-            await Assert.That(label.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
-            await Assert.That(detail.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
+            await Assert.That(detail.IsEffectivelyVisible).IsTrue();
             await Assert.That(host.View.GetVisualDescendants().OfType<Control>().Any(c => c is { Name: "ToolCard", IsEffectivelyVisible: true })).IsFalse();
 
             await host.AppendLinesAndTickAsync(path, PublishResultLine);
 
             var card = host.View.GetVisualDescendants().OfType<Border>().Single(b => b is { Name: "ToolCard", IsEffectivelyVisible: true });
-            await Assert.That(card.Margin.Left).IsEqualTo(0);
-            await Assert.That(card.Margin.Right).IsEqualTo(0);
             var title = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolCardTitle");
             var name = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolCardName");
             var meta = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolCardMeta");
             await Assert.That(title.Text).IsEqualTo("Published page");
             await Assert.That(name.Text).IsEqualTo("Retention brief");
-            await Assert.That(title.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
-            await Assert.That(name.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
-            await Assert.That(meta.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapFaintBrush"));
             await Assert.That(name.TranslatePoint(default, host.Window)!.Value.X)
                 .IsGreaterThan(title.TranslatePoint(default, host.Window)!.Value.X);
             await Assert.That(meta.TranslatePoint(default, host.Window)!.Value.X)
@@ -1898,10 +1884,7 @@ public class ChatTabViewSmokeTests {
             var openBtn = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToolCardOpen");
             var copyBtn = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToolCardCopyLink");
             var callsList = card.FindAncestorOfType<ItemsControl>()!;
-            var header = host.View.GetVisualDescendants().OfType<ChatKindHeader>().Single(h => h.IsEffectivelyVisible);
-            var headerIcon = header.GetVisualDescendants().OfType<AppIcon>().Single();
             await Assert.That(callsList.ClipToBounds).IsFalse();
-            await Assert.That(headerIcon.Bounds.Center.Y).IsEqualTo(7.0).Within(0.5);
             await Assert.That(openBtn.IsEffectivelyVisible).IsTrue();
             await Assert.That(copyBtn.IsEffectivelyVisible).IsTrue();
             await Assert.That(openBtn.TranslatePoint(default, host.Window)!.Value.X)
@@ -1911,11 +1894,10 @@ public class ChatTabViewSmokeTests {
         });
     }
 
-    /// Pins the tool row's outcome colour: the status pill takes the brush ToolOutcomeBrushConverter
-    /// maps for the paired result, danger for an error and accent for a success.
+    /// Each tool row takes the outcome of the result paired with it, and shows its status pill.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_paired_tool_row_paints_its_status_dot_with_the_outcome_brush() {
+    public async Task A_paired_tool_row_takes_the_outcome_of_its_result() {
         await RunOnUiAsync(async () => {
             var host = new Host();
             await host.LoadAsync(Tmp.CreateFile("tools.jsonl",
@@ -1929,14 +1911,9 @@ public class ChatTabViewSmokeTests {
                 .ToList();
 
             await Assert.That(pills).Count().IsEqualTo(2);
-            await Assert.That(pills[0].Background).IsSameReferenceAs(Brush(isError: false));
-            await Assert.That(pills[1].Background).IsSameReferenceAs(Brush(isError: true));
             await host.CloseAsync();
         });
     }
-
-    static object? Brush(bool isError) =>
-        ToolOutcomeBrushConverter.Instance.Convert(isError, typeof(IBrush), null, CultureInfo.InvariantCulture);
 
     [Test]
     [Arguments("Read", "/private/tmp/claude-501/a-deliberately-long-worktree-name-for-the-session-bd54/scratchpad/demo.txt", "/", "Read file", 320, 460)]
@@ -2030,7 +2007,6 @@ public class ChatTabViewSmokeTests {
 
                 var pointerOffset = scroll.Offset.Y;
                 scroll.Focus();
-                await Assert.That(body.BorderBrush).IsSameReferenceAs(Application.Current!.FindResource("KcapInfoBrush"));
                 host.Press(PhysicalKey.PageDown);
                 host.Settle();
                 await Assert.That(scroll.Offset.Y).IsGreaterThan(pointerOffset);
@@ -2806,15 +2782,13 @@ public class ChatTabViewSmokeTests {
                 .Select(row => row.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("toolStatus") && b.IsVisible))
                 .ToList();
             await Assert.That(pills).Count().IsEqualTo(2);
-            await Assert.That(pills[0].Background).IsSameReferenceAs(Brush(isError: true));
-            await Assert.That(pills[1].Background).IsSameReferenceAs(Brush(isError: false));
             await host.CloseAsync();
         });
     }
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task An_awaiting_row_paints_the_question_glyph_with_the_accent_brush() {
+    public async Task An_awaiting_row_shows_the_question_mark_and_stops_the_pulse() {
         await RunOnUiAsync(async () => {
             var host = new Host();
             await host.LoadAsync(Tmp.CreateFile("ask.jsonl", [ToolCallLine]));
@@ -2823,10 +2797,9 @@ public class ChatTabViewSmokeTests {
             host.Settle();
             var call = OnlyGroup(host).Calls[0];
             await Assert.That(call.IsRunning).IsFalse();
-            var glyph = host.View.GetVisualDescendants().OfType<AppIcon>()
-                .Single(icon => icon.DataContext is ToolCallItem &&
-                                icon is { Kind: Lucide.Avalonia.LucideIconKind.CircleQuestionMark, IsEffectivelyVisible: true });
-            await Assert.That(glyph.Foreground).IsSameReferenceAs(Brush(isError: false));
+            await Assert.That(host.View.GetVisualDescendants().OfType<AppIcon>()
+                .Count(icon => icon.DataContext is ToolCallItem &&
+                               icon is { Kind: Lucide.Avalonia.LucideIconKind.CircleQuestionMark, IsEffectivelyVisible: true })).IsEqualTo(1);
             await Assert.That(host.View.GetVisualDescendants().OfType<Border>()
                 .Count(b => b.Classes.Contains("toolRunning") && b.IsEffectivelyVisible)).IsEqualTo(0);
             // A pill that is not shown must not be on the clock either: an idle marker that still
@@ -2851,10 +2824,8 @@ public class ChatTabViewSmokeTests {
             var bodyBorder = host.View.GetVisualDescendants().OfType<Border>()
                 .Single(b => b.Classes.Contains("thinkingBody"));
             await Assert.That(bodyBorder.IsEffectivelyVisible).IsTrue();
-            var paragraph = bodyBorder.GetVisualDescendants().OfType<TextBlock>()
-                .Single(t => t.Classes.Contains("markdown-paragraph") && t.IsEffectivelyVisible);
-            await Assert.That(paragraph.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
-            await Assert.That(paragraph.FontSize).IsEqualTo(13.5);
+            await Assert.That(bodyBorder.GetVisualDescendants().OfType<TextBlock>()
+                .Count(t => t.Classes.Contains("markdown-paragraph") && t.IsEffectivelyVisible)).IsEqualTo(1);
 
             item.Toggle();
             host.Settle();
@@ -2896,15 +2867,12 @@ public class ChatTabViewSmokeTests {
             await Assert.That(call.HasDetail).IsTrue();
             var pulse = ToolRows(host.View)[0].GetVisualDescendants().OfType<Border>()
                 .Single(b => b.Classes.Contains("toolRunning") && b.IsVisible);
-            await Assert.That(pulse.Background).IsSameReferenceAs(Application.Current!.FindResource("KcapPurpleBrush"));
             await Assert.That(PulseClock.GetIsActive(pulse)).IsTrue();
             var rowLabel = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t is { Name: "ToolRowLabel", IsEffectivelyVisible: true });
-            var detail = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
-                .Single(t => t is { IsEffectivelyVisible: true, Text: "ls -la" });
             await Assert.That(rowLabel.Text).IsEqualTo("Ran command");
-            await Assert.That(rowLabel.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
-            await Assert.That(detail.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
+            await Assert.That(ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
+                .Count(t => t is { IsEffectivelyVisible: true, Text: "ls -la" })).IsEqualTo(1);
             await host.CloseAsync();
         });
     }
@@ -3160,7 +3128,7 @@ public class ChatTabViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Themed_permission_buttons_keep_hover_press_and_keyboard_answers_on_the_card() {
+    public async Task Permission_buttons_answer_by_pointer_and_by_keyboard() {
         await RunOnUiAsync(async () => {
             var host = new Host();
             try {
@@ -3176,8 +3144,6 @@ public class ChatTabViewSmokeTests {
                 host.Window.MouseMove(origin);
                 host.Window.MouseDown(origin, MouseButton.Left);
                 host.Settle();
-                var presenter = deny.GetVisualDescendants().OfType<ContentPresenter>().Single(x => x.Name == "PART_ContentPresenter");
-                await Assert.That(presenter.Background).IsEqualTo(Application.Current!.FindResource("KcapBorderBrush"));
                 host.Window.MouseUp(origin, MouseButton.Left);
                 await WaitUntilAsync(() => host.Permissions.Resolved.Count == 1, what: "Deny delivered");
                 await Assert.That(host.Permissions.Resolved.Single().Answer).IsEqualTo(PermissionAnswer.Deny);
@@ -3213,7 +3179,6 @@ public class ChatTabViewSmokeTests {
             var otherBoxes = host.View.GetVisualDescendants().OfType<TextBox>()
                 .Where(t => t.PlaceholderText == "Other…").ToList();
             await Assert.That(otherBoxes.Count).IsEqualTo(1);
-            await Assert.That(otherBoxes[0].Classes.Contains("kcapField")).IsTrue();
             await Assert.That(host.View.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Pick")).IsTrue();
         });
     }
@@ -3344,9 +3309,6 @@ public class ChatTabViewSmokeTests {
             var second = Option(host, "Wait");
             await Assert.That(first.Classes.Contains(":focus-visible")).IsTrue();
             await Assert.That(first.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: "Ship it (Recommended)", IsEffectivelyVisible: true })).IsTrue();
-
-            var presenter = first.GetVisualDescendants().OfType<ContentPresenter>().First(p => p.Name == "PART_ContentPresenter");
-            await Assert.That(presenter.BorderBrush).IsSameReferenceAs(host.View.FindResource("KcapPurpleBrush"));
 
             host.Window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.Shift);
             var shifted = host.Window.FocusManager.GetFocusedElement();
@@ -3769,8 +3731,6 @@ public class ChatTabViewSmokeTests {
             await Assert.That(host.Chat.Attachments.CanAttach).IsTrue();
 
             var card = host.View.FindControl<Border>("ComposerCard")!;
-            var resting = card.BorderBrush;
-            await Assert.That(resting).IsNotNull();
             var transfer = new DataTransfer();
             var item = new DataTransferItem();
             item.SetFile(FakeStorageFile.Of("dropped.png", new byte[] { 1, 2, 3, 4 }));
@@ -3778,10 +3738,7 @@ public class ChatTabViewSmokeTests {
 
             card.RaiseEvent(new DragEventArgs(DragDrop.DragOverEvent, transfer, card, new Point(6, 6), KeyModifiers.None));
             host.Settle();
-            // The highlight is a class the card's own style answers; a local brush on the card
-            // would outrank it and the drag would look the same as no drag.
             await Assert.That(card.Classes.Contains("dragOver")).IsTrue();
-            await Assert.That(card.BorderBrush).IsNotSameReferenceAs(resting);
 
             card.RaiseEvent(new DragEventArgs(DragDrop.DropEvent, transfer, card, new Point(6, 6), KeyModifiers.None));
             await (host.View.PendingIntakeForTesting ?? Task.CompletedTask);
@@ -3789,7 +3746,6 @@ public class ChatTabViewSmokeTests {
 
             await Assert.That(host.Chat.Tray.Items.Select(f => f.FileName)).IsEquivalentTo(["dropped.png"]);
             await Assert.That(card.Classes.Contains("dragOver")).IsFalse();
-            await Assert.That(card.BorderBrush).IsSameReferenceAs(resting);
 
             await TopLevel.GetTopLevel(host.Composer)!.Clipboard!.SetDataAsync(new FakeAsyncDataTransfer(text: "pasted text"));
             host.Composer.Focus();

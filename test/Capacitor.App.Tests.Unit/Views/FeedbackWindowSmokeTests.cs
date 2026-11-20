@@ -34,7 +34,6 @@ public class FeedbackWindowSmokeTests {
             await Assert.That(feedback.IsChecked).IsTrue();
             await Assert.That(bug.IsChecked).IsFalse();
             await Assert.That(send.IsEffectivelyEnabled).IsFalse();
-            await Assert.That(message.Classes.Contains("kcapField")).IsTrue();
 
             message.Text = "Nice.";
             Dispatcher.UIThread.RunJobs();

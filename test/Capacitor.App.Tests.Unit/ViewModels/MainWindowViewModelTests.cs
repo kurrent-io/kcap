@@ -1,7 +1,6 @@
 using Capacitor.App.Tests.Unit.Services;
 using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
-using Avalonia.Media;
 using Capacitor.App.Services;
 using Capacitor.App.Services.Update;
 using Capacitor.App.ViewModels;
@@ -775,17 +774,17 @@ public class MainWindowViewModelTests {
             const string failed = "The daemon didn't start. Press Start daemon to try again.";
             if (!remoteFirst) {
                 report.OnNext(failed);
-                await Assert.That(((ISolidColorBrush)vm.StatusBrush).Color).IsEqualTo(Color.Parse("#FF7272"));
+                await Assert.That(vm.Alert!.Tone).IsEqualTo(StatusColors.Disrupted);
             }
             await home.SelectMachineAsync("home-pc", isLocal: false);
             if (remoteFirst) report.OnNext(failed);
 
             await Assert.That(home.BannerFailed).IsFalse();
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.DaemonStoppedText);
-            await Assert.That(((ISolidColorBrush)vm.StatusBrush).Color).IsEqualTo(Color.Parse("#FF7272"));
+            await Assert.That(vm.Alert!.Tone).IsEqualTo(StatusColors.Disrupted);
 
             report.OnNext(null);
-            await Assert.That(((ISolidColorBrush)vm.StatusBrush).Color).IsEqualTo(Color.Parse("#F4B860"));
+            await Assert.That(vm.Alert!.Tone).IsEqualTo(StatusColors.InProgress);
         });
     }
 
@@ -807,15 +806,13 @@ public class MainWindowViewModelTests {
             service.SnapshotsSubject.OnNext(Snap(connection: "reconnecting"));
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.ReconnectingText);
-            // Reconnecting needs nothing from the user and is not execution, so it stays grey, not purple.
-            await Assert.That(((ISolidColorBrush)vm.StatusBrush).Color).IsEqualTo(Color.Parse(StatusColors.Pending));
+            await Assert.That(vm.Alert!.Tone).IsEqualTo(StatusColors.Pending);
 
             lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut));
             await Assert.That(home.ConnectionNotice).IsEqualTo(HomeViewModel.SignInExpiredNotice);
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.SignInRequiredText);
             // An expired sign-in needs the user, which is how the launcher's card shows it too.
-            var brush = (ISolidColorBrush)vm.StatusBrush;
-            await Assert.That(brush.Color).IsEqualTo(((ISolidColorBrush)AppPalette.Brush(AppStatusPalette.Attention)).Color);
+            await Assert.That(vm.Alert!.Tone).IsEqualTo(StatusColors.InProgress);
         });
     }
 

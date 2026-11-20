@@ -1,4 +1,3 @@
-using Avalonia.Media;
 using Capacitor.App.ViewModels;
 using static Capacitor.Tests.Helpers.FakeDaemonClientService;
 
@@ -47,7 +46,7 @@ public class DaemonSignInTests {
 
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.SignInRequiredText);
             // A signed-out daemon needs the user, as the launcher's card shows it too.
-            await Assert.That(((ISolidColorBrush)vm.StatusBrush).Color).IsEqualTo(((ISolidColorBrush)AppPalette.Brush(AppStatusPalette.Attention)).Color);
+            await Assert.That(vm.Alert!.Tone).IsEqualTo(StatusColors.InProgress);
             await Assert.That(vm.SignInVisible).IsTrue();
 
             service.SnapshotsSubject.OnNext(Snap(connection: "reconnecting", credential: "signed_out", profile: "old"));

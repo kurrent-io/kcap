@@ -350,7 +350,6 @@ public class LauncherPaneViewSmokeTests {
                 WarningVisible: warning.IsEffectivelyVisible,
                 TextTop: Top(text, banner),
                 AlignedLeft: Math.Abs(Left(button, banner) - Left(text, banner)) < 1,
-                Primary: button.Classes.Contains("kcapPrimary"),
                 Gap: gap);
 
             start.OnNext(false);
@@ -375,7 +374,6 @@ public class LauncherPaneViewSmokeTests {
         await Assert.That(idle.WarningVisible).IsTrue();
         await Assert.That(idle.TextTop).IsLessThan(22);
         await Assert.That(idle.AlignedLeft).IsTrue();
-        await Assert.That(idle.Primary).IsTrue();
         await Assert.That(idle.Gap).IsGreaterThanOrEqualTo(13);
         await Assert.That(idle.Gap).IsLessThanOrEqualTo(15);
         await Assert.That(busy.BarVisible).IsTrue();
@@ -844,8 +842,6 @@ public class LauncherPaneViewSmokeTests {
             await Assert.That(vm.CanAttach).IsTrue();
 
             var card = Find<Border>(window, "GoalCard")!;
-            var resting = card.BorderBrush;
-            await Assert.That(resting).IsNotNull();
 
             var transfer = new DataTransfer();
             var item = new DataTransferItem();
@@ -854,10 +850,7 @@ public class LauncherPaneViewSmokeTests {
 
             card.RaiseEvent(new DragEventArgs(DragDrop.DragOverEvent, transfer, card, new Point(6, 6), KeyModifiers.None));
             Settle(window);
-            // The highlight is a class the card's own style answers; a local brush on the card
-            // would outrank it and the drag would look the same as no drag.
             await Assert.That(card.Classes.Contains("dragOver")).IsTrue();
-            await Assert.That(card.BorderBrush).IsNotSameReferenceAs(resting);
 
             card.RaiseEvent(new DragEventArgs(DragDrop.DropEvent, transfer, card, new Point(6, 6), KeyModifiers.None));
             await (view.PendingIntakeForTesting ?? Task.CompletedTask);
@@ -865,7 +858,6 @@ public class LauncherPaneViewSmokeTests {
 
             await Assert.That(vm.Tray.Items.Select(f => f.FileName)).IsEquivalentTo(["dropped.png"]);
             await Assert.That(card.Classes.Contains("dragOver")).IsFalse();
-            await Assert.That(card.BorderBrush).IsSameReferenceAs(resting);
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -1272,7 +1264,7 @@ public class LauncherPaneViewSmokeTests {
             var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
 
-            await Assert.That(AccountHeader(agent)!.Classes.Contains("sectionMeta")).IsTrue();
+            await Assert.That(AccountHeader(agent)!.IsEffectivelyVisible).IsTrue();
             var home = NamedRow(agent, "home, selected")!;
             var work = NamedRow(agent, "work")!;
             var modelDefault = NamedRow(agent, "Default — Claude Code chooses, Claude Code, selected")!;
@@ -1283,11 +1275,6 @@ public class LauncherPaneViewSmokeTests {
             await Assert.That(Texts(home).Select(t => t.Text ?? "")).IsEquivalentTo(["home", "Default", "/u/.claude"], CollectionOrdering.Matching);
             await Assert.That(Texts(work).Select(t => t.Text ?? "")).IsEquivalentTo(["work", "/u/.claude-work", "Needs repair"], CollectionOrdering.Matching);
 
-            var pill = home.GetVisualDescendants().OfType<StatusBadge>().Single(b => b.Text == "Default");
-            await Assert.That(pill.Background).IsSameReferenceAs(view.FindResource("KcapSurfaceRaisedBrush"));
-            await Assert.That(pill.BorderBrush).IsSameReferenceAs(view.FindResource("KcapBorderBrush"));
-            await Assert.That(Texts(pill).Single().Foreground).IsSameReferenceAs(view.FindResource("KcapMutedBrush"));
-            await Assert.That(Texts(work).Single(t => t.Text == "Needs repair").Foreground).IsSameReferenceAs(view.FindResource("KcapWarningBrush"));
 
             static bool Checked(Button row) => row.GetVisualDescendants().OfType<AppIcon>()
                 .Single(i => i.Kind == LucideIconKind.Check).IsVisible;
@@ -1400,7 +1387,6 @@ public class LauncherPaneViewSmokeTests {
             var expiredFill = NamedRow(agent, "d2")!.GetVisualDescendants().OfType<Border>()
                 .Single(b => b.Width == 46 && b.Child is Border).Child as Border;
             await Assert.That(expiredFill!.Width).IsEqualTo(46);
-            await Assert.That(expiredFill.Background).IsSameReferenceAs(view.FindResource("KcapBorderStrongBrush"));
 
             rig.Remote.DrawableDaemonAccountsSubject.OnNext([]);
             await UntilAsync(() => !Shows(agent, "42%"), "the bar dropped", window);

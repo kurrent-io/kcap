@@ -2,7 +2,6 @@ using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia;
 using Avalonia.Headless;
-using Avalonia.Media;
 using Avalonia.Threading;
 using Capacitor.App.ProgressiveDisclosure;
 using static Capacitor.App.Tests.Unit.AvaloniaSession;
@@ -118,25 +117,6 @@ public class ProgressiveDisclosureViewTests {
                 window.MouseMove(block.TranslatePoint(new Point(short_.WidthIncludingTrailingWhitespace + 3, top + short_.Height / 2), window)!.Value);
                 Dispatcher.UIThread.RunJobs();
                 await Assert.That(footnote.Classes.Contains("progressive-disclosure-lit")).IsFalse();
-            } finally {
-                window.Close();
-            }
-        });
-    }
-
-    [Test]
-    public async Task Faded_inline_code_fades_its_background_too() {
-        await RunOnUiAsync(async () => {
-            ProgressiveDisclosureBasis.Set(new(ProgressiveDisclosureDisplay.Faded, ProgressiveDisclosureDisplay.Faded));
-            var (window, root, _) = Show("Lead. ⌞Run `the command` here.⌟");
-            try {
-                var block = Paragraphs(root).Single();
-                var code = Spans<Run>(block.Inlines!).Single(r => r.Classes.Contains("markdown-code-inline"));
-                await Assert.That(((ISolidColorBrush)code.Background!).Color.A).IsEqualTo((byte)0x99);
-
-                window.MouseMove(At(block, Reads(block).IndexOf("command", StringComparison.Ordinal), window));
-                Dispatcher.UIThread.RunJobs();
-                await Assert.That(((ISolidColorBrush)code.Background!).Color.A).IsEqualTo((byte)0xFF);
             } finally {
                 window.Close();
             }

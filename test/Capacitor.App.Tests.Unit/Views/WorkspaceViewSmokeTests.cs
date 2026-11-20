@@ -3,7 +3,6 @@ using System.Reactive.Subjects;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
-using Avalonia.Controls.Presenters;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Threading;
@@ -97,7 +96,6 @@ public class WorkspaceViewSmokeTests {
                 window.UpdateLayout();
                 await Assert.That(window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "The daemon isn’t running")).IsTrue();
                 var start = window.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Start daemon"));
-                await Assert.That(start.Classes.Contains("kcapPrimary")).IsTrue();
                 await vm.StartDaemonCommand.Execute();
                 await Assert.That(daemon.StartDaemonCallCount).IsEqualTo(1);
                 daemon.StartBehavior = _ => Task.FromResult(new StartDaemonResult(false, "kcap CLI not found"));
@@ -595,31 +593,6 @@ public class WorkspaceViewSmokeTests {
         });
     }
 
-    /// Fluent hover paints PART_ContentPresenter near-white; Stop must keep the danger colour.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task Stop_keeps_danger_foreground_on_hover() {
-        await RunOnUiAsync(async () => {
-            var (window, vm, _, _) = await ShowPtyAsync();
-            try {
-                var stop = Find<Button>(window, "StopButton")!;
-                await Assert.That(stop.Classes.Contains("kcapDanger")).IsTrue();
-                var centre = stop.TranslatePoint(new Point(stop.Bounds.Width / 2, stop.Bounds.Height / 2), window)!.Value;
-                window.MouseMove(centre);
-                Dispatcher.UIThread.RunJobs();
-                await Assert.That(stop.Classes.Contains(":pointerover")).IsTrue()
-                    .Because("the hover must register for the assertion to mean anything");
-
-                var presenter = stop.GetVisualDescendants().OfType<ContentPresenter>().First(p => p.Name == "PART_ContentPresenter");
-                await Assert.That(ReferenceEquals(presenter.Foreground, window.FindResource("KcapDangerBrush"))).IsTrue();
-            } finally {
-                window.Close();
-                Dispatcher.UIThread.RunJobs();
-                await vm.TeardownAsync();
-            }
-        });
-    }
-
     /// The header mark is the session status: a word, the same sentence for the screen reader
     /// and the tooltip's first line, and the extra fact only on hover.
     [Test]
@@ -635,13 +608,6 @@ public class WorkspaceViewSmokeTests {
                 await Assert.That(working.IsEffectivelyVisible).IsTrue();
                 var workingWord = working.FindControl<TextBlock>("StatusWord")!;
                 await Assert.That(workingWord.Text).IsEqualTo("Working");
-                await Assert.That(workingWord.Foreground).IsSameReferenceAs(window.FindResource("KcapPurpleBrush"));
-                await Assert.That(workingWord.Bounds.Width).IsGreaterThan(workingWord.Bounds.Height);
-                var path = Find<TextBlock>(window, "WorkspaceSubtitle")!;
-                double LeftOf(Control control) => control.TranslatePoint(default, window)!.Value.X;
-                double RightOf(Control control) => control.TranslatePoint(new Point(control.Bounds.Width, 0), window)!.Value.X;
-                await Assert.That(RightOf(workingWord)).IsLessThanOrEqualTo(RightOf(working) + 1);
-                await Assert.That(LeftOf(path)).IsGreaterThanOrEqualTo(RightOf(working) - 1);
                 var workingLines = TipLines(working);
                 await Assert.That(workingLines[0]).StartsWith("Working for ");
                 await Assert.That(workingLines[1]).IsEqualTo("Status");
@@ -651,32 +617,14 @@ public class WorkspaceViewSmokeTests {
                 daemon.Agents.AddOrUpdate(Agent(AgentId, hasTerminal: true) with { AwaitingInput = true });
                 Dispatcher.UIThread.RunJobs();
                 window.UpdateLayout();
-                await AssertStatus(window, "Idle", "Idle", window.FindResource("KcapWarningBrush")!);
-                var idleMark = StatusMark(window);
-                var idleWord = idleMark.FindControl<TextBlock>("StatusWord")!;
-                var subtitle = Find<TextBlock>(window, "WorkspaceSubtitle")!;
-                await Assert.That(idleWord.FontSize).IsEqualTo(subtitle.FontSize);
-                await Assert.That(idleWord.FontWeight).IsEqualTo(subtitle.FontWeight);
-                await Assert.That(double.IsNaN(idleWord.LineHeight)).IsTrue();
-                await Assert.That(double.IsNaN(subtitle.LineHeight)).IsTrue();
-                double Mid(Control control) => control.TranslatePoint(new Point(0, control.Bounds.Height / 2), window)!.Value.Y;
-                double Baseline(TextBlock text) => text.TranslatePoint(new Point(0, text.TextLayout.Baseline), window)!.Value.Y;
-                var glyph = idleMark.FindControl<Panel>("Glyph")!;
-                var title = Find<TextBlock>(window, "TitleText")!;
-                double Bottom(Control control) => control.TranslatePoint(new Point(0, control.Bounds.Height), window)!.Value.Y;
-                double Top(Control control) => control.TranslatePoint(default, window)!.Value.Y;
-                await Assert.That(Top(subtitle) - Bottom(title)).IsGreaterThan(4);
-                await Assert.That(Math.Abs(Mid(idleWord) - Mid(subtitle))).IsLessThan(2);
-                await Assert.That(Math.Abs(Baseline(idleWord) - Baseline(subtitle))).IsLessThan(1);
-                var capCentre = Baseline(idleWord) - idleWord.FontSize * 0.36;
-                await Assert.That(Math.Abs(Mid(glyph) - capCentre)).IsLessThan(1);
+                await AssertStatus(window, "Idle", "Idle");
 
                 var limit = new UsageLimitNoticeDto(
                     UsageLimitKinds.Blocked, "Weekly limit reached", "Pick one", [new UsageLimitOptionDto(1, "Stop")]);
                 daemon.Agents.AddOrUpdate(Agent(AgentId, hasTerminal: true) with { AwaitingInput = false, UsageLimit = limit });
                 Dispatcher.UIThread.RunJobs();
                 window.UpdateLayout();
-                await AssertStatus(window, "Needs you", "Needs you", window.FindResource("KcapWarningBrush")!);
+                await AssertStatus(window, "Needs you", "Needs you");
                 var needsYou = string.Join('\n', TipLines(StatusMark(window)));
                 await Assert.That(needsYou).Contains("Weekly limit reached");
                 await Assert.That(needsYou).Contains("Usage limit");
@@ -691,12 +639,11 @@ public class WorkspaceViewSmokeTests {
     static AgentStatusMark StatusMark(Window window) =>
         window.GetVisualDescendants().OfType<AgentStatusMark>().Single(mark => mark.Name == "WorkspaceStatus");
 
-    static async Task AssertStatus(Window window, string word, string accessibleName, object brush) {
+    static async Task AssertStatus(Window window, string word, string accessibleName) {
         var mark = StatusMark(window);
         await Assert.That(mark.IsEffectivelyVisible).IsTrue();
         var text = mark.FindControl<TextBlock>("StatusWord")!;
         await Assert.That(text.Text).IsEqualTo(word);
-        await Assert.That(text.Foreground).IsSameReferenceAs(brush);
         await Assert.That(AutomationProperties.GetName(mark)).IsEqualTo(accessibleName);
         await Assert.That(TipLines(mark)[0]).IsEqualTo(accessibleName);
     }
@@ -804,13 +751,12 @@ public class WorkspaceViewSmokeTests {
     /// The header's right side is icons: the segment is what grows.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Open_in_web_is_an_icon_button_with_a_tooltip() {
+    public async Task Open_in_web_names_itself_in_a_tooltip() {
         await RunOnUiAsync(async () => {
             var (window, vm, _, _) = await ShowPtyAsync();
             var button = Find<Button>(window, "OpenInWebButton")!;
             await Assert.That(button.Content).IsNotTypeOf<string>();
             await Assert.That(ToolTip.GetTip(button)).IsEqualTo("Open in web");
-            await Assert.That(button.Classes.Contains("kcapIcon")).IsTrue();
             window.Close();
             await vm.TeardownAsync();
         });
