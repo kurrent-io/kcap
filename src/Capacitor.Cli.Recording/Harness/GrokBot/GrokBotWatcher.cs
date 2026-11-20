@@ -187,7 +187,12 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
     async Task<string?> CycleAsync(Run run, CancellationToken ct) {
         var client = await http.ForBackgroundAsync(ct);
 
-        foreach (var agent in await run.Source.ListAgentsAsync(ct)) {
+        var agents = await run.Source.ListAgentsAsync(ct);
+
+        // A chat that is gone is not one waiting to be read.
+        run.Unread.IntersectWith(agents.Select(agent => agent.Id));
+
+        foreach (var agent in agents) {
             var state   = run.States.GetValueOrDefault(agent.Id, GrokBotBotState.Empty);
             var now     = time.GetUtcNow();
             var changed = !run.Seen.TryGetValue(agent.Id, out var last)

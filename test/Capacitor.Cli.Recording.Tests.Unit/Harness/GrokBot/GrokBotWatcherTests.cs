@@ -184,12 +184,14 @@ public class GrokBotWatcherTests {
     }
 
     /// <summary>A chat that could not be read is skipped without failing the cycle, so a cycle that sent
-    /// nothing because it read nothing must not pass for one that had nothing to send.</summary>
+    /// nothing because it read nothing must not pass for one that had nothing to send. Once the chat is
+    /// gone it is no longer waiting to be read.</summary>
     [Test]
     public async Task A_running_watcher_says_how_many_chats_it_could_not_read() {
         var watcher = Watcher(new Server());
-        var options = OneOldChat() with { Once = false };
-        await File.WriteAllTextAsync(Directory.GetFiles(Tmp.PathTo("chats")).Single(), "{\"schemaVersion\":1,\"value\":{\"entr");
+        var options = OneOldChat() with { Once = false, Interval = TimeSpan.FromMilliseconds(50) };
+        var file    = Directory.GetFiles(Tmp.PathTo("chats")).Single();
+        await File.WriteAllTextAsync(file, "{\"schemaVersion\":1,\"value\":{\"entr");
         using var stop = new CancellationTokenSource();
 
         var running = watcher.RunAsync(options, _ => { }, stop.Token);
@@ -198,6 +200,17 @@ public class GrokBotWatcherTests {
         while ((status = watcher.Running()) is not { Cycled: true }) await Task.Delay(10, limit.Token);
 
         await Assert.That(status with { Pid = null }).IsEqualTo(new GrokBotWatchStatus("https://acme.kcap.ai", "default", null, Cycled: true, Unread: 1));
+
+        // The watcher may have the file open for the moment a read takes.
+        while (File.Exists(file)) {
+            try {
+                File.Delete(file);
+            } catch (IOException) {
+                await Task.Delay(10, limit.Token);
+            }
+        }
+
+        while (watcher.Running() is not { Unread: 0, Cycled: true }) await Task.Delay(10, limit.Token);
 
         await stop.CancelAsync();
         await Assert.That(await running).IsEqualTo(GrokBotWatchOutcome.Stopped);
