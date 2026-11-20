@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Reactive;
 using Avalonia.Collections;
 using Capacitor.App.Services;
-using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.PullRequests;
 using Capacitor.Cli.Core.WorkItems;
@@ -14,11 +13,6 @@ namespace Capacitor.App.ViewModels;
 /// failed section keeps its last projection and marks the pane stale, an authoritative empty
 /// answer clears it, and a terminal phase clears everything the server gave.
 public sealed partial class WorkContextViewModel {
-    readonly AvaloniaList<WorkContextPartViewModel> _parts = new();
-    readonly AvaloniaList<WorkContextPartViewModel> _thisSessionParts = new();
-    IReadOnlyList<WorkContextPartCount> _partCounts = [];
-    readonly AvaloniaList<string> _blockedBy = new();
-    readonly AvaloniaList<string> _waitingOnThisPart = new();
     readonly AvaloniaList<WorkContextLinkViewModel> _links = new();
     readonly AvaloniaList<WorkContextLinkViewModel> _issues = new();
     readonly List<WorkContextLinkViewModel> _summaryPrs = [];
@@ -36,14 +30,6 @@ public sealed partial class WorkContextViewModel {
         }
     }
 
-    public IAvaloniaReadOnlyList<WorkContextPartViewModel> Parts => _parts;
-    /// What the collapsed section lists: the parts this session is attached to, in part order.
-    public IAvaloniaReadOnlyList<WorkContextPartViewModel> ThisSessionParts => _thisSessionParts;
-    /// Open, this session, done: one entry per mark some part carries, so the numbers add up to the list.
-    public IReadOnlyList<WorkContextPartCount> PartCounts => _partCounts;
-    public IAvaloniaReadOnlyList<string> BlockedBy => _blockedBy;
-    /// The parts that wait on this session's part, from a work items v2 server.
-    public IAvaloniaReadOnlyList<string> WaitingOnThisPart => _waitingOnThisPart;
     public IAvaloniaReadOnlyList<WorkContextLinkViewModel> Links => _links;
     public IAvaloniaReadOnlyList<WorkContextLinkViewModel> Issues => _issues;
     public IAvaloniaReadOnlyList<WorkContextPersonViewModel> Contributors => _contributors;
@@ -71,6 +57,7 @@ public sealed partial class WorkContextViewModel {
         _issues.FirstOrDefault(IsPrimaryIssue) ?? _issues.FirstOrDefault();
     public string DisplayTitle => Title.Length > 0 && !string.Equals(Title, Key, StringComparison.OrdinalIgnoreCase) ? Title
         : PrimaryIssue is { } primary && IsPrimaryIssue(primary) && !IsFallbackIssueTitle(primary) ? primary.Title : "";
+    public string WorkItemLabel => DisplayTitle.Length > 0 ? DisplayTitle : Key ?? "";
     /// An untitled issue folds only into a header that spells its key: `!N` does not name the issue `#N`.
     public bool HasInlineIssue => PrimaryIssue is { } primary && IsPrimaryIssue(primary)
         && (IsFallbackIssueTitle(primary) ? HasHeaderKey(primary) : string.Equals(primary.Title, DisplayTitle, StringComparison.OrdinalIgnoreCase));
@@ -94,6 +81,7 @@ public sealed partial class WorkContextViewModel {
 
     void NotifyIdentity() {
         this.RaisePropertyChanged(nameof(DisplayTitle));
+        this.RaisePropertyChanged(nameof(WorkItemLabel));
         this.RaisePropertyChanged(nameof(HasInlineIssue));
         this.RaisePropertyChanged(nameof(HasSeparateIssue));
         this.RaisePropertyChanged(nameof(SeparateIssue));
@@ -105,19 +93,6 @@ public sealed partial class WorkContextViewModel {
         this.RaisePropertyChanged(nameof(SeparateIssues));
         RaiseRelated();
     }
-    string? _overview;
-    public string? Overview { get => _overview; private set => this.RaiseAndSetIfChanged(ref _overview, value); }
-    string? _stateLabel;
-    public string? StateLabel { get => _stateLabel; private set => this.RaiseAndSetIfChanged(ref _stateLabel, value); }
-    bool _isShipped;
-    public bool IsShipped { get => _isShipped; private set => this.RaiseAndSetIfChanged(ref _isShipped, value); }
-    bool _isClosed;
-    public bool IsClosed { get => _isClosed; private set => this.RaiseAndSetIfChanged(ref _isClosed, value); }
-    string? _partOfTitle;
-    public string? PartOfTitle { get => _partOfTitle; private set => this.RaiseAndSetIfChanged(ref _partOfTitle, value); }
-    string? _cycleNote;
-    public string? CycleNote { get => _cycleNote; private set => this.RaiseAndSetIfChanged(ref _cycleNote, value); }
-
     WorkContextLinkViewModel? _issue;
     public WorkContextLinkViewModel? Issue {
         get => _issue;
@@ -138,27 +113,8 @@ public sealed partial class WorkContextViewModel {
         }
     }
 
-    public string PartsHeader => _parts.Count switch {
-        0     => "0",
-        var n => $"{SettledCount} of {n}",
-    };
-    int SettledCount => _parts.Count(p => p.IsDone);
-    public bool HasParts => _parts.Count > 0;
-    /// Set by a work items v2 server's parts read: the title is the work item's, and topology is not read from.
+    /// Set by a work items v2 server's parts read, whose title is the work item's own.
     bool _partsModel;
-    public bool IsPartsModel {
-        get => _partsModel;
-        private set {
-            this.RaiseAndSetIfChanged(ref _partsModel, value);
-            this.RaisePropertyChanged(nameof(ShowsPartsProgress));
-        }
-    }
-    public string PartsProgress => $"{SettledCount} of {_parts.Count} parts done";
-    public bool ShowsPartsProgress => IsPartsModel && HasParts;
-    public bool HasWaitingOnThisPart => _waitingOnThisPart.Count > 0;
-    public bool HasThisSessionParts => _thisSessionParts.Count > 0;
-    public bool HasBlockers => _blockedBy.Count > 0;
-    public bool HasTopologyNotes => HasBlockers || !string.IsNullOrEmpty(CycleNote);
     public bool HasContributors => _contributors.Count > 0;
     public bool ShowsPeople => HasAgent && (_viewer is null
         || (_contributorRows.Count > 0
@@ -206,18 +162,6 @@ public sealed partial class WorkContextViewModel {
     string? _requesterAvatarUrl;
     public string? RequesterAvatarUrl { get => _requesterAvatarUrl; private set => this.RaiseAndSetIfChanged(ref _requesterAvatarUrl, value); }
 
-    bool _partsExpanded;
-    public bool PartsExpanded {
-        get => _partsExpanded;
-        private set {
-            this.RaiseAndSetIfChanged(ref _partsExpanded, value);
-            this.RaisePropertyChanged(nameof(PartsAccessibleName));
-        }
-    }
-    /// The folded counts are told apart only by their marks, so the header names them in words.
-    public string PartsAccessibleName => PartsExpanded || _partCounts.Count == 0
-        ? $"Parts, {PartsHeader}"
-        : $"Parts, {string.Join(", ", _partCounts.Select(c => c.Label))}";
     bool _peopleExpanded;
     public bool PeopleExpanded { get => _peopleExpanded; private set => this.RaiseAndSetIfChanged(ref _peopleExpanded, value); }
     bool _issuesExpanded;
@@ -269,7 +213,6 @@ public sealed partial class WorkContextViewModel {
     bool _subagentsExpanded;
     public bool SubagentsExpanded { get => _subagentsExpanded; private set => this.RaiseAndSetIfChanged(ref _subagentsExpanded, value); }
 
-    public ReactiveCommand<Unit, Unit> TogglePartsCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> TogglePeopleCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleIssuesCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleUsageCommand { get; private set; } = null!;
@@ -278,7 +221,6 @@ public sealed partial class WorkContextViewModel {
     public ReactiveCommand<Unit, Unit> ToggleSubagentsCommand { get; private set; } = null!;
 
     void InitializeProjections() {
-        TogglePartsCommand   = Toggle(() => PartsExpanded = !PartsExpanded);
         TogglePeopleCommand  = Toggle(() => PeopleExpanded = !PeopleExpanded);
         ToggleIssuesCommand  = Toggle(() => {
             if (IssuesOverflows) IssuesExpanded = !IssuesExpanded;
@@ -338,17 +280,12 @@ public sealed partial class WorkContextViewModel {
         PrimaryId = null;
         _requestedId = null;
         ClearItem();
-        ClearTopology();
     }
 
     void ClearItem() {
         _seedIssueIdentity = null;
         Key = null;
         Title = "";
-        Overview = null;
-        ApplyState(null);
-        _parts.Clear();
-        _waitingOnThisPart.Clear();
         _issues.Clear();
         IssuesExpanded = false;
         Issue = null;
@@ -358,39 +295,9 @@ public sealed partial class WorkContextViewModel {
         RaiseCardCounts();
     }
 
-    void ClearTopology() {
-        PartOfTitle = null;
-        CycleNote = null;
-        _blockedBy.Clear();
-        RaiseCardCounts();
-    }
-
     void RaiseCardCounts() {
-        SyncPartsFold();
-        this.RaisePropertyChanged(nameof(PartsHeader));
-        this.RaisePropertyChanged(nameof(PartsAccessibleName));
-        this.RaisePropertyChanged(nameof(HasParts));
-        this.RaisePropertyChanged(nameof(PartsProgress));
-        this.RaisePropertyChanged(nameof(ShowsPartsProgress));
-        this.RaisePropertyChanged(nameof(HasWaitingOnThisPart));
-        this.RaisePropertyChanged(nameof(HasThisSessionParts));
-        this.RaisePropertyChanged(nameof(HasBlockers));
-        this.RaisePropertyChanged(nameof(HasTopologyNotes));
         this.RaisePropertyChanged(nameof(HasContributors));
         this.RaisePropertyChanged(nameof(ShowsPeople));
-    }
-
-    void SyncPartsFold() {
-        StableRows.Sync(_thisSessionParts, _parts.Where(p => p.IsThisSession));
-        WorkContextPartCount[] counts = [
-            new(WorkContextPartMark.Unknown, _parts.Count(p => p.Mark == WorkContextPartMark.Unknown)),
-            new(WorkContextPartMark.ThisSession, _thisSessionParts.Count),
-            new(WorkContextPartMark.Settled, SettledCount),
-        ];
-        var present = counts.Where(c => c.Count > 0).ToArray();
-        if (present.SequenceEqual(_partCounts)) return;
-        _partCounts = present;
-        this.RaisePropertyChanged(nameof(PartCounts));
     }
 
     void RaiseRelated() {
@@ -424,25 +331,18 @@ public sealed partial class WorkContextViewModel {
         if (served is not null) PrimaryId = served;
         else if (!samePrimary) PrimaryId = requested;
 
-        // A failed parts read keeps the last parts for the same work item, as a failed item read does.
-        IsPartsModel = read.Parts is not null || (read.PartsFailed && samePrimary && IsPartsModel);
-        if (read.Item is { } item) ApplyItem(item, read.Assignments, withParts: !IsPartsModel);
+        // A failed parts read keeps the last title for the same work item, as a failed item read does.
+        _partsModel = read.Parts is not null || (read.PartsFailed && samePrimary && _partsModel);
+        if (read.Item is { } item) ApplyItem(item, withTitle: !_partsModel);
         else if (!samePrimary) {
             ClearItem();
             Title = read.Primary.Label;
         }
-
-        if (IsPartsModel) {
-            ClearTopology();
-            if (read.Parts is { } parts) ApplyParts(parts);
-        }
-        else if (!read.TopologyFailed && read.Topology is { } topology) ApplyTopology(topology);
-        else if (!samePrimary) ClearTopology();
-        if (!IsPartsModel) Replace(_waitingOnThisPart, [], w => w);
+        if (read.Parts is { } parts) Title = parts.WorkItem.Title;
 
         ApplyLinks(read);
         Phase = WorkContextPhase.Ready;
-        IsStale = read.ItemFailed || read.TopologyFailed || read.SummaryFailed || read.PartsFailed;
+        IsStale = read.ItemFailed || read.SummaryFailed || read.PartsFailed;
     }
 
     bool _hasSessionFacts;
@@ -469,24 +369,16 @@ public sealed partial class WorkContextViewModel {
 
     static bool Same(string a, string? b) => string.Equals(a, b, StringComparison.Ordinal);
 
-    void ApplyItem(WorkItemDto item, IReadOnlyList<SessionWorkItemAssignmentDto> assignments, bool withParts) {
+    void ApplyItem(WorkItemDto item, bool withTitle) {
         _seedIssueIdentity = item.Key is { } seed
             ? IssueIdentity("issue", seed.Provider, seed.Provider == "github" ? seed.Value.Replace('!', '#') : seed.Value)
             : null;
         Key = FirstNonBlank(item.Key?.ShortKey);
-        Overview = item.IsOverviewMechanical ? null : FirstNonBlank(item.Overview);
-        ApplyState(item.State?.Kind);
 
-        if (withParts) {
+        if (withTitle) {
             // An item with no tracker or generated title arrives with its key as the title.
             var title = FirstNonBlank(item.EnrichedTitle, item.Title) ?? "";
             Title = string.Equals(title, Key, StringComparison.OrdinalIgnoreCase) ? "" : title;
-            var attached = new HashSet<string>(assignments.Select(a => a.WorkItemId), StringComparer.Ordinal);
-            var parts = item.Parts
-                .OrderBy(p => p.Ordinal)
-                .Select(p => new WorkContextPartViewModel(p.Title, PartMark(p, attached)))
-                .ToList();
-            Replace(_parts, parts, p => (p.Title, p.Mark, p.Status));
         }
 
         ApplyIssues(item.Links.Where(l => l.Kind == "issue" && l.LinkClass == "link"));
@@ -537,44 +429,6 @@ public sealed partial class WorkContextViewModel {
         return true;
     }
 
-    /// The part whose visible sessions list this session. A session on the work item itself is in none.
-    WorkContextPartDto? SessionPart(WorkContextPartsDto read) {
-        var session = SessionIds.Canonical(_reader.CurrentState);
-        return read.Parts.FirstOrDefault(p => session is not null && p.SessionIds.Any(id => SessionIds.Canonical(id) == session));
-    }
-
-    void ApplyParts(WorkContextPartsDto read) {
-        Title = read.WorkItem.Title;
-        var mine = SessionPart(read);
-        var parts = read.Parts.Select(p => {
-            var status = WorkStatusExtensions.ParseWorkStatus(p.Status);
-            var mark = ReferenceEquals(p, mine) ? WorkContextPartMark.ThisSession
-                : status == WorkStatus.Done ? WorkContextPartMark.Settled
-                : WorkContextPartMark.Unknown;
-            return new WorkContextPartViewModel(p.Title, mark, status);
-        }).ToList();
-        Replace(_parts, parts, p => (p.Title, p.Mark, p.Status));
-        List<string> waiting = mine is null ? [] : read.Parts
-            .Where(p => p.WaitsOn.Any(w => Same(w.WorkItemId, mine.WorkItemId)))
-            .Select(p => p.Title)
-            .ToList();
-        Replace(_waitingOnThisPart, waiting, w => w);
-        RaiseCardCounts();
-    }
-
-    static WorkContextPartMark PartMark(WorkItemPartDto part, HashSet<string> attached) =>
-        part.IsSettled ? WorkContextPartMark.Settled
-        : attached.Contains(part.WorkItemId) ? WorkContextPartMark.ThisSession
-        : WorkContextPartMark.Unknown;
-
-    /// The server may add kinds; an unknown one is shown as sent, in the in-flight look.
-    void ApplyState(string? kind) {
-        var text = kind?.Replace('_', ' ').Trim().ToUpperInvariant();
-        StateLabel = string.IsNullOrEmpty(text) ? null : text;
-        IsShipped = kind == "shipped";
-        IsClosed  = kind == "closed";
-    }
-
     void ApplyIssues(IEnumerable<WorkItemLinkDto> links) {
         var cards = new List<WorkContextLinkViewModel>();
         foreach (var link in links) {
@@ -601,17 +455,6 @@ public sealed partial class WorkContextViewModel {
     static string IssueIdentity(WorkItemLinkDto link) => IssueIdentity(link.Kind, link.Provider, link.Value);
 
     static string IssueIdentity(string kind, string provider, string value) => string.Join('\u001f', kind, provider, value);
-
-    void ApplyTopology(WorkItemTopologyDto topology) {
-        PartOfTitle = topology.PartOf?.Title;
-        Replace(_blockedBy, topology.BlockedBy.Select(b => b.Title).ToList(), b => b);
-        CycleNote = topology.Cycle switch {
-            "cyclic"        => "Dependencies form a cycle",
-            "indeterminate" => "Dependencies could not be fully resolved",
-            _               => null,
-        };
-        RaiseCardCounts();
-    }
 
     void ApplyLinks(WorkContextRead read) {
         if (!read.SummaryFailed && read.Summary is { } summary) {

@@ -162,33 +162,6 @@ public class WorkContextViewSmokeTests {
         _                  => 255,
     };
 
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_work_item_badge_tracks_refreshed_state_with_its_shared_style_and_accessible_label() {
-        await RunOnUiAsync(async () => {
-            await using var host = new Host();
-            var read = KeyOnlyRead();
-            await host.ShowAsync(read);
-            var badge = host.Find<StatusBadge>("StatePill");
-            var word = badge.GetVisualDescendants().OfType<TextBlock>().Single();
-            var peer = Peer(badge);
-            foreach (var (kind, tone) in new[] { ("in_flight", "Purple"), ("shipped", "Success"), ("closed", "Muted"), ("in_flight", "Purple") }) {
-                host.Source.Enqueue(read with { Item = read.Item! with { State = new WorkItemStateDto { Kind = kind } } });
-                await host.Vm.RefreshCommand.Execute();
-                await (host.Vm.PendingReadForTesting ?? Task.CompletedTask);
-                Dispatcher.UIThread.RunJobs();
-                host.Window.UpdateLayout();
-
-                await Assert.That(badge.IsEffectivelyVisible).IsTrue();
-                await Assert.That(badge.Classes.Contains("kcapBadge")).IsTrue();
-                await Assert.That(word.Text).IsEqualTo(kind.Replace('_', ' ').ToUpperInvariant());
-                await Assert.That(peer.GetName()).IsEqualTo(word.Text);
-                await Assert.That(peer.GetChildren()).IsEmpty();
-                await Assert.That(word.Foreground).IsSameReferenceAs(host.Window.FindResource($"Kcap{tone}Brush"));
-            }
-        });
-    }
-
     /// Before the daemon reports the agent the pane knows no harness, checkout or requester, so the
     /// sections that would hold only dashes stay out and the waiting note stands alone.
     [Test]
@@ -224,17 +197,14 @@ public class WorkContextViewSmokeTests {
             await using var host = new Host();
             await host.ShowAsync(KeyOnlyRead(issueKey));
 
-            var key = host.Find<TextBlock>("WorkContextKey");
-            await Assert.That(key.Text).IsEqualTo("WK-2198");
-            await Assert.That(key.IsEffectivelyVisible).IsTrue();
-            await Assert.That(ReferenceEquals(key.Foreground, host.Window.FindResource("KcapTextBrush"))).IsTrue()
+            var title = host.Find<TextBlock>("WorkContextTitle");
+            await Assert.That(title.Text).IsEqualTo("WK-2198");
+            await Assert.That(ReferenceEquals(title.Foreground, host.Window.FindResource("KcapTextBrush"))).IsTrue()
                 .Because("the key is identity, not a status colour");
-            await Assert.That(host.Find<TextBlock>("WorkContextTitle").IsEffectivelyVisible).IsFalse();
+            await Assert.That(host.Find<TextBlock>("WorkContextKey").IsEffectivelyVisible).IsFalse()
+                .Because("the key already names the work item");
 
             var issueSection = host.Find<StackPanel>("IssueSection");
-            var open = host.Find<Button>("OpenWorkItemButton");
-            await Assert.That(open.IsEffectivelyVisible).IsTrue();
-            await Assert.That(open.Parent).IsSameReferenceAs(host.Find<Button>("RefreshButton").Parent);
             await Assert.That(issueSection.IsEffectivelyVisible).IsEqualTo(!inline);
             if (!inline) {
                 var linkKey = host.Find<TextBlock>("IssueKey");
@@ -520,92 +490,6 @@ public class WorkContextViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task This_session_part_mark_is_purple_and_settled_stays_green() {
-        await RunOnUiAsync(async () => {
-            await using var host = new Host();
-            var primary = new SessionWorkItemAssignmentDto { WorkItemId = "w1", Label = "WK-2198", Source = "mcp", Confidence = 1, IsPrimary = true };
-            var here = new SessionWorkItemAssignmentDto { WorkItemId = "p1", Label = "part", Source = "mcp", Confidence = 1, IsPrimary = false };
-            var item = new WorkItemDto {
-                WorkItemId = "w1",
-                Title = "WK-2198",
-                Key = new WorkItemKeyDto { ShortKey = "WK-2198", Provider = "linear", Kind = "issue", Value = "WK-2198" },
-                State = new WorkItemStateDto { Kind = "in_flight" },
-                Parts = [
-                    new WorkItemPartDto { WorkItemId = "p1", Title = "Here", Ordinal = 0 },
-                    new WorkItemPartDto { WorkItemId = "p2", Title = "Done", Ordinal = 1, IsSettled = true },
-                ],
-            };
-            await host.ShowAsync(new WorkContextRead(WorkContextReadKind.Ready, [primary, here], primary, item, null,
-                new SessionSummaryDto { SessionId = SessionA }, false, false, false, null));
-
-            await host.Vm.TogglePartsCommand.Execute();
-            Dispatcher.UIThread.RunJobs();
-            host.Window.UpdateLayout();
-            var purple = host.Window.FindResource("KcapPurpleBrush");
-            var green = host.Window.FindResource("KcapSuccessBrush");
-            var marks = MarksBeside(host.Find<ItemsControl>("PartsList"), "Here");
-            await Assert.That(marks.Any(e => ReferenceEquals(e.Foreground, purple))).IsTrue();
-            await Assert.That(marks.Any(e => ReferenceEquals(e.Foreground, green))).IsFalse();
-
-            marks = MarksBeside(host.Find<ItemsControl>("PartsList"), "Done");
-            await Assert.That(marks.Any(e => ReferenceEquals(e.Foreground, green))).IsTrue();
-            await Assert.That(marks.Any(e => ReferenceEquals(e.Foreground, purple))).IsFalse();
-        });
-    }
-
-    /// Folded, which is how the section starts, the header carries a marked count for open, this
-    /// session and done, and the list holds this session's parts alone.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_collapsed_parts_section_counts_every_mark_and_lists_this_sessions_parts_only() {
-        await RunOnUiAsync(async () => {
-            await using var host = new Host();
-            var primary = new SessionWorkItemAssignmentDto { WorkItemId = "w1", Label = "WK-2198", Source = "mcp", Confidence = 1, IsPrimary = true };
-            var here = new SessionWorkItemAssignmentDto { WorkItemId = "p2", Label = "part", Source = "mcp", Confidence = 1, IsPrimary = false };
-            var item = new WorkItemDto {
-                WorkItemId = "w1",
-                Title = "WK-2198",
-                Key = new WorkItemKeyDto { ShortKey = "WK-2198", Provider = "linear", Kind = "issue", Value = "WK-2198" },
-                State = new WorkItemStateDto { Kind = "in_flight" },
-                Parts = [
-                    new WorkItemPartDto { WorkItemId = "p1", Title = "Open one", Ordinal = 0 },
-                    new WorkItemPartDto { WorkItemId = "p2", Title = "Here", Ordinal = 1 },
-                    new WorkItemPartDto { WorkItemId = "p3", Title = "Open two", Ordinal = 2 },
-                    new WorkItemPartDto { WorkItemId = "p4", Title = "Done", Ordinal = 3, IsSettled = true },
-                ],
-            };
-            await host.ShowAsync(new WorkContextRead(WorkContextReadKind.Ready, [primary, here], primary, item, null,
-                new SessionSummaryDto { SessionId = SessionA }, false, false, false, null));
-
-            var counts = host.Find<ItemsControl>("PartCounts");
-            await Assert.That(counts.IsEffectivelyVisible).IsTrue();
-            await Assert.That(host.Find<TextBlock>("PartsHeaderText").IsEffectivelyVisible).IsFalse();
-            await Assert.That(VisibleTexts(counts)).IsEquivalentTo(new[] { "2", "1", "1" }, CollectionOrdering.Matching);
-
-            var border = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapBorderBrush")!).Color;
-            var purple = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapPurpleBrush")!).Color;
-            var success = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapSuccessBrush")!).Color;
-            var marks = counts.GetVisualDescendants().OfType<AppIcon>().Where(e => e.IsEffectivelyVisible).ToList();
-            await Assert.That(marks.Select(e => ((ISolidColorBrush)e.Foreground!).Color))
-                .IsEquivalentTo(new[] { border, purple, success }, CollectionOrdering.Matching);
-
-            await Assert.That(host.Find<ItemsControl>("PartsList").IsEffectivelyVisible).IsFalse();
-            var folded = host.Find<ItemsControl>("ThisSessionPartsList");
-            await Assert.That(folded.IsEffectivelyVisible).IsTrue();
-            await Assert.That(VisibleTexts(folded)).IsEquivalentTo(new[] { "Here" });
-
-            await host.Vm.TogglePartsCommand.Execute();
-            Dispatcher.UIThread.RunJobs();
-            host.Window.UpdateLayout();
-            await Assert.That(folded.IsEffectivelyVisible).IsFalse();
-            await Assert.That(host.Find<TextBlock>("PartsHeaderText").IsEffectivelyVisible).IsTrue();
-            await Assert.That(VisibleTexts(host.Find<ItemsControl>("PartsList")))
-                .IsEquivalentTo(new[] { "Open one", "Here", "Open two", "Done" }, CollectionOrdering.Matching);
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
     public async Task Signed_out_sign_in_uses_primary_not_status_green() {
         await RunOnUiAsync(async () => {
             await using var host = new Host();
@@ -651,11 +535,6 @@ public class WorkContextViewSmokeTests {
 
     static TextBlock SignInLabel(Button button) =>
         HeaderPresenter(button).GetVisualDescendants().OfType<TextBlock>().First(t => t.Text == "Sign in");
-
-    static AppIcon[] MarksBeside(ItemsControl list, string title) {
-        var row = list.GetVisualDescendants().OfType<TextBlock>().First(t => t.Text == title).Parent as StackPanel;
-        return row!.Children.OfType<Panel>().First().GetVisualDescendants().OfType<AppIcon>().Where(e => e.IsEffectivelyVisible).ToArray();
-    }
 
     static WorkContextRead CrowdedWhoRead() {
         var read = KeyOnlyRead();

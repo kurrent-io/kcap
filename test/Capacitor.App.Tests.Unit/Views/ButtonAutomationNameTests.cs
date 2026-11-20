@@ -130,8 +130,6 @@ public class ButtonAutomationNameTests {
             WorkItemId = "w1",
             Title = "Name the buttons",
             Key = new WorkItemKeyDto { ShortKey = "WK-2198", Provider = "linear", Kind = "issue", Value = "WK-2198" },
-            State = new WorkItemStateDto { Kind = "in_flight" },
-            Parts = [new WorkItemPartDto { WorkItemId = "p1", Title = "Sweep", Ordinal = 0 }],
             Links = titledIssues
                 ? [Issue("WK-1", "One", seed: true), Issue("WK-2", "Two", seed: false)]
                 : [Issue("WK-1", null, seed: true)],
@@ -168,12 +166,11 @@ public class ButtonAutomationNameTests {
             await vm.ToggleCheckoutCommand.Execute();
             await vm.ToggleUsageCommand.Execute();
             await vm.Plan.ToggleCommand.Execute();
-            await vm.TogglePartsCommand.Execute();
             Settle(window);
             var opened = await AnnouncedAsync(window);
 
             var names = folded.Concat(opened).ToHashSet();
-            string[] expected = ["Parts, 1 open", "Parts, 0 of 1", "Who's on it", "Copy Ada", "Copy Bob", "Issues", "Plan", "Agents",
+            string[] expected = ["Work item", "Open Name the buttons", "Who's on it", "Copy Ada", "Copy Bob", "Issues", "Plan", "Agents",
                                  "Usage, expanded", "Usage, collapsed", "Compact context", "Checkout, collapsed", "Checkout, expanded",
                                  "Session, collapsed", "Session, expanded",
                                  "x-design.md", pullRequestCard ? "Pull requests" : "#7: Fix",

@@ -1347,6 +1347,7 @@ public partial class App : Application {
             new CommandCatalog(ops, shownService.Status, _userHome, _time, _shutdown.Token));
         var workItems = sessionHttp is null || profiles is null || string.IsNullOrEmpty(profiles.Resolution.ServerUrl)
             ? null : new WorkItemPageApi(sessionHttp, profiles);
+        Action<string>? openWorkItem = workItems is null ? null : id => OpenWindow()?.OpenWorkItemCommand.Execute(id).Subscribe();
         // The shown status: a planned restart must read as one in the workspace too, not as a dead daemon.
         WorkspaceViewModel BuildWorkspace(string agentId) => new(
             agentId, shownService, actions, attachFactory, () => XtermTerminalSurface.ForLocalPane(PtyDumpPath), _time, workspaceOpener, permissions,
@@ -1361,7 +1362,7 @@ public partial class App : Application {
             appSubject: appSubject, notifier: notifier, serverLane: serverLane.Status, workContextLayout: workContextLayout,
             handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
             pickers: pickers,
-            inAppPages: () => inAppPages.IsOn, workItems: workItems);
+            inAppPages: () => inAppPages.IsOn, workItems: workItems, openWorkItem: openWorkItem);
         // The origin lookup below and this call are two reads of a cache the directory's own
         // background recompute mutates, so the row can be gone by the time this runs: no row, no
         // host, and the click opens nothing.
@@ -1377,7 +1378,7 @@ public partial class App : Application {
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
                     heldMessages: heldMessages, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
                     inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer,
-                    workItems: workItems)
+                    workItems: workItems, openWorkItem: openWorkItem)
                 : null;
         // One for the app's life: a failed hand-off's draft outlives the composer that sent it.
         var handoffDrafts = new HandoffDrafts(serverLane.LaunchFailures, directory, _time);
@@ -1416,7 +1417,7 @@ public partial class App : Application {
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
                     handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
                     inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer,
-                    workItems: workItems)
+                    workItems: workItems, openWorkItem: openWorkItem)
                 : null;
 
         // Windows hides the main window to the notification area on close, where nothing else says kcap is still there.

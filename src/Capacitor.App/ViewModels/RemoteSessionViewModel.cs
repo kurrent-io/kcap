@@ -333,7 +333,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             HandoffOutcomeReader? handoffOutcomes = null, IHeldMessagesApi? heldMessages = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
             Func<bool>? inAppPages = null, Func<Task>? retryConnection = null, LocalServerRecoveryViewModel? localServer = null,
-            IWorkItemPageApi? workItems = null, LastReads<SessionDetailFetch>? sessionHistories = null) {
+            IWorkItemPageApi? workItems = null, LastReads<SessionDetailFetch>? sessionHistories = null, Action<string>? openWorkItem = null) {
         _drafts = drafts;
         _localMachine = localMachine;
         _handoffFactory = handoff;
@@ -370,7 +370,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         var runs = _runs = new SessionRuns(time) { OpensSubagents = readSubagent is not null };
         commands?.Track(row.Key, runs).DisposeWith(_disposables);
         WorkContext = new WorkContextViewModel(_presence, workContext, time, opener, runs,
-            requestSignIn, signInCompleted, actions.OpenWorkItemInWeb, plans, planActivity,
+            requestSignIn, signInCompleted, openWorkItem, plans, planActivity,
             artefacts: Artefacts, isRemote: true, serverLane: lane.Status,
             canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
             sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout,

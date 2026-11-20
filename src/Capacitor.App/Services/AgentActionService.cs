@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Capacitor.Cli.Core.LocalIpc;
-using Capacitor.Cli.Core.WorkItems;
 
 namespace Capacitor.App.Services;
 
@@ -202,16 +201,6 @@ public sealed class AgentActionService {
     /// A session's own page, for a row no agent stands behind. Never throws.
     public void OpenSessionInWeb(string sessionId) =>
         OpenUrl(_remoteServerUrl, $"/sessions/{Uri.EscapeDataString(sessionId)}", "Not signed in to a server");
-
-    /// The work item's page, always on the app profile's own server: that is the server whose read
-    /// named the id, and a daemon snapshot's server may be a different one. Never throws.
-    public void OpenWorkItemInWeb(string workItemId) {
-        if (WorkContextIds.ValidWorkItemId(workItemId) is not { } id) {
-            _notifier.Notify("This work item has no usable id");
-            return;
-        }
-        OpenUrl(_remoteServerUrl, $"/work-items/{Uri.EscapeDataString(id)}", "Not signed in to a server");
-    }
 
     static string AgentPath(string agentId) => $"/agents/{Uri.EscapeDataString(agentId)}";
 

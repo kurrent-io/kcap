@@ -982,9 +982,6 @@ public class WorkContextViewModelTests {
     static SessionWorkItemAssignmentDto Row(string id, string label, bool primary = true) =>
         new() { WorkItemId = id, Label = label, Source = "mcp", Confidence = 1, IsPrimary = primary };
 
-    static WorkItemPartDto Part(string id, string title, int ordinal, bool settled = false) =>
-        new() { WorkItemId = id, Title = title, Ordinal = ordinal, IsSettled = settled };
-
     static WorkItemLinkDto Link(string kind, string shortKey, string? url = null, string? title = null, string linkClass = "link",
             string? value = null, string provider = "github") =>
         new() {
@@ -999,34 +996,27 @@ public class WorkContextViewModelTests {
         new() { UserId = userId, DisplayName = name, LastActivityAt = at, AvatarUrl = avatar };
 
     static WorkItemDto Item(
-            string id = "w1", string title = "WK-2198", string? enriched = "Desktop shell: work-context sidebar", string? key = "WK-2198",
-            string? state = "in_flight", params WorkItemPartDto[] parts) =>
+            string id = "w1", string title = "WK-2198", string? enriched = "Desktop shell: work-context sidebar", string? key = "WK-2198") =>
         new() {
             WorkItemId = id, Title = title, EnrichedTitle = enriched,
             Key = key is null ? null : new WorkItemKeyDto { ShortKey = key, Provider = "linear", Kind = "issue", Value = key },
-            State = state is null ? null : new WorkItemStateDto { Kind = state },
-            Parts = [.. parts],
         };
 
     static SessionPullRequestDto Pr(string owner, string repo, int number, string? url = null, string? title = null) =>
         new() { RepoHash = "h", Owner = owner, RepoName = repo, Number = number, Url = url, Title = title };
 
     static WorkContextRead ReadyWith(
-            SessionWorkItemAssignmentDto? primary, WorkItemDto? item = null, WorkItemTopologyDto? topology = null, SessionSummaryDto? summary = null,
-            bool itemFailed = false, bool topologyFailed = false, bool summaryFailed = false, IReadOnlyList<SessionWorkItemAssignmentDto>? assignments = null) =>
-        new(WorkContextReadKind.Ready, assignments ?? (primary is null ? [] : [primary]), primary, item, topology,
-            summary ?? (summaryFailed ? null : new SessionSummaryDto { SessionId = SessionA }), itemFailed, topologyFailed, summaryFailed, null);
-
-    static WorkItemTopologyDto Topology() => new() {
-        Item = new WorkItemRefDto { WorkItemId = "w1", Title = "Desktop shell: work-context sidebar" },
-    };
+            SessionWorkItemAssignmentDto? primary, WorkItemDto? item = null, SessionSummaryDto? summary = null,
+            bool itemFailed = false, bool summaryFailed = false, IReadOnlyList<SessionWorkItemAssignmentDto>? assignments = null) =>
+        new(WorkContextReadKind.Ready, assignments ?? (primary is null ? [] : [primary]), primary, item, null,
+            summary ?? (summaryFailed ? null : new SessionSummaryDto { SessionId = SessionA }), itemFailed, false, summaryFailed, null);
 
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_throwing_apply_still_stops_reading_and_lets_teardown_finish() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            h.Source.Enqueue(ReadyWith(Row("w1", "WK-1 — t"), Item(parts: Part("p1", "First", 0)), assignments: [null!]));
+            h.Source.Enqueue(ReadyWith(Row("w1", "WK-1 — t"), Item() with { Links = [null!] }));
 
             await h.PushAsync(Dto());
 
@@ -1038,78 +1028,31 @@ public class WorkContextViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_card_shows_key_title_parts_marks_part_of_blockers_and_the_cycle_note() {
+    public async Task The_card_shows_the_work_items_key_and_title() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            var topology = Topology() with {
-                PartOf = new WorkItemRefDto { WorkItemId = "w0", Title = "Parent epic" },
-                BlockedBy = [new WorkItemRefDto { WorkItemId = "b1", Title = "Pin the helper" }],
-                Cycle = "indeterminate",
-            };
-            var item = Item(parts: [Part("p3", "Third", 2, settled: true), Part("p2", "Second", 1), Part("p1", "First", 0)]);
-            h.Source.Enqueue(ReadyWith(Row("w1", "WK-2198 — old label"), item, topology,
-                assignments: [Row("w1", "WK-2198 — old label"), Row("p1", "part", primary: false)]));
+            h.Source.Enqueue(ReadyWith(Row("w1", "WK-2198 — old label"), Item()));
 
             await h.PushAsync(Dto());
 
             await Assert.That(h.Vm.Phase).IsEqualTo(WorkContextPhase.Ready);
             await Assert.That(h.Vm.Key).IsEqualTo("WK-2198");
-            await Assert.That(h.Vm.Title).IsEqualTo("Desktop shell: work-context sidebar");
-            await Assert.That(h.Vm.PartOfTitle).IsEqualTo("Parent epic");
-            await Assert.That(h.Vm.Parts.Select(p => p.Title)).IsEquivalentTo(new[] { "First", "Second", "Third" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
-            await Assert.That(h.Vm.Parts[0].Mark).IsEqualTo(WorkContextPartMark.ThisSession);
-            await Assert.That(h.Vm.Parts[1].Mark).IsEqualTo(WorkContextPartMark.Unknown);
-            await Assert.That(h.Vm.Parts[2].Mark).IsEqualTo(WorkContextPartMark.Settled);
-            await Assert.That(h.Vm.Parts[2].IsSettled).IsTrue();
-            await Assert.That(h.Vm.PartsHeader).IsEqualTo("1 of 3");
-            await Assert.That(h.Vm.PartCounts).IsEquivalentTo(new WorkContextPartCount[] {
-                new(WorkContextPartMark.Unknown, 1), new(WorkContextPartMark.ThisSession, 1), new(WorkContextPartMark.Settled, 1),
-            }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
-            await Assert.That(h.Vm.ThisSessionParts.Select(p => p.Title)).IsEquivalentTo(new[] { "First" });
-            await Assert.That(h.Vm.PartsAccessibleName).IsEqualTo("Parts, 1 open, 1 in this session, 1 done");
-            await h.Vm.TogglePartsCommand.Execute();
-            await Assert.That(h.Vm.PartsAccessibleName).IsEqualTo("Parts, 1 of 3");
-            await Assert.That(h.Vm.BlockedBy[0]).IsEqualTo("Pin the helper");
-            await Assert.That(h.Vm.HasBlockers).IsTrue();
-            await Assert.That(h.Vm.CycleNote).IsEqualTo("Dependencies could not be fully resolved");
+            await Assert.That(h.Vm.WorkItemLabel).IsEqualTo("Desktop shell: work-context sidebar");
             await h.Vm.TeardownAsync();
         });
     }
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_settled_part_this_session_is_attached_to_counts_as_settled_and_one_part_reads_singular() {
+    public async Task An_item_without_a_key_shows_its_title_alone() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            h.Source.Enqueue(ReadyWith(Row("w1", "t"), Item(parts: Part("p1", "Only", 0, settled: true)),
-                assignments: [Row("w1", "t"), Row("p1", "part", primary: false)]));
-
-            await h.PushAsync(Dto());
-
-            await Assert.That(h.Vm.Parts[0].Mark).IsEqualTo(WorkContextPartMark.Settled);
-            await Assert.That(h.Vm.PartsHeader).IsEqualTo("1 of 1");
-            await Assert.That(h.Vm.PartCounts).IsEquivalentTo(new WorkContextPartCount[] { new(WorkContextPartMark.Settled, 1) });
-            await Assert.That(h.Vm.HasThisSessionParts).IsFalse();
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task An_item_without_a_key_shows_its_title_alone_and_a_cycle_note_needs_no_blockers() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness();
-            h.Source.Enqueue(ReadyWith(Row("w1", "Daemon tests flake"), Item(title: "Daemon tests flake", enriched: null, key: null),
-                new WorkItemTopologyDto { Cycle = "cyclic" }));
+            h.Source.Enqueue(ReadyWith(Row("w1", "Daemon tests flake"), Item(title: "Daemon tests flake", enriched: null, key: null)));
 
             await h.PushAsync(Dto());
 
             await Assert.That(h.Vm.Key).IsNull();
-            await Assert.That(h.Vm.Title).IsEqualTo("Daemon tests flake");
-            await Assert.That(h.Vm.PartsHeader).IsEqualTo("0");
-            await Assert.That(h.Vm.HasParts).IsFalse();
-            await Assert.That(h.Vm.HasBlockers).IsFalse();
-            await Assert.That(h.Vm.CycleNote).IsEqualTo("Dependencies form a cycle");
+            await Assert.That(h.Vm.WorkItemLabel).IsEqualTo("Daemon tests flake");
             await h.Vm.TeardownAsync();
         });
     }
@@ -1128,6 +1071,7 @@ public class WorkContextViewModelTests {
             await h.PushAsync(Dto());
             await Assert.That(h.Vm.Key).IsEqualTo("WK-2198");
             await Assert.That(h.Vm.Title).IsEqualTo("");
+            await Assert.That(h.Vm.WorkItemLabel).IsEqualTo("WK-2198");
 
             await h.TickAsync();
             await Assert.That(h.Vm.Title).IsEqualTo("Desktop shell");
@@ -1140,14 +1084,13 @@ public class WorkContextViewModelTests {
     public async Task Without_an_item_a_new_primary_shows_the_assignment_label_whole_with_no_key() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            h.Source.Enqueue(ReadyWith(Row("w1", "WK-2198 — Desktop shell"), itemFailed: true, topology: Topology()));
+            h.Source.Enqueue(ReadyWith(Row("w1", "WK-2198 — Desktop shell"), itemFailed: true));
 
             await h.PushAsync(Dto());
 
             await Assert.That(h.Vm.Phase).IsEqualTo(WorkContextPhase.Ready);
             await Assert.That(h.Vm.Key).IsNull();
             await Assert.That(h.Vm.Title).IsEqualTo("WK-2198 — Desktop shell");
-            await Assert.That(h.Vm.StateLabel).IsNull();
             await Assert.That(h.Vm.IsStale).IsTrue();
             await h.Vm.TeardownAsync();
         });
@@ -1159,46 +1102,23 @@ public class WorkContextViewModelTests {
         await RunOnUiAsync(async () => {
             var h = new Harness();
             h.Source.Enqueue(
-                ReadyWith(Row("w1", "WK-1 — t"), Item(parts: Part("p1", "First", 0))),
+                ReadyWith(Row("w1", "WK-1 — t"), Item()),
                 ReadyWith(Row("w1", "WK-1 — t"), itemFailed: true),
                 ReadyWith(Row("w9", "WK-9 — other"), itemFailed: true),
                 ReadyWith(Row("w9", "WK-9 — other"), Item(id: "w9", key: "WK-9", enriched: "other")));
             await h.PushAsync(Dto());
             await h.TickAsync();
             await Assert.That(h.Vm.Key).IsEqualTo("WK-2198");
-            await Assert.That(h.Vm.Parts.Count).IsEqualTo(1);
             await Assert.That(h.Vm.IsStale).IsTrue();
 
             await h.TickAsync();
             await Assert.That(h.Vm.Key).IsNull();
             await Assert.That(h.Vm.Title).IsEqualTo("WK-9 — other");
-            await Assert.That(h.Vm.Parts).IsEmpty();
             await Assert.That(h.Vm.IsStale).IsTrue();
 
             await h.TickAsync();
             await Assert.That(h.Vm.Key).IsEqualTo("WK-9");
             await Assert.That(h.Vm.IsStale).IsFalse();
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task A_topology_blip_keeps_blockers_for_the_same_primary_and_clears_them_for_a_new_one() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness();
-            var blocked = Topology() with { BlockedBy = [new WorkItemRefDto { WorkItemId = "b1", Title = "Pin the helper" }] };
-            h.Source.Enqueue(
-                ReadyWith(Row("w1", "t"), Item(), blocked),
-                ReadyWith(Row("w1", "t"), Item(), topologyFailed: true),
-                ReadyWith(Row("w9", "other"), Item(id: "w9"), topologyFailed: true));
-            await h.PushAsync(Dto());
-            await h.TickAsync();
-            await Assert.That(h.Vm.BlockedBy.Count).IsEqualTo(1);
-            await Assert.That(h.Vm.IsStale).IsTrue();
-
-            await h.TickAsync();
-            await Assert.That(h.Vm.BlockedBy).IsEmpty();
             await h.Vm.TeardownAsync();
         });
     }
@@ -1211,86 +1131,28 @@ public class WorkContextViewModelTests {
         await RunOnUiAsync(async () => {
             var h = new Harness();
             h.Source.Enqueue(
-                ReadyWith(Row("w1", "t"), Item(id: "w9", parts: Part("p1", "First", 0))),
+                ReadyWith(Row("w1", "t"), Item(id: "w9")),
                 ReadyWith(Row("w9", "t"), itemFailed: true),
-                ReadyWith(Row("w9", "t"), Item(id: "w9", parts: Part("p1", "First", 0))),
+                ReadyWith(Row("w9", "t"), Item(id: "w9")),
                 ReadyWith(Row("w1", "t"), itemFailed: true));
             await h.PushAsync(Dto());
             await h.TickAsync();
-            await Assert.That(h.Vm.Parts.Count).IsEqualTo(1);
+            await Assert.That(h.Vm.Key).IsEqualTo("WK-2198");
             await Assert.That(h.Vm.IsStale).IsTrue();
 
             await h.TickAsync();
-            await Assert.That(h.Vm.Parts.Count).IsEqualTo(1);
+            await Assert.That(h.Vm.Key).IsEqualTo("WK-2198");
             await Assert.That(h.Vm.IsStale).IsFalse();
 
             await h.TickAsync();
-            await Assert.That(h.Vm.Parts).IsEmpty();
+            await Assert.That(h.Vm.Key).IsNull();
             await h.Vm.TeardownAsync();
         });
     }
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_overview_shows_unless_it_is_missing_blank_or_mechanical() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness();
-            h.Source.Enqueue(
-                ReadyWith(Row("w1", "t"), Item() with { Overview = " Reads the item in one call. " }),
-                ReadyWith(Row("w1", "t"), Item() with { Overview = "Work item WK-2198", IsOverviewMechanical = true }),
-                ReadyWith(Row("w1", "t"), Item() with { Overview = "   " }),
-                ReadyWith(Row("w1", "t"), Item() with { Overview = null }));
-            await h.PushAsync(Dto());
-            await Assert.That(h.Vm.Overview).IsEqualTo("Reads the item in one call.");
-
-            await h.TickAsync();
-            await Assert.That(h.Vm.Overview).IsNull();
-            await h.TickAsync();
-            await Assert.That(h.Vm.Overview).IsNull();
-            await h.TickAsync();
-            await Assert.That(h.Vm.Overview).IsNull();
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task The_state_pill_follows_the_kind_and_tolerates_an_unknown_one() {
-        await RunOnUiAsync(async () => {
-            var h = new Harness();
-            h.Source.Enqueue(
-                ReadyWith(Row("w1", "t"), Item(state: "in_flight")),
-                ReadyWith(Row("w1", "t"), Item(state: "shipped")),
-                ReadyWith(Row("w1", "t"), Item(state: "closed")),
-                ReadyWith(Row("w1", "t"), Item(state: "under_review")),
-                ReadyWith(Row("w1", "t"), Item(state: null)));
-            await h.PushAsync(Dto());
-            await Assert.That(h.Vm.StateLabel).IsEqualTo("IN FLIGHT");
-            await Assert.That(h.Vm.IsShipped).IsFalse();
-            await Assert.That(h.Vm.IsClosed).IsFalse();
-
-            await h.TickAsync();
-            await Assert.That(h.Vm.StateLabel).IsEqualTo("SHIPPED");
-            await Assert.That(h.Vm.IsShipped).IsTrue();
-
-            await h.TickAsync();
-            await Assert.That(h.Vm.StateLabel).IsEqualTo("CLOSED");
-            await Assert.That(h.Vm.IsShipped).IsFalse();
-            await Assert.That(h.Vm.IsClosed).IsTrue();
-
-            await h.TickAsync();
-            await Assert.That(h.Vm.StateLabel).IsEqualTo("UNDER REVIEW");
-            await Assert.That(h.Vm.IsClosed).IsFalse();
-
-            await h.TickAsync();
-            await Assert.That(h.Vm.StateLabel).IsNull();
-            await h.Vm.TeardownAsync();
-        });
-    }
-
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public Task The_sidebar_hides_empty_parts_and_repeated_identity_but_keeps_the_open_action() => RunOnUiAsync(async () => {
+    public Task The_card_names_the_work_item_and_opens_it_in_the_app() => RunOnUiAsync(async () => {
         var h = new Harness();
         var view = new WorkContextView { DataContext = h.Vm };
         var window = new Window { Content = view, Width = 320, Height = 800 };
@@ -1299,15 +1161,14 @@ public class WorkContextViewModelTests {
         };
         h.Source.Enqueue(ReadyWith(Row("w1", "WK-2198"), item),
             ReadyWith(Row("w1", "WK-2198"), item with {
-                EnrichedTitle = "A useful title", Parts = [Part("p1", "First part", 0)],
+                EnrichedTitle = "A useful title",
                 Links = [Link("issue", "#860", "https://github.com/example/repo/issues/860")],
             }));
         try {
             window.Show();
             await h.PushAsync(Dto());
             window.UpdateLayout();
-            await Assert.That(view.FindControl<Button>("PartsToggle")!.IsEffectivelyVisible).IsFalse();
-            await Assert.That(view.FindControl<TextBlock>("WorkContextTitle")!.IsEffectivelyVisible).IsFalse();
+            await Assert.That(view.FindControl<TextBlock>("WorkContextTitle")!.Text).IsEqualTo("WK-2198");
             await Assert.That(view.FindControl<StackPanel>("IssueSection")!.IsEffectivelyVisible).IsFalse();
             var open = view.FindControl<Button>("OpenWorkItemButton")!;
             await Assert.That(open.IsEffectivelyVisible).IsTrue();
@@ -1317,9 +1178,7 @@ public class WorkContextViewModelTests {
 
             await h.TickAsync();
             window.UpdateLayout();
-            await Assert.That(view.FindControl<Button>("PartsToggle")!.IsEffectivelyVisible).IsTrue();
             await Assert.That(view.FindControl<TextBlock>("WorkContextTitle")!.Text).IsEqualTo("A useful title");
-            await Assert.That(view.FindControl<TextBlock>("WorkContextTitle")!.IsEffectivelyVisible).IsTrue();
             await Assert.That(view.FindControl<StackPanel>("IssueSection")!.IsEffectivelyVisible).IsTrue();
             await Assert.That(open.IsEffectivelyVisible).IsTrue();
         } finally {
@@ -2112,23 +1971,17 @@ public class WorkContextViewModelTests {
             foreach (var kind in new[] { WorkContextReadKind.SignedOut, WorkContextReadKind.NotInPlan, WorkContextReadKind.SessionUnknown }) {
                 var h = new Harness();
                 var summary = new SessionSummaryDto { SessionId = SessionA, PullRequests = [Pr("o", "r", 1, null, "One")] };
-                var item = Item(parts: Part("p1", "First", 0)) with {
-                    Overview = "Overview", Links = [Link("issue", "#777", "https://github.com/o/r/issues/777", "Issue")],
+                var item = Item() with {
+                    Links = [Link("issue", "#777", "https://github.com/o/r/issues/777", "Issue")],
                     Contributors = [Person("u1", "Ada")], SessionCount = 2,
                 };
-                var blocked = Topology() with { BlockedBy = [new WorkItemRefDto { WorkItemId = "b1", Title = "Blocker" }] };
-                h.Source.Enqueue(ReadyWith(Row("w1", "WK-1 — t"), item, blocked, summary), WorkContextRead.Of(kind));
+                h.Source.Enqueue(ReadyWith(Row("w1", "WK-1 — t"), item, summary: summary), WorkContextRead.Of(kind));
                 await h.PushAsync(Dto());
                 await Assert.That(h.Vm.Issue).IsNotNull();
                 await h.TickAsync();
 
                 await Assert.That(h.Vm.Key).IsNull();
                 await Assert.That(h.Vm.Title).IsEqualTo("");
-                await Assert.That(h.Vm.Overview).IsNull();
-                await Assert.That(h.Vm.StateLabel).IsNull();
-                await Assert.That(h.Vm.Parts).IsEmpty();
-                await Assert.That(h.Vm.BlockedBy).IsEmpty();
-                await Assert.That(h.Vm.CycleNote).IsNull();
                 await Assert.That(h.Vm.Links).IsEmpty();
                 await Assert.That(h.Vm.Issue).IsNull();
                 await Assert.That(h.Vm.Contributors).IsEmpty();
@@ -2146,13 +1999,12 @@ public class WorkContextViewModelTests {
         await RunOnUiAsync(async () => {
             var h = new Harness();
             var summary = new SessionSummaryDto { SessionId = SessionA, PullRequests = [Pr("o", "r", 1, null, "One")] };
-            var item = Item(parts: Part("p1", "First", 0)) with { Links = [Link("issue", "#777", null, "Issue")], Contributors = [Person("u1", "Ada")] };
-            h.Source.Enqueue(ReadyWith(Row("w1", "WK-1 — t"), item, Topology(), summary), ReadyWith(null, summary: summary));
+            var item = Item() with { Links = [Link("issue", "#777", null, "Issue")], Contributors = [Person("u1", "Ada")] };
+            h.Source.Enqueue(ReadyWith(Row("w1", "WK-1 — t"), item, summary: summary), ReadyWith(null, summary: summary));
             await h.PushAsync(Dto());
             await h.TickAsync();
 
             await Assert.That(h.Vm.Phase).IsEqualTo(WorkContextPhase.NoWorkItem);
-            await Assert.That(h.Vm.Parts).IsEmpty();
             await Assert.That(h.Vm.Key).IsNull();
             await Assert.That(h.Vm.Issue).IsNull();
             await Assert.That(h.Vm.Contributors).IsEmpty();
@@ -2252,18 +2104,15 @@ public class WorkContextViewModelTests {
     public async Task Sections_default_collapsed_and_toggle() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
-            await Assert.That(h.Vm.PartsExpanded).IsFalse();
             await Assert.That(h.Vm.PeopleExpanded).IsFalse();
             await Assert.That(h.Vm.CheckoutExpanded).IsFalse();
             await Assert.That(h.Vm.SessionExpanded).IsFalse();
             await Assert.That(h.Vm.UsageExpanded).IsTrue();
 
-            await h.Vm.TogglePartsCommand.Execute();
             await h.Vm.ToggleCheckoutCommand.Execute();
             await h.Vm.ToggleSessionCommand.Execute();
             await h.Vm.ToggleUsageCommand.Execute();
 
-            await Assert.That(h.Vm.PartsExpanded).IsTrue();
             await Assert.That(h.Vm.CheckoutExpanded).IsTrue();
             await Assert.That(h.Vm.SessionExpanded).IsTrue();
             await Assert.That(h.Vm.UsageExpanded).IsFalse();

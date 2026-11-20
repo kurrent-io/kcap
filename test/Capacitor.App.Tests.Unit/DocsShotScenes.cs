@@ -24,7 +24,6 @@ using DynamicData;
 using Microsoft.Extensions.Time.Testing;
 using static Capacitor.App.Tests.Unit.FakeDaemonClientService;
 using WorkItemLinkDto = Capacitor.Cli.Core.WorkItems.WorkItemLinkDto;
-using WorkItemRefDto = Capacitor.Cli.Core.WorkItems.WorkItemRefDto;
 
 namespace Capacitor.App.Tests.Unit;
 
@@ -99,29 +98,18 @@ static partial class DocsShotScenes {
         return new WorkContextRead(WorkContextReadKind.Ready, [row], row, PaymentsItem(), null, new SessionSummaryDto { SessionId = "s1" }, false, false, false, null);
     }
 
-    /// PAY-142 as the work-context figure shows it: split into two parts, shared with Dana, part of a
-    /// larger effort and waiting on another item.
+    /// PAY-142 as the work-context figure shows it, shared with Dana.
     public static WorkContextRead PaymentsWorkContextInFull() {
         var row = Assignment("w1", "PAY-142", primary: true);
         var item = PaymentsItem() with {
-            Overview = "Charges fail outright when the payments gateway answers 503 during a deploy. Retry the transient failures with backoff, without ever charging twice.",
-            Parts = [
-                new WorkItemPartDto { WorkItemId = "w2", Title = "Classify transient gateway errors", Ordinal = 1, IsSettled = true, SettledAt = Now.AddHours(-3) },
-                new WorkItemPartDto { WorkItemId = "w3", Title = "Retry policy with backoff", Ordinal = 2 },
-            ],
             Contributors = [
                 new WorkItemContributorDto { UserId = "maya", DisplayName = "Maya Chen", LastActivityAt = Now.AddMinutes(-2) },
                 new WorkItemContributorDto { UserId = "dana", DisplayName = "Dana Okafor", LastActivityAt = Now.AddMinutes(-12) },
             ],
             SessionCount = 3,
         };
-        var topology = new WorkItemTopologyDto {
-            Item = new WorkItemRefDto { WorkItemId = "w1", Title = RetryTitle },
-            PartOf = new WorkItemRefDto { WorkItemId = "w0", Title = "Payments reliability" },
-            BlockedBy = [new WorkItemRefDto { WorkItemId = "w9", Title = "Rotate the gateway sandbox credentials" }],
-        };
-        return new WorkContextRead(WorkContextReadKind.Ready, [row, Assignment("w3", "Retry policy with backoff", primary: false)], row, item,
-            topology, new SessionSummaryDto { SessionId = "s1" }, false, false, false, null);
+        return new WorkContextRead(WorkContextReadKind.Ready, [row], row, item,
+            null, new SessionSummaryDto { SessionId = "s1" }, false, false, false, null);
     }
 
     static SessionWorkItemAssignmentDto Assignment(string id, string label, bool primary) =>
@@ -211,7 +199,7 @@ static partial class DocsShotScenes {
     public static async Task<DocsShotScene> WorkContextAsync() {
         var scene = await MainWindowAsync(workContext: PaymentsWorkContextInFull(), plan: PaymentsPlan(), arrange: async vm => {
             var context = ((WorkspaceViewModel)vm.CurrentWorkspace!).WorkContext;
-            await WorkspaceFixtures.WaitUntilAsync(() => context.IsReady && context.HasParts && context.Plan.HasTasks, what: "the work context");
+            await WorkspaceFixtures.WaitUntilAsync(() => context.IsReady && context.Plan.HasTasks, what: "the work context");
             await context.TogglePeopleCommand.Execute();
             await context.Plan.ToggleCommand.Execute();
         });
