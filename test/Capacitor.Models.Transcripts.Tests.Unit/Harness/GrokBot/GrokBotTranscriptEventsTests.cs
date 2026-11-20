@@ -8,7 +8,7 @@ namespace Capacitor.Models.Transcripts.Tests.Unit.Harness.GrokBot;
 
 /// <summary>Pins the Grok Bot projection against gateway entry shapes captured from real chats, content
 /// rewritten: user messages, Bot text, an answered and a skipped question, a desktop hand-off, a connector
-/// card, a source-control card and a permission ask.</summary>
+/// card, a source-control card, a permission ask, a message between two Bots and a shared file.</summary>
 public class GrokBotTranscriptEventsTests {
     const string Session = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
 
@@ -45,6 +45,8 @@ public class GrokBotTranscriptEventsTests {
     [Arguments("""{"kind":"message","id":"","role":"user","content":"empty id"}""")]
     [Arguments("""{"kind":"message","id":"t1u","role":"user","content":""}""")]
     [Arguments("""{"kind":"message","id":"t1u","role":"system","content":"hidden"}""")]
+    [Arguments("""{"kind":"message","id":"t1a","role":"assistant","content":"to nobody"}""")]
+    [Arguments("""{"kind":"send-message","id":"t1s0","message":{"type":"attachment","url":"file:///home/box/x"}}""")]
     [Arguments("""{"kind":"send-message","id":"t1s0"}""")]
     [Arguments("""{"kind":"send-message","id":"t1s0","message":{"type":"text","content":""}}""")]
     [Arguments("""{"kind":"send-message","id":"t1s0","message":{"type":"image","url":"x"}}""")]
@@ -123,6 +125,27 @@ public class GrokBotTranscriptEventsTests {
         await Assert.That(events[0].Timestamp).IsEqualTo(Received);
         await Assert.That(events[0].RecordTimestamp).IsNull();
         await Assert.That(Message(events[0].Payload)).IsEqualTo(("hi", Timestamp.FromDateTimeOffset(Received)));
+    }
+
+    /// <summary>Bots message each other. What another Bot sent is not something the user typed, and what
+    /// this Bot sent is part of its conversation: each side records it under the other Bot's name.</summary>
+    [Test]
+    public async Task A_message_between_two_bots_names_the_other_bot() {
+        var arrived = P("""{"kind":"message","id":"t0u","role":"user","isStreaming":false,"timestampMs":1790595500000,"clientNonce":"e055","requestId":"696b","fromAgent":{"id":"8abe81a6","name":"Operations"},"content":"Draft the plan","seq":7}""");
+        var sent    = P("""{"kind":"message","id":"agent-outbound-c938","role":"assistant","isStreaming":false,"timestampMs":1790595501000,"toAgent":{"id":"8abe81a6","name":"Operations","kind":"agent"},"requestId":"f935","content":"Here it is","seq":8}""");
+        var unnamed = P("""{"kind":"message","id":"t1u","role":"user","fromAgent":{"id":"8abe81a6"},"content":"ping","seq":9}""");
+
+        await Assert.That(((UserMessageReceived)arrived.Events.Single().Payload).Content).IsEqualTo("From Operations:\nDraft the plan");
+        await Assert.That(((AssistantTextGenerated)sent.Events.Single().Payload).Content).IsEqualTo("To Operations:\nHere it is");
+        await Assert.That(((UserMessageReceived)unnamed.Events.Single().Payload).Content).IsEqualTo("From another Bot:\nping");
+    }
+
+    /// <summary>The entry carries where the file is, not the file: the reply names it.</summary>
+    [Test]
+    public async Task A_shared_file_is_a_reply_that_names_it() {
+        var result = P("""{"kind":"send-message","id":"t3s1","message":{"type":"attachment","url":"file:///home/box/agent-data/plan.docx","file_name":"plan.docx","source_path":"/workspace/plan.docx","alt":"plan.docx"},"timestampMs":1790595500000,"requestId":"5c58","seq":34}""");
+
+        await Assert.That(((AssistantTextGenerated)result.Events.Single().Payload).Content).IsEqualTo("Shared a file: plan.docx");
     }
 
     [Test]

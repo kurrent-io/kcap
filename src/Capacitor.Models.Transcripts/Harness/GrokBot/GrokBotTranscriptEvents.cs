@@ -9,9 +9,11 @@ namespace Capacitor.Models.Transcripts.Harness.GrokBot;
 /// <summary>
 /// Projects a Grok Bot chat into canonical events. <c>kcap grok-bot watch</c> posts one gateway transcript
 /// entry per line, with <c>agentId</c> added. The transcript is the conversation only: a user message is a
-/// prompt, and a Bot message a reply — its text, or a card (a question with its options, a connector or
-/// source-control request, a permission ask) rendered as text. An answered question also yields the answer
-/// as a prompt. Any other shape yields nothing.
+/// prompt, and a Bot message a reply — its text, a card (a question with its options, a connector or
+/// source-control request, a permission ask) rendered as text, or the name of a file it shared. An answered
+/// question also yields the answer as a prompt. A message between two Bots is in both their chats, and each
+/// records it under the other Bot's name: a prompt where it arrived, a reply where it was sent. Any other
+/// shape yields nothing.
 /// </summary>
 public sealed class GrokBotTranscriptEvents : ITranscriptProjection {
     public static readonly GrokBotTranscriptEvents Instance = new();
@@ -41,9 +43,9 @@ public sealed class GrokBotTranscriptEvents : ITranscriptProjection {
             var at = ms is { } own ? DateTimeOffset.FromUnixTimeMilliseconds(own) : receivedAt;
 
             var messages = entry.Str("kind") switch {
-                "message" when entry.Str("role") == "user" && entry.Str("content") is { Length: > 0 } text => [(entryId, true, text)],
-                "send-message" when entry.Obj("message") is { } message                                     => Bot(entry, message, entryId),
-                _                                                                                           => [],
+                "message" when entry.Str("content") is { Length: > 0 } text => Said(entry, entryId, text),
+                "send-message" when entry.Obj("message") is { } message     => Bot(entry, message, entryId),
+                _                                                           => [],
             };
 
             var events = new List<CanonicalEvent>(messages.Count);
@@ -62,6 +64,18 @@ public sealed class GrokBotTranscriptEvents : ITranscriptProjection {
             return ProjectionResult.Of(events);
         }
     }
+
+    /// <summary>A message in the user's role is the user's unless it names the Bot it came from. One in the
+    /// Bot's role is recorded only when it names the Bot it went to: what a Bot tells the user is a
+    /// <c>send-message</c>.</summary>
+    static List<(string Key, bool FromUser, string Content)> Said(JsonElement entry, string entryId, string text) => entry.Str("role") switch {
+        "user" when entry.Obj("fromAgent") is { } from  => [(entryId, true, $"From {Name(from)}:\n{text}")],
+        "user"                                          => [(entryId, true, text)],
+        "assistant" when entry.Obj("toAgent") is { } to => [(entryId, false, $"To {Name(to)}:\n{text}")],
+        _                                               => [],
+    };
+
+    static string Name(JsonElement bot) => bot.Str("name") is { Length: > 0 } name ? name : "another Bot";
 
     static List<(string Key, bool FromUser, string Content)> Bot(JsonElement entry, JsonElement message, string entryId) {
         switch (message.Str("type")) {
@@ -83,6 +97,9 @@ public sealed class GrokBotTranscriptEvents : ITranscriptProjection {
                 var target = ask.Str("target") is { Length: > 0 } t ? $" {t}" : "";
 
                 return [(entryId, false, $"Asked permission to {action}{target} on the user's computer: {ask.Str("status") ?? "unanswered"}.")];
+
+            case "attachment" when (message.Str("file_name") ?? message.Str("alt")) is { Length: > 0 } file:
+                return [(entryId, false, $"Shared a file: {file}")];
 
             default:
                 return [];
