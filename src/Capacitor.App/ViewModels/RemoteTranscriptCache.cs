@@ -34,6 +34,16 @@ public sealed class RemoteTranscriptCache : IDisposable {
         lock (_lock) return (_generation, _refusals.GetValueOrDefault(sessionId));
     }
 
+    /// Runs publish only while the stamp still holds, under the lock an account change and a refusal take,
+    /// so neither can land between the check and what it guards; false when the stamp no longer holds.
+    internal bool WhileCurrent(string sessionId, (int Generation, int Refusals) stamp, Action publish) {
+        lock (_lock) {
+            if (stamp != (_generation, _refusals.GetValueOrDefault(sessionId))) return false;
+            publish();
+            return true;
+        }
+    }
+
     internal bool Contains(string sessionId) { lock (_lock) return Find(sessionId) is not null; }
 
     /// Hands the session's snapshot to the one feed that opens it.

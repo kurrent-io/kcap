@@ -280,7 +280,15 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             if (!Admit(attempt, fetch, out page)) return false;
         }
         // The account can change while the read is out; what it returned then belongs to the earlier one.
-        if (_cache!.Stamp(_sessionId) != stamp) return null;
+        var current = false;
+        if (!_cache!.WhileCurrent(_sessionId, stamp, () => current = PublishResumed(attempt, stamp, snapshot, page, lines, scheduled))) return null;
+        if (!current) return false;
+        Changed?.Invoke();
+        return true;
+    }
+
+    bool PublishResumed(int attempt, (int Generation, int Refusals) stamp, RemoteTranscriptSnapshot snapshot, StreamEventsPage page,
+            List<ProjectedLine> lines, ScheduledPrompts scheduled) {
         lock (_lock) {
             if (_attempt != attempt) return false;
             _verdict = null;
@@ -299,7 +307,6 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             _resetCount = lines.Count;
             _seedBoundary = CurrentOffsetLocked();
         }
-        Changed?.Invoke();
         return true;
     }
 

@@ -26,6 +26,26 @@ public class RemoteTranscriptCacheTests {
         await Assert.That(cache.Contains("s5")).IsTrue();
     }
 
+    /// What a stamp guards runs only while it holds: after an account change or a refusal of the session it
+    /// does not run at all.
+    [Test]
+    public async Task A_stamp_guards_its_publication_until_an_account_change_or_refusal() {
+        using var subject = new BehaviorSubject<string?>("u1");
+        using var access = new Subject<(string, SessionAccessState)>();
+        using var cache = new RemoteTranscriptCache(subject, access);
+        var ran = 0;
+
+        await Assert.That(cache.WhileCurrent("s1", cache.Stamp("s1"), () => ran++)).IsTrue();
+        var refused = cache.Stamp("s1");
+        access.OnNext(("s1", SessionAccessState.Denied));
+        await Assert.That(cache.WhileCurrent("s1", refused, () => ran++)).IsFalse();
+        var signedIn = cache.Stamp("s1");
+        subject.OnNext("u2");
+        await Assert.That(cache.WhileCurrent("s1", signedIn, () => ran++)).IsFalse();
+
+        await Assert.That(ran).IsEqualTo(1);
+    }
+
     [Test]
     public async Task A_taken_snapshot_is_handed_out_once() {
         using var subject = new BehaviorSubject<string?>("u1");
