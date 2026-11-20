@@ -97,7 +97,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         RenameCommand = ReactiveCommand.CreateFromTask(RenameAsync, this.WhenAnyValue(x => x.CanRename)).DisposeWith(_subscriptions);
         NotificationAccessCommand = ReactiveCommand.CreateFromTask(ResolveNotificationAccessAsync).DisposeWith(_subscriptions);
         WindowsServiceCommand = ReactiveCommand.CreateFromTask(InstallWindowsServiceAsync,
-            this.WhenAnyValue(x => x.IsBusy, x => x.WindowsServiceOffered, (busy, offered) => !busy && offered)).DisposeWith(_subscriptions);
+            this.WhenAnyValue(x => x.CanMoveToWindowsService)).DisposeWith(_subscriptions);
         if (serviceStatus is not null && moveToWindowsService is not null && OperatingSystem.IsWindows())
             _ = LoadWindowsServiceOfferAsync(serviceStatus);
         service.Status.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(status => {
@@ -318,8 +318,14 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     /// interrupts a launch to offer the move, so this is where it is offered.
     public bool WindowsServiceOffered {
         get => _windowsServiceOffered;
-        private set => this.RaiseAndSetIfChanged(ref _windowsServiceOffered, value);
+        private set {
+            this.RaiseAndSetIfChanged(ref _windowsServiceOffered, value);
+            this.RaisePropertyChanged(nameof(CanMoveToWindowsService));
+        }
     }
+
+    /// The move stops the Scheduled Task's daemon first, so it waits for every other operation of this window.
+    public bool CanMoveToWindowsService => WindowsServiceOffered && !HasActiveOperation;
 
     public string? WindowsServiceMessage {
         get => _windowsServiceMessage;
@@ -510,6 +516,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     void Refresh() {
         if (_intelligence is not null) _intelligence.SettingsBusy = IsBusy;
         this.RaisePropertyChanged(nameof(HasActiveOperation));
+        this.RaisePropertyChanged(nameof(CanMoveToWindowsService));
         this.RaisePropertyChanged(nameof(CanEdit));
         this.RaisePropertyChanged(nameof(CanSave));
         this.RaisePropertyChanged(nameof(CanRename));
