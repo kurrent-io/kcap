@@ -255,6 +255,30 @@ public class AgentOrchestratorVendorTests {
         await Assert.That(Events().SkipWhile(e => e is not AgentRunStopped).Any(e => e is AgentRunStarted)).IsFalse();
     }
 
+    /// <summary>A launch held on its terminal-size send does not hold the daemon's shutdown, which drains the launch
+    /// lane before it stops any agent.</summary>
+    [Test]
+    public async Task A_launch_held_on_its_size_send_does_not_hold_the_shutdown() {
+        using var repoPath = GitRepo.CreateWithCommit();
+        var held   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server = new CaptureServerConnection { DimensionsGate = held };
+        var pty    = new ScriptedPtyProcess();
+
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
+            server, new SpyPtyProcessFactory(pty), AgentOrchestratorHarness.Launcher("claude"), allowedRepoPath: repoPath);
+
+        try {
+            await orch.SubmitLaunchAgentForTest(new LaunchAgentCommand(
+                AgentId: "held-size", Prompt: "hi", Model: "opus", Effort: null,
+                RepoPath: repoPath, Tools: null, AttachmentIds: null, Vendor: "claude"));
+            await WaitHarness.PollUntilAsync(() => server.DimensionsSends >= 1);
+
+            await orch.DisposeAsync().AsTask().WaitAsync(WaitHarness.Bounded);
+        } finally {
+            held.TrySetResult();
+        }
+    }
+
     // A PTY codex runtime reports "pty" on AgentRegistered — the transport rides the runtime TYPE,
     // not the vendor (a codex agent is not automatically app-server).
     [Test]
