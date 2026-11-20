@@ -2547,7 +2547,6 @@ public partial class App : Application {
 
         // A window held behind an update's progress is hidden again before it renders; its mark waits for the real show.
         RenderedFrame.WhenDrawn(window, () => true, _time, at => _ = Task.Run(() => StartupMarks.Mark("window_shown", at)));
-        // The warm-up rides this callback: a second wait on the rail would take the draw probe this one placed.
         window.SessionRail.OnFirstSessionsPainted(_time, at => {
             _ = Task.Run(() => StartupMarks.Mark("first_sessions_painted", at));
             _chatWarmup?.RowsPainted(window);
