@@ -185,7 +185,6 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         if (Neighbour(part, 1) is { } below && PlaceAt(part, below, after: true) is { } down) items.Add(new(LucideIconKind.ArrowDown, "Move down", down));
         items.AddRange(Enum.GetValues<WorkStatus>().Where(status => status != part.Status)
             .Select(status => new RowMenuItem(status.Icon(), $"Move to {status.Label()}", () => part.SetStatusCommand.Execute(status.Wire()).Subscribe(), status.BrushKey())));
-        items.Add(new(LucideIconKind.Link, "Work it out from links", () => part.SetStatusCommand.Execute("").Subscribe()));
         return items;
     }
 
