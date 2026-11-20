@@ -225,7 +225,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="SessionRow" x:DataType="pages:WorkItemPageSession">
-            <Button Classes="kcapGhost rowButton sessionRow dragRow flow" AttachedToVisualTree="OnRowAttached"
+            <Button Classes="kcapGhost rowButton sessionRow dragRow"
                     Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OpenSessionCommand}"
                     CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}">
                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" MinHeight="30">
@@ -241,7 +241,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="Part" x:DataType="pages:WorkItemPagePart">
-            <StackPanel Classes="part flow" AttachedToVisualTree="OnRowAttached">
+            <StackPanel Classes="part" AttachedToVisualTree="OnRowAttached">
                 <Button Classes="kcapGhost partRow dragRow" Classes.expandable="{Binding HasSessions}" ToolTip.Tip="{Binding Tip}"
                         Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Title}">
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="4" MinHeight="34">
@@ -326,7 +326,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="Group" x:DataType="pages:WorkItemPageGroupViewModel">
-            <StackPanel Classes="group flow">
+            <StackPanel Classes="group">
                 <Panel Classes="groupHeadRow">
                     <Button Classes="kcapGhost groupHead" Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Label}">
                         <StackPanel Orientation="Horizontal" Spacing="8">
@@ -365,7 +365,7 @@
             </StackPanel>
         </DataTemplate>
         <DataTemplate x:Key="Card" x:DataType="pages:WorkItemPagePart">
-            <StackPanel Classes="part flow" AttachedToVisualTree="OnRowAttached">
+            <StackPanel Classes="part" AttachedToVisualTree="OnRowAttached">
                 <Border Classes="card">
                     <StackPanel>
                         <Button Classes="kcapGhost partRow dragRow cardBody" Classes.expandable="{Binding HasSessions}" ToolTip.Tip="{Binding Tip}"
@@ -420,8 +420,8 @@
         </DataTemplate>
 
         <DataTemplate x:Key="SessionCard" x:DataType="pages:WorkItemPageSession">
-            <Border Classes="card flow">
-                <Button Classes="kcapGhost sessionRow dragRow cardBody" AttachedToVisualTree="OnRowAttached"
+            <Border Classes="card">
+                <Button Classes="kcapGhost sessionRow dragRow cardBody"
                         Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OpenSessionCommand}"
                         CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}">
                     <StackPanel Spacing="8">
@@ -440,7 +440,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="Column" x:DataType="pages:WorkItemPageGroupViewModel">
-            <Border Classes="group column flow">
+            <Border Classes="group column">
                 <DockPanel>
                     <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="8,0,0,6" MinHeight="32">
                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">

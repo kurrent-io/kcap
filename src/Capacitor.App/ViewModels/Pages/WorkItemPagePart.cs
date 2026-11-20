@@ -6,7 +6,7 @@ using ReactiveUI.Reactive;
 namespace Capacitor.App.ViewModels.Pages;
 
 /// One slice's row. <see cref="Tip"/> names what a blocked slice waits on. <see cref="NeedsYou"/> comes from the
-/// viewer's own sessions, so it never moves the slice between groups. <see cref="Arrives"/> when it was just dropped here.
+/// viewer's own sessions, so it never moves the slice between groups. <see cref="Arrives"/> when it was just added.
 public sealed class WorkItemPagePart : ReactiveObject {
     public string Id { get; }
     public string Title { get; }

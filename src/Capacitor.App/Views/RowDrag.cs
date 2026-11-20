@@ -34,6 +34,7 @@ public sealed class RowDrag {
     readonly Action? _ended;
     readonly Action? _pressReleased;
     readonly double? _compactGhostWidth;
+    readonly bool _glides;
     // Moved by transform, not Canvas.Left/Top: a layout pass per pointer move runs every LayoutUpdated handler in the window.
     readonly TranslateTransform _ghostAt = new();
     readonly TranslateTransform _lineAt = new();
@@ -60,9 +61,10 @@ public sealed class RowDrag {
     /// <param name="keyOf">Identifies a row's data across a rebuild, so the ghost finds the row a drop landed on.</param>
     /// <param name="compactGhostWidth">Cuts the ghost to this width and carries it just right of the pointer, rather than
     /// holding the whole row where it was grabbed.</param>
+    /// <param name="glides">On release the ghost glides onto where what it carried landed; otherwise it is gone at once.</param>
     public RowDrag(Control host, Control list, Control ghost, Image snapshot, string rowClass, Func<object, object?> pick,
             Func<object, Point, RowDropTarget?> targetAt, Action<object>? started = null, Action? ended = null, Action? pressReleased = null,
-            Control? line = null, Func<object, object>? keyOf = null, double? compactGhostWidth = null) {
+            Control? line = null, Func<object, object>? keyOf = null, double? compactGhostWidth = null, bool glides = true) {
         _host = host;
         _list = list;
         _ghost = ghost;
@@ -76,6 +78,7 @@ public sealed class RowDrag {
         _pressReleased = pressReleased;
         _keyOf = keyOf ?? (data => data);
         _compactGhostWidth = compactGhostWidth;
+        _glides = glides;
         ghost.RenderTransform = _ghostAt;
         if (line is not null) line.RenderTransform = _lineAt;
         list.AddHandler(InputElement.PointerPressedEvent, OnPressed, RoutingStrategies.Tunnel);
@@ -175,6 +178,11 @@ public sealed class RowDrag {
         _pointer?.Capture(null);
         _pointer = null;
         drop?.Invoke();
+        if (!_glides) {
+            foreach (var row in lifted) row.Classes.Remove(LiftedClass);
+            _ghost.IsVisible = false;
+            return;
+        }
         _settling = new CancellationTokenSource();
         _ = SettleAsync(carried, lifted, drop is not null, _settling.Token);
     }

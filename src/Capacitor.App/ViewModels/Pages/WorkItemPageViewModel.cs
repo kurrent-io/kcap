@@ -36,7 +36,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     // A null destination hides one until the slice it is going to appears.
     readonly Dictionary<string, (string From, string? To)> _sessionMoves = new(StringComparer.Ordinal);
     readonly Dictionary<string, string> _containerOf = new(StringComparer.Ordinal);
-    // Rows that appear without being dragged there, marked as arriving the first time they are built.
+    // Slices added through the composer, marked as arriving the first time they are built.
     readonly HashSet<string> _arrivals = new(StringComparer.Ordinal);
     readonly Subject<Unit> _reread = new();
     readonly CompositeDisposable _disposables = new();
@@ -213,7 +213,6 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     }
 
     Task MoveSessionsOutAsync(WorkItemPagePart part) {
-        _arrivals.UnionWith(part.Sessions.Select(session => ArrivalKey(WorkItemId, session.SessionId)));
         return ShiftAsync([.. part.Sessions.Select(session => session.SessionId)], WorkItemId, async ct => {
             foreach (var session in part.Sessions)
                 if (!await _api.MoveSessionAsync(WorkItemId, session.SessionId, ct)) return false;
@@ -229,7 +228,6 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
                 && await _api.SetStatusAsync(sliceId, status.Wire(), ct),
             "Couldn't make a slice from that session")) return;
         _setStatuses[sliceId!] = status.Wire();
-        _arrivals.Add(sliceId!);
         Rebuild();
     }
 
@@ -462,22 +460,19 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         [.. links.Where(link => link.LinkClass != "reference")
             .Select(link => new WorkItemPageLink(link.ShortKey, link.Title, link.State, link.Url, link.Kind == "pr"))];
 
-    static string ArrivalKey(string containerId, string sessionId) => $"{containerId}/{sessionId}";
-
     /// <param name="containerId">The slice, or the work item itself, the session sits in.</param>
     WorkItemPageSession SessionOf(string containerId, string sessionId, Dictionary<string, AgentRow> rows, IReadOnlyList<WorkItemPartSessionDto> named) {
         _containerOf[sessionId] = containerId;
-        var arrives = _arrivals.Remove(ArrivalKey(containerId, sessionId));
         if (!rows.TryGetValue(sessionId, out var row)) {
             if (named.FirstOrDefault(session => session.SessionId == sessionId) is not { } known)
-                return new(sessionId, $"Session {sessionId[..Math.Min(8, sessionId.Length)]}", null, null, arrives);
+                return new(sessionId, $"Session {sessionId[..Math.Min(8, sessionId.Length)]}", null, null);
             return new(sessionId, known.Title is { Length: > 0 } knownTitle ? knownTitle : "Untitled session",
-                known.LastActivityAt is { } moved ? Ago(moved) : null, known.Vendor, arrives);
+                known.LastActivityAt is { } moved ? Ago(moved) : null, known.Vendor);
         }
         var stamp = row.LastActivityAt ?? row.CreatedAt;
         var age = Ago(new DateTimeOffset(stamp.Kind == DateTimeKind.Local ? stamp.ToUniversalTime() : DateTime.SpecifyKind(stamp, DateTimeKind.Utc)));
         return new(sessionId, row.Title is { Length: > 0 } title ? title : "Untitled session",
-            row.RepoGroupLabel is { Length: > 0 } repo ? $"{repo} · {age}" : age, row.Vendor, arrives);
+            row.RepoGroupLabel is { Length: > 0 } repo ? $"{repo} · {age}" : age, row.Vendor);
     }
 
     string Ago(DateTimeOffset at) => RelativeTime.Ago(at, _time.GetUtcNow(), _time.LocalTimeZone);

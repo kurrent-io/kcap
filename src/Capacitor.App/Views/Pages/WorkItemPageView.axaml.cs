@@ -14,26 +14,20 @@ namespace Capacitor.App.Views.Pages;
 
 /// A work item's page drawn over the main area. DataContext is its WorkItemPageViewModel.
 public partial class WorkItemPageView : UserControl {
-    readonly Reflow _reflow;
     WorkItemPageViewModel? _page;
-    object? _carried;
     Control? _outlined;
 
     public WorkItemPageView() {
         InitializeComponent();
         // Tunnels, since the field handles Enter itself before a bubbling handler sees it.
         AddHandler(KeyDownEvent, OnComposerKeyDown, RoutingStrategies.Tunnel);
-        _reflow = new Reflow(WorkItemSlices, FlowKey);
         ContextPaneSizing.Attach(this, SplitGrid.ColumnDefinitions[1], DetailsPane, HideButton, ContextSplitter, ContextShowButton);
         _ = new RowMenu(this, "sessionRow", row =>
             row is WorkItemPageSession session && DataContext is WorkItemPageViewModel page ? page.MenuFor(session) : []);
         _ = new RowMenu(this, "partRow", row =>
             row is WorkItemPagePart part && DataContext is WorkItemPageViewModel page ? page.MenuFor(part) : []);
         _ = new RowDrag(this, WorkItemSlices, DragGhost, DragGhostSnapshot, "dragRow", row => row, OutlinedTargetAt,
-            started: carried => {
-                _carried = FlowKey(carried);
-                _page?.HoldRebuilds(true);
-            },
+            started: _ => _page?.HoldRebuilds(true),
             ended: () => {
                 Outline(null);
                 _page?.HoldRebuilds(false);
@@ -43,46 +37,23 @@ public partial class WorkItemPageView : UserControl {
                 WorkItemPageSession session => session.SessionId,
                 _                           => row,
             },
-            compactGhostWidth: 440);
+            compactGhostWidth: 440, glides: false);
     }
 
     protected override void OnDataContextChanged(EventArgs e) {
         base.OnDataContextChanged(e);
-        if (_page is not null) {
-            _page.PropertyChanging -= OnPageChanging;
-            _page.PropertyChanged -= OnPageChanged;
-        }
+        if (_page is not null) _page.PropertyChanged -= OnPageChanged;
         _page = DataContext as WorkItemPageViewModel;
-        if (_page is null) return;
-        _page.PropertyChanging += OnPageChanging;
-        _page.PropertyChanged += OnPageChanged;
-    }
-
-    // A rebuild sets Groups first and Columns last. The dragged row is left to the drag, which lands its ghost on it.
-    void OnPageChanging(object? sender, PropertyChangingEventArgs e) {
-        if (e.PropertyName == nameof(WorkItemPageViewModel.Groups)) _reflow.Capture();
+        if (_page is not null) _page.PropertyChanged += OnPageChanged;
     }
 
     void OnPageChanged(object? sender, PropertyChangedEventArgs e) {
-        if (e.PropertyName == nameof(WorkItemPageViewModel.Columns)) {
-            _reflow.Play(_carried);
-            _carried = null;
-        }
-        else if (e.PropertyName == nameof(WorkItemPageViewModel.IsBoard))
+        if (e.PropertyName == nameof(WorkItemPageViewModel.IsBoard))
             _ = Motion.Standard.RunAsync(_page!.IsBoard ? WorkItemBoardView : WorkItemGroups, CancellationToken.None, (OpacityProperty, 0d, 1d));
     }
 
-    static object? FlowKey(Control control) => control.Classes.Contains("flow") ? FlowKey(control.DataContext) : null;
-
-    static object? FlowKey(object? row) => row switch {
-        WorkItemPagePart part              => (nameof(WorkItemPagePart), part.Id),
-        WorkItemPageSession session        => (nameof(WorkItemPageSession), session.SessionId),
-        WorkItemPageGroupViewModel group   => (nameof(WorkItemPageGroupViewModel), group.Key),
-        _                                  => null,
-    };
-
     void OnRowAttached(object? sender, VisualTreeAttachmentEventArgs e) {
-        if (sender is Control { DataContext: WorkItemPagePart { Arrives: true } or WorkItemPageSession { Arrives: true } } row)
+        if (sender is Control { DataContext: WorkItemPagePart { Arrives: true } } row)
             _ = Motion.Arrive.RunAsync(row, CancellationToken.None, (OpacityProperty, 0d, 1d));
     }
 
