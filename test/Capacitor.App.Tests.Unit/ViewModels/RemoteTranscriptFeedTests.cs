@@ -1242,6 +1242,36 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(server.Requests).Contains((0L, 1));
     }
 
+    /// A transcript closed while its re-open read is out keeps its lines for the next open, which reads only
+    /// what followed them.
+    [Test]
+    public async Task A_transcript_closed_while_reopening_stays_kept() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 10).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = Cache();
+        using (new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
+            await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the first tail");
+        }
+        server.Requests.Clear();
+        var release = new TaskCompletionSource();
+        server.Gate = () => release.Task;
+        var closing = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache);
+        await WaitUntilAsync(() => server.RequestCount == 1, what: "the re-open read");
+        closing.Dispose();
+        release.SetResult();
+        await closing.PendingRunForTesting!;
+        await Assert.That(cache.Contains("s1")).IsTrue();
+        server.Gate = null;
+        server.Requests.Clear();
+
+        using var reopened = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the second tail");
+
+        await Assert.That(reopened.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 10).Select(i => (long)i));
+        await Assert.That(server.Requests).IsEquivalentTo(new[] { (9L, 1000) });
+    }
+
     /// An older page the server refuses refuses the session, so its lines are not kept.
     [Test]
     public async Task A_refused_older_page_keeps_nothing() {

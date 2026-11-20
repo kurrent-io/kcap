@@ -77,7 +77,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     bool _lost;
     /// The cache's stamp when the loaded lines were read.
     (int Generation, int Refusals) _stamp;
-    /// A snapshot whose catch-up read failed, with the stamp it was handed out under, for the retry.
+    /// A snapshot taken from the cache, with the stamp it was handed out under, until a resume publishes or rejects
+    /// it: a retry resumes it again, and a close before then puts it back.
     (RemoteTranscriptSnapshot Snapshot, (int Generation, int Refusals) Stamp)? _resume;
     /// Tail projections between reading the prompt state and committing their event: a snapshot taken
     /// then would pair prompts that already saw the event with a position that has not.
@@ -226,24 +227,24 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         lock (_lock) if (_position is not null) return true;
         var stamp = _cache?.Stamp(_sessionId) ?? default;
         (RemoteTranscriptSnapshot Snapshot, (int Generation, int Refusals) Stamp)? kept;
-        lock (_lock) {
-            kept = _resume;
-            _resume = null;
-        }
+        lock (_lock) kept = _resume;
         if (kept is null && _cache?.Take(_sessionId) is { } taken) {
             // The cache is keyed by session alone: lines a windowed feed kept would show part of the session as all of it.
             if (_window is null && taken.Earliest > 0) _cache.Put(_sessionId, taken, stamp);
-            else kept = (taken, stamp);
+            else {
+                kept = (taken, stamp);
+                lock (_lock) {
+                    // Closed while taking it: put it back.
+                    if (_disposed) { _cache.Put(_sessionId, taken, stamp); return false; }
+                    _resume = kept;
+                }
+            }
         }
         if (kept is { } resume) {
-            bool? resumed;
-            try {
-                resumed = await ResumeAsync(attempt, resume.Stamp, resume.Snapshot, ct).ConfigureAwait(false);
-            } catch {
-                lock (_lock) _resume ??= resume;
-                throw;
-            }
+            var resumed = await ResumeAsync(attempt, resume.Stamp, resume.Snapshot, ct).ConfigureAwait(false);
             if (resumed is { } done) return done;
+            // An earlier attempt's answer leaves the snapshot to the current one.
+            lock (_lock) if (_attempt == attempt) _resume = null;
             stamp = _cache!.Stamp(_sessionId);
         }
         var lines = new List<ProjectedLine>();
@@ -315,6 +316,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             List<ProjectedLine> lines, ScheduledPrompts scheduled) {
         lock (_lock) {
             if (_attempt != attempt) return false;
+            _resume = null;
             _verdict = null;
             _stamp = stamp;
             _scheduled = scheduled;
@@ -627,7 +629,10 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     }
 
     void Forget() {
-        lock (_lock) _lost = true;
+        lock (_lock) {
+            _lost = true;
+            _resume = null;
+        }
         _cache?.Drop(_sessionId);
     }
 
