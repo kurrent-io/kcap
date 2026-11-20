@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.Time.Testing;
 using System.Diagnostics;
@@ -9,7 +11,7 @@ using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Recording.Tests.Unit;
 
-public class RecorderHostTests {
+public partial class RecorderHostTests {
     const string Secret = "ghp_0123456789abcdefghijklmnopqrstuvwxyz";
     const string Prompt = """{"type":"user","message":{"content":"Summarise the README"}}""";
     const string Reply  = """{"type":"assistant","message":{"content":[{"type":"text","text":"Done."}]}}""";
@@ -534,6 +536,79 @@ public class RecorderHostTests {
         await Assert.That(ended.SourceEnded).IsTrue();
     }
 
+    /// <summary>The plugin's heartbeat is what says a shared v2 server runs the session, and the end marker is what
+    /// tells the plugin to start the session again on its next event.</summary>
+    [Test]
+    public async Task An_opencode_session_with_a_plugin_heartbeat_ends_idle_without_a_turn_and_marks_the_end() {
+        var source    = OpenCodeSource("ses_idle");
+        var heartbeat = OpenCodeSessionHeartbeat.PathFor(source.TranscriptPath);
+        WatcherHeartbeat.Touch(heartbeat, _time.GetUtcNow());
+        var host = NewHost(watched: false);
+
+        host.TryAdd(source);
+        await Eventually(() => host.ActiveKeys.Count == 0, "the idle end", TimeSpan.FromMinutes(5));
+
+        await Assert.That(_ended.Single().EndedIdle).IsTrue();
+        await Assert.That(File.Exists(OpenCodeSessionHeartbeat.EndedPathFor(source.TranscriptPath))).IsTrue();
+    }
+
+    /// <summary>A recorder running for the session is what ends the plugin's restarts, so it removes the marker.</summary>
+    [Test]
+    public async Task A_recorder_starting_for_an_opencode_session_clears_its_end_marker() {
+        var source = OpenCodeSource("ses_back");
+        var ended  = OpenCodeSessionHeartbeat.EndedPathFor(source.TranscriptPath);
+        WatcherHeartbeat.Touch(ended, _time.GetUtcNow());
+        var host = NewHost();
+
+        host.TryAdd(source);
+        await Eventually(() => Ticks(source.Key) > 0, "the recorder's first drain");
+
+        await Assert.That(File.Exists(ended)).IsFalse();
+    }
+
+    [Test]
+    public async Task A_fresh_plugin_heartbeat_holds_an_opencode_session_open() {
+        var source    = OpenCodeSource("ses_busy");
+        var heartbeat = OpenCodeSessionHeartbeat.PathFor(source.TranscriptPath);
+        WatcherHeartbeat.Touch(heartbeat, _time.GetUtcNow());
+        var host  = NewHost(watched: false);
+        var until = _time.GetUtcNow() + TimeSpan.FromHours(2);
+
+        host.TryAdd(source);
+        await Eventually(() => {
+            TouchAsThePlugin(heartbeat, _time.GetUtcNow());
+
+            return _time.GetUtcNow() >= until && Ticks(source.Key) > 10;
+        }, "two hours of plugin events", TimeSpan.FromMinutes(5));
+
+        await Assert.That(host.ActiveKeys).Contains(source.Key);
+    }
+
+    /// <summary>v1, and a v2 server private to one run, write no heartbeat: their session ends when the process does.</summary>
+    [Test]
+    public async Task An_opencode_session_without_a_plugin_heartbeat_does_not_end_idle() {
+        var source = OpenCodeSource("ses_v1");
+        var host   = NewHost(watched: false);
+        var until  = _time.GetUtcNow() + TimeSpan.FromHours(2);
+
+        host.TryAdd(source);
+        await Eventually(() => _time.GetUtcNow() >= until && Ticks(source.Key) > 10, "two quiet hours", TimeSpan.FromMinutes(5));
+
+        await Assert.That(host.ActiveKeys).Contains(source.Key);
+    }
+
+    // Windows can refuse a rename over the heartbeat while the host reads it; the plugin skips that write and writes on
+    // its next event.
+    static void TouchAsThePlugin(string heartbeat, DateTimeOffset now) {
+        try {
+            WatcherHeartbeat.Touch(heartbeat, now);
+        } catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+        }
+    }
+
+    RecordingSource OpenCodeSource(string sessionId) =>
+        new(sessionId, null, Tmp.CreateFile($"{sessionId}.jsonl", """{"type":"session_title","title":"Fix the build"}""" + "\n"), "opencode", null);
+
     [Test]
     public async Task The_owner_hears_a_source_lost_its_claim() {
         var source = Source(Tmp.CreateFile("t.jsonl", $"{Prompt}\n"), "a1");
@@ -1005,7 +1080,7 @@ public class RecorderHostTests {
         await Eventually(() => GivenUp(source.Key), "the source to be given up", TimeSpan.FromSeconds(1));
 
         var givenUp = _log.Single(line => line.Contains("without a beat", StringComparison.Ordinal));
-        var quiet   = int.Parse(System.Text.RegularExpressions.Regex.Match(givenUp, @"went (\d+)s without a beat").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        var quiet   = int.Parse(QuietSeconds().Match(givenUp).Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
         await Assert.That(quiet).IsGreaterThan((int)(RecorderHost.WedgedAfter * 2).TotalSeconds);
     }
 
@@ -2897,4 +2972,7 @@ public class RecorderHostTests {
             return timer;
         }
     }
+
+    [GeneratedRegex(@"went (\d+)s without a beat")]
+    private static partial Regex QuietSeconds();
 }

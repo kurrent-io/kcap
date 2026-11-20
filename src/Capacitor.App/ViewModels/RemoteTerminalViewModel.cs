@@ -10,7 +10,7 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-public enum RemoteTerminalPhase { Waiting, Connecting, Live, Offline, Ended, Refused }
+public enum RemoteTerminalPhase { Waiting, Connecting, Live, Offline, Ended, Refused, Failed }
 
 /// Each subscribe replays onto a fresh surface. Buffer dimensions follow the source;
 /// the measured viewport is reported separately while visible, since the server clamps
@@ -37,6 +37,7 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
     int _generation;
     Utf8StreamDecoder? _decoder;
     bool _subscribed;
+    bool _surfaceAdmitted;
     // The hub delivers the replay (TerminalDimensions and buffered TerminalOutput) INSIDE the
     // SubscribeToTerminal invocation, before it returns -- so frames arrive before _subscribed is
     // ever set. This tracks "attached and expecting output" instead, true from the moment Attach
@@ -74,23 +75,29 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
         get => _phase;
         private set {
             this.RaiseAndSetIfChanged(ref _phase, value);
-            this.RaisePropertyChanged(nameof(PhaseNote));
-            this.RaisePropertyChanged(nameof(ShowsBanner));
+            this.RaisePropertyChanged(nameof(Notice));
+            this.RaisePropertyChanged(nameof(IsLive));
+            this.RaisePropertyChanged(nameof(HasOfflineSurface));
+            this.RaisePropertyChanged(nameof(ShowsSurface));
             _phases.OnNext(value);
         }
     }
 
-    public string PhaseNote => Phase switch {
-        RemoteTerminalPhase.Waiting    => "Waiting for the session…",
-        RemoteTerminalPhase.Connecting => "Connecting…",
-        RemoteTerminalPhase.Offline    => "Not connected to the session",
-        RemoteTerminalPhase.Ended      => "This session has ended.",
-        RemoteTerminalPhase.Refused    => RefusedNote,
-        _                              => "",
+    public bool IsLive => Phase == RemoteTerminalPhase.Live;
+    // Replay can start before admission returns. Only an admitted surface may stay visible offline.
+    public bool HasOfflineSurface => Phase == RemoteTerminalPhase.Offline && _surfaceAdmitted;
+    public bool ShowsSurface => IsLive || HasOfflineSurface;
+    public SessionConnectionPresentation? Notice => Phase switch {
+        RemoteTerminalPhase.Waiting or RemoteTerminalPhase.Connecting => SessionConnectionPresentation.ConnectingToTerminal,
+        RemoteTerminalPhase.Offline => new("Not connected to the server", "The terminal reconnects when the server is available.", false),
+        RemoteTerminalPhase.Ended => new("This session has ended.", "", false, IsPlain: true),
+        RemoteTerminalPhase.Refused => new("Terminal access denied", "You don't have access to this session's terminal.", false),
+        RemoteTerminalPhase.Failed => new("Couldn’t connect to the terminal", _failureDetail, false, "Retry", RetryCommand),
+        _ => null,
     };
-    internal const string RefusedNote = "You don't have access to this session's terminal.";
 
-    public bool ShowsBanner => Phase != RemoteTerminalPhase.Live;
+    string _failureDetail = "";
+    public ReactiveCommand<Unit, Unit> RetryCommand { get; }
 
     string? _controlRefusal;
     /// Why the viewer may watch but not press keys or size the terminal; null while they may.
@@ -136,6 +143,8 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
         SendKeyCommand = ReactiveCommand.CreateFromTask<string>(
             key => Enqueue(key, null), _phases.CombineLatest(_controls, (phase, controls) => phase == RemoteTerminalPhase.Live && controls));
         _disposables.Add(SendKeyCommand);
+        RetryCommand = ReactiveCommand.Create(Ask, _phases.Select(phase => phase == RemoteTerminalPhase.Failed));
+        _disposables.Add(RetryCommand);
         typing?.DistinctUntilChanged().ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(on => AcceptsTyping = on).DisposeWith(_disposables);
         viewer?.Select(v => v.CanPressKeys ? null : v.ControlRefusal).DistinctUntilChanged()
@@ -175,6 +184,7 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
             _access = state;
             if (state == SessionAccessState.Denied) {
                 if (Phase is RemoteTerminalPhase.Live or RemoteTerminalPhase.Connecting) Ask();
+                else if (HasOfflineSurface) Detach(RemoteTerminalPhase.Refused);
                 return;
             }
             if (state != SessionAccessState.Established) return;
@@ -182,10 +192,13 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
             Ask();
         }).DisposeWith(_disposables);
         // The server forgets a connection's subscriptions when it drops.
-        lane.Status.Select(s => s.State == ServerLaneState.Connected).DistinctUntilChanged().Skip(1)
-            .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(connected => {
-                if (connected) Ask();
-                else if (!_ended) Detach(RemoteTerminalPhase.Offline);
+        lane.Status.Select(s => (Connected: s.State == ServerLaneState.Connected, SignedOut: s.State == ServerLaneState.SignedOut))
+            .DistinctUntilChanged().Skip(1).ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(status => {
+                if (status.Connected) Ask();
+                else if (!_ended) {
+                    if (status.SignedOut) _surfaceAdmitted = false;
+                    Detach(RemoteTerminalPhase.Offline);
+                }
             }).DisposeWith(_disposables);
         lane.TerminalOutput.Where(f => f.AgentId == agentId).ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(f => {
             if (!_receiving || Surface is not { } surface || _decoder is not { } decoder) return;
@@ -222,8 +235,9 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
         };
         if (_sourceSize is { } size) surface.Resize(size.Cols, size.Rows);
         _decoder = decoder;
-        Surface = surface;
+        _surfaceAdmitted = false;
         Phase = RemoteTerminalPhase.Connecting;
+        Surface = surface;
         _receiving = true;
         _ = SubscribeAsync(generation);
     }
@@ -232,7 +246,7 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
         HubCallOutcome outcome;
         try {
             outcome = await _lane.SubscribeToTerminalAsync(_agentId, _token);
-        } catch (OperationCanceledException) {
+        } catch (OperationCanceledException) when (_token.IsCancellationRequested) {
             // Teardown cancelled _token while the hub may already have taken the subscribe —
             // ReleaseAsync's own calls carry CancellationToken.None.
             Dispatcher.UIThread.Post(() => { if (!_receiving) _ = ReleaseAsync(); });
@@ -252,7 +266,17 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
             // A refused subscribe must not render frames meant for another viewer on the connection.
             if (outcome.Result != HubCallResult.Ok) {
                 _receiving = false;
-                Phase = outcome.Result == HubCallResult.Denied ? RemoteTerminalPhase.Refused : RemoteTerminalPhase.Offline;
+                if (outcome.Result == HubCallResult.Failed) {
+                    Console.Error.WriteLine($"kcap: remote terminal subscribe: {outcome.Reason}");
+                    _failureDetail = outcome.Reason?.Contains(WireTokens.SessionAccessRecheckFailed, StringComparison.Ordinal) == true
+                        ? "The server couldn’t verify access to this terminal. Retrying automatically."
+                        : "Retrying automatically.";
+                }
+                Phase = outcome.Result switch {
+                    HubCallResult.Denied => RemoteTerminalPhase.Refused,
+                    HubCallResult.Failed => RemoteTerminalPhase.Failed,
+                    _ => RemoteTerminalPhase.Offline,
+                };
                 if (_strayMembership) {
                     _strayMembership = false;
                     _ = ReleaseAsync();
@@ -266,6 +290,7 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
             _carriesOn = _access != SessionAccessState.Established;
             _strayMembership = false;
             _subscribed = true;
+            _surfaceAdmitted = true;
             Phase = RemoteTerminalPhase.Live;
             if (_viewport is { } size) ReportViewport(size);
         });
@@ -274,7 +299,7 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
     void ScheduleRetry(int generation) {
         var delay = Retry[Math.Min(_failures++, Retry.Length - 1)];
         _retry = _time.CreateTimer(_ => Dispatcher.UIThread.Post(() => {
-            if (generation == _generation && Phase == RemoteTerminalPhase.Offline) Ask();
+            if (generation == _generation && Phase == RemoteTerminalPhase.Failed) Ask();
         }), null, delay, Timeout.InfiniteTimeSpan);
     }
 
@@ -310,6 +335,7 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
         DropInput();
         _generation++;
         _receiving = false;
+        if (phase != RemoteTerminalPhase.Offline) _surfaceAdmitted = false;
         Phase = phase;
         if (!_subscribed && !_strayMembership) return;
         _subscribed = false;

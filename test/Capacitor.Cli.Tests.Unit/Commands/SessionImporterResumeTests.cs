@@ -88,15 +88,17 @@ public class SessionImporterResumeTests : IDisposable {
     }
 
     [Test]
-    public async Task Strict_resume_stops_before_the_parent_lines_after_a_refused_subagent() {
-        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost().WithBody(new JsonPartialMatcher($$"""{"agent_id":"{{Late}}"}""")))
+    [Arguments("/hooks/subagent-start")]
+    [Arguments("/hooks/transcript")]
+    [Arguments("/hooks/subagent-stop")]
+    public async Task Strict_resume_stops_before_the_parent_lines_after_a_refused_subagent(string refusedPath) {
+        _server.Given(Request.Create().WithPath(refusedPath).UsingPost().WithBody(new JsonPartialMatcher($$"""{"agent_id":"{{Late}}"}""")))
             .AtPriority(1)
             .RespondWith(Response.Create().WithStatusCode(400));
-        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
-            .AtPriority(2)
-            .RespondWith(Response.Create().WithStatusCode(200));
-        RespondOk("/hooks/subagent-start");
-        RespondOk("/hooks/subagent-stop");
+        foreach (var path in new[] { "/hooks/transcript", "/hooks/subagent-start", "/hooks/subagent-stop" })
+            _server.Given(Request.Create().WithPath(path).UsingPost())
+                .AtPriority(2)
+                .RespondWith(Response.Create().WithStatusCode(200));
         var sessionPath = await WriteSessionAsync();
 
         using var client = new HttpClient();
@@ -105,12 +107,10 @@ public class SessionImporterResumeTests : IDisposable {
                 client, _server.Url!, sessionPath, "s1", new SessionMetadata { Cwd = "/x" }, encodedCwd: null,
                 TimeProvider.System, startLine: 2, strict: true));
 
-        var parentLines = Bodies("/hooks/transcript")
-            .Where(b => b["agent_id"] is null)
-            .SelectMany(b => b["line_numbers"]!.AsArray().Select(n => n!.GetValue<int>()))
-            .ToList();
-        await Assert.That(parentLines).IsEquivalentTo([2]);
-        await Assert.That(Bodies("/hooks/subagent-stop")).IsEmpty();
+        await Assert.That(ParentLines()).IsEquivalentTo([2]);
+        await Assert.That(Bodies("/hooks/transcript").Any(b => b["agent_id"] is not null))
+            .IsEqualTo(refusedPath != "/hooks/subagent-start");
+        await Assert.That(Bodies("/hooks/subagent-stop").Count).IsEqualTo(refusedPath == "/hooks/subagent-stop" ? 1 : 0);
     }
 
     const string Compact = "acompact-cccccccc";
@@ -125,11 +125,13 @@ public class SessionImporterResumeTests : IDisposable {
     /// last batch unsent: otherwise the server holds every parent line and the retry never happens.
     /// </summary>
     [Test]
-    public async Task A_refused_trailing_subagent_holds_the_last_parent_batch_until_a_retry_delivers_it() {
+    [Arguments(150)]
+    [Arguments(201)]
+    public async Task A_refused_trailing_subagent_holds_the_last_parent_batch_until_a_retry_delivers_it(int lineCount) {
         var name        = Guid.NewGuid().ToString("N");
         var sessionPath = Tmp.PathTo($"{name}.jsonl");
         var agentsDir   = Tmp.CreateDir(name, "subagents");
-        await File.WriteAllLinesAsync(sessionPath, Enumerable.Range(0, 150).Select(i =>
+        await File.WriteAllLinesAsync(sessionPath, Enumerable.Range(0, lineCount).Select(i =>
             $$$"""{"type":"user","timestamp":"2026-03-15T10:00:00Z","message":{"content":"p{{{i}}}"}}"""));
         await File.WriteAllLinesAsync(agentsDir.PathTo($"agent-{Compact}.jsonl"), [
             """{"type":"user","timestamp":"2026-03-15T10:00:00Z","message":{"content":"c"}}""",
@@ -165,7 +167,7 @@ public class SessionImporterResumeTests : IDisposable {
 
         await Assert.That(retried.AgentIds).IsEquivalentTo([Compact]);
         await Assert.That(Bodies("/hooks/subagent-stop").Select(b => b["agent_id"]!.GetValue<string>())).IsEquivalentTo([Compact]);
-        await Assert.That(ParentLines().Max()).IsEqualTo(149);
+        await Assert.That(ParentLines()).IsEquivalentTo(Enumerable.Range(101, lineCount - 101));
     }
 
     /// <summary>
@@ -202,12 +204,59 @@ public class SessionImporterResumeTests : IDisposable {
     }
 
     [Test]
-    public async Task ResumePositions_take_the_first_reference_past_the_watermark() {
-        var positions = SessionImporter.ResumePositions(
-            new() { ["done"] = 1, ["running"] = 1, ["new"] = 5 },
-            new() { ["done"] = [1, 2], ["running"] = [1, 4, 7], ["new"] = [5] },
-            startLine: 3);
+    public async Task A_parent_reference_appended_during_delivery_is_left_for_the_next_resume() {
+        RespondOk("/hooks/transcript");
+        RespondOk("/hooks/subagent-start");
+        RespondOk("/hooks/subagent-stop");
 
-        await Assert.That(positions).IsEquivalentTo(new Dictionary<string, int> { ["running"] = 4, ["new"] = 5 });
+        var parent = Tmp.PathTo("growing.jsonl");
+        var agent = Tmp.CreateDir("growing", "subagents").PathTo($"agent-{Early}.jsonl");
+        var reference = $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{Early}}}"}}""";
+        const string message = """{"type":"user","message":{"content":"line"}}""";
+        await File.WriteAllLinesAsync(parent, new[] { reference }.Concat(Enumerable.Repeat(message, 101)));
+        await File.WriteAllLinesAsync(agent, [message]);
+
+        using var client = new HttpClient();
+        var first = await SessionImporter.ImportSessionAsync(
+            client, _server.Url!, parent, "s1", new SessionMetadata(), encodedCwd: null, TimeProvider.System,
+            new AppendAfterFirstBatch(parent, reference), startLine: 1, strict: true);
+        await Assert.That(first.AgentIds).IsEmpty();
+        await Assert.That(first.CompleteLines).IsEqualTo(102);
+        await Assert.That(ParentLines().Max()).IsEqualTo(101);
+
+        _server.ResetLogEntries();
+        var second = await SessionImporter.ImportSessionAsync(
+            client, _server.Url!, parent, "s1", new SessionMetadata(), encodedCwd: null, TimeProvider.System,
+            startLine: first.CompleteLines, strict: true);
+        await Assert.That(second.AgentIds).IsEquivalentTo([Early]);
+        await Assert.That(ParentLines()).IsEquivalentTo([102]);
+    }
+
+    sealed class AppendAfterFirstBatch(string path, string line) : IProgress<ImportProgress> {
+        bool _appended;
+
+        public void Report(ImportProgress progress) {
+            if (_appended || progress is not BatchFlushed { AgentId: null }) return;
+            File.AppendAllLines(path, [line]);
+            _appended = true;
+        }
+    }
+
+    [Test]
+    public async Task New_import_delivers_trailing_agents_after_the_parent() {
+        RespondOk("/hooks/transcript");
+        RespondOk("/hooks/subagent-start");
+        RespondOk("/hooks/subagent-stop");
+
+        var path = Tmp.CreateFile("new.jsonl", """{"type":"user","message":{"content":"parent"}}""" + "\n");
+        Tmp.CreateFile(["new", "subagents", $"agent-{Compact}.jsonl"], """{"type":"user","message":{"content":"child"}}""" + "\n");
+
+        using var client = new HttpClient();
+        var result = await SessionImporter.ImportSessionAsync(
+            client, _server.Url!, path, "s1", new SessionMetadata(), encodedCwd: null, TimeProvider.System);
+
+        await Assert.That(result.AgentIds).IsEquivalentTo([Compact]);
+        var posts = _server.LogEntries.Select(e => e.RequestMessage.Path).ToList();
+        await Assert.That(string.Join(" ", posts)).IsEqualTo("/hooks/transcript /hooks/subagent-start /hooks/transcript /hooks/subagent-stop");
     }
 }

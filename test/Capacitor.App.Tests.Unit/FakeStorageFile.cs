@@ -13,15 +13,15 @@ static class FakeStorageFile {
     public static IStorageFile Of(string name, byte[] bytes, ulong? reportedSize) {
         var file = Substitute.For<IStorageFile>();
         file.Name.Returns(name);
-        file.GetBasicPropertiesAsync().Returns<StorageItemProperties>(new StorageItemProperties(reportedSize, null, null));
-        file.OpenReadAsync().Returns<Stream>(new MemoryStream(bytes));
+        file.GetBasicPropertiesAsync().Returns(new StorageItemProperties(reportedSize, null, null));
+        file.OpenReadAsync().Returns(new MemoryStream(bytes));
         return file;
     }
 
     public static IStorageFile Of(string name, ulong? reportedSize) {
         var file = Substitute.For<IStorageFile>();
         file.Name.Returns(name);
-        file.GetBasicPropertiesAsync().Returns<StorageItemProperties>(new StorageItemProperties(reportedSize, null, null));
+        file.GetBasicPropertiesAsync().Returns(new StorageItemProperties(reportedSize, null, null));
         file.OpenReadAsync().Returns<Stream>(_ => throw new InvalidOperationException($"{name} should not be opened"));
         return file;
     }
@@ -29,7 +29,7 @@ static class FakeStorageFile {
     public static IStorageFile Of(string name, Exception openThrows) {
         var file = Substitute.For<IStorageFile>();
         file.Name.Returns(name);
-        file.GetBasicPropertiesAsync().Returns<StorageItemProperties>(new StorageItemProperties(0, null, null));
+        file.GetBasicPropertiesAsync().Returns(new StorageItemProperties(0, null, null));
         file.OpenReadAsync().Returns<Stream>(_ => throw openThrows);
         return file;
     }
@@ -37,8 +37,8 @@ static class FakeStorageFile {
     public static IStorageFile Of(string name, byte[] bytes, int throwAfterBytes) {
         var file = Substitute.For<IStorageFile>();
         file.Name.Returns(name);
-        file.GetBasicPropertiesAsync().Returns<StorageItemProperties>(new StorageItemProperties((ulong)bytes.LongLength, null, null));
-        file.OpenReadAsync().Returns<Stream>(new ThrowAfterStream(bytes, throwAfterBytes));
+        file.GetBasicPropertiesAsync().Returns(new StorageItemProperties((ulong)bytes.LongLength, null, null));
+        file.OpenReadAsync().Returns(new ThrowAfterStream(bytes, throwAfterBytes));
         return file;
     }
 
@@ -47,8 +47,8 @@ static class FakeStorageFile {
     public static IStorageFile Of(string name, TrackedStream stream) {
         var file = Substitute.For<IStorageFile>();
         file.Name.Returns(name);
-        file.GetBasicPropertiesAsync().Returns<StorageItemProperties>(new StorageItemProperties((ulong)stream.Length, null, null));
-        file.OpenReadAsync().Returns<Stream>(stream);
+        file.GetBasicPropertiesAsync().Returns(new StorageItemProperties((ulong)stream.Length, null, null));
+        file.OpenReadAsync().Returns(stream);
         return file;
     }
 

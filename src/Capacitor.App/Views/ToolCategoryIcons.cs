@@ -21,6 +21,7 @@ public static class ToolCategoryIcons {
         ToolCategory.Memory    => LucideIconKind.Brain,
         ToolCategory.Session   => LucideIconKind.RotateCcwClock,
         ToolCategory.Flow      => LucideIconKind.Workflow,
+        ToolCategory.Sharing   => LucideIconKind.Share2,
         _                      => LucideIconKind.Wrench,
     };
 

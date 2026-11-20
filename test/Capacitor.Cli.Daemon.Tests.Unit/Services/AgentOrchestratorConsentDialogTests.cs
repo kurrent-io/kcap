@@ -21,7 +21,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 public class AgentOrchestratorConsentDialogTests {
     // The real Claude 2.1.x banner, condensed to the two matched markers.
     const string BypassDialogOutput =
-        "\x1b[2J\x1b[H WARNING: Claude Code running in Bypass Permissions mode \n" +
+        "\e[2J\e[H WARNING: Claude Code running in Bypass Permissions mode \n" +
         " In Bypass Permissions mode, Claude Code will not ask for your approval.\n" +
         " 1. No, exit\n 2. Yes, I accept\n";
 

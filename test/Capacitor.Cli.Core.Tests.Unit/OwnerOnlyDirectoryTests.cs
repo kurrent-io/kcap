@@ -140,7 +140,7 @@ public class OwnerOnlyDirectoryTests {
 
         var ex = Assert.Throws<InvalidOperationException>(() => OwnerOnlyDirectory.CreateVerified(path));
 
-        await Assert.That(ex!.Message).Contains("not owner-only");
+        await Assert.That(ex.Message).Contains("not owner-only");
     }
 
     [SupportedOSPlatform("windows")]

@@ -2013,9 +2013,10 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
     void ReleaseHeldCallsLocked(int count = int.MaxValue) {
         count = Math.Min(count, _heldCalls.Count);
-        foreach (var (call, agentId, _) in _heldCalls.Take(count))
+        foreach (var (call, agentId, _) in _heldCalls.Take(count)) {
             if (AcpEventTranslator.Translate(call, seq: 0, NowIso(), logger: _logger, debugFrames: _debugFrames) is { } e)
                 EmitEnvelope(For(e, agentId));
+        }
         _heldCalls.RemoveRange(0, count);
     }
 
@@ -2181,9 +2182,10 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             // The channel's single reader is gone and its writer completed, so nothing still queued will
             // ever be sent: a caller awaiting a turn's write would otherwise wait forever.
             if (_turnWorkerTask.IsCompleted) {
-                while (_pendingTurns.Reader.TryRead(out var undelivered))
+                while (_pendingTurns.Reader.TryRead(out var undelivered)) {
                     undelivered.Written?.TrySetException(new InvalidOperationException(
                         "ACP session ended while this input was pending delivery."));
+                }
             }
 
             // Session-end flush: a belt-and-suspenders flush of any still-open aggregation run. In the

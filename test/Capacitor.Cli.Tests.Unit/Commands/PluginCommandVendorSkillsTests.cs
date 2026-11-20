@@ -30,10 +30,11 @@ public class PluginCommandVendorSkillsTests {
 
         await Assert.That(exit).IsEqualTo(0);
 
-        foreach (var name in AgentsSkillsInstaller.SourceNames)
+        foreach (var name in AgentsSkillsInstaller.SourceNames) {
             await Assert.That(AgentsSkillsInstaller.HasSkill(scope.Env.Agents.UserSkillsDir, name))
                         .IsTrue()
                         .Because($"`plugin install --{vendor.Flag}` should have written kcap-{name}");
+        }
     }
 
     [Test]

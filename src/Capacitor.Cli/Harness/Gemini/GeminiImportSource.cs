@@ -102,7 +102,6 @@ internal sealed class GeminiImportSource : IImportSource {
                 }
             } catch {
                 // A hostile/inaccessible project subtree must not abort the whole scan.
-                continue;
             }
         }
 
@@ -159,6 +158,7 @@ internal sealed class GeminiImportSource : IImportSource {
                 agentId:    null,
                 startLine:  startLine, time: _time,
                 vendor:     Vendor,
+                stopAtLoss: ctx.StopAtLoss,
                 progress:   ctx.Progress);
         } catch {
             return ImportOutcome.Failed;

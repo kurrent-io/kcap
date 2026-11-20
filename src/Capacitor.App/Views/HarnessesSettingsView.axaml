@@ -114,6 +114,18 @@
                                                     </Grid>
                                                 </Border>
                                             </StackPanel>
+                                            <WrapPanel x:Name="ImportOfferPanel" IsVisible="{Binding OffersImport}">
+                                                <TextBlock Classes="kcapHint" Text="{Binding ImportOffer}" VerticalAlignment="Center"
+                                                           Foreground="{StaticResource KcapTextBrush}" Margin="0,0,12,0" />
+                                                <Button Classes="kcapChip settingsCompact" Content="Import" Margin="0,0,6,0"
+                                                        AutomationProperties.Name="{Binding Label, StringFormat='Import earlier {0} chats'}"
+                                                        Command="{Binding $parent[ItemsControl].((vm:HarnessesSettingsViewModel)DataContext).ImportEarlierCommand}"
+                                                        CommandParameter="{Binding}" />
+                                                <Button Classes="kcapGhost settingsCompact" Content="Not now"
+                                                        AutomationProperties.Name="{Binding Label, StringFormat='Do not import earlier {0} chats'}"
+                                                        Command="{Binding $parent[ItemsControl].((vm:HarnessesSettingsViewModel)DataContext).DeclineImportCommand}"
+                                                        CommandParameter="{Binding}" />
+                                            </WrapPanel>
                                         </StackPanel>
                                     </Grid>
                                 </Border>

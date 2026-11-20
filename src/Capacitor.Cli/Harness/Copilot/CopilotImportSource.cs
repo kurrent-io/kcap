@@ -127,7 +127,6 @@ internal sealed class CopilotImportSource : IImportSource {
                         }));
                 } catch {
                     // A hostile/inaccessible session subtree must not abort the whole scan.
-                    continue;
                 }
             }
 
@@ -279,6 +278,9 @@ internal sealed class CopilotImportSource : IImportSource {
             _                                                => 0,
         };
 
+        // A moved chat's marker needs the resume that ends its copied history delivered, so a lost batch stops its send.
+        var movedBefore = classification.SourceMeta!.ContainsKey(ChatSessionLogKey) ? null : ReadMovedHistory(transcriptPath);
+
         int sent;
         try {
             sent = await SessionImporter.SendTranscriptBatches(
@@ -290,6 +292,7 @@ internal sealed class CopilotImportSource : IImportSource {
                 startLine:  startLine,
                 time:       _time,
                 vendor:     Vendor,
+                stopAtLoss: ctx.StopAtLoss || movedBefore is not null,
                 progress:   ctx.Progress,
                 lineNumberFor: startLine > 0 && classification.SourceMeta.TryGetValue(NumberingKey, out var numbering)
                     ? numbering as Func<int, int?>
@@ -298,10 +301,9 @@ internal sealed class CopilotImportSource : IImportSource {
             return ImportOutcome.Failed;
         }
 
-        var usageOk = true;
-        if (classification.SourceMeta.GetValueOrDefault(ChatSessionLogKey) is string chatLog) {
-            usageOk = await PostVsCodeLocalAsync(ctx, classification.SessionId, transcriptPath, chatLog, ct);
-        }
+        var usageOk = classification.SourceMeta.GetValueOrDefault(ChatSessionLogKey) is string chatLog
+            ? await PostVsCodeLocalAsync(ctx, classification.SessionId, transcriptPath, chatLog, ct)
+            : await PostMovedFromAsync(ctx, classification, transcriptPath, movedBefore, ct);
 
         // Best-effort: a title miss must not fail the import.
         if (classification.SourceMeta.GetValueOrDefault(WorkspaceYamlKey) is string workspaceYaml) {
@@ -353,6 +355,68 @@ internal sealed class CopilotImportSource : IImportSource {
         await ImportHarnessTitle.PostFromStoreAsync(new VsCodeChatTitle(cache), ctx.HttpClient, _time, ctx.BaseUrl, sessionId, ctx.Progress, ct);
 
         return delivered;
+    }
+
+    async Task<int?> ServerLastLineAsync(ImportContext ctx, string sessionId, CancellationToken ct) {
+        try {
+            using var resp = await ctx.HttpClient.GetWithRetryAsync($"{ctx.BaseUrl}/api/sessions/{sessionId}/last-line", _time, ct: ct);
+            if (!resp.IsSuccessStatusCode) return null;
+
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            return doc.RootElement.Num("last_line_number") is { } line ? (int)line : null;
+        } catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException) {
+            return null;
+        }
+    }
+
+    static CopilotMovedChat.History? ReadMovedHistory(string transcriptPath) {
+        try {
+            return CopilotMovedChat.Read(File.ReadLinesShared(transcriptPath));
+        } catch (Exception ex) when (IsUnreadable(ex)) {
+            return null;
+        }
+    }
+
+    /// <summary>For a chat moved from Local, the marker naming the Local chat it came from, posted on every
+    /// classification as the usage lines are: it sits above the transcript watermark and dedupes by id. The server ends
+    /// the copied history at the marker, so it goes only when the send, which stops at a lost batch for a moved chat,
+    /// read the same history as <paramref name="before"/>, taken ahead of it, and the server holds the resume that ends
+    /// it. False when it does not, or the server refused the marker, so the import can be run again; a transcript of any
+    /// other chat, or a Local chat not found, posts nothing.</summary>
+    async Task<bool> PostMovedFromAsync(
+            ImportContext ctx, ImportCommand.SessionClassification classification, string transcriptPath, CopilotMovedChat.History? before,
+            CancellationToken ct
+        ) {
+        var sessionId = classification.SessionId;
+
+        // A history that ended while the send ran was sent without a stop at a lost batch: a re-run sends it with one.
+        if (before is null) return ReadMovedHistory(transcriptPath) is null;
+        if (CopilotMovedChat.FindLocalChat(_vsCodeWorkspaceStorageDirs, before).Found is not { } local) return true;
+        if (ReadMovedHistory(transcriptPath) != before) return false;
+
+        var history = before;
+
+        // Through a rewrite's numbering, a resume with no sent number is a copy of a line the server already holds.
+        var numbering = classification.SourceMeta?.GetValueOrDefault(NumberingKey) as Func<int, int?>;
+        if ((numbering is null ? history.ResumeLine : numbering(history.ResumeLine)) is { } sentAs
+         && (await ServerLastLineAsync(ctx, sessionId, ct) is not { } held || held < sentAs)) return false;
+
+        var batch = new TranscriptBatch {
+            SessionId   = sessionId,
+            Lines       = [CopilotMovedChat.Marker(sessionId, local, history.ResumedAt)],
+            LineNumbers = [CopilotMovedChat.MarkerLineNumber],
+            Vendor      = HarnessId.Copilot.VendorId,
+            Strict      = false,
+        };
+
+        try {
+            using var content = new StringContent(JsonSerializer.Serialize(batch, CapacitorJsonContext.Default.TranscriptBatch), Encoding.UTF8, "application/json");
+            using var resp    = await ctx.HttpClient.PostWithRetryAsync($"{ctx.BaseUrl}/hooks/transcript", content, _time, ct: ct);
+
+            return resp.IsSuccessStatusCode;
+        } catch (Exception ex) when (ex is HttpRequestException or IOException) {
+            return false;
+        }
     }
 
     /// <summary>The repository as Copilot recorded it, the checkout filling what it left out. The branch is

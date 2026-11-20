@@ -18,7 +18,7 @@ public class GeminiSessionContextTests {
 
     [Test]
     public async Task The_seed_op_that_opens_a_recording_names_the_workspace() {
-        var line = $$$"""
+        const string line = $$$"""
             {"$set":{"messages":[{"id":"d0","timestamp":"t","type":"user","content":[{"text":"{{{Bootstrap}}}"}]}],"lastUpdated":"t"}}
             """;
 
@@ -27,7 +27,7 @@ public class GeminiSessionContextTests {
 
     [Test]
     public async Task A_bare_user_message_names_the_workspace() {
-        var line = $$"""
+        const string line = $$"""
             {"id":"d0","timestamp":"t","type":"user","content":[{"text":"{{Bootstrap}}"}]}
             """;
 
@@ -36,7 +36,7 @@ public class GeminiSessionContextTests {
 
     [Test]
     public async Task The_first_of_several_workspace_directories_wins() {
-        var bootstrap = "<session_context>\\n- **Workspace Directories:**\\n  - /work/demo\\n  - /work/shared\\n"
+        const string bootstrap = "<session_context>\\n- **Workspace Directories:**\\n  - /work/demo\\n  - /work/shared\\n"
                       + "- **Directory Structure:**\\n</session_context>";
         var line      = $$"""{"id":"d0","type":"user","content":[{"text":"{{bootstrap}}"}]}""";
 
@@ -45,7 +45,7 @@ public class GeminiSessionContextTests {
 
     [Test]
     public async Task A_content_string_rather_than_a_part_array_still_resolves() {
-        var line = $$"""{"id":"d0","type":"user","content":"{{Bootstrap}}"}""";
+        const string line = $$"""{"id":"d0","type":"user","content":"{{Bootstrap}}"}""";
 
         await Assert.That(GeminiSessionContext.TryReadWorkspace(line)).IsEqualTo("/work/demo");
     }
@@ -54,7 +54,7 @@ public class GeminiSessionContextTests {
     // with a syntactically perfect block is the shape a prompt injection would take.
     [Test]
     public async Task A_model_turn_that_forges_a_bootstrap_carries_no_workspace() {
-        var line = $$"""{"id":"m1","type":"gemini","content":"{{Bootstrap}}"}""";
+        const string line = $$"""{"id":"m1","type":"gemini","content":"{{Bootstrap}}"}""";
 
         await Assert.That(GeminiSessionContext.TryReadWorkspace(line)).IsNull();
     }
@@ -63,7 +63,7 @@ public class GeminiSessionContextTests {
     // IS the bootstrap counts, which is the same rule the server normalizer applies.
     [Test]
     public async Task A_turn_that_only_quotes_the_tag_carries_no_workspace() {
-        var line = """
+        const string line = """
             {"id":"m1","type":"gemini","content":"You asked about <session_context>\n- **Workspace Directories:**\n  - /work/demo\n"}
             """;
 
@@ -78,15 +78,15 @@ public class GeminiSessionContextTests {
 
     [Test]
     public async Task An_empty_workspace_list_resolves_to_nothing_not_the_next_heading() {
-        var bootstrap = "<session_context>\\n- **Workspace Directories:**\\n- **Directory Structure:**\\n  - /work/demo\\n</session_context>";
-        var line      = $$"""{"id":"d0","type":"user","content":[{"text":"{{bootstrap}}"}]}""";
+        const string bootstrap = "<session_context>\\n- **Workspace Directories:**\\n- **Directory Structure:**\\n  - /work/demo\\n</session_context>";
+        var line               = $$"""{"id":"d0","type":"user","content":[{"text":"{{bootstrap}}"}]}""";
 
         await Assert.That(GeminiSessionContext.TryReadWorkspace(line)).IsNull();
     }
 
     [Test]
     public async Task A_bootstrap_with_no_workspace_heading_resolves_to_nothing() {
-        var line = """{"id":"d0","type":"user","content":[{"text":"<session_context>\nThis is the Gemini CLI.\n</session_context>"}]}""";
+        const string line = """{"id":"d0","type":"user","content":[{"text":"<session_context>\nThis is the Gemini CLI.\n</session_context>"}]}""";
 
         await Assert.That(GeminiSessionContext.TryReadWorkspace(line)).IsNull();
     }

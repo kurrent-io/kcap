@@ -1,8 +1,8 @@
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-using Capacitor.Cli.Core;
-using Capacitor.Cli.Core.Policy;
-using Capacitor.Cli.Daemon.Tests.Unit.Acp;
+using Core;
+using Core.Policy;
+using Acp;
 using Harness = AcpLaunchNoticeHarness;
 
 /// <summary>

@@ -45,9 +45,9 @@ public class ProcessHelpersDetachedStdinTests {
             // cmd's redirect stays open for write until the child exits, and File.ReadAllText
             // denies that writer, so the open fails for a moment after the pid is already gone.
             // A shared read is compatible with the redirect and can see the payload as it lands.
-            var expected = """{"hook_event_name":"SessionEnd","session_id":"abc"}""";
-            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
-            var text     = "";
+            const string expected = """{"hook_event_name":"SessionEnd","session_id":"abc"}""";
+            var deadline          = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            var text              = "";
             while (DateTime.UtcNow < deadline) {
                 try {
                     text = ReadShared(sink).Trim();

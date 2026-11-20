@@ -6,11 +6,11 @@ namespace Capacitor.App.Tests.Unit.Services;
 
 /// The host document's shape: the page in a sandboxed srcdoc frame under the server's content
 /// policy, and the nonce only inside the host script.
-public class PageHostDocumentTests {
+public partial class PageHostDocumentTests {
     const string Nonce = "Zm9vYmFyYmF6cXV4LXF1dXgtY29yZ2UtZ3JhdWx0LWdhcnBseQ";
 
     static string Srcdoc(string host) {
-        var match = Regex.Match(host, "srcdoc=\"([^\"]*)\"");
+        var match = Srcdoc().Match(host);
         return WebUtility.HtmlDecode(match.Groups[1].Value);
     }
 
@@ -81,7 +81,7 @@ public class PageHostDocumentTests {
         var host = PageHostDocument.Build("<p>x</p>", Nonce);
 
         await Assert.That(Srcdoc(host)).DoesNotContain(Nonce);
-        var script = Regex.Match(host, "<script>(.*?)</script>", RegexOptions.Singleline).Groups[1].Value;
+        var script = Script().Match(host).Groups[1].Value;
         await Assert.That(script).Contains($"\"{Nonce}\"");
         await Assert.That(Regex.Count(host, Regex.Escape(Nonce))).IsEqualTo(1);
     }
@@ -109,6 +109,15 @@ public class PageHostDocumentTests {
 
         await Assert.That(a).IsNotEqualTo(b);
         await Assert.That(a.Length).IsEqualTo(43);
-        await Assert.That(Regex.IsMatch(a, "^[A-Za-z0-9_-]+$")).IsTrue();
+        await Assert.That(UrlSafeToken().IsMatch(a)).IsTrue();
     }
+
+    [GeneratedRegex("srcdoc=\"([^\"]*)\"")]
+    private static partial Regex Srcdoc();
+
+    [GeneratedRegex("<script>(.*?)</script>", RegexOptions.Singleline)]
+    private static partial Regex Script();
+
+    [GeneratedRegex("^[A-Za-z0-9_-]+$")]
+    private static partial Regex UrlSafeToken();
 }

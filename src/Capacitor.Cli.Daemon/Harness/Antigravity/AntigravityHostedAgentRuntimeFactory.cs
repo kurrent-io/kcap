@@ -48,8 +48,8 @@ internal interface IAgyTurnDiagnostics {
 /// id, because the orchestrator reads <c>transcript.AcpSessionId</c> synchronously the moment a
 /// launch returns and would otherwise bind the transcript to <c>""</c> forever.</para>
 ///
-/// <para><b>One gate ladder, parameterised by launch shape</b> (<see cref="LaunchRefusal(bool)"/>). Platform,
-/// binary presence and the recorded build minimum gate BOTH shapes — they protect the isolated
+/// <para><b>One gate ladder, parameterised by launch shape</b> (<see cref="LaunchRefusal(bool)"/>). Binary
+/// presence and the recorded build minimum gate BOTH shapes — they protect the isolated
 /// <c>HOME</c> above, which is not reviewer-specific. Operator CONSENT
 /// (<c>KCAP_ANTIGRAVITY_UNATTENDED_REVIEWER</c>) gates only a review, because only a review is
 /// cross-principal; hosted Antigravity ships on by default like the other hosted vendors. Advertisement
@@ -76,10 +76,9 @@ internal interface IAgyTurnDiagnostics {
 /// Production passes null, which spawns the configured binary to read its own reported version — the
 /// same resolver every other gated reviewer uses. The MINIMUM it is compared against is never seamed:
 /// it is a real record on disk, so a test moves it by writing one.</param>
-/// <param name="windowsHost">Test seam ONLY, for the platform: the gate's Windows refusal and the
-/// platform-specific launch environment (see <see cref="BuildTurnPsi"/>). Production passes null, which
-/// reads the ambient OS. A parameter so every arm of the ladder, and both environments, are reachable
-/// from any host.</param>
+/// <param name="windowsHost">Test seam ONLY, for the platform-specific launch environment (see
+/// <see cref="BuildTurnPsi"/>). Production passes null, which reads the ambient OS. A parameter so both
+/// environments are reachable from any host.</param>
 internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         DaemonConfig                                                     config,
         ILoggerFactory                                                   loggerFactory,
@@ -110,9 +109,7 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
 
     public string CliPath => config.AntigravityPath;
 
-    // A Windows host refuses every launch (LaunchRefusal's platform arm), so offering it there would
-    // put a vendor in the launcher that can only fail.
-    public bool IsAvailable() => !_windowsHost && _binaryExists(config.AntigravityPath);
+    public bool IsAvailable() => _binaryExists(config.AntigravityPath);
 
     public bool SupportsUnattended => DescribeUnattendedSupport().Supported;
 
@@ -172,26 +169,25 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     /// vendors, and a hosted launch on a consent-less daemon must not fail with a review complaint.
     /// </para>
     ///
-    /// <para><b>Every OTHER arm applies to both shapes</b> — platform, binary presence and the
-    /// recorded build minimum all exist to protect the per-launch isolated <c>HOME</c>, which a hosted
-    /// launch depends on exactly as a review does.</para></param>
+    /// <para><b>Every OTHER arm applies to both shapes</b> — binary presence and the recorded build
+    /// minimum exist to protect the per-launch isolated <c>HOME</c>, which a hosted launch depends on
+    /// exactly as a review does.</para></param>
     internal string? LaunchRefusal(bool reviewFlow) => LaunchRefusal(reviewFlow, out _);
 
     string? LaunchRefusal(bool reviewFlow, out bool probeFailed) {
         probeFailed = false;
         // The one parameterised arm. `true` for a hosted launch means "consent is not a question
-        // here", so Decide's consent arm cannot fire and the ladder continues at platform.
+        // here", so Decide's consent arm cannot fire and the ladder continues at the binary.
         var consented = !reviewFlow || config.AntigravityUnattendedReviewerEnabled;
 
-        // Consent and platform decided with NO probe and NO filesystem read. Decide short-circuits
-        // both before it looks at a version, but C# evaluates arguments first — so reading the record
-        // or probing agy inline here would do both for a daemon that switched the reviewer off, which
-        // is exactly what the consent arm's short-circuit exists to prevent. A null installed version
-        // can only yield those two arms or VersionUnresolved (the shared comparison checks the
-        // installed side first), so that verdict is precisely "consent and platform passed", and the
-        // ORDER between them stays owned by Decide rather than restated here.
+        // Consent decided with NO probe and NO filesystem read. Decide short-circuits it before it
+        // looks at a version, but C# evaluates arguments first — so reading the record or probing agy
+        // inline here would do both for a daemon that switched the reviewer off, which is exactly what
+        // the consent arm's short-circuit exists to prevent. A null installed version can only yield
+        // that arm or VersionUnresolved (the shared comparison checks the installed side first), so
+        // that verdict is precisely "consent passed".
         var beforeProbe = AntigravityReviewerCapability.Decide(
-            !_windowsHost, consented, installedVersion: null, minimumVersion: null);
+            consented, installedVersion: null, minimumVersion: null);
 
         if (beforeProbe != AntigravityReviewerDecision.VersionUnresolved)
             return AntigravityReviewerCapability.DenialReason(
@@ -208,7 +204,7 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         probeFailed = string.IsNullOrEmpty(installed);
         var minimum   = VersionStoreFor(config).Affirmed;
 
-        var decision = AntigravityReviewerCapability.Decide(!_windowsHost, consented, installed, minimum);
+        var decision = AntigravityReviewerCapability.Decide(consented, installed, minimum);
 
         return decision == AntigravityReviewerDecision.Allowed
             ? null
@@ -438,7 +434,11 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
               + "GOOGLE_CLOUD_PROJECT from your active gcloud project — so set one first if you have "
               + "not (`gcloud config set project <id>`). The explicit credentials path matters even "
               + "though ADC has a default location, because a reviewer launch redirects HOME and that "
-              + "default location is not visible to it.",
+              + "default location is not visible to it. On Windows that restart derives nothing unless "
+              + "AGY_ADC_AUTH=1 is set for the command that starts the daemon, and a signed-in agy needs "
+              + "none of it: its sign-in is not kept in the profile the launch redirects, so run `agy` "
+              + "once in a terminal as this daemon's user, sign in, and start the daemon without "
+              + "AGY_ADC_AUTH.",
                 cause);
 
         if (launchToken.IsCancellationRequested && !callerToken.IsCancellationRequested)

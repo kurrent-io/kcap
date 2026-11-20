@@ -18,8 +18,8 @@ public class LocalIntelligenceCommandTests {
         """{"mode":"local_agent","harness":"claude","vendor":null,"import_outcomes":true,"backlog_session_touches_per_day":200,"resolving":["titles","outcomes"]}""";
 
     LocalIntelligenceCommand Command(string? server, Func<string, string?>? env = null) =>
-        new(new FixedCapacitorHttpClient(), new Core.LocalEdition.LocalRoot("/no-local-root"), Config.Root) {
-            Installation = () => server is null ? null : new Core.LocalEdition.LocalInstallation(InstallationId, new Uri(server).Port, server, "1.0.0"),
+        new(new FixedCapacitorHttpClient(), new LocalRoot("/no-local-root"), Config.Root) {
+            Installation = () => server is null ? null : new LocalInstallation(InstallationId, new Uri(server).Port, server, "1.0.0"),
             Variable     = env ?? (_ => null),
         };
 

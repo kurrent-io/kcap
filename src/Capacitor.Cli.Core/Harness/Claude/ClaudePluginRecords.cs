@@ -68,7 +68,7 @@ public static class ClaudePluginRecords {
 
     static IEnumerable<JsonObject> KcapMarketplaces(JsonObject root) {
         foreach (var key in MarketplaceKeys) {
-            if (root[key] is JsonObject { } entry && entry["source"] is JsonObject source && StringOf(source["source"]) == "directory")
+            if (root[key] is JsonObject entry && entry["source"] is JsonObject source && StringOf(source["source"]) == "directory")
                 yield return entry;
         }
     }

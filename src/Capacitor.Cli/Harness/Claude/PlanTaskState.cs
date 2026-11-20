@@ -53,10 +53,10 @@ sealed record PlanTaskState(string TaskId, int Ordinal, string? Title, string St
 
     static IEnumerable<JsonObject> Answers(JsonNode? response) {
         switch (response) {
-            case JsonObject { } o when o["tasks"] is not null || o["task"] is not null:
+            case JsonObject o when o["tasks"] is not null || o["task"] is not null:
                 yield return o;
                 break;
-            case JsonObject { } o when o["content"] is JsonArray blocks:
+            case JsonObject o when o["content"] is JsonArray blocks:
                 foreach (var a in FromBlocks(blocks)) yield return a;
                 break;
             case JsonArray blocks:
@@ -69,9 +69,10 @@ sealed record PlanTaskState(string TaskId, int Ordinal, string? Title, string St
     }
 
     static IEnumerable<JsonObject> FromBlocks(JsonArray blocks) {
-        foreach (var block in blocks)
+        foreach (var block in blocks) {
             if (Text(block?["text"]) is { } text && Parse(text) is { } parsed)
                 yield return parsed;
+        }
     }
 
     static JsonObject? Parse(string text) {

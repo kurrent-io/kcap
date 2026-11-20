@@ -93,8 +93,8 @@ public class PiRpcProcessTests {
 
         await Task.WhenAll(writeA, writeB).WaitAsync(cts.Token);
 
-        var received = new[] { first, second }.OrderBy((string s) => s, StringComparer.Ordinal).ToArray();
-        var expected = new[] { lineA, lineB }.OrderBy((string s) => s, StringComparer.Ordinal).ToArray();
+        var received = new[] { first, second }.OrderBy(s => s, StringComparer.Ordinal).ToArray();
+        var expected = new[] { lineA, lineB }.OrderBy(s => s, StringComparer.Ordinal).ToArray();
 
         await Assert.That(received).IsEquivalentTo(expected);
     }

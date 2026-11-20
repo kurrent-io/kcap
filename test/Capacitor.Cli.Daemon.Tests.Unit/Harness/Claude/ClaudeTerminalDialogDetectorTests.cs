@@ -10,68 +10,68 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Claude;
 public class ClaudeTerminalDialogDetectorTests {
     // The first render, word by word at absolute columns as Claude Code draws it.
     static readonly string Dialog =
-        "\x1b[?2004h\r\r\n\x1b[38;2;255;193;7m" + new string('─', 120) + "\x1b[39m\r\r\n" +
-        "\x1b[3G\x1b[1mNew\x1b[7GMCP\x1b[11Gserver\x1b[18Gfound\x1b[24Gin\x1b[27Gthis\x1b[32Gproject:\x1b[41Gavalonia-docs\x1b[22m\r\r\n\r\r\n" +
-        "\x1b[3GMCP\x1b[7Gservers\x1b[15Gmay\x1b[19Gexecute\x1b[27Gcode\x1b[32Gor\x1b[35Gaccess\x1b[42Gsystem\x1b[49Gresources.\x1b[60GAll tool calls require approval. Learn more in the MCP\r\r\n" +
-        "\x1b[3Gdocumentation.\r\r\n\r\r\n" +
-        "\x1b[5GUse\x1b[9Gthis\x1b[14GMCP\x1b[18Gserver\r\r\n" +
-        "\x1b[5GUse\x1b[9Gthis\x1b[14Gand\x1b[18Gall\x1b[22Gfuture\x1b[29GMCP\x1b[33Gservers\x1b[41Gin\x1b[44Gthis\x1b[49Gproject\r\r\n" +
-        "\x1b[3G\x1b[38;2;177;185;249m❯\x1b[5GContinue\x1b[14Gwithout\x1b[22Gusing\x1b[28Gthis\x1b[33GMCP\x1b[37Gserver\x1b[39m\r\r\n\r\r\n" +
-        "\x1b[3G\x1b[3mEnter\x1b[9Gto\x1b[12Gconfirm\x1b[20G·\x1b[22GEsc\x1b[26Gto\x1b[29Gcancel\x1b[23m\r\r\n\x1b[2C\x1b[3A\x1b[>0q\x1b[?u\x1b[c";
+        "\e[?2004h\r\r\n\e[38;2;255;193;7m" + new string('─', 120) + "\e[39m\r\r\n" +
+        "\e[3G\e[1mNew\e[7GMCP\e[11Gserver\e[18Gfound\e[24Gin\e[27Gthis\e[32Gproject:\e[41Gavalonia-docs\e[22m\r\r\n\r\r\n" +
+        "\e[3GMCP\e[7Gservers\e[15Gmay\e[19Gexecute\e[27Gcode\e[32Gor\e[35Gaccess\e[42Gsystem\e[49Gresources.\e[60GAll tool calls require approval. Learn more in the MCP\r\r\n" +
+        "\e[3Gdocumentation.\r\r\n\r\r\n" +
+        "\e[5GUse\e[9Gthis\e[14GMCP\e[18Gserver\r\r\n" +
+        "\e[5GUse\e[9Gthis\e[14Gand\e[18Gall\e[22Gfuture\e[29GMCP\e[33Gservers\e[41Gin\e[44Gthis\e[49Gproject\r\r\n" +
+        "\e[3G\e[38;2;177;185;249m❯\e[5GContinue\e[14Gwithout\e[22Gusing\e[28Gthis\e[33GMCP\e[37Gserver\e[39m\r\r\n\r\r\n" +
+        "\e[3G\e[3mEnter\e[9Gto\e[12Gconfirm\e[20G·\e[22GEsc\e[26Gto\e[29Gcancel\e[23m\r\r\n\e[2C\e[3A\e[>0q\e[?u\e[c";
 
     // The redraw after one Up arrow.
     const string CursorUp =
-        "\x1b[2D\x1b[3B\r\x1b[2C\x1b[4A\x1b[38;2;177;185;249m❯\x1b[5GUse this and all future MCP servers in this project" +
-        "\r\x1b[2C\x1b[1B\x1b[39m \x1b[5GContinue without using this MCP server\r\r\n\r\n\r\n\x1b[2C\x1b[4A";
+        "\e[2D\e[3B\r\e[2C\e[4A\e[38;2;177;185;249m❯\e[5GUse this and all future MCP servers in this project" +
+        "\r\e[2C\e[1B\e[39m \e[5GContinue without using this MCP server\r\r\n\r\n\r\n\e[2C\e[4A";
 
     static readonly string Erase =
-        "\x1b[2D\x1b[4B" + string.Concat(Enumerable.Repeat("\x1b[2K\x1b[1A", 12)) + "\x1b[2K\x1b[G";
+        "\e[2D\e[4B" + string.Concat(Enumerable.Repeat("\e[2K\e[1A", 12)) + "\e[2K\e[G";
 
     // The same dialog drawn in a 40-column PTY, where the heading and two of the labels wrap.
     const string Narrow =
-        "\u001b[?2004h\u001b[?2031h\u001b[?1004h\r\r\n" +
-        "\u001b[38;5;220m────────────────────────────────────────\u001b[39m\r\r\n" +
-        "\u001b[3G\u001b[38;5;220m\u001b[1mNew\u001b[7GMCP\u001b[11Gserver\u001b[18Gfound\u001b[24Gin\u001b[27Gthis\u001b[22m\u001b[39m\r\r\n" +
-        "\u001b[3G\u001b[38;5;220m\u001b[1mproject:\u001b[12Ga-server-with-a-rather-long\u001b[22m\u001b[39m\r\r\n" +
-        "\u001b[3G\u001b[38;5;220m\u001b[1m-name-for-wrapping-tests\u001b[22m\u001b[39m\r\r\n" +
+        "\e[?2004h\e[?2031h\e[?1004h\r\r\n" +
+        "\e[38;5;220m────────────────────────────────────────\e[39m\r\r\n" +
+        "\e[3G\e[38;5;220m\e[1mNew\e[7GMCP\e[11Gserver\e[18Gfound\e[24Gin\e[27Gthis\e[22m\e[39m\r\r\n" +
+        "\e[3G\e[38;5;220m\e[1mproject:\e[12Ga-server-with-a-rather-long\e[22m\e[39m\r\r\n" +
+        "\e[3G\e[38;5;220m\e[1m-name-for-wrapping-tests\e[22m\e[39m\r\r\n" +
         "\r\r\n" +
-        "\u001b[3GMCP\u001b[7Gservers\u001b[15Gmay\u001b[19Gexecute\u001b[27Gcode\u001b[32Gor\r\r\n" +
-        "\u001b[3Gaccess\u001b[10Gsystem\u001b[17Gresources.\u001b[28GAll\u001b[32Gtool\r\r\n" +
-        "\u001b[3Gcalls\u001b[9Grequire\u001b[17Gapproval.\u001b[27GLearn\u001b[33Gmore\r\r\n" +
-        "\u001b[3Gin\u001b[6Gthe\u001b[10GMCP\u001b[14Gdocumentation.\r\r\n" +
+        "\e[3GMCP\e[7Gservers\e[15Gmay\e[19Gexecute\e[27Gcode\e[32Gor\r\r\n" +
+        "\e[3Gaccess\e[10Gsystem\e[17Gresources.\e[28GAll\e[32Gtool\r\r\n" +
+        "\e[3Gcalls\e[9Grequire\e[17Gapproval.\e[27GLearn\e[33Gmore\r\r\n" +
+        "\e[3Gin\e[6Gthe\e[10GMCP\e[14Gdocumentation.\r\r\n" +
         "\r\r\n" +
-        "\u001b[5GUse\u001b[9Gthis\u001b[14GMCP\u001b[18Gserver\r\r\n" +
-        "\u001b[5GUse\u001b[9Gthis\u001b[14Gand\u001b[18Gall\u001b[22Gfuture\u001b[29GMCP\u001b[33Gservers\r\r\n" +
-        "\u001b[5Gin\u001b[8Gthis\u001b[13Gproject\r\r\n" +
-        "\u001b[3G\u001b[38;5;153m❯\u001b[5GContinue\u001b[14Gwithout\u001b[22Gusing\u001b[28Gthis\u001b[33GMCP\u001b[39m\r\r\n" +
-        "\u001b[5G\u001b[38;5;153mserver\u001b[39m\r\r\n" +
+        "\e[5GUse\e[9Gthis\e[14GMCP\e[18Gserver\r\r\n" +
+        "\e[5GUse\e[9Gthis\e[14Gand\e[18Gall\e[22Gfuture\e[29GMCP\e[33Gservers\r\r\n" +
+        "\e[5Gin\e[8Gthis\e[13Gproject\r\r\n" +
+        "\e[3G\e[38;5;153m❯\e[5GContinue\e[14Gwithout\e[22Gusing\e[28Gthis\e[33GMCP\e[39m\r\r\n" +
+        "\e[5G\e[38;5;153mserver\e[39m\r\r\n" +
         "\r\r\n" +
-        "\u001b[3G\u001b[38;5;246m\u001b[3mEnter\u001b[9Gto\u001b[12Gconfirm\u001b[20G·\u001b[22GEsc\u001b[26Gto\u001b[29Gcancel\u001b[23m\u001b[39m\r\r\n" +
-        "\u001b[2C\u001b[4A\u001b[>0q\u001b[c";
+        "\e[3G\e[38;5;246m\e[3mEnter\e[9Gto\e[12Gconfirm\e[20G·\e[22GEsc\e[26Gto\e[29Gcancel\e[23m\e[39m\r\r\n" +
+        "\e[2C\e[4A\e[>0q\e[c";
 
     // The redraw after one Up arrow in that PTY, cut where the new cursor is drawn and the old one
     // not yet erased.
     const string NarrowCursorUpDrawn =
-        "\u001b[2D\u001b[4B\r\u001b[2C\u001b[6A\u001b[38;5;153m❯\u001b[5GUse this and all future MCP servers \r\u001b[4C\u001b[1Bin this project";
+        "\e[2D\e[4B\r\e[2C\e[6A\e[38;5;153m❯\e[5GUse this and all future MCP servers \r\e[4C\e[1Bin this project";
     const string NarrowCursorUpErased =
-        "\r\u001b[2C\u001b[1B\u001b[39m \u001b[5GContinue without using this MCP\u001b[K\r\u001b[4C\u001b[1Bserver\r\r\n\r\n\r\n\u001b[2C\u001b[6A";
+        "\r\e[2C\e[1B\e[39m \e[5GContinue without using this MCP\e[K\r\e[4C\e[1Bserver\r\r\n\r\n\r\n\e[2C\e[6A";
 
     // An AskUserQuestion as Claude Code draws it over its spinner, at 120 columns.
     const string Question =
-        "\x1b[2D\x1b[4B\r\x1b[8A\x1b[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\r\x1b[1B\x1b[48;5;153m\x1b[38;5;16m ☐ Codex round \x1b[39m\x1b[49m\x1b[K\r\x1b[2B\x1b[38;5;231m\x1b[1mCodex raised five more findings on the PR. How should I handle them?\x1b[22m\x1b[39m\x1b[K\r\x1b[1B\x1b[K\r\x1b[1B\x1b[38;5;153m❯\x1b[39m \x1b[38;5;246m1.\x1b[39m \x1b[38;5;153mFix the cheap ones (Recommended)\x1b[39m\x1b[K\r\x1b[2C\x1b[1B   \x1b[38;5;246mFix items 1, 2 and 5 and reply to the other two with reasons, without changing\x1b[85Gcode\x1b[90Gfor them.\x1b[39m\x1b[K\r\x1b[2C\x1b[1B\x1b[38;5;246m2.\x1b[39m Fix all five\x1b[K\r\r\n"
-        + "\x1b[6G\x1b[38;5;246mAlso\x1b[11Gscan\x1b[16Gevery\x1b[22Gprocess\x1b[30Gand\x1b[34Gquery\x1b[40Glaunchd\x1b[48Gas\x1b[51Groot.\x1b[39m\r\r\n"
-        + "\x1b[3G\x1b[38;5;246m3.\x1b[6G\x1b[39mStop\x1b[11Gthe\x1b[15Gloop\x1b[20Ghere\r\r\n"
-        + "\x1b[6G\x1b[38;5;246mReply\x1b[12Gwithout\x1b[20Gchanging\x1b[29Gcode\x1b[34Gand\x1b[38Gstop\x1b[43Greview\x1b[50Grounds.\x1b[39m\r\r\n"
-        + "\x1b[3G\x1b[38;5;246m4.\x1b[6GType\x1b[11Gsomething.\x1b[39m\r\r\n"
-        + "\x1b[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1b[39m\r\r\n"
-        + "\x1b[3G5.\x1b[6GChat\x1b[11Gabout\x1b[17Gthis\r\r\n"
+        "\e[2D\e[4B\r\e[8A\e[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\r\e[1B\e[48;5;153m\e[38;5;16m ☐ Codex round \e[39m\e[49m\e[K\r\e[2B\e[38;5;231m\e[1mCodex raised five more findings on the PR. How should I handle them?\e[22m\e[39m\e[K\r\e[1B\e[K\r\e[1B\e[38;5;153m❯\e[39m \e[38;5;246m1.\e[39m \e[38;5;153mFix the cheap ones (Recommended)\e[39m\e[K\r\e[2C\e[1B   \e[38;5;246mFix items 1, 2 and 5 and reply to the other two with reasons, without changing\e[85Gcode\e[90Gfor them.\e[39m\e[K\r\e[2C\e[1B\e[38;5;246m2.\e[39m Fix all five\e[K\r\r\n"
+        + "\e[6G\e[38;5;246mAlso\e[11Gscan\e[16Gevery\e[22Gprocess\e[30Gand\e[34Gquery\e[40Glaunchd\e[48Gas\e[51Groot.\e[39m\r\r\n"
+        + "\e[3G\e[38;5;246m3.\e[6G\e[39mStop\e[11Gthe\e[15Gloop\e[20Ghere\r\r\n"
+        + "\e[6G\e[38;5;246mReply\e[12Gwithout\e[20Gchanging\e[29Gcode\e[34Gand\e[38Gstop\e[43Greview\e[50Grounds.\e[39m\r\r\n"
+        + "\e[3G\e[38;5;246m4.\e[6GType\e[11Gsomething.\e[39m\r\r\n"
+        + "\e[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────\e[39m\r\r\n"
+        + "\e[3G5.\e[6GChat\e[11Gabout\e[17Gthis\r\r\n"
         + "\r\r\n"
-        + "\x1b[38;5;246mEnter\x1b[7Gto\x1b[10Gselect\x1b[17G·\x1b[19G↑/↓\x1b[23Gto\x1b[26Gnavigate\x1b[35G·\x1b[37GEsc\x1b[41Gto\x1b[44Gcancel\x1b[39m\r\r\n"
-        + "\x1b[11A";
+        + "\e[38;5;246mEnter\e[7Gto\e[10Gselect\e[17G·\e[19G↑/↓\e[23Gto\e[26Gnavigate\e[35G·\e[37GEsc\e[41Gto\e[44Gcancel\e[39m\r\r\n"
+        + "\e[11A";
 
     // The redraw after one Down arrow.
     const string QuestionCursorDown =
-        "\x1b(B\u000f\x1b[?2004h\x1b[11B\r\x1b[11A \x1b[6GFix the cheap ones (Recommended)\r\x1b[2B\x1b[38;5;153m❯\x1b[6GFix all five\x1b[39m\r\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\x1b[9A";
+        "\e(B\u000f\e[?2004h\e[11B\r\e[11A \e[6GFix the cheap ones (Recommended)\r\e[2B\e[38;5;153m❯\e[6GFix all five\e[39m\r\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n\e[9A";
 
     static byte[] Utf8(string text) => Encoding.UTF8.GetBytes(text);
 
@@ -150,7 +150,7 @@ public class ClaudeTerminalDialogDetectorTests {
         await Assert.That(dialog.Selected).IsEqualTo(-1);
         await Assert.That(dialog.Screen).Contains("Also scan shell history     true");
         await Assert.That(dialog.Screen).Contains("Continue");
-        await Assert.That(screen.Observe(Utf8("\x1b[2Jready\r\n")).Dialog).IsNull();
+        await Assert.That(screen.Observe(Utf8("\e[2Jready\r\n")).Dialog).IsNull();
     }
 
     [Test]
@@ -180,8 +180,8 @@ public class ClaudeTerminalDialogDetectorTests {
     /// ConPTY repaints an emptied row with erase-character and scrolls the rest away with delete-line, rather
     /// than the erase-line Claude itself sends; the dialog must clear either way.
     [Test]
-    [Arguments("\x1b[{0};1H\x1b[120X")]
-    [Arguments("\x1b[1;1H\x1b[30M")]
+    [Arguments("\e[{0};1H\e[120X")]
+    [Arguments("\e[1;1H\e[30M")]
     public async Task A_dialog_erased_the_way_conpty_repaints_clears(string perRow) {
         var screen = new ClaudeScreenWatcher();
         await Assert.That(screen.Observe(Utf8(Dialog)).Dialog).IsNotNull();
@@ -225,7 +225,7 @@ public class ClaudeTerminalDialogDetectorTests {
         screen.Observe(Utf8(select));
         await Assert.That(screen.Observe(Utf8("")).Dialog!.Options).Count().IsEqualTo(2);
 
-        var checkbox = "\x1b[2J" + string.Join('\n',
+        var checkbox = "\e[2J" + string.Join('\n',
             new string('─', 40),
             "  Pick a server",
             "",
@@ -292,7 +292,7 @@ public class ClaudeTerminalDialogDetectorTests {
         screen.Resize(cols, 40);
         await Assert.That(screen.Observe(Utf8(Menu(2))).Dialog!.Options).Count().IsEqualTo(3);
 
-        var dialog = screen.Observe(Utf8("\x1b[2J" + Menu(selected))).Dialog;
+        var dialog = screen.Observe(Utf8("\e[2J" + Menu(selected))).Dialog;
 
         await Assert.That(dialog).IsNotNull();
         await Assert.That(dialog!.Options).Count().IsEqualTo(count);
@@ -307,7 +307,7 @@ public class ClaudeTerminalDialogDetectorTests {
     public async Task A_chunk_that_ends_mid_redraw_keeps_the_readable_choices() {
         var screen = new ClaudeScreenWatcher();
         screen.Observe(Utf8(Dialog));
-        var split = CursorUp.IndexOf("\r\x1b[2C\x1b[1B", StringComparison.Ordinal);
+        var split = CursorUp.IndexOf("\r\e[2C\e[1B", StringComparison.Ordinal);
 
         var midway = screen.Observe(Utf8(CursorUp[..split])).Dialog;
         await Assert.That(midway!.Options).Count().IsEqualTo(3);
@@ -567,12 +567,12 @@ public class ClaudeTerminalDialogDetectorTests {
             "    2. Push the branch");
 
         var watcher = new ClaudeScreenWatcher();
-        await Assert.That(watcher.Observe(Utf8("\x1b[2J\x1b[H" + screen.Replace("\n", "\r\n"))).Dialog).IsNull();
+        await Assert.That(watcher.Observe(Utf8("\e[2J\e[H" + screen.Replace("\n", "\r\n"))).Dialog).IsNull();
 
         var confirmation = string.Join("\r\n", "❯ /model", new string('─', 120), "  Switch model?", "", "  ❯ 1. Yes", "    2. No");
-        await Assert.That(watcher.Observe(Utf8("\x1b[2J\x1b[H" + confirmation)).Dialog?.Heading).IsEqualTo("Switch model?");
+        await Assert.That(watcher.Observe(Utf8("\e[2J\e[H" + confirmation)).Dialog?.Heading).IsEqualTo("Switch model?");
 
-        var dialog = watcher.Observe(Utf8("\x1b[2J\x1b[H" + confirmation.Replace("  ❯ 1.", "    1."))).Dialog;
+        var dialog = watcher.Observe(Utf8("\e[2J\e[H" + confirmation.Replace("  ❯ 1.", "    1."))).Dialog;
 
         await Assert.That(dialog?.Options.Count).IsEqualTo(2);
     }
@@ -635,10 +635,10 @@ public class ClaudeTerminalDialogDetectorTests {
             "    No, keep default mode");
 
         var watcher = new ClaudeScreenWatcher();
-        await Assert.That(watcher.Observe(Utf8("\x1b[2J\x1b[H" + open.Replace("\n", "\r\n"))).Dialog).IsNotNull();
+        await Assert.That(watcher.Observe(Utf8("\e[2J\e[H" + open.Replace("\n", "\r\n"))).Dialog).IsNotNull();
 
         await Assert.That(ClaudeTerminalDialogDetector.Read(cursorless, 120)).IsEqualTo(((TerminalDialogDto?)null, true));
-        await Assert.That(watcher.Observe(Utf8("\x1b[2J\x1b[H" + cursorless.Replace("\n", "\r\n"))).Dialog?.Options.Count).IsEqualTo(2);
+        await Assert.That(watcher.Observe(Utf8("\e[2J\e[H" + cursorless.Replace("\n", "\r\n"))).Dialog?.Options.Count).IsEqualTo(2);
     }
 
     /// The offer's headline in ordinary output, with the prompt box below it, is not a dialog; nor is

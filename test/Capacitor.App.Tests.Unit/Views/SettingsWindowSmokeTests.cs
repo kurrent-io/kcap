@@ -12,7 +12,6 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.Services.LocalSetup;
-using Capacitor.App.Services.Mutation;
 using Capacitor.App.Services.Notifications;
 using Capacitor.App.Services.Onboarding;
 using Capacitor.App.ViewModels;

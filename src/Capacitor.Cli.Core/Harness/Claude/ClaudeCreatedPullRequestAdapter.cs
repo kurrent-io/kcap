@@ -25,13 +25,15 @@ public sealed class ClaudeCreatedPullRequestAdapter : ICreatedPullRequestAdapter
         try {
             using var doc = JsonDocument.Parse(jsonlLine);
 
-            if (doc.RootElement.Obj("toolUseResult")?.Obj("gitOperation")?.Obj("pr") is not { } pr
+            if (doc.RootElement.Obj("toolUseResult") is not { } result
+             || result.Obj("gitOperation")?.Obj("pr") is not { } pr
              || pr.Str("action") != "created"
              || pr.Str("url") is not { } url
              || !Uri.TryCreate(url, UriKind.Absolute, out var uri)
              || !string.Equals(uri.IdnHost, "github.com", StringComparison.OrdinalIgnoreCase)
              || !PrRefParser.TryParse(url, out var owner, out var name, out var number)
-             || pr.Num("number") is { } declared && declared != number) {
+             || pr.Num("number") is { } declared && declared != number
+             || !OutputPrints(result, url)) {
                 return null;
             }
 
@@ -39,5 +41,21 @@ public sealed class ClaudeCreatedPullRequestAdapter : ICreatedPullRequestAdapter
         } catch (JsonException) {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Claude Code annotates a create when the command merely mentions <c>gh pr create</c> and a PR URL appears
+    /// anywhere in the output, so a grep over test fixtures links a PR nobody opened. gh prints the URL on a line
+    /// of its own; an empty output cannot contradict the annotation.
+    /// </summary>
+    static bool OutputPrints(JsonElement result, string url) {
+        var output = $"{result.Str("stdout")}\n{result.Str("stderr")}";
+        if (string.IsNullOrWhiteSpace(output)) return true;
+
+        foreach (var line in output.AsSpan().EnumerateLines()) {
+            if (line.Trim().Equals(url, StringComparison.Ordinal)) return true;
+        }
+
+        return false;
     }
 }

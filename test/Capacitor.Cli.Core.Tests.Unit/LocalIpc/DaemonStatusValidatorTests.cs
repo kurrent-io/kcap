@@ -46,14 +46,14 @@ public class DaemonStatusValidatorTests {
     [Test]
     public async Task Duplicate_agent_ids_are_invalid() {
         // SourceCache keyed diffing has no unambiguous meaning under duplicate keys.
-        var json =
+        const string json =
             """{"daemon":{"name":"m","version":"1","server_url":"u","connection":"connected","max_agents":5,"active_agents":0},"agents":[{"id":"a1","kind":"agent","vendor":"v","repo_path":null,"status":"S","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null},{"id":"a1","kind":"agent","vendor":"v","repo_path":null,"status":"S","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null}]}""";
         await Assert.That(DaemonStatusValidator.IsValid(Parse(json))).IsFalse();
     }
 
     [Test]
     public async Task Unknown_vocabulary_is_valid_as_long_as_non_null() {
-        var json =
+        const string json =
             """{"daemon":{"name":"m","version":"1","server_url":"u","connection":"warp-drive","max_agents":5,"active_agents":0},"agents":[{"id":"a1","kind":"quantum","vendor":"v","repo_path":null,"status":"Transcending","flow_run_id":null,"flow_role":null,"requester":null,"created_at":"2026-08-01T00:00:00Z","model":null}]}""";
         await Assert.That(DaemonStatusValidator.IsValid(Parse(json))).IsTrue();
     }

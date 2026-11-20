@@ -21,7 +21,7 @@ public class CodexTranscriptExtractionTests {
             .Select(l => TranscriptLineText.TryExtractUserText(l, "codex"))
             .ToArray();
 
-        await Assert.That(texts).IsEquivalentTo(new string?[] { null, "What does the src folder hold?" });
+        await Assert.That(texts).IsEquivalentTo(new[] { null, "What does the src folder hold?" });
     }
 
     [Test]

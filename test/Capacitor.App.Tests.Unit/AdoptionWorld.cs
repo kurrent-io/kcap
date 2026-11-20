@@ -2,7 +2,6 @@ using System.Reactive.Subjects;
 using System.Runtime.Versioning;
 using Capacitor.App.Services;
 using Capacitor.App.Services.CliAdoption;
-using Capacitor.App.Services.Mutation;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Setup;

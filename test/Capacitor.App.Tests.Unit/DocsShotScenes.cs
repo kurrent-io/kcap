@@ -22,7 +22,7 @@ using Capacitor.Cli.Core.WorkItems;
 using Capacitor.Remote.Models;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
-using static Capacitor.App.Tests.Unit.FakeDaemonClientService;
+using static Capacitor.Tests.Helpers.FakeDaemonClientService;
 
 namespace Capacitor.App.Tests.Unit;
 
@@ -222,7 +222,7 @@ static partial class DocsShotScenes {
             Action? requestSetup, bool openSession, bool localServerDown, WorkContextRead workContextRead,
             SessionPlansRead? plan, bool moreSessions, bool remoteMachine, Capacitor.App.ViewModels.NextWork.NextWorkBandViewModel? nextWork) {
         var transcript = openSession ? scene.Own(new TempDir()) : null;
-        var homeState = scene.Own(TempDir.WithPathTo("app-state.json", out var homeStatePath));
+        _ = scene.Own(TempDir.WithPathTo("app-state.json", out var homeStatePath));
         var service = new FakeDaemonClientService();
         Northwind(service, moreSessions);
         var permissions = new FakePermissionService();
@@ -377,7 +377,7 @@ static partial class DocsShotScenes {
 
     sealed class NoLaunch : ILaunchClient {
         public Task<IReadOnlySet<string>?> GetLaunchFeaturesAsync(CancellationToken ct) =>
-            Task.FromResult<IReadOnlySet<string>?>(System.Collections.Frozen.FrozenSet<string>.Empty);
+            Task.FromResult<IReadOnlySet<string>?>(FrozenSet<string>.Empty);
         public Task<LaunchOutcome> StartAsync(LaunchRequest request, CancellationToken ct) =>
             Task.FromResult(new LaunchOutcome(false, null, null));
     }

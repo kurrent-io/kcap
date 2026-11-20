@@ -33,9 +33,10 @@ internal sealed class AcpAnnouncedToolCalls {
                 if (_order.Count > Capacity) _calls.Remove(_order.Dequeue());
             }
 
-            foreach (var name in Fields)
+            foreach (var name in Fields) {
                 if (update.Prop(name) is { ValueKind: not JsonValueKind.Null } value)
                     fields[name] = value.Clone();
+            }
         }
     }
 

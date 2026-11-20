@@ -255,7 +255,7 @@ public class KiroReviewerLaunchTests {
             new() { Name = "test", ServerUrl = "http://127.0.0.1:1" },
             new FixedCredentialSource(),
             NullLoggerFactory.Instance,
-            NullLogger<ServerConnection>.Instance, TimeProvider.System) { }
+            NullLogger<ServerConnection>.Instance, TimeProvider.System);
 
     sealed class AliveSilentProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);

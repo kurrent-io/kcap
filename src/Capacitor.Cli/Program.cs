@@ -326,7 +326,7 @@ if (args.Skip(1).Any(a => a is "--help" or "-h")) {
 // report-version: a no-server host must still hit ReportVersionCommand.HandleAsync's own
 // fail-open logic and return 0 silently, per its doc comment — never the generic
 // "No server configured" exit 1 this gate would otherwise produce.
-string[] offlineCommands = ["--help", "-h", "help", "--version", "-v", "logout", "cleanup", "config", "experimental", "daemon", "setup", "local", "status", "harness", "update", "refresh", "plugin", "accounts", "profile", "use", "repos", "login", "ignore", "allow", "remap", "uninstall", "cursor-verify-appendonly", "agent", "report-version", "muse-assistant", RefreshTokenHandoff.Command];
+string[] offlineCommands = ["--help", "-h", "help", "--version", "-v", "logout", "cleanup", "config", "experimental", "daemon", "setup", "local", "status", "harness", "update", "refresh", "plugin", "accounts", "profile", "use", "repos", "login", "ignore", "allow", "remap", "uninstall", "cursor-verify-appendonly", "agent", "report-version", "muse-assistant", "ide", RefreshTokenHandoff.Command];
 
 // `import --discover` reads local transcripts and never calls the server, so it belongs with the
 // offline commands — and it is most useful before setup has run, which is exactly when there is no
@@ -648,6 +648,8 @@ switch (command) {
             case "pages":
             case "artefacts":
                 return await Run<McpArtefactsServer>().RunAsync();
+            case "sharing":
+                return await Run<McpSharingServer>().RunAsync();
             case "knowledge":
                 return await Run<McpKnowledgeServer>().RunAsync();
             case "pass":
@@ -688,6 +690,9 @@ switch (command) {
     case "page":
     case "artefact":
         return await Run<ArtefactCommand>().HandleAsync(args);
+
+    case "sharing":
+        return await Run<SharingCommand>().HandleAsync(args);
     // Not in PrintUsage: both answer as an unknown command does while the server does not offer passes.
     case "pass":
         return await Run<PassCommand>().HandleAsync(args);
@@ -717,6 +722,12 @@ switch (command) {
             return 1;
         }
 
+        if (ExpectedServer.Mismatch(Environment.GetEnvironmentVariable, sp.GetRequiredService<CapacitorServer>().Url) is { } elsewhere) {
+            Console.Error.WriteLine(elsewhere);
+
+            return 1;
+        }
+
         return await Run<DisableCommand>().Handle(sessionId, Api, Console.Out, Console.Error);
     }
     case "hide": {
@@ -735,6 +746,12 @@ switch (command) {
         if (!ArgParsing.TryNormalizeSessionGuid(resolved, out var sessionId)) {
             Console.Error.WriteLine($"Invalid session ID: '{resolved}'");
             Console.Error.WriteLine("  Session ID must be a UUID. Use `kcap recap --repo` to find recent session IDs.");
+
+            return 1;
+        }
+
+        if (ExpectedServer.Mismatch(Environment.GetEnvironmentVariable, sp.GetRequiredService<CapacitorServer>().Url) is { } elsewhere) {
+            Console.Error.WriteLine(elsewhere);
 
             return 1;
         }
@@ -851,6 +868,14 @@ switch (command) {
         // The detached import already opened its log, redirected output and detached at startup
         // (before this potentially slow resolution) so a parent exit can't truncate it.
         if (detachedImport is not null) DetachedImportLog.SignalAccepted();
+
+        using var disableGuard = detachedImport is not null && filterSession is not null
+            ? DisabledSessionImportGuard.Start(filterSession, config, time, () => {
+                Console.Error.WriteLine($"Session {filterSession} was disabled; stopping the import.");
+                Console.Error.Flush();
+                Environment.Exit(0);
+            })
+            : null;
 
         try {
             ImportCommand.ImportRunOutcome? outcome = null;
@@ -971,6 +996,9 @@ switch (command) {
     // ReportVersionCommand for why it never surfaces an error.
     case "report-version":
         return await Run<ReportVersionCommand>().HandleAsync();
+    // Hidden, like report-version: a stdio session host a client spawns, never typed by hand.
+    case "ide":
+        return await Run<IdeCommand>().HandleAsync();
     // Spawned detached by a hook that gave up on its own client creation (RefreshTokenHandoff); it
     // outlives the hook to finish the rotation. Not in PrintUsage — nobody types it by hand.
     case RefreshTokenHandoff.Command: {

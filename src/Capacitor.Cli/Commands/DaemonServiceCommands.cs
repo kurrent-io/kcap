@@ -168,7 +168,7 @@ sealed class DaemonServiceCommands(
             return 1;
         }
 
-        var cap  = enrollment.MaxAgents is { } n && n >= 0 ? n.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+        var cap  = enrollment.MaxAgents is { } n && n >= 0 ? n.ToString(CultureInfo.InvariantCulture) : null;
         var spec = new ServiceSpec(name, daemonPath, root.Path($"daemon-{name}.log"), CaptureUnitEnvironment(name, enrollment.Profile), ExtraArgs(cap));
 
         if (!windows.MoveToTask(spec, out var started, out var error)) {
@@ -346,7 +346,7 @@ sealed class DaemonServiceCommands(
             ConfigRoot root, ProfileContext profiles, UserHome home, TimeProvider time) {
         var store = DaemonStore.FromEnvironment();
         return new(store, root, profiles, ServiceManagerFactory.ForCurrentOs(root, home, time, store: store),
-            DaemonStore.Sanitize(profiles.DaemonName ?? DaemonNameResolver.Resolve([], null)), home, time);
+            DaemonStore.Sanitize(profiles.DaemonName ?? DaemonNameResolver.Resolve([])), home, time);
     }
 
     /// <summary>

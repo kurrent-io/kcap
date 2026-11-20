@@ -1,0 +1,32 @@
+kcap sharing — see and change who can open something kcap shares, such as a page
+
+Usage: kcap sharing <subcommand>
+
+Subcommands:
+  list <objectKey>                 Who it is shared with, and what you may change
+  candidates <objectKey> [query]   Who you could share it with: each candidate's
+                                   key and the relations it may take, the
+                                   default one starred; says so when you may
+                                   not share it
+  set <objectKey> <audienceKey>    Give one audience a grant, or move the one it
+      --relation <relation>        holds
+  remove <objectKey> <audienceKey> Take one audience's grant away
+
+KEYS
+
+  The object key comes from the thing's own listing: `kcap page list`, `get`
+  and `search` print a page's. Audience keys come from `candidates` or `list`.
+  Both are the server's own; pass them as they are printed. A relation shows
+  as its label with its id in parentheses, and --relation takes the id; a
+  relation whose label is its id shows bare, and --relation takes it as shown,
+  without the default's *.
+
+  A server too old to send an object key cannot share from kcap: share from
+  the web app there.
+
+EXAMPLES
+
+  kcap sharing candidates <objectKey> platform
+  kcap sharing set <objectKey> <audienceKey> --relation <relation>
+  kcap sharing list <objectKey>
+  kcap sharing remove <objectKey> <audienceKey>

@@ -114,7 +114,7 @@ public partial class ServiceFilesTests {
             path, "SECRET-COMMAND", null,
             verifyFinal: _ => throw new InvalidOperationException("mode could not be guaranteed")));
 
-        await Assert.That(ex!.Message).Contains("guaranteed");
+        await Assert.That(ex.Message).Contains("guaranteed");
         await Assert.That(File.Exists(path)).IsFalse()
             .Because("a failed install must not leave a unit at the path launchd reads");
         await Assert.That(Directory.GetFiles(tmp.Path)).IsEmpty()
@@ -202,7 +202,7 @@ public partial class ServiceFilesTests {
                 () => ServiceFiles.WriteOwnerOnly(tmp.PathTo("unit.plist"), "x", null,
                     tightenDirectory: _ => { }));
 
-            await Assert.That(ex!.Message).Contains("writable");
+            await Assert.That(ex.Message).Contains("writable");
             await Assert.That(File.Exists(tmp.PathTo("unit.plist"))).IsFalse();
         } finally {
             // Restored before the TempDir is disposed — the recursive delete needs the mode back.
@@ -231,7 +231,7 @@ public partial class ServiceFilesTests {
 
             var ex = Assert.Throws<InvalidOperationException>(() => ServiceFiles.WriteOwnerOnly(path, "x"));
 
-            await Assert.That(ex!.Message).Contains("world-writable");
+            await Assert.That(ex.Message).Contains("world-writable");
             await Assert.That(ex.Message).Contains(parent);
             await Assert.That(File.Exists(path)).IsFalse();
         } finally {

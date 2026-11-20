@@ -187,7 +187,7 @@ public class DaemonLockTests {
 
         // Plant a directory where the marker file would go, so the atomic
         // move in DaemonVersionMarker.Write throws.
-        System.IO.Directory.CreateDirectory(daemons.Store.VersionPath("alpha"));
+        Directory.CreateDirectory(daemons.Store.VersionPath("alpha"));
 
         using var l = DaemonLock.TryAcquire(daemons.Store, "alpha", "0.4.11");
 

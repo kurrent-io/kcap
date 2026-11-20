@@ -122,7 +122,7 @@ public class ReviewerCertificationArmTests {
     // track the arm's remedy exactly: the retry-resolvable arms (reconnect, failed probe, in-range
     // swap) are transient; the operator-action arms (vendor, policy, out-of-range) are not.
     [Test] public async Task Only_the_retry_resolvable_arms_are_flagged_transient() {
-        foreach (var (v, probed, conn, cert, expected) in new (string, string?, string, ReviewerCertificationRequirement, bool)[] {
+        foreach (var (v, probed, conn, cert, expected) in new[] {
             ("claude", "2.1.212", "conn-2", Cert(),                                       true),   // reconnect
             ("claude", null,      Conn,     Cert(),                                       true),   // failed probe
             ("claude", "2.9.9",   Conn,     Cert(expectedCliVersion: "2.1.212"),          true),   // in-range swap
@@ -138,7 +138,7 @@ public class ReviewerCertificationArmTests {
     // No arm may claim the revision matched/mismatched -- the revision is equal on every failure
     // path here, and naming it was the misdirection.
     [Test] public async Task No_rejection_blames_the_certification_revision() {
-        foreach (var (v, probed, conn, cert) in new (string, string?, string, ReviewerCertificationRequirement)[] {
+        foreach (var (v, probed, conn, cert) in new[] {
             ("codex",  "2.1.212", Conn,     Cert(vendor: "claude")),
             ("claude", "2.1.212", "conn-2", Cert()),
             ("claude", "2.9.9",   Conn,     Cert(expectedCliVersion: "2.1.212")),

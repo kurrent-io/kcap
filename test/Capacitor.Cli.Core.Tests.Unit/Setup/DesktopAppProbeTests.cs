@@ -77,7 +77,7 @@ public class DesktopAppProbeTests {
 
         var dirs = DesktopAppProbe.Searching(c.Path, b.Path, a.Path).Directories("Data").ToList();
 
-        await Assert.That(dirs).IsEquivalentTo([(string)hit, a.PathTo("Data")]);
+        await Assert.That(dirs).IsEquivalentTo([hit, a.PathTo("Data")]);
         await Assert.That(dirs[0]).IsEqualTo((string)hit);
     }
 }

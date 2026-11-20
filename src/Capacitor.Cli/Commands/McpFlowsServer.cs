@@ -36,7 +36,7 @@ partial class McpFlowsServer(
             RejectsNonStringMethod = false,
             // A start or round POST can be held open server-side for an admission wait or a whole round, and a
             // client-wide timeout would abort it, which the server reads as a cancel. Each lane bounds its own requests.
-            ConfigureClient        = client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan,
+            ConfigureClient        = client => client.Timeout = Timeout.InfiniteTimeSpan,
         };
 
         return McpServerHost.RunAsync(server, new(config, profiles, store, http, startup, time),
@@ -147,7 +147,7 @@ partial class McpFlowsServer(
                 ? await ResolveNamedCheckoutAsync(named)
                 : toolName is "start_review_flow" or "start_flow" && OtherRepository(arguments, repoRoot, repoInfo) is { } other
                     // No local checkout to borrow: a daemon that hosts that repository reviews it.
-                    ? ((string?)null, (string?)null, other)
+                    ? (null, null, other)
                     : (cwd, repoRoot, repoInfo);
 
             // The start/submit tools (and their generic aliases) may need async poll — handle separately.
@@ -1195,7 +1195,7 @@ partial class McpFlowsServer(
     /// environment here — an inherited <c>KCAP_SESSION_ID</c> names the session that launched this
     /// one. It is a required parameter so no call site can acquire it ambiently by accident.</para>
     /// </summary>
-    internal async Task<System.Net.Http.HttpResponseMessage> StartFlowAsync(
+    internal async Task<HttpResponseMessage> StartFlowAsync(
             HttpClient         client,
             string             apiRoot,
             JsonObject?        arguments,
@@ -1318,7 +1318,7 @@ partial class McpFlowsServer(
                 $"{apiRoot}/api/flows/review/start/v4",
                 JsonContent.Create(body with { ClientFlowProtocolVersion = 4 }, McpJsonContext.Default.StartReviewFlowDto),
                 ct);
-            if (v4Resp.StatusCode != System.Net.HttpStatusCode.NotFound) return v4Resp;
+            if (v4Resp.StatusCode != HttpStatusCode.NotFound) return v4Resp;
             v4Resp.Dispose(); // old server without /v4 — fall through to the v3/v2 route below
         }
 
@@ -1346,7 +1346,7 @@ partial class McpFlowsServer(
     /// send_to_participant (reads context from "message" and always sends a participant,
     /// which the server validates against the flow definition).
     /// </summary>
-    static Task<System.Net.Http.HttpResponseMessage> SubmitRoundAsync(
+    static Task<HttpResponseMessage> SubmitRoundAsync(
             HttpClient  client,
             string      apiRoot,
             JsonObject? arguments,

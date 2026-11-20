@@ -1,7 +1,6 @@
 using Avalonia.Media;
-using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
-using static Capacitor.App.Tests.Unit.FakeDaemonClientService;
+using static Capacitor.Tests.Helpers.FakeDaemonClientService;
 
 namespace Capacitor.App.Tests.Unit.ViewModels;
 

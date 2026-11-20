@@ -10,6 +10,10 @@ namespace Capacitor.Cli.Commands;
 /// id it was given under the name the tool asks for. Only the server's envelope is renamed — the root
 /// keys and the id on the page objects under them — because an answer's <c>payload</c> comes back as
 /// submitted and may carry any key at all. Values are never touched.
+///
+/// <para>A page that carries an <c>object_key</c> loses <c>visibility</c>, and its record the root <c>grants</c>: such a
+/// server sends them only as a fixed placeholder and an empty list, which an agent would read as "shared with nobody".
+/// <c>shared_with</c> names who may open it.</para>
 /// </summary>
 static class PageResultKeys {
     internal static readonly JsonSerializerOptions Output = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
@@ -40,10 +44,12 @@ static class PageResultKeys {
                 case JsonObject page:
                     renamed |= RenameKeys(page, Ids);
 
+                    if (Shareable(page)) renamed |= page.Remove("visibility") | obj.Remove("grants");
+
                     break;
                 case JsonArray pages:
                     foreach (var item in pages)
-                        if (item is JsonObject listed) renamed |= RenameKeys(listed, Ids);
+                        if (item is JsonObject listed) renamed |= RenameKeys(listed, Ids) | (Shareable(listed) && listed.Remove("visibility"));
 
                     break;
             }
@@ -51,6 +57,8 @@ static class PageResultKeys {
 
         return renamed ? obj.ToJsonString(Output) : body;
     }
+
+    static bool Shareable(JsonObject page) => page["object_key"] is JsonValue key && key.TryGetValue<string>(out var value) && value.Length > 0;
 
     /// <summary>A key whose new name is already taken keeps its old one, so nothing is overwritten.</summary>
     static bool RenameKeys(JsonObject obj, Dictionary<string, string> renames) {

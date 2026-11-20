@@ -267,32 +267,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public ReactiveCommand<Unit, Unit> OpenSettingsCommand { get; }
     volatile Action? _openSettings;
 
-    /// Off macOS, the in-window menu's way to the uninstall; shown only where the app can remove itself.
-    public ReactiveCommand<Unit, Unit> CheckForUpdatesCommand { get; }
-    volatile Func<Task>? _checkForUpdates;
-
-    public bool ShowsCheckForUpdates {
-        get;
-        private set => this.RaiseAndSetIfChanged(ref field, value);
-    }
-
-    public ReactiveCommand<Unit, Unit> UninstallCommand { get; }
-    volatile Action? _uninstall;
-
-    public bool ShowsUninstall {
-        get;
-        private set => this.RaiseAndSetIfChanged(ref field, value);
-    }
-
-    /// Off macOS no native app menu is drawn, so Settings, the changelog and the version ride the
-    /// rail's help flyout instead.
+    /// Off macOS no native menu bar is drawn, so the window carries its own menu button.
     public bool AppMenuInWindow { get; }
 
     public string AppVersionLabel { get; } = $"Desktop app {AppVersion.Display}";
-
-    /// macOS opens its About panel from the native app menu; Windows has none, so the rail's help
-    /// flyout opens the app's own.
-    public bool ShowsAbout { get; } = OperatingSystem.IsWindows();
 
     /// Opens the bug/feedback window for one category; inert without an action to route it to.
     public ReactiveCommand<FeedbackCategory, Unit> OpenFeedbackCommand { get; }
@@ -304,7 +282,15 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public ReactiveCommand<Unit, Unit> SignInCommand { get; }
     public ReactiveCommand<Unit, Unit> SetupCommand { get; }
     public bool CanOpenSetup { get; }
-    public HistoryImportBannerViewModel? HistoryImportBanner { get; }
+    HistoryImportBannerViewModel? _historyImportBanner;
+    readonly Action? _requestSetup;
+    public HistoryImportBannerViewModel? HistoryImportBanner {
+        get => _historyImportBanner;
+        private set => this.RaiseAndSetIfChanged(ref _historyImportBanner, value);
+    }
+
+    /// Puts an import started outside setup in the launcher's banner, in place of any earlier one.
+    public void ShowHistoryImport(HistoryImportRun run) => HistoryImportBanner = new HistoryImportBannerViewModel(run, _requestSetup);
 
     ObservableAsPropertyHelper<bool>? _signInVisible;
     /// True while the rail reads Signed out and a sign-in action exists — the help flyout
@@ -371,8 +357,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// The Sessions rail. Null means this window has no rail to keep in sync.
     /// </param>
     /// <param name="laneStatus">
-    /// The app's own server lane (IServerLane.Status): its sign-in state reaches the footer alert.
-    /// Null means it never shows.
+    /// The app's own server lane (IServerLane.Status): its sign-in state and its connection reach the
+    /// footer alert. Null means neither shows.
     /// </param>
     /// <param name="restartPending">
     /// DaemonRestartPendingWatcher.Wait. Null means the alert for it never shows.
@@ -414,8 +400,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             IAgentDirectory? directory = null,
             Action<FeedbackCategory>? openFeedback = null, IUrlOpener? opener = null,
             Action? requestSignIn = null, IObservable<Action?>? settingsAction = null,
-            IObservable<Func<Task>?>? checkForUpdatesAction = null,
-            IObservable<Action?>? uninstallAction = null, bool? appMenuInWindow = null, Action? requestSetup = null,
+            bool? appMenuInWindow = null, Action? requestSetup = null,
             HistoryImportRun? historyImport = null,
             IObservable<bool>? backgroundPriority = null, IObservable<ReloadState?>? reloadState = null,
             IObservable<bool>? isReloading = null, Func<CancellationToken, Task>? reloadDaemon = null, Action? openLaunchApprovals = null,
@@ -465,22 +450,11 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         OpenSettingsCommand = ReactiveCommand.Create(
             () => _openSettings?.Invoke(),
             settings.Select(open => open is not null).ObserveOn(RxSchedulers.MainThreadScheduler));
-        var checkForUpdates = (checkForUpdatesAction ?? Observable.Return<Func<Task>?>(null)).ObserveOn(RxSchedulers.MainThreadScheduler);
-        checkForUpdates.Subscribe(check => {
-            _checkForUpdates     = check;
-            ShowsCheckForUpdates = check is not null;
-        });
-        CheckForUpdatesCommand = ReactiveCommand.Create(() => { _ = _checkForUpdates?.Invoke(); }, checkForUpdates.Select(check => check is not null));
-        var uninstall       = (uninstallAction ?? Observable.Return<Action?>(null)).ObserveOn(RxSchedulers.MainThreadScheduler);
-        uninstall.Subscribe(run => {
-            _uninstall     = run;
-            ShowsUninstall = run is not null;
-        });
-        UninstallCommand    = ReactiveCommand.Create(() => _uninstall?.Invoke(), uninstall.Select(run => run is not null));
         SignInCommand       = ReactiveCommand.Create(() => { requestSignIn?.Invoke(); });
         CanOpenSetup = requestSetup is not null;
         SetupCommand = ReactiveCommand.Create(() => requestSetup?.Invoke());
-        HistoryImportBanner = historyImport is null ? null : new HistoryImportBannerViewModel(historyImport, requestSetup);
+        _requestSetup = requestSetup;
+        _historyImportBanner = historyImport is null ? null : new HistoryImportBannerViewModel(historyImport, requestSetup);
         var offersSignIn    = requestSignIn is not null;
 
         // ReactiveCommand's own CanExecute observable already ANDs the supplied canExecute with
@@ -523,7 +497,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
 
         var reloadAction = reloadDaemon ?? (_ => Task.CompletedTask);
         ReloadDaemonCommand = ReactiveCommand.CreateFromTask(
-            (CancellationToken ct) => reloadAction(ct),
+            ct => reloadAction(ct),
             service.Status
                 .CombineLatest(isReloading ?? Observable.Return(false), (st, reloading) => st.State == AttachState.Connected && !reloading)
                 .DistinctUntilChanged()
@@ -533,7 +507,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             canStart.CombineLatest(canRetry, (startVisible, retryVisible) => startVisible || retryVisible)
                 .Subscribe(available => _localDaemonRecoveryAvailable = available)
                 .DisposeWith(disposables);
-            HistoryImportBanner?.Watch().DisposeWith(disposables);
+            var historyWatch = new SerialDisposable().DisposeWith(disposables);
+            this.WhenAnyValue(x => x.HistoryImportBanner)
+                .Subscribe(banner => historyWatch.Disposable = banner?.Watch())
+                .DisposeWith(disposables);
             var status    = service.Status.ObserveOn(RxSchedulers.MainThreadScheduler);
             var snapshots = service.Snapshots.ObserveOn(RxSchedulers.MainThreadScheduler);
 
@@ -563,8 +540,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             // Expired sign-in is a separate diagnosis from the daemon hub word: auto-reconnect
             // will not restore a session, so the footer must not say Reconnecting. The lane
             // covers ParkSignedOut; Home's stream also covers a 401 launch that has not parked.
-            var fromLane = (laneStatus ?? Observable.Return(new ServerLaneStatus(ServerLaneState.Dormant)))
-                .Select(s => s.State == ServerLaneState.SignedOut);
+            var laneStates = laneStatus ?? Observable.Return(new ServerLaneStatus(ServerLaneState.Dormant));
+            var fromLane = laneStates.Select(s => s.State == ServerLaneState.SignedOut);
             var fromHome = Home?.SignInExpired ?? Observable.Return(false);
             var signInExpired = fromLane.CombineLatest(fromHome, (lane, notice) => lane || notice)
                 .DistinctUntilChanged()
@@ -659,15 +636,25 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .CombineLatest(daemonSignIn, otherServerWhileConnected,
                     (app, daemon, otherServer) => app || (daemon.SignedOut && otherServer is null))
                 .DistinctUntilChanged();
+            // Launches go over the app's own lane, not the daemon's hub, so the footer cannot say
+            // Connected while it is down. Its ladder alternates Connecting and Retrying; a Connecting
+            // after a Retrying keeps the Retrying, so the footer does not flicker between the two.
+            var appLane = laneStates
+                .Scan((ServerLaneStatus?)null, (previous, next) =>
+                    next.State == ServerLaneState.Connecting && previous is { State: ServerLaneState.Retrying } ? previous : next)
+                .Select(s => s is { State: ServerLaneState.Connecting or ServerLaneState.Retrying } ? s with { Epoch = 0, Subject = null } : null)
+                .DistinctUntilChanged()
+                .ObserveOn(RxSchedulers.MainThreadScheduler)
+                .StartWith((ServerLaneStatus?)null);
             var alert = status
                 .CombineLatest(daemonConnection, alertSignedOut, failed, moving,
                     (st, connection, expired, broken, isMoving) => (st, connection, expired, broken, isMoving))
-                .CombineLatest(localAlert, otherInstallWhileConnected, pendingWhileConnected, otherServerWhileConnected,
-                    (d, local, other, pending, otherServer) => AlertFor(d.st, d.connection, d.expired, d.broken, d.isMoving,
-                        local, other, pending, otherServer))
+                .CombineLatest(localAlert, otherInstallWhileConnected, pendingWhileConnected, appLane, otherServerWhileConnected,
+                    (d, local, other, pending, app, otherServer) => AlertFor(d.st, d.connection, d.expired, d.broken, d.isMoving,
+                        local, other, pending, app, otherServer))
                 .DistinctUntilChanged();
             _alert = alert
-                .ToProperty(this, x => x.Alert, (RailAlert?)null)
+                .ToProperty(this, x => x.Alert, null)
                 .DisposeWith(disposables);
             _statusBrush = alert.Select(a => Paint(a?.Tone ?? StatusColors.Unavailable))
                 .ToProperty(this, x => x.StatusBrush, Paint(StatusColors.Unavailable))
@@ -688,7 +675,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .ToProperty(this, x => x.BackgroundPriority, false)
                 .DisposeWith(disposables);
             _backgroundPriorityText = backgroundWhileConnected.Select(b => b ? BackgroundPriorityMessage : null)
-                .ToProperty(this, x => x.BackgroundPriorityText, (string?)null)
+                .ToProperty(this, x => x.BackgroundPriorityText, null)
                 .DisposeWith(disposables);
 
             _isReloading = reloadingSource
@@ -697,7 +684,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
 
             var failureText = reloadSource.Select(state => state is null ? null : ReloadCopy.For(state));
             _reloadFailureText = failureText
-                .ToProperty(this, x => x.ReloadFailureText, (string?)null)
+                .ToProperty(this, x => x.ReloadFailureText, null)
                 .DisposeWith(disposables);
             _showsReloadBlock = backgroundWhileConnected
                 .CombineLatest(failureText, (bg, text) => bg || text is not null)
@@ -732,7 +719,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .DisposeWith(disposables);
 
             _reason = status.Select(ReasonText)
-                .ToProperty(this, x => x.Reason, (string?)null)
+                .ToProperty(this, x => x.Reason, null)
                 .DisposeWith(disposables);
 
             // A connect clears the progress lines back to the standing identity report, whichever of the two the
@@ -793,6 +780,15 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// Refused once shutdown has latched — a new workspace is a new attach, and quiesce is already
     /// running. True when the session is the open workspace afterwards.
     public bool OpenSession(string agentId, AgentOrigin? origin = null) => Navigate(agentId, origin, sessionId: null);
+
+    // Long enough for a freshly built workspace's first daemon and listing reads to settle.
+    static readonly TimeSpan RenameEligibilityWait = TimeSpan.FromSeconds(5);
+
+    /// Opens the session and puts its header title into edit mode.
+    public void RenameSession(string agentId, AgentOrigin origin) {
+        if (!OpenSession(agentId, origin) || CurrentWorkspace is not { } open) return;
+        open.TitleEditor.RequestEdit(Time, RenameEligibilityWait);
+    }
 
     /// `sessionId` is the session the caller asked for; without one it is read off what opened.
     /// A step through the history passes `record: false`, since it moves along the history itself.
@@ -1421,13 +1417,16 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// server that refused the app, or a daemon still down after a start that did not work.</param>
     /// <param name="moving">The daemon is moving to the Windows service, which brings it back itself.</param>
     /// <param name="local">The local server's own alert, from <see cref="LocalServerAlertFor"/>.</param>
+    /// <param name="appLane">The app's own server lane while it is connecting or retrying, null otherwise.</param>
     /// <param name="otherInstall">An app update left the daemon behind on a binary it did not replace. Only a restart waiting
     /// for turns outranks it, since that follows an update to that binary; any other brings back the same version. Nothing
     /// outranks the app's own copy it could not replace: every restart starts that copy again.</param>
     internal static RailAlert? AlertFor(
             AttachStatus status, string daemonConnection, bool signedOut = false, bool failed = false,
             bool moving = false, RailAlert? local = null, DaemonOnOtherInstall? otherInstall = null,
-            DaemonRestartWait restartPending = DaemonRestartWait.None, string? otherServerNotice = null) {
+            DaemonRestartWait restartPending = DaemonRestartWait.None,
+            ServerLaneStatus? appLane = null,
+            string? otherServerNotice = null) {
         var needsUser = failed ? StatusColors.Disrupted : StatusColors.InProgress;
         if (signedOut) return new(SignInRequiredText, needsUser);
         if (status.State == AttachState.Connecting) return new(DaemonConnectingText, StatusColors.Pending);
@@ -1454,6 +1453,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             _ when otherInstall is { } other => new(DaemonNotUpdatedText, StatusColors.InProgress, Detail: OtherInstallMessage(other)),
             _ when restartPending == DaemonRestartWait.Agents => new(RestartPendingText, StatusColors.InProgress, Detail: RestartWhenNoAgentsMessage),
             _ when restartPending == DaemonRestartWait.Unstated => new(RestartPendingText, StatusColors.InProgress, Detail: RestartUnstatedMessage),
+            _ when appLane is { State: ServerLaneState.Connecting } => new(ServerConnectingText, StatusColors.Pending),
+            _ when appLane is { State: ServerLaneState.Retrying } app => new(ReconnectingText, StatusColors.Pending, Detail: app.Detail),
             _ => null,
         };
     }

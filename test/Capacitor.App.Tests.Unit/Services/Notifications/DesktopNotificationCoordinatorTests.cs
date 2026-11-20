@@ -364,7 +364,7 @@ public class DesktopNotificationCoordinatorTests {
     [Arguments("allow_always", "always")]
     [Arguments("reject_once", "decline")]
     public async Task Acp_actions_require_nonblank_ids_unique_across_every_offered_choice(string kind, string action) {
-        foreach (var id in new string?[] { null, "", " ", "shared" }) {
+        foreach (var id in new[] { null, "", " ", "shared" }) {
             using var h = new Harness();
             h.Permissions.Add(PermissionEntries.AcpPermission(options: [
                 new() { OptionId = id!, Label = "Target", Kind = kind },

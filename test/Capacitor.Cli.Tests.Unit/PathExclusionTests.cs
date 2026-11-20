@@ -100,7 +100,7 @@ public class PathExclusionTests {
         using var real = new TempDir();
         using var link = TempSymlink.To(real.Path);
 
-        var subUnderReal = real.CreateDir("sub");
+        _ = real.CreateDir("sub");
 
         // The cwd reported by an agent that descended through the symlink path.
         var subUnderLink = Path.Combine(link.Path, "sub");

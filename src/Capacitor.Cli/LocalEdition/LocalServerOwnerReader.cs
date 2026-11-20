@@ -28,7 +28,7 @@ static class LocalServerOwnerReader {
 
             if (line == "}") break;
 
-            var prefix = LocalRoot.EnvVar + " => ";
+            const string prefix = LocalRoot.EnvVar + " => ";
             if (line.StartsWith(prefix, StringComparison.Ordinal)) return new OwnerReading.Root(line[prefix.Length..]);
         }
 
@@ -92,8 +92,8 @@ static class LocalServerOwnerReader {
     }
 
     static OwnerReading RootIn(IEnumerable<string> assignments, string what) {
-        var prefix = LocalRoot.EnvVar + "=";
-        var match  = assignments.LastOrDefault(a => a.StartsWith(prefix, StringComparison.Ordinal));
+        const string prefix = LocalRoot.EnvVar + "=";
+        var match           = assignments.LastOrDefault(a => a.StartsWith(prefix, StringComparison.Ordinal));
 
         return match is null
             ? new OwnerReading.Unreadable($"{what} names no {LocalRoot.EnvVar}")

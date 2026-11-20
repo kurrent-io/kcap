@@ -367,7 +367,33 @@ public sealed class ClaudeHookCommand(
 
         var exit = await HandleWithDepsCore(spool, body, clientFactory, stdout, passNoticesCapable);
         if (_endSettled) await EndWorkspaceSpansAsync(body);
+        if (_lateDrain is { } late) await FinishLateDrainAsync(late.SessionId, late.Drain);
         return exit;
+    }
+
+    /// <summary>A backlog the pre-drain cap cut off, still uploading.</summary>
+    (string SessionId, Task Drain)? _lateDrain;
+
+    /// <summary>How long a session end waits for a backlog after posting the end. The upload runs at about fifty
+    /// lines a second, so this covers a transcript of tens of thousands of lines.</summary>
+    internal static TimeSpan LateDrainCeiling { get; set; } = TimeSpan.FromMinutes(15);
+
+    /// <summary>The end is posted on time and the backlog keeps uploading behind it: session end runs detached from
+    /// Claude, so nothing kills the drain the cap stopped waiting for, and leaving it would strand the session with a
+    /// partial transcript that nothing completes.</summary>
+    async Task FinishLateDrainAsync(string sessionId, Task drain) {
+        var started = clock.Time.GetTimestamp();
+        Task? still;
+        try {
+            still = await TimeBudget.RunCappedOrRemainAsync(() => drain, LateDrainCeiling, clock.Time);
+        } catch (Exception ex) {
+            await Console.Error.WriteLineAsync($"[kcap] session-end: the transcript backlog failed after the end was posted ({ex.Message}); recoverable via: kcap import --session {sessionId}");
+            return;
+        }
+
+        await Console.Error.WriteLineAsync(still is null
+            ? $"[kcap] session-end: finished the transcript backlog {clock.Time.GetElapsedTime(started).TotalSeconds:0}s after the end was posted"
+            : $"[kcap] session-end: the transcript backlog was still uploading after {LateDrainCeiling.TotalMinutes:0} minutes; recoverable via: kcap import --session {sessionId}");
     }
 
     /// <summary>Set once this invocation's session end was posted, spooled, or refused for good. Spans close only
@@ -502,7 +528,7 @@ public sealed class ClaudeHookCommand(
 
                 var rendered = hosted.IsRendered;
 
-                return await new Cli.Harness.Claude.ClaudePolicySeam(config, clock.Time, new HookSpool(config, clock.Time, Url), PolicyJudgeGateway.ForHook(http, Url, clock.Time))
+                return await new ClaudePolicySeam(config, clock.Time, new HookSpool(config, clock.Time, Url), PolicyJudgeGateway.ForHook(http, Url, clock.Time))
                     .HandlePreToolUseAsync(body, sessionId, rendered, stdout ?? Console.Out, JudgeShare(budget));
             } catch { return 0; }
         }
@@ -519,7 +545,10 @@ public sealed class ClaudeHookCommand(
         if (created is null) {
             // The degraded arm bypasses HandleCore, so its disabled/exclusion gates must run here.
             var activeProfile = profiles.Effective;
-            if (await ShouldSuppressCaptureAsync(sessionId, body, command, activeProfile, budget)) return 0;
+            if (await ShouldSuppressCaptureAsync(sessionId, body, command, activeProfile, budget)) {
+                if (command == "session-start" && sessionId is not null) DisabledSessions.Exclude(sessionId, config);
+                return 0;
+            }
 
             // Auth/client creation exceeded the hook budget (hung /auth/config or refresh during an
             // outage). The watcher and the spool need no client — start capture and persist the
@@ -690,8 +719,7 @@ public sealed class ClaudeHookCommand(
         if (ClaudeHelperRun.IsHelperSessionId(canonicalSessionId)) return true;
 
         if (canonicalSessionId is not null && DisabledSessions.IsDisabled(canonicalSessionId, config)) {
-            // A person's marker stays for good, so it withholds the spans whether or not this discard takes them.
-            if (command == "session-end") new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(canonicalSessionId);
+            if (command == "session-end") DiscardAtEnd(canonicalSessionId);
             return true;
         }
 
@@ -699,28 +727,22 @@ public sealed class ClaudeHookCommand(
             && await IsSessionExcludedAsync(activeProfile, body, budget);
     }
 
-    internal async Task<bool> IsSessionExcludedAsync(Profile? profile, string body, HookBudget budget) {
-        if (await RepoExclusion.IsOutOfScopeAsync(router, config, body,
-                                                  profile?.AllowedRepos, profile?.ExcludedRepos, clock.Time, budget.Remaining)) {
-            return true;
+    void ExcludeRun(string body) {
+        try {
+            if (JsonNode.Parse(body)?["session_id"]?.GetValue<string>() is { } sessionId) DisabledSessions.Exclude(sessionId, config);
+        } catch {
+            // No id to mark: later hooks re-run the scope probe instead.
         }
-
-        if (profile?.AllowedPaths is { Length: > 0 } || profile?.ExcludedPaths is { Length: > 0 }) {
-            string? cwd;
-
-            try {
-                cwd = JsonNode.Parse(body)?["cwd"]?.GetValue<string>();
-            } catch {
-                // A body we cannot read yields no cwd rather than a verdict: a denylist shrugs at
-                // that, an allowlist does not admit it. Deciding here would hand both the same answer.
-                cwd = null;
-            }
-
-            if (PathExclusion.IsOutOfScope(cwd, profile?.AllowedPaths, profile?.ExcludedPaths, home)) return true;
-        }
-
-        return false;
     }
+
+    // An exclusion withholds the spans until they are gone, so it lifts only once the discard took them; a person's
+    // marker stays whatever the discard does.
+    void DiscardAtEnd(string sessionId) {
+        if (new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(sessionId)) DisabledSessions.RemoveExclusion(sessionId, config);
+    }
+
+    internal Task<bool> IsSessionExcludedAsync(Profile? profile, string body, HookBudget budget) =>
+        SessionScope.IsOutOfScopeAsync(router, config, home, profile, body, clock.Time, budget.Remaining);
 
     internal async Task<int> HandleCore(HttpClient client, AuthStatus authStatus, HookSpool spool,
         TextReader stdin,
@@ -807,13 +829,16 @@ public sealed class ClaudeHookCommand(
         }
 
         // Check if session is disabled — skip all server communication.
+        var excludedRun = false;
         try {
             var disabledSessionId = JsonNode.Parse(body)?["session_id"]?.GetValue<string>();
 
             if (disabledSessionId is not null && DisabledSessions.IsDisabled(disabledSessionId, config)) {
-                if (command == "session-end") new WorkspaceSpanHook(config, profiles, http, clock.Time).Discard(disabledSessionId);
+                if (command == "session-end") DiscardAtEnd(disabledSessionId);
 
-                return 0;
+                // A hosted agent still needs its permission decision in an excluded run; only a person's disable drops it.
+                if (command != "permission-request" || DisabledSessions.IsDisabledByPerson(disabledSessionId, config)) return 0;
+                excludedRun = true;
             }
         } catch {
             // Best effort — don't fail if JSON parsing fails.
@@ -823,12 +848,11 @@ public sealed class ClaudeHookCommand(
         // repo/path exclusion gates run further below (AFTER this dispatch), so the watcher
         // self-heal — which would start uploading the transcript — must apply them HERE first;
         // otherwise a permission prompt in an excluded project spawns a watcher that
-        // session-start intentionally skipped (data leak). Disabled sessions already returned
-        // above. The permission record/long-poll itself is unaffected: hosted agents need the
-        // decision regardless of exclusion.
+        // session-start intentionally skipped (data leak). The permission record/long-poll itself
+        // is unaffected: hosted agents need the decision regardless of exclusion.
         if (command == "permission-request") {
             var permProfile = profiles.Effective;
-            var selfHeal    = !await IsSessionExcludedAsync(permProfile, body, budget);
+            var selfHeal    = !excludedRun && !await IsSessionExcludedAsync(permProfile, body, budget);
 
             // Read after the watcher self-heal inside Handle, which spends from the same budget.
             return await new PermissionRequestCommand(config, profiles, hosted, http, watchers, clock.Time)
@@ -880,8 +904,10 @@ public sealed class ClaudeHookCommand(
         // visibility were being ignored.
         var activeProfile = profiles.Effective;
 
-        // Silently exit for excluded repos/paths (see IsSessionExcludedAsync).
+        // Excluded at its start, a session is marked and stays quiet until it ends, wherever its cwd moves; the
+        // marker is all the title prompt reads.
         if (await IsSessionExcludedAsync(activeProfile, body, budget)) {
+            if (command == "session-start") ExcludeRun(body);
             return 0;
         }
         HookTiming.Mark("scope");
@@ -930,7 +956,7 @@ public sealed class ClaudeHookCommand(
                         var effectiveCap  = TimeSpan.FromMilliseconds(
                             Math.Min(PreHookDrainCap.TotalMilliseconds, remaining.TotalMilliseconds));
 
-                        var drained = await TimeBudget.RunCappedAsync(
+                        var unfinished = await TimeBudget.RunCappedOrRemainAsync(
                             async () => {
                                 await watchers.KillWatcher(sessionId);
 
@@ -941,10 +967,10 @@ public sealed class ClaudeHookCommand(
                             effectiveCap
                         , clock.Time);
 
-                        if (!drained) {
+                        if (unfinished is not null) {
+                            _lateDrain = (sessionId, unfinished);
                             await Console.Error.WriteLineAsync(
-                                $"[kcap] session-end pre-drain cap ({effectiveCap.TotalSeconds:0.#}s) elapsed; proceeding to POST. "
-                              + $"Transcript tail may be incomplete — recoverable via: kcap import --session {sessionId}"
+                                $"[kcap] session-end pre-drain cap ({effectiveCap.TotalSeconds:0.#}s) elapsed; posting the end, then finishing the transcript"
                             );
                         }
                     }
@@ -1438,7 +1464,7 @@ public sealed class ClaudeHookCommand(
 
         // Deferred even when the append fails: posting live ahead of the backlog breaks its order.
         if (spools && CurrentSessionHasBacklog(spool, genericSessionId)) {
-            await ReportSpoolAsync(spool.Append(genericSessionId!, command!, body), command!, genericSessionId!, "ordering guard", unusableUrl: false);
+            await ReportSpoolAsync(spool.Append(genericSessionId!, command, body), command, genericSessionId!, "ordering guard", unusableUrl: false);
             deferred = true;
         }
 
@@ -1466,7 +1492,7 @@ public sealed class ClaudeHookCommand(
             }
 
             if (spools) {
-                await ReportSpoolAsync(spool.Append(genericSessionId!, command!, body), command!, genericSessionId!, FailureReason(code), unusableUrl: false);
+                await ReportSpoolAsync(spool.Append(genericSessionId!, command, body), command, genericSessionId!, FailureReason(code), unusableUrl: false);
             } else {
                 await Console.Error.WriteLineAsync($"[kcap] {command} dropped ({FailureReason(code)})");
             }
@@ -1583,7 +1609,7 @@ public sealed class ClaudeHookCommand(
     }
 
     static TimeSpan JudgeShare(HookBudget budget) =>
-        budget.Remaining < Cli.Harness.Claude.ClaudePolicySeam.JudgeBudget ? budget.Remaining : Cli.Harness.Claude.ClaudePolicySeam.JudgeBudget;
+        budget.Remaining < ClaudePolicySeam.JudgeBudget ? budget.Remaining : ClaudePolicySeam.JudgeBudget;
 
     /// <summary>Records how many tool calls ran past the policy engine unmatched, and resets the
     /// counter so a resumed session never re-reports them.</summary>

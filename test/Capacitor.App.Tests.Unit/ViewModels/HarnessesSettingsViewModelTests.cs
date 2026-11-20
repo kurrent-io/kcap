@@ -1,5 +1,7 @@
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
+using Capacitor.App.ViewModels.Onboarding;
+using Capacitor.App.Tests.Unit.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
@@ -358,4 +360,120 @@ public class HarnessesSettingsViewModelTests {
         await Assert.That(row.Message).IsEqualTo(HarnessesSettingsViewModel.PartlyKept);
         await Assert.That(row.Details!).Contains("preserved");
     });
+
+    static ImportDiscoveryReport Found(int inRepos, int unmatched) =>
+        new([new ImportDiscoveryRepo("acme", "app", inRepos, null, null)], unmatched, []);
+
+    /// Settings with one Copilot row that installs and removals turn on and off, and whose imports are kept.
+    sealed record ImportRig(HarnessesSettingsViewModel Vm, FakeKcapCli Cli, List<HistoryImportRun> Shown) : IDisposable {
+        public HarnessSettingsRow Row => Vm.Rows[0];
+        public void Dispose() => Vm.Dispose();
+    }
+
+    async Task<ImportRig> ImportRigAsync(ImportDiscoveryReport? found, bool wiredAtStart = false) {
+        var wired = wiredAtStart;
+        var cli = new FakeKcapCli {
+            PluginInstallBehavior = (_, _) => { wired = true; return Task.FromResult(new ProcessResult(0, "", "", false)); },
+            PluginRemoveBehavior = (_, _) => { wired = false; return Task.FromResult(new ProcessResult(0, "", "", false)); },
+            DiscoverBehavior = _ => Task.FromResult(found),
+        };
+        var shown = new List<HistoryImportRun>();
+        var vm = new HarnessesSettingsViewModel(Seed(), cli, _ => Task.FromResult<IReadOnlyDictionary<HarnessId, DetectedAgent>>(
+                new Dictionary<HarnessId, DetectedAgent> { [HarnessId.Copilot] = new(true, true) }),
+            isWired: _ => wired, showImport: shown.Add);
+        await vm.RescanAsync();
+        return new ImportRig(vm, cli, shown);
+    }
+
+    /// <summary>Turning recording on asks whether to import what the tool wrote before, counted by discovery for that
+    /// tool alone, and Import runs every repository's whole history, private and untitled, into the shown banner.</summary>
+    [Test]
+    public Task Turning_recording_on_offers_the_earlier_chats_and_imports_them_privately() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = await ImportRigAsync(Found(inRepos: 3, unmatched: 1));
+
+        await rig.Vm.ToggleConnectionAsync(rig.Row);
+        await rig.Vm.ImportOfferLookup;
+
+        await Assert.That(rig.Cli.DiscoverCalls.Single()).IsEquivalentTo(["--copilot"]);
+        await Assert.That(rig.Row.ImportOffer).IsEqualTo("Import 4 earlier chats?");
+
+        rig.Vm.ImportEarlierCommand.Execute(rig.Row).Subscribe();
+        await rig.Shown.Single().Completion;
+
+        await Assert.That(rig.Row.OffersImport).IsFalse();
+        await Assert.That(rig.Shown.Single().Expected).IsEqualTo(4);
+        await Assert.That(rig.Cli.ImportRequests.Single()).IsEqualTo(
+            new ImportRequest(ImportScopeChoice.Everything, null, rig.Cli.ImportRequests.Single().VendorFlags, Private: true, SkipTitle: true));
+        await Assert.That(rig.Cli.ImportRequests.Single().VendorFlags).IsEquivalentTo(["--copilot"]);
+    });
+
+    /// <summary>The offer appears only when a turn-on found something: not for nothing found, a failed discovery, or a
+    /// change to a tool that was already recording.</summary>
+    [Test]
+    [Arguments(0, false)]
+    [Arguments(-1, false)]
+    [Arguments(2, true)]
+    public Task No_offer_without_earlier_chats_or_a_turn_on(int found, bool wiredAtStart) => AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = await ImportRigAsync(found < 0 ? null : Found(found, 0), wiredAtStart);
+
+        if (wiredAtStart) await rig.Vm.ToggleToolsAsync(rig.Row);
+        else await rig.Vm.ToggleConnectionAsync(rig.Row);
+        await rig.Vm.ImportOfferLookup;
+
+        await Assert.That(rig.Row.OffersImport).IsFalse();
+        await Assert.That(rig.Row.ImportOffer).IsNull();
+        await Assert.That(rig.Cli.DiscoverCalls.Count).IsEqualTo(wiredAtStart ? 0 : 1);
+    });
+
+    /// <summary>A look still running when the row changes again answers a turn-on that no longer stands, so its count
+    /// never reaches the row.</summary>
+    [Test]
+    public Task A_superseded_lookup_never_offers() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = await ImportRigAsync(null);
+        var first = new TaskCompletionSource<ImportDiscoveryReport?>();
+        var answers = new Queue<Task<ImportDiscoveryReport?>>([first.Task, Task.FromResult<ImportDiscoveryReport?>(Found(0, 0))]);
+        rig.Cli.DiscoverBehavior = _ => answers.Dequeue();
+        await rig.Vm.ToggleConnectionAsync(rig.Row);
+        var stale = rig.Vm.ImportOfferLookup;
+        await rig.Vm.ToggleConnectionAsync(rig.Row);
+        await rig.Vm.ToggleConnectionAsync(rig.Row);
+        await rig.Vm.ImportOfferLookup;
+        first.SetResult(Found(5, 0));
+        await stale;
+
+        await Assert.That(rig.Cli.DiscoverCalls.Count).IsEqualTo(2);
+        await Assert.That(rig.Row.OffersImport).IsFalse();
+    });
+
+    [Test]
+    public Task Not_now_withdraws_the_offer_without_importing() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = await ImportRigAsync(Found(inRepos: 1, unmatched: 0));
+        await rig.Vm.ToggleConnectionAsync(rig.Row);
+        await rig.Vm.ImportOfferLookup;
+        await Assert.That(rig.Row.ImportOffer).IsEqualTo("Import 1 earlier chat?");
+
+        rig.Vm.DeclineImportCommand.Execute(rig.Row).Subscribe();
+        rig.Vm.ImportEarlierCommand.Execute(rig.Row).Subscribe();
+
+        await Assert.That(rig.Row.OffersImport).IsFalse();
+        await Assert.That(rig.Shown).IsEmpty();
+        await Assert.That(rig.Cli.ImportCallCount).IsEqualTo(0);
+    });
+
+    /// <summary>VS Code runs new hooks at once, so Copilot's message asks a restart only for its kcap tools and for a
+    /// Copilot CLI session in a terminal; every other tool is told to restart.</summary>
+    [Test]
+    [Arguments(HarnessId.Copilot, true, true,
+        "Setup completed. Chats in VS Code are stored now. Quit and reopen VS Code to give Copilot kcap's tools, and restart any Copilot CLI session running in a terminal.")]
+    [Arguments(HarnessId.Copilot, true, false,
+        "Setup completed. Chats in VS Code are stored now. Restart any Copilot CLI session running in a terminal.")]
+    [Arguments(HarnessId.Copilot, false, true,
+        "Setup completed. Quit and reopen VS Code to give Copilot kcap's tools, and restart any Copilot CLI session running in a terminal.")]
+    [Arguments(HarnessId.Gemini, true, true, "Setup completed. Restart {0} to load the changes.")]
+    public async Task The_completed_message_names_what_still_needs_a_restart(HarnessId id, bool record, bool tools, string expected) {
+        var identity = HarnessRegistry.Identities.Single(h => h.Id == id);
+        var row = new HarnessSettingsRow(identity, new DetectedAgent(true, true), false, false);
+
+        await Assert.That(HarnessesSettingsViewModel.Completed(row, record, tools)).IsEqualTo(string.Format(System.Globalization.CultureInfo.InvariantCulture, expected, identity.Label));
+    }
 }

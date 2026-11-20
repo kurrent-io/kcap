@@ -10,6 +10,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.GitHubHtml;
+using Capacitor.App.ProgressiveDisclosure;
 using Capacitor.App.Services;
 using MarkView.Avalonia;
 using MarkView.Avalonia.Rendering.Inlines;
@@ -82,8 +83,12 @@ public sealed class MarkdownView : ContentControl {
     IDisposable? _titledWatch;
     readonly MarkdownLinkKeys _linkKeys;
     readonly FindHighlighter _find = new();
+    readonly ProgressiveDisclosureHover _hover = new();
+    bool _hasMarks;
     int _currentFind = -1;
     bool _nonLeftRelease;
+    ProgressiveDisclosureBasis? _renderedBasis;
+    IDisposable? _basisWatch;
 
     static MarkdownView() {
         TextProperty.Changed.AddClassHandler<MarkdownView>((view, _) => {
@@ -122,11 +127,15 @@ public sealed class MarkdownView : ContentControl {
             if (_nonLeftRelease) return;
             if (OpenLink is { } open && open.CanExecute(e.Url)) open.Execute(e.Url);
         };
-        AddHandler(ContextRequestedEvent, (_, e) => ContextLinkUrl = LinkAt(e), RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(ContextRequestedEvent, (_, e) => {
+            ContextLinkUrl = LinkAt(e);
+            ContextImage = ImageUnder(e.Source as Visual) is { ShowsPicture: true } image ? image : null;
+        }, RoutingStrategies.Tunnel, handledEventsToo: true);
         MarkViewSelection.Attach(this, _viewer, CopySelectionAsync);
         // Bubble on the host runs after the viewer's own move, which has already chosen Hand or
         // the arrow. Prose takes the I-beam and a link the hand; a bare image stays on the arrow.
         AddHandler(PointerMovedEvent, OnPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
+        PointerExited += (_, _) => _hover.Clear();
         AddHandler(PointerPressedEvent, OnSelectionInput, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerMovedEvent, OnSelectionInput, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerReleasedEvent, OnSelectionInput, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -158,12 +167,20 @@ public sealed class MarkdownView : ContentControl {
         _selectionHost?.UpdateSelection(this);
         _attached = true;
         RelabelAgentLinks();
+        // Replays the current basis, so a view detached across a change catches up on return.
+        _basisWatch = ProgressiveDisclosureBasis.Changes.Subscribe(OnBasisChanged);
+    }
+
+    void OnBasisChanged(ProgressiveDisclosureBasis basis) {
+        if (_hasMarks && basis != _renderedBasis) Render();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
         _selectionHost?.RemoveSelection(this);
         _selectionHost = null;
         _attached = false;
+        _basisWatch?.Dispose();
+        _basisWatch = null;
         WatchTitles();
         base.OnDetachedFromVisualTree(e);
     }
@@ -184,6 +201,7 @@ public sealed class MarkdownView : ContentControl {
     void OnSelectionInput(object? sender, RoutedEventArgs e) => _selectionHost?.UpdateSelection(this);
 
     void OnPointerMoved(object? sender, PointerEventArgs e) {
+        if (_hasMarks) _hover.Move(this, e);
         var link = FindHyperlinkAt(_viewer, e.GetPosition(_viewer));
         var image = ImageUnder(e.Source as Visual);
         var tip = link?.NavigateUri?.ToString() ?? image?.Target;
@@ -202,6 +220,11 @@ public sealed class MarkdownView : ContentControl {
         e.TryGetPosition(_viewer, out var point)
             ? FindHyperlinkAt(_viewer, point)?.NavigateUri?.ToString() ?? ImageUnder(e.Source as Visual)?.Target
             : _linkKeys.CurrentUrl;
+
+    /// The picture a context menu was opened on, once it has loaded.
+    internal MarkdownImage? ContextImage { get; private set; }
+
+    public Task CopyImageAsync() => ContextImage is { } image ? ImageClipboard.CopyAsync(this, image.Picture) : Task.CompletedTask;
 
     public async Task CopyLinkAsync() {
         if (ContextLinkUrl is not { } url || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
@@ -255,6 +278,7 @@ public sealed class MarkdownView : ContentControl {
         if (ToolTip.GetTip(_viewer) is not null) ToolTip.SetTip(_viewer, null);
         _find.Forget();
         if (_viewer.Markdown == Text) _viewer.Markdown = null;
+        ReadMarks();
         try {
             _viewer.Markdown = Text;
             Content = _viewer;
@@ -265,6 +289,12 @@ public sealed class MarkdownView : ContentControl {
         ApplyFind();
         _selectionHost?.UpdateSelection(this);
         WatchTitles();
+    }
+
+    void ReadMarks() {
+        _renderedBasis = ProgressiveDisclosureBasis.Current;
+        _hasMarks = Flavor == MarkdownFlavor.Chat && ProgressiveDisclosureMarks.HasMarks(Text);
+        _hover.Clear();
     }
 
     void ApplyFind() {
@@ -376,6 +406,7 @@ public sealed class MarkdownView : ContentControl {
         _viewer.Extensions.Add(Highlighting);
         // After the highlighter, whose code block renderer this one wraps.
         _viewer.Extensions.Add(_codeActions);
+        ReadMarks();
         // Only the pipeline change re-renders, so it goes last.
         _viewer.Pipeline = Flavor switch {
             MarkdownFlavor.GitHub => GitHubPipeline.Instance,

@@ -15,7 +15,9 @@ public static class ImportScopeArgs {
             string?               OrgArg = null, // explicit owner after `--org`, or null for bare `--org`
             IReadOnlyList<string>? FolderArgs     = null,
             IReadOnlyList<string>? SkipRepoArgs   = null,
-            IReadOnlyList<string>? SkipFolderArgs = null
+            IReadOnlyList<string>? SkipFolderArgs = null,
+            // `--session <id>` names what to import, so it is a scope and a confirmation of its own.
+            bool                   Session        = false
         );
 
     public sealed record ResolveInput(
@@ -51,7 +53,8 @@ public static class ImportScopeArgs {
             OrgArg: org,
             FolderArgs: Values(args, "--folder"),
             SkipRepoArgs: Values(args, "--skip-repo"),
-            SkipFolderArgs: Values(args, "--skip-folder")
+            SkipFolderArgs: Values(args, "--skip-folder"),
+            Session: Values(args, "--session").Any(v => v.Length > 0)
         );
     }
 
@@ -121,6 +124,8 @@ public static class ImportScopeArgs {
                     f.Private,
                     "--all, --org, and --repo/--folder are mutually exclusive."
                 );
+            case 0 when f.Session:
+                return new(new ImportScope.All(), true, f.Private, null);
             case 0 when input.IsInteractive:
                 return new(null, f.Yes, f.Private, Error: null);
             case 0:
@@ -133,7 +138,7 @@ public static class ImportScopeArgs {
         }
 
         // A scope flag is set: enforce --yes for non-interactive runs.
-        if (!input.IsInteractive && !f.Yes) {
+        if (!input.IsInteractive && !f.Yes && !f.Session) {
             return new(
                 null,
                 f.Yes,
@@ -143,7 +148,7 @@ public static class ImportScopeArgs {
         }
 
         if (f.All) {
-            return new(new ImportScope.All(), f.Yes, f.Private, null);
+            return new(new ImportScope.All(), f.Yes || f.Session, f.Private, null);
         }
 
         if (f.Org) {
@@ -155,7 +160,7 @@ public static class ImportScopeArgs {
             var org = (!string.IsNullOrWhiteSpace(f.OrgArg) ? f.OrgArg : input.StoredOrg)?.Trim();
 
             if (!string.IsNullOrEmpty(org)) {
-                return new(new ImportScope.Org(org), f.Yes, f.Private, null);
+                return new(new ImportScope.Org(org), f.Yes || f.Session, f.Private, null);
             }
 
             // Bare `--org` with nothing remembered: pick an org from discovered repos
@@ -215,6 +220,6 @@ public static class ImportScopeArgs {
         }
 
         // `--repo . --repo owner/name` naming the same repo twice is one selection; the scope dedupes.
-        return new(new ImportScope.Repo(repos, folders), f.Yes, f.Private, null);
+        return new(new ImportScope.Repo(repos, folders), f.Yes || f.Session, f.Private, null);
     }
 }

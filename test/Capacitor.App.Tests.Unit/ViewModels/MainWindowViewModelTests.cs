@@ -15,7 +15,7 @@ using Capacitor.Cli.Core.PullRequests;
 using Capacitor.Remote.Models;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
-using static Capacitor.App.Tests.Unit.FakeDaemonClientService;
+using static Capacitor.Tests.Helpers.FakeDaemonClientService;
 
 namespace Capacitor.App.Tests.Unit.ViewModels;
 
@@ -154,6 +154,33 @@ public class MainWindowViewModelTests {
 
             gate.SetResult(new StreamingResult(0, false, []));
             await run.Completion;
+        });
+    }
+
+    /// <summary>An import started after the window opened takes the banner, and the banner follows that run
+    /// rather than the one it showed before.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_import_started_after_the_window_opened_takes_the_banner() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var vm = new MainWindowViewModel(new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System);
+            using var activation = vm.Activator.Activate();
+            await Assert.That(vm.HistoryImportBanner).IsNull();
+
+            var gate = new TaskCompletionSource<StreamingResult>();
+            Action<StreamedLine>? emit = null;
+            var run = ImportRun(3, 1);
+            vm.ShowHistoryImport(run);
+            var shown = ProgressShown(vm);
+            run.Start(new FakeKcapCli { ImportBehavior = (_, onLine, _) => { emit = onLine; return gate.Task; } }, [Pass()]);
+            emit!(new StreamedLine(ProcessStreamKind.Stdout, "  Loading s0 (copilot)"));
+
+            await Assert.That(vm.HistoryImportBanner!.Status).IsEqualTo("Importing history · 1 of 3 sessions processed");
+            await Assert.That(shown.LastOrDefault()).IsEqualTo(100.0 / 3);
+
+            gate.SetResult(new StreamingResult(0, false, []));
+            await run.Completion;
+            await Assert.That(vm.HistoryImportBanner.Status).IsEqualTo("History imported · 1 session processed");
         });
     }
 
@@ -423,6 +450,35 @@ public class MainWindowViewModelTests {
         var alert = alerting ? new RailAlert(MainWindowViewModel.RestartPendingText, StatusColors.InProgress) : null;
         await Assert.That(MainWindowViewModel.ShowsConnectedFor(new AttachStatus(state, null, null), daemonConnection, alert))
             .IsEqualTo(expected);
+    }
+
+    /// Launches go over the app's own lane, so the footer cannot say Connected while that lane is down,
+    /// however healthy the daemon's hub is.
+    [Test]
+    [Arguments(ServerLaneState.Connecting, MainWindowViewModel.ServerConnectingText)]
+    [Arguments(ServerLaneState.Retrying, MainWindowViewModel.ReconnectingText)]
+    public async Task AlertFor_reports_the_apps_own_lane_while_the_daemon_is_connected(ServerLaneState lane, string text) {
+        var connected = new AttachStatus(AttachState.Connected, null, null);
+        var alert = MainWindowViewModel.AlertFor(connected, "connected", appLane: new ServerLaneStatus(lane, "socket closed"));
+
+        await Assert.That(alert!.Text).IsEqualTo(text);
+        await Assert.That(MainWindowViewModel.ShowsConnectedFor(connected, "connected", alert)).IsFalse();
+    }
+
+    [Test]
+    public async Task AlertFor_carries_the_lanes_failure_as_its_detail() {
+        var alert = MainWindowViewModel.AlertFor(new AttachStatus(AttachState.Connected, null, null), "connected",
+            appLane: new ServerLaneStatus(ServerLaneState.Retrying, "socket closed"));
+        await Assert.That(alert!.Detail).IsEqualTo("socket closed");
+    }
+
+    /// A daemon left behind by an update is the actionable diagnosis, so the app lane's word gives way to it.
+    [Test]
+    public async Task AlertFor_keeps_a_daemon_left_behind_ahead_of_the_apps_lane() {
+        var copy = new DaemonOnOtherInstall("1.0.0", "/old/kcap", CopyFailure: "denied");
+        var alert = MainWindowViewModel.AlertFor(new AttachStatus(AttachState.Connected, null, null), "connected",
+            otherInstall: copy, appLane: new ServerLaneStatus(ServerLaneState.Retrying));
+        await Assert.That(alert!.Text).IsEqualTo(MainWindowViewModel.DaemonNotUpdatedText);
     }
 
     /// Waiting on the daemon hub will not restore an expired sign-in, so it wins whatever the attach says.
@@ -822,7 +878,7 @@ public class MainWindowViewModelTests {
     public async Task Start_and_reconnect_visibility_are_mutually_exclusive() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var (vm, home, tmp) = WithLauncher(service);
+            var (_, home, tmp) = WithLauncher(service);
             using var _tmp = tmp;
             using var _home = home;
 
@@ -851,7 +907,7 @@ public class MainWindowViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
             var moving = new BehaviorSubject<bool>(true);
-            var (vm, home, tmp) = WithLauncher(service, moving);
+            var (_, home, tmp) = WithLauncher(service, moving);
             using var _tmp = tmp;
             using var _home = home;
 
@@ -1183,7 +1239,7 @@ public class MainWindowViewModelTests {
     public async Task A_connect_resets_the_banner_to_the_standing_identity_report(bool reportFirst) {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var identity = new System.Reactive.Subjects.BehaviorSubject<string?>(null);
+            var identity = new BehaviorSubject<string?>(null);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
                 identityReport: identity);
             using var activation = vm.Activator.Activate();
@@ -2072,7 +2128,7 @@ public class MainWindowViewModelTests {
                 originOf: id => id == "S" ? AgentOrigin.Server : AgentOrigin.Local,
                 serverWorkspaceFactory: id => built = host.NewServer(id), directory: host.Directory, time: time);
             vm.OpenSession("a1", AgentOrigin.Local);
-            var local = vm.CurrentWorkspace;
+            _ = vm.CurrentWorkspace;
 
             service.Agents.AddOrUpdate(LocalWithSession("a1", "S", "Completed"));
             host.Directory.Rows.Edit(rows => {

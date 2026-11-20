@@ -2,7 +2,6 @@ using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
 using System.Text;
 using System.Text.Json;
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Remote.Models;
 using Eventuous.SignalR;
@@ -19,8 +18,8 @@ public class ServerConnectionServiceTests {
     static ServerConnectionService Lane(HubTestHost host, string? token = null) =>
         new(TimeProvider.System, host.Url, () => Task.FromResult(token));
 
-    /// A lane whose SignalR reconnect ladder is the caller's, for the one test whose bound is
-    /// that ladder rather than the behaviour under it.
+    /// A lane whose reconnect ladder is the caller's, its last step repeating, for a test whose
+    /// bound is that ladder rather than the behaviour under it.
     static ServerConnectionService Lane(HubTestHost host, TimeSpan[] reconnectDelays) =>
         new(TimeProvider.System, host.Url, () => Task.FromResult<string?>(null), reconnectDelays);
 
@@ -58,8 +57,8 @@ public class ServerConnectionServiceTests {
         string? updateCheck = null;
         await using var host = await HubTestHost.StartAsync(inspect: request => {
             if (request.Path.Value?.EndsWith("/negotiate", StringComparison.Ordinal) != true) return;
-            negotiated  = request.Headers[Capacitor.Cli.Core.HttpClientExtensions.CliVersionHeader].ToString();
-            updateCheck = request.Headers[Capacitor.Cli.Core.HttpClientExtensions.UpdateCheckHeader].ToString();
+            negotiated  = request.Headers[Cli.Core.HttpClientExtensions.CliVersionHeader].ToString();
+            updateCheck = request.Headers[Cli.Core.HttpClientExtensions.UpdateCheckHeader].ToString();
         });
         await using var lane = new ServerConnectionService(
             TimeProvider.System, host.Url, () => Task.FromResult<string?>(null), updateCheckOff: updateCheckOff);
@@ -67,8 +66,8 @@ public class ServerConnectionServiceTests {
 
         await Next(lane.Status, s => s.State == ServerLaneState.Connected);
 
-        await Assert.That(Capacitor.Cli.Core.HttpClientExtensions.CliVersion).IsNotNull();
-        await Assert.That(negotiated).IsEqualTo(Capacitor.Cli.Core.HttpClientExtensions.CliVersion);
+        await Assert.That(Cli.Core.HttpClientExtensions.CliVersion).IsNotNull();
+        await Assert.That(negotiated).IsEqualTo(Cli.Core.HttpClientExtensions.CliVersion);
         await Assert.That(updateCheck).IsEqualTo(updateCheckOff ? "off" : "");
     }
 
@@ -194,7 +193,7 @@ public class ServerConnectionServiceTests {
         lane.Start();
         await Next(lane.Status, s => s.State == ServerLaneState.Connected);
 
-        var outcome = await ((ILaunchClient)lane).StartAsync(
+        var outcome = await lane.StartAsync(
             new LaunchRequest("work-mac", "/work/repo", "claude", "do it"), CancellationToken.None);
         await Assert.That(outcome.Started).IsTrue();
         await Assert.That(outcome.AgentId).IsEqualTo("agent-42");
@@ -205,10 +204,182 @@ public class ServerConnectionServiceTests {
     public async Task LaunchWhileDisconnectedFailsWithoutThrowing() {
         await using var lane = new ServerConnectionService(TimeProvider.System, "http://127.0.0.1:1", () => Task.FromResult<string?>(null));
         lane.Start();
-        var outcome = await ((ILaunchClient)lane).StartAsync(
+        var outcome = await lane.StartAsync(
             new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
         await Assert.That(outcome.Started).IsFalse();
         await Assert.That(outcome.Error).IsNotNull();
+    }
+
+    /// A ladder far longer than the test, so only the launch's own redial can bring the lane back.
+    [Test]
+    public async Task A_launch_that_finds_no_live_hub_redials_at_once() {
+        await using var host = await HubTestHost.StartAsync();
+        var calls = 0;
+        await using var lane = new ServerConnectionService(TimeProvider.System, host.Url, () =>
+            Interlocked.Increment(ref calls) == 1
+                ? Task.FromException<string?>(new HttpRequestException("first attempt fails"))
+                : Task.FromResult<string?>(null), reconnectDelays: [TimeSpan.FromMinutes(10)]);
+        lane.Start();
+        await Next(lane.Status, s => s.State == ServerLaneState.Retrying);
+
+        var outcome = await lane.StartAsync(
+            new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
+
+        await Assert.That(outcome.Error).IsNull();
+        await Assert.That(outcome.Started).IsTrue();
+    }
+
+    /// SignalR awaits the token on every attempt with no deadline of its own; without one here, a
+    /// resolve that never returns holds the lane short of Connected for good.
+    [Test]
+    public async Task A_token_resolve_that_never_returns_fails_the_attempt_rather_than_holding_the_lane() {
+        await using var host = await HubTestHost.StartAsync();
+        var calls = 0;
+        var never = new TaskCompletionSource<string?>();
+        await using var lane = new ServerConnectionService(TimeProvider.System, host.Url, () =>
+            Interlocked.Increment(ref calls) == 1 ? never.Task : Task.FromResult<string?>(null)) {
+            TokenTimeout = TimeSpan.FromMilliseconds(300),
+        };
+        lane.Start();
+
+        await Next(lane.Status, s => s.State == ServerLaneState.Retrying, seconds: 10);
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected);
+    }
+
+    /// The retired loop is held in its subject read, which honours no cancellation. The restart must
+    /// not wait on it forever, and when it does finish it must leave the newer loop's hub in place.
+    [Test]
+    public async Task A_restart_abandons_a_retired_loop_that_does_not_end() {
+        var attemptCallIndex = 0;
+        var hung = 0;
+        var gate = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gateEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var host = await HubTestHost.StartAsync();
+        await using var lane = new ServerConnectionService(TimeProvider.System, host.Url, () => {
+            if (Interlocked.Increment(ref attemptCallIndex) <= 2 || Interlocked.Exchange(ref hung, 1) == 1)
+                return Task.FromResult<string?>(null);
+            gateEntered.TrySetResult();
+            return gate.Task;
+        }) { LoopRetireGrace = TimeSpan.FromMilliseconds(300) };
+        using var attemptReset = lane.Status
+            .Where(s => s.State == ServerLaneState.Connecting)
+            .Subscribe(_ => Interlocked.Exchange(ref attemptCallIndex, 0));
+        lane.Start();
+        await gateEntered.Task.WaitAsync(TimeSpan.FromSeconds(15));
+
+        await lane.RestartAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected);
+
+        // Both hubs are connected here; only the live one's push may reach subscribers.
+        var pings = 0;
+        using (lane.AgentInstancesChanged.Subscribe(_ => Interlocked.Increment(ref pings))) {
+            await host.BroadcastAsync(HubBroadcasts.AgentInstancesChanged);
+            await Task.Delay(500);
+        }
+        await Assert.That(Volatile.Read(ref pings)).IsEqualTo(1);
+
+        var connectingAfter = 0;
+        using var dials = lane.Status.Skip(1)
+            .Where(s => s.State == ServerLaneState.Connecting)
+            .Subscribe(_ => Interlocked.Increment(ref connectingAfter));
+        gate.SetResult(null);
+        await Task.Delay(300);
+
+        // A read that never redials, so a hub the retired loop cleared would show here as null.
+        await Assert.That(await lane.GetConnectedDaemonsAsync(CancellationToken.None)).IsNotNull();
+        await Assert.That(Volatile.Read(ref connectingAfter)).IsEqualTo(0);
+    }
+
+    /// A launch's redial is decided before it runs; a park landing in between must still win.
+    [Test]
+    public async Task A_launch_does_not_revive_a_parked_lane() {
+        await using var host = await HubTestHost.StartAsync();
+        await using var lane = Lane(host);
+        lane.Start();
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected);
+        lane.ParkSignedOut();
+
+        var outcome = await lane.StartAsync(
+            new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
+
+        await Assert.That(outcome.Unauthorized).IsTrue();
+        await Task.Delay(300);
+        await Assert.That((await lane.Status.Take(1).ToTask()).State).IsEqualTo(ServerLaneState.SignedOut);
+    }
+
+    /// An attempt already in flight, a sign-in restart's say, is waited on rather than restarted.
+    [Test]
+    public async Task A_launch_waits_on_an_attempt_in_flight_instead_of_restarting_it() {
+        await using var host = await HubTestHost.StartAsync();
+        var gate = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        await using var lane = new ServerConnectionService(TimeProvider.System, host.Url, () => {
+            if (Interlocked.Increment(ref calls) > 1) return Task.FromResult<string?>(null);
+            entered.TrySetResult();
+            return gate.Task;
+        });
+        var dials = 0;
+        using var counting = lane.Status.Where(s => s.State == ServerLaneState.Connecting)
+            .Subscribe(_ => Interlocked.Increment(ref dials));
+        lane.Start();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var launch = lane.StartAsync(new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
+        await Task.Delay(300);
+        gate.SetResult(null);
+        var outcome = await launch.WaitAsync(TimeSpan.FromSeconds(15));
+
+        await Assert.That(outcome.Started).IsTrue();
+        await Assert.That(Volatile.Read(ref dials)).IsEqualTo(1);
+    }
+
+    /// Launches arriving while one redial is still connecting share it rather than each restarting
+    /// the lane, which would cancel the connection the others are waiting on.
+    [Test]
+    public async Task Concurrent_launches_share_one_redial() {
+        await using var host = await HubTestHost.StartAsync();
+        var calls = 0;
+        await using var lane = new ServerConnectionService(TimeProvider.System, host.Url, () =>
+            Interlocked.Increment(ref calls) == 1
+                ? Task.FromException<string?>(new HttpRequestException("first attempt fails"))
+                : SlowToken(), reconnectDelays: [TimeSpan.FromMinutes(10)]);
+        static async Task<string?> SlowToken() {
+            await Task.Delay(200);
+            return null;
+        }
+        lane.Start();
+        await Next(lane.Status, s => s.State == ServerLaneState.Retrying);
+
+        var redials = 0;
+        using var dials = lane.Status.Where(s => s.State == ServerLaneState.Connecting)
+            .Subscribe(_ => Interlocked.Increment(ref redials));
+        var launches = Enumerable.Range(0, 3).Select(async i => {
+            await Task.Delay(i * 50);
+            return await lane.StartAsync(new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
+        }).ToList();
+        var outcomes = await Task.WhenAll(launches);
+
+        await Assert.That(outcomes.All(o => o.Started)).IsTrue();
+        await Assert.That(Volatile.Read(ref redials)).IsEqualTo(1);
+    }
+
+    /// One line per change of state: Connecting is skipped, since a lane on the ladder alternates it
+    /// with Retrying at every step.
+    [Test]
+    public async Task State_changes_reach_the_log_without_the_connecting_steps() {
+        var events = new List<(string Event, string? State)>();
+        await using var host = await HubTestHost.StartAsync();
+        await using var lane = new ServerConnectionService(TimeProvider.System, host.Url, () => Task.FromResult<string?>(null),
+            log: (evt, fields) => { lock (events) events.Add((evt, fields.FirstOrDefault(f => f.Key == "state").Value)); });
+        lane.Start();
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected);
+        await Task.Delay(100);
+
+        lock (events) {
+            var states = events.Where(e => e.Event == "server_lane").Select(e => e.State).ToList();
+            if (states is not ["Connected"]) throw new InvalidOperationException($"logged: [{string.Join(", ", states)}]");
+        }
     }
 
     [Test]
@@ -225,7 +396,7 @@ public class ServerConnectionServiceTests {
         var latest = await lane.Status.Take(1).ToTask();
         await Assert.That(latest.State).IsEqualTo(ServerLaneState.SignedOut);
 
-        var outcome = await ((ILaunchClient)lane).StartAsync(
+        var outcome = await lane.StartAsync(
             new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
         await Assert.That(outcome.Started).IsFalse();
         await Assert.That(outcome.Unauthorized).IsTrue();
@@ -245,7 +416,7 @@ public class ServerConnectionServiceTests {
         lane.ParkSignedOut();
         await Next(lane.Status, s => s.State == ServerLaneState.SignedOut);
 
-        var outcome = await ((ILaunchClient)lane).StartAsync(
+        var outcome = await lane.StartAsync(
             new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
         await Assert.That(outcome.Started).IsFalse();
         await Assert.That(outcome.Unauthorized).IsTrue();
@@ -335,6 +506,100 @@ public class ServerConnectionServiceTests {
         await Task.Delay(300);
         var latest = await lane.Status.Take(1).ToTask();
         await Assert.That(latest.State).IsEqualTo(ServerLaneState.SignedOut);
+    }
+
+    /// SignalR's default policy closes the connection after its fourth try, handing the lane to a
+    /// second loop on its own schedule; the shared ladder keeps reconnecting on its own, so the lane
+    /// never goes back through Connecting however long the server takes.
+    [Test]
+    public async Task A_dropped_connection_keeps_reconnecting_past_the_fourth_attempt() {
+        await using var host = await HubTestHost.StartAsync();
+        await using var lane = Lane(host, [TimeSpan.FromMilliseconds(20)]);
+        lane.Start();
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected);
+
+        var redials = 0;
+        using var watch = lane.Status.Where(s => s.State == ServerLaneState.Connecting).Subscribe(_ => Interlocked.Increment(ref redials));
+
+        HubTestHost.RefuseNegotiation = true;
+        // Status replays its current value, so only a Connected after the drop's Retrying counts.
+        var reconnected = Next(lane.Status.SkipWhile(s => s.State != ServerLaneState.Retrying), s => s.State == ServerLaneState.Connected);
+        await HubTestHost.DropConnectionsAsync();
+
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (HubTestHost.RefusedNegotiations < 6 && DateTime.UtcNow < deadline) await Task.Delay(20);
+        await Assert.That(HubTestHost.RefusedNegotiations).IsGreaterThanOrEqualTo(6);
+
+        HubTestHost.RefuseNegotiation = false;
+        await reconnected;
+
+        await Assert.That(Volatile.Read(ref redials)).IsEqualTo(0);
+    }
+
+    /// A server that takes each connection and closes it at once would otherwise be redialled on the ladder's first
+    /// step forever; a connection that does not outlast the longest step leaves the ladder where it was.
+    [Test]
+    public async Task A_connection_closed_at_once_after_failed_starts_keeps_the_ladders_place() {
+        await using var host = await HubTestHost.StartAsync();
+        await using var lane = Lane(host, [TimeSpan.FromMilliseconds(20), TimeSpan.FromSeconds(3)]);
+        HubTestHost.RefuseNegotiation = true;
+        lane.Start();
+        await WaitUntilAsync(() => HubTestHost.RefusedNegotiations >= 1, what: "a refused start");
+        HubTestHost.RefuseNegotiation = false;
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected, seconds: 15);
+
+        var redial = Next(lane.Status.Skip(1), s => s.State == ServerLaneState.Connecting, seconds: 15);
+        var closed = System.Diagnostics.Stopwatch.StartNew();
+        await HubTestHost.CloseConnectionsAsync();
+        await redial;
+
+        await Assert.That(closed.Elapsed).IsGreaterThan(TimeSpan.FromSeconds(2));
+    }
+
+    /// Time spent reconnecting is not time connected: two short connections either side of a long outage leave the ladder
+    /// where it was.
+    [Test]
+    public async Task An_outage_between_two_short_connections_keeps_the_ladders_place() {
+        await using var host = await HubTestHost.StartAsync();
+        await using var lane = Lane(host, [TimeSpan.FromMilliseconds(20), TimeSpan.FromSeconds(3)]);
+        HubTestHost.RefuseNegotiation = true;
+        lane.Start();
+        await WaitUntilAsync(() => HubTestHost.RefusedNegotiations >= 1, what: "a refused start");
+        HubTestHost.RefuseNegotiation = false;
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected, seconds: 15);
+
+        // Dropped at once and kept out past the longest step, then back in place.
+        var back = Next(lane.Status.SkipWhile(s => s.State != ServerLaneState.Retrying), s => s.State == ServerLaneState.Connected, seconds: 20);
+        HubTestHost.RefuseNegotiation = true;
+        await HubTestHost.DropConnectionsAsync();
+        await Task.Delay(TimeSpan.FromSeconds(3.5));
+        HubTestHost.RefuseNegotiation = false;
+        await back;
+
+        var redial = Next(lane.Status.Skip(1), s => s.State == ServerLaneState.Connecting, seconds: 15);
+        var closed = System.Diagnostics.Stopwatch.StartNew();
+        await HubTestHost.CloseConnectionsAsync();
+        await redial;
+
+        await Assert.That(closed.Elapsed).IsGreaterThan(TimeSpan.FromSeconds(2));
+    }
+
+    /// A refused credential is what kcap login repairs, so a reconnect that meets one parks the lane at once,
+    /// even when every later attempt would fail some other way: SignalR closes a connection the policy gave
+    /// up on with its own exception, not the 401.
+    [Test]
+    public async Task A_reconnect_refused_as_unauthorized_parks_the_lane() {
+        await using var host = await HubTestHost.StartAsync();
+        await using var lane = Lane(host, [TimeSpan.FromMilliseconds(20)]);
+        lane.Start();
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected);
+
+        HubTestHost.UnauthorizedNegotiations = 1;
+        HubTestHost.RefuseNegotiation        = true;
+        var parked = Next(lane.Status, s => s.State == ServerLaneState.SignedOut, seconds: 15);
+        await HubTestHost.DropConnectionsAsync();
+
+        await parked;
     }
 
     [Test]
@@ -555,13 +820,31 @@ public class ServerConnectionServiceTests {
         await Assert.That(error!.Message).Contains(WireTokens.StreamNotAuthorized);
     }
 
-    // SignalR's automatic reconnect sits between the host stopping and the tail actually ending,
-    // and its default ladder is ~42s before it gives up and fires Closed. This lane retries once,
-    // immediately, so the bound below measures the tail ending rather than that wait.
+    /// The client resubscribes a reconnected connection's streams in turn and stops at the first refusal, so a
+    /// reconnect ends every open tail and each consumer re-tails on its own.
     [Test]
-    public async Task StreamTailEndsCleanlyWhenTheHostStops() {
+    public async Task A_reconnect_ends_every_open_tail() {
         await using var host = await HubTestHost.StartAsync();
-        await using var lane = Lane(host, [TimeSpan.Zero]);
+        await using var lane = Lane(host, [TimeSpan.FromMilliseconds(20)]);
+        lane.Start();
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var tails = new[] { "AgentSession-s1", "AgentSession-s2" }.Select(stream => Task.Run(async () => {
+            await foreach (var _ in lane.TailStreamAsync(stream, null, cts.Token)) { }
+        })).ToArray();
+        await WaitUntilAsync(() => HubTestHost.StreamSubscribes.Count == 2, what: "both subscribes");
+
+        await HubTestHost.DropConnectionsAsync();
+        await Task.WhenAll(tails).WaitAsync(TimeSpan.FromSeconds(15));
+    }
+
+    // A dropped connection reconnects in place, so a close is what ends a tail without a reconnect. The client
+    // completes the channel with its own cancellation token, which must read as an ended tail.
+    [Test]
+    public async Task StreamTailEndsCleanlyWhenTheServerClosesTheConnection() {
+        await using var host = await HubTestHost.StartAsync();
+        await using var lane = Lane(host);
         lane.Start();
         await Next(lane.Status, s => s.State == ServerLaneState.Connected);
 
@@ -569,9 +852,9 @@ public class ServerConnectionServiceTests {
         var tail = Task.Run(async () => {
             await foreach (var _ in lane.TailStreamAsync("AgentSession-s1", null, cts.Token)) { }
         });
-        await WaitUntilAsync(() => HubTestHost.StreamSubscribes.Contains(("AgentSession-s1", (ulong?)null)), what: "the subscribe");
+        await WaitUntilAsync(() => HubTestHost.StreamSubscribes.Contains(("AgentSession-s1", null)), what: "the subscribe");
 
-        await host.StopAsync();
+        await HubTestHost.CloseConnectionsAsync();
         await tail.WaitAsync(TimeSpan.FromSeconds(15));
     }
 
@@ -594,7 +877,8 @@ public class ServerConnectionServiceTests {
 
         await lane.RequestResizeTerminalAsync("a1", 100, 30, CancellationToken.None);
         await lane.ReleaseResizeTerminalAsync("a1", CancellationToken.None);
-        await lane.SendUserInputAsync("a1", "fix it", CancellationToken.None);
+        await lane.SendUserInputAsync("a1", "fix it", [], CancellationToken.None);
+        await lane.SendUserInputAsync("a1", "see this", ["0123456789abcdef0123456789abcdef"], CancellationToken.None);
         var discardedId = Guid.NewGuid();
         await Assert.That((await lane.DiscardQueuedInputAsync("a1", discardedId, CancellationToken.None)).Result).IsEqualTo(HubCallResult.Ok);
         await lane.SendSpecialKeyAsync("a1", SpecialKeys.Escape, CancellationToken.None);
@@ -602,6 +886,8 @@ public class ServerConnectionServiceTests {
         await Assert.That(HubTestHost.Resizes).Contains(("a1", 100, 30));
         await Assert.That(HubTestHost.ResizeReleases).Contains("a1");
         await Assert.That(HubTestHost.UserInputs).Contains(("a1", "fix it"));
+        await Assert.That(HubTestHost.UserInputAttachments[0]).IsNull();
+        await Assert.That(HubTestHost.UserInputAttachments[1]).IsEquivalentTo(new[] { "0123456789abcdef0123456789abcdef" });
         await Assert.That(HubTestHost.Discards).Contains(new DiscardQueuedInputRequest("a1", discardedId));
         await Assert.That(HubTestHost.SpecialKeys).Contains(("a1", "Escape"));
         await Assert.That(HubTestHost.TerminalUnsubscribes).Contains("a1");

@@ -101,7 +101,7 @@ public class CrossProcessRefreshTests {
         var refreshed     = Token("fresh", DateTimeOffset.UtcNow.AddHours(1));
         var refreshCalled = false;
 
-        var result = await AuthFixtures.NewTokenStore(Config.Root).RefreshWithCrossProcessLockAsync(
+        _ = await AuthFixtures.NewTokenStore(Config.Root).RefreshWithCrossProcessLockAsync(
             "alpha", current,
             _ => { refreshCalled = true; return Task.FromResult<StoredTokens?>(refreshed); });
 

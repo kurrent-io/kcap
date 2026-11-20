@@ -46,11 +46,13 @@ public static class OpenCodeExtensionInstaller {
         //   - tool.execute.before → a kcap MCP call that names no session_id gets the calling session's.
         //
         // OpenCode v2 loads the default export's setup instead (see the v2 section at the end): it records
-        // the session lifecycle, titles, the memory index and the session_id stamp, but no transcript.
+        // the session lifecycle, titles, the memory index and the session_id stamp, but no transcript. Under a
+        // server shared across sessions it also keeps a heartbeat per session, which kcap ends on idle, and starts
+        // again a session kcap marked ended.
         //
         // Dependency-free (only node: builtins) and fail-safe by default.
 
-        import { appendFileSync, mkdirSync } from "node:fs"
+        import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs"
         import { homedir } from "node:os"
         import { join, dirname } from "node:path"
 
@@ -615,12 +617,18 @@ public static class OpenCodeExtensionInstaller {
           waitExpired: new Map<string, true>(),
           pendingTitle: new Map<string, { title: string; time?: number }>(),
           lastTitle: new Map<string, string>(),
+          beatAt: new Map<string, number>(),
+          restartAt: new Map<string, number>(),
+          tools: new Map<string, Set<string>>(),
         }
         const V2_MAX_SESSIONS = 64
         // Ids only, so a wider bound; an evicted session is classified, and at worst started, again.
         const V2_MAX_IDS = 1024
         const V2_RETRY_MS = 5000
         const V2_WAIT_MS = 10000
+        // Well inside kcap's shortest idle window (KCAP_OPENCODE_IDLE_MINUTES is whole minutes).
+        const V2_BEAT_MS = 5000
+        const V2_TOOL_BEAT_MS = 30000
 
         // Bounded: most sessions end without a session.deleted, and the server process outlives them.
         // Returns the id it evicted, if any.
@@ -665,6 +673,62 @@ public static class OpenCodeExtensionInstaller {
           const dir = join(homedir(), ".cache", "kcap", "opencode")
           const file = (sid: string) => join(dir, sid + ".jsonl")
 
+          // A server shared across sessions (the background service, `opencode serve`) outlives every one of them,
+          // so its sessions have no end signal: the heartbeat beside the session's file says so, and kcap ends the
+          // session once it goes quiet, leaving the end marker. `--standalone` runs a private server over stdio,
+          // which exits with the run and ends the session that way.
+          const shared = !process.argv.includes("--stdio")
+          const heartbeat = (sid: string) => join(dir, sid + ".heartbeat")
+          const ended = (sid: string) => join(dir, sid + ".ended")
+
+          // The format kcap reads, written temp-then-rename so it never reads half a timestamp.
+          function writeHeartbeat(sid: string) {
+            const tmp = heartbeat(sid) + "." + process.pid + ".tmp"
+            writeFileSync(tmp, new Date().toISOString())
+            renameSync(tmp, heartbeat(sid))
+            v2Remember(v2.beatAt, sid, Date.now(), V2_MAX_IDS)
+          }
+
+          // The end marker stays until a recorder for the session is running again, so a start that found the old
+          // watcher still finishing is retried; every event checks it, and the session is marked unstarted at most
+          // once per V2_RETRY_MS so that event's ensureStarted starts it again. Never during a start, which marked the
+          // session started before it began and would not mark it again. The heartbeat write is throttled.
+          function beat(sid: string, force = false) {
+            if (!shared || !v2.started.has(sid)) return
+            try {
+              if (!v2.pendingStart.has(sid) && existsSync(ended(sid)) && (v2.restartAt.get(sid) ?? 0) <= Date.now()) {
+                v2Remember(v2.restartAt, sid, Date.now() + V2_RETRY_MS, V2_MAX_IDS)
+                v2.started.delete(sid)
+              }
+              const last = v2.beatAt.get(sid)
+              if (!force && last !== undefined && Date.now() - last < V2_BEAT_MS) return
+              writeHeartbeat(sid)
+            } catch {}
+          }
+
+          // A long tool sends no events while it runs, so its session's heartbeat is kept fresh until it settles.
+          let toolTimer: any
+          function trackTools(type: string, sid: string, callId: unknown) {
+            if (type === "session.tool.called" && typeof callId === "string") {
+              const calls = v2.tools.get(sid) ?? new Set<string>()
+              calls.add(callId)
+              v2Remember(v2.tools, sid, calls)
+            } else if ((type === "session.tool.success" || type === "session.tool.failed") && typeof callId === "string") {
+              const calls = v2.tools.get(sid)
+              calls?.delete(callId)
+              if (calls?.size === 0) v2.tools.delete(sid)
+            } else if (type === "session.deleted" || (type.startsWith("session.execution.") && type !== "session.execution.started")) {
+              v2.tools.delete(sid)
+            }
+            if (v2.tools.size > 0 && !toolTimer) {
+              toolTimer = setInterval(() => { for (const id of v2.tools.keys()) beat(id, true) }, V2_TOOL_BEAT_MS)
+              toolTimer.unref?.()
+            } else if (v2.tools.size === 0 && toolTimer) {
+              clearInterval(toolTimer)
+              toolTimer = undefined
+            }
+          }
+
           // Fails closed like v1: only a session the server reports without a parent is top-level. A
           // failed lookup is retried by a later event, at most once per V2_RETRY_MS. The in-flight start
           // is checked first, so a caller waits for the lifecycle post rather than seeing it as done.
@@ -683,6 +747,15 @@ public static class OpenCodeExtensionInstaller {
               if (info.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return false }
               v2Remember(v2.started, sid, true, V2_MAX_IDS)
               try { mkdirSync(dir, { recursive: true }); appendFileSync(file(sid), "") } catch {}
+              // Before kcap starts the watcher, which reads it to learn the session has no end signal. A standalone
+              // run removes one a shared server left, or the session could end on idle while the run is open.
+              try {
+                if (shared) writeHeartbeat(sid)
+                else {
+                  rmSync(heartbeat(sid), { force: true })
+                  rmSync(ended(sid), { force: true })
+                }
+              } catch {}
               const args = ["hook", "--opencode", "--event", "session-start", "--session", sid,
                             "--file", file(sid), "--memory-contract", "1"]
               const where = info?.location?.directory ?? cwd ?? ctx.location?.directory
@@ -724,10 +797,15 @@ public static class OpenCodeExtensionInstaller {
               v2.retryAt.delete(sid)
               v2.pendingTitle.delete(sid)
               v2.lastTitle.delete(sid)
+              v2.beatAt.delete(sid)
+              v2.restartAt.delete(sid)
+              trackTools(type, sid, undefined)
               return
             }
             if (type === "session.created" && data?.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return }
             if (v2.children.has(sid)) return
+            trackTools(type, sid, data?.id)
+            beat(sid)
             if (type === "session.renamed" && typeof data?.title === "string") {
               // Held until the session is proven top-level, which a failed start can delay past this event.
               v2Remember(v2.pendingTitle, sid, { title: data.title, time: ev?.created })
@@ -802,7 +880,10 @@ public static class OpenCodeExtensionInstaller {
               // the subscription ends with the plugin
             }
           })()
-          return () => abort.abort()
+          return () => {
+            abort.abort()
+            if (toolTimer) clearInterval(toolTimer)
+          }
         }
 
         export default { id: "kcap", server: KcapPlugin, setup: v2Setup }

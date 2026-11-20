@@ -34,15 +34,29 @@ public class TranscriptIdsTests {
         await Assert.That(TranscriptIds.ClaudeBlock(Primary, 2)).IsEqualTo(TranscriptIds.Sibling(Primary, "block:2"));
     }
 
+    /// kcap-server derives the same id from the session's canonical id, and refuses a canonical batch carrying another.
     [Test]
-    public async Task Claude_attachment_hashes_scope_then_record_guid_then_little_endian_index() {
-        var scope = Encoding.UTF8.GetBytes("sess:agent");
+    [Arguments("5f6c2b1a-9e3d-4a7c-bb12-1c2d3e4f5a6b")]
+    [Arguments("5F6C2B1A9E3D4A7CBB121C2D3E4F5A6B")]
+    [Arguments("5f6c2b1a9e3d4a7cbb121c2d3e4f5a6b")]
+    public async Task Claude_attachment_hashes_the_dashless_session_then_record_guid_then_little_endian_index(string sessionId) {
+        await Assert.That(TranscriptIds.ClaudeAttachment(sessionId, Primary, 3))
+            .IsEqualTo(AttachmentHash("5f6c2b1a9e3d4a7cbb121c2d3e4f5a6b", Primary, 3));
+    }
+
+    [Test]
+    public async Task Claude_attachment_hashes_a_session_id_that_is_no_guid_as_given() {
+        await Assert.That(TranscriptIds.ClaudeAttachment("sess-1", Primary, 3)).IsEqualTo(AttachmentHash("sess-1", Primary, 3));
+    }
+
+    static Guid AttachmentHash(string session, Guid recordId, int index) {
+        var scope = Encoding.UTF8.GetBytes(session);
         var expectedInput = new byte[scope.Length + 20];
         scope.CopyTo(expectedInput, 0);
-        Primary.TryWriteBytes(expectedInput.AsSpan(scope.Length));
-        BinaryPrimitives.WriteInt32LittleEndian(expectedInput.AsSpan(scope.Length + 16), 3);
+        recordId.TryWriteBytes(expectedInput.AsSpan(scope.Length));
+        BinaryPrimitives.WriteInt32LittleEndian(expectedInput.AsSpan(scope.Length + 16), index);
 
-        await Assert.That(TranscriptIds.ClaudeAttachment("sess:agent", Primary, 3)).IsEqualTo(new Guid(XxHash128.Hash(expectedInput)));
+        return new Guid(XxHash128.Hash(expectedInput));
     }
 
     [Test]
@@ -202,7 +216,8 @@ public class TranscriptIdsTests {
     [Arguments("sibling", "580a4b24-18bc-bc19-9676-ed805dff4bdd")]
     [Arguments("claude-fallback", "076b76f4-34c5-66d5-20c5-52bcc518f62c")]
     [Arguments("claude-block", "de376eef-af14-5d28-b930-bbbef251635d")]
-    [Arguments("claude-attachment", "c0331d1c-5d1f-a123-49d3-820902c4d48b")]
+    // kcap-server's Claude normalizer stores an image of this message, in this session, under the same id.
+    [Arguments("claude-attachment", "0b490d55-ee63-9502-52cf-805953334b85")]
     [Arguments("claude-retraction", "af166b98-4df9-03c7-e556-9199ad7f030a")]
     [Arguments("codex-record", "b17e302c-b826-0247-6fda-5634e74c45ce")]
     // kcap-server's CodexNormalizerTests pins the id it stores for this redacted line to the same value.
@@ -254,7 +269,7 @@ public class TranscriptIdsTests {
         "sibling"           => TranscriptIds.Sibling(Primary, "result"),
         "claude-fallback"   => TranscriptIds.ClaudeFallback(12, "{\"type\":\"user\"}"),
         "claude-block"      => TranscriptIds.ClaudeBlock(Primary, 2),
-        "claude-attachment" => TranscriptIds.ClaudeAttachment("sess:agent", Primary, 3),
+        "claude-attachment" => TranscriptIds.ClaudeAttachment("5f6c2b1a-9e3d-4a7c-bb12-1c2d3e4f5a6b", Primary, 3),
         "claude-retraction" => TranscriptIds.ClaudeRetraction(Primary),
         "codex-record"      => TranscriptIds.CodexRecord("{\"type\":\"response_item\",\"payload\":{}}"),
         "codex-redacted-user" => TranscriptIds.CodexRecord("""

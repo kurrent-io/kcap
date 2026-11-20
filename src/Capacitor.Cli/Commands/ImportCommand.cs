@@ -14,6 +14,7 @@ using Capacitor.Cli.Core.FirstRun;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.RepoEvidence;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.Harness.Cursor;
@@ -1362,9 +1363,10 @@ class ImportCommand(
         // discovered it rather than to its vendor.
         var sourceBySession = new Dictionary<(HarnessId Vendor, string SessionId), IImportSource>();
 
-        for (var i = 0; i < sources.Count; i++)
+        for (var i = 0; i < sources.Count; i++) {
             foreach (var c in classificationsPerSource[i])
                 sourceBySession.TryAdd((c.Vendor, c.SessionId), sources[i]);
+        }
 
         // Local read failures also carry scope, even though they never reached a probe.
         if (captureScope.Configured) classifications = await captureScope.ApplyAsync(classifications, sessionCwds);
@@ -1919,7 +1921,7 @@ class ImportCommand(
                                 },
                             };
 
-                            r = await ImportChainsAsync(httpClient, baseUrl, chains, wrappedEvents, CancellationToken.None, sessionCwds, chainDefaultVisibility);
+                            r = await ImportChainsAsync(httpClient, baseUrl, chains, wrappedEvents, CancellationToken.None, sessionCwds, chainDefaultVisibility, stopAtLoss: filterSession is not null);
 
                             // Insurance, not presentation: the frame is erased on the way out, and an
                             // erase that ever fails should strand idle rows rather than a session name.
@@ -1943,7 +1945,7 @@ class ImportCommand(
                     );
                 importResult = r!;
             } else {
-                importResult = await ImportChainsAsync(httpClient, baseUrl, chains, events, CancellationToken.None, sessionCwds, chainDefaultVisibility);
+                importResult = await ImportChainsAsync(httpClient, baseUrl, chains, events, CancellationToken.None, sessionCwds, chainDefaultVisibility, stopAtLoss: filterSession is not null);
             }
         } else {
             importResult = new(0, 0, 0);
@@ -1979,7 +1981,7 @@ class ImportCommand(
                 Progress: new CallbackProgress(ev => {
                     if (ev is ImportWarning w) WarnSession(w.SessionId, w.Message);
                 })
-            ) { Stderr = console.Error, TranscriptLedger = routedLedger };
+            ) { Stderr = console.Error, TranscriptLedger = routedLedger, StopAtLoss = filterSession is not null };
 
             async Task<ImportSessionResult> ImportOne(SessionClassification c) {
                 if (!sourceBySession.TryGetValue((c.Vendor, c.SessionId), out var src)) {
@@ -3182,7 +3184,7 @@ class ImportCommand(
             if (CaptureScope.ExcludesRecorded(profile, home, cwd, rawRepo)) beyondRemap.Add(sessionId);
 
             if (CaptureScope.ExcludesDiscovered(profile, home, cwd, repo, rawRepo)
-             || excludesRepo && checkout is not null && RepoScope.Names(profile.ExcludedRepos!, checkout)) {
+             || excludesRepo && checkout is not null && RepoScope.Names(profile.ExcludedRepos, checkout)) {
                 all.Add(sessionId);
                 if (cwd is not null) folders[sessionId] = cwd;
             }
@@ -3489,12 +3491,14 @@ class ImportCommand(
             ChainWorkerEvents                 events,
             CancellationToken                 ct,
             IReadOnlyDictionary<string, string>? sessionCwds       = null,
-            string?                              defaultVisibility = null
+            string?                              defaultVisibility = null,
+            bool                                 stopAtLoss        = false
         ) {
-        var loaded  = 0;
-        var resumed = 0;
-        var errored = 0;
-        var ledger  = TranscriptImportLedger.ForRecording(config);
+        var loaded    = 0;
+        var resumed   = 0;
+        var errored   = 0;
+        var ledger    = TranscriptImportLedger.ForRecording(config);
+        var canonical = new IngestCapability(httpClient, baseUrl, time);
 
         var queue = Channel.CreateUnbounded<List<SessionClassification>>(
             new() {
@@ -3524,7 +3528,7 @@ class ImportCommand(
                                 var linesSent = 0;
 
                                 try {
-                                    (r, linesSent) = await ImportSingleSessionAsync(httpClient, baseUrl, session, slot, events, ledger, ct, sessionCwds, defaultVisibility);
+                                    (r, linesSent) = await ImportSingleSessionAsync(httpClient, baseUrl, session, slot, events, ledger, canonical, ct, sessionCwds, defaultVisibility, stopAtLoss);
                                 } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                                     throw;
                                 } catch (Exception ex) {
@@ -3582,9 +3586,11 @@ class ImportCommand(
             int                    slot,
             ChainWorkerEvents      events,
             TranscriptImportLedger ledger,
+            IngestCapability       canonical,
             CancellationToken      ct,
             IReadOnlyDictionary<string, string>? sessionCwds       = null,
-            string?                              defaultVisibility = null
+            string?                              defaultVisibility = null,
+            bool                                 stopAtLoss        = false
         ) {
         // Denominator for the per-slot progress bar: the number of parent-transcript
         // lines this import will POST. For a resume, only the lines past the server's
@@ -3629,6 +3635,8 @@ class ImportCommand(
                     time,
                     perSessionProgress,
                     session.Vendor,
+                    canonical: canonical,
+                    stopAtLoss: stopAtLoss,
                     startLine: session.ResumeFromLine,
                     strict: true
                 );
@@ -3803,7 +3811,9 @@ class ImportCommand(
                 session.EncodedCwd,
                 time,
                 perSessionProgress,
-                session.Vendor
+                session.Vendor,
+                canonical,
+                stopAtLoss
             );
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;

@@ -519,7 +519,7 @@ public class AccountsCommandTests {
     public async Task List_shows_an_id_shorter_than_the_display_prefix() {
         var dir = ClaudeDir();
         Tmp.CreateFile("accounts/accounts.json", $$"""
-            { "accounts": [ { "id": "abc", "vendor": "Claude", "directory": {{System.Text.Json.JsonSerializer.Serialize(dir)}}, "label": "work", "added_at": "2026-01-01T00:00:00Z" } ] }
+            { "accounts": [ { "id": "abc", "vendor": "Claude", "directory": {{JsonSerializer.Serialize(dir)}}, "label": "work", "added_at": "2026-01-01T00:00:00Z" } ] }
             """);
         using var capture = ConsoleOutput.StartCapture();
 

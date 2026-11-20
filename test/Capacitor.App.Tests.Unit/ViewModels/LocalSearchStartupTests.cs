@@ -5,7 +5,6 @@ using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using System.Security.Cryptography;
 using System.Text;
-using Capacitor.App.Services;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.LocalEdition;

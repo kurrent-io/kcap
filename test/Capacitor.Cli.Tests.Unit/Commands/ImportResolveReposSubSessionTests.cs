@@ -22,8 +22,8 @@ public class ImportResolveReposSubSessionTests {
     public async Task ResolveTranscriptRepos_excludes_kcap_subsessions_from_missing_cwd_report() {
         // A genuine user session whose cwd has since gone missing — this SHOULD
         // be surfaced so the user can `kcap remap` it.
-        var realMissing = "/does/not/exist/real-repo";
-        var realPath    = Path.Combine(Tmp.Path, "real.jsonl");
+        const string realMissing = "/does/not/exist/real-repo";
+        var realPath             = Path.Combine(Tmp.Path, "real.jsonl");
         await File.WriteAllLinesAsync(
             realPath,
             [
@@ -40,7 +40,7 @@ public class ImportResolveReposSubSessionTests {
         var subPath       = Path.Combine(Tmp.Path, "agent-title.jsonl");
         var queueOpLine   = """{"type":"queue-operation","operation":"enqueue","content":"""
                           + JsonSerializer.Serialize(TitleGeneration.TitlePromptPrefix) + "}";
-        var subCwdLine    = """{"type":"user","timestamp":"2026-03-15T10:00:00Z","cwd":"/private/var/folders/x/T/kcap-claude-deadbeef","message":{"content":"x"}}""";
+        const string subCwdLine    = """{"type":"user","timestamp":"2026-03-15T10:00:00Z","cwd":"/private/var/folders/x/T/kcap-claude-deadbeef","message":{"content":"x"}}""";
         await File.WriteAllLinesAsync(subPath, [queueOpLine, subCwdLine]);
 
         var transcripts = new List<(string SessionId, string FilePath, string EncodedCwd)> {

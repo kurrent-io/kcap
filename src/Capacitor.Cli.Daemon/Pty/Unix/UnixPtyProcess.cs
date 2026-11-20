@@ -52,7 +52,7 @@ public sealed class UnixPtyProcess : IPtyProcess {
         // the field. RemoveEmptyEntries silently discarded exactly those cwd fields, so a
         // command that only lives in cwd would have gone unfound here while the child would have
         // exec'd it fine.
-        foreach (var entry in path.Split(':', StringSplitOptions.None)) {
+        foreach (var entry in path.Split(':')) {
             var dir = entry.Length == 0            ? cwd
                     : Path.IsPathRooted(entry)     ? entry
                     :                                Path.GetFullPath(entry, cwd);

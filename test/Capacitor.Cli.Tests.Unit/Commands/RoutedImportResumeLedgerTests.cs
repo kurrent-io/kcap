@@ -267,7 +267,7 @@ public class RoutedImportResumeLedgerTests : IDisposable {
     [Arguments("set_history_entries")]
     [Arguments("replace_entry")]
     public async Task unified_vibe_history_changes_resume_from_the_server_watermark(string operation) {
-        var session = $"vibe/logs/session/unified/{SessionId}";
+        const string session = $"vibe/logs/session/unified/{SessionId}";
         Tmp.CreateFile($"{session}/meta.json", """{"environment":{"working_directory":"/tmp/proj"}}""");
         var first   = UnifiedMessage("u0", "user");
         var second  = UnifiedMessage("a1", "assistant");

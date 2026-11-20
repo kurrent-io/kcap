@@ -295,8 +295,8 @@ public class WorkItemsNudgeRenderCompositionTests {
 
     [Test]
     public async Task Fragment_and_nudge_are_both_present_with_the_nudge_after() {
-        var fragment = MemoryIndexEmitter.FragmentMarker + "\n## Team memory\nmem body";
-        var rendered = SessionStartMemoryOutputAdapters.Render(HarnessId.Pi, fragment, Nudge);
+        const string fragment = MemoryIndexEmitter.FragmentMarker + "\n## Team memory\nmem body";
+        var rendered          = SessionStartMemoryOutputAdapters.Render(HarnessId.Pi, fragment, Nudge);
         await Assert.That(rendered).Contains("mem body");
         await Assert.That(rendered).Contains("nudge body");
         await Assert.That(rendered.IndexOf("mem body", StringComparison.Ordinal))
@@ -306,7 +306,7 @@ public class WorkItemsNudgeRenderCompositionTests {
     [Test]
     public async Task A_null_nudge_is_byte_identical_to_the_pre_nudge_render() {
         // The isolation invariant at the render layer: passing no nudge changes nothing.
-        var fragment = MemoryIndexEmitter.FragmentMarker + "\n## Team memory\nmem body";
+        const string fragment = MemoryIndexEmitter.FragmentMarker + "\n## Team memory\nmem body";
         foreach (var harness in new[] {
                      HarnessId.Codex, HarnessId.Cursor, HarnessId.Copilot,
                      HarnessId.Gemini, HarnessId.Kiro, HarnessId.OpenCode,

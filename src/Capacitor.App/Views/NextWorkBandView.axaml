@@ -173,7 +173,7 @@
             <TextBlock x:Name="BandElsewhere" Text="{Binding ElsewhereText}" FontSize="11.5"
                        Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" IsVisible="{Binding HasElsewhere}" />
             <Panel VerticalAlignment="Center">
-                <views:AppIcon x:Name="BandLoading" Classes="kcapSpinning" Kind="LoaderCircle" Size="12" Foreground="{StaticResource KcapFaintBrush}"
+                <views:AppIcon x:Name="BandLoading" views:BusyIndicator.IsBusy="{Binding IsLoading}" Kind="LoaderCircle" Size="12" Foreground="{StaticResource KcapFaintBrush}"
                                IsVisible="{Binding IsLoading}" ToolTip.Tip="Loading suggestions…" />
                 <views:AppIcon x:Name="BandNote" Kind="RefreshCw" Size="12" Foreground="{StaticResource KcapWarningBrush}"
                                ToolTip.Tip="{Binding Note}" AutomationProperties.Name="{Binding Note}">

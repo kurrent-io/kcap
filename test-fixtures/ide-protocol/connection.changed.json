@@ -1,0 +1,14 @@
+{
+  "jsonrpc": "2.0",
+  "method": "connection/changed",
+  "params": {
+    "daemon": {
+      "state": "attached",
+      "name": "dev-laptop"
+    },
+    "server": {
+      "state": "retrying",
+      "detail": "connection refused"
+    }
+  }
+}

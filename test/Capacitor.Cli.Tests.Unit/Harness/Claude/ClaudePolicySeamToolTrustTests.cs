@@ -1,9 +1,9 @@
 namespace Capacitor.Cli.Tests.Unit.Harness.Claude;
 
 using System.Text.Json.Nodes;
-using Capacitor.Cli.Core;
+using Core;
 using Capacitor.Cli.Harness.Claude;
-using Capacitor.Cli.Tests.Unit.Policy;
+using Policy;
 
 public class ClaudePolicySeamToolTrustTests {
     [TempDir] public required TempDir Tmp { get; init; }

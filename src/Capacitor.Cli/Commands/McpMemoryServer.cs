@@ -103,7 +103,7 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
         if (args?["expected_version"] is null) return body;
 
         try {
-            if (JsonNode.Parse(body) is JsonObject { } answer && answer["version"] is not null) return body;
+            if (JsonNode.Parse(body) is JsonObject answer && answer["version"] is not null) return body;
         } catch (JsonException) { }
 
         return $"{body}\nNote: this server does not support expected_version, so the update was applied without checking for concurrent changes.";
@@ -114,7 +114,7 @@ sealed class McpMemoryServer(ConfigRoot config, ProfileContext profiles, TokenSt
         if (args?["form"] is not JsonValue form || !form.TryGetValue<string>(out var f) || f != "log") return body;
 
         try {
-            if (JsonNode.Parse(body) is JsonObject { } answer && answer["memory"]?["form"] is not null) return body;
+            if (JsonNode.Parse(body) is JsonObject answer && answer["memory"]?["form"] is not null) return body;
         } catch (JsonException) { }
 
         return $"{body}\nNote: this server does not support log memories, so it treats form: \"log\" as an ordinary memory and append_memory_entry will not work on it.";

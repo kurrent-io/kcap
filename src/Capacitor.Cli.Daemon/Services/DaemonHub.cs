@@ -46,16 +46,14 @@ internal static class DaemonHub {
                     };
                 }
             )
-            .WithAutomaticReconnect(new LoggedRetryPolicy(new RetryPolicy(), loggerFactory.CreateLogger(typeof(DaemonHub).FullName!)))
+            .WithAutomaticReconnect(new LoggedRetryPolicy(new HubRetryPolicy(), loggerFactory.CreateLogger(typeof(DaemonHub).FullName!)))
             // Left to its default the builder drops the framework's own logs, a failed argument binding among them,
             // and a daemon that drops every invocation looks healthy.
             .ConfigureLogging(b => b.Services.AddSingleton<ILoggerFactory>(quiet))
             .AddJsonProtocol(options => ServerConnection.ConfigureHubPayload(options.PayloadSerializerOptions))
             .Build();
 
-        // Half the default, so the socket stays warm through cloudflared. ServerTimeout stays at its 30s: a server
-        // mid-rollout may still send at 15s, and it needs twice that.
-        hub.KeepAliveInterval = TimeSpan.FromSeconds(7);
+        hub.KeepAliveInterval = HubRetryPolicy.KeepAliveInterval;
 
         built = hub;
 
@@ -92,17 +90,5 @@ internal static class DaemonHub {
         }
 
         return handler;
-    }
-
-    sealed class RetryPolicy : IRetryPolicy {
-        static readonly TimeSpan[] Delays = [
-            TimeSpan.FromSeconds(1),
-            TimeSpan.FromSeconds(2),
-            TimeSpan.FromSeconds(5),
-            TimeSpan.FromSeconds(10),
-            TimeSpan.FromSeconds(30)
-        ];
-
-        public TimeSpan? NextRetryDelay(RetryContext retryContext) => Delays[Math.Min(retryContext.PreviousRetryCount, Delays.Length - 1)];
     }
 }

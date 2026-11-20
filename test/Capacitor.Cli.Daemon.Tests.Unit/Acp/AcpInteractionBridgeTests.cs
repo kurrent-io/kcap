@@ -268,7 +268,7 @@ public class AcpInteractionBridgeTests {
             agentId: AgentId,
             logger: NullLogger.Instance, time: TimeProvider.System);
 
-        var json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"} }""";
+        const string json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"} }""";
         var request = new AcpRequest(1, "session/request_permission", JsonDocument.Parse(json).RootElement.Clone());
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);
@@ -292,7 +292,7 @@ public class AcpInteractionBridgeTests {
             agentId: AgentId,
             logger: NullLogger.Instance, time: TimeProvider.System);
 
-        var json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":null}""";
+        const string json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":null}""";
         var request = new AcpRequest(1, "session/request_permission", JsonDocument.Parse(json).RootElement.Clone());
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);
@@ -315,7 +315,7 @@ public class AcpInteractionBridgeTests {
             agentId: AgentId,
             logger: NullLogger.Instance, time: TimeProvider.System);
 
-        var json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[null,{"optionId":"allow-once","name":"Allow","kind":"allow_once"}]}""";
+        const string json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[null,{"optionId":"allow-once","name":"Allow","kind":"allow_once"}]}""";
         var request = new AcpRequest(1, "session/request_permission", JsonDocument.Parse(json).RootElement.Clone());
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);
@@ -341,7 +341,7 @@ public class AcpInteractionBridgeTests {
             agentId: AgentId,
             logger: NullLogger.Instance, time: TimeProvider.System);
 
-        var json = $$"""{"sessionId":"{{AcpSessionId}}","message":"Proceed?"}""";
+        const string json = $$"""{"sessionId":"{{AcpSessionId}}","message":"Proceed?"}""";
         var request = new AcpRequest(1, "elicitation/create", JsonDocument.Parse(json).RootElement.Clone());
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);
@@ -365,7 +365,7 @@ public class AcpInteractionBridgeTests {
             logger: NullLogger.Instance, time: TimeProvider.System);
 
         const string sessionIdFromParams = "session-from-params-only";
-        var json = $$"""{"sessionId":"{{sessionIdFromParams}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[{"optionId":"allow-once","name":"Allow","kind":"allow_once"}]}""";
+        const string json = $$"""{"sessionId":"{{sessionIdFromParams}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[{"optionId":"allow-once","name":"Allow","kind":"allow_once"}]}""";
         var request = new AcpRequest(1, "session/request_permission", JsonDocument.Parse(json).RootElement.Clone());
 
         await bridge.HandleAsync(request, CancellationToken.None);
@@ -388,7 +388,7 @@ public class AcpInteractionBridgeTests {
             agentId: AgentId,
             logger: NullLogger.Instance, time: TimeProvider.System);
 
-        var json = """{"sessionId":"","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[{"optionId":"allow-once","name":"Allow","kind":"allow_once"}]}""";
+        const string json = """{"sessionId":"","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[{"optionId":"allow-once","name":"Allow","kind":"allow_once"}]}""";
         var request = new AcpRequest(1, "session/request_permission", JsonDocument.Parse(json).RootElement.Clone());
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);
@@ -460,7 +460,7 @@ public class AcpInteractionBridgeTests {
             agentId: AgentId,
             logger: NullLogger.Instance, TimeProvider.System);
 
-        var json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[{"optionId":"allow-first","name":"Allow","kind":"allow_once"},{"optionId":"allow-second","name":"Allow","kind":"allow_always"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]}""";
+        const string json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[{"optionId":"allow-first","name":"Allow","kind":"allow_once"},{"optionId":"allow-second","name":"Allow","kind":"allow_always"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]}""";
         var request = new AcpRequest(1, "session/request_permission", JsonDocument.Parse(json).RootElement.Clone());
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);

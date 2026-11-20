@@ -1,5 +1,4 @@
 using System.Reactive.Linq;
-using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Tests.Unit.ViewModels;

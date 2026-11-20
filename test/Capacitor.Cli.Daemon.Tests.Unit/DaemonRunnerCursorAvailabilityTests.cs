@@ -583,9 +583,10 @@ public class DaemonRunnerCursorAvailabilityTests {
 
         var line = logger.Entries.Single().Message;
         await Assert.That(line).DoesNotContain("2026.07.20-8cc9c0b");
-        foreach (var token in new[] { "certif", "validated", "mismatch", "drift", "uncertified" })
+        foreach (var token in new[] { "certif", "validated", "mismatch", "drift", "uncertified" }) {
             await Assert.That(line.Contains(token, StringComparison.OrdinalIgnoreCase))
                 .IsFalse().Because($"the startup identity line must not evaluate build agreement ('{token}')");
+        }
     }
 
     [Test]

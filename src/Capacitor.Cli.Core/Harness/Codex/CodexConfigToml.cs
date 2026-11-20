@@ -73,7 +73,7 @@ public static partial class CodexConfigToml {
     public static Change RegisterKcapMcpServers(string configPath,
                                                 Func<string?>? resolveBinaryPath = null) =>
         UpdateMcpRegistration(configPath, remove: false,
-                              Mcp.KcapBinaryCommand.Resolve(resolveBinaryPath));
+                              KcapBinaryCommand.Resolve(resolveBinaryPath));
 
     /// <summary>Whether kcap previously registered MCP servers here, independently of recording hooks.</summary>
     public static bool HasMcpInstallRecord(string configPath) {
@@ -138,7 +138,6 @@ public static partial class CodexConfigToml {
                                     claims[descriptor.Name] = BuildClaim(healed);
                                     ledgerChanged = true;
                                 }
-                                continue;
                             }
                             continue; // never mutate or claim a pre-existing/manual (unclaimed) entry
                         }
@@ -597,8 +596,9 @@ public static partial class CodexConfigToml {
         if (!OperatingSystem.IsWindows())
             options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
         using (var stream = new FileStream(path, options))
-        using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
+        using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false))) {
             writer.Write(content);
+        }
         // Defense in depth for platforms/filesystems that ignore the create mode.
         SetOwnerOnly(path);
     }
@@ -611,7 +611,7 @@ public static partial class CodexConfigToml {
     sealed class TomlTableTypeInfo : TomlSerializerContext {
         static readonly TomlSerializerOptions DefaultOptions = new();
 
-        public readonly TomlTypeInfo<TomlTable> TableInfo = GetBuiltInTypeInfo<TomlTable>(DefaultOptions)!;
+        public readonly TomlTypeInfo<TomlTable> TableInfo = GetBuiltInTypeInfo<TomlTable>(DefaultOptions);
 
         public override TomlTypeInfo? GetTypeInfo(Type type, TomlSerializerOptions options) =>
             type == typeof(TomlTable) ? TableInfo : null;

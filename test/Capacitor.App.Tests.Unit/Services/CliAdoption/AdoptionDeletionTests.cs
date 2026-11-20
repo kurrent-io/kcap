@@ -1,6 +1,5 @@
 using Capacitor.App.Services;
 using Capacitor.App.Services.CliAdoption;
-using Capacitor.App.Services.Mutation;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Install;
 using TUnit.Core.Enums;
@@ -86,7 +85,7 @@ public class AdoptionDeletionTests {
         readonly EntryIdentity _identity = new(new ProcessRunner(TimeProvider.System));
 
         public Task<OtherCliInstall?> ReadInstallAsync(string binary, CancellationToken ct) =>
-            Task.FromResult<OtherCliInstall?>(File.Exists(binary) ? install : null);
+            Task.FromResult(File.Exists(binary) ? install : null);
 
         public Task<string?> IdentityAsync(string entry, CancellationToken ct) => _identity.OfAsync(entry, ct);
 

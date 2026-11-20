@@ -1,7 +1,6 @@
 using Capacitor.Cli.Recording;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Commands;
@@ -11,6 +10,7 @@ using Capacitor.Cli.Core.Config;
 
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Core.Workspace;
 
 namespace Capacitor.Cli;
@@ -54,6 +54,10 @@ public sealed partial class WatcherManager(
 
     /// <summary>Replaces the commit observation a drain starts from, for a test with no git hook to read.</summary>
     internal CommitObservation? DrainCommits { get; init; }
+
+    /// <summary>The most a drain's replay of the lines the server holds may take before the drain sends raw lines. The
+    /// drain runs inside the agent's SessionEnd hook, and a replay over a 200 MB transcript measured 6–9 s.</summary>
+    internal TimeSpan DrainReplayBudget { get; init; } = TimeSpan.FromSeconds(2);
 
     internal string GetWatcherDir() => paths.Directory;
 
@@ -593,11 +597,9 @@ public sealed partial class WatcherManager(
                 RedirectStandardError  = true,
                 UseShellExecute        = false,
                 CreateNoWindow         = true,
-                Environment = {
-                    [ProfileOverrides.UrlVar]    = Url,
-                    [ConfigRoot.ConfigDirEnvVar] = config.Directory
-                }
+                Environment = { [ConfigRoot.ConfigDirEnvVar] = config.Directory }
             };
+            ChildProfile.Apply(psi, profiles);
             psi.ArgumentList.Add("generate-whats-done");
             psi.ArgumentList.Add(sessionId);
 
@@ -637,11 +639,9 @@ public sealed partial class WatcherManager(
                 RedirectStandardError  = true,
                 UseShellExecute        = false,
                 CreateNoWindow         = true,
-                Environment = {
-                    [ProfileOverrides.UrlVar]    = Url,
-                    [ConfigRoot.ConfigDirEnvVar] = config.Directory
-                }
+                Environment = { [ConfigRoot.ConfigDirEnvVar] = config.Directory }
             };
+            ChildProfile.Apply(psi, profiles);
             psi.ArgumentList.Add(GenerateTitleCommand.Name);
             psi.ArgumentList.Add(sessionId);
             psi.ArgumentList.Add(vendor);
@@ -678,11 +678,9 @@ public sealed partial class WatcherManager(
                 RedirectStandardError  = true,
                 UseShellExecute        = false,
                 CreateNoWindow         = true,
-                Environment = {
-                    [ProfileOverrides.UrlVar]    = Url,
-                    [ConfigRoot.ConfigDirEnvVar] = config.Directory
-                }
+                Environment = { [ConfigRoot.ConfigDirEnvVar] = config.Directory }
             };
+            ChildProfile.Apply(psi, profiles);
             psi.ArgumentList.Add("copilot-finalize");
             psi.ArgumentList.Add(sessionId);
             psi.ArgumentList.Add(transcriptPath);
@@ -798,6 +796,10 @@ public sealed partial class WatcherManager(
             var commits        = DrainCommits ?? await GitHook.ObservationAsync(config, sessionId, agentId, cwd: null, time);
             var sentAny        = false;
 
+            // Opened for the first lines sent, not before: the replay reads the transcript up to them, and a drain
+            // with nothing to send has no use for it.
+            Task<CanonicalRoute?>? route = null;
+
             await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var       reader = new StreamReader(stream);
 
@@ -856,11 +858,16 @@ public sealed partial class WatcherManager(
                     ObservedCommits = commits.Pending,
                 };
 
+                if (newLines.Count > 0)
+                    route ??= TranscriptPost.RouteAsync(
+                        new IngestCapability(httpClient, Url!, time, IngestCapability.DrainBudget), vendor, sessionId, agentId, transcriptPath, startLine,
+                        DrainReplayBudget, ReplayCapture.With(redaction.Redact), time, CancellationToken.None);
+
+                var canonical = route is null ? null : await route;
+
                 try {
                     foreach (var chunk in TranscriptBatchBuffer.Split(batch)) {
-                        var batchJson = JsonSerializer.Serialize(chunk, CapacitorJsonContext.Default.TranscriptBatch);
-                        using var content = new StringContent(batchJson, Encoding.UTF8, "application/json");
-                        using var resp = await httpClient.PostWithRetryAsync($"{Url}/hooks/transcript", content, time, mayAttempt: () => !Disabled());
+                        using var resp = await TranscriptPost.SendAsync(httpClient, Url!, chunk, canonical, time, () => !Disabled(), CancellationToken.None);
                         // A refusal the guard kept from being sent again, after a bearer rotation, is the disable's.
                         if (!resp.IsSuccessStatusCode && Disabled()) {
                             await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: the session was disabled; sending nothing more");

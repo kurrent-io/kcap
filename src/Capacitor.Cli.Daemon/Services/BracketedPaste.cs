@@ -8,8 +8,8 @@ namespace Capacitor.Cli.Daemon.Services;
 /// The composer shows "[201~" where the sequence was and the paste stays whole.
 /// </summary>
 internal static class BracketedPaste {
-    const string Start = "\x1b[200~";
-    const string End   = "\x1b[201~";
+    const string Start = "\e[200~";
+    const string End   = "\e[201~";
 
-    internal static string Frame(string text) => Start + text.Replace("\x1b", "", StringComparison.Ordinal) + End;
+    internal static string Frame(string text) => Start + text.Replace("\e", "", StringComparison.Ordinal) + End;
 }

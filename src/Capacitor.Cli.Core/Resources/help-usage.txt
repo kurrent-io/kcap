@@ -97,8 +97,13 @@ Memories:
 Pages:
   page publish <file.html> [opts]  Publish a self-contained HTML page, print its link
   page list [--mine]               Pages you can see
-  page share <id> --visibility V   Change who may open a page
   page delete <id>                 Remove a page
+
+Sharing:
+  sharing list <objectKey>         Who something is shared with
+  sharing candidates <objectKey>   Who you could share it with
+  sharing set <objectKey> <audienceKey> --relation <r>   Give one audience a grant
+  sharing remove <objectKey> <audienceKey>               Take one audience's grant away
 
 MCP servers (stdio):
   mcp review [--owner --repo --pr]   PR review context for agents
@@ -110,6 +115,7 @@ MCP servers (stdio):
   mcp plans                          Declare a session's plan document and task list
   mcp analytics                      Governed SQL over org coding-agent analytics (schema + query)
   mcp pages                          Publish an HTML page from an agent and get back a link
+  mcp sharing                        See and change who can open what kcap shares, by object key
   mcp knowledge                      Read facts and skills and fine-tune skills from agents
 
 Plugin:

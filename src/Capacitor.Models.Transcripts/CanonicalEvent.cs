@@ -44,7 +44,9 @@ public sealed record UsageApplied(
 
 public sealed record UsageTarget(Guid EventId, string EventType, string? ToolName, bool IsEcho);
 
-public sealed record TranscriptAttachment(Guid Id, string FileName, string ContentType, byte[] Data);
+/// <paramref name="MessageId"/> and <paramref name="BlockIndex"/> are what the id hashes besides the stream's scope, so
+/// a receiver can derive the id itself rather than take it on trust.
+public sealed record TranscriptAttachment(Guid Id, string FileName, string ContentType, byte[] Data, Guid MessageId, int BlockIndex);
 
 /// What one line projects to. Rejected is set for a line that is not a JSON object (or is
 /// unusable in a way the vendor names); both lists are then empty and no context state moved.

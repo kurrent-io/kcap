@@ -22,7 +22,7 @@ internal static class HarnessSetupNotice {
     /// </summary>
     internal static bool ShouldNotify(string command) {
         if (CrashReporter.FailOpenCommands.Contains(command)) return false;
-        return command is not ("mcp" or "watch" or "daemon" or "muse-assistant" or "completion"
+        return command is not ("mcp" or "watch" or "daemon" or "muse-assistant" or "ide" or "completion"
             or "update" or "uninstall" or "harness" or "status");
     }
 

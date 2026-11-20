@@ -10,6 +10,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Harness.Cursor;
 using Capacitor.Models.Transcripts.Harness.Claude;
 
@@ -20,6 +21,9 @@ namespace Capacitor.Cli.Commands;
 /// interleaved agent lifecycle events at the correct chronological position.
 /// </summary>
 static class SessionImporter {
+    // The redaction an import captures lines with, which a resumed import's replay decides a large line with.
+    static readonly LineCaptureDecider ImportCapture = ReplayCapture.With(TranscriptCapture.EncodeRecorded);
+
     /// <summary>
     /// Import a single session: send transcript batches with agent lifecycle
     /// events interleaved at the position where each agent first appears in
@@ -32,9 +36,10 @@ static class SessionImporter {
     /// subagents are discovered from the shared sessions tree by parent_thread_id and appended after
     /// the parent transcript.
     /// </param>
+    /// <param name="canonical">Negotiates canonical delivery separately for the parent and each subagent.</param>
     /// <param name="startLine">
-    /// Resumes a session the server holds up to this line: earlier parent lines and the subagents
-    /// they first reference are skipped, everything from here on is sent.
+    /// The first parent line to send. A subagent referenced on either side of this boundary is
+    /// replayed before its first unsent parent reference.
     /// </param>
     /// <param name="strict">
     /// A refused or undeliverable parent batch, subagent batch or subagent hook throws instead of being
@@ -48,12 +53,14 @@ static class SessionImporter {
             SessionMetadata            metadata,
             string?                    encodedCwd,
             TimeProvider               time,
-            IProgress<ImportProgress>? progress  = null,
-            HarnessId                  vendor    = HarnessId.Claude,
-            int                        startLine = 0,
-            bool                       strict    = false
+            IProgress<ImportProgress>? progress   = null,
+            HarnessId                  vendor     = HarnessId.Claude,
+            IngestCapability?          canonical  = null,
+            bool                       stopAtLoss = false,
+            int                        startLine  = 0,
+            bool                       strict     = false
         ) {
-        if (!File.Exists(transcriptPath))
+        if (!strict && !File.Exists(transcriptPath))
             return new(sessionId, [], 0);
 
         var cwd = metadata.Cwd ?? (encodedCwd is not null ? DecodeCwdFromDirName(encodedCwd) : null) ?? "";
@@ -67,41 +74,17 @@ static class SessionImporter {
         var agentTranscripts = isCodex
             ? []
             : DiscoverAgentTranscripts(transcriptPath);
-        var agentMap = new Dictionary<string, string>(StringComparer.Ordinal); // agentId → path
-
-        foreach (var (agentId, agentPath) in agentTranscripts) {
-            agentMap[agentId] = agentPath;
-        }
-
-        // Scan the main transcript to find, per agent, the earliest line where it is
-        // referenced — via agent_progress, an async_launched tool_result, or a
-        // foreground toolUseResult.agentId (for interleave position) — plus the real
-        // subagent_type from the parent Task-tool invocation (for canonical fidelity).
-        Dictionary<string, int>       agentFirstLine;
-        Dictionary<string, string?>   agentTypes;
-        Dictionary<string, string>    spawnCalls;
-        Dictionary<string, List<int>> referenceLines;
-
-        if (isCodex) {
-            agentFirstLine = new Dictionary<string, int>(StringComparer.Ordinal);
-            agentTypes     = new Dictionary<string, string?>(StringComparer.Ordinal);
-            spawnCalls     = new Dictionary<string, string>(StringComparer.Ordinal);
-            referenceLines = new Dictionary<string, List<int>>(StringComparer.Ordinal);
-        } else {
-            var scan = ScanAgentLifecycle(transcriptPath);
-            agentFirstLine = scan.FirstLineByAgent;
-            agentTypes     = scan.AgentTypeByAgent;
-            spawnCalls     = scan.SpawnCallByAgent;
-            referenceLines = scan.ReferenceLinesByAgent;
-        }
+        var scan = isCodex ? null : ScanAgentLifecycle(transcriptPath, strict || startLine > 0 ? startLine : null);
+        var positions = startLine == 0 ? scan?.FirstLineByAgent : scan?.ResumeLineByAgent;
+        var agentsByLine = positions is null ? null : agentTranscripts
+            .Where(agent => positions.ContainsKey(agent.AgentId))
+            .ToLookup(agent => positions[agent.AgentId]);
 
         var sentAgents = new HashSet<string>(StringComparer.Ordinal);
         var agentIds   = new List<string>();
         var totalSent  = 0;
-
-        // On a resume, an agent whose first reference the server already holds is sent again from
-        // its first reference past the watermark: it was still running when that line was imported.
-        var interleaveAt = startLine == 0 ? agentFirstLine : ResumePositions(agentFirstLine, referenceLines, startLine);
+        var route      = await TranscriptPost.RouteAsync(
+            canonical, vendor.VendorId, sessionId, agentId: null, transcriptPath, startLine, Timeout.InfiniteTimeSpan, ImportCapture, time, CancellationToken.None);
 
         // Read the main transcript line by line, batching and flushing as needed,
         // with agent lifecycle events inserted at the right positions.
@@ -110,72 +93,66 @@ static class SessionImporter {
         await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var       reader = new StreamReader(stream);
 
+        // A resume can advance only through the lines it scanned for agent references.
+        // Any lines appended during delivery belong to a subsequent import.
+        var scanLimit = strict ? scan?.CompleteLines : null;
         var lineIndex = 0;
 
-        while (await reader.ReadLineAsync() is { } line) {
+        while ((scanLimit is null || lineIndex < scanLimit) && await reader.ReadLineAsync() is { } line) {
             if (lineIndex < startLine) {
                 lineIndex++;
 
                 continue;
             }
 
-            // Before adding this line to the batch, check if any agent should be
-            // interleaved at this position (i.e., the agent's first progress line).
-            foreach (var (agentId, position) in interleaveAt) {
-                if (position == lineIndex && !sentAgents.Contains(agentId) && agentMap.TryGetValue(agentId, out var agentPath)) {
-                    // Flush the current batch before inserting agent lifecycle
-                    if (!batch.IsEmpty) await FlushAsync();
-
-                    // Send agent lifecycle: start → transcript → stop
-                    agentTypes.TryGetValue(agentId, out var agentType);
-                    await SendAgentLifecycle(httpClient, baseUrl, sessionId, agentId, agentType, spawnCalls.GetValueOrDefault(agentId),
-                        agentPath, cwd, transcriptPath, progress, time, strict);
-                    sentAgents.Add(agentId);
-                    agentIds.Add(agentId);
-                }
+            foreach (var (agentId, agentPath) in agentsByLine?[lineIndex] ?? []) {
+                if (!batch.IsEmpty) await FlushAsync();
+                await SendClaudeAgentAsync(agentId, agentPath);
             }
 
             if (!string.IsNullOrWhiteSpace(line)) {
                 var captured = TranscriptCapture.EncodeRecorded(line);
                 if (captured.Loss is { } loss) progress?.Report(new CaptureLineLost(sessionId, null, lineIndex, loss));
                 var bytes = TranscriptBatchBuffer.SizeOf(captured.Line);
-                // A full batch closes only when another line arrives, so the last one is still held at EOF.
+                // A strict import keeps even a full last batch buffered until trailing agents land.
                 if (batch.IsFull || !batch.Fits(bytes)) await FlushAsync();
                 batch.Add(captured.Line, lineIndex, bytes);
+                if (!strict && batch.IsFull) await FlushAsync();
             }
 
             lineIndex++;
         }
 
-        var completeLines = CompleteLines(stream, lineIndex);
+        if (lineIndex < scanLimit)
+            throw new IOException($"Transcript shortened during import: {transcriptPath}");
+
+        var completeLines = scanLimit ?? CompleteLines(stream, lineIndex);
 
         // A strict import delivers the agents that follow the transcript before its last batch: once
         // that batch lands the server holds the whole parent, and the next import would skip them.
-        if (strict) {
-            await SendTrailingAgentsAsync();
-            if (!batch.IsEmpty) await FlushAsync();
-        } else {
-            if (!batch.IsEmpty) await FlushAsync();
-            await SendTrailingAgentsAsync();
-        }
+        if (strict) await SendTrailingAgentsAsync();
+        if (!batch.IsEmpty) await FlushAsync();
+        if (!strict) await SendTrailingAgentsAsync();
 
         return new ImportResult(sessionId, agentIds, totalSent, completeLines);
 
         async Task FlushAsync() =>
             totalSent += await FlushBatchAsync(
-                httpClient, baseUrl, sessionId, agentId: null, batch, vendor, failOnError: strict, progress, time);
+                httpClient, baseUrl, sessionId, agentId: null, batch, vendor, route, failOnError: strict, stopAtLoss, progress, time);
+
+        async Task SendClaudeAgentAsync(string agentId, string agentPath) {
+            await SendAgentLifecycle(httpClient, baseUrl, sessionId, agentId, scan?.AgentTypeByAgent.GetValueOrDefault(agentId),
+                scan?.SpawnCallByAgent.GetValueOrDefault(agentId), agentPath, cwd, transcriptPath, progress, time, canonical, stopAtLoss, strict);
+            sentAgents.Add(agentId);
+            agentIds.Add(agentId);
+        }
 
         async Task SendTrailingAgentsAsync() {
-            // Agents with a transcript file but no reference in the parent (compact agents, acompact-*).
-            // A referenced agent a resume left out finished before the watermark.
             foreach (var (agentId, agentPath) in agentTranscripts) {
-                if (sentAgents.Contains(agentId) || (agentFirstLine.ContainsKey(agentId) && !interleaveAt.ContainsKey(agentId))) continue;
-
-                agentTypes.TryGetValue(agentId, out var agentType);
-                await SendAgentLifecycle(httpClient, baseUrl, sessionId, agentId, agentType, spawnCalls.GetValueOrDefault(agentId),
-                    agentPath, cwd, transcriptPath, progress, time, strict);
-                sentAgents.Add(agentId);
-                agentIds.Add(agentId);
+                if (sentAgents.Contains(agentId)) continue;
+                // Skip previously referenced agents with no evidence in the unsent parent tail.
+                if (scan?.FirstLineByAgent.ContainsKey(agentId) == true && positions?.ContainsKey(agentId) != true) continue;
+                await SendClaudeAgentAsync(agentId, agentPath);
             }
 
             // Codex collab subagents live in their own rollouts, linked by parent_thread_id, and carry
@@ -221,29 +198,6 @@ static class SessionImporter {
         }
     }
 
-    /// <summary>
-    /// Where a resume starting at <paramref name="startLine"/> interleaves each referenced agent: its first
-    /// reference when that is not yet on the server, else its first later reference. An agent with
-    /// nothing past the watermark finished before it and is left out.
-    /// </summary>
-    internal static Dictionary<string, int> ResumePositions(
-            Dictionary<string, int> firstLine, Dictionary<string, List<int>> referenceLines, int startLine) {
-        var positions = new Dictionary<string, int>(StringComparer.Ordinal);
-
-        foreach (var (agentId, first) in firstLine) {
-            if (first >= startLine) {
-                positions[agentId] = first;
-
-                continue;
-            }
-
-            var later = referenceLines.GetValueOrDefault(agentId)?.Where(l => l >= startLine).Order().FirstOrDefault(-1) ?? -1;
-            if (later >= 0) positions[agentId] = later;
-        }
-
-        return positions;
-    }
-
     /// <summary>POSTs one subagent lifecycle hook; false on any failure so the caller can
     /// fail closed (skip content for an unregistered subagent) instead of streaming anyway.</summary>
     static async Task<bool> PostSubagentHookAsync(
@@ -267,7 +221,8 @@ static class SessionImporter {
             Dictionary<string, int>     FirstLineByAgent,
             Dictionary<string, string?> AgentTypeByAgent,
             Dictionary<string, string>  SpawnCallByAgent,
-            Dictionary<string, List<int>> ReferenceLinesByAgent
+            Dictionary<string, int>     ResumeLineByAgent,
+            int                         CompleteLines
         );
 
     /// <summary>
@@ -289,7 +244,7 @@ static class SessionImporter {
     public static Dictionary<string, int> ScanAgentProgressLines(string transcriptPath) =>
         ScanAgentLifecycle(transcriptPath).FirstLineByAgent;
 
-    internal static AgentLifecycleScan ScanAgentLifecycle(string transcriptPath) {
+    internal static AgentLifecycleScan ScanAgentLifecycle(string transcriptPath, int? resumeFromLine = null) {
         var firstLine  = new Dictionary<string, int>(StringComparer.Ordinal);
         var agentTypes = new Dictionary<string, string?>(StringComparer.Ordinal);
 
@@ -300,8 +255,9 @@ static class SessionImporter {
         var toolUsePositions = new Dictionary<string, int>(StringComparer.Ordinal);
         var toolUseTypes     = new Dictionary<string, string?>(StringComparer.Ordinal);
         var links            = new List<(string AgentId, string CallId)>();
-        var referenceLines   = new Dictionary<string, List<int>>(StringComparer.Ordinal);
-        var callResultLines  = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        var resumeLines      = new Dictionary<string, int>(StringComparer.Ordinal);
+        var callResultLines  = new Dictionary<string, int>(StringComparer.Ordinal);
+        var completeLines    = 0;
 
         try {
             using var fs     = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -311,14 +267,18 @@ static class SessionImporter {
 
             while (reader.ReadLine() is { } line) {
                 if (!string.IsNullOrWhiteSpace(line)) {
-                    if (TryExtractAgentReference(line, lineIndex, firstLine, toolUsePositions, toolUseTypes, agentTypes, links, callResultLines) is { } referenced)
-                        AddLine(referenceLines, referenced, lineIndex);
+                    var recordResume = resumeFromLine is { } start && lineIndex >= start;
+                    var referenced = TryExtractAgentReference(line, lineIndex, firstLine, toolUsePositions, toolUseTypes,
+                        agentTypes, links, recordResume ? callResultLines : null);
+                    if (recordResume && referenced is not null) resumeLines.TryAdd(referenced, lineIndex);
                 }
 
                 lineIndex++;
             }
-        } catch {
-            // Best effort — if we can't scan, agents will be sent at the end
+
+            completeLines = CompleteLines(fs, lineIndex);
+        } catch (Exception ex) when (resumeFromLine is null && ex is (IOException or UnauthorizedAccessException)) {
+            // A new import can still discover agents from their files.
         }
 
         // The meta file Claude Code writes beside each subagent transcript names the call that
@@ -332,16 +292,19 @@ static class SessionImporter {
             firstLine.TryAdd(agentId, toolUsePositions[callId]);
             if (toolUseTypes.TryGetValue(callId, out var subagentType)) agentTypes.TryAdd(agentId, subagentType);
 
-            // A result that names only the call, not the agent, still references the agent the call spawned.
-            foreach (var line in callResultLines.GetValueOrDefault(callId) ?? []) AddLine(referenceLines, agentId, line);
+            // A result that only names the call still references the agent the call spawned.
+            if (callResultLines.TryGetValue(callId, out var line) && line < resumeLines.GetValueOrDefault(agentId, int.MaxValue))
+                resumeLines[agentId] = line;
         }
 
-        return new AgentLifecycleScan(firstLine, agentTypes, spawnCalls, referenceLines);
-
-        static void AddLine(Dictionary<string, List<int>> lines, string key, int line) {
-            if (!lines.TryGetValue(key, out var list)) lines[key] = list = [];
-            if (!list.Contains(line)) list.Add(line);
+        if (resumeFromLine is { } watermark) {
+            foreach (var (agentId, line) in firstLine) {
+                if (line >= watermark && line < resumeLines.GetValueOrDefault(agentId, int.MaxValue))
+                    resumeLines[agentId] = line;
+            }
         }
+
+        return new AgentLifecycleScan(firstLine, agentTypes, spawnCalls, resumeLines, completeLines);
     }
 
     /// <summary>
@@ -378,7 +341,7 @@ static class SessionImporter {
             Dictionary<string, string?> toolUseTypes,
             Dictionary<string, string?> agentTypes,
             List<(string AgentId, string CallId)> links,
-            Dictionary<string, List<int>> callResultLines
+            Dictionary<string, int>?    callResultLines
         ) {
         try {
             using var doc  = JsonDocument.Parse(line);
@@ -395,10 +358,10 @@ static class SessionImporter {
                 case "result":
                     return TryExtractFromAsyncLaunched(root, lineIndex, result, toolUsePositions, toolUseTypes, agentTypes, links);
                 case "user":
-                    RecordAgentCallResults(root, lineIndex, toolUsePositions, callResultLines);
+                    if (callResultLines is not null) RecordAgentCallResults(root, lineIndex, toolUsePositions, callResultLines);
 
                     return TryExtractFromToolUseResult(root, lineIndex, result, toolUsePositions, toolUseTypes, agentTypes, links)
-                        ?? NotifiedAgent(root, lineIndex, toolUsePositions, callResultLines);
+                        ?? (callResultLines is null ? null : NotifiedAgent(root, lineIndex, toolUsePositions, callResultLines));
             }
         } catch (JsonException) {
         }
@@ -411,28 +374,25 @@ static class SessionImporter {
     /// finish leaves in the parent; the notice's call id also counts for an agent linked through its call.
     /// </summary>
     static string? NotifiedAgent(
-            JsonElement root, int lineIndex, Dictionary<string, int> toolUsePositions, Dictionary<string, List<int>> callResultLines) {
+            JsonElement root, int lineIndex, Dictionary<string, int> toolUsePositions, Dictionary<string, int> callResultLines) {
         if (root.Obj("message")?.Str("content") is not { } text || !TaskNotificationParser.TryParse(text, out var notice)) return null;
 
-        if (notice.ToolUseId is { } callId && toolUsePositions.ContainsKey(callId)) {
-            if (!callResultLines.TryGetValue(callId, out var lines)) callResultLines[callId] = lines = [];
-            lines.Add(lineIndex);
-        }
+        if (notice.ToolUseId is { } callId && toolUsePositions.ContainsKey(callId))
+            callResultLines.TryAdd(callId, lineIndex);
 
         return notice.TaskId;
     }
 
     /// <summary>The lines holding a <c>tool_result</c> for an Agent/Task call, keyed by the call id.</summary>
     static void RecordAgentCallResults(
-            JsonElement root, int lineIndex, Dictionary<string, int> toolUsePositions, Dictionary<string, List<int>> callResultLines) {
+            JsonElement root, int lineIndex, Dictionary<string, int> toolUsePositions, Dictionary<string, int> callResultLines) {
         if (root.Obj("message")?.Arr("content") is not { } content) return;
 
         foreach (var block in content.EnumerateArray()) {
             if (block.Str("type") != "tool_result" || block.Str("tool_use_id") is not { } callId || !toolUsePositions.ContainsKey(callId))
                 continue;
 
-            if (!callResultLines.TryGetValue(callId, out var lines)) callResultLines[callId] = lines = [];
-            lines.Add(lineIndex);
+            callResultLines.TryAdd(callId, lineIndex);
         }
     }
 
@@ -608,6 +568,8 @@ static class SessionImporter {
             string                     sessionTranscriptPath,
             IProgress<ImportProgress>? progress,
             TimeProvider               time,
+            IngestCapability?          canonical,
+            bool                       stopAtLoss,
             bool                       strict
         ) {
         var resolvedAgentType = agentType ?? "task";
@@ -631,7 +593,8 @@ static class SessionImporter {
 
         progress?.Report(new SubagentStarted(agentId));
         var agentLines = await SendTranscriptBatches(
-            httpClient, baseUrl, sessionId, agentPath, agentId, startLine: 0, time: time, progress: progress, failOnError: strict);
+            httpClient, baseUrl, sessionId, agentPath, agentId, startLine: 0, time: time,
+            progress: progress, failOnError: strict, canonical: canonical, stopAtLoss: stopAtLoss);
         progress?.Report(new SubagentFinished(agentId, agentLines));
 
         var agentStopHook = new JsonObject {
@@ -674,6 +637,10 @@ static class SessionImporter {
     /// marker check over an already-resolved identity, not a correlator run per batch.
     /// </param>
     /// <param name="completeLines">Receives <see cref="CompleteLines"/> for the read.</param>
+    /// <param name="canonical">Asked whether the server takes canonical batches; null sends raw lines.</param>
+    /// <param name="stopAtLoss">A batch the server does not take ends delivery with
+    /// <see cref="TranscriptDeliveryAbortedException"/>, while normalization stays lenient: a later batch would move the
+    /// server's watermark past the lost lines, and the next import resumes from the watermark.</param>
     internal static async Task<int> SendTranscriptBatches(
             HttpClient                 httpClient,
             string                     baseUrl,
@@ -689,12 +656,16 @@ static class SessionImporter {
             bool                       failOnError       = false,
             Func<bool>?                abortDelivery     = null,
             StrongBox<int>?            completeLines     = null,
-            TranscriptImportFingerprint? fingerprint    = null
+            TranscriptImportFingerprint? fingerprint    = null,
+            IngestCapability?          canonical         = null,
+            bool                       stopAtLoss        = false
         ) {
         if (!File.Exists(filePath)) return 0;
 
         var totalSent = 0;
         var batch     = new TranscriptBatchBuffer();
+        var route     = await TranscriptPost.RouteAsync(
+            canonical, vendor.VendorId, sessionId, agentId, filePath, startLine, Timeout.InfiniteTimeSpan, ImportCapture, time, CancellationToken.None);
 
         await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var       reader = new StreamReader(stream);
@@ -735,7 +706,7 @@ static class SessionImporter {
         async Task FlushAsync() {
             if (abortDelivery?.Invoke() == true) throw new TranscriptDeliveryAbortedException();
 
-            totalSent += await FlushBatchAsync(httpClient, baseUrl, sessionId, agentId, batch, vendor, failOnError, progress, time);
+            totalSent += await FlushBatchAsync(httpClient, baseUrl, sessionId, agentId, batch, vendor, route, failOnError, stopAtLoss, progress, time);
 
             if (abortDelivery?.Invoke() == true) throw new TranscriptDeliveryAbortedException();
         }
@@ -761,7 +732,9 @@ static class SessionImporter {
             string?                    agentId,
             TranscriptBatchBuffer      batch,
             HarnessId                  vendor,
+            CanonicalRoute?            route,
             bool                       failOnError,
+            bool                       stopAtLoss,
             IProgress<ImportProgress>? progress,
             TimeProvider               time
         ) {
@@ -777,15 +750,13 @@ static class SessionImporter {
             Strict = failOnError
         };
 
-        var       json    = JsonSerializer.Serialize(payload, CapacitorJsonContext.Default.TranscriptBatch);
-        using var content = new StringContent(json, Encoding.UTF8, "application/json");
-        var       first   = batch.FirstLineNumber;
-        var       last    = batch.LastLineNumber;
-        string?   loss;
-        Exception? cause  = null;
+        var        first = batch.FirstLineNumber;
+        var        last  = batch.LastLineNumber;
+        string?    loss;
+        Exception? cause = null;
 
         try {
-            using var resp = await httpClient.PostWithRetryAsync($"{baseUrl}/hooks/transcript", content, time);
+            using var resp = await TranscriptPost.SendAsync(httpClient, baseUrl, payload, route, time, mayAttempt: null, CancellationToken.None);
 
             // A blocked Cursor batch leaves the server's watermark at the gap; any later batch would
             // move it past the blocked lines, and the next import resumes from the watermark.
@@ -804,9 +775,13 @@ static class SessionImporter {
         }
 
         if (loss is not null) {
+            // Not stored, so the route's projection has run past what the server holds.
+            route?.FallBack();
+
             if (failOnError) throw new HttpRequestException($"transcript batch lines {first + 1}-{last + 1} failed: {loss}", cause);
 
             progress?.Report(new BatchDropped(sessionId, agentId, first, last, loss));
+            if (stopAtLoss) throw new TranscriptDeliveryAbortedException();
         }
 
         var flushed = batch.Count;

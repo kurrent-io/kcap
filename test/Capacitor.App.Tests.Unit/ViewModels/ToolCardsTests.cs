@@ -46,6 +46,19 @@ public class ToolCardsTests {
         await Assert.That(ToolCards.Audience(null)).IsEqualTo("Private");
     }
 
+    const string Owner = """{"audience":{"key":"user:u1","name":"Olive Owner","kind":"user"},"relation":{"relation":"owner","label":"Owner"}}""";
+    const string Member = """{"audience":{"key":"user:u2","name":"Max Member","kind":"user"},"relation":{"relation":"viewer","label":"Viewer"}}""";
+
+    static string Shared(params string[] grants) =>
+        PublishResult.Replace("\"visibility\":\"org\"", $"\"visibility\":\"see shared_with\",\"shared_with\":[{string.Join(",", grants)}]");
+
+    /// A sharing server's `visibility` is a placeholder; read as a tier, it would call every page private.
+    [Test]
+    public async Task A_page_from_a_sharing_server_names_every_grant_with_its_relation() {
+        await Assert.That(ToolCards.Build(ToolCardKind.Page, "{}", Shared(Owner))!.Meta).IsEqualTo("v1 · Olive Owner (Owner)");
+        await Assert.That(ToolCards.Build(ToolCardKind.Page, "{}", Shared(Owner, Member))!.Meta).IsEqualTo("v1 · Olive Owner (Owner), Max Member (Viewer)");
+    }
+
     /// The server's JSON is passed through verbatim and capped at 4096 characters; a cut body, an
     /// error line or no body at all leaves the call a row.
     [Test]

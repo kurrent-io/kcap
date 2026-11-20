@@ -7,19 +7,19 @@ namespace Capacitor.Cli.Recording.Capture;
 /// </summary>
 /// <param name="patterns">Replaces both tries' patterns, for a test that must not trip a real regex deadline.</param>
 public sealed class InlineDrainRedaction(TimeProvider time, SecretPatterns? patterns = null) {
-    // With the record budget this holds a line for about 1.4 s at most, inside the shortest cap a
-    // hook puts around a drain, about 2 s.
-    static readonly Lazy<SecretPatterns> RetryPatterns =
-        new(() => SecretRedactor.WatcherPatterns.WithMatchTimeout(TimeSpan.FromMilliseconds(400)));
-
     public bool CanRetry { get; private set; } = true;
 
     public CapturedLines Encode(string rawLine, Action<RedactionLossReason, int> reportLoss) =>
         TranscriptCapture.EncodeUntilHeld([rawLine], static () => false, time, reportLoss, patterns);
 
+    /// <summary>The first try's redaction of a line on its own, which a replay before the drain decides a large line
+    /// with.</summary>
+    public RedactionOutcome Redact(string rawLine) =>
+        SecretRedactor.RedactLineWithOutcome(rawLine, new RedactionBudget(time), patterns ?? SecretRedactor.WatcherPatterns);
+
     public CapturedLines Retry(string rawLine, Action<RedactionLossReason, int> reportLoss) {
         CanRetry = false;
 
-        return TranscriptCapture.EncodeUntilHeld([rawLine], static () => false, time, reportLoss, patterns ?? RetryPatterns.Value);
+        return TranscriptCapture.EncodeUntilHeld([rawLine], static () => false, time, reportLoss, patterns ?? SecretRedactor.InlineRetryPatterns);
     }
 }

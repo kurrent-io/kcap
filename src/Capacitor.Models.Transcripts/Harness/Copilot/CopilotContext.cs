@@ -15,8 +15,18 @@ public sealed class CopilotContext : TranscriptContext {
     /// case every line is held back until the transcript's own <c>session.start</c> arrives, since nothing else tells a
     /// fork's copied lines from its own. The parent's spend is not recoverable, so a rebuilt fork reports no billing
     /// totals. A context never seeded holds nothing back.
-    public void Seed(bool isFork, DateTimeOffset? transcriptStart) {
+    /// <paramref name="movedFromLocal"/>: the transcript is a chat moved from Local. <paramref name="moveMarked"/>: it
+    /// stored the <see cref="CopilotTranscriptEvents.MoveMarkerKey"/> link, which says the copied history is over, with
+    /// the line of the resume that ended it when known. Without the link, the lines up to the next resume or marker are
+    /// held back as the history's.
+    public void Seed(bool isFork, DateTimeOffset? transcriptStart, bool movedFromLocal = false, bool moveMarked = false, int? movedHistoryEndsAtLine = null) {
         if (isFork) IsFork = true;
+
+        if (movedFromLocal) {
+            MovedFromLocal           = true;
+            InMovedHistory           = !moveMarked;
+            MovedHistoryEndsAtLine ??= moveMarked ? movedHistoryEndsAtLine : null;
+        }
 
         if (transcriptStart is null) StartUnknown = true;
         else CopiedLinesBefore ??= transcriptStart;
@@ -36,6 +46,14 @@ public sealed class CopilotContext : TranscriptContext {
     internal DateTimeOffset? CopiedLinesBefore { get; set; }
 
     internal bool StartUnknown { get; set; }
+
+    internal bool MovedFromLocal { get; set; }
+
+    /// Inside the Local chat's history that a moved chat repeats, from its start to its first resume.
+    internal bool InMovedHistory { get; set; }
+
+    /// The line of the resume that ended a moved chat's history, so a line before it sent again is known for a copy.
+    internal int? MovedHistoryEndsAtLine { get; set; }
 
     /// A fork's cumulative totals include its parent's.
     internal bool IsFork { get; set; }

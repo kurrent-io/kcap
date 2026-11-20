@@ -11,9 +11,9 @@ public class VendorHomeVariableTests {
     [Arguments(HarnessId.Claude, ".claude", "CLAUDE_CONFIG_DIR")]
     [Arguments(HarnessId.Codex, ".codex", "CODEX_HOME")]
     public async Task Built_in_directory_plans_a_removal(HarnessId vendor, string builtIn, string variable) {
-        await Assert.That(VendorHomeVariable.Plan(vendor, Home.PathTo(builtIn), Home)).IsEqualTo((variable, (string?)null));
+        await Assert.That(VendorHomeVariable.Plan(vendor, Home.PathTo(builtIn), Home)).IsEqualTo((variable, null));
         await Assert.That(VendorHomeVariable.Plan(vendor, Home.PathTo(builtIn) + Path.DirectorySeparatorChar, Home))
-            .IsEqualTo((variable, (string?)null));
+            .IsEqualTo((variable, null));
     }
 
     [Test]

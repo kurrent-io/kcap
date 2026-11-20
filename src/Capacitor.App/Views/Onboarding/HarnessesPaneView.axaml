@@ -41,7 +41,7 @@
                     <StackPanel Orientation="Horizontal" Spacing="14">
                         <Border Width="40" Height="40" CornerRadius="20" Background="{StaticResource OnboardingAccentWashBrush}">
                             <Panel Classes="onboardingSpinner">
-                                <icons:AppIcon Kind="LoaderCircle" Size="20" Classes.kcapSpinning="{Binding IsDetecting}"
+                                <icons:AppIcon Kind="LoaderCircle" Size="20" icons:BusyIndicator.IsBusy="{Binding IsDetecting}"
                                                Foreground="{StaticResource OnboardingAccentBrush}" />
                             </Panel>
                         </Border>

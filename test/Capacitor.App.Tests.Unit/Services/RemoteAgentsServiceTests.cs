@@ -1,4 +1,3 @@
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
 using Microsoft.Extensions.Time.Testing;
@@ -94,6 +93,72 @@ public class RemoteAgentsServiceTests {
         await Eventually(() => seen is { Count: 0 });
     }
 
+    /// A connection whose subject could not be read lists under an unknown account, so the first
+    /// connection that names one clears it even when that connection's own fetch fails.
+    [Test]
+    public async Task AFirstNamedSubjectClearsWhatAnUnreadSubjectListed() {
+        var returnNull = false;
+        var lane = new FakeServerLane {
+            DaemonsHandler = () => Task.FromResult<IReadOnlyList<DaemonInfo>?>(
+                returnNull ? null : [new DaemonInfo { Name = "work-mac", Connected = true }]),
+        };
+        using var svc = new RemoteAgentsService(
+            lane, _ => Task.FromResult(new RemoteFetch(returnNull ? null : [Agent("a1")])), TimeSpan.Zero);
+
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected));
+        await Eventually(() => svc.Agents.Count == 1);
+        IReadOnlyList<DaemonInfo>? seen = null;
+        using var sub = svc.Daemons.Subscribe(d => seen = d);
+        await Eventually(() => seen is { Count: 1 });
+
+        returnNull = true;
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u2"));
+
+        await Eventually(() => svc.Agents.Count == 0);
+        await Eventually(() => seen is { Count: 0 });
+    }
+
+    /// The connection that names an account after an unread one clears the rows, so it must fetch them
+    /// again itself: Connected to Connected is no edge, and no push may ever come.
+    [Test]
+    public async Task ANamedSubjectAfterAnUnreadOneRefetchesTheRowsItCleared() {
+        var calls = 0;
+        var lane = new FakeServerLane();
+        using var svc = new RemoteAgentsService(
+            lane, _ => Task.FromResult(new RemoteFetch([Agent(Interlocked.Increment(ref calls) == 1 ? "a1" : "a2")])), TimeSpan.Zero);
+
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected));
+        await Eventually(() => svc.Agents.Lookup("a1").HasValue);
+
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u1"));
+
+        await Eventually(() => svc.Agents.Lookup("a2").HasValue);
+        await Assert.That(svc.Agents.Lookup("a1").HasValue).IsFalse();
+    }
+
+    /// An unread connection between two under the same name is no evidence it was that account, so
+    /// what it listed is cleared even when the named reconnect's own fetch fails.
+    [Test]
+    public async Task AnUnreadConnectionBetweenTwoUnderTheSameNameIsCleared() {
+        var listing = (IReadOnlyList<DaemonInfo>?)[new DaemonInfo { Name = "u1-mac", Connected = true }];
+        var lane = new FakeServerLane { DaemonsHandler = () => Task.FromResult(listing) };
+        using var svc = new RemoteAgentsService(lane, _ => Task.FromResult(new RemoteFetch([])), TimeSpan.Zero);
+        IReadOnlyList<DaemonInfo>? seen = null;
+        using var sub = svc.Daemons.Subscribe(d => seen = d);
+
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u1"));
+        await Eventually(() => seen is [{ Name: "u1-mac" }]);
+
+        listing = [new DaemonInfo { Name = "u2-mac", Connected = true }];
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected));
+        await Eventually(() => seen is [{ Name: "u2-mac" }]);
+
+        listing = null;
+        lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u1"));
+
+        await Eventually(() => seen is { Count: 0 });
+    }
+
     // A fetch started under u1 that is still gated when u2's identity-change clear lands must
     // never repopulate the cache the clear just emptied.
     [Test]
@@ -112,8 +177,7 @@ public class RemoteAgentsServiceTests {
 
         lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u2")); // clear + generation bump
 
-        // The next fetch can start only after the stale result has been processed.
-        lane.AgentsChangedSubject.OnNext(System.Reactive.Unit.Default);
+        // The connect queues the only rerun: another trigger could add a fetch the counts depend on.
         gate.SetResult(new RemoteFetch([Agent("a1")])); // u1's stale rows land after the identity change
 
         await Eventually(() => Volatile.Read(ref callCount) == 2);
@@ -212,8 +276,7 @@ public class RemoteAgentsServiceTests {
 
         lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u2")); // generation bump
 
-        // The next fetch can start only after the stale result has been processed.
-        lane.AgentsChangedSubject.OnNext(System.Reactive.Unit.Default);
+        // The connect queues the only rerun: another trigger could add a fetch the counts depend on.
         gate.SetResult(new RemoteFetch(null, Unauthorized: true)); // u1's stale Unauthorized lands late
 
         await Eventually(() => Volatile.Read(ref callCount) == 2);
@@ -242,8 +305,7 @@ public class RemoteAgentsServiceTests {
 
         lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u1")); // same-subject reconnect
 
-        // The next fetch can start only after the stale result has been processed.
-        lane.AgentsChangedSubject.OnNext(System.Reactive.Unit.Default);
+        // The connect queues the only rerun: another trigger could add a fetch the counts depend on.
         gate.SetResult(new RemoteFetch(null, Unauthorized: true)); // pre-reconnect fetch's stale Unauthorized
 
         await Eventually(() => Volatile.Read(ref callCount) == 2);
@@ -388,7 +450,7 @@ public class RemoteAgentsServiceTests {
         var calls = 0;
         IReadOnlyList<DaemonInfo> rows = [new DaemonInfo { Name = "work-mac", Connected = true }];
         var lane = new FakeServerLane {
-            DaemonsHandler = () => Task.FromResult<IReadOnlyList<DaemonInfo>?>(Interlocked.Increment(ref calls) == 1 ? null : rows),
+            DaemonsHandler = () => Task.FromResult(Interlocked.Increment(ref calls) == 1 ? null : rows),
         };
         using var svc = new RemoteAgentsService(lane, NoAgents, TimeSpan.Zero, time: time);
         var listings = new List<DaemonListing>();
@@ -600,7 +662,7 @@ public class RemoteAgentsServiceTests {
         lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 1));
         await Eventually(() => seen.Contains(true));
         lane.AgentsChangedSubject.OnNext(System.Reactive.Unit.Default);
-        await Eventually(() => seen[^1] == false);
+        await Eventually(() => !seen[^1]);
     }
 
     /// A read that outlives its connection reports on a lane that is no longer there.
@@ -734,7 +796,7 @@ public class RemoteAgentsServiceTests {
         var secondAccounts = new TaskCompletionSource<IReadOnlyList<DaemonAccountsDto>?>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var rig = new GateRig("work-mac");
         rig.ListingOverride = () => listingGate.Task;
-        rig.AccountsOverride = () => Volatile.Read(ref rig.AccountCalls) == 1 ? Task.FromResult<IReadOnlyList<DaemonAccountsDto>?>(rig.Accounts) : secondAccounts.Task;
+        rig.AccountsOverride = () => Volatile.Read(ref rig.AccountCalls) == 1 ? Task.FromResult(rig.Accounts) : secondAccounts.Task;
 
         rig.Connect();
         await Assert.That(rig.Retained()).IsEquivalentTo(["work-mac"]);
@@ -1096,6 +1158,7 @@ public class RemoteAgentsServiceTests {
         await Eventually(() => svc.Agents.Count == 1);
         await svc.RenameAsync("a1", "s1", "New", CancellationToken.None);
 
+        rows.Set();
         lane.StatusSubject.OnNext(new(ServerLaneState.Connected, Subject: "u2"));
         await Assert.That(svc.Agents.Count).IsEqualTo(0);
         await Serve(lane, svc, rows, "z", Titled("a1", "s1", null));

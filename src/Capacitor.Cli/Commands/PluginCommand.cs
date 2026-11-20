@@ -2041,7 +2041,7 @@ public sealed class PluginCommand(PluginEnvironment env, WorkingDirectory workdi
             return JsonNode.Parse(File.ReadAllText(hooksPath))?["hooks"] is JsonObject hooks
                 && CopilotHooksParser.CopilotHookEvents.All(evt => hooks[evt] is JsonArray { Count: > 0 } entries
                     && entries[0]?["command"]?.GetValue<string>() == CopilotHooksParser.HookCommandLine(evt, binary, OperatingSystem.IsWindows()));
-        } catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException) {
+        } catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException) {
             return false;
         }
     }

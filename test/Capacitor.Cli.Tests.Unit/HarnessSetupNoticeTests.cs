@@ -6,6 +6,7 @@ public class HarnessSetupNoticeTests {
     [Arguments("watch")]
     [Arguments("daemon")]
     [Arguments("muse-assistant")]
+    [Arguments("ide")]
     public async Task Machine_facing_commands_never_get_the_setup_notice(string command) {
         await Assert.That(HarnessSetupNotice.ShouldNotify(command)).IsFalse();
     }

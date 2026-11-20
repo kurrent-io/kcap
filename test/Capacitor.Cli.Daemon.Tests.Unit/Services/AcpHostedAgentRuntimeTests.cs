@@ -892,7 +892,7 @@ public class AcpHostedAgentRuntimeTests {
     [Test]
     public async Task Sanitize_collapses_multiline_input_and_keeps_the_code_prefix() {
         const string prefix = "unattended_interaction_forbidden:tools/call";
-        var input = $"{prefix}\nsecond line\r\nthird line";
+        const string input = $"{prefix}\nsecond line\r\nthird line";
 
         var result = AcpHostedAgentRuntime.SanitizeForForward(input);
 

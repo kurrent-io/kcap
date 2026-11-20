@@ -33,8 +33,8 @@ public class MusePathsTests {
 
     [Test]
     public async Task Resolve_prefers_today_then_adjacent_days_then_glob_then_null() {
-        var p   = new MusePaths(new UserHome(Tmp.Path), null, null);
-        var sid = "01a13694-b0ad-7ae2-8bf5-2af6357a0847";
+        var p            = new MusePaths(new UserHome(Tmp.Path), null, null);
+        const string sid = "01a13694-b0ad-7ae2-8bf5-2af6357a0847";
         var today = new DateOnly(2026, 10, 13);
 
         await Assert.That(p.ResolveSessionLog(sid, today)).IsNull();

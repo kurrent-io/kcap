@@ -5,6 +5,7 @@ using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Setup;
+using Capacitor.App.ViewModels.Onboarding;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
@@ -17,6 +18,8 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
     readonly Func<CancellationToken, Task<IReadOnlyDictionary<HarnessId, DetectedAgent>>> _detect;
     readonly Func<CancellationToken, Task<string?>>? _ensureTerminalCommand;
     readonly IAppStateStore? _toolsMemory;
+    readonly Action<HistoryImportRun>? _showImport;
+    readonly Action<Action> _post;
     readonly CancellationTokenSource _lifetime;
     IReadOnlyList<HarnessSettingsRow> _rows = [];
     bool _busy;
@@ -27,7 +30,8 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
             Func<CancellationToken, Task<IReadOnlyDictionary<HarnessId, DetectedAgent>>> detect,
             CancellationToken appLifetime = default, Func<HarnessId, bool>? isWired = null,
             Func<CancellationToken, Task<string?>>? ensureTerminalCommand = null, IAppStateStore? toolsMemory = null,
-            Func<HarnessId, bool, bool>? isUntrusted = null) {
+            Func<HarnessId, bool, bool>? isUntrusted = null, Action<HistoryImportRun>? showImport = null,
+            Action<Action>? post = null) {
         _store = store;
         _cli = cli;
         _isWired = isWired;
@@ -35,12 +39,16 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         _detect = detect;
         _ensureTerminalCommand = ensureTerminalCommand;
         _toolsMemory = toolsMemory;
+        _showImport = showImport;
+        _post = post ?? (action => action());
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(appLifetime);
         var idle = this.WhenAnyValue(x => x.Busy, x => x.Scanning, (busy, scanning) => !busy && !scanning);
         RescanCommand = ReactiveCommand.CreateFromTask(RescanAsync, idle);
         ConnectCommand = ReactiveCommand.CreateFromTask<HarnessSettingsRow>(ConnectAsync, idle);
         ToggleConnectionCommand = ReactiveCommand.CreateFromTask<HarnessSettingsRow>(ToggleConnectionAsync, idle);
         ToggleToolsCommand = ReactiveCommand.CreateFromTask<HarnessSettingsRow>(ToggleToolsAsync, idle);
+        ImportEarlierCommand = ReactiveCommand.Create<HarnessSettingsRow>(ImportEarlier);
+        DeclineImportCommand = ReactiveCommand.Create<HarnessSettingsRow>(row => row.OfferImport(null));
     }
 
     public IReadOnlyList<HarnessSettingsRow> Rows {
@@ -63,6 +71,11 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<HarnessSettingsRow, Unit> ConnectCommand { get; }
     public ReactiveCommand<HarnessSettingsRow, Unit> ToggleConnectionCommand { get; }
     public ReactiveCommand<HarnessSettingsRow, Unit> ToggleToolsCommand { get; }
+    public ReactiveCommand<HarnessSettingsRow, Unit> ImportEarlierCommand { get; }
+    public ReactiveCommand<HarnessSettingsRow, Unit> DeclineImportCommand { get; }
+
+    /// The look for chats written before the last turn-on, which runs after the change has settled.
+    internal Task ImportOfferLookup { get; private set; } = Task.CompletedTask;
 
     public async Task RescanAsync() {
         if (Busy || Scanning) return;
@@ -118,6 +131,9 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
             : record && !row.IsConfigured ? $"Could not connect {row.Label}"
             : $"Could not update {row.Label}";
         var mutationStarted = false;
+        var turnedOn = record && !row.IsConfigured;
+        var lookup = row.StartImportLookup();
+        row.OfferImport(null);
         try {
             await Task.Run(_store.LoadProfile, _lifetime.Token);
             // Hooks call the bare kcap command, so recording first puts kcap on the terminal PATH, as setup does.
@@ -165,8 +181,9 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
             else {
                 row.Report(off
                     ? $"Disconnected. Restart {row.Label} to unload kcap. Existing sessions are kept."
-                    : $"Setup completed. Restart {row.Label} to load the changes.");
+                    : Completed(row, record, tools));
                 await RememberSetupAsync(row, unverified: false, tools: tools);
+                if (turnedOn && _showImport is not null) ImportOfferLookup = OfferImportAsync(row, lookup);
             }
             // The command line keeps restart reminders on stdout, so anything on stderr is a part that did not land.
             if (result is { ExitCode: 0, TimedOut: false } && !string.IsNullOrWhiteSpace(result.Stderr))
@@ -187,6 +204,43 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
             row.SetWired(row.Wired);
             Busy = false;
         }
+    }
+
+    /// VS Code runs new hooks at once; its kcap tools, and a Copilot CLI session in a terminal, load at startup.
+    internal static string Completed(HarnessSettingsRow row, bool record, bool tools) => row.Id != HarnessId.Copilot
+        ? $"Setup completed. Restart {row.Label} to load the changes."
+        : (record, tools) switch {
+            (true, true)  => "Setup completed. Chats in VS Code are stored now. Quit and reopen VS Code to give Copilot kcap's tools, "
+                             + "and restart any Copilot CLI session running in a terminal.",
+            (true, false) => "Setup completed. Chats in VS Code are stored now. Restart any Copilot CLI session running in a terminal.",
+            _             => "Setup completed. Quit and reopen VS Code to give Copilot kcap's tools, "
+                             + "and restart any Copilot CLI session running in a terminal.",
+        };
+
+    /// Discovery reads this machine's history without asking the server, so the count includes any chat already stored,
+    /// which the import then skips.
+    async Task OfferImportAsync(HarnessSettingsRow row, int lookup) {
+        ImportDiscoveryReport? report;
+        try {
+            report = await _cli.ImportDiscoverAsync([row.Id.Flag], _lifetime.Token);
+        } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
+            return;
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: could not look for {row.Label}'s earlier chats: {ex.Message}");
+            return;
+        }
+        if (report is null || !Rows.Contains(row) || !row.IsConfigured || !row.IsCurrentImportLookup(lookup)) return;
+        row.OfferImport(report.Repos.Sum(r => r.Sessions) + report.UnmatchedSessions);
+    }
+
+    /// Everything the tool wrote, private to its owner and without generated titles: nothing in Settings asked who
+    /// should read it or whether to send excerpts to a model provider.
+    void ImportEarlier(HarnessSettingsRow row) {
+        if (_showImport is null || row.EarlierChats is not { } expected) return;
+        row.OfferImport(null);
+        var run = new HistoryImportRun(expected, 0, "from your whole history", 1, _post);
+        _showImport(run);
+        run.Start(_cli, [new ImportRequest(ImportScopeChoice.Everything, null, [row.Id.Flag], Private: true, SkipTitle: true)]);
     }
 
     /// Asked only of a wired tool: there is nothing to trust before kcap's hooks are in. A change made here rewrote
@@ -215,6 +269,8 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         ConnectCommand.Dispose();
         ToggleConnectionCommand.Dispose();
         ToggleToolsCommand.Dispose();
+        ImportEarlierCommand.Dispose();
+        DeclineImportCommand.Dispose();
         _lifetime.Dispose();
     }
 }

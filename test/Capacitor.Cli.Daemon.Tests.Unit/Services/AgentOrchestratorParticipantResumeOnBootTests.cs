@@ -115,7 +115,7 @@ public class AgentOrchestratorParticipantResumeOnBootTests {
             "not_planned"       => (Eligible(e => e with { State = ResumeState.Running }), "instance-old", true),
             "stale"             => (Eligible(e => e with { ResumingAt = Now.AddMinutes(-16) }), "instance-old", true),
             "not_predecessor"   => (Eligible(), "instance-between", true),
-            "no_prior_instance" => (Eligible(), (string?) null, true),
+            "no_prior_instance" => (Eligible(), null, true),
             "worktree_missing"  => (Eligible(e => e with { Launch = e.Launch with { WorktreePath = "/no/such/worktree" } }), "instance-old", true),
             _                   => (Eligible(e => e with { VendorSession = null }), "instance-old", true)
         };

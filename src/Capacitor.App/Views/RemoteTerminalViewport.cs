@@ -8,6 +8,10 @@ namespace Capacitor.App.Views;
 public sealed class RemoteTerminalViewport : ScrollViewer {
     protected override Type StyleKeyOverride => typeof(ScrollViewer);
 
+    public static readonly StyledProperty<bool> IsLiveProperty =
+        AvaloniaProperty.Register<RemoteTerminalViewport, bool>(nameof(IsLive), true);
+    public bool IsLive { get => GetValue(IsLiveProperty); set => SetValue(IsLiveProperty, value); }
+
     bool _followTail = true;
     WheelStepAccumulator _wheel;
 
@@ -18,7 +22,7 @@ public sealed class RemoteTerminalViewport : ScrollViewer {
         AddHandler(KeyDownEvent, (_, e) => {
             var remoteKey = e.Key is Key.Up or Key.Down or Key.Enter or Key.Tab or Key.Escape
                 || (e.Key == Key.C && e.KeyModifiers == KeyModifiers.Control);
-            if (remoteKey && Content is RemoteTerminalControl { IsKeyboardFocusWithin: true }) ShowTail();
+            if (IsLive && remoteKey && Content is RemoteTerminalControl { IsKeyboardFocusWithin: true }) ShowTail();
         }, RoutingStrategies.Tunnel);
         ScrollChanged += OnScrollChanged;
     }
@@ -42,7 +46,7 @@ public sealed class RemoteTerminalViewport : ScrollViewer {
         if (Content is not RemoteTerminalControl terminal || terminal.Model is not { } model) return;
         if (!double.IsFinite(e.Delta.Y) || !double.IsFinite(e.Delta.X)) { e.Handled = true; return; }
         // Mouse-tracking apps own scrolling in either buffer. Their intermediate redraws are not history.
-        if (model.IsMouseModeActive) {
+        if (IsLive && model.IsMouseModeActive) {
             _wheel = default;
             terminal.SendWheel(e.Delta.Y, e.GetPosition(terminal));
             e.Handled = true;

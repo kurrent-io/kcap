@@ -25,7 +25,8 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     public TranscriptSpool(string dir, TimeProvider time, long capBytes = DefaultCapBytes)
         : this(SpoolPartition.Standalone(dir), time, capBytes) { }
 
-    /// <summary>One spool line: a batch as the drain replays it.</summary>
+    /// <summary>One spool line: a batch as the drain replays it. It stays a raw batch, so any build can drain it; the
+    /// <paramref name="transcriptPath"/> is what a canonical drain projects the lines before the batch from.</summary>
     public static string BuildTranscriptSpoolBatch(
             string                sessionId,
             string?               agentId,
@@ -33,7 +34,8 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
             IReadOnlyList<string> lines,
             IReadOnlyList<int>    lineNumbers,
             ObservedCommit[]?     observedCommits,
-            bool                  moreFollows = false
+            bool                  moreFollows    = false,
+            string?               transcriptPath = null
         ) => JsonSerializer.Serialize(
             new TranscriptBatch {
                 SessionId       = sessionId,
@@ -43,6 +45,7 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
                 Vendor          = vendor,
                 ObservedCommits = observedCommits,
                 MoreFollows     = moreFollows,
+                TranscriptPath  = transcriptPath,
             },
             CapacitorJsonContext.Default.TranscriptBatch);
 
@@ -143,6 +146,53 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
         } catch {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Hands the session to <paramref name="report"/> when a marker is down, then removes the markers it covered. A
+    /// marker whose owner is still running is left out: that owner removes it once its drain finishes.
+    /// </summary>
+    public void ReportNeedsImport(string sessionId, Action<string> report) {
+        if (MarkerPathFor(sessionId) is not { } shared) return;
+
+        List<string> markers;
+
+        try {
+            markers = [
+                .. Directory.EnumerateFiles(DirectoryPath, $"{EncodeKey(sessionId)}.p*.needs-import")
+                    .Where(marker => OwnerOf(marker) is not { } owner || WatcherLiveness.IsGone(owner, "")),
+            ];
+        } catch {
+            markers = [];
+        }
+
+        if (File.Exists(shared)) markers.Add(shared);
+        if (markers.Count == 0) return;
+
+        report(sessionId);
+
+        foreach (var marker in markers) {
+            try {
+                File.Delete(marker);
+            } catch {
+                // Ignore: the next pass reports it again
+            }
+        }
+    }
+
+    // Read after the key's dot rather than against the key: a case-insensitive filesystem matches a legacy GUID key in
+    // another spelling.
+    static int? OwnerOf(string markerPath) {
+        const string suffix = ".needs-import";
+
+        var name   = Path.GetFileName(markerPath);
+        var dot    = name.IndexOf('.');
+        var length = name.Length - dot - 2 - suffix.Length;
+
+        return dot > 0 && length > 0 && name[dot + 1] == 'p' && name.EndsWith(suffix, StringComparison.Ordinal)
+            && int.TryParse(name.AsSpan(dot + 2, length), out var pid)
+                ? pid
+                : null;
     }
 
     // ---- filename key encoding -------------------------------------------------------------
@@ -295,8 +345,8 @@ public sealed partial class TranscriptSpool(SpoolPartition partition, TimeProvid
     }
 
     // Filename-safe superset of the old dashless-GUID form. The filename IS the session id --
-    // LifecycleSpoolDrain posts it verbatim as session_id for session-needs-import -- so the key may
-    // be widened but never transformed (hashing would fabricate an id on the wire). Excludes '.', '/'
+    // LifecycleSpoolDrain reads it back and names it in what it sends and reports -- so the key may
+    // be widened but never transformed (hashing would fabricate an id). Excludes '.', '/'
     // and '\\', preserving both the path-traversal property and the parse-before-first-dot split.
     // Vendors such as OpenCode use ids like "ses_7f3a9c21b8", which the old form silently dropped.
     /// <summary>The pre-upgrade key space: a dashless GUID, case-insensitively one id.</summary>

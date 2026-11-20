@@ -98,7 +98,7 @@ public class RetiringEnsureTests {
         var outcome = await DaemonServiceCommands.RetiringEnsureAsync(
             NewId, OldId, OldUnit(Installed, Installed), ladder.Run);
 
-        await Assert.That(ladder.Retires).IsEquivalentTo(new string?[] { OldId, null });
+        await Assert.That(ladder.Retires).IsEquivalentTo(new[] { OldId, null });
         await Assert.That(outcome.Result).IsEqualTo(InstalledResult);
         await Assert.That(outcome.LeftInstalled).IsEqualTo(OldId);
         await Assert.That(outcome.Retired).IsNull();

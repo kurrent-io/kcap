@@ -18,7 +18,7 @@ public class InlineDrainRedactionTests {
     [Test]
     public async Task A_line_a_stall_held_is_redacted_on_its_second_try() {
         var clock     = new StallingRedactionClock();
-        var redaction = new InlineDrainRedaction(clock, UnboundedRedaction.Patterns);
+        var redaction = new InlineDrainRedaction(clock, SecretRedactor.OutOfProcessPatterns);
         clock.StallOnReading(MidFirstTry, TimeSpan.FromSeconds(1.2));
 
         var held     = redaction.Encode(Line, ReportLoss);
@@ -33,7 +33,7 @@ public class InlineDrainRedactionTests {
 
     [Test]
     public async Task A_drain_retries_only_one_line() {
-        var redaction = new InlineDrainRedaction(new StallingRedactionClock(), UnboundedRedaction.Patterns);
+        var redaction = new InlineDrainRedaction(new StallingRedactionClock(), SecretRedactor.OutOfProcessPatterns);
 
         redaction.Retry(Line, ReportLoss);
 
@@ -43,7 +43,7 @@ public class InlineDrainRedactionTests {
     /// <summary>A marker sent under this line's number would make the server drop the line a later import sends.</summary>
     [Test]
     public async Task A_line_that_stays_slow_is_held_rather_than_marked() {
-        var redaction = new InlineDrainRedaction(new SwitchableRedactionClock(), UnboundedRedaction.Patterns);
+        var redaction = new InlineDrainRedaction(new SwitchableRedactionClock(), SecretRedactor.OutOfProcessPatterns);
 
         var first  = redaction.Encode(Line, ReportLoss);
         var second = redaction.Retry(Line, ReportLoss);

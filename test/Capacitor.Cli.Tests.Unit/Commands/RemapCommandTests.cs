@@ -137,7 +137,7 @@ public class RemapCommandTests {
         }
 
         await Assert.That(exit).IsEqualTo(1);
-        await Assert.That((await AppConfig.LoadProfileConfig(root)).CwdRemap!).Count().IsEqualTo(1);
+        await Assert.That((await AppConfig.LoadProfileConfig(root)).CwdRemap).Count().IsEqualTo(1);
     }
 
     [Test, NotInParallel]

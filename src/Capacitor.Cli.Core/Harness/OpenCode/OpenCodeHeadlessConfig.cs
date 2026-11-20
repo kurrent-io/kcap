@@ -57,7 +57,7 @@ sealed record OpenCodeHeadlessConfig(string ConfigContent, string Permission, st
 
         var content = new JsonObject();
 
-        if (model is not null) content["model"] = (JsonNode?)model;
+        if (model is not null) content["model"] = model;
         if (provider.Count > 0) content["provider"] = provider;
 
         return content;
@@ -108,9 +108,9 @@ sealed record OpenCodeHeadlessConfig(string ConfigContent, string Permission, st
         ManagedFiles.Select(name => Path.Combine(dir, name)).FirstOrDefault(File.Exists);
 
     static JsonObject PermissionDocument() {
-        var permission = new JsonObject { ["*"] = (JsonNode?)"deny" };
+        var permission = new JsonObject { ["*"] = "deny" };
 
-        foreach (var tool in OpenCodeForbiddenTools.Names) permission[tool] = (JsonNode?)"deny";
+        foreach (var tool in OpenCodeForbiddenTools.Names) permission[tool] = "deny";
 
         return permission;
     }

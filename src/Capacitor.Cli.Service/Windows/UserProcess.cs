@@ -93,7 +93,7 @@ static unsafe class UserProcess {
             var startup = new STARTUPINFOEX();
             startup.StartupInfo.cb = sizeof(STARTUPINFOEX);
             startup.StartupInfo.lpDesktop = desktop;
-            var flags = CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT;
+            const int flags = CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT;
 
             if (stdio != IntPtr.Zero) {
                 nint size = 0;

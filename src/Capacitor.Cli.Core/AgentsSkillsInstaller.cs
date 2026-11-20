@@ -41,6 +41,7 @@ public static class AgentsSkillsInstaller {
         "connect-kcap",
         "pages",
         "worktrees",
+        "progressive-disclosure",
     ];
 
     /// <summary>Skills this installer once shipped. Their <c>kcap-</c> folders are deleted on install and remove,

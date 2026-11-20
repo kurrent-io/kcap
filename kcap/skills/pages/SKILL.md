@@ -25,14 +25,35 @@ artifact" — which you honor as asked.
 - The page runs sandboxed with no network: inline every style, script and
   image as a data URI. An external URL renders as nothing, silently.
 - `title` is required; `description` is one line saying what the page is for.
-- A page is private to its owner. Set `visibility` (`org`, or `scoped` with
-  `grants`) when the user said who else should open it. When they asked for
-  something to share but named nobody, ask who should open it before you
-  publish. A request that mentions no one else stays private.
+- A page is private to its owner, and publishing never shares it. When they
+  asked for something to share but named nobody, ask who should open it. A
+  request that mentions no one else stays private.
 - A revision of a page you already published is `publish_page` with
   `update_id` — the URL does not change.
 - To ask the readers something, declare a `response_schema`; then
   `await_page_responses` and `get_page_results` read what they answered.
+
+## Sharing the page
+
+Share it after publishing with the `kcap-sharing` tools, one audience at a
+time, by the `object_key` the publish result carries:
+
+1. `search_sharing_candidates` with the person's or team's name. Each match
+   has a `key`, the `relations` it may take and a `default_relation`. When
+   several match the name the user gave, ask which one they mean, naming each
+   by its `kind` and `detail`; never pick one yourself. If they still cannot
+   be told apart, ask the user for something more specific to search by, such
+   as an email address, and set no grant until it is clear who is meant.
+2. `set_sharing_grant` with that `key` as `audience_key` and the
+   `default_relation`, unless the user asked for another. Call it again for
+   each audience.
+
+Name a relation to the user by its `label`; pass its `relation` id back.
+
+`list_sharing_grants` shows who it is shared with now, and
+`remove_sharing_grant` takes a grant away. A refusal carries the server's reason: pass it on. When a page
+record has no `object_key`, the server cannot share from kcap: tell the user to
+share it from the page in the web app.
 
 ## A page people answer
 
@@ -57,7 +78,7 @@ The result carries the page's `url`. Do both of these, in this order:
 
 1. **Put the link in your reply.** Every time, whatever else happens; it is
    what the user forwards. A private page opens only for them: say so when
-   you left it private.
+   you left it private, and say who you shared it with when you did.
 2. **Open it in your harness's browser tool, if it has one.** Claude Code's
    desktop app has a browser pane (`navigate` or `preview_start` with the
    URL); Cursor and Antigravity have browsers of their own. Use that tool with

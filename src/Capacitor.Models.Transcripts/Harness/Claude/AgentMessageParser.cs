@@ -70,9 +70,10 @@ public static partial class AgentMessageParser {
 
     static string Unindent(string report) {
         var lines = report.Split('\n');
-        for (var i = 0; i < lines.Length; i++)
+        for (var i = 0; i < lines.Length; i++) {
             if (lines[i].StartsWith(ReportIndent, StringComparison.Ordinal))
                 lines[i] = lines[i][ReportIndent.Length..];
+        }
 
         return string.Join('\n', lines);
     }

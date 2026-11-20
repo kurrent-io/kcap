@@ -85,14 +85,14 @@ public class ApprovalsYamlTests {
 
     [Test]
     public async Task Literal_block_stops_before_an_under_indented_comment() {
-        var text = "judge:\n  prompt: |\n    line one\n   # TODO\n    line two\n";
+        const string text = "judge:\n  prompt: |\n    line one\n   # TODO\n    line two\n";
         var ex = Assert.Throws<ApprovalsYamlException>(() => ApprovalsYaml.Parse(text));
         await Assert.That(ex.Line).IsEqualTo(4);
     }
 
     [Test]
     public async Task Literal_block_stops_before_an_under_indented_sibling() {
-        var text = "judge:\n  prompt: |\n    body text\n   mode: unmatched\n";
+        const string text = "judge:\n  prompt: |\n    body text\n   mode: unmatched\n";
         var ex = Assert.Throws<ApprovalsYamlException>(() => ApprovalsYaml.Parse(text));
         await Assert.That(ex.Line).IsGreaterThan(0);
     }

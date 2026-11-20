@@ -7,8 +7,8 @@ public class AdoptedLinkInventoryTests {
 
     [Test]
     public async Task Added_links_survive_a_reload_and_removal_drops_only_that_link() {
-        var first  = "/opt/npm/bin/kcap";
-        var second = "/home/me/.nvm/versions/node/v22/bin/kcap";
+        const string first  = "/opt/npm/bin/kcap";
+        const string second = "/home/me/.nvm/versions/node/v22/bin/kcap";
 
         var inventory = new AdoptedLinkInventory(Config.Root);
         inventory.Add(first);

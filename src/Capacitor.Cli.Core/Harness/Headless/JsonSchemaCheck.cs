@@ -206,9 +206,10 @@ internal static class JsonSchemaCheck {
     static bool PropertiesMatch(JsonElement root, JsonElement properties, JsonElement value, int depth) {
         if (properties.ValueKind is not JsonValueKind.Object) return false;
         if (value.ValueKind is not JsonValueKind.Object) return true;
-        foreach (var prop in properties.EnumerateObject())
+        foreach (var prop in properties.EnumerateObject()) {
             if (value.TryGetProperty(prop.Name, out var member) && !Validate(root, prop.Value, member, depth + 1))
                 return false;
+        }
         return true;
     }
 

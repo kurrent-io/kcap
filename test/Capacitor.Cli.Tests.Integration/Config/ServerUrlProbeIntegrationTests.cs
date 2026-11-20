@@ -59,7 +59,7 @@ public class ServerUrlProbeIntegrationTests : IDisposable {
     [Test]
     public async Task UnreachableHost_FallsBackToLoopbackDefault_Warns() {
         // 127.0.0.1:1 is reserved (tcpmux) and reliably unbound on dev machines.
-        var input = "127.0.0.1:1";
+        const string input = "127.0.0.1:1";
 
         var result = await ServerUrlNormalizer.NormalizeAsync(
             input,

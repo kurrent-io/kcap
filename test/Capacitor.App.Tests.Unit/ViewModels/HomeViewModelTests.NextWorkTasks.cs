@@ -68,7 +68,7 @@ public partial class HomeViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public async Task A_refused_machine_switch_leaves_the_task_waiting_for_its_checkout() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            using var vm = Build(out var launch, out _, Tmp.PathTo("state.json"));
+            using var vm = Build(out _, out _, Tmp.PathTo("state.json"));
             await vm.SelectRepositoryAsync(Tmp.CreateDir("unrelated"));
 
             await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", "studio", false, "/home/maya/payments", "Recorded context"));
@@ -251,12 +251,12 @@ public partial class HomeViewModelTests {
             await Assert.That(vm.CanRequestRepositoryAccess).IsTrue();
             await AvaloniaSession.DispatchAsync(() => {
                 var view = new Capacitor.App.Views.LauncherPaneView { DataContext = vm };
-                var window = new Avalonia.Controls.Window { Content = view, Width = 1000, Height = 720 };
+                var window = new Window { Content = view, Width = 1000, Height = 720 };
                 try {
                     window.Show();
                     Avalonia.Threading.Dispatcher.UIThread.RunJobs();
                     window.UpdateLayout();
-                    if (!view.FindControl<Avalonia.Controls.Button>("RequestRepositoryAccessButton")!.IsVisible)
+                    if (!view.FindControl<Button>("RequestRepositoryAccessButton")!.IsVisible)
                         throw new InvalidOperationException("Folder recovery action is hidden");
                     if (Environment.GetEnvironmentVariable("KCAP_ACCESS_SHOT") is { } shot) {
                         Avalonia.Headless.AvaloniaHeadlessPlatform.ForceRenderTimerTick();

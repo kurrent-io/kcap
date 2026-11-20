@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Recording;
 
 namespace Capacitor.Tests.Helpers;
@@ -118,6 +119,58 @@ public sealed class FakeRecorderTransport : ISilenceableRecorderTransport {
         lock (_gate) _batches.Add(batch);
 
         return Ack(batch);
+    }
+
+    readonly List<CanonicalTranscriptBatch> _canonicalBatches = [];
+
+    int _capabilityAsks;
+    int _canonicalRefusals;
+    int _canonicalFailures;
+
+    /// <summary>What <see cref="SupportsCanonicalAsync"/> answers while connected.</summary>
+    public bool SupportsCanonical { get; set; }
+
+    public int CapabilityAsks => Volatile.Read(ref _capabilityAsks);
+
+    /// <summary>The canonical batches the server took, in arrival order.</summary>
+    public IReadOnlyList<CanonicalTranscriptBatch> CanonicalBatches {
+        get {
+            lock (_gate) return [.._canonicalBatches];
+        }
+    }
+
+    /// <summary>How many of the next canonical batches the server refuses as unsupported.</summary>
+    public int CanonicalRefusals {
+        get => Volatile.Read(ref _canonicalRefusals);
+        set => Volatile.Write(ref _canonicalRefusals, value);
+    }
+
+    /// <summary>How many of the next canonical sends fail, after <see cref="OnSend"/>, as a send on a dropped connection does.</summary>
+    public int CanonicalFailures {
+        get => Volatile.Read(ref _canonicalFailures);
+        set => Volatile.Write(ref _canonicalFailures, value);
+    }
+
+    public Task<bool> SupportsCanonicalAsync(CancellationToken ct) {
+        Interlocked.Increment(ref _capabilityAsks);
+
+        return Task.FromResult(IsConnected && SupportsCanonical);
+    }
+
+    public async Task<CanonicalSendResult> SendCanonicalBatchAsync(CanonicalTranscriptBatch batch, CancellationToken ct) {
+        Require();
+        RefuseSilenced(batch.SessionId);
+        if (OnSend is { } send) await send(ct);
+
+        if (Interlocked.Decrement(ref _canonicalFailures) >= 0) throw new InvalidOperationException("The connection dropped under the batch.");
+        Interlocked.Exchange(ref _canonicalFailures, 0);
+
+        if (Interlocked.Decrement(ref _canonicalRefusals) >= 0) return new(0, Unsupported: true);
+        Interlocked.Exchange(ref _canonicalRefusals, 0);
+
+        lock (_gate) _canonicalBatches.Add(batch);
+
+        return new(batch.Lines is [.., var last] ? last.Number + 1 : 0, Unsupported: false);
     }
 
     public Task SendTitleAsync(string sessionId, string title, CancellationToken ct) {

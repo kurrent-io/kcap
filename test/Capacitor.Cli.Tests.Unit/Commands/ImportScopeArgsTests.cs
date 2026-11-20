@@ -13,6 +13,33 @@ public class ImportScopeArgsTests {
         await Assert.That(f.Private).IsFalse();
     }
 
+    static ImportScopeArgs.ResolveResult NonInteractive(params string[] args) =>
+        ImportScopeArgs.Resolve(new(ImportScopeArgs.ParseFlags(args), "default", IsInteractive: false, CurrentRepo: null));
+
+    /// <summary>The recovery command a hook prints for a cut-off transcript names one session and nothing else; pasted
+    /// into a script it must run as it stands, so the session is its scope and its confirmation.</summary>
+    [Test]
+    public async Task A_named_session_needs_no_scope_or_confirmation_to_run_non_interactively() {
+        var result = NonInteractive("import", "--session", "9dc2775376454e4691ecc2d69973c152");
+
+        await Assert.That(result.Error).IsNull();
+        await Assert.That(result.Scope).IsTypeOf<ImportScope.All>();
+        await Assert.That(result.Yes).IsTrue();
+    }
+
+    [Test]
+    public async Task A_named_session_confirms_an_explicit_scope_too() {
+        var result = NonInteractive("import", "--claude", "--all", "--session", "9dc2775376454e4691ecc2d69973c152");
+
+        await Assert.That(result.Error).IsNull();
+        await Assert.That(result.Yes).IsTrue();
+    }
+
+    [Test]
+    public async Task A_session_flag_with_no_value_still_needs_a_scope() {
+        await Assert.That(NonInteractive("import", "--session").Error).IsNotNull();
+    }
+
     [Test]
     public async Task ParseFlags_reads_repo_value() {
         var f = ImportScopeArgs.ParseFlags(["import", "--repo", "EventStore/kcap"]);

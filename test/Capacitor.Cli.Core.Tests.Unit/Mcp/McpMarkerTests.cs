@@ -69,7 +69,7 @@ public class McpMarkerTests {
         marker.Record(cfg, ["kcap-review"]);
         JsonNode arrEntry = new JsonArray { "x" };
         await Assert.That(marker.Owns(cfg, "kcap-review", arrEntry)).IsFalse();            // must not throw
-        JsonNode valEntry = JsonValue.Create("disabled")!;
+        JsonNode valEntry = JsonValue.Create("disabled");
         await Assert.That(marker.Owns(cfg, "kcap-review", valEntry)).IsFalse();
     }
 

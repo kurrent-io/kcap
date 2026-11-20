@@ -2,7 +2,6 @@ using System.Reactive.Concurrency;
 using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
 using System.Windows.Input;
-using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalEdition;
@@ -258,7 +257,7 @@ public class LocalServerRecoveryViewModelTests {
             BehaviorSubject<ServerLaneStatus> status, Func<LocalServerReading> read, Recorder recorder, bool canStart = true) =>
         new(status, isLocalServer: true, recorder.Start, recorder.Reconnect, CancellationToken.None,
             readCondition: _ => Task.FromResult(read()), canStart: canStart,
-            readScheduler: System.Reactive.Concurrency.ImmediateScheduler.Instance);
+            readScheduler: ImmediateScheduler.Instance);
 
     /// <summary>A port another program holds is no stopped server: the banner names the holder, offers no Start that
     /// could only fail, and Start invoked anyway runs nothing.</summary>

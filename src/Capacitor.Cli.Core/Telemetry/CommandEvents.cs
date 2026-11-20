@@ -16,7 +16,7 @@ public static partial class CommandEvents {
     // resurrect the directory it just deleted.
     static readonly HashSet<string> Denylisted = new(StringComparer.Ordinal) {
         "hook", "watch", "mcp", "permission-request", "generate-whats-done", "generate-title",
-        "set-title", "copilot-finalize", "cursor-verify-appendonly", "refresh-token", "muse-assistant",
+        "set-title", "copilot-finalize", "cursor-verify-appendonly", "refresh-token", "muse-assistant", "ide",
 
         // `Program.cs` already skips the post-command update check for `uninstall`, with a
         // comment explaining why: any write into the config directory after `Directory.Delete`
@@ -43,7 +43,7 @@ public static partial class CommandEvents {
         "curate", "cleanup", "uninstall", "disable", "hide", "import", "watch",
         "copilot-finalize", "set-title", "hook", "cursor", "cursor-verify-appendonly",
         "generate-whats-done", "generate-title", "permission-request", "feedback", "refresh-token",
-        "page", "artefact", "muse-assistant",
+        "page", "artefact", "sharing", "muse-assistant", "ide",
     };
 
     // Verbs whose args[1] is a known literal rather than user data. Verbs absent from this
@@ -58,6 +58,7 @@ public static partial class CommandEvents {
         ["agent"]   = new(StringComparer.Ordinal) { "start", "stop", "list", "status" },
         ["page"]      = new(StringComparer.Ordinal) { "publish", "list", "share", "delete" },
         ["artefact"]  = new(StringComparer.Ordinal) { "publish", "list", "share", "delete" },
+        ["sharing"]   = new(StringComparer.Ordinal) { "list", "candidates", "set", "remove" },
         ["local"]     = new(StringComparer.Ordinal) { "help", "status", "start", "stop", "restart", "logs", "open" },
     };
 
@@ -131,6 +132,6 @@ public static partial class CommandEvents {
             .ToArray();
     }
 
-    [GeneratedRegex(@"^--[a-z][a-z0-9-]{0,34}$")]
+    [GeneratedRegex("^--[a-z][a-z0-9-]{0,34}$")]
     private static partial Regex FlagShape();
 }

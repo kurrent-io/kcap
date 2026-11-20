@@ -125,7 +125,7 @@ public partial class ChatTabView : UserControl {
         RestoreFind();
         _pointerRoot = TopLevel.GetTopLevel(this);
         _pointerRoot?.AddHandler(PointerReleasedEvent, OnPrimaryReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
-        _pointerRoot?.AddHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost, RoutingStrategies.Direct | RoutingStrategies.Bubble, handledEventsToo: true);
+        _pointerRoot?.AddHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost, handledEventsToo: true);
         if (_pointerRoot is Window window) window.Deactivated += OnWindowDeactivated;
     }
 
@@ -376,6 +376,47 @@ public partial class ChatTabView : UserControl {
 
     // Click is raised before the command flips the group, so a keyboard toggle (no pointer press
     // ahead of it) can still take its anchor here.
+    // The path sits inside the row's toggle; a handled press keeps the toggle from expanding it.
+    void OnToolPathPressed(object? sender, PointerPressedEventArgs e) {
+        if (sender is not Control { DataContext: ToolCallItem { CanOpenFile: true } } control
+            || !e.GetCurrentPoint(control).Properties.IsLeftButtonPressed) return;
+        e.Handled = true;
+    }
+
+    void OnToolPathReleased(object? sender, PointerReleasedEventArgs e) {
+        if (sender is not Control { DataContext: ToolCallItem { CanOpenFile: true } item } control
+            || e.InitialPressMouseButton != MouseButton.Left) return;
+        e.Handled = true;
+        if (!control.Bounds.Contains(e.GetPosition(control.Parent as Visual ?? control))) {
+            DropToggleAnchor();
+            return;
+        }
+        item.RequestOpenFile();
+        HoldRowForWarning(control);
+    }
+
+    void OnToolOpenFileClick(object? sender, RoutedEventArgs e) {
+        if (sender is not Control { DataContext: ToolCallItem item } control) return;
+        item.RequestOpenFile();
+        HoldRowForWarning(control);
+    }
+
+    // The warning grows the row the way a toggle does, so the reading position is held the same way.
+    void HoldRowForWarning(Control source) {
+        _followTail = false;
+        CancelSmoothScroll();
+        if (_anchorItem is null) CaptureToggleAnchor(source);
+        ArmToggleRestore();
+    }
+
+    void OnToolOpenConfirmClick(object? sender, RoutedEventArgs e) {
+        if (sender is Control { DataContext: ToolCallItem item }) item.ConfirmOpenFile();
+    }
+
+    void OnToolOpenCancelClick(object? sender, RoutedEventArgs e) {
+        if (sender is Control { DataContext: ToolCallItem item }) item.CancelOpenFile();
+    }
+
     void OnToolSummaryClick(object? sender, RoutedEventArgs e) {
         _followTail = false;
         CancelSmoothScroll();
@@ -499,6 +540,11 @@ public partial class ChatTabView : UserControl {
     }
 
     void OnScrollChanged(object? sender, ScrollChangedEventArgs e) {
+        // Only the reader's own scrolling asks for older rows: the offset an insertion moves is still
+        // near the top until the panel shifts it. A transcript shorter than the view pages until it fills.
+        if (sender is ScrollViewer reading && reading.Offset.Y <= reading.Viewport.Height
+            && (_readerGesture || reading.Extent.Height <= reading.Viewport.Height)
+            && DataContext is ChatTabViewModel { Items.Count: > 0 } chat) chat.RequestOlder();
         if (_restoringAnchor || _anchorItem is not null) return;
         if (sender is not ScrollViewer scroll) return;
         // A dragged thumb owns its position even when discovering row heights changes the range.

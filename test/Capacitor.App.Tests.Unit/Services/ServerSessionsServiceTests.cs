@@ -1,6 +1,5 @@
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
-using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Remote.Models;
 using DynamicData;
@@ -452,7 +451,7 @@ public class ServerSessionsServiceTests {
         listing.Fail("ended", "me", 0);
         Connect(lane, "u1", 2);
         await Eventually(() => listing.Count("ended", "me", 0) == 2, "second read");
-        await Eventually(() => seen[^1] == false, "stale after a failed read");
+        await Eventually(() => !seen[^1], "stale after a failed read");
     }
 
     [Test]
@@ -902,7 +901,7 @@ public class ServerSessionsServiceTests {
     public async Task A_failed_owners_read_is_retried_on_the_cadence() {
         var attempts = 0;
         var (lane, listing, time, service) = Build(
-            owners: _ => Task.FromResult<SessionOwnerOptionDto[]?>(++attempts == 1 ? null : Owners("me")),
+            owners: _ => Task.FromResult(++attempts == 1 ? null : Owners("me")),
             reconcileEvery: TimeSpan.FromSeconds(60));
         using var _ = service;
         ScriptDefault(listing);

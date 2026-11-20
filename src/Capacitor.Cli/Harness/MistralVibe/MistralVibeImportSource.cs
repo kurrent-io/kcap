@@ -93,7 +93,7 @@ internal sealed class MistralVibeImportSource(MistralVibePaths paths, TimeProvid
             var meta = new SessionMetadata { SessionId = s.SessionId, Cwd = s.Cwd, FirstTimestamp = s.FirstTimestamp };
 
             IReadOnlyList<string> lines;
-            try { lines = MaterializeLines(s.SourceMeta!); }
+            try { lines = MaterializeLines(s.SourceMeta); }
             catch { results.Add(RoutedImportClassifier.Classification(s, meta, Vendor, ImportCommand.ClassificationStatus.ProbeError, 0, "transcript read failed")); continue; }
 
             var nonBlank = lines.Count(l => !string.IsNullOrWhiteSpace(l));

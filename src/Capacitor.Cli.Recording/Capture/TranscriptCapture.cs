@@ -65,7 +65,7 @@ public static class TranscriptCapture {
     internal static readonly TimeSpan RecordingBudget = TimeSpan.FromSeconds(60);
 
     static RedactionOutcome RedactRecorded(string rawLine, TimeProvider time) =>
-        SecretRedactor.RedactLineWithOutcome(rawLine, new RedactionBudget(time, RecordingBudget), SecretRedactor.OutOfProcessPatterns.Value);
+        SecretRedactor.RedactLineWithOutcome(rawLine, new RedactionBudget(time, RecordingBudget), SecretRedactor.OutOfProcessPatterns);
 
     internal static RedactionOutcome Mark(RedactionOutcome outcome) {
         if (outcome.Loss is not { } reason) return outcome;

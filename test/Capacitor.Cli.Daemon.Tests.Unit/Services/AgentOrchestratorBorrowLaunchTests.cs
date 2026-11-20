@@ -68,7 +68,7 @@ public class AgentOrchestratorBorrowLaunchTests {
         try {
             File.WriteAllText(Path.Combine(cwd, "README.md"), "dirty-one");
             File.WriteAllText(Path.Combine(cwd, "untracked.txt"), "untracked-one");
-            var firstContext = "{\"mcpServers\":{\"first\":{}}}";
+            const string firstContext = "{\"mcpServers\":{\"first\":{}}}";
             File.WriteAllText(Path.Combine(cwd, ".mcp.json"), firstContext);
             cwd.Do("add", ".mcp.json");
             var server = new CaptureServerConnection();
@@ -118,7 +118,7 @@ public class AgentOrchestratorBorrowLaunchTests {
             var retiredGenerationPath = ctx.Worktree.ReviewContextGeneration!.StoragePath;
 
             File.WriteAllText(Path.Combine(cwd, "README.md"), "dirty-two");
-            var secondContext = "{\"mcpServers\":{\"second\":{}}}";
+            const string secondContext = "{\"mcpServers\":{\"second\":{}}}";
             File.WriteAllText(Path.Combine(cwd, ".mcp.json"), secondContext);
             cwd.Do("add", ".mcp.json");
             await orch.HandleSendInputForTest(new SendInputCommand(cmd.AgentId, "next", null));
@@ -149,7 +149,7 @@ public class AgentOrchestratorBorrowLaunchTests {
         using var cwd = GitRepo.CreateWithCommit();
         LocalPermissionBridge? bridge = null;
         try {
-            var firstContext = "{\"mcpServers\":{\"first\":{}}}";
+            const string firstContext = "{\"mcpServers\":{\"first\":{}}}";
             File.WriteAllText(Path.Combine(cwd, ".mcp.json"), firstContext);
             cwd.Do("add", ".mcp.json");
             var server = new CaptureServerConnection();
@@ -175,7 +175,7 @@ public class AgentOrchestratorBorrowLaunchTests {
             await Assert.That(context.ReviewContextCapabilityUrl).IsNotNull();
             await Assert.That(bridge.ReviewerTokenCountForTest).IsEqualTo(1);
 
-            var secondContext = "{\"mcpServers\":{\"second\":{}}}";
+            const string secondContext = "{\"mcpServers\":{\"second\":{}}}";
             File.WriteAllText(Path.Combine(cwd, ".mcp.json"), secondContext);
             cwd.Do("add", ".mcp.json");
             await orch.HandleSendInputForTest(new SendInputCommand(command.AgentId, "next", null));
@@ -646,7 +646,10 @@ public class AgentOrchestratorBorrowLaunchTests {
         // fails AFTER the borrowed worktree is assigned (runtime StartAsync throws), reaching the
         // failed-launch cleanup, which must gate the removal on OwnedWorktree rather than
         // git-worktree-removing whatever it was handed.
-        var (_, linkedCwd, cleanup) = CreateLinkedWorktree();
+        using var mainRepo  = GitRepo.CreateWithCommit();
+        using var tmp       = new TempDir();
+        var       linkedCwd = tmp.PathTo("linked");
+        mainRepo.AddWorktree(linkedCwd);
 
         var server          = new CaptureServerConnection();
         var ptyFactory      = new SpyPtyProcessFactory();
@@ -695,7 +698,12 @@ public class AgentOrchestratorBorrowLaunchTests {
 
     [Test]
     public async Task Owned_launch_still_creates_and_on_failure_removes_the_worktree() {
-        using var repoPath = GitRepo.CreateWithCommit();
+        // The orchestrator resolves the repository path, so a Mac's /var temp root would come back as /private/var.
+        using var tmp = new TempDir();
+        var repo = GitRepo.InitIn(new TempDirHandle(tmp.GetResolvedPath()), "repo");
+        repo.CreateFile("README.md", "test");
+        repo.CommitAll("initial");
+        string repoPath = repo.Path;
 
         var server          = new CaptureServerConnection();
         var ptyFactory      = new SpyPtyProcessFactory();
@@ -728,7 +736,7 @@ public class AgentOrchestratorBorrowLaunchTests {
         await Assert.That(throwingFactory.LastWorktreePath).IsNotNull();
         // ...under the repo's .capacitor/worktrees...
         await Assert.That(throwingFactory.LastWorktreePath!)
-            .StartsWith(Path.Combine(repoPath, ".capacitor", "worktrees"));
+            .StartsWith(Path.Combine(BorrowAuthorizer.Canonicalize(repoPath), ".capacitor", "worktrees"));
         // ...and the failed-launch cleanup removed it (owned behaviour unchanged).
         await Assert.That(Directory.Exists(throwingFactory.LastWorktreePath!)).IsFalse();
 
@@ -794,22 +802,6 @@ public class AgentOrchestratorBorrowLaunchTests {
             .Select(p => Path.GetRelativePath(root, p))
             .OrderBy(p => p, StringComparer.Ordinal)
             .ToList();
-
-    /// <summary>Creates a main git repo plus a linked worktree checked out from it, returning the
-    /// linked worktree path — a realistic "borrow the user's git worktree" cwd.</summary>
-    static (string mainRepo, string linkedCwd, Action cleanup) CreateLinkedWorktree() {
-        // Ownership leaves with the returned cleanup, so this one is deliberately not a `using`.
-        var mainRepo  = GitRepo.CreateWithCommit();
-        var tmp       = new TempDir();
-        var linkedCwd = tmp.PathTo("linked");
-
-        mainRepo.AddWorktree(linkedCwd);
-
-        return (mainRepo.Path, linkedCwd, () => {
-            tmp.Dispose();
-            mainRepo.Dispose();
-        });
-    }
 
     /// <summary>A runtime factory that records the worktree it was handed then throws a generic
     /// (non-<see cref="CodexHooksNotInstalledException"/>) failure, driving the launch into the

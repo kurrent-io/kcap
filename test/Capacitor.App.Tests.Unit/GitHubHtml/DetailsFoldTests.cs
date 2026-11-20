@@ -123,7 +123,7 @@ public class DetailsFoldTests {
     [Test]
     public async Task A_fold_that_would_pass_the_depth_limit_is_refused() {
         static string Quoted(int levels, string line) => string.Concat(Enumerable.Repeat("> ", levels)) + line;
-        static string Fixture(int levels) => string.Join('\n', [Quoted(levels, "y"), Quoted(levels, ""), Quoted(levels, "<details>"), Quoted(levels, ""), Quoted(levels, "x"), Quoted(levels, ""), Quoted(levels, "</details>")]);
+        static string Fixture(int levels) => string.Join('\n', Quoted(levels, "y"), Quoted(levels, ""), Quoted(levels, "<details>"), Quoted(levels, ""), Quoted(levels, "x"), Quoted(levels, ""), Quoted(levels, "</details>"));
 
         var accepted = Trees.Parse(Fixture(96));
         await Assert.That(TreeDump.Of(accepted)).Contains("details#0{}(p('x'))");

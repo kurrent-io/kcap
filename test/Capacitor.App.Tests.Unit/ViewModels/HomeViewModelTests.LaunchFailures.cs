@@ -15,7 +15,7 @@ public partial class HomeViewModelTests {
     /// LaunchFailed arrives while StartAsync's invoke is still in flight.
     sealed class FailureBeforeReturnLaunchClient : ILaunchClient {
         public Task<IReadOnlySet<string>?> GetLaunchFeaturesAsync(CancellationToken ct) =>
-            Task.FromResult<IReadOnlySet<string>?>(System.Collections.Frozen.FrozenSet<string>.Empty);
+            Task.FromResult<IReadOnlySet<string>?>(FrozenSet<string>.Empty);
         public required Subject<LaunchFailure> Failures { get; init; }
         public required string AgentId { get; init; }
         public required string Reason { get; init; }
@@ -328,7 +328,7 @@ public partial class HomeViewModelTests {
     /// ever runs — the race a directory-row Add event can never observe (nothing was pending yet).
     sealed class RowBeforeReturnLaunchClient : ILaunchClient {
         public Task<IReadOnlySet<string>?> GetLaunchFeaturesAsync(CancellationToken ct) =>
-            Task.FromResult<IReadOnlySet<string>?>(System.Collections.Frozen.FrozenSet<string>.Empty);
+            Task.FromResult<IReadOnlySet<string>?>(FrozenSet<string>.Empty);
         public required FakeDaemonClientService Daemon { get; init; }
         public required string AgentId { get; init; }
 
@@ -397,7 +397,7 @@ public partial class HomeViewModelTests {
     /// without ever rendering it, whichever order its own two checks run in.
     sealed class RowAndFailureBeforeReturnLaunchClient : ILaunchClient {
         public Task<IReadOnlySet<string>?> GetLaunchFeaturesAsync(CancellationToken ct) =>
-            Task.FromResult<IReadOnlySet<string>?>(System.Collections.Frozen.FrozenSet<string>.Empty);
+            Task.FromResult<IReadOnlySet<string>?>(FrozenSet<string>.Empty);
         public required FakeDaemonClientService Daemon { get; init; }
         public required Subject<LaunchFailure> Failures { get; init; }
         public required string AgentId { get; init; }
@@ -479,7 +479,7 @@ public partial class HomeViewModelTests {
     /// check, the second its re-check after registering the pending entry.
     sealed class RowBetweenTheRowChecksLaunchClient : ILaunchClient {
         public Task<IReadOnlySet<string>?> GetLaunchFeaturesAsync(CancellationToken ct) =>
-            Task.FromResult<IReadOnlySet<string>?>(System.Collections.Frozen.FrozenSet<string>.Empty);
+            Task.FromResult<IReadOnlySet<string>?>(FrozenSet<string>.Empty);
         public required ReadHookedDirectory Directory { get; init; }
         public required Subject<LaunchFailure> Failures { get; init; }
         public required string AgentId { get; init; }

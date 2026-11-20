@@ -471,7 +471,7 @@ public class PauseControllerTests {
         var states = new List<PauseState>();
         using var sub = controller.State.Subscribe(states.Add);
 
-        var gate = ops.ArmGet(); // toggle's own Get, held
+        _ = ops.ArmGet(); // toggle's own Get, held
         controller.RequestToggle(true);
         await WaitUntilAsync(() => ops.GetCalls >= 1, what: "toggle Get to be issued");
         await Assert.That(states[^1].Busy).IsTrue();

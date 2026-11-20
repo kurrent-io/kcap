@@ -56,7 +56,7 @@ public static class MarkdownImages {
     /// thread allowed to set its properties.
     static async Task<IImage?> DecodeAsync(byte[] bytes) {
         if (LooksLikeSvg(bytes)) {
-            var source = SvgSource.LoadFromStream(new MemoryStream(bytes), null);
+            var source = SvgSource.LoadFromStream(new MemoryStream(bytes));
             if (source is null) return null;
             return await Dispatcher.UIThread.InvokeAsync(() => (IImage)new SvgImage { Source = source });
         }
