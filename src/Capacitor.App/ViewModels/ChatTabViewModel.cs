@@ -2167,7 +2167,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             _settledTools.UnionWith(cursor.Settled);
             _questionAsks.Clear();
             _questionAsks.AddRange(cursor.Questions);
-            if (_lease?.Feed is RemoteTranscriptFeed { HasOlder: true })
+            // Not gated on HasOlder: the last page can be fetched, ending it, before the pane applies that page.
+            if (_lease?.Feed is RemoteTranscriptFeed)
                 foreach (var (id, result) in cursor.Orphans) _orphanResults[id] = result;
             _planActivity?.Apply(read.Lines.Select(line => line.Projection));
             _runs.ApplyAll(cursor.Restored);
