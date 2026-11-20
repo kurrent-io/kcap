@@ -2135,6 +2135,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             _senders?.Track(SenderLabels(older.Fresh, candidates));
         }
         Reconcile();
+        SyncPendingCardItems();
         if (hasOlder && (older.Fresh.Count == 0 || !_ended)) RequestOlder();
     }
 
@@ -2235,13 +2236,15 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         var questionPending = cards.Any(static c => c is QuestionCardViewModel or AcpQuestionCardViewModel);
         if (questionPending && trailingGroup is not null) _questionCardHost = trailingGroup;
         var suppressGroup = trailingGroup is not null && HidesBehindQuestionCard(trailingGroup, questionPending);
+        var packs = trailingGroup is not null && !suppressGroup;
 
-        if (!TrailingCardsMatch(start, cards)) {
+        // Rows paged in ahead of the cards change what the first card packs with while the cards stay put.
+        if (!TrailingCardsMatch(start, cards) || (cards.Count > 0 && ((PendingCardItem)_items[start]).PacksWithPrevious != packs)) {
             for (var i = _items.Count - 1; i >= 0; i--)
                 if (_items[i] is PendingCardItem) _items.RemoveAt(i);
             var first = true;
             foreach (var card in cards) {
-                _items.Add(new PendingCardItem(card, packsWithPrevious: first && trailingGroup is not null && !suppressGroup));
+                _items.Add(new PendingCardItem(card, packsWithPrevious: first && packs));
                 first = false;
             }
         }

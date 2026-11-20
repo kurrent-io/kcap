@@ -213,6 +213,32 @@ public partial class ChatTabViewModelTests {
         } finally { await chat.TeardownAsync(); }
     });
 
+    /// A card shown while no rows were loaded packs with the group an older page then puts in front of it:
+    /// no newer line arrives to re-run the card sync after that page.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_card_packs_with_a_group_paged_in_ahead_of_it() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var permissions = new FakePermissionService();
+        permissions.Add(PermissionEntries.ServerEntry());
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => i switch {
+            < 50 => TextEvent(i),
+            50   => RemoteFixtures.Event(i, CanonicalEventTypes.AssistantToolCallsGenerated, RemoteFixtures.LsCall),
+            _    => ResultEvent(i, $"x{i}"),
+        })]);
+        var chat = RemoteChat(server, _ => { }, time, access, permissions: permissions, live: true);
+        try {
+            await WaitUntilAsync(() => chat.Items.OfType<ToolGroupItem>().Any(), what: "the paged-in group");
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+
+            var group = chat.Items.OfType<ToolGroupItem>().Single();
+            await Assert.That(chat.Items[^2]).IsSameReferenceAs(group);
+            await Assert.That(group.PacksWithCard).IsTrue();
+            await Assert.That(CardRows(chat).Single().PacksWithPrevious).IsTrue();
+        } finally { await chat.TeardownAsync(); }
+    });
+
     /// A live session pages back to its start by itself, so a subagent started before the window and still
     /// running shows as running without the reader scrolling.
     [Test]
