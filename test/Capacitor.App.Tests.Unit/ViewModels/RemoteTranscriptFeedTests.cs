@@ -907,7 +907,7 @@ public class RemoteTranscriptFeedTests {
         var lane = new FakeServerLane();
         using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
         using var cache = Cache();
-        using (var first = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
+        using (new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
             await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
         }
         server.NotFound = true;
@@ -928,7 +928,7 @@ public class RemoteTranscriptFeedTests {
         var lane = new FakeServerLane();
         using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
         using var cache = Cache();
-        using (var feed = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
+        using (new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
             await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
             access.OnNext(SessionAccessState.Denied);
         }
@@ -952,7 +952,7 @@ public class RemoteTranscriptFeedTests {
         using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
         using var subject = new BehaviorSubject<string?>("u1");
         using var cache = new RemoteTranscriptCache(subject, new Subject<(string, SessionAccessState)>());
-        using (var feed = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
+        using (new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
             await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
             subject.OnNext("u2");
         }

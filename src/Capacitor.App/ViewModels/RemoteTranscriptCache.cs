@@ -15,7 +15,7 @@ public sealed class RemoteTranscriptCache : IDisposable {
     readonly Lock _lock = new();
     /// Most recently closed first: a transcript is kept when its feed closes, so the one read last stays longest.
     readonly LinkedList<(string SessionId, RemoteTranscriptSnapshot Snapshot)> _entries = new();
-    readonly IDisposable _subscriptions;
+    readonly CompositeDisposable _subscriptions;
     int _generation;
     /// How many times each session was refused; a feed loaded before the latest refusal cannot keep its lines.
     readonly Dictionary<string, int> _refusals = new(StringComparer.Ordinal);
