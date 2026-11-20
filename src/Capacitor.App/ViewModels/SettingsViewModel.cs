@@ -195,6 +195,9 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     public PrivacySettingsViewModel? Privacy { get; init; }
     /// <summary>The local server's search, when this app runs one. The app owns it, so closing Settings leaves it running.</summary>
     public LocalSearchViewModel? Search { get; init; }
+
+    /// Null unless the profile's server is this computer's local installation; owned by this window.
+    public BackgroundIntelligenceSettingsViewModel? Intelligence { get; init; }
     public ExperimentalSettingsViewModel? Experimental { get; init; }
     public AboutSettingsViewModel? About { get; init; }
 
@@ -520,6 +523,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         Accounts?.Dispose();
         Appearance?.Dispose();
         Privacy?.Dispose();
+        Intelligence?.Dispose();
         Experimental?.Dispose();
         About?.Dispose();
         _lifetime.Dispose();

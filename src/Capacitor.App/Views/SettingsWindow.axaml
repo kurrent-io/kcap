@@ -435,6 +435,21 @@
                 </ScrollViewer>
             </TabItem>
 
+            <TabItem x:Name="BackgroundIntelligenceTab" Classes="settingsNav" AutomationProperties.Name="Background intelligence"
+                     IsVisible="{Binding Intelligence, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <views:AppIcon Kind="BrainCircuit" Size="16" />
+                        <TextBlock Text="Background intelligence" VerticalAlignment="Center" />
+                    </StackPanel>
+                </TabItem.Header>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <views:SettingsPage Classes="settingsPage">
+                        <views:BackgroundIntelligenceSettingsView DataContext="{Binding Intelligence}" />
+                    </views:SettingsPage>
+                </ScrollViewer>
+            </TabItem>
+
             <TabItem x:Name="UsageDataTab" Classes="settingsNav" AutomationProperties.Name="Usage data"
                      IsVisible="{Binding Privacy, Converter={x:Static ObjectConverters.IsNotNull}}">
                 <TabItem.Header>

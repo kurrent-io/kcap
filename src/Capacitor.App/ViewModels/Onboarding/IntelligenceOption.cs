@@ -19,8 +19,11 @@ public sealed class IntelligenceOption : ReactiveObject {
         var label  = HeadlessHarnessProbe.Label(harness);
         var access = harness is HeadlessHarnessProbe.Pi or HeadlessHarnessProbe.OpenCode ? "sign-in or key" : "sign-in and quota";
 
-        return new(harness, $"My local agent: {label}", $"Runs on this machine through {label}'s own {access}. Nothing goes anywhere it does not already send.");
+        return new(harness, AgentLabel(harness), $"Runs on this machine through {label}'s own {access}. Nothing goes anywhere it does not already send.");
     }
+
+    /// The local agent's name wherever the app offers it to run background intelligence.
+    internal static string AgentLabel(string harness) => $"My local agent: {HeadlessHarnessProbe.Label(harness)}";
 
     internal static IntelligenceOption Provider() => new(ProviderToken, "A provider, with my API key",
         "Anthropic, OpenAI, OpenRouter or Cohere. kcap tries the key with one call before saving it.");
