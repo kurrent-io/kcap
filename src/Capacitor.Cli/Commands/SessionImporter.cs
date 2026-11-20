@@ -669,6 +669,7 @@ static class SessionImporter {
     /// </param>
     /// <param name="completeLines">Receives <see cref="CompleteLines"/> for the read.</param>
     /// <param name="canonical">Asked whether the server takes canonical batches; null sends raw lines.</param>
+    /// <param name="sentCanonical">Receives whether every batch went on the canonical route.</param>
     /// <param name="stopAtLoss">A batch the server does not take ends delivery with
     /// <see cref="TranscriptDeliveryAbortedException"/>, while normalization stays lenient: a later batch would move the
     /// server's watermark past the lost lines, and the next import resumes from the watermark.</param>
@@ -690,7 +691,8 @@ static class SessionImporter {
             TranscriptImportFingerprint? fingerprint    = null,
             IngestCapability?          canonical         = null,
             bool                       stopAtLoss        = false,
-            bool                       requireFile       = false
+            bool                       requireFile       = false,
+            StrongBox<bool>?           sentCanonical     = null
         ) {
         if (!requireFile && !File.Exists(filePath)) return 0;
 
@@ -732,6 +734,8 @@ static class SessionImporter {
         fingerprint?.Complete(complete);
 
         if (!batch.IsEmpty) await FlushAsync();
+
+        sentCanonical?.Value = route is { Active: true };
 
         return totalSent;
 

@@ -206,6 +206,47 @@ public class OpenCodeImportSourceTests {
         await Assert.That(server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript")).IsEmpty();
     }
 
+    /// <summary>A server that does not take canonical batches cannot read v2 lines sent raw, so a session holding any is
+    /// imported but not recorded complete: the next run, against a server that takes them, imports it again. A v1-only
+    /// session sent raw is recorded, as <c>classify_already_loaded_after_a_full_import_records_the_ledger</c> shows.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task a_v2_session_sent_raw_is_not_recorded_complete(bool v2InChild) {
+        using var fix = new OpenCodeDbFixture(v1: true, v2: true);
+        fix.AddSession("ses_p", null, "/w", "Parent", 100);
+        fix.AddMessageWithText("ses_p", "m1", "from v1", 101);
+        if (v2InChild) {
+            fix.AddV2Session("ses_k", "ses_p", "/w", null, 102);
+            fix.AddV2Message("ses_k", "msg_2", "user", 1, 103, new JsonObject { ["time"] = new JsonObject { ["created"] = 103 }, ["text"] = "count" });
+        } else {
+            fix.AddV2Session("ses_p", null, "/w", "Parent", 100);
+            fix.AddV2Message("ses_p", "msg_2", "user", 2, 104, new JsonObject { ["time"] = new JsonObject { ["created"] = 104 }, ["text"] = "from v2" });
+        }
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(404));
+        server.Given(Request.Create().WithPath("/api/ingest/capabilities").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(404));
+        foreach (var path in new[] { "/hooks/session-start/opencode", "/hooks/transcript", "/hooks/subagent-start", "/hooks/subagent-stop",
+                                     "/hooks/set-title", "/hooks/session-end/opencode" })
+            server.Given(Request.Create().WithPath(path).UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client = new HttpClient();
+        var ctx    = new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home);
+        var import = new ImportContext(client, server.Url!, false) { Canonical = new IngestCapability(client, server.Url!, TimeProvider.System) };
+
+        var first   = new OpenCodeImportSource(fix.DbPath, fix.LedgerPath, TimeProvider.System);
+        var outcome = await first.ImportSessionAsync(
+            (await first.ClassifyAsync(await first.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None), ctx, CancellationToken.None)).Single(),
+            import, CancellationToken.None);
+
+        var again = new OpenCodeImportSource(fix.DbPath, fix.LedgerPath, TimeProvider.System);
+        var next  = await again.ClassifyAsync(await again.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None), ctx, CancellationToken.None);
+        await Assert.That(outcome.Outcome).IsEqualTo(ImportOutcome.Loaded);
+        await Assert.That(next.Single().Status).IsEqualTo(ImportCommand.ClassificationStatus.New);
+    }
+
     [Test]
     public async Task classify_reimport_bypasses_the_ledger_and_reclassifies() {
         using var fix = new OpenCodeDbFixture();

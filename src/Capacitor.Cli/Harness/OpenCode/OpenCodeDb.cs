@@ -405,6 +405,9 @@ internal sealed class OpenCodeDb : IDisposable {
         if (curId is not null) yield return BuildV2Line(curId, curType, curData, parts!);
     }
 
+    /// <summary>A line <see cref="SynthesizeLines"/> rebuilt from v2's tables, which only the canonical route reads.</summary>
+    public static bool IsV2Line(string line) => !line.StartsWith("{\"info\":", StringComparison.Ordinal);
+
     static string BuildV2Line(string id, string type, string data, JsonArray parts) {
         var message = JsonNode.Parse(data)!.AsObject();
         message["id"]   = id;
