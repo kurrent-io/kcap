@@ -185,7 +185,7 @@ def main():
             found = True
             print(f"{path}:{row}: {lines[row - 1].strip()}")
             print(f"::error file={annotation_escape(path, True)},line={row}::Banned comment token. "
-                  "State the constraint without the spec coordinate, review artifact or change narration (CLAUDE.md, Comments).")
+                  "State the constraint without the spec coordinate, review artifact or change narration (AGENTS.md, Comments).")
     return int(found)
 
 

@@ -365,7 +365,7 @@ internal sealed class OpenCodeDb : IDisposable {
                 partNode["messageID"] = r.GetString(3);
                 partNode["sessionID"] = r.GetString(4);
                 // Cast to JsonNode so the non-generic Add(JsonNode?) overload is chosen —
-                // the generic Add<T>(T) trips IL2026/IL3050 under AOT (see CLAUDE.md).
+                // the generic Add<T>(T) trips IL2026/IL3050 under AOT (see AGENTS.md).
                 parts!.Add((JsonNode)partNode);
             }
         }
