@@ -136,6 +136,16 @@ public class OpenCodePluginV2Tests {
         await Assert.That(V2).Contains("if (V2_CAPTURE_EVENTS.has(type)) enqueueCapture(sid, file(sid))");
     }
 
+    /// <summary>A start that outlasts an event's wait leaves that event's capture undone, and a subagent's events find
+    /// its parent unstarted, so a successful start reads the session and its known subagents once more.</summary>
+    [Test]
+    public async Task A_successful_start_captures_what_settled_while_it_ran() {
+        var start = Between(V2, "flushTitle(sid)\n", "return true");
+
+        await Assert.That(start).Contains("enqueueCapture(sid, file(sid))");
+        await Assert.That(start).Contains("for (const [child, parent] of v2.parentOf) if (parent === sid) captureChild(child)");
+    }
+
     /// <summary>A message that settled before the plugin loaded is history, which import reads: a resumed session, or
     /// one copied from v1 with its v1 messages under new ids, never has its backlog appended.</summary>
     [Test]

@@ -811,6 +811,9 @@ public static class OpenCodeExtensionInstaller {
                 if (evicted) v2.started.delete(evicted)
               }
               flushTitle(sid)
+              // What settled while the start ran, the session's own and its subagents', whose events found it unstarted.
+              enqueueCapture(sid, file(sid))
+              for (const [child, parent] of v2.parentOf) if (parent === sid) captureChild(child)
               return true
             })()
 
