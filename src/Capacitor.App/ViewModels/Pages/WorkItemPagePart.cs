@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Reactive;
+using Lucide.Avalonia;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels.Pages;
@@ -39,6 +40,7 @@ public sealed class WorkItemPagePart : ReactiveObject {
         });
     }
 
+    public LucideIconKind Icon => Status.Icon();
     public bool HasSessions => Sessions.Count > 0;
     public string SessionSummary => Sessions.Count == 1 ? "1 session" : $"{Sessions.Count} sessions";
     public bool HasLinks => Links.Count > 0;

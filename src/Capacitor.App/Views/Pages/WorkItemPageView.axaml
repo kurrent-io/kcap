@@ -98,6 +98,10 @@
             <Setter Property="Padding" Value="10,6" />
             <Setter Property="FontSize" Value="15" />
         </Style>
+        <Style Selector="Button.sessionRow">
+            <Setter Property="Padding" Value="8,0" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
         <Style Selector="Button.menuRow">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
@@ -151,10 +155,11 @@
             <Button Classes="kcapGhost rowButton sessionRow"
                     Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OpenSessionCommand}"
                     CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}">
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                    <TextBlock Text="{Binding Title}" FontSize="14" FontWeight="Normal" Foreground="{StaticResource KcapMutedBrush}"
-                               TextTrimming="CharacterEllipsis" />
-                    <TextBlock Grid.Column="1" Text="{Binding Meta}" FontSize="12.5" Foreground="{StaticResource KcapFaintBrush}"
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" MinHeight="30">
+                    <views:AppIcon Kind="MessageSquare" Size="14" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13.5" Foreground="{StaticResource KcapTextBrush}"
+                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Text="{Binding Meta}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}"
                                VerticalAlignment="Center" />
                 </Grid>
             </Button>
@@ -164,14 +169,16 @@
             <StackPanel>
                 <Button Classes="kcapGhost partRow" Classes.expandable="{Binding HasSessions}" ToolTip.Tip="{Binding Tip}"
                         Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Title}">
-                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4" MinHeight="34">
-                        <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="Medium" TextTrimming="CharacterEllipsis"
-                                   VerticalAlignment="Center" Margin="4,0,0,0" />
-                        <Border Grid.Column="1" Background="{StaticResource KcapWarningDimBrush}" CornerRadius="9" Padding="7,1"
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="4" MinHeight="34">
+                        <views:AppIcon Kind="{Binding Icon}" Size="14" Margin="4,0,6,0" VerticalAlignment="Center"
+                                       Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
+                        <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="14" FontWeight="Medium" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                        <Border Grid.Column="2" Background="{StaticResource KcapWarningDimBrush}" CornerRadius="9" Padding="7,1"
                                 VerticalAlignment="Center" IsVisible="{Binding NeedsYou}">
                             <TextBlock Text="Needs you" FontSize="12.5" Foreground="{StaticResource KcapWarningBrush}" />
                         </Border>
-                        <Button Grid.Column="2" Classes="kcapGhost linkSum" IsVisible="{Binding HasLinks}" ToolTip.Tip="{Binding LinkTip}"
+                        <Button Grid.Column="3" Classes="kcapGhost linkSum" IsVisible="{Binding HasLinks}" ToolTip.Tip="{Binding LinkTip}"
                                 AutomationProperties.Name="{Binding LinkTip, StringFormat='Links: {0}'}">
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <views:AppIcon Kind="GitPullRequest" Size="12" IsVisible="{Binding HasPrs}" />
@@ -185,7 +192,7 @@
                                 </Flyout>
                             </Button.Flyout>
                         </Button>
-                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" Margin="6,0" VerticalAlignment="Center"
+                        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" Margin="6,0" VerticalAlignment="Center"
                                     IsVisible="{Binding HasSessions}" TextElement.Foreground="{StaticResource KcapMutedBrush}">
                             <TextBlock Text="{Binding SessionSummary}" FontSize="11" />
                             <views:FoldChevron Size="12" Classes="chevron" IsOpen="{Binding IsExpanded}" />
@@ -193,8 +200,8 @@
                     </Grid>
                 </Button>
                 <views:FoldPanel IsOpen="{Binding IsExpanded}">
-                    <Border BorderThickness="1,0,0,0" BorderBrush="{StaticResource KcapBorderStrongBrush}" Margin="16,2,0,4">
-                        <ItemsControl ItemsSource="{Binding Sessions}" ItemTemplate="{StaticResource SessionRow}" />
+                    <Border BorderThickness="1,0,0,0" BorderBrush="{StaticResource KcapBorderBrush}" Margin="15,0,0,4">
+                        <ItemsControl ItemsSource="{Binding Sessions}" ItemTemplate="{StaticResource SessionRow}" Margin="6,0,0,0" />
                     </Border>
                 </views:FoldPanel>
             </StackPanel>
@@ -207,8 +214,8 @@
                         <views:FoldChevron Size="14" Classes="chevron" IsOpen="{Binding IsExpanded}" />
                         <views:AppIcon Kind="{Binding Icon}" Size="14"
                                        Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
-                        <TextBlock Text="{Binding Label}" FontSize="15" FontWeight="Medium" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding Count}" FontSize="15" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Label}" FontSize="14" FontWeight="Medium" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding Count}" FontSize="14" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
                 <views:FoldPanel IsOpen="{Binding IsExpanded}">
@@ -301,8 +308,7 @@
                     </ContentControl>
                 </DockPanel>
                 <ScrollViewer IsVisible="{Binding PageViewer, Converter={x:Static ObjectConverters.IsNull}}">
-                    <Grid ColumnDefinitions="*,6*,*" Margin="0,16,0,24">
-                        <StackPanel Grid.Column="1" Spacing="8">
+                        <StackPanel Spacing="8" Margin="20,16,16,24">
                             <TextBlock x:Name="WorkItemMessage" Text="{Binding Message}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}"
                                        IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
@@ -345,7 +351,6 @@
                                 </ItemsControl.ItemsPanel>
                             </ItemsControl>
                         </StackPanel>
-                    </Grid>
                 </ScrollViewer>
             </Panel>
         </DockPanel>
