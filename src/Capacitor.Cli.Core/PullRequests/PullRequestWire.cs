@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace Capacitor.Cli.Core.PullRequests;
 
 public static class PullRequestWire {
-    public static bool ValidSubject(PullRequestSubjectDto subject) => subject is { Provider: { Length: > 0 and <= 100 }, Host: { Length: > 0 and <= 256 } } && ValidSegment(subject.RepoHash)
+    public static bool ValidSubject(PullRequestSubjectDto subject) => subject is { Provider.Length: > 0 and <= 100, Host.Length: > 0 and <= 256 } && ValidSegment(subject.RepoHash)
         && ValidSegment(subject.Owner) && ValidSegment(subject.RepoName) && subject.Number > 0;
     public static bool ValidSegment(string? value) => value is { Length: > 0 and <= 256 }
         && value is not ("." or "..") && !value.Any(c => char.IsControl(c) || c is '/' or '\\');

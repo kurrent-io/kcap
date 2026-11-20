@@ -48,7 +48,7 @@ public static class PolicyComponents {
         ActionKind.FileEdit or ActionKind.FileRead when a.Paths.Count > 0 =>
             [.. a.Paths.Select(p => (ActionComponent)new PathComponent(p))],
         ActionKind.Network when a.Host is { Length: > 0 } => [new HostComponent(a.Host, a.Port)],
-        ActionKind.McpTool when a is { Server: { Length: > 0 }, Tool: { Length: > 0 } } =>
+        ActionKind.McpTool when a is { Server.Length: > 0, Tool.Length: > 0 } =>
             [new McpToolComponent(a.Server, a.Tool)],
         ActionKind.Other when a.RawToolName is { Length: > 0 } => [new OtherToolComponent(a.RawToolName)],
         _ => [new SentinelComponent()],

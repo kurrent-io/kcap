@@ -44,6 +44,7 @@ public sealed class OnboardingViewModel : ReactiveObject {
     readonly Func<IWizardStep, bool> _counted;
 
     public IWizardStep Current {
+        // ReSharper disable once RedundantAccessorBody — with `get;` the backing field is non-nullable and `ref field` below fails CS8601
         get => field!;
         private set {
             if (field is not null) field.AdvanceRequested -= OnAdvanceRequested;

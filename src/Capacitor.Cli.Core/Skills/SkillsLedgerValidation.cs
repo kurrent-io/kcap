@@ -48,7 +48,7 @@ public static class SkillsLedgerValidation {
             ? "a retired account is recorded against a deletion no account change ordered"
         : row is { Cause: SkillDeletionCause.Retired, IdentityRetired: null }
             ? "a retired deletion does not say whose files it is for"
-        : row is { Inherited: { Length: > 0 }, Confirmed: null }
+        : row is { Inherited.Length: > 0, Confirmed: null }
             ? "a receipt was inherited onto a row that holds none of its own"
         : null;
 }

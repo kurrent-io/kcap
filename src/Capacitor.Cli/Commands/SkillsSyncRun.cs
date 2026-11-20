@@ -500,7 +500,7 @@ sealed class SkillsSyncRun(
     /// named. A settled row is not one — it holds no claim at all.</summary>
     bool Eligible() =>
         _heldBack.Count == 0
-        && _ledger is { Etag: { Length: > 0 }, Identity: not null } && Equals(_ledger.Identity, identity)
+        && _ledger is { Etag.Length: > 0, Identity: not null } && Equals(_ledger.Identity, identity)
         && _rows.Live.All(row => row.Origin != SkillOrigin.Repository
                                  || row.State == OwnedSkillState.Settled
                                  || Satisfies(row));

@@ -387,7 +387,7 @@ public class PullRequestContextViewModelTests {
             await WaitUntilAsync(() => first.Vm.CanReveal && !first.Vm.IsReading, what: "explicit selection admitted");
             first.Source.Links = [Link(2)];
             first.Time.Advance(TimeSpan.FromSeconds(16)); await first.Vm.RefreshCommand.Execute();
-            await WaitUntilAsync(() => first.Vm is { IsReading: false, Selected: { IsAvailable: false } }, what: "unlinked pick kept in this pane");
+            await WaitUntilAsync(() => first.Vm is { IsReading: false, Selected.IsAvailable: false }, what: "unlinked pick kept in this pane");
         } finally {
             await first.Dispose();
         }
