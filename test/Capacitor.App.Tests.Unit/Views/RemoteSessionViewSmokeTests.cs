@@ -40,7 +40,7 @@ public class RemoteSessionViewSmokeTests {
                 var id = Guid.NewGuid();
                 host.Lane.PendingInputSubject.OnNext(new("s1", [new QueuedInputItem { DispatchId = id, Text = "old attempt" }]));
                 host.Settle();
-                var discard = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "DiscardQueuedButton" && b.IsVisible);
+                var discard = host.View.GetVisualDescendants().OfType<Button>().Single(b => b is { Name: "DiscardQueuedButton", IsVisible: true });
                 var point = discard.TranslatePoint(new Point(discard.Bounds.Width / 2, discard.Bounds.Height / 2), host.Window)!.Value;
                 host.Window.MouseDown(point, MouseButton.Left);
                 host.Window.MouseUp(point, MouseButton.Left);
@@ -63,7 +63,7 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.View.FindControl<WorkContextView>("WorkContextHost")!.IsEffectivelyVisible).IsTrue();
                 await Assert.That(host.Vm.Chat.PhaseNote).IsEmpty();
                 await Assert.That(host.Vm.Chat.ShowsTerminalOffer).IsFalse();
-                var title = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "Starting session…" && t.IsEffectivelyVisible);
+                var title = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t is { Text: "Starting session…", IsEffectivelyVisible: true });
                 await Assert.That(title.TranslatePoint(new Point(0, 0), host.Window)!.Value.Y).IsGreaterThan(180);
                 var action = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Open Terminal"));
                 host.Window.MouseMove(new Point(0, 0));
@@ -99,7 +99,7 @@ public class RemoteSessionViewSmokeTests {
                 """{"content":"Review the session loading states"}"""), Event(1, CanonicalEventTypes.AssistantTextGenerated,
                 """{"content":"I’ll check how chat and work details recover after a connection loss."}""")));
             try {
-                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready && host.Vm.Chat.Items.Count > 0 && host.Vm.WorkContext.IsReady, "chat and details loaded");
+                await host.SettleUntilAsync(() => host.Vm is { Access: RemoteSessionAccess.Ready, Chat.Items.Count: > 0, WorkContext.IsReady: true }, "chat and details loaded");
                 var count = host.Vm.Chat.Items.Count;
                 host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying));
                 await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Offline, "connection dropped");
@@ -171,7 +171,7 @@ public class RemoteSessionViewSmokeTests {
                 gate.SetResult(WorkContextRead.Of(WorkContextReadKind.Unreachable));
                 await host.SettleUntilAsync(() => host.Vm.WorkContext.ShowsRetry, "context failure");
                 await Assert.That(host.View.GetVisualDescendants().OfType<SessionConnectionNotice>()
-                    .Any(n => n.IsEffectivelyVisible && n.DataContext is SessionConnectionPresentation { Title: "Waiting for chat…" })).IsTrue();
+                    .Any(n => n is { IsEffectivelyVisible: true, DataContext: SessionConnectionPresentation { Title: "Waiting for chat…" } })).IsTrue();
                 CaptureLoading(host, "work-context-failed");
                 source.Enqueue(WorkContextRead.Of(WorkContextReadKind.Ready));
                 await host.Vm.WorkContext.RefreshCommand.Execute();

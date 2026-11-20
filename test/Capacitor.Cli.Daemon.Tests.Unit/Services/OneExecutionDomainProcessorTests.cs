@@ -680,7 +680,7 @@ public class OneExecutionDomainProcessorTests {
         // The accepted sequenced item got its terminal answer, exactly once, and its done-task completed.
         await Assert.That(seqDone.IsCompleted).IsTrue();
         await Assert.That(seqDone.IsFaulted).IsFalse();
-        await Assert.That(h.Rejects.Count(r => r.Seq == 1 && r.Reason == CommandRejectedReason.InternalError)).IsEqualTo(1);
+        await Assert.That(h.Rejects.Count(r => r is { Seq: 1, Reason: CommandRejectedReason.InternalError })).IsEqualTo(1);
         await Assert.That(p.LastProcessedSeq).IsEqualTo(1L);
 
         // The un-seq'd stop was DISCARDED, not executed, and the counter returned to zero.

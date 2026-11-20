@@ -386,7 +386,7 @@ static partial class ProcessHelpers {
             var handle = GetStdHandle(stdHandleId);
 
             // No handle for this stream (NULL/INVALID) — nothing to clear, not a failure.
-            if (handle == 0 || handle == -1) {
+            if (handle is 0 or -1) {
                 return;
             }
 
@@ -424,7 +424,7 @@ static partial class ProcessHelpers {
         // GetStdHandle returns NULL (0) when the stream has no handle and
         // INVALID_HANDLE_VALUE (-1) on error; SetHandleInformation fails harmlessly on
         // either, so reject them up front rather than make a doomed call.
-        if (handle == 0 || handle == -1) {
+        if (handle is 0 or -1) {
             return false;
         }
 

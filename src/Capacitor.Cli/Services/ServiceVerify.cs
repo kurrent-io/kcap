@@ -872,7 +872,7 @@ sealed class ServiceVerify(
         var preState = DescribeQuery(pre);
 
         if (!replace) {
-            if (pre.Probe == LabelProbe.Loaded || (pre.Probe == LabelProbe.Absent && pre.UnitPresent)) {
+            if (pre.Probe == LabelProbe.Loaded || (pre is { Probe: LabelProbe.Absent, UnitPresent: true })) {
                 // Loaded, or stopped-but-installed (`service stop` retains the plist). A fresh install
                 // must not overwrite or clear an existing unit — that's --replace's job.
                 Say(VerifyExit.ContendedToken);
@@ -1179,7 +1179,7 @@ sealed class ServiceVerify(
     /// <param name="refuseLiveOwner">A rename never takes over a daemon that owns the new name.</param>
     async Task<int?> ApplyReplaceMatrixAsync(string serviceId, ServiceQuery pre, string preState, string op, DateTimeOffset deadline, bool refuseLiveOwner) {
         var validatedPid = validatedDaemonPid(serviceId);
-        var owning       = pre.Probe == LabelProbe.Loaded && pre.JobPid is not null && pre.JobPid == validatedPid;
+        var owning       = pre is { Probe: LabelProbe.Loaded, JobPid: not null } && pre.JobPid == validatedPid;
 
         if (owning) {
             if (refuseLiveOwner) {
@@ -1323,7 +1323,7 @@ sealed class ServiceVerify(
         ServiceQuery last;
         while (true) {
             last = manager.Query(serviceId, Remaining(deadline));
-            if (last.Probe == LabelProbe.Absent && !last.UnitPresent) {
+            if (last is { Probe: LabelProbe.Absent, UnitPresent: false }) {
                 ServiceTxnMarker.Delete(store, serviceId);
                 Say(reasonToken);
                 return reasonExit;

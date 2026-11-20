@@ -371,7 +371,7 @@ public sealed class HandoffChoicesViewModel : ReactiveObject, ILaunchChoices, ID
     void Revalidate(IReadOnlyList<HarnessOption> options) {
         var current = options.FirstOrDefault(o => string.Equals(o.Vendor, SelectedVendor, StringComparison.OrdinalIgnoreCase));
         if (current is { Available: true }) return;
-        SetVendor(options.Any(o => o.Available && o.Vendor == HomeViewModel.DefaultVendor)
+        SetVendor(options.Any(o => o is { Available: true, Vendor: HomeViewModel.DefaultVendor })
             ? HomeViewModel.DefaultVendor
             : options.FirstOrDefault(o => o.Available)?.Vendor ?? HomeViewModel.DefaultVendor);
     }

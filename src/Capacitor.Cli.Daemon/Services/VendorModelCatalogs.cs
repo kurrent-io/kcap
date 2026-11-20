@@ -83,7 +83,7 @@ internal static class VendorModelCatalogs {
         } catch (TimeoutException) {
             _ = probe.ContinueWith(t => {
                 if (t.IsFaulted) _ = t.Exception;
-                else if (t.IsCompletedSuccessfully && t.Result is not null) ceiling.AnsweredLate?.Invoke(key);
+                else if (t is { IsCompletedSuccessfully: true, Result: not null }) ceiling.AnsweredLate?.Invoke(key);
             }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
             ceiling.Overran(key);
             return null;

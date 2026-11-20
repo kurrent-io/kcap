@@ -1254,7 +1254,7 @@ public static partial class EvalService {
                     var text         = ReadString(item, "text") ?? "";
                     var audienceRaw  = ReadString(item, "audience");
                     var normalized   = audienceRaw?.Trim().ToLowerInvariant();
-                    var audience     = normalized == "agent" || normalized == "human" ? normalized : "human";
+                    var audience     = normalized is "agent" or "human" ? normalized : "human";
                     list.Add(new RetrospectiveSuggestion { Text = text, Audience = audience });
                     break;
             }
@@ -1482,7 +1482,7 @@ public static partial class EvalService {
             .GroupBy(a => a.Category)
             .Select(g => {
                 var assessedScores = g
-                    .Where(a => a.Outcome == EvalOutcomes.Assessed && a.Score is not null)
+                    .Where(a => a is { Outcome: EvalOutcomes.Assessed, Score: not null })
                     .Select(a => a.Score!.Value)
                     .ToList();
                 int? score = assessedScores.Count > 0 ? (int)Math.Round(assessedScores.Average()) : null;
@@ -1498,7 +1498,7 @@ public static partial class EvalService {
             .ToList();
 
         var allAssessedScores = stamped
-            .Where(a => a.Outcome == EvalOutcomes.Assessed && a.Score is not null)
+            .Where(a => a is { Outcome: EvalOutcomes.Assessed, Score: not null })
             .Select(a => a.Score!.Value)
             .ToList();
         int? overall = allAssessedScores.Count > 0 ? (int)Math.Round(allAssessedScores.Average()) : null;

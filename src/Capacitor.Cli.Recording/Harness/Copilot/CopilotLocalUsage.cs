@@ -40,7 +40,7 @@ public static class CopilotLocalUsage {
         foreach (var request in session.Requests) {
             if (!seen.Add(request.RequestId)) continue;
 
-            if (request.Complete && request.CompletionTokens is (> 0 and var tokens) && request.Model is { } model
+            if (request is { Complete: true, CompletionTokens: (> 0 and var tokens), Model: { } model }
              && !sentRequests.Contains(request.RequestId)) {
                 lines.Add(UsageRecordLine(scope, request.RequestId, model, tokens));
                 lineNumbers.Add(UsageRecordLineNumber(request.RequestId));

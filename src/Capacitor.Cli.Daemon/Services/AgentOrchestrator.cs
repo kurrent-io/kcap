@@ -1244,7 +1244,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             : null;
 
     static bool FreshIn(AgentInstance agent, string canonicalSession) =>
-        agent.BridgedSinceStart && agent.SessionId is { } own && PermissionWire.Canonical(own) == canonicalSession;
+        agent is { BridgedSinceStart: true, SessionId: { } own } && PermissionWire.Canonical(own) == canonicalSession;
 
     /// The attribution ladder: the payload's agent id (raw, then canonical GUID), the resolved
     /// vendor session id, the worktree path — each rung only on exactly one live match. Live is
@@ -2557,7 +2557,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // malformed sequenced command and must FAIL CLOSED — never the unwatermarked un-sequenced route,
         // whose retry could be re-accepted on the sequenced lane and double-create the generation
         // (at-most-once-per-generation).
-        if (Processor is { } proc && cmd.Epoch is { } epoch && cmd.Seq is { } seq && cmd.CommandId is { } cmdId) {
+        if (Processor is { } proc && cmd is { Epoch: { } epoch, Seq: { } seq, CommandId: { } cmdId }) {
             var execution = proc.SubmitAsync(
                 new SequencedItem(SequencedKind.Launch, epoch, seq, cmdId, cmd.AgentId),
                 () => HandleLaunchAgentCore(cmd, launch));
@@ -3423,8 +3423,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // maps to OwnedWorktree while still being a borrow the caller never chose a posture for.
             (string Sandbox, string Approval)? appliedPosture =
                 string.Equals(cmd.Vendor, "codex", StringComparison.OrdinalIgnoreCase)
-             && cmd.Kind == LaunchKind.Default
-             && !cmd.Borrowed
+             && cmd is { Kind: LaunchKind.Default, Borrowed: false }
              && work is WorkLocation.OwnedWorktree or WorkLocation.InPlace
                     ? CodexPosturePolicy.Resolve(work, isReviewFlow, cmd.CodexPosture)
                     : null;
@@ -4310,7 +4309,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // FinalDrainAcpTranscriptAsync's remarks); it always returns within AcpFinalDrainBudget
             // regardless of outcome. PTY agents have no AcpForwarder and take none of this path — the
             // runtime is disposed exactly where it always was, inside CleanupAgentAsync below.
-            if (!agent.IsServerSilent && agent.AcpForwarder is { } acpForwarder) {
+            if (agent is { IsServerSilent: false, AcpForwarder: { } acpForwarder }) {
                 await FinalDrainAcpTranscriptAsync(agent, acpForwarder);
             }
 
@@ -5241,7 +5240,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             if (AttachmentIds.Validate(attachmentIds) is { } invalid) return RefuseAttachments(invalid);
             if (agent.Kind != LaunchKind.Default) return RefuseAttachments(AttachmentRefusals.ReviewParticipant);
 
-            if (agent.Placement == AttachmentPlacement.Worktree && agent.Work is WorkLocation.BorrowedCwd or WorkLocation.InPlace)
+            if (agent is { Placement: AttachmentPlacement.Worktree, Work: WorkLocation.BorrowedCwd or WorkLocation.InPlace })
                 return RefuseAttachments(AttachmentRefusals.NeedsOwnedWorktree);
 
             if (!agent.Runtime.EmitsTerminalOutput && IsQuitCommand(text))
@@ -5705,7 +5704,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // Capabilities gates the capability on (installed + unattended-certified + resolver present).
         // Vendor-neutral: we read each factory's own resolver, never a central vendor→model table.
         var advertised = _runtimeFactories.Values
-            .Where(f => f.IsAvailable() && f.SupportsUnattended && f.ReviewerModelResolver is not null)
+            .Where(f => f.IsAvailable() && f is { SupportsUnattended: true, ReviewerModelResolver: not null })
             .Select(f => f.ReviewerModelResolver!)
             .ToList();
 
@@ -6976,7 +6975,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // Only agents this teardown still owns. One whose own finalizer already ran has reported its
         // real ending and is waiting on cleanup; reporting it again would append a second stop event
         // over the top of a truer one and race that finalizer's unregister.
-        var live = _agents.Values.Where(a => !a.IsServerSilent && !a.ResumePending && a.Status is "Starting" or "Running").ToList();
+        var live = _agents.Values.Where(a => a is { IsServerSilent: false, ResumePending: false, Status: "Starting" or "Running" }).ToList();
 
         if (live.Count == 0) return;
 

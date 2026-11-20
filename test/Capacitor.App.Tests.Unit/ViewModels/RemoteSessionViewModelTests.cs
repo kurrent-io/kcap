@@ -547,8 +547,13 @@ public class RemoteSessionViewModelTests {
             var row = Harness.Row(vendor: "claude");
             var vm = h.Build(row, artefacts, prs, plans);
             vm.PullRequests!.SetForeground(true);
-            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready && vm.WorkContext.IsReady
-                && vm.WorkContext.Plan.HasPlan && vm.Artefacts.HasAny && vm.PullRequests.HasPullRequest, what: "all context loaded");
+            await WaitUntilAsync(() => vm is {
+                Access: RemoteSessionAccess.Ready,
+                WorkContext.IsReady: true,
+                WorkContext.Plan.HasPlan: true,
+                Artefacts.HasAny: true,
+                PullRequests.HasPullRequest: true
+            }, what: "all context loaded");
             await h.UntilAsync(vm, () => vm.WorkContext.HasSubagents, "subagent loaded");
             await WaitUntilAsync(() => !vm.WorkContext.IsReading, what: "initial work read settled");
             h.WorkSource.Gate();
@@ -583,8 +588,11 @@ public class RemoteSessionViewModelTests {
                 h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Ok);
                 h.Lane.SessionAccessChangedSubject.OnNext("s1");
             } else h.Directory.Rows.AddOrUpdate(row);
-            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready && vm.WorkContext.IsReady
-                && vm.PullRequests.HasPullRequest, what: "context restored");
+            await WaitUntilAsync(() => vm is {
+                Access: RemoteSessionAccess.Ready,
+                WorkContext.IsReady: true,
+                PullRequests.HasPullRequest: true
+            }, what: "context restored");
             await vm.TeardownAsync();
         });
     }
@@ -599,8 +607,11 @@ public class RemoteSessionViewModelTests {
             var prs = new FakePullRequestSource(h.Time) { ListFailure = stopped ? "retries_stopped" : null };
             var vm = h.Build(Harness.Row(), pullRequests: prs);
             vm.PullRequests!.SetForeground(true);
-            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready && vm.WorkContext.IsReady
-                && !vm.PullRequests.IsReading, what: "initial reads finished");
+            await WaitUntilAsync(() => vm is {
+                Access: RemoteSessionAccess.Ready,
+                WorkContext.IsReady: true,
+                PullRequests.IsReading: false
+            }, what: "initial reads finished");
             var lists = prs.Lists;
             var reads = h.WorkSource.Requested.Count;
             h.Time.Advance(TimeSpan.FromSeconds(15));

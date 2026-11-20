@@ -173,7 +173,7 @@ public class AgentOrchestratorAcpForwardingTests {
         await Assert.That(call2).IsEqualTo(2);
 
         var secondBatch = server.AcpEventsCalls[1].Envelopes;
-        await Assert.That(secondBatch.Any(e => e.Kind == AcpEventKind.AssistantText && e.Text == "hello")).IsTrue();
+        await Assert.That(secondBatch.Any(e => e is { Kind: AcpEventKind.AssistantText, Text: "hello" })).IsTrue();
         await Assert.That(secondBatch[0].Seq).IsEqualTo(1);
 
         await orch.HandleStopAgentForTest("agent-acp-forward");

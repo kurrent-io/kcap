@@ -37,7 +37,7 @@ public static partial class FileOwner {
                     new RunOptions(Timeout: StatTimeout), CancellationToken.None)
                 .GetAwaiter().GetResult();
 
-            return !result.TimedOut && result.ExitCode == 0
+            return result is { TimedOut: false, ExitCode: 0 }
                 && uint.TryParse(result.Stdout.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var uid)
                 ? uid
                 : null;

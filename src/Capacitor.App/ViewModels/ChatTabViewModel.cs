@@ -1300,9 +1300,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             if (over is { IsDelivered: true, IsForeign: false, Acknowledged: false }) Acknowledge(over);
             RetireDiscarded(over, restorePredecessors: !over.IsDelivered);
         }
-        foreach (var gone in _queuedMessages.Where(q => q.IsForeign && q.DispatchId is { } id && !listed.Contains(id)).ToList())
+        foreach (var gone in _queuedMessages.Where(q => q is { IsForeign: true, DispatchId: { } id } && !listed.Contains(id)).ToList())
             _queuedMessages.Remove(gone);
-        foreach (var own in _queuedMessages.Where(q => !q.IsForeign && q.DispatchId is { } id && !listed.Contains(id)))
+        foreach (var own in _queuedMessages.Where(q => q is { IsForeign: false, DispatchId: { } id } && !listed.Contains(id)))
             own.MarkUnlisted();
         RefreshQueue();
     }
@@ -1708,7 +1708,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (!bypassRecall) {
             var already = edits == _recallEdits
                 ? _queuedMessages.FirstOrDefault(q =>
-                    !q.IsForeign && !q.Acknowledged && q.AttachmentIds.Count == 0 && q.MatchesText(snapshot))
+                    q is { IsForeign: false, Acknowledged: false, AttachmentIds.Count: 0 } && q.MatchesText(snapshot))
                 : null;
             if (already is not null && Tray.Snapshot().Count == 0) {
                 if (_composerEdits == edits && ComposerText == snapshot) ComposerText = DraftAfterSending(snapshot);
@@ -2294,7 +2294,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     bool HidesBehindQuestionCard(ToolGroupItem group, bool questionPending) =>
         _input.Availability != SendAvailability.Ended
         && (questionPending || !ReferenceEquals(_questionCardHost, group))
-        && group.Calls.Any(static c => c.Category == ToolCategory.Question && !c.IsSettled);
+        && group.Calls.Any(static c => c is { Category: ToolCategory.Question, IsSettled: false });
 
     bool TrailingCardsMatch(int start, ReadOnlyObservableCollection<PendingCardViewModel> cards) {
         if (_items.Count - start != cards.Count) return false;

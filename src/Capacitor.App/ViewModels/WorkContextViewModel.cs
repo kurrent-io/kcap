@@ -423,7 +423,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         if (serverLane is not null) {
             // Only an attempt nothing answered is evidence the server is down; a read in flight then ends in the
             // unreachable state rather than loading for as long as the outage lasts.
-            serverLane.Select(s => s.State == ServerLaneState.Retrying && s.Failure is not null)
+            serverLane.Select(s => s is { State: ServerLaneState.Retrying, Failure: not null })
                 .DistinctUntilChanged()
                 .ObserveOn(RxSchedulers.MainThreadScheduler)
                 .Subscribe(OnServerDown)

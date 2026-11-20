@@ -303,7 +303,7 @@ internal sealed class PiContainmentBench : IAsyncDisposable {
 
             var lines = process.ReadLinesAsync(CancellationToken.None).GetAsyncEnumerator();
 
-            var stateFrame = await WaitForAsync(lines, f => f.Kind == PiRpcFrameKind.Response && f.Id == "s0",
+            var stateFrame = await WaitForAsync(lines, f => f is { Kind: PiRpcFrameKind.Response, Id: "s0" },
                 TimeSpan.FromSeconds(20));
 
             var ready = stateFrame?.Success == true;

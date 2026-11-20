@@ -227,7 +227,7 @@ public sealed class LocalControlClient(DaemonStore store, string daemonName, Tim
             // attachable and the consumer decides what an identity-less Connected means.
             var daemonInfo = first.Snapshot!.Daemon;
             if (hello?.Pid is { } helloPid && hello.InstanceId is { } helloInstance &&
-                    daemonInfo.Pid is { } snapshotPid && daemonInfo.InstanceId is { } snapshotInstance &&
+                    daemonInfo is { Pid: { } snapshotPid, InstanceId: { } snapshotInstance } &&
                     (helloPid != snapshotPid || helloInstance != snapshotInstance)) {
                 await DisposeQuietly(sub);
                 return CycleOutcome.Failed(Incompat, daemonVersion);

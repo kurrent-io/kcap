@@ -289,7 +289,7 @@ internal sealed partial class MuseMspHostedAgentRuntime : IHostedAgentRuntime, I
     }
 
     static string? ErrorMessage(MuseMspFrame frame) =>
-        frame.Error is { } error && error.IsObject ? error.Str("message") ?? error.GetRawText() : null;
+        frame.Error is { IsObject: true } error ? error.Str("message") ?? error.GetRawText() : null;
 
     void Track(Task task) {
         _background[task] = 0;

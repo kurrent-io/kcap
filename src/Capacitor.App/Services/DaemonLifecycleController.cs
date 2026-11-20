@@ -658,7 +658,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     /// out, and when launchd still holds the new one the start's rollback leaves it unloaded: nothing starts the daemon.
     static bool LaunchdMayStartJob(ServiceSnapshot snap) =>
         snap.Supervisor == "launchd" && ServiceStateClassifier.Parse(snap.State) == ServiceState.Installed
-        && snap.UnitPresent && snap.JobPid is null && snap.DaemonPid is null && !snap.TxnMarker && !snap.TxnActive;
+        && snap is { UnitPresent: true, JobPid: null, DaemonPid: null, TxnMarker: false, TxnActive: false };
 
     /// <returns>True when a daemon attached; false once the grace runs out or a read shows the job changed under some
     /// other hand. A failed read shows nothing, so the wait goes on.</returns>
@@ -1222,7 +1222,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     /// No service and no unit, yet a daemon answers: started by hand, so nothing brings it back. The
     /// startup matrix never sees this row, because it only runs when no daemon answers.
     internal static bool IsUnsupervised(ServiceSnapshot snap) =>
-        ServiceStateClassifier.Parse(snap.State) == ServiceState.NotInstalled && !snap.UnitPresent && snap.DaemonPid is not null;
+        ServiceStateClassifier.Parse(snap.State) == ServiceState.NotInstalled && snap is { UnitPresent: false, DaemonPid: not null };
 
     /// <summary>Windows only: the takeover it leads to ends a standalone owner only on the Windows CLI</summary>
     internal Func<bool> OffersSupervision { get; init; } = OperatingSystem.IsWindows;
@@ -1291,7 +1291,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     }
 
     static bool OffersWindowsService(ServiceSnapshot snap) =>
-        snap.Supervisor == "windows_service" && snap.ServiceUpgradeAvailable == true;
+        snap is { Supervisor: "windows_service", ServiceUpgradeAvailable: true };
 
     /// <summary>The explicit "run as a Windows service" action in Settings</summary>
     /// <returns>Null when nothing ran: the app is shutting down or must restart first</returns>

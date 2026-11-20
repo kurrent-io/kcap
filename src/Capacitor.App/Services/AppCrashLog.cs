@@ -58,7 +58,7 @@ public sealed class AppCrashLog(ConfigRoot config, TimeProvider time) {
     void TrimIfLarge() {
         try {
             var file = new FileInfo(Path);
-            if (file.Exists && file.Length > MaxBytes) file.Delete();
+            if (file is { Exists: true, Length: > MaxBytes }) file.Delete();
         } catch (IOException) {
         } catch (UnauthorizedAccessException) {
         }

@@ -74,7 +74,7 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
             // The review-launch MCP server command must be the kcap binary (ctx.CapacitorPath),
             // NOT the vendor CLI (launcher.CliPath) — the review agent runs `kcap mcp review` to
             // talk to the review MCP tools.
-            ReviewLaunch: ctx.IsReview && ctx.Review is { } reviewArgs
+            ReviewLaunch: ctx is { IsReview: true, Review: { } reviewArgs }
                 ? await ReviewLaunchBuilder.BuildAsync(ctx.Vendor, ctx.CapacitorPath, ctx.ServerUrl ?? "", reviewArgs.Owner, reviewArgs.Repo, reviewArgs.PrNumber)
                 : null,
             Account: ctx.Account
@@ -148,7 +148,7 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
             env[HostedAgent.BridgeUrlVar] = ctx.DaemonBridgeUrl!;
         }
 
-        if (ctx.IsReview && ctx.Review is { } reviewEnv) {
+        if (ctx is { IsReview: true, Review: { } reviewEnv }) {
             env["KCAP_REVIEW_PR"] = reviewEnv.PrNumber.ToString();
         }
 

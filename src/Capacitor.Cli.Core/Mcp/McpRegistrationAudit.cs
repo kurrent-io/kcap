@@ -167,7 +167,7 @@ public static class McpRegistrationAudit {
                 if (FindDescriptor(name) is null || entry is not JsonObject obj) continue;
 
                 var command = StringValue(obj["command"])
-                    ?? (obj["command"] is JsonArray argv && argv.Count > 0 ? StringValue(argv[0]) : null);
+                    ?? (obj["command"] is JsonArray { Count: > 0 } argv ? StringValue(argv[0]) : null);
 
                 if (command is not null && IsAbsoluteKcapBinaryPath(command))
                     results.Add((name, command));

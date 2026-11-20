@@ -1434,7 +1434,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// start or setup that did not work.
     internal static bool BannerFailedFor((string? Message, string? Detail) content) =>
         content.Message is DaemonIncompatibleNotice or LocalServerRefusedNotice
-        || (content.Message == DaemonDownNotice && content.Detail is { } detail && !InFlight(detail));
+        || (content is { Message: DaemonDownNotice, Detail: { } detail } && !InFlight(detail));
 
     static bool BannerInFlight((string? Message, string? Detail) content) =>
         content.Detail is { } detail ? InFlight(detail)

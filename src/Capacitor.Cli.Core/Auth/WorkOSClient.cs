@@ -123,7 +123,7 @@ public sealed class WorkOSClient(
         }
     }
 
-    static bool IsTransientStatus(int status) => status >= 500 || status is 408 or 429;
+    static bool IsTransientStatus(int status) => status is >= 500 or 408 or 429;
 
     /// <summary>
     /// Opens a device grant. It takes no organization: the human picks one at the AuthKit screen, so

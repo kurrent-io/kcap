@@ -98,7 +98,7 @@ internal sealed class MacOsDesktopNotificationSink : IDesktopNotificationSink, I
         var settings = await _center.SettingsAsync();
         Post(() => { if (!_disposed) _badge.Authorize(settings.Badge); });
         return settings.Access == DesktopNotificationAccess.NotDetermined
-            || settings.Access == DesktopNotificationAccess.Allowed && !settings.Badge;
+            || settings is { Access: DesktopNotificationAccess.Allowed, Badge: false };
     }
 
     public async Task<DesktopNotificationAccess> RequestAsync() {

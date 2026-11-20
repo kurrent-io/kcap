@@ -282,7 +282,7 @@ public static partial class CodexConfigToml {
         Path.Combine(Path.GetDirectoryName(canonicalConfigPath) ?? ".", "mcp-ownership-v1.json");
 
     static bool IsEmptyLedger(JsonObject ledger) =>
-        ledger.All(p => p.Key == "version" || (p.Key == "entries" && p.Value is JsonObject { Count: 0 }));
+        ledger.All(p => p.Key == "version" || (p is { Key: "entries", Value: JsonObject { Count: 0 } }));
 
     static object? Lookup(TomlTable root, string[] path) =>
         LookupTable(root, path[..^1]) is { } parent && parent.TryGetValue(path[^1], out var value) ? value : null;

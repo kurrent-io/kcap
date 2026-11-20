@@ -678,7 +678,7 @@ public class AgentOrchestratorFinalizerVerdictTests {
         await orch.ReRegisterAgentsForTestAsync();
 
         await Assert.That(server.StatusChangedCalls.Any(
-            c => c.AgentId == "rereg-race-1" && c.Status is "Running" or "Starting")).IsFalse();
+            c => c is { AgentId: "rereg-race-1", Status: "Running" or "Starting" })).IsFalse();
 
         launchFailedGate.TrySetResult();
         process.SignalExited(0);
@@ -731,7 +731,7 @@ public class AgentOrchestratorFinalizerVerdictTests {
         await orch.HandleStopAgentForTest("stop-toctou-1");
 
         await Assert.That(server.StatusChangedCalls.Any(
-            c => c.AgentId == "stop-toctou-1" && c.Status == "Completed")).IsFalse();
+            c => c is { AgentId: "stop-toctou-1", Status: "Completed" })).IsFalse();
     }
 
     // ── The check and the send-initiation must be ATOMIC under _reapLock ──────────────────────────
@@ -809,6 +809,6 @@ public class AgentOrchestratorFinalizerVerdictTests {
 
         await Assert.That(server.NonFailureStatusSentAfterVerdictPublished).IsFalse();
         await Assert.That(server.StatusChangedCalls.Any(
-            c => c.AgentId == "rereg-await-1" && c.Status is "Running" or "Starting")).IsFalse();
+            c => c is { AgentId: "rereg-await-1", Status: "Running" or "Starting" })).IsFalse();
     }
 }

@@ -42,7 +42,7 @@ public sealed class CursorHookCommand(
     /// <c>GetValue&lt;string&gt;</c> would throw and drop the whole hook through the outer catch.
     /// </summary>
     static string? TryWorkspaceRoot(JsonNode node) =>
-        node["workspace_roots"] is JsonArray roots && roots.Count > 0
+        node["workspace_roots"] is JsonArray { Count: > 0 } roots
      && roots[0] is JsonValue wv && wv.TryGetValue<string>(out var wr)
             ? wr
             : null;

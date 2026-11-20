@@ -402,7 +402,7 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
         try {
             var result = await _cli.PluginInstallAsync(row.Flag, _shutdownToken, row.InstallOptions).ConfigureAwait(true);
-            if (result.ExitCode == 0 && !result.TimedOut) {
+            if (result is { ExitCode: 0, TimedOut: false }) {
                 row.Status = AgentInstallStatus.Succeeded;
             } else {
                 row.Status = AgentInstallStatus.Failed;

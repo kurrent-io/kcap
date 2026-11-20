@@ -431,7 +431,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                 localDaemonOnAppServer ?? Observable.Return(false),
                 daemon.Snapshots.Select(s => s.Daemon.UserSubject).StartWith((string?)null),
                 subject,
-                presence.Select(p => !p.SessionEnded && p.Dto is { IsPrivate: false, SessionId.Length: > 0 }),
+                presence.Select(p => p is { SessionEnded: false, Dto: { IsPrivate: false, SessionId.Length: > 0 } }),
                 (capable, onAppServer, daemonSubject, viewer, agent) =>
                     capable && onAppServer && agent && viewer is not null && daemonSubject == viewer)
             .ObserveOn(RxSchedulers.MainThreadScheduler);
@@ -556,7 +556,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     /// the older-daemon fallbacks, for good. A resume publishes the agent with them. An interrupted row
     /// is not held back: it may stay interrupted for its whole retention, and a fallback chat beats none.
     static bool LacksRuntimeMetadata(AgentStatusDto dto) =>
-        dto.Status == "Resuming" && dto.HasTerminal is null && dto.TranscriptFormat is null;
+        dto is { Status: "Resuming", HasTerminal: null, TranscriptFormat: null };
 
     static AgentPresence Accumulate(AgentPresence state, IChangeSet<AgentStatusDto, string> changes) {
         var dto = state.Dto;

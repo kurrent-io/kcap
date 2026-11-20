@@ -38,8 +38,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         "Couldn't reconnect. If the daemon isn't running, press Start daemon.";
 
     internal static bool IsInFlightReconnectMessage(string? message) =>
-        message == ReconnectingMessage
-        || message == DaemonLifecycleController.AlreadyRunningReconnectStatus;
+        message is ReconnectingMessage or DaemonLifecycleController.AlreadyRunningReconnectStatus;
 
     static readonly IBrush ConnectedBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.Connected));
     static readonly IBrush InProgressBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.InProgress));
@@ -424,13 +423,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         // in that gap reads as a failure the user must fix.
         var canStart = service.Status
             .CombineLatest(movingToWindowsService ?? Observable.Return(false),
-                (s, moving) => s.State == AttachState.Unreachable && s.Reason == UnreachableReason && !moving)
+                (s, moving) => s is { State: AttachState.Unreachable, Reason: UnreachableReason } && !moving)
             .ObserveOn(RxSchedulers.MainThreadScheduler);
         var canRetry = service.Status
             .Select(s =>
                 s.State == AttachState.Connecting
-                || (s.State == AttachState.Unreachable
-                    && s.Reason is not (UnreachableReason or ExpectedDaemonRestart.Reason or ExpectedDaemonRestart.StartingReason)))
+                || (s is { State: AttachState.Unreachable, Reason: not (UnreachableReason or ExpectedDaemonRestart.Reason or ExpectedDaemonRestart.StartingReason) }))
             .ObserveOn(RxSchedulers.MainThreadScheduler);
 
         var start = startAction ?? RunStartAsync;

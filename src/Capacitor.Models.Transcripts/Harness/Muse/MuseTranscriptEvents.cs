@@ -213,7 +213,7 @@ public sealed class MuseTranscriptEvents : ITranscriptProjection {
 
     /// A call's <c>args</c> is a JSON string; anything but an object is kept whole under <c>arguments</c>.
     static Struct ArgumentsOf(JsonElement? args) {
-        if (args is { } obj && obj.IsObject) return StructOf(obj);
+        if (args is { IsObject: true } obj) return StructOf(obj);
         if (args is not { } s || !s.IsString || s.GetString() is not { } raw) return new Struct();
 
         try {

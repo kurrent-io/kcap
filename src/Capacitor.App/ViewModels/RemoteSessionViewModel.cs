@@ -443,7 +443,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending, Reclaimer = HeapReclaimer.Shared };
         this.WhenAnyValue(vm => vm.AccessNote).Subscribe(_ => RaiseConnectionNotice()).DisposeWith(_disposables);
         lane.Status.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(status => {
-            _connectionFailed = status.State == ServerLaneState.Retrying && status.Failure is not null;
+            _connectionFailed = status is { State: ServerLaneState.Retrying, Failure: not null };
             RaiseConnectionNotice();
         }).DisposeWith(_disposables);
         _showsProgressiveDisclosure = Observable.Switch(this.WhenAnyValue(vm => vm.IsChatActive, vm => vm.Chat, vm => vm.Subagent,
@@ -478,7 +478,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             : _rows.CombineLatest(_sessionEndedChanges, _originChangedChanges, appSubject ?? SignedInSubject.From(lane.Status),
                 (r, ended, movedLocal, viewer) => (!ended || r.Origin == AgentOrigin.Server) && !movedLocal
                     && r.SessionId is { Length: > 0 } && viewer is not null
-                    && (r.OwnerUserId == viewer || (r.Origin == AgentOrigin.Server && r.OwnerIsViewer == true)))
+                    && (r.OwnerUserId == viewer || (r is { Origin: AgentOrigin.Server, OwnerIsViewer: true })))
                 .ObserveOn(RxSchedulers.MainThreadScheduler);
         TitleEditor = new SessionTitleEditorViewModel(_titles, canRename, async (title, ct) => {
                 if (remoteAgents is null || _row.SessionId is not { Length: > 0 } sessionId)
@@ -709,7 +709,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     /// aliases and the service empties it on an account switch, so a daemon kept under a merged older id
     /// still qualifies. An attached terminal session submits text alone, so its daemon refuses files.
     internal static bool AcceptsAttachments(AgentRow row, IReadOnlyList<DaemonInfo> daemons, string? viewer) =>
-        !row.IsAttached && viewer is { Length: > 0 } && row.OwnerUserId is { Length: > 0 } owner && row.MachineBadge is { } name
+        !row.IsAttached && viewer is { Length: > 0 } && row is { OwnerUserId: { Length: > 0 } owner, MachineBadge: { } name }
         && daemons.FirstOrDefault(d => d.Name == name && d.OwnerUserId == owner) is { } daemon
         && LaunchAttachments.IsCapable(daemon.Version);
 

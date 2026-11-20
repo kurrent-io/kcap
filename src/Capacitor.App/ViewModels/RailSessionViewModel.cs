@@ -274,7 +274,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     /// so it shows no time.
     string MetaFor(AgentRow row) {
         var created = AsUtc(row.CreatedAt);
-        if (row.IsEndedSession && row.EndedAt is { } endedRaw) {
+        if (row is { IsEndedSession: true, EndedAt: { } endedRaw }) {
             var ended = AsUtc(endedRaw);
             var shown = _sort == RailSort.Created ? created : AsUtc(row.LastActivityAt ?? endedRaw);
             return $"{Since(shown)} · {UptimeFormat.Format(ended - created)}";

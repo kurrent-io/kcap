@@ -3123,11 +3123,11 @@ class ImportCommand(
                       || sessionCwds.TryGetValue(j.SessionId, out var effective) && !string.Equals(effective, j.Cwd, StringComparison.Ordinal)))
             .Select(j => j.Cwd!);
         var placedDetect = judged
-            .Where(j => judgesRepo && !j.Recorded && j.PlacedCwd is not null)
+            .Where(j => judgesRepo && j is { Recorded: false, PlacedCwd: not null })
             .Select(j => j.PlacedCwd!);
         // A recorded repository names where the session goes, but the import still excludes the checkout it ran in.
         var checkoutDetect = judged
-            .Where(j => excludesRepo && j.Recorded && j.EffectiveCwd is not null)
+            .Where(j => excludesRepo && j is { Recorded: true, EffectiveCwd: not null })
             .Select(j => j.EffectiveCwd!);
         var detect = rawDetect.Concat(placedDetect).Concat(checkoutDetect)
             .Where(Directory.Exists)

@@ -183,7 +183,7 @@ static class RecapTranscript {
                 case "tool_invocation":
                     sb.AppendLine($"## Tool: {entry.Str("tool")}");
 
-                    if (entry.Prop("arguments") is { } args && !args.IsNull) sb.Append(Arguments(args));
+                    if (entry.Prop("arguments") is { IsNull: false } args) sb.Append(Arguments(args));
 
                     if (truncated) sb.AppendLine(TruncatedNote(entry, "input"));
                     sb.AppendLine();

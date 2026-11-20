@@ -201,7 +201,7 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
 
     IEnumerable<string> Aliases(PendingPermissionRequest request) {
         yield return request.Key;
-        if (_localOnAppServer && request.Lane == PermissionLane.Local && request.ServerRequestId is { Length: > 0 } serverId)
+        if (_localOnAppServer && request is { Lane: PermissionLane.Local, ServerRequestId: { Length: > 0 } serverId })
             yield return PendingPermissionRequest.KeyFor(PermissionLane.Server, serverId);
     }
 

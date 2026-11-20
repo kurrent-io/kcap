@@ -36,8 +36,7 @@ public abstract record DaemonBridge {
         if (string.IsNullOrEmpty(daemonUrl)) return None;
 
         return Uri.TryCreate(daemonUrl, UriKind.Absolute, out var uri)
-            && uri.Scheme is "http"
-            && uri.Host is "127.0.0.1"
+            && uri is { Scheme: "http", Host: "127.0.0.1" }
                 ? new Loopback(daemonUrl.TrimEnd('/'))
                 : new NotLoopback(daemonUrl);
     }

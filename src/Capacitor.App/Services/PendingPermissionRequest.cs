@@ -28,7 +28,7 @@ public sealed class PendingPermissionRequest {
         ToolInputOmitted = dto.ToolInputOmitted;
         ToolUseId = dto.ToolUseId;
         RequestedAt = ParseTime(dto.RequestedAt);
-        Questions = dto.Vendor == "claude" && dto.ToolName == ClaudeElicitation.ToolName && !dto.ToolInputOmitted
+        Questions = dto is { Vendor: "claude", ToolName: ClaudeElicitation.ToolName, ToolInputOmitted: false }
             ? ClaudeElicitation.TryParse(ToolInputJson) : null;
         _serverRequestId = dto.ServerRequestId;
     }

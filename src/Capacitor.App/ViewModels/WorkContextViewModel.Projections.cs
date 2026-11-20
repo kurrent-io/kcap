@@ -407,7 +407,7 @@ public sealed partial class WorkContextViewModel {
             Title = read.Primary.Label;
         }
 
-        if (!read.TopologyFailed && read.Topology is { } topology) ApplyTopology(topology);
+        if (read is { TopologyFailed: false, Topology: { } topology }) ApplyTopology(topology);
         else if (!samePrimary) ClearTopology();
 
         ApplyLinks(read);
@@ -459,7 +459,7 @@ public sealed partial class WorkContextViewModel {
             .ToList();
         Replace(_parts, parts, p => (p.Title, p.Mark));
 
-        ApplyIssues(item.Links.Where(l => l.Kind == "issue" && l.LinkClass == "link"));
+        ApplyIssues(item.Links.Where(l => l is { Kind: "issue", LinkClass: "link" }));
 
         _contributorRows = item.Contributors;
         RefreshContributors();
@@ -559,7 +559,7 @@ public sealed partial class WorkContextViewModel {
     }
 
     void ApplyLinks(WorkContextRead read) {
-        if (!read.SummaryFailed && read.Summary is { } summary) {
+        if (read is { SummaryFailed: false, Summary: { } summary }) {
             var primaryRepositories = summary.Repositories.Where(repository => repository.IsPrimary).ToArray();
             if (primaryRepositories.Length == 1) {
                 var repo = primaryRepositories[0];

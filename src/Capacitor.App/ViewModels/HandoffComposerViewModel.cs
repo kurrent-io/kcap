@@ -378,7 +378,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
                 return StripLabel.Length > 0 ? "Starting point will be checked with origin when you start." : "";
             var sha = start.StartSha.Length > 7 ? start.StartSha[..7] : start.StartSha;
             var branch = start.Branch;
-            if (branch is not null && start.HeadIsFork && start.HeadOwner is { } owner)
+            if (branch is not null && start is { HeadIsFork: true, HeadOwner: { } owner })
                 branch = $"{owner}:{branch}";
             var summary = branch is { Length: > 0 } ? $"Starting from {branch} at {sha}" : $"Starting at {sha}";
             return start.Checkout == nameof(HandoffCheckout.Detached)

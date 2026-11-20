@@ -122,7 +122,7 @@ public sealed class PageBridge : IAsyncDisposable {
 
     Task HandleAsync(JsonElement data, CancellationToken ct) => data.Str("type") switch {
         "ready"   => ReadyAsync(ct),
-        "submit"  => SubmitAsync(data.Prop("payload") is { } payload && !payload.IsNull ? payload : EmptyObject, ct),
+        "submit"  => SubmitAsync(data.Prop("payload") is { IsNull: false } payload ? payload : EmptyObject, ct),
         "refresh" => CanReadResults ? PushResultsAsync(ct) : Task.CompletedTask,
         _         => Task.CompletedTask,
     };
