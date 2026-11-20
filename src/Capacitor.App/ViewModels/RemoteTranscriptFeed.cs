@@ -230,7 +230,11 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             kept = _resume;
             _resume = null;
         }
-        if (kept is null && _cache?.Take(_sessionId) is { } taken) kept = (taken, stamp);
+        if (kept is null && _cache?.Take(_sessionId) is { } taken) {
+            // The cache is keyed by session alone: lines a windowed feed kept would show part of the session as all of it.
+            if (_window is null && taken.Earliest > 0) _cache.Put(_sessionId, taken, stamp);
+            else kept = (taken, stamp);
+        }
         if (kept is { } resume) {
             bool? resumed;
             try {
@@ -268,6 +272,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             _position = page.LastEventNumber;
             _earliest = from;
             _oldest = oldest;
+            // A read from 0 starts at the oldest event held. Left null on an empty stream, the first live event sets both.
+            if (_window is null) _base = oldest;
             _older.Clear();
             _loaded?.Clear();
             _loaded?.AddRange(lines);
@@ -627,8 +633,10 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     /// The newest lines up to the cache's limit; the stream events before the oldest kept one count as unloaded.
     /// A transcript whose turned-down prompt checks outgrow that limit is not kept: they hold message text.
+    /// Nor is a whole-session feed that outgrows it, which would reopen showing part of the session as all of it.
     RemoteTranscriptSnapshot? SnapshotLocked() {
         if (_lost || _projecting > 0 || _loaded is null || _position is not { } position || _base is not { } origin || _earliest is not { } earliest) return null;
+        if (_window is null && _loaded.Count > RemoteTranscriptCache.MaxLines) return null;
         // A copy: an older page still projecting merges into the live state after the feed has closed.
         ScheduledPrompts scheduled;
         lock (_scheduled) {
