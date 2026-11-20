@@ -76,6 +76,10 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
 
     string _newPartTitle = "";
     public string NewPartTitle { get => _newPartTitle; set => this.RaiseAndSetIfChanged(ref _newPartTitle, value); }
+    WorkStatus? _composing;
+    /// The status group a new slice is being typed into; null when none is.
+    public WorkStatus? Composing { get => _composing; private set => this.RaiseAndSetIfChanged(ref _composing, value); }
+    public IReadOnlyList<WorkItemPageStatus> Statuses { get; } = [.. BoardOrder.Select(status => new WorkItemPageStatus(status))];
     string _newLinkReference = "";
     public string NewLinkReference { get => _newLinkReference; set => this.RaiseAndSetIfChanged(ref _newLinkReference, value); }
 
@@ -90,6 +94,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     public ReactiveCommand<Unit, Unit> ClosePageCommand { get; }
     public ReactiveCommand<WorkItemPageSession, Unit> OpenSessionCommand { get; }
     public ReactiveCommand<WorkItemPageLooseEnd, Unit> MakePartCommand { get; }
+    public ReactiveCommand<WorkStatus, Unit> ComposeCommand { get; }
     public ReactiveCommand<Unit, Unit> AddPartCommand { get; }
     public ReactiveCommand<Unit, Unit> AddLinkCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowListCommand { get; }
@@ -125,9 +130,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         OpenSessionCommand = ReactiveCommand.Create<WorkItemPageSession>(session => openSession?.Invoke(session.SessionId)).DisposeWith(_disposables);
         MakePartCommand = ReactiveCommand.CreateFromTask<WorkItemPageLooseEnd>(looseEnd =>
             ChangeAsync(ct => _api.MakePartAsync(WorkItemId, looseEnd.LooseEndId, ct), "Couldn't make a slice from that loose end")).DisposeWith(_disposables);
-        AddPartCommand = ReactiveCommand.CreateFromTask(async () => {
-            if (await ChangeAsync(async ct => await _api.AddPartAsync(WorkItemId, NewPartTitle.Trim(), ct) is not null, "Couldn't add that slice")) NewPartTitle = "";
-        }, this.WhenAnyValue(x => x.NewPartTitle, title => !string.IsNullOrWhiteSpace(title))).DisposeWith(_disposables);
+        ComposeCommand = ReactiveCommand.Create<WorkStatus>(Compose).DisposeWith(_disposables);
+        // Completes at once, so the next title can be entered while the last is still being added.
+        AddPartCommand = ReactiveCommand.Create(() => { _ = AddPartAsync(Composing!.Value); },
+            this.WhenAnyValue(x => x.NewPartTitle, x => x.Composing, (title, status) => status is not null && !string.IsNullOrWhiteSpace(title)))
+            .DisposeWith(_disposables);
         AddLinkCommand = ReactiveCommand.CreateFromTask(async () => {
             if (await ChangeAsync(ct => _api.AddLinkAsync(WorkItemId, NewLinkReference.Trim(), ct), "Couldn't add that link")) NewLinkReference = "";
         }, this.WhenAnyValue(x => x.NewLinkReference, reference => !string.IsNullOrWhiteSpace(reference))).DisposeWith(_disposables);
@@ -225,6 +232,40 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         _arrivals.Add(sliceId!);
         Rebuild();
     }
+
+    void Compose(WorkStatus status) {
+        if (ExpandedByDefault(status)) _flipped.Remove(status.Wire());
+        else _flipped.Add(status.Wire());
+        Composing = status;
+        Rebuild();
+    }
+
+    public void CloseComposer() {
+        if (Composing is null) return;
+        Composing = null;
+        NewPartTitle = "";
+        Rebuild();
+    }
+
+    // The field clears at once for the next title; a refused one comes back unless another is already being typed.
+    async Task AddPartAsync(WorkStatus status) {
+        var title = NewPartTitle.Trim();
+        if (title.Length > MaxSliceTitle) title = title[..MaxSliceTitle];
+        NewPartTitle = "";
+        string? sliceId = null;
+        // A new slice reads as Open; setting that would pin it there instead of letting its links decide.
+        if (!await ChangeAsync(async ct => (sliceId = await _api.AddPartAsync(WorkItemId, title, ct)) is not null
+                && (status == WorkStatus.Open || await _api.SetStatusAsync(sliceId, status.Wire(), ct)),
+            "Couldn't add that slice")) {
+            if (sliceId is null && NewPartTitle.Length == 0) NewPartTitle = title;
+            return;
+        }
+        if (status != WorkStatus.Open) _setStatuses[sliceId!] = status.Wire();
+        _arrivals.Add(sliceId!);
+        Rebuild();
+    }
+
+    static bool ExpandedByDefault(WorkStatus status) => status != WorkStatus.Done;
 
     // Shows the sessions where they go before the change is sent, so a drop lands where it was let go; a refusal puts them back.
     async Task<bool> ShiftAsync(IReadOnlyList<string> sessionIds, string? to, Func<CancellationToken, Task<bool>> change, string failure) {
@@ -360,25 +401,26 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         ProgressSweep = parts.Count == 0 ? 0 : 360.0 * done / parts.Count;
 
         var byStatus = Enum.GetValues<WorkStatus>().ToDictionary(status => status, status => Group(status.Wire(), status, status.Label(),
-            status.Icon(), parts: [.. parts.Where(part => part.Status == status)], expandedByDefault: status != WorkStatus.Done));
+            status.Icon(), parts: [.. parts.Where(part => part.Status == status)], expandedByDefault: ExpandedByDefault(status),
+            isComposing: status == Composing));
         var looseEnds = Group(LooseEndsKey, null, "Loose ends", LucideIconKind.Flag,
             looseEnds: [.. read.LooseEnds.Select(looseEnd => new WorkItemPageLooseEnd(looseEnd.LooseEndId, looseEnd.Text))]);
         var otherSessions = Group(OnWorkItemKey, null, "Other sessions", LucideIconKind.MessagesSquare,
             sessions: [.. Placed(WorkItemId, read.SessionIds).Select(id => SessionOf(WorkItemId, id, rows, named))]);
         Groups = [.. Enum.GetValues<WorkStatus>().Where(status => status != WorkStatus.Done).Select(status => byStatus[status])
-            .Append(looseEnds).Append(byStatus[WorkStatus.Done]).Append(otherSessions).Where(group => group.Count > 0)];
+            .Append(looseEnds).Append(byStatus[WorkStatus.Done]).Append(otherSessions).Where(group => group.Count > 0 || group.IsComposing)];
         Columns = [otherSessions, .. looseEnds.Count > 0 ? [looseEnds] : Array.Empty<WorkItemPageGroupViewModel>(),
             .. BoardOrder.Select(status => byStatus[status])];
     }
 
     WorkItemPageGroupViewModel Group(string key, WorkStatus? status, string label, LucideIconKind icon,
             IReadOnlyList<WorkItemPagePart>? parts = null, IReadOnlyList<WorkItemPageSession>? sessions = null,
-            IReadOnlyList<WorkItemPageLooseEnd>? looseEnds = null, bool expandedByDefault = true) =>
+            IReadOnlyList<WorkItemPageLooseEnd>? looseEnds = null, bool expandedByDefault = true, bool isComposing = false) =>
         new(key, status, label, icon, parts ?? [], sessions ?? [], looseEnds ?? [],
             expandedByDefault ^ _flipped.Contains(key), expanded => {
             if (expanded == expandedByDefault) _flipped.Remove(key);
             else _flipped.Add(key);
-        });
+        }, isComposing);
 
     IEnumerable<string> Placed(string containerId, IEnumerable<string> read) =>
         read.Where(id => !_sessionMoves.ContainsKey(id)).Concat(_sessionMoves.Where(move => move.Value.To == containerId).Select(move => move.Key));

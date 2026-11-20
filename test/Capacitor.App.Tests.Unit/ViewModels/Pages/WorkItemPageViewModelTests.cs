@@ -166,6 +166,31 @@ public class WorkItemPageViewModelTests {
             TUnit.Assertions.Enums.CollectionOrdering.Matching);
     });
 
+    /// A slice is added in the status whose group the field was opened in, even one with no slices yet, and the field
+    /// stays open for the next one. Open is never set, so links still decide a slice added there.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_slice_is_added_in_the_status_it_was_typed_into() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeApi();
+        using var directory = new FakeAgentDirectory();
+        using var page = Page(api, directory);
+
+        await page.ComposeCommand.Execute(WorkStatus.InReview);
+        await Assert.That(page.Groups.Single(group => group.Status == WorkStatus.InReview).IsComposing).IsTrue();
+        page.NewPartTitle = " Review copy ";
+        await page.AddPartCommand.Execute();
+        await page.ComposeCommand.Execute(WorkStatus.Open);
+        page.NewPartTitle = "Polish";
+        await page.AddPartCommand.Execute();
+
+        await Assert.That(api.Calls).IsEquivalentTo(["add Review copy", "status p9 in_review", "add Polish"],
+            TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await Assert.That((page.Composing, page.NewPartTitle)).IsEqualTo((WorkStatus.Open, ""));
+
+        page.CloseComposer();
+        await Assert.That(page.Groups.Any(group => group.IsComposing)).IsFalse();
+    });
+
     /// A slice dropped on the other sessions moves each of its sessions there.
     [Test]
     [NotInParallel("AvaloniaSession")]

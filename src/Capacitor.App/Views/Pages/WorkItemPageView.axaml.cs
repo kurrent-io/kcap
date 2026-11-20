@@ -1,10 +1,12 @@
 using System.ComponentModel;
+using System.Windows.Input;
 using Avalonia;
 using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels.Pages;
@@ -24,6 +26,8 @@ public partial class WorkItemPageView : UserControl {
 
     public WorkItemPageView() {
         InitializeComponent();
+        // Tunnels, since the field handles Enter itself before a bubbling handler sees it.
+        AddHandler(KeyDownEvent, OnComposerKeyDown, RoutingStrategies.Tunnel);
         _reflow = new Reflow(WorkItemSlices, FlowKey);
         ContextPaneSizing.Attach(this, SplitGrid.ColumnDefinitions[1], DetailsPane, HideButton, ContextSplitter, ContextShowButton);
         _ = new RowMenu(this, "sessionRow", row =>
@@ -88,6 +92,41 @@ public partial class WorkItemPageView : UserControl {
     void OnRowAttached(object? sender, VisualTreeAttachmentEventArgs e) {
         if (sender is Control { DataContext: WorkItemPagePart { Arrives: true } or WorkItemPageSession { Arrives: true } } row)
             _ = Motion.Arrive.RunAsync(row, CancellationToken.None, (OpacityProperty, 0d, 1d));
+    }
+
+    // A rebuild replaces the group, and with it the field being typed in, so the new field takes focus back.
+    static void OnComposerAttached(object? sender, VisualTreeAttachmentEventArgs e) {
+        if (sender is not TextBox { DataContext: WorkItemPageGroupViewModel { IsComposing: true } } box) return;
+        Dispatcher.UIThread.Post(() => {
+            if (!box.IsEffectivelyVisible) return;
+            box.Focus();
+            box.CaretIndex = box.Text?.Length ?? 0;
+        }, DispatcherPriority.Loaded);
+    }
+
+    void OnComposerKeyDown(object? sender, KeyEventArgs e) {
+        if (_page is null || (e.Source as Visual)?.FindAncestorOfType<TextBox>(includeSelf: true)?.Classes.Contains("composer") != true) return;
+        if (e.Key == Key.Escape) _page.CloseComposer();
+        else if (e.Key == Key.Enter) ((ICommand)_page.AddPartCommand).Execute(null);
+        else return;
+        e.Handled = true;
+    }
+
+    // Checked once focus has settled: a field replaced by a rebuild hands focus to its successor, the status picker
+    // opens a popup, and another add button moves the field itself; closing under that button would swallow its click.
+    void OnComposerLostFocus(object? sender, RoutedEventArgs e) => Dispatcher.UIThread.Post(() => {
+        if (_page is null || !string.IsNullOrWhiteSpace(_page.NewPartTitle)) return;
+        if (TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is Control focused
+            && (focused.Classes.Contains("addSlice") || focused.FindLogicalAncestorOfType<Popup>() is not null
+                || focused.GetSelfAndVisualAncestors().OfType<Control>().Any(v => v.Classes.Contains("composerRow"))))
+            return;
+        _page.CloseComposer();
+    }, DispatcherPriority.Background);
+
+    // Runs before the flyout hides: hiding detaches the row, and a command bound through the page would go with it.
+    void OnComposerStatusClick(object? sender, RoutedEventArgs e) {
+        if (sender is Control { DataContext: WorkItemPageStatus picked }) _page?.ComposeCommand.Execute(picked.Status).Subscribe();
+        OnFlyoutItemClick(sender, e);
     }
 
     void OnFlyoutItemClick(object? sender, RoutedEventArgs e) =>
