@@ -270,6 +270,9 @@
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
         </Style>
+        <Style Selector="TextBox.kcapField:focus /template/ Border#PART_BorderElement">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" />
+        </Style>
         <!-- A button drawn as a field: it opens a surface rather than taking text. -->
         <Style Selector="Button.kcapField">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />

@@ -193,7 +193,7 @@
                                                                                 Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).BeginRenameCommand}"
                                                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                                                                 Padding="10,8" FontSize="13.5" />
-                                                                        <Button Classes="kcapChip" Content="Reconnect" Click="OnMenuItemClick" CommandParameter="{Binding}"
+                                                                        <Button Classes="kcapGhost" Content="Reconnect" Click="OnMenuItemClick" CommandParameter="{Binding}"
                                                                                 Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).RewireCommand}"
                                                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                                                                 Padding="10,8" FontSize="13.5" />
