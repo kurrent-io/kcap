@@ -7,21 +7,54 @@
              x:DataType="pages:WorkItemsPageViewModel">
     <local:ListPage x:Name="WorkItemsPage" Heading="{Binding Heading}" Count="{Binding Count}" Search="{Binding Search}"
                     SearchPlaceholder="Search work items" Message="{Binding Message}">
-        <ItemsControl ItemsSource="{Binding Rows}">
+        <local:ListPage.Filters>
+            <ComboBox x:Name="WorkItemsOwner" Classes="kcapField filter" ItemsSource="{Binding Owners}"
+                      SelectedItem="{Binding Owner, Mode=TwoWay}" AutomationProperties.Name="Owner">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="pages:SessionsPageChoice">
+                        <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+        </local:ListPage.Filters>
+        <ItemsControl x:Name="WorkItemsPageGroups" ItemsSource="{Binding Groups}">
             <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="pages:WorkItemsPageRow">
-                    <Button Classes="kcapGhost listRow" CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}"
-                            Command="{Binding $parent[local:WorkItemsPageView].((pages:WorkItemsPageViewModel)DataContext).OpenWorkItemCommand}">
-                        <Grid ColumnDefinitions="20,*">
-                            <views:AppIcon Kind="Folder" Margin="0,2,0,0" VerticalAlignment="Top" HorizontalAlignment="Left"
-                                           Foreground="{StaticResource KcapMutedBrush}" />
-                            <StackPanel Grid.Column="1" Spacing="2">
-                                <TextBlock Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding Meta}" FontSize="12" TextTrimming="CharacterEllipsis"
-                                           Foreground="{StaticResource KcapMutedBrush}" />
-                            </StackPanel>
-                        </Grid>
-                    </Button>
+                <DataTemplate x:DataType="pages:WorkItemsPageGroup">
+                    <StackPanel Margin="0,0,0,8">
+                        <TextBlock Text="{Binding Label}" FontSize="12" FontWeight="Medium"
+                                   Foreground="{StaticResource KcapMutedBrush}" Margin="0,12,0,6" />
+                        <ItemsControl ItemsSource="{Binding Rows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="pages:WorkItemsPageRow">
+                                    <Button Classes="kcapGhost listRow" CommandParameter="{Binding}" AutomationProperties.Name="{Binding Title}"
+                                            Command="{Binding $parent[local:WorkItemsPageView].((pages:WorkItemsPageViewModel)DataContext).OpenWorkItemCommand}">
+                                        <Grid ColumnDefinitions="20,*,Auto">
+                                            <views:AppIcon Kind="{Binding Icon}" Size="14" Margin="0,2,0,0" VerticalAlignment="Top" HorizontalAlignment="Left"
+                                                           Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
+                                            <StackPanel Grid.Column="1" Spacing="2">
+                                                <TextBlock Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="{Binding Meta}" FontSize="12" TextTrimming="CharacterEllipsis"
+                                                           Foreground="{StaticResource KcapMutedBrush}" />
+                                            </StackPanel>
+                                            <ItemsControl Grid.Column="2" ItemsSource="{Binding People}" VerticalAlignment="Top" Margin="8,1,0,0">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <StackPanel Orientation="Horizontal" Spacing="4" />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="pages:WorkItemsPageRowPerson">
+                                                        <views:OwnerAvatar Initials="{Binding Initials}" Url="{Binding AvatarUrl}"
+                                                                           ToolTip.Tip="{Binding Name}" AutomationProperties.Name="{Binding Name}" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>

@@ -4,16 +4,6 @@
              xmlns:local="clr-namespace:Capacitor.App.Views.Pages"
              x:Class="Capacitor.App.Views.Pages.SessionsPageView"
              x:DataType="pages:SessionsPageViewModel">
-    <UserControl.Styles>
-        <Style Selector="ComboBox.filter">
-            <Setter Property="MinWidth" Value="140" />
-            <Setter Property="MaxWidth" Value="220" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="Padding" Value="10,7" />
-            <Setter Property="MinHeight" Value="34" />
-        </Style>
-    </UserControl.Styles>
-
     <local:ListPage x:Name="SessionsPage" Heading="{Binding Heading}" Count="{Binding Count}" Search="{Binding Search}"
                     SearchPlaceholder="Search sessions" Message="{Binding Message}">
         <local:ListPage.Filters>

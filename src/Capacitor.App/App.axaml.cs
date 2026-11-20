@@ -2512,7 +2512,7 @@ public partial class App : Application {
                 sessions, rail.WhenAnyValue(r => r.Scope, r => r.Project, (scope, project) => (scope, project)), time,
                 openSession: sessionId => _ = vm?.OpenPageSessionAsync(sessionId)),
             PageKey.WorkItemsKey when readWorkItems is not null => new WorkItemsPageViewModel(
-                readWorkItems, rail.WhenAnyValue(r => r.Project), openWorkItem: id => vm?.OpenWorkItemCommand.Execute(id).Subscribe()),
+                readWorkItems, rail.WhenAnyValue(r => r.Scope, r => r.Project, (scope, project) => (scope, project)), sessions.ViewerIds, openWorkItem: id => vm?.OpenWorkItemCommand.Execute(id).Subscribe()),
             _ => null,
         };
         vm = new MainWindowViewModel(

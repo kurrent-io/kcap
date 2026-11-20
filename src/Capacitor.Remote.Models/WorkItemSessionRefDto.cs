@@ -6,4 +6,5 @@ namespace Capacitor.Remote.Models;
 public sealed record WorkItemSessionRefDto {
     [JsonPropertyName("session_id")] public required string SessionId { get; init; }
     [JsonPropertyName("part_id")]    public string? PartId { get; init; }
+    [JsonPropertyName("owner")]      public RepoSessionOwnerDto? Owner { get; init; }
 }

@@ -38,6 +38,9 @@ public static class ServerWorkItemsHttp {
                 session => session.SessionId,
                 session => session.PartId is { } part ? parts.GetValueOrDefault(part, RailWorkItem.NoPart) : RailWorkItem.NoPart,
                 StringComparer.Ordinal);
-            return new RailWorkItem(item.WorkItemId, item.Title, item.PartsDone, item.PartsTotal, bySession);
+            var people = item.Sessions.Select(session => session.Owner).OfType<RepoSessionOwnerDto>().DistinctBy(owner => owner.UserId)
+                .Select(owner => new WorkItemPerson(owner.UserId, owner.DisplayName ?? owner.Username, owner.AvatarUrl)).ToList();
+            return new RailWorkItem(item.WorkItemId, item.Title, item.PartsDone, item.PartsTotal, bySession,
+                Status: WorkStatusExtensions.ParseWorkStatus(item.Status), People: people);
         })];
 }
