@@ -115,15 +115,28 @@ static class MarkViewSelection {
     }
 
     /// The text of the block under a point in the viewer's coordinates, or the nearest one, without a
-    /// list item's marker.
-    public static string? TextAt(MarkdownViewer viewer, Point pointInViewer) {
+    /// list item's marker, and how many blocks before it read the same, whitespace aside.
+    public static (string Text, int Occurrence)? BlockAt(MarkdownViewer viewer, Point pointInViewer) {
         if (LayerOf(viewer) is not Visual layer) return null;
         var point = viewer.TranslatePoint(pointInViewer, layer) ?? pointInViewer;
         var entry = HitTestEntry(layer, point) ?? (Nearest(layer, point) is { } inside ? HitTestEntry(layer, inside) : null);
         if (entry is null) return null;
+        var text = Unmarked(entry);
+        var words = Words(text);
+        var occurrence = 0;
+        foreach (var earlier in Entries(layer)) {
+            if (ReferenceEquals(earlier, entry)) break;
+            if (Words(Unmarked(earlier)) == words) occurrence++;
+        }
+        return (text, occurrence);
+    }
+
+    static string Unmarked(object entry) {
         var plain = PlainText(entry);
         return plain[MarkerLength(entry, plain)..];
     }
+
+    static string Words(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     public static async Task CopyAsync(MarkdownViewer viewer) {
         var text = SelectedText(viewer);

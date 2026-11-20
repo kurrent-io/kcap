@@ -31,4 +31,21 @@ public class MarkdownListsTests {
     [Test]
     public async Task Text_outside_any_list_reads_no_list() =>
         await Assert.That(MarkdownLists.ItemsAround(Review, "Points to cover:")).IsNull();
+
+    [Test]
+    public async Task A_paragraph_ending_in_an_items_text_reads_no_list() =>
+        await Assert.That(MarkdownLists.ItemsAround("- Logging\n\nNot Logging", "Not Logging")).IsNull();
+
+    /// The same item text in two lists: which occurrence was clicked picks the list.
+    [Test]
+    public async Task The_clicked_occurrence_of_an_items_text_reads_its_own_list() {
+        const string twice = "- Retry\n- Lock order\n\nThen:\n\n- Retry\n- Logging";
+        await Assert.That(MarkdownLists.ItemsAround(twice, "Retry")).IsEquivalentTo(["Retry", "Lock order"]);
+        await Assert.That(MarkdownLists.ItemsAround(twice, "Retry", occurrence: 1)).IsEquivalentTo(["Retry", "Logging"]);
+    }
+
+    [Test]
+    public async Task Any_paragraph_of_a_loose_item_reads_its_list() =>
+        await Assert.That(MarkdownLists.ItemsAround("- Retry\n\n  with jitter\n\n- Logging", "with jitter"))
+            .IsEquivalentTo(["Retry with jitter", "Logging"]);
 }

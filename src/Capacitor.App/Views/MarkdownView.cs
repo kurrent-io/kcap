@@ -227,8 +227,8 @@ public sealed class MarkdownView : ContentControl {
     internal IReadOnlyList<string>? ContextListItems { get; private set; }
 
     IReadOnlyList<string>? ListAt(ContextRequestedEventArgs e) =>
-        Content is MarkdownViewer && e.TryGetPosition(_viewer, out var point)
-            ? MarkdownLists.ItemsAround(Text, MarkViewSelection.TextAt(_viewer, point))
+        Content is MarkdownViewer && e.TryGetPosition(_viewer, out var point) && MarkViewSelection.BlockAt(_viewer, point) is { } block
+            ? MarkdownLists.ItemsAround(Text, block.Text, block.Occurrence)
             : null;
 
     /// Where this text bookmarks to; null outside a chat that lists bookmarks.
