@@ -48,7 +48,28 @@ public class GrokBotWatcherServiceTests {
     }
 
     static GrokBotWatcherService Service(Func<bool?> record, FakeWatcher watcher) =>
-        new(() => Task.FromResult(record()), watcher.RunAsync, new NoWait(), NullLogger<GrokBotWatcherService>.Instance);
+        new(_ => Task.FromResult(record()), watcher.RunAsync, new NoWait(), NullLogger<GrokBotWatcherService>.Instance);
+
+    /// <summary>The setting is read from the home directory, which can stall. The read takes the stopping
+    /// token, so the daemon's shutdown does not wait on it.</summary>
+    [Test]
+    public async Task A_setting_read_that_stalls_ends_with_the_daemon() {
+        using var watcher = new FakeWatcher();
+        using var service = new GrokBotWatcherService(
+            async ct => {
+                await Task.Delay(Timeout.Infinite, ct);
+
+                return true;
+            },
+            watcher.RunAsync, new NoWait(), NullLogger<GrokBotWatcherService>.Instance);
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        await service.StartAsync(CancellationToken.None);
+        await service.StopAsync(limit.Token);
+
+        await Assert.That(service.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
+        await Assert.That(watcher.Starts).IsEqualTo(0);
+    }
 
     [Test]
     public async Task The_watcher_runs_while_the_profile_asks_for_it_and_stops_when_it_no_longer_does() {

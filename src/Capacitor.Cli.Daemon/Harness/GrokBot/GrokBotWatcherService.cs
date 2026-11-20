@@ -13,10 +13,10 @@ namespace Capacitor.Cli.Daemon.Harness.GrokBot;
 /// throws — a watcher fault must not take the daemon down.
 /// </summary>
 /// <param name="record">The profile's current answer; null when the config could not be read, which keeps
-/// whatever was last known.</param>
+/// whatever was last known. Takes the stopping token, so a read that stalls does not hold a shutdown.</param>
 /// <param name="watch">One run of the watcher, until it stops by itself or is cancelled.</param>
 internal sealed class GrokBotWatcherService(
-        Func<Task<bool?>>                                                     record,
+        Func<CancellationToken, Task<bool?>>                                  record,
         Func<Action<string>, CancellationToken, Task<GrokBotWatchOutcome>>    watch,
         TimeProvider                                                          time,
         ILogger<GrokBotWatcherService>                                        logger) : BackgroundService {
@@ -43,7 +43,7 @@ internal sealed class GrokBotWatcherService(
 
         try {
             while (!ct.IsCancellationRequested) {
-                if (await RecordAsync().ConfigureAwait(false)) {
+                if (await RecordAsync(ct).ConfigureAwait(false)) {
                     var outcome = await WatchWhileOnAsync(ct).ConfigureAwait(false);
 
                     // Said once per stretch: with no chat store or a watcher run by hand, every recheck ends the same way.
@@ -63,13 +63,17 @@ internal sealed class GrokBotWatcherService(
         using var run      = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var       watching = GuardedAsync(run.Token);
 
-        while (!watching.IsCompleted && !ct.IsCancellationRequested) {
-            await Task.WhenAny(watching, Task.Delay(Recheck, time, ct)).ConfigureAwait(false);
+        try {
+            while (!watching.IsCompleted && !ct.IsCancellationRequested) {
+                await Task.WhenAny(watching, Task.Delay(Recheck, time, ct)).ConfigureAwait(false);
 
-            if (!watching.IsCompleted && !ct.IsCancellationRequested && !await RecordAsync().ConfigureAwait(false)) {
-                logger.LogInformation("Grok Bot recording turned off; stopping the watcher");
-                await run.CancelAsync().ConfigureAwait(false);
+                if (!watching.IsCompleted && !ct.IsCancellationRequested && !await RecordAsync(ct).ConfigureAwait(false)) {
+                    logger.LogInformation("Grok Bot recording turned off; stopping the watcher");
+                    await run.CancelAsync().ConfigureAwait(false);
+                }
             }
+        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+            // The watcher is cancelled with the daemon; it is still waited for, so it has let go of its lock.
         }
 
         return await watching.ConfigureAwait(false);
@@ -87,9 +91,9 @@ internal sealed class GrokBotWatcherService(
         }
     }
 
-    async Task<bool> RecordAsync() {
+    async Task<bool> RecordAsync(CancellationToken ct) {
         try {
-            _record = await record().ConfigureAwait(false) ?? _record;
+            _record = await record(ct).ConfigureAwait(false) ?? _record;
         } catch (Exception ex) when (ex is not OperationCanceledException) {
             logger.LogDebug(ex, "Grok Bot recording setting could not be read");
         }

@@ -683,8 +683,8 @@ public static partial class DaemonRunner {
 
         builder.Services.AddSingleton<GrokBotWatcher>();
         builder.Services.AddSingleton(sp => new GrokBotWatcherService(
-            record: async () => {
-                var (outcome, snapshot) = await AppConfig.TryLoadProfileConfig(configRoot);
+            record: async ct => {
+                var (outcome, snapshot) = await AppConfig.TryLoadProfileConfig(configRoot, ct);
 
                 return GrokBotWatcherService.Records(outcome, snapshot, config.Profiles);
             },
