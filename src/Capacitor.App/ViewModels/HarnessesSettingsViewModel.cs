@@ -134,8 +134,9 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
 
     internal const string GrokBotUnread = "Could not read this profile's setting, so the switch may not show what the daemon is doing. Rescan to try again.";
 
-    internal const string GrokBotOn  = "Recording. The daemon starts within half a minute.";
-    internal const string GrokBotOff = "Not recording. The daemon stops within half a minute.";
+    // The switch is the daemon's setting only: a watcher started in a terminal never reads it.
+    internal const string GrokBotOn  = "On. The daemon starts recording within half a minute.";
+    internal const string GrokBotOff = "Off. The daemon stops recording within half a minute. A `kcap grok-bot watch` started in a terminal keeps recording until it is stopped.";
 
     internal async Task ToggleGrokBotAsync() {
         if (Busy || Scanning || !GrokBotShown) return;
