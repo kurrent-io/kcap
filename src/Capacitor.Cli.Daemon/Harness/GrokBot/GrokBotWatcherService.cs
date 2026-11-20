@@ -24,11 +24,12 @@ internal sealed class GrokBotWatcherService(
 
     /// <summary>Whether the daemon's profile asks for recording now: null when the config cannot be read.
     /// The watcher posts to the server the daemon started with, so a profile since pointed at another
-    /// server gave its answer for that one and it does not count here.</summary>
+    /// server gave its answer for that one and it does not count here. A profile the config no longer holds
+    /// asks for nothing: what it said when the daemon started is not an answer.</summary>
     public static bool? Records(ProfileConfigLoad outcome, ProfileConfig snapshot, ProfileContext own) {
         if (outcome == ProfileConfigLoad.Unreadable) return null;
 
-        var profile = snapshot.Profiles.GetValueOrDefault(own.Name) ?? own.Effective;
+        var profile = snapshot.Profiles.GetValueOrDefault(own.Name);
 
         return profile?.GrokBot?.Record == true && ServerIdentity.SameServer(profile.ServerUrl, own.Resolution.ServerUrl);
     }

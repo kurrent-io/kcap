@@ -155,6 +155,7 @@ public class GrokBotWatcherServiceTests {
         await Assert.That(GrokBotWatcherService.Records(ProfileConfigLoad.Ok, Config(Recording("https://acme.kcap.ai", record: false)), own) == false).IsTrue();
         await Assert.That(GrokBotWatcherService.Records(ProfileConfigLoad.Ok, Config(Recording("https://acme.kcap.ai", record: null)), own) == false).IsTrue();
         await Assert.That(GrokBotWatcherService.Records(ProfileConfigLoad.Ok, Config(Recording("https://other.kcap.ai")), own) == false).IsTrue();
+        await Assert.That(GrokBotWatcherService.Records(ProfileConfigLoad.Ok, new ProfileConfig(), own) == false).IsTrue();
         await Assert.That(GrokBotWatcherService.Records(ProfileConfigLoad.Unreadable, Config(Recording("https://acme.kcap.ai")), own)).IsNull();
     }
 
