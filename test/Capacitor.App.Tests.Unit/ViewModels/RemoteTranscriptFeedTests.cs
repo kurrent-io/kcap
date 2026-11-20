@@ -796,6 +796,34 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(taken[0]).IsTrue();
     }
 
+    /// A refused older page stops the paging, so scrolling does not ask again, until access is granted anew.
+    [Test]
+    public async Task A_refused_older_page_stops_paging_until_access_is_granted_again() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = Open(server, lane, access);
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+        feed.ReadAppended();
+        server.NotFound = true;
+        await Assert.That(feed.RequestOlder()).IsTrue();
+        await feed.PendingOlderForTesting!;
+        var asked = server.RequestCount;
+
+        await Assert.That(feed.HasOlder).IsFalse();
+        await Assert.That(feed.RequestOlder()).IsFalse();
+        await Assert.That(server.RequestCount).IsEqualTo(asked);
+
+        server.NotFound = false;
+        access.OnNext(SessionAccessState.Denied);
+        access.OnNext(SessionAccessState.Established);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the tail after the new grant");
+        await Assert.That(feed.HasOlder).IsTrue();
+        await Assert.That(feed.RequestOlder()).IsTrue();
+        await feed.PendingOlderForTesting!;
+        await Assert.That(feed.ReadAppended().Older.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(100, 300).Select(i => (long)i));
+    }
+
     /// An older page that fails as an unreachable server would is read again after the retry gap.
     [Test]
     public async Task A_failed_older_page_is_read_again() {

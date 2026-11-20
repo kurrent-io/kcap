@@ -64,6 +64,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// Older lines not yet drained, oldest first.
     readonly List<ProjectedLine> _older = new();
     Task? _olderRun;
+    /// Set by a refused older page; asking again would be refused the same way until access is granted anew.
+    bool _olderRefused;
     /// The event number `from` counts from; null until a seed learns it.
     long? _base;
     readonly RemoteTranscriptCache? _cache;
@@ -90,10 +92,10 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     internal bool HasPendingChanges { get { lock (_lock) return _pending.Count > 0 || _older.Count > 0 || _pendingStatus == FeedStatus.Reset || _verdict is not null && !_verdictRead; } }
 
     /// Whether events before the oldest loaded one remain on the server.
-    internal bool HasOlder { get { lock (_lock) return _earliest > 0; } }
+    internal bool HasOlder { get { lock (_lock) return _earliest > 0 && !_olderRefused; } }
 
     /// Whether the next older page is loaded without the reader asking for it.
-    internal bool PrefetchesOlder { get { lock (_lock) return _earliest > 0 && _position - _oldest + 1 < _prefetch; } }
+    internal bool PrefetchesOlder { get { lock (_lock) return _earliest > 0 && !_olderRefused && _position - _oldest + 1 < _prefetch; } }
 
     internal Task? PendingRunForTesting { get; private set; }
     internal Task? PendingOlderForTesting { get; private set; }
@@ -159,6 +161,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             if (_disposed) return;
             _tailCts?.Cancel();
             _verdict = null;
+            _olderRefused = false;
             var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             _tailCts = cts;
             var attempt = ++_attempt;
@@ -352,7 +355,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// remains. Its lines arrive as the next read's Older.
     internal bool RequestOlder() {
         lock (_lock) {
-            if (_disposed || _olderRun is not null || _earliest is not (> 0 and var earliest)) return false;
+            if (_disposed || _olderRun is not null || _olderRefused || _earliest is not (> 0 and var earliest)) return false;
             var token = _lifetime.Token;
             var oldest = _oldest;
             var run = Task.Run(() => LoadOlderAsync(earliest, oldest, token));
@@ -439,6 +442,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// Null for a refusal, which stops paging and refuses the session; any other failure throws, for the retry.
     (long Earliest, long? Oldest)? Refused(StreamEventsFetch fetch) {
         if (fetch is { NotFound: false, Unauthorized: false }) throw new InvalidOperationException(fetch.Failure ?? "could not read older events");
+        lock (_lock) _olderRefused = true;
         Forget();
         _log($"remote transcript: older events: {(fetch.NotFound ? "not found" : "not signed in")}");
         return null;
