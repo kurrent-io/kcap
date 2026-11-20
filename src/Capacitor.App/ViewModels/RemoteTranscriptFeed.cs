@@ -230,7 +230,11 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             kept = _resume;
             _resume = null;
         }
-        if (kept is null && _cache?.Take(_sessionId) is { } taken) kept = (taken, stamp);
+        if (kept is null && _cache?.Take(_sessionId) is { } taken) {
+            // The cache is keyed by session alone: lines a windowed feed kept would show part of the session as all of it.
+            if (_window is null && taken.Earliest > 0) _cache.Put(_sessionId, taken, stamp);
+            else kept = (taken, stamp);
+        }
         if (kept is { } resume) {
             bool? resumed;
             try {

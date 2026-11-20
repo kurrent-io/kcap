@@ -970,6 +970,27 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(server.Requests).IsEquivalentTo(new[] { (49L, 1000) });
     }
 
+    /// The cache is keyed by session alone, so a whole-session feed can find the lines a windowed feed kept. Those
+    /// start part way into the stream, so it reads the whole session instead, and leaves them for the windowed feed.
+    [Test]
+    public async Task A_whole_session_feed_does_not_resume_from_a_windowed_feeds_lines() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = Cache();
+        using (var windowed = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache, prefetch: 0)) {
+            await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the windowed tail");
+            windowed.ReadAppended();
+        }
+        await Assert.That(cache.Contains("s1")).IsTrue();
+
+        using var whole = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, window: null, cache: cache);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the whole-session tail");
+
+        await Assert.That(whole.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 700).Select(i => (long)i));
+        await Assert.That(cache.Contains("s1")).IsTrue();
+    }
+
     /// The cache holds only the newest lines, so a whole-session feed longer than that is not kept: reopening it
     /// from the kept lines would show part of the session as the whole of it.
     [Test]
