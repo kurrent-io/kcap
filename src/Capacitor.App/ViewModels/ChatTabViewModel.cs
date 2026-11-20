@@ -2138,8 +2138,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             shell.Output = output.Output;
             _items.RemoveAt(0);
         }
-        // With no rows shown, the page's open group or command is the newest row, which live events continue.
-        if (_items.Count == 0) {
+        // With no transcript rows shown, the page's open group or command is the newest row, which live events continue.
+        if (ShowsNoTranscriptRows()) {
             _openGroup = older.OpenGroup;
             _openShell = older.OpenShell;
         }
@@ -2203,8 +2203,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// A seed whose events show no rows leaves nothing to scroll, so older pages are read until one does;
     /// a live session's are read regardless, for the runs they start, and any session's while the feed prefetches.
     void RequestOlderUnasked() {
-        if (_items.Count == 0 || !_ended || _lease?.Feed is RemoteTranscriptFeed { PrefetchesOlder: true }) RequestOlder();
+        if (ShowsNoTranscriptRows() || !_ended || _lease?.Feed is RemoteTranscriptFeed { PrefetchesOlder: true }) RequestOlder();
     }
+
+    /// Pending cards always sit last and are not part of the transcript.
+    bool ShowsNoTranscriptRows() => _items.All(static item => item is PendingCardItem);
 
     /// A remote feed's offset is the line's number in the session's root stream; a local one's is a file
     /// position, so only the envelope's own keys name it there. A journaled message with no dispatch is the
