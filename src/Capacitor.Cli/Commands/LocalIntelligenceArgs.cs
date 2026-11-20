@@ -37,7 +37,7 @@ sealed record LocalIntelligenceArgs(
             } else if (arg.StartsWith(DailyLimitFlag + "=", StringComparison.Ordinal)) {
                 limit = arg[(DailyLimitFlag.Length + 1)..];
             } else if (arg == DailyLimitFlag) {
-                if (i + 1 >= rest.Length) return Refuse(DailyLimitRange);
+                if (i + 1 >= rest.Length || rest[i + 1].StartsWith('-')) return Refuse(DailyLimitRange);
                 limit = rest[++i];
             } else if (arg.StartsWith('-')) {
                 if (!Switches.Contains(arg)) return Refuse($"Unknown option for kcap local intelligence: {arg}");

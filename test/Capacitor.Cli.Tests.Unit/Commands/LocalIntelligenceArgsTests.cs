@@ -39,6 +39,7 @@ public class LocalIntelligenceArgsTests {
     [Arguments(new[] { "--daily-limit", "-5" }, "whole number from 1 to 100,000")]
     [Arguments(new[] { "--daily-limit=1.5" }, "whole number from 1 to 100,000")]
     [Arguments(new[] { "--daily-limit" }, "whole number from 1 to 100,000")]
+    [Arguments(new[] { "--daily-limit", "--no-import-outcomes", "--daily-limit=500" }, "whole number from 1 to 100,000")]
     [Arguments(new[] { "--json" }, "Name who runs")]
     [Arguments(new[] { "status", "--daily-limit", "5" }, "takes only --json")]
     [Arguments(new[] { "status", "--import-outcomes" }, "takes only --json")]
