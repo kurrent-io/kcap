@@ -6,7 +6,7 @@
              xmlns:pages="clr-namespace:Capacitor.App.ViewModels.Pages"
              xmlns:svc="clr-namespace:Capacitor.App.Services"
              xmlns:cmd="clr-namespace:Capacitor.Cli.Core.Commands;assembly=Capacitor.Cli.Core"
-             x:Class="Capacitor.App.Views.Rail.SessionRailView"
+             x:Class="Capacitor.App.Views.Rail.SessionRailView" ClipToBounds="False"
              x:DataType="vm:MainWindowViewModel">
     <!-- DataContext is INHERITED from the window (never assigned here), so Rail is null on any
          window built without one — every Rail.* binding below carries a fallback for that. -->
@@ -812,16 +812,17 @@
             </ScrollViewer>
         </DockPanel>
     </Border>
+    <!-- The ghost follows the pointer out of the rail: the view is unclipped and raised over the content pane. -->
     <Canvas IsHitTestVisible="False">
         <Border x:Name="RailDragGhost" IsVisible="False" DataContext="{x:Null}" x:DataType="vm:RailSessionViewModel"
                 Height="32" MaxWidth="220" Padding="12,0" CornerRadius="6" BorderThickness="1"
                 Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderStrongBrush}">
-            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <ContentControl VerticalAlignment="Center"
+            <DockPanel VerticalAlignment="Center">
+                <ContentControl DockPanel.Dock="Left" Margin="0,0,8,0" VerticalAlignment="Center"
                                 Content="{Binding Vendor, FallbackValue={x:Null}, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=13}" />
                 <TextBlock x:Name="RailDragGhostLabel" FontSize="13" FontWeight="Medium" Foreground="{StaticResource KcapTextBrush}"
                            TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-            </StackPanel>
+            </DockPanel>
         </Border>
     </Canvas>
     </Panel>
