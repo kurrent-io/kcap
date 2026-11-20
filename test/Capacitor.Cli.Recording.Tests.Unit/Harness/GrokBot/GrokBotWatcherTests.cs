@@ -136,9 +136,9 @@ public class GrokBotWatcherTests {
 
         var running = watcher.RunAsync(options, _ => { }, stop.Token);
         using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        while (watcher.Running() is null) await Task.Delay(10, limit.Token);
+        while (watcher.Running()?.Server is null) await Task.Delay(10, limit.Token);
 
-        await Assert.That(watcher.Running()).IsEqualTo(new GrokBotWatchStatus("https://acme.kcap.ai", Environment.ProcessId));
+        await Assert.That(watcher.Running()).IsEqualTo(new GrokBotWatchStatus("https://acme.kcap.ai", "default", Environment.ProcessId));
 
         await stop.CancelAsync();
         await Assert.That(await running).IsEqualTo(GrokBotWatchOutcome.Stopped);
@@ -149,13 +149,13 @@ public class GrokBotWatcherTests {
     /// <summary>A status left by an earlier watcher sits under a lock a later one holds until that one writes
     /// its own. It names a process that is gone, and is not taken for the running watcher's.</summary>
     [Test]
-    [Arguments("""{"pid":2147483646,"server":"https://stale.kcap.ai"}""")]
+    [Arguments("""{"pid":2147483646,"server":"https://stale.kcap.ai","profile":"default"}""")]
     [Arguments("{not json")]
     public async Task A_status_the_running_watcher_did_not_write_leaves_its_destination_unknown(string left) {
         Tmp.CreateFile(["config", "grok-bot", "watch.json"], left);
 
         await using (new FileStream(Tmp.CreateFile(["config", "grok-bot", "watch.lock"]), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
-            await Assert.That(Watcher(new Server()).Running()).IsEqualTo(new GrokBotWatchStatus(null, null));
+            await Assert.That(Watcher(new Server()).Running()).IsEqualTo(new GrokBotWatchStatus(null, null, null));
     }
 
     [Test]

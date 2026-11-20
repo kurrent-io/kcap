@@ -48,16 +48,18 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
         try {
             var status = JsonNode.Parse(File.ReadAllTextShared(StatusPath));
 
-            if (status?["pid"]?.GetValue<int>() is { } pid && status["server"]?.GetValue<string>() is { } server) {
+            if (status?["pid"]?.GetValue<int>() is { } pid
+             && status["server"]?.GetValue<string>() is { } server
+             && status["profile"]?.GetValue<string>() is { } profile) {
                 using var writer = Process.GetProcessById(pid);
 
-                return new GrokBotWatchStatus(server, pid);
+                return new GrokBotWatchStatus(server, profile, pid);
             }
         } catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException or FormatException) {
             // Unreadable, or left by a process that is gone.
         }
 
-        return new GrokBotWatchStatus(null, null);
+        return new GrokBotWatchStatus(null, null, null);
     }
 
     /// <param name="log">Receives one line per thing worth telling whoever runs the watcher.</param>
@@ -76,14 +78,16 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
             } catch (IOException) {
                 return GrokBotWatchOutcome.AlreadyRunning;
             }
-
-            // First thing under the lock, so a held lock never vouches for the watcher before this one.
-            var status = StatusPath + ".tmp";
-            await File.WriteAllTextAsync(status, new JsonObject { ["pid"] = Environment.ProcessId, ["server"] = Destination }.ToJsonString(), ct);
-            File.Move(status, StatusPath, overwrite: true);
         }
 
         using var _ = held;
+
+        // First thing under the lock, so a held lock never vouches for the watcher before this one.
+        if (held is not null) {
+            var status = StatusPath + ".tmp";
+            File.WriteAllText(status, new JsonObject { ["pid"] = Environment.ProcessId, ["server"] = Destination, ["profile"] = profiles.Name }.ToJsonString());
+            File.Move(status, StatusPath, overwrite: true);
+        }
 
         var store   = GrokBotStateStore.For(config, profiles.Resolution.ServerUrl!, profiles.Name);
         var run     = new Run(source, store, store.Load(), options, log);

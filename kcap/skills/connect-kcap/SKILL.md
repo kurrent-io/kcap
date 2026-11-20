@@ -421,25 +421,28 @@ account, not once per Bot.
 ### C1. Check what is already there
 
 ```bash
-command -v kcap && kcap whoami && kcap grok-bot status
+command -v kcap && { kcap whoami; kcap grok-bot status; }
 ```
 
 A `Server:` line naming the workspace the user wants plus `Server:   accepts
 this token` means C2 and C3 are done.
 
-`kcap grok-bot status` speaks for the watcher that is actually running, however
-it was started. A watcher keeps the workspace it started with, whatever kcap is
-signed in to now, so read its answer rather than a log:
+Read what `kcap grok-bot status` says whatever `kcap whoami` said: a watcher
+keeps the workspace and the profile it started with, so it goes on recording
+there through a lapsed sign-in or a sign-in elsewhere. It speaks for the watcher
+that is actually running, however that was started:
 
-- `posting to <address>` naming the workspace the user wants: recording is
-  already active there. Say so and stop.
+- `No Grok Bot watcher is running`: go on.
 - `Where it posts could not be read`: ask once more after a few seconds, since
   a watcher that has only just started has not said yet.
-- `posting to` any other address, or a second `could not be read`: a watcher is
-  recording somewhere the user did not ask for. Tell them where, or that it
-  cannot be told, and with their agreement stop it the way C4 says before going
-  on to C3 and C4.
-- `No Grok Bot watcher is running`: go on.
+- `posting to <address> as profile <name>`, with `whoami` accepted, the address
+  the workspace the user wants and the name the one on `whoami`'s `Profile:`
+  line: recording is already active there, as them. Say so and stop.
+- anything else is a watcher recording somewhere, or as someone, the user did
+  not ask for: another address, another profile, a second `could not be read`,
+  or a `whoami` that was not accepted. Tell them the address and profile, or
+  that they cannot be told, and with their agreement stop it the way C4 says
+  before going on to C3 and C4.
 
 ### C2. Install
 
@@ -495,6 +498,15 @@ sleep 10; tail -5 ~/.config/kcap/grok-bot/watch.log; kcap grok-bot status
 The bracket keeps `pgrep` from matching the shell that runs it, whose own
 command line holds the same words; without it a watcher always seems to be
 running.
+
+Go on only when `kcap grok-bot status` says `posting to` the workspace from C3
+`as profile` the name on `kcap whoami`'s `Profile:` line:
+
+- `No Grok Bot watcher is running` means the start failed, and the last lines
+  of the log say why: `No Grok Bot here` is a computer with no Grok Bot gateway
+  to read. Tell the user what the log says and stop here, without C5.
+- any other address or profile is a watcher from before this run: handle it as
+  C1 says.
 
 The log shows `watching …, posting to <workspace>` and then `open session …` /
 `send N entries …` lines. A second watcher refuses to start, so this block is safe to run again,

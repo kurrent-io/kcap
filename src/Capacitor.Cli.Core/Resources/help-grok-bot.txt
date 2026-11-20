@@ -24,8 +24,8 @@ computer with the desktop app), so recording starts with the daemon and needs
 no terminal. This command runs the same watcher by hand.
 
 status says whether a watcher is running on this computer, whoever started it,
-and which server it posts to. A watcher keeps the server it started with, so
-this is the way to tell where a running one records.
+and which server it posts to as which profile. A watcher keeps the server and
+profile it started with, so this is the way to tell where a running one records.
 
 One watcher runs per computer, the daemon's or this one; --dry-run is the
 exception, since it sends and saves nothing. Delivery state lives under the kcap
