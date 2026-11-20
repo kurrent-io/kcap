@@ -7,10 +7,8 @@ namespace Capacitor.Cli.Core.Plans;
 /// `WithheldContributions` counts the rows when contributions from sessions the viewer cannot see
 /// were excluded.
 public sealed record PlanLedgerDto {
-    readonly List<PlanLedgerTaskDto> _tasks = [];
-
     [JsonPropertyName("plan_id")]                public string?                 PlanId                { get; init; }
-    [JsonPropertyName("tasks")]                  public List<PlanLedgerTaskDto> Tasks                 { get => _tasks; init => _tasks = value ?? []; }
+    [JsonPropertyName("tasks")]                  public List<PlanLedgerTaskDto> Tasks                 { get; init => field = value ?? []; } = [];
     [JsonPropertyName("completed")]              public int                     Completed             { get; init; }
     [JsonPropertyName("total")]                  public int                     Total                 { get; init; }
     [JsonPropertyName("total_known")]            public bool                    TotalKnown            { get; init; }

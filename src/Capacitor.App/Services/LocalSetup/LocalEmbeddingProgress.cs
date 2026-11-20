@@ -9,8 +9,7 @@ namespace Capacitor.App.Services.LocalSetup;
 /// Ollama probe setup makes without a flag.
 public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) : ReactiveObject {
     long _bytes;
-    bool _pulling, _builtin;
-    string? _model, _configuredModel, _replacedModel, _skipCode, _skipMessage, _removed;
+    string? _removed;
 
     const string BuiltinName = "the built-in model";
     const string KeywordAsChosen = "Search by keyword, as chosen.";
@@ -19,13 +18,13 @@ public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) :
 
     /// The model the step is working on, from its latest line.
     public string? Model {
-        get => _model;
-        private set => this.RaiseAndSetIfChanged(ref _model, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Pulling {
-        get => _pulling;
-        private set => this.RaiseAndSetIfChanged(ref _pulling, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public double? PullFraction {
@@ -34,30 +33,30 @@ public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) :
     }
 
     public string? ConfiguredModel {
-        get => _configuredModel;
-        private set => this.RaiseAndSetIfChanged(ref _configuredModel, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The model `ConfiguredModel` replaced: everything stored is embedded again in the background.
     public string? ReplacedModel {
-        get => _replacedModel;
-        private set => this.RaiseAndSetIfChanged(ref _replacedModel, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? SkipCode {
-        get => _skipCode;
-        private set => this.RaiseAndSetIfChanged(ref _skipCode, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? SkipMessage {
-        get => _skipMessage;
-        private set => this.RaiseAndSetIfChanged(ref _skipMessage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The step works on, or ended with, the built-in model rather than an Ollama model.
     public bool Builtin {
-        get => _builtin;
-        private set => this.RaiseAndSetIfChanged(ref _builtin, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Configured => ConfiguredModel is not null;

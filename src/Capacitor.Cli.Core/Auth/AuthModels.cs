@@ -209,11 +209,9 @@ public sealed record DiscoveredTenant {
     /// <summary>The profile the tenant is saved under: its slug or org login unless
     /// <see cref="TenantDiscovery.NameProfiles"/> matched an existing profile on its server.</summary>
     [JsonIgnore] public string ProfileName {
-        get => _profileName ?? (IsWorkOS ? (Slug ?? OrganizationId ?? "tenant") : OrgLogin);
-        init => _profileName = value;
+        get => field ?? (IsWorkOS ? (Slug ?? OrganizationId ?? "tenant") : OrgLogin);
+        init => field = value;
     }
-
-    readonly string? _profileName;
 
     [JsonIgnore] public string Label       => !string.IsNullOrEmpty(DisplayName) ? DisplayName : OrgLogin;
 }

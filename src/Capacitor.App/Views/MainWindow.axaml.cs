@@ -102,7 +102,6 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     WindowNotificationManager? _notifications;
     IDisposable? _notifierSubscription;
-    IAppNotifier? _notifier;
 
     PullRequestContextViewModel? _foregroundPullRequests;
 
@@ -110,9 +109,9 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     /// AgentActionService pushes into, so the toast overlay and stderr mirroring are always in
     /// sync. Left null on a plainly-constructed window (tests that don't exercise toasts).
     public IAppNotifier? Notifier {
-        get => _notifier;
+        get => field;
         set {
-            _notifier = value;
+            field = value;
             _notifierSubscription?.Dispose();
             _notifierSubscription = value?.Messages
                 .ObserveOn(RxSchedulers.MainThreadScheduler)

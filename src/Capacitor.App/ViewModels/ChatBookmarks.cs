@@ -54,22 +54,19 @@ public sealed class ChatBookmarks : ReactiveObject {
         }
     }
 
-    bool _any;
-    public bool Any { get => _any; private set => this.RaiseAndSetIfChanged(ref _any, value); }
+    public bool Any { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    IReadOnlyList<ChatBookmarkGroup> _sections = [];
     /// The chat's outline: each topic with the bookmarks taken from its messages, and the bookmarks
     /// taken from outside every topic where they fall between topics, all in chat order.
     public IReadOnlyList<ChatBookmarkGroup> Sections {
-        get => _sections;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _sections, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             HasSections = value.Count > 0;
         }
-    }
+    } = [];
 
-    bool _hasSections;
-    public bool HasSections { get => _hasSections; private set => this.RaiseAndSetIfChanged(ref _hasSections, value); }
+    public bool HasSections { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// The chat now shows <paramref name="feed"/>: its bookmarks come back with it.
     public void Reset(string? feed) {

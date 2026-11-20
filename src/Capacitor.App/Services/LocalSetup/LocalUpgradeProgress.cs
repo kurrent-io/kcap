@@ -8,7 +8,6 @@ public sealed class LocalUpgradeProgress : ReactiveObject {
     long _bytes;
     // Between `recovering` and `recovered` the lines are an earlier, interrupted run's.
     bool _recovering;
-    string? _from, _to, _switchedTo;
 
     public LocalEmbeddingProgress Embeddings { get; } = new();
 
@@ -24,20 +23,20 @@ public sealed class LocalUpgradeProgress : ReactiveObject {
 
     /// The stack's version before the upgrade.
     public string? From {
-        get => _from;
-        private set => this.RaiseAndSetIfChanged(ref _from, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The version the upgrade moves the stack to.
     public string? To {
-        get => _to;
-        private set => this.RaiseAndSetIfChanged(ref _to, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Set once the registry names the new version, whatever happens after.
     public string? SwitchedTo {
-        get => _switchedTo;
-        private set => this.RaiseAndSetIfChanged(ref _switchedTo, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? ServerUrl { get; private set; }

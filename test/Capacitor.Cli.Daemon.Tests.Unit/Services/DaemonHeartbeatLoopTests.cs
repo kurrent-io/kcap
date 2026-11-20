@@ -395,9 +395,7 @@ public class DaemonHeartbeatLoopTests {
         public static readonly TimeSpan Deadline = TimeSpan.FromSeconds(10);
 
         public FakeTimeProvider    Clock { get; } = new();
-        public DaemonHeartbeatLoop Loop  => _loop ??= new(port, Deadline, NullLogger.Instance, Clock);
-
-        DaemonHeartbeatLoop? _loop;
+        public DaemonHeartbeatLoop Loop  => field ??= new(port, Deadline, NullLogger.Instance, Clock);
 
         /// One tick whose credential wait runs out on the fake clock.
         public async Task TickPastDeadline() {

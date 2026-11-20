@@ -7,10 +7,6 @@ namespace Capacitor.Cli.Core.WorkItems;
 /// <see cref="EnrichedTitle"/> is the tracker's title when <see cref="Title"/> is a key, else null.
 /// <see cref="SessionCount"/> counts only attached sessions the caller can see.
 public sealed record WorkItemDto {
-    readonly List<WorkItemLinkDto> _links = [];
-    readonly List<WorkItemPartDto> _parts = [];
-    readonly List<WorkItemContributorDto> _contributors = [];
-
     [JsonPropertyName("work_item_id")]           public required string             WorkItemId           { get; init; }
     [JsonPropertyName("title")]                  public required string             Title                { get; init; }
     [JsonPropertyName("enriched_title")]         public string?                     EnrichedTitle        { get; init; }
@@ -18,9 +14,9 @@ public sealed record WorkItemDto {
     [JsonPropertyName("is_overview_mechanical")] public bool                        IsOverviewMechanical { get; init; }
     [JsonPropertyName("key")]                    public WorkItemKeyDto?             Key                  { get; init; }
     [JsonPropertyName("state")]                  public WorkItemStateDto?           State                { get; init; }
-    [JsonPropertyName("links")]                  public List<WorkItemLinkDto>       Links        { get => _links; init => _links = value ?? []; }
-    [JsonPropertyName("parts")]                  public List<WorkItemPartDto>       Parts        { get => _parts; init => _parts = value ?? []; }
-    [JsonPropertyName("contributors")]           public List<WorkItemContributorDto> Contributors { get => _contributors; init => _contributors = value ?? []; }
+    [JsonPropertyName("links")]                  public List<WorkItemLinkDto>       Links        { get; init => field = value ?? []; } = [];
+    [JsonPropertyName("parts")]                  public List<WorkItemPartDto>       Parts        { get; init => field = value ?? []; } = [];
+    [JsonPropertyName("contributors")]           public List<WorkItemContributorDto> Contributors { get; init => field = value ?? []; } = [];
     [JsonPropertyName("session_count")]          public int                         SessionCount { get; init; }
 }
 

@@ -122,12 +122,11 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     public bool ShowsProgressiveDisclosure => _showsProgressiveDisclosure.Value;
     readonly ObservableAsPropertyHelper<bool> _showsProgressiveDisclosure;
 
-    SubagentPaneViewModel? _subagent;
     /// A subagent's own transcript, shown in place of the chat until the user goes back.
     public SubagentPaneViewModel? Subagent {
-        get => _subagent;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _subagent, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsChat));
             this.RaisePropertyChanged(nameof(ShowsSubagent));
             RaiseBannerNotice();

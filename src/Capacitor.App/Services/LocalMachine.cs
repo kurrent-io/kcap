@@ -6,7 +6,6 @@ namespace Capacitor.App.Services;
 /// creates it: a machine whose hooks and daemon have not run yet has recorded nothing, so a null id
 /// matches no session. It is read again until present, since a first hook can create it while the app runs.
 public sealed class LocalMachine(MachineId machineId) {
-    string? _id;
 
-    public string? Id => _id ??= machineId.ReadPersisted();
+    public string? Id => field ??= machineId.ReadPersisted();
 }

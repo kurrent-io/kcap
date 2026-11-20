@@ -18,6 +18,5 @@ public sealed class ChatBookmark(string text, ChatMessageKey? message, string? q
     /// Whether <paramref name="row"/>, the message now at this bookmark's key, is the one it was taken from.
     public bool Fits(ChatItemViewModel row) => Anchor is null || ChatTopics.AnchorOf(row) == Anchor;
 
-    ChatBookmarkColor _color = ChatBookmarkColor.Blue;
-    public ChatBookmarkColor Color { get => _color; set => this.RaiseAndSetIfChanged(ref _color, value); }
+    public ChatBookmarkColor Color { get; set => this.RaiseAndSetIfChanged(ref field, value); } = ChatBookmarkColor.Blue;
 }

@@ -6,8 +6,7 @@ namespace Capacitor.App.Services.LocalSetup;
 /// afterwards by <see cref="LocalInstallOutcome.Settle"/>. Unknown events are ignored.
 public sealed class LocalSetupProgress(LocalEmbeddingChoice? embeddings = null) : ReactiveObject {
     long _bytes;
-    bool _recovering, _rollingBack, _reused, _sawSuccess, _sawRecovery, _serviceDeclined, _serviceUnavailable;
-    string? _serverUrl, _failedCode, _failedMessage;
+    bool _sawRecovery;
 
     public InstallRow Download   { get; } = new();
     public InstallRow Verify     { get; } = new();
@@ -22,56 +21,56 @@ public sealed class LocalSetupProgress(LocalEmbeddingChoice? embeddings = null) 
     }
 
     public bool Recovering {
-        get => _recovering;
-        private set => this.RaiseAndSetIfChanged(ref _recovering, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool RollingBack {
-        get => _rollingBack;
-        private set => this.RaiseAndSetIfChanged(ref _rollingBack, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Reused {
-        get => _reused;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _reused, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Plan));
         }
     }
 
     public string? ServerUrl {
-        get => _serverUrl;
-        private set => this.RaiseAndSetIfChanged(ref _serverUrl, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool SawSuccess {
-        get => _sawSuccess;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _sawSuccess, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Plan));
         }
     }
 
     /// The administrator prompt for the Windows service was declined; the server runs while the user is signed in.
     public bool WindowsServiceDeclined {
-        get => _serviceDeclined;
-        private set => this.RaiseAndSetIfChanged(ref _serviceDeclined, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The Windows service could not be installed; the server runs while the user is signed in.
     public bool WindowsServiceUnavailable {
-        get => _serviceUnavailable;
-        private set => this.RaiseAndSetIfChanged(ref _serviceUnavailable, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? FailedCode {
-        get => _failedCode;
-        private set => this.RaiseAndSetIfChanged(ref _failedCode, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? FailedMessage {
-        get => _failedMessage;
-        private set => this.RaiseAndSetIfChanged(ref _failedMessage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// `reused`, `recovered` (an earlier setup was finished and this one committed) or `fresh`.

@@ -20,18 +20,16 @@ public sealed class ChatTopicItem : ChatItemViewModel {
     /// The name the user gave the topic; null while it is named after its first message.
     public string? CustomName { get; internal set; }
 
-    bool _isRenaming;
     /// Starting a rename puts the current name in <see cref="Draft"/>.
     public bool IsRenaming {
-        get => _isRenaming;
+        get;
         set {
-            if (value && !_isRenaming) Draft = Label;
-            this.RaiseAndSetIfChanged(ref _isRenaming, value);
+            if (value && !field) Draft = Label;
+            this.RaiseAndSetIfChanged(ref field, value);
         }
     }
 
-    string _draft = "";
-    public string Draft { get => _draft; set => this.RaiseAndSetIfChanged(ref _draft, value); }
+    public string Draft { get; set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
     /// Ends a rename: a blank name goes back to naming the topic after its first message.
     public void Rename(string? name) {
@@ -39,19 +37,17 @@ public sealed class ChatTopicItem : ChatItemViewModel {
         _rename(this, string.IsNullOrWhiteSpace(name) ? null : name.Trim());
     }
 
-    string _label = "";
     public string Label {
-        get => _label;
+        get;
         private set {
-            if (_label == value) return;
-            _label = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(ToggleAccessibleName));
         }
-    }
+    } = "";
 
-    string _summary = "";
-    public string Summary { get => _summary; private set => this.RaiseAndSetIfChanged(ref _summary, value); }
+    public string Summary { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
     bool _isExpanded = true;
     public bool IsExpanded {
@@ -69,9 +65,8 @@ public sealed class ChatTopicItem : ChatItemViewModel {
 
     public string ToggleTip => _isExpanded ? "Collapse" : "Expand";
 
-    bool _isCurrent;
     /// Whether this is the topic the chat is scrolled to.
-    public bool IsCurrent { get => _isCurrent; internal set => this.RaiseAndSetIfChanged(ref _isCurrent, value); }
+    public bool IsCurrent { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// The rows a folded topic holds.
     public IReadOnlyList<ChatItemViewModel> Hidden => _hidden;

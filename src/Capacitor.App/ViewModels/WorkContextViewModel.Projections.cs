@@ -217,13 +217,11 @@ public sealed partial class WorkContextViewModel {
         private set => _layout.OutlineExpanded = value;
     }
 
-    ChatTopics? _topics;
     /// The chat's topics, listed with its bookmarks under the session's facts.
-    public ChatTopics? Topics { get => _topics; set => this.RaiseAndSetIfChanged(ref _topics, value); }
+    public ChatTopics? Topics { get; set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    ChatBookmarks? _bookmarks;
     /// The chat's bookmarks, which also lay out the topics and bookmarks section.
-    public ChatBookmarks? Bookmarks { get => _bookmarks; set => this.RaiseAndSetIfChanged(ref _bookmarks, value); }
+    public ChatBookmarks? Bookmarks { get; set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// A header button has no expand state of its own to announce, so its name carries it.
     public string UsageToggleName => FoldName("Usage", UsageExpanded);

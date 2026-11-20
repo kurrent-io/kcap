@@ -272,19 +272,17 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// Stays true once a graded reply is seen, so trimming early rows never hides the controls that grade it.
     /// A switch to another session's feed clears it, and that feed's replay raises it again if it grades.
     public bool HasProgressiveDisclosureMarks {
-        get => _hasProgressiveDisclosureMarks;
-        private set => this.RaiseAndSetIfChanged(ref _hasProgressiveDisclosureMarks, value);
+        get => field;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
-    bool _hasProgressiveDisclosureMarks;
 
-    bool _hasSeed;
     /// Whether the current feed has delivered its first Reset. A remote send made before it has no
     /// baseline, and its echo can land inside the history that Reset replays, where nothing acknowledges it.
     public bool HasSeed {
-        get => _hasSeed;
+        get => field;
         private set {
-            if (_hasSeed == value) return;
-            this.RaiseAndSetIfChanged(ref _hasSeed, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             RefreshQueuedSend();
         }
     }
@@ -300,11 +298,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         }
     }
 
-    SessionConnectionPresentation? _workspaceNotice;
     public SessionConnectionPresentation? WorkspaceNotice {
-        get => _workspaceNotice;
+        get => field;
         set {
-            this.RaiseAndSetIfChanged(ref _workspaceNotice, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             RaisePhaseNote();
             this.RaisePropertyChanged(nameof(ComposerHint));
         }
@@ -357,15 +354,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// The chips staged for the next prompt. A send clears the ones it carried, never the tray.
     public AttachmentTray Tray { get; } = new();
 
-    int _uploadingFiles;
     /// How many chips the upload in flight carries — the snapshot the send took, not the tray,
     /// which the user may go on staging into. Zero when nothing is uploading.
     public int UploadingFiles {
-        get => _uploadingFiles;
+        get => field;
         private set {
-            if (_uploadingFiles == value) return;
+            if (field == value) return;
             var was = Uploading;
-            this.RaiseAndSetIfChanged(ref _uploadingFiles, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             if (was != Uploading) this.RaisePropertyChanged(nameof(Uploading));
         }
     }
@@ -503,30 +499,21 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     TerminalDialogDto? _coveredDialog;
     bool _coverReleasing;
     int _coverGeneration;
-    bool _hasTerminalMenu;
-    string _terminalMenuTitle = "";
-    string _terminalMenuHeading = "";
-    string _terminalMenuSummary = "";
-    string _terminalMenuScreen = "";
-    string _terminalMenuPrompt = "";
-    string _terminalMenuHint = "";
-    string _terminalMenuError = "";
     IReadOnlyList<TerminalMenuChoiceViewModel> _terminalMenuChoices = [];
     bool _terminalMenuChoiceTaken;
 
     /// A vendor menu is on the terminal: a usage-limit question or a select dialog. Text sent now
     /// would be typed into it. Stays set while a pending card hides the card itself.
     public bool HasTerminalMenu {
-        get => _hasTerminalMenu;
-        private set => this.RaiseAndSetIfChanged(ref _hasTerminalMenu, value);
+        get => field;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    bool _showsTerminalMenu;
     /// The menu card. A pending hook card hides the screen's copy of the dialog it raised.
     public bool ShowsTerminalMenu {
-        get => _showsTerminalMenu;
+        get => field;
         private set {
-            this.RaiseAndSetIfChanged(ref _showsTerminalMenu, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
             this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
             this.RaisePropertyChanged(nameof(EmptyState));
@@ -535,20 +522,20 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     }
 
     public string TerminalMenuTitle {
-        get => _terminalMenuTitle;
-        private set => this.RaiseAndSetIfChanged(ref _terminalMenuTitle, value);
-    }
+        get => field;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     public string TerminalMenuHeading {
-        get => _terminalMenuHeading;
-        private set => this.RaiseAndSetIfChanged(ref _terminalMenuHeading, value);
-    }
+        get => field;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     /// The dialog as the terminal shows it, for a dialog whose choices could not be read.
     public string TerminalMenuScreen {
-        get => _terminalMenuScreen;
-        private set => this.RaiseAndSetIfChanged(ref _terminalMenuScreen, value);
-    }
+        get => field;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     /// Set by the workspace hosting this chat when the agent has a terminal; the menu card's fallback
     /// and the empty chat's offer send the user there.
@@ -565,24 +552,24 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     public ReactiveCommand<Unit, Unit> ShowTerminalCommand { get; }
 
     public string TerminalMenuSummary {
-        get => _terminalMenuSummary;
-        private set => this.RaiseAndSetIfChanged(ref _terminalMenuSummary, value);
-    }
+        get => field;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     public string TerminalMenuPrompt {
-        get => _terminalMenuPrompt;
-        private set => this.RaiseAndSetIfChanged(ref _terminalMenuPrompt, value);
-    }
+        get => field;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     public string TerminalMenuHint {
-        get => _terminalMenuHint;
-        private set => this.RaiseAndSetIfChanged(ref _terminalMenuHint, value);
-    }
+        get => field;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     public string TerminalMenuError {
-        get => _terminalMenuError;
-        private set => this.RaiseAndSetIfChanged(ref _terminalMenuError, value);
-    }
+        get => field;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     public IReadOnlyList<TerminalMenuChoiceViewModel> TerminalMenuChoices {
         get => _terminalMenuChoices;
@@ -597,13 +584,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// hides them and leaves the hint — a greyed empty box is the wrong affordance.
     public bool ShowsComposer => _showsComposer.Value;
 
-    bool _isAttached;
     /// A terminal session the daemon steers: the server refuses its Escape, so its interrupt shows disabled.
     public bool IsAttached {
-        get => _isAttached;
+        get => field;
         private set {
-            if (_isAttached == value) return;
-            this.RaiseAndSetIfChanged(ref _isAttached, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(InterruptTip));
         }
     }
@@ -642,8 +628,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     bool _isOwnedByCurrentUser;
     public string UserTitle => _origin == AgentOrigin.Local || _isOwnedByCurrentUser ? "You" : "User";
 
-    string _modelLabel = "default";
-    public string ModelLabel { get => _modelLabel; private set => this.RaiseAndSetIfChanged(ref _modelLabel, value); }
+    public string ModelLabel { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); } = "default";
 
     /// The label and the bars come from one snapshot row, so they are swapped as one value.
     sealed record AccountStripState(string? Label, AccountUsageView? Usage);
@@ -652,14 +637,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     public string? AccountLabel => _accountStrip.Label;
 
-    string? _accountDirectory;
-    public string? AccountDirectory { get => _accountDirectory; private set => this.RaiseAndSetIfChanged(ref _accountDirectory, value); }
+    public string? AccountDirectory { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    string _accountVendor = "";
-    public string AccountVendor { get => _accountVendor; private set => this.RaiseAndSetIfChanged(ref _accountVendor, value); }
+    public string AccountVendor { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
-    bool _showsAccountStrip;
-    public bool ShowsAccountStrip { get => _showsAccountStrip; private set => this.RaiseAndSetIfChanged(ref _showsAccountStrip, value); }
+    public bool ShowsAccountStrip { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     readonly bool _tracksAccountReadings;
 
@@ -692,36 +674,31 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             ? new(string.IsNullOrWhiteSpace(account.Label) ? source.Fallback : account.Label, AccountUsage.Project(account, now, TimeZoneInfo.Local))
             : new(source.Fallback, null);
 
-    string _statusText = "";
-    public string StatusText { get => _statusText; private set => this.RaiseAndSetIfChanged(ref _statusText, value); }
+    public string StatusText { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
-    AgentStatusPresentation _agentStatus = AgentStatusPresentation.None;
     public AgentStatusPresentation AgentStatus {
-        get => _agentStatus;
-        private set => this.RaiseAndSetIfChanged(ref _agentStatus, value);
-    }
+        get => field;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = AgentStatusPresentation.None;
 
-    bool _showsActivityNote;
     public bool ShowsActivityNote {
-        get => _showsActivityNote;
-        private set => this.RaiseAndSetIfChanged(ref _showsActivityNote, value);
+        get => field;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    bool _showsLiveNote;
     public bool ShowsLiveNote {
-        get => _showsLiveNote;
-        private set => this.RaiseAndSetIfChanged(ref _showsLiveNote, value);
+        get => field;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string _activityNote = "";
     /// Live elapsed time throughout a busy turn, including while output is streaming.
     public string ActivityNote {
-        get => _activityNote;
+        get => field;
         private set {
-            if (_activityNote == value) return;
-            this.RaiseAndSetIfChanged(ref _activityNote, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
         }
-    }
+    } = "";
 
     string _status = "";
     bool _ended;
@@ -829,43 +806,38 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     static string WorkingNote(TimeSpan elapsed) => $"Working for {RunRow.Duration(elapsed)}";
 
-    bool _isReadOnlyParticipant;
     /// True for a flow participant (any kind other than "agent"): the view swaps the composer
     /// input for the read-only banner, and the send gate refuses regardless of the terminal
     /// attach — the kind, not the handshake, is what makes the session unmessageable.
     public bool IsReadOnlyParticipant {
-        get => _isReadOnlyParticipant;
+        get => field;
         private set {
-            if (_isReadOnlyParticipant == value) return;
-            this.RaiseAndSetIfChanged(ref _isReadOnlyParticipant, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsReadOnlyBanner));
         }
     }
 
-    bool _takesAttachments = true;
-    internal bool TakesAttachments { get => _takesAttachments; set => this.RaiseAndSetIfChanged(ref _takesAttachments, value); }
+    internal bool TakesAttachments { get => field; set => this.RaiseAndSetIfChanged(ref field, value); } = true;
 
     internal const string NoAttachmentsHint = "a review agent takes no attachments";
 
-    HandoffComposerViewModel? _handoff;
     /// An ended session's hand-off composer, shown in the composer's place; the host owns its lifetime.
     public HandoffComposerViewModel? Handoff {
-        get => _handoff;
+        get => field;
         set {
-            if (ReferenceEquals(_handoff, value)) return;
-            this.RaiseAndSetIfChanged(ref _handoff, value);
+            if (ReferenceEquals(field, value)) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsReadOnlyBanner));
         }
     }
 
     public bool ShowsReadOnlyBanner => IsReadOnlyParticipant && Handoff is null;
 
-    HandoffOutcomeViewModel? _handoffOutcome;
     /// What the hand-off carried over from the previous session, shown above the transcript.
-    public HandoffOutcomeViewModel? HandoffOutcome { get => _handoffOutcome; private set => this.RaiseAndSetIfChanged(ref _handoffOutcome, value); }
+    public HandoffOutcomeViewModel? HandoffOutcome { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    string _readOnlyNotice = "";
-    public string ReadOnlyNotice { get => _readOnlyNotice; private set => this.RaiseAndSetIfChanged(ref _readOnlyNotice, value); }
+    public string ReadOnlyNotice { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
     /// Why this session cannot be messaged, or "" when it can. Mirrors the wording of the daemon's
     /// attach-time ProtectionReason so the chat banner and the terminal banner name the same block

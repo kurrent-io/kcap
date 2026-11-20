@@ -26,11 +26,13 @@ public sealed class SearchChoiceViewModel : ReactiveObject {
     readonly Func<CancellationToken, Task<bool>> _ollamaInstalled;
     readonly IUrlOpener _opener;
     Mode _mode = Mode.Keyword;
-    bool _useOther, _checking, _ollamaInstalledNow;
+    bool _useOther;
+    bool _ollamaInstalledNow;
     // Until someone picks, or a recorded choice is loaded, the selection follows the recommendation: Ollama when it
     // answers, else the built-in model when the stack offers it, else keyword search.
     bool _followRecommendation = true;
-    bool _recordedOllama, _recordedBuiltin;
+    bool _recordedOllama;
+    bool _recordedBuiltin;
     // Null until looked up, and not offered meanwhile: a stack without the model would refuse the flag.
     bool? _builtinOffered;
     long? _builtinBytes;
@@ -87,8 +89,8 @@ public sealed class SearchChoiceViewModel : ReactiveObject {
     }
 
     public bool Checking {
-        get => _checking;
-        private set => this.RaiseAndSetIfChanged(ref _checking, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     bool OllamaRunning => _ollamaRunning == true;
