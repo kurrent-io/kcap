@@ -147,6 +147,13 @@ public interface IKcapCli {
     /// <paramref name="importOutcomes"/> null leaves the server's choice as it is.</summary>
     Task<IntelligenceSetupOutcome> LocalIntelligenceAsync(
         IntelligenceAnswer answer, string? model, string? apiKey, bool? importOutcomes, CancellationToken ct);
+
+    /// <summary><c>local intelligence status --json</c>: the local server's background intelligence settings.</summary>
+    Task<IntelligenceSettingsOutcome> LocalIntelligenceStatusAsync(CancellationToken ct);
+
+    /// <summary><c>local intelligence</c> with no answer: changes only the preferences given, leaving a null one as it
+    /// is, and answers the settings the server then has.</summary>
+    Task<IntelligenceSettingsOutcome> LocalIntelligencePreferencesAsync(bool? importOutcomes, int? dailyLimit, CancellationToken ct);
 }
 
 public sealed class KcapCli : IKcapCli {
@@ -479,19 +486,51 @@ public sealed class KcapCli : IKcapCli {
 
         var result = await Run(cliPath, [.. args], new RunOptions(EnvOverlay: env, Timeout: IntelligenceTimeout), ct).ConfigureAwait(false);
 
-        IntelligenceCliLine? line = null;
-        try {
-            var last = result.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
-            if (last is not null) line = JsonSerializer.Deserialize(last, IntelligenceCliJsonContext.Default.IntelligenceCliLine);
-        } catch (JsonException) { }
-
-        return line switch {
+        return IntelligenceLine(result) switch {
             { Applied: { } applied }            => new IntelligenceSetupOutcome.Applied(applied),
             { Ok: false, Error: { } error } when result.ExitCode == 2 => new IntelligenceSetupOutcome.Refused(error),
             { Ok: false, Error: { } error }     => new IntelligenceSetupOutcome.Failed(error),
-            _ => new IntelligenceSetupOutcome.Failed(result.TimedOut ? "kcap did not answer in time" : $"kcap exited {result.ExitCode}: {result.Stderr.Trim()}"),
+            _                                   => new IntelligenceSetupOutcome.Failed(Unanswered(result)),
         };
     }
+
+    public Task<IntelligenceSettingsOutcome> LocalIntelligenceStatusAsync(CancellationToken ct) =>
+        LocalIntelligenceSettingsAsync(["local", "intelligence", "status", "--json", "--no-update-check"], ct);
+
+    public Task<IntelligenceSettingsOutcome> LocalIntelligencePreferencesAsync(bool? importOutcomes, int? dailyLimit, CancellationToken ct) {
+        List<string> args = ["local", "intelligence"];
+        if (importOutcomes is { } outcomes) args.Add(outcomes ? "--import-outcomes" : "--no-import-outcomes");
+        if (dailyLimit is { } limit) args.AddRange(["--daily-limit", limit.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+        args.AddRange(["--json", "--no-update-check"]);
+
+        return LocalIntelligenceSettingsAsync(args, ct);
+    }
+
+    async Task<IntelligenceSettingsOutcome> LocalIntelligenceSettingsAsync(IReadOnlyList<string> args, CancellationToken ct) {
+        if (CliPath is not { } cliPath) return new IntelligenceSettingsOutcome.Failed("kcap CLI not found");
+
+        var env    = await SpawnEnvAsync(ct).ConfigureAwait(false);
+        var result = await Run(cliPath, [.. args], new RunOptions(EnvOverlay: env, Timeout: IntelligenceTimeout), ct).ConfigureAwait(false);
+
+        return IntelligenceLine(result) switch {
+            { ReadSettings: { } settings }      => new IntelligenceSettingsOutcome.Read(settings),
+            { Ok: false, Error: { } error } when result.ExitCode == 2 => new IntelligenceSettingsOutcome.Refused(error),
+            { Ok: false, Error: { } error }     => new IntelligenceSettingsOutcome.Failed(error),
+            _                                   => new IntelligenceSettingsOutcome.Failed(Unanswered(result)),
+        };
+    }
+
+    static IntelligenceCliLine? IntelligenceLine(ProcessResult result) {
+        try {
+            var last = result.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
+            return last is null ? null : JsonSerializer.Deserialize(last, IntelligenceCliJsonContext.Default.IntelligenceCliLine);
+        } catch (JsonException) {
+            return null;
+        }
+    }
+
+    static string Unanswered(ProcessResult result) =>
+        result.TimedOut ? "kcap did not answer in time" : $"kcap exited {result.ExitCode}: {result.Stderr.Trim()}";
 
     // Exits 1 whenever the server is not ready, so stdout, not the exit code, carries the answer.
     public async Task<LocalServerReading?> LocalStatusAsync(CancellationToken ct) {

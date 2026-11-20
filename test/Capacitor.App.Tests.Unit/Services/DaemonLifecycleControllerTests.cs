@@ -2568,6 +2568,23 @@ sealed class FakeKcapCli : IKcapCli {
         return IntelligenceBehavior(answer);
     }
 
+    public int IntelligenceStatusCalls;
+    public Func<Task<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>> IntelligenceStatusBehavior =
+        () => Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>(new Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome.Failed("unset"));
+    public Task<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome> LocalIntelligenceStatusAsync(CancellationToken ct) {
+        IntelligenceStatusCalls++;
+        return IntelligenceStatusBehavior();
+    }
+
+    public readonly List<(bool? ImportOutcomes, int? DailyLimit)> IntelligencePreferenceCalls = [];
+    public Func<bool?, int?, Task<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>> IntelligencePreferencesBehavior =
+        (_, _) => Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>(new Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome.Failed("unset"));
+    public Task<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome> LocalIntelligencePreferencesAsync(
+            bool? importOutcomes, int? dailyLimit, CancellationToken ct) {
+        IntelligencePreferenceCalls.Add((importOutcomes, dailyLimit));
+        return IntelligencePreferencesBehavior(importOutcomes, dailyLimit);
+    }
+
     public int ImportCallCount;
     public readonly List<ImportRequest> ImportRequests = [];
     public Func<ImportRequest, Action<StreamedLine>, CancellationToken, Task<StreamingResult>> ImportBehavior =
