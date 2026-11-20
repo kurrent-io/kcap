@@ -75,8 +75,8 @@
         <Style Selector="Button.partRow.expandable">
             <Setter Property="Cursor" Value="Hand" />
         </Style>
-        <Style Selector="Button.partRow:pointerover /template/ ContentPresenter#PART_ContentPresenter,
-                         Button.partRow:pressed /template/ ContentPresenter#PART_ContentPresenter,
+        <Style Selector="Button.partRow.expandable:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.partRow.expandable:pressed /template/ ContentPresenter#PART_ContentPresenter,
                          Button.partRow.menuOpen /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapRowHoverBrush}" />
         </Style>
@@ -275,6 +275,8 @@
                             <TextBlock Text="{Binding SessionSummary}" FontSize="11" />
                             <views:FoldChevron Size="12" Classes="chevron" IsOpen="{Binding IsExpanded}" />
                         </StackPanel>
+                        <TextBlock Grid.Column="4" Text="No sessions" FontSize="11" Margin="6,0" VerticalAlignment="Center"
+                                   Foreground="{StaticResource KcapFaintBrush}" IsVisible="{Binding !HasSessions}" />
                     </Grid>
                 </Button>
                 <views:FoldPanel IsOpen="{Binding IsExpanded}">
@@ -369,7 +371,7 @@
             <StackPanel Classes="part flow" AttachedToVisualTree="OnRowAttached">
                 <Border Classes="card">
                     <StackPanel>
-                        <Button Classes="kcapGhost partRow dragRow cardBody" ToolTip.Tip="{Binding Tip}"
+                        <Button Classes="kcapGhost partRow dragRow cardBody" Classes.expandable="{Binding HasSessions}" ToolTip.Tip="{Binding Tip}"
                                 Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Title}">
                             <StackPanel Spacing="10">
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
