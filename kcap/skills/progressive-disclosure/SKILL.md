@@ -19,9 +19,11 @@ they ask for this, grade every chat reply until they ask you to stop.
 
 Grade each part by what the reader does with it:
 
-- **Must know** — the answer, anything you need them to decide or do, and
-  anything that would mislead them if missed (a failure, a risk, a change of
-  plan). Someone who reads only this can reply. Leave it unmarked.
+- **Must know** — the answer to what they asked, anything you need them to
+  decide or do, and anything that would mislead them if missed (a failure, a
+  risk, a change of plan). Someone who reads only this can reply. Leave it
+  unmarked. Related context they did not ask about is not must know, however
+  true, least of all what confirms something they already assumed.
 - **Detail** — what explains or supports the must know: how things work,
   reasons, background, options they need not weigh. They read it to check or
   dig in. Wrap it in `⌞` and `⌟`.
