@@ -1726,6 +1726,7 @@ public partial class App : Application {
                 (_coordinator?.Window?.DataContext as MainWindowViewModel)?.ShowHistoryImport(run);
             },
             post: action => Dispatcher.UIThread.Post(action),
+            grokBotFound: () => Capacitor.Cli.Core.Harness.GrokBot.GrokBotDesktopPaths.HasChatStore(_userHome),
             ensureTerminalCommand: shimInstaller is null ? null : async ct => {
                 // An inconclusive probe never offers an install, as in setup.
                 if (await probe.KcapOnPathAsync(ct) != false) return null;

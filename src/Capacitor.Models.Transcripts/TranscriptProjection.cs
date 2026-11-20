@@ -5,6 +5,7 @@ using Capacitor.Models.Transcripts.Harness.Copilot;
 using Capacitor.Models.Transcripts.Harness.Cursor;
 using Capacitor.Models.Transcripts.Harness.Gemini;
 using Capacitor.Models.Transcripts.Harness.Grok;
+using Capacitor.Models.Transcripts.Harness.GrokBot;
 using Capacitor.Models.Transcripts.Harness.Kiro;
 using Capacitor.Models.Transcripts.Harness.MistralVibe;
 using Capacitor.Models.Transcripts.Harness.Muse;
@@ -32,6 +33,7 @@ public static class TranscriptProjection {
         "cursor" => CursorTranscriptEvents.Instance,
         "gemini" => GeminiTranscriptEvents.Instance,
         "grok" => GrokTranscriptEvents.Instance,
+        "grok-bot" => GrokBotTranscriptEvents.Instance,
         "kiro" => KiroTranscriptEvents.Instance,
         "mistral-vibe" => MistralVibeTranscriptEvents.Instance,
         "muse" => MuseTranscriptEvents.Instance,

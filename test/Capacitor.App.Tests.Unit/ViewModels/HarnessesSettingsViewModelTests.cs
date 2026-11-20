@@ -48,6 +48,95 @@ public class HarnessesSettingsViewModelTests {
         await Assert.That(vm.Rows.Single(r => r.Id == HarnessId.Cursor).Signal).Contains("settings folder");
     });
 
+    /// <summary>Grok Bot is no coding tool: its switch shows only where the app is found, reads the attached
+    /// profile's own setting, and writes nothing but that setting.</summary>
+    [Test]
+    public Task The_grok_bot_switch_shows_where_the_app_is_found_and_writes_the_profiles_setting() => AvaloniaSession.RunOnUiAsync(async () => {
+        var store = Seed();
+        var found = false;
+        var cli   = Substitute.For<IKcapCli>();
+        using var vm = new HarnessesSettingsViewModel(store, cli,
+            _ => Task.FromResult<IReadOnlyDictionary<HarnessId, DetectedAgent>>(new Dictionary<HarnessId, DetectedAgent>()),
+            grokBotFound: () => found);
+
+        await vm.RescanAsync();
+        await Assert.That(vm.GrokBotShown).IsFalse();
+        await vm.ToggleGrokBotAsync();
+        await Assert.That(store.LoadProfile().GrokBot).IsNull();
+
+        found = true;
+        await vm.RescanAsync();
+        await Assert.That(vm.GrokBotShown).IsTrue();
+        await Assert.That(vm.GrokBotRecording).IsFalse();
+
+        await vm.ToggleGrokBotAsync();
+        await Assert.That(vm.GrokBotRecording).IsTrue();
+        await Assert.That(vm.GrokBotMessage).IsEqualTo(HarnessesSettingsViewModel.GrokBotOn);
+        await Assert.That(store.LoadProfile().GrokBot!.Record!.Value).IsTrue();
+
+        await vm.RescanAsync();
+        await Assert.That(vm.GrokBotRecording).IsTrue();
+
+        await vm.ToggleGrokBotAsync();
+        await Assert.That(vm.GrokBotMessage).IsEqualTo(HarnessesSettingsViewModel.GrokBotOff);
+        await Assert.That(store.LoadProfile().GrokBot!.Record!.Value).IsFalse();
+        await Assert.That(cli.ReceivedCalls()).IsEmpty();
+    });
+
+    /// <summary>A gateway records with no Grok Bot app on the computer, so a profile that is recording keeps
+    /// its switch there: hidden, it would leave nowhere to turn recording off.</summary>
+    [Test]
+    public Task A_recording_profile_keeps_the_grok_bot_switch_where_no_app_is_found() => AvaloniaSession.RunOnUiAsync(async () => {
+        var store = Seed();
+        var found = true;
+        using var vm = new HarnessesSettingsViewModel(store, Substitute.For<IKcapCli>(),
+            _ => Task.FromResult<IReadOnlyDictionary<HarnessId, DetectedAgent>>(new Dictionary<HarnessId, DetectedAgent>()),
+            grokBotFound: () => found);
+
+        await vm.RescanAsync();
+        await vm.ToggleGrokBotAsync();
+        found = false;
+        await vm.RescanAsync();
+
+        await Assert.That(vm.GrokBotShown).IsTrue();
+        await Assert.That(vm.GrokBotRecording).IsTrue();
+
+        var config = AppConfig.GetConfigPath(Config.Root);
+        var saved  = await File.ReadAllTextAsync(config);
+        await File.WriteAllTextAsync(config, "{not json");
+        await vm.RescanAsync();
+
+        await Assert.That(vm.GrokBotShown).IsTrue();
+        await Assert.That(vm.GrokBotMessage).IsEqualTo(HarnessesSettingsViewModel.GrokBotUnread);
+
+        await File.WriteAllTextAsync(config, saved);
+        await vm.RescanAsync();
+        await vm.ToggleGrokBotAsync();
+        await Assert.That(store.LoadProfile().GrokBot!.Record!.Value).IsFalse();
+
+        await vm.RescanAsync();
+        await Assert.That(vm.GrokBotShown).IsFalse();
+    });
+
+    /// <summary>The daemon keeps its last answer when the config cannot be read, so the switch keeps what it
+    /// showed and says it is unsure: off would read as an opt-out the daemon never saw.</summary>
+    [Test]
+    public Task An_unreadable_setting_keeps_the_grok_bot_switch_as_it_was_and_says_so() => AvaloniaSession.RunOnUiAsync(async () => {
+        var store = Seed();
+        using var vm = new HarnessesSettingsViewModel(store, Substitute.For<IKcapCli>(),
+            _ => Task.FromResult<IReadOnlyDictionary<HarnessId, DetectedAgent>>(new Dictionary<HarnessId, DetectedAgent>()),
+            grokBotFound: () => true);
+
+        await vm.RescanAsync();
+        await vm.ToggleGrokBotAsync();
+        await File.WriteAllTextAsync(AppConfig.GetConfigPath(Config.Root), "{not json");
+        await vm.RescanAsync();
+
+        await Assert.That(vm.GrokBotShown).IsTrue();
+        await Assert.That(vm.GrokBotRecording).IsTrue();
+        await Assert.That(vm.GrokBotMessage).IsEqualTo(HarnessesSettingsViewModel.GrokBotUnread);
+    });
+
     /// <summary>Codex hooks in place that Codex has not trusted record nothing, so the row asks for the approval
     /// instead of reading Recording, and reads Recording once a rescan finds them trusted.</summary>
     [Test]

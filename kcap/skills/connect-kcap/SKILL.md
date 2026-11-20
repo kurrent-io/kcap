@@ -8,7 +8,8 @@ description: >-
   or skill fails because `kcap` is not installed or not signed in. Installs the
   kcap CLI and signs it in. On a Muse Assistant VM it also registers kcap's
   MCP servers as a custom connector, writes the `kcap` skill and keeps the
-  sign-in warm with an hourly cron.
+  sign-in warm with an hourly cron. On a Grok Bot cloud computer it also
+  starts the watcher that records the account's chats.
 ---
 
 # Connect kcap
@@ -22,9 +23,11 @@ and signs it in; what happens after that depends on the machine.
 
 ```bash
 [ "$HOME" = /home/hatch ] && [ -d "$HOME/workspace" ] && [ -d /opt/hatch-image/bin ] && echo muse-assistant
+[ -f "$HOME/sand-data/gateway.json" ] && echo grok-bot
 ```
 
 - Prints `muse-assistant` → follow **Part B** (the Muse Assistant walkthrough).
+- Prints `grok-bot` → follow **Part C** (a Grok Bot cloud computer).
 - Prints nothing → follow **Part A** (any other machine), then stop.
 
 Never print the contents of `~/.config/kcap/` — it holds the sign-in tokens.
@@ -34,7 +37,9 @@ Never start `kcap daemon` unless the user asks for hosted agents.
 
 1. Check what is there: `command -v kcap && kcap whoami`. A `Server:` line
    naming the workspace the user wants (or any, if they named none) plus
-   `Server:   accepts this token` means nothing to do; say so and stop.
+   `Server:   accepts this token` means kcap is connected: say so, then stop
+   unless the user asked to record their Grok Bot chats, in which case go to the
+   Grok Bot paragraph below step 4.
    No `kcap` on PATH means step 2, then step 3; anything else, step 3.
 2. Install: requires Node.js 18+ (`node -v`). `npm install -g @kurrent/kcap`,
    then `command -v kcap` must print a path (otherwise add `$(npm prefix -g)/bin`
@@ -45,7 +50,18 @@ Never start `kcap daemon` unless the user asks for hosted agents.
    code — **show both to the user** and ask them to approve on their own device;
    the command finishes once they do. Let setup detect the installed coding
    agents and install their hooks; that is what records sessions here.
-4. Confirm with `kcap status` (`Auth: … ✓ token valid`). Done.
+4. Confirm with `kcap status` (`Auth: … ✓ token valid`). Done, unless the user
+   asked to record their Grok Bot chats.
+
+**Grok Bot.** If the user asked to record their Grok Bot chats and this machine
+has the Grok Bot desktop app, `kcap grok-bot watch --once --dry-run` lists the
+chats it finds and what it would send; it reads the app's own copy of each
+chat. Tell the user what C4 says about scope, and start it only once they agree:
+
+- macOS or Linux: the way C4 does, and stop it the way C4 says.
+- Windows: C4's commands are for a Unix shell. Run `kcap grok-bot watch` in a
+  terminal window of its own and leave that window open; Ctrl+C in it stops
+  recording. It keeps recording only while that window stays open.
 
 ## Part B — Muse Assistant
 
@@ -396,3 +412,146 @@ section: it reads the consent scope back to the user, runs
   the connector, the skill and the cron (if you agreed to it) — so it survives
   a VM replacement.
 - If a tool ever says the sign-in lapsed, say "reconnect kcap".
+
+## Part C — a Grok Bot cloud computer
+
+Every Bot on the account shares this computer, so this is done once per
+account, not once per Bot.
+
+### C1. Check what is already there
+
+```bash
+command -v kcap && { kcap whoami; kcap grok-bot status; }
+```
+
+A `Server:` line naming the workspace the user wants plus `Server:   accepts
+this token` means C2 and C3 are done.
+
+Read what `kcap grok-bot status` says whatever `kcap whoami` said: a watcher
+keeps the workspace and the profile it started with, so it goes on recording
+there through a lapsed sign-in or a sign-in elsewhere. It speaks for the watcher
+that is actually running, however that was started:
+
+- `No Grok Bot watcher is running`: go on.
+- `Where it posts could not be read`: ask once more after a few seconds, since
+  a watcher that has only just started has not said yet.
+- `posting to <address> as profile <name>`, with `whoami` accepted, the address
+  the workspace the user wants and the name the one on `whoami`'s `Profile:`
+  line: the right watcher is running. Whether it is recording is the sentence
+  that follows, read below.
+- anything else is a watcher recording somewhere, or as someone, the user did
+  not ask for: another address, another profile, a second `could not be read`,
+  or a `whoami` that was not accepted. Tell them the address and profile, or
+  that they cannot be told, and with their agreement stop it the way C4 says
+  before going on to C3 and C4.
+
+A watcher stays running while the workspace refuses everything it sends, so
+running is not recording. The sentence after the profile says which:
+
+- `The server last accepted a delivery at …`: recording is active there, as
+  them. The time must be later than any sign-in made in this run: an earlier
+  delivery went in under the sign-in before it, so read it as `Nothing has
+  needed sending`. Say so, with the next point when the status carries it too,
+  and stop.
+- `could not read N chat(s)`, alone or after an accepted delivery: those chats
+  are not being recorded yet. Say how many; the watcher reads them again by
+  itself.
+- `Its first cycle has not finished`: ask again after a few seconds.
+- `Nothing has needed sending since it started`: the watcher is running and
+  nothing has yet shown that the workspace accepts what it sends. Say exactly
+  that, and that the next message in any chat settles it; do not call it
+  recording.
+- `Its last cycle failed: …`: it is not recording. A refused sign-in (`401`)
+  is C3's to mend, and the watcher picks the new sign-in up by itself. Any
+  other `answered <status>` is the workspace refusing these sessions, which an
+  older workspace does, and anything else is the workspace not being reached:
+  tell the user what it says and stop.
+
+### C2. Install
+
+Requires Node.js 18+ (`node -v`).
+
+```bash
+npm install -g @kurrent/kcap
+command -v kcap
+```
+
+`command -v kcap` must print a path; otherwise add `$(npm prefix -g)/bin` to
+`PATH` in the shell profile.
+
+### C3. Sign in by device code
+
+Ask the user for their workspace address (for example `https://acme.kcap.ai`)
+unless they gave it; never guess one. It goes into a shell command, so check it
+the way B3 does. Run setup in the background and read its output while it waits:
+
+```bash
+mkdir -p ~/.config/kcap/grok-bot
+SERVER='<the checked workspace address>'
+nohup kcap setup --server-url "$SERVER" --device --no-prompt \
+  --skip-cursor-hooks --skip-cursor-mcp --skip-import \
+  > ~/.config/kcap/grok-bot/setup.log 2>&1 &
+sleep 8; cat ~/.config/kcap/grok-bot/setup.log
+```
+
+The log shows a **verification URL and a code**. **Show both to the user** and
+ask them to open the URL on their own device and enter the code. Keep reading
+the log (`sleep 15; tail -20 …`) until it reaches `Setup complete`, then confirm
+with `kcap status` (`Auth: … ✓ token valid`). The two `--skip-cursor` flags
+matter: this computer's hooks carry no chat id, so they cannot record a chat.
+
+### C4. Start the watcher
+
+First tell the user what it records, and start it only once they agree:
+
+- every chat of every Bot on this account, including the history from before
+  today;
+- the conversation only: their messages, the Bot's messages and the answers
+  they chose, not tool calls or files;
+- as sessions private to them, a new one after two hours of quiet.
+
+```bash
+mkdir -p ~/.config/kcap/grok-bot
+pgrep -af "[k]cap grok-bot watch" || {
+  nohup kcap grok-bot watch >> ~/.config/kcap/grok-bot/watch.log 2>&1 &
+}
+sleep 10; tail -5 ~/.config/kcap/grok-bot/watch.log; kcap grok-bot status
+```
+
+The bracket keeps `pgrep` from matching the shell that runs it, whose own
+command line holds the same words; without it a watcher always seems to be
+running.
+
+Go on only when `kcap grok-bot status` says `posting to` the workspace from C3
+`as profile` the name on `kcap whoami`'s `Profile:` line, and then read the
+sentence after the profile the way C1 does: only an accepted delivery is
+recording, and C5 says what the status said, no more.
+
+- `No Grok Bot watcher is running` means the start failed, and the last lines
+  of the log say why: `No Grok Bot here` is a computer with no Grok Bot gateway
+  to read. Tell the user what the log says and stop here, without C5.
+- any other address or profile is a watcher from before this run: handle it as
+  C1 says.
+
+The log shows `watching …, posting to <workspace>` and then `open session …` /
+`send N entries …` lines. A second watcher refuses to start, so this block is safe to run again,
+and it needs running again after the computer restarts. If `crontab -l` works
+here, ask the user whether to add a line so it restarts by itself, and add it
+only once they agree. Cron reads no shell profile, so the line names `kcap` by
+the full path `command -v kcap` prints, written here as `<kcap>`:
+
+```
+*/5 * * * * pgrep -f "[k]cap grok-bot watch" >/dev/null || nohup <kcap> grok-bot watch >> $HOME/.config/kcap/grok-bot/watch.log 2>&1 &
+```
+
+To stop recording, in this order: remove that line from the crontab first, so
+nothing starts a watcher again; then `pkill -f "[k]cap grok-bot watch"`; then
+check that `kcap grok-bot status` says no watcher is running.
+
+### C5. Tell the user
+
+- What C4 listed, and that recording continues with their own computer off —
+  or, where the status showed no accepted delivery, that the watcher is running
+  and what it said instead.
+- If the log ever says the sign-in was refused, say "reconnect kcap": run
+  `kcap login --device` and show them the new code.

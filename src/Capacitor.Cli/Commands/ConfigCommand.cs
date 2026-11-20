@@ -234,6 +234,9 @@ public sealed class ConfigCommand(
             "skills.auto_sync" when bool.TryParse(value, out var b) =>
                 profile with { Skills = (profile.Skills ?? new SkillsSettings()) with { AutoSync = b } },
             "skills.auto_sync" => throw new ArgumentException($"Invalid value for skills.auto_sync: '{value}'. Must be true or false."),
+            "grok_bot.record" when bool.TryParse(value, out var b) =>
+                profile with { GrokBot = (profile.GrokBot ?? new GrokBotSettings()) with { Record = b } },
+            "grok_bot.record" => throw new ArgumentException($"Invalid value for grok_bot.record: '{value}'. Must be true or false."),
             _ => throw new ArgumentException($"Unknown config key: {key}")
         };
 
@@ -245,6 +248,7 @@ public sealed class ConfigCommand(
         key switch {
             "flows.reviewer_vendor" => profile with { Flows = (profile.Flows ?? new FlowsSettings()) with { ReviewerVendor = null } },
             "skills.auto_sync" => profile with { Skills = (profile.Skills ?? new SkillsSettings()) with { AutoSync = null } },
+            "grok_bot.record" => profile with { GrokBot = (profile.GrokBot ?? new GrokBotSettings()) with { Record = null } },
             "daemon.auto_resume" => profile with { Daemon = (profile.Daemon ?? new DaemonSettings()) with { AutoResume = null } },
             _ => throw new ArgumentException($"Unknown or non-unsettable config key: {key}")
         };
@@ -273,6 +277,7 @@ public sealed class ConfigCommand(
         Console.Error.WriteLine("  allowed_repos               Capture only these repos, comma-separated (owner/repo,local~/folder); empty allows all");
         Console.Error.WriteLine("  flows.reviewer_vendor       Preferred review-flow reviewer vendor (used only when the definition names none)");
         Console.Error.WriteLine("  skills.auto_sync            Background skills refresh at Claude session start (true/false, default false)");
+        Console.Error.WriteLine("  grok_bot.record             The daemon records this computer's Grok Bot chats (true/false, default false)");
         Console.Error.WriteLine("  telemetry                   Anonymous CLI usage reporting, machine-wide (on/off)");
         Console.Error.WriteLine();
         Console.Error.WriteLine("Flags:");

@@ -36,6 +36,16 @@ public sealed class SettingsProfileStore(ConfigRoot config, string profileName, 
             };
         }, ct);
 
+    public Task SaveGrokBotRecordAsync(bool record, CancellationToken ct) =>
+        ConfigMutator.MutateAsync(config, current => {
+            var profile = Profile(current);
+            return current with {
+                Profiles = new Dictionary<string, Profile>(current.Profiles) {
+                    [profileName] = profile with { GrokBot = (profile.GrokBot ?? new GrokBotSettings()) with { Record = record } }
+                }
+            };
+        }, ct);
+
     public Task SaveCapacityAsync(int capacity, CancellationToken ct) =>
         SaveAsync(settings => settings with { MaxAgents = capacity }, ct);
 
