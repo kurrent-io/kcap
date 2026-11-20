@@ -1604,7 +1604,6 @@ public class ChatTabViewSmokeTests {
                 host.Settle();
                 await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("2. Retry jitter");
 
-                reply.ClearSelection();
                 host.Chat.Bookmarks.RevealCommand.Execute(message).Subscribe();
                 host.Settle();
                 await Assert.That(MarkViewSelection.SelectedText(viewer)).IsEmpty();

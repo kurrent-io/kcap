@@ -875,8 +875,8 @@ public partial class ChatTabView : UserControl {
         if (ChatItems.ContainerFromIndex(index) is not { } row || row.TranslatePoint(default, _scroll) is not { } top) return;
         var max = Math.Max(0, _scroll.Extent.Height - _scroll.Viewport.Height);
         _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(_scroll.Offset.Y + top.Y - RevealGap, 0, max));
-        if (quote is null) return;
         foreach (var held in _selectedMarkdown.ToArray()) held.ClearSelection();
+        if (quote is null) return;
         foreach (var text in row.GetVisualDescendants().OfType<MarkdownView>()) {
             if (text.Highlight(quote) is not { } found) continue;
             ChatItems.UpdateLayout();
