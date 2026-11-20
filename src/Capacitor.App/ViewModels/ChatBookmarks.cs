@@ -72,8 +72,9 @@ public sealed class ChatBookmarks : ReactiveObject {
     /// Bookmarks each piece of text, in order, as taken from <paramref name="source"/>. Blank text is skipped.
     public void Add(IEnumerable<string> texts, ChatItemViewModel source) {
         var message = _topics.OrdinalOf(source);
+        var anchor = message is null ? null : ChatTopics.AnchorOf(source);
         All.AddRange(texts.Select(quote => (Text: Tidy(quote), Quote: quote)).Where(static b => b.Text.Length > 0)
-            .Select(b => new ChatBookmark(b.Text, message, b.Quote)));
+            .Select(b => new ChatBookmark(b.Text, message, b.Quote, anchor)));
     }
 
     void ToggleMessage(ChatItemViewModel source) {
@@ -82,11 +83,12 @@ public sealed class ChatBookmarks : ReactiveObject {
             return;
         }
         var text = Tidy(source switch { UserTurnItem user => user.Text, AssistantTextItem reply => reply.Text, _ => "" });
-        All.Add(new ChatBookmark(text.Length > 0 ? text : "Message", _topics.OrdinalOf(source)));
+        var message = _topics.OrdinalOf(source);
+        All.Add(new ChatBookmark(text.Length > 0 ? text : "Message", message, anchor: message is null ? null : ChatTopics.AnchorOf(source)));
     }
 
     void Reveal(ChatBookmark bookmark) {
-        if (bookmark.Message is { } ordinal && _topics.MessageAt(ordinal) is { } row) _topics.Reveal(row, bookmark.Quote);
+        if (bookmark.Message is { } ordinal && _topics.MessageAt(ordinal) is { } row && bookmark.Fits(row)) _topics.Reveal(row, bookmark.Quote);
     }
 
     void OnChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) {
@@ -95,10 +97,12 @@ public sealed class ChatBookmarks : ReactiveObject {
     }
 
     // A whole-message bookmark leads its message's picks; the picks keep the order they were taken in.
+    // One whose message has come back as a different message joins those taken from no message.
     void Outline() {
         var runs = _topics.Runs();
-        var placed = _all.Where(static b => b.Message is not null)
-            .OrderBy(static b => b.Message).ThenBy(static b => b.Quote is not null).ToList();
+        var messages = _topics.Messages();
+        bool Placed(ChatBookmark b) => b.Message is { } m && (m >= messages.Count || b.Fits(messages[m]));
+        var placed = _all.Where(Placed).OrderBy(static b => b.Message).ThenBy(static b => b.Quote is not null).ToList();
         var sections = new List<ChatBookmarkGroup>();
         var next = 0;
         for (var i = 0; i < runs.Count; i++) {
@@ -107,19 +111,18 @@ public sealed class ChatBookmarks : ReactiveObject {
             while (next < placed.Count && placed[next].Message < end) next++;
             if (runs[i].Topic is not null || next > start) sections.Add(new ChatBookmarkGroup(runs[i].Topic, placed[start..next]));
         }
-        if (_all.Where(static b => b.Message is null).ToList() is { Count: > 0 } loose) sections.Add(new ChatBookmarkGroup(null, loose));
+        if (_all.Where(b => !Placed(b)).ToList() is { Count: > 0 } loose) sections.Add(new ChatBookmarkGroup(null, loose));
         Sections = sections;
-        MarkMessages();
+        MarkMessages(messages);
     }
 
     readonly List<ChatItemViewModel> _marked = [];
 
-    void MarkMessages() {
+    void MarkMessages(IReadOnlyList<ChatItemViewModel> messages) {
         foreach (var row in _marked) row.Bookmark = null;
         _marked.Clear();
-        var messages = _topics.Messages();
         foreach (var bookmark in _all)
-            if (bookmark is { Quote: null, Message: { } ordinal } && ordinal < messages.Count && messages[ordinal] is { Bookmark: null } row) {
+            if (bookmark is { Quote: null, Message: { } ordinal } && ordinal < messages.Count && messages[ordinal] is { Bookmark: null } row && bookmark.Fits(row)) {
                 row.Bookmark = bookmark;
                 _marked.Add(row);
             }

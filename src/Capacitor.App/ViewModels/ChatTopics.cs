@@ -131,7 +131,11 @@ public sealed class ChatTopics : ReactiveObject {
             var row = _items[i];
             if (row is ChatTopicItem { IsExpanded: false } folded) ordinal += folded.Hidden.Count(IsMessage);
             if (!IsMessage(row)) continue;
-            if (i < tail && _restoring.Remove(ordinal, out var mark)) found.Add((row, mark));
+            // A mark whose message changed stays saved but is not put back.
+            if (i < tail && _restoring.TryGetValue(ordinal, out var mark) && (mark.Anchor is null || mark.Anchor == AnchorOf(row))) {
+                _restoring.Remove(ordinal);
+                found.Add((row, mark));
+            }
             ordinal++;
         }
         Edit(() => {
@@ -339,9 +343,9 @@ public sealed class ChatTopics : ReactiveObject {
             if (row is ChatTopicItem or ChatTopicEndItem) { mark = row; continue; }
             if (IsMessage(row)) {
                 if (mark is ChatTopicItem header)
-                    marks[ordinal] = new(!header.IsExpanded || _folding.Contains(header), header.CustomName);
+                    marks[ordinal] = new(!header.IsExpanded || _folding.Contains(header), header.CustomName, Anchor: AnchorOf(row));
                 else if (mark is ChatTopicEndItem)
-                    marks[ordinal] = new(false, null, End: true);
+                    marks[ordinal] = new(false, null, End: true, Anchor: AnchorOf(row));
                 ordinal++;
             }
             mark = null;
@@ -350,6 +354,15 @@ public sealed class ChatTopics : ReactiveObject {
     }
 
     static bool IsMessage(ChatItemViewModel row) => row is UserTurnItem or AssistantTextItem;
+
+    const int AnchorLength = 32;
+
+    /// The start of a message's text, whitespace collapsed: what a saved mark checks its message by.
+    public static string AnchorOf(ChatItemViewModel row) {
+        var text = row switch { UserTurnItem turn => turn.Text, AssistantTextItem reply => reply.Text, _ => "" };
+        var words = string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return words.Length <= AnchorLength ? words : words[..AnchorLength];
+    }
 
     ChatTopicItem? TopicBefore(int index) {
         for (var i = index - 1; i >= 0; i--)

@@ -1,0 +1,96 @@
+using System.Text.Json;
+using Avalonia.Collections;
+using Capacitor.App.Services;
+using Capacitor.App.ViewModels;
+using TUnit.Assertions.Enums;
+using static Capacitor.App.Tests.Unit.AvaloniaSession;
+
+namespace Capacitor.App.Tests.Unit.ViewModels;
+
+/// Topics and bookmarks are saved per transcript and come back after a restart, each checked against
+/// the start of the message it was made at.
+public class ChatMarksTests {
+    [TempDir] public required TempDir Tmp { get; init; }
+
+    static List<ChatItemViewModel> Transcript(string first = "Point 1") => [
+        new AssistantTextItem("Five points"), new UserTurnItem(first), new AssistantTextItem("Done"), new UserTurnItem("Point 2"),
+    ];
+
+    async Task<string> MarkAsync(ChatMarksFiles files) {
+        var rows = Transcript();
+        var items = new AvaloniaList<ChatItemViewModel>(rows);
+        var store = new ChatMarks(files);
+        var topics = new ChatTopics(items, store);
+        var bookmarks = new ChatBookmarks(topics, store);
+        topics.Reset("feed");
+        bookmarks.Reset("feed");
+        topics.ToggleChange(rows[1]);
+        ((ChatTopicItem)items[1]).Rename("Locks");
+        bookmarks.Add(["Retry\njitter"], rows[3]);
+        bookmarks.ToggleMessageCommand.Execute(rows[2]).Subscribe();
+        bookmarks.All[0].Color = ChatBookmarkColor.Pink;
+        await files.FlushAsync();
+        return Directory.GetFiles(Tmp.PathTo("marks")).Single();
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Marks_are_saved_per_transcript_and_come_back_in_a_new_app() {
+        await RunOnUiAsync(async () => {
+            var path = await MarkAsync(new ChatMarksFiles(Tmp.PathTo("marks")));
+            using var saved = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+            var topicJson = saved.RootElement.GetProperty("topics")[0];
+            await Assert.That(topicJson.EnumerateObject().Select(static p => p.Name)).IsEquivalentTo(["message", "anchor", "name"], CollectionOrdering.Matching);
+            await Assert.That(topicJson.GetProperty("anchor").GetString()).IsEqualTo("Point 1");
+            await Assert.That(saved.RootElement.GetProperty("bookmarks")[0].GetProperty("color").GetString()).IsEqualTo("pink");
+
+            var files = new ChatMarksFiles(Tmp.PathTo("marks"));
+            var store = new ChatMarks(files);
+            var items = new AvaloniaList<ChatItemViewModel>();
+            var topics = new ChatTopics(items, store);
+            var bookmarks = new ChatBookmarks(topics, store);
+            topics.Reset("feed");
+            bookmarks.Reset("feed");
+            items.AddRange(Transcript());
+            topics.Restore();
+
+            var topic = (ChatTopicItem)items[1];
+            await Assert.That(topic.Label).IsEqualTo("Locks");
+            await Assert.That(bookmarks.All.Select(static b => (b.Text, b.Quote, b.Color))).IsEquivalentTo(
+                [("Retry jitter", "Retry\njitter", ChatBookmarkColor.Pink), ("Done", (string?)null, ChatBookmarkColor.Blue)], CollectionOrdering.Matching);
+            await Assert.That(items[3].Bookmark).IsSameReferenceAs(bookmarks.All[1]);
+            await Assert.That(bookmarks.Sections.Single().Topic).IsSameReferenceAs(topic);
+
+            bookmarks.All.Clear();
+            topics.RemoveCommand.Execute(topic).Subscribe();
+            await files.FlushAsync();
+            await Assert.That(File.Exists(path)).IsFalse();
+        });
+    }
+
+    /// A mark whose ordinal now names a different message is neither put on it nor lost from the file.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_mark_whose_message_changed_is_not_put_on_another_message() {
+        await RunOnUiAsync(async () => {
+            await MarkAsync(new ChatMarksFiles(Tmp.PathTo("marks")));
+
+            var store = new ChatMarks(new ChatMarksFiles(Tmp.PathTo("marks")));
+            var items = new AvaloniaList<ChatItemViewModel>();
+            var topics = new ChatTopics(items, store);
+            var bookmarks = new ChatBookmarks(topics, store);
+            topics.Reset("feed");
+            bookmarks.Reset("feed");
+            var rows = Transcript("Something else");
+            rows.Insert(1, new AssistantTextItem("An extra reply"));
+            items.AddRange(rows);
+            topics.Restore();
+
+            await Assert.That(items.OfType<ChatTopicItem>()).IsEmpty();
+            await Assert.That(items.Any(static row => row.Bookmark is not null)).IsFalse();
+            await Assert.That(bookmarks.Sections.Single().Topic).IsNull();
+            await Assert.That(bookmarks.Sections.Single().Bookmarks).Count().IsEqualTo(2);
+            await Assert.That(store.Topics("feed").Values.Single().Name).IsEqualTo("Locks");
+        });
+    }
+}
