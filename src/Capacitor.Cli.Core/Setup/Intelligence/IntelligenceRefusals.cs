@@ -15,6 +15,9 @@ public static class IntelligenceRefusals {
             "key_rejected"    => $"The provider refused the key: {detail}",
             "key_pinned_above_store" => $"The server's own environment configures {detail}, which setup cannot clear.",
             "import_outcomes_pinned_above_store" => "The server's own environment decides whether imported sessions get outcomes.",
+            "backlog_limit_pinned_above_store" => "The server's own environment sets the daily limit.",
+            "backlog_limit_out_of_range" => $"The daily limit must be a whole number from {IntelligenceSettings.DailyLimitRange}.",
+            IntelligenceSettingsClient.NeedsUpdate => "The local server needs updating before it can show or change these settings.",
             _                 => code,
         };
     }

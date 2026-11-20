@@ -1358,6 +1358,8 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(Setup.Intelligence.IntelligenceSetupRequest))]
 [JsonSerializable(typeof(Setup.Intelligence.IntelligenceSetupResponse))]
 [JsonSerializable(typeof(Setup.Intelligence.IntelligenceSetupError))]
+[JsonSerializable(typeof(Setup.Intelligence.IntelligenceSettings))]
+[JsonSerializable(typeof(Setup.Intelligence.IntelligencePreferencesRequest))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     UseStringEnumConverter = true
