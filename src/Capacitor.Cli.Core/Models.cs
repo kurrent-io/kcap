@@ -1195,6 +1195,8 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(EvalRetrospectiveCompleted))]
 [JsonSerializable(typeof(EvalRetrospectiveFailed))]
 [JsonSerializable(typeof(DaemonConnect))]
+[JsonSerializable(typeof(DaemonCapabilitiesUpdate))]
+[JsonSerializable(typeof(DaemonCapabilitiesUpdateResponse))]
 [JsonSerializable(typeof(UnattendedVendorCapability))]
 [JsonSerializable(typeof(IReadOnlyList<UnattendedVendorCapability>))]
 [JsonSerializable(typeof(LiveAgentInfo))]

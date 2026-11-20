@@ -1723,7 +1723,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     }
 
     /// <summary>Refreshes installed vendors, reviewer capabilities and catalogs through one coalescing lane.</summary>
-    /// <param name="republishUnchanged">Re-register even when the local advertisement already
+    /// <param name="republishUnchanged">Re-send even when the local advertisement already
     /// reads the same, for a caller that knows the server's copy differs.</param>
     /// <param name="probeCatalogs">False for a caller with no reason to think a model catalog changed,
     /// which then spawns no catalog probe.</param>
@@ -1815,7 +1815,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
                 _config.Advertise(fresh, codex);
                 // One reference swap: status serializers on other threads may be enumerating the old one.
-                // Pulsed before the re-register so a failed one cannot keep the change from local subscribers.
+                // Pulsed before the send so a failed one cannot keep the change from local subscribers.
                 if (catalogChanged) {
                     _config.VendorModels          = mergedCatalog;
                     _config.VendorModelsByAccount = mergedByAccount;
@@ -1823,7 +1823,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 }
                 LogReAdvertising(_logger, reason,
                     string.Join(", ", fresh.Select(c => $"{c.Vendor} {c.CliVersion ?? DaemonRunner.UnknownCliVersion}")));
-                await _server.ReRegisterAsync();
+                // The change concerns the daemon alone: re-registering every agent would drop readiness and
+                // resync every terminal mirror.
+                await _server.AdvertiseCapabilitiesAsync();
                 if (rediscover) Volatile.Write(ref _discoveryPublicationPending, false);
             },
             ex => _logger.LogDebug(ex,
@@ -1882,9 +1884,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     readonly ModAttachments? _attachments;
 
     /// <summary>
-    /// Re-sends the registration on the current connection so the server's copy of a connect
-    /// field that changed at runtime (capacity) is overwritten. Rides the capability refresh so a
-    /// burst of changes coalesces and the last publication carries the newest config.
+    /// Re-sends the daemon's capabilities, capacity among them, so the server's copy of a field that
+    /// changed at runtime is overwritten. Rides the capability refresh so a burst of changes
+    /// coalesces and the last publication carries the newest config.
     /// </summary>
     internal void RepublishRegistration(string reason) => RefreshAdvertisedCapabilities(reason, republishUnchanged: true);
 

@@ -705,8 +705,8 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         await ReBindAcpSessionsAsync();
     }
 
-    /// <summary>Serialises every send that pairs server state with a local snapshot — registration
-    /// and the repo-path update — across the whole snapshot-and-invoke. The server runs one client's
+    /// <summary>Serialises every send that pairs server state with a local snapshot — registration,
+    /// the repo-path update and the capability update — across the whole snapshot-and-invoke. The server runs one client's
     /// invocations in parallel, so without it an older snapshot can land after a newer one while the
     /// newer bookkeeping is recorded last, leaving the server with state nothing will repair.</summary>
     readonly SemaphoreSlim _registerLock = new(1, 1);
@@ -906,6 +906,53 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     /// connection as a daemon (slot displaced or never registered).
     /// </summary>
     public Task ReRegisterAsync() => RegisterAndAcknowledgeAsync(_config.Advertisement);
+
+    /// <summary>Sends what this daemon can do without re-registering its agents, so readiness holds and no terminal
+    /// mirror resyncs. A server without <c>DaemonUpdateCapabilities</c>, or one holding no slot for this connection,
+    /// gets the full re-registration instead. Any other failure throws, and the next registration carries the change.</summary>
+    public async Task AdvertiseCapabilitiesAsync() {
+        if (!await TryUpdateCapabilitiesAsync()) await ReRegisterAsync();
+    }
+
+    internal const string UpdateCapabilitiesMethod = "DaemonUpdateCapabilities";
+
+    /// <summary>The connection id on which the server answered <c>DaemonUpdateCapabilities</c> as an unknown method.</summary>
+    string? _capabilityUpdateMissingOn;
+
+    // Under the register lock, as a connect is, so the server never ends up holding an older snapshot than one it
+    // already took. The fallback re-registration takes that lock itself, so it runs only after release.
+    async Task<bool> TryUpdateCapabilitiesAsync() {
+        var connection = CurrentConnectionId ?? "";
+        if (string.Equals(Volatile.Read(ref _capabilityUpdateMissingOn), connection, StringComparison.Ordinal)) return false;
+
+        await _registerLock.WaitAsync(_ct).ConfigureAwait(false);
+        var advertised = _config.Advertisement;
+        try {
+            if (await InvokeUpdateCapabilitiesRawAsync(BuildCapabilitiesUpdate(advertised)) is not { Applied: true }) return false;
+
+            if (_config.AcknowledgeCodex(advertised.Codex)) _statusNotifier.Pulse();
+
+            return true;
+        } catch (Exception ex) when (IsUnknownHubMethod(ex, UpdateCapabilitiesMethod)) {
+            Volatile.Write(ref _capabilityUpdateMissingOn, connection);
+
+            return false;
+        } catch (Exception ex) when (ex is not OperationCanceledException) {
+            if (_config.CodexRegistrationFailed(advertised.Codex)) _statusNotifier.Pulse();
+
+            throw;
+        } finally {
+            _registerLock.Release();
+        }
+    }
+
+    internal DaemonCapabilitiesUpdate BuildCapabilitiesUpdate(UnattendedAdvertisement advertised) => new(
+        _config.MaxConcurrentAgents, _config.SupportedVendors, _config.UnattendedVendors, advertised.Capabilities,
+        _config.AcpPresetVendors, _config.PermissionModeVendors, _config.PrReviewVendors,
+        _config.VendorModels, _config.VendorModelsByAccount, AdvertisedHeadlessVendors(), AdvertisedCapabilities);
+
+    internal virtual Task<DaemonCapabilitiesUpdateResponse?> InvokeUpdateCapabilitiesRawAsync(DaemonCapabilitiesUpdate update) =>
+        _hub.InvokeAsync<DaemonCapabilitiesUpdateResponse?>(UpdateCapabilitiesMethod, update, cancellationToken: _ct);
 
     /// <summary>Every registration path ends here, acknowledging exactly the advertisement the server
     /// accepted. Only a registration that fails before the server accepts it counts as not delivered.</summary>

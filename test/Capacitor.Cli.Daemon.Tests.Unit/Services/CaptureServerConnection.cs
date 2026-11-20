@@ -72,6 +72,21 @@ sealed class CaptureServerConnection : ServerConnection {
         return Task.CompletedTask;
     }
 
+    /// <summary>The server's answer to each capability update; unset, the server lacks the method, so every refresh
+    /// falls back to a full re-registration.</summary>
+    public Func<DaemonCapabilitiesUpdate, DaemonCapabilitiesUpdateResponse?>? CapabilityUpdate { get; set; }
+
+    public ConcurrentQueue<DaemonCapabilitiesUpdate> CapabilityUpdates { get; } = new();
+
+    internal override Task<DaemonCapabilitiesUpdateResponse?> InvokeUpdateCapabilitiesRawAsync(DaemonCapabilitiesUpdate update) {
+        CapabilityUpdates.Enqueue(update);
+
+        return CapabilityUpdate is { } answer
+            ? Task.FromResult(answer(update))
+            : Task.FromException<DaemonCapabilitiesUpdateResponse?>(new Microsoft.AspNetCore.SignalR.HubException(
+                $"Failed to invoke '{UpdateCapabilitiesMethod}' due to an error on the server. HubException: Method does not exist."));
+    }
+
     /// <summary>The server's answer to each takeover begin, which may throw as the hub would; unset, the server
     /// lacks the method.</summary>
     public Func<string, string, HandoffTakeoverAdmission?>? BeginHandoff { get; set; }
