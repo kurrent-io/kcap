@@ -322,7 +322,7 @@
                                             ToolTip.Tip="{Binding ProgressText, StringFormat='{}{0} slices done'}">
                                     <Panel Width="16" Height="16" VerticalAlignment="Center">
                                         <Ellipse Stroke="{StaticResource KcapBorderStrongBrush}" StrokeThickness="2.5" />
-                                        <Arc StartAngle="-90" SweepAngle="{Binding ProgressSweep}" Stroke="{StaticResource KcapSuccessBrush}"
+                                        <Arc StartAngle="-90" SweepAngle="{Binding ProgressSweep}" Stroke="{StaticResource KcapMutedBrush}"
                                              StrokeThickness="2.5" StrokeLineCap="Round" />
                                     </Panel>
                                     <TextBlock Text="{Binding ProgressText}" FontSize="15" Foreground="{StaticResource KcapMutedBrush}"
