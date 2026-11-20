@@ -26,8 +26,8 @@ public class GrokBotWatcherTests {
 
     readonly List<string> _log = [];
 
-    GrokBotWatcher Watcher(Server server, TimeProvider? time = null, Func<string, int, RedactionOutcome>? redaction = null) => new(
-        new ConfigRoot(Tmp.PathTo("config")), Resolutions.Of(new() { ServerUrl = "https://acme.kcap.ai/", DefaultVisibility = "org_public" }),
+    GrokBotWatcher Watcher(Server server, TimeProvider? time = null, Func<string, int, RedactionOutcome>? redaction = null, string url = "https://acme.kcap.ai/") => new(
+        new ConfigRoot(Tmp.PathTo("config")), Resolutions.Of(new() { ServerUrl = url, DefaultVisibility = "org_public" }),
         new UserHome(Tmp.PathTo("home")), new FixedCapacitorHttpClient(background: server), time ?? TimeProvider.System) { Redaction = redaction };
 
     /// <summary>A store holding one chat of two entries, both far older than the gap.</summary>
@@ -148,6 +148,57 @@ public class GrokBotWatcherTests {
         await RunAsync(new Server(), OneOldChat(dryRun: true));
 
         await Assert.That(_log[0]).Contains("posting to https://acme.kcap.ai,");
+    }
+
+    /// <summary>A server URL may carry a sign-in. The log and the status file are read by more than the
+    /// watcher's owner, so neither gets it.</summary>
+    [Test]
+    public async Task A_sign_in_in_the_server_url_stays_out_of_the_log() {
+        await Watcher(new Server(), url: "https://someone:hunter2@acme.kcap.ai:8443/base").RunAsync(OneOldChat(dryRun: true), _log.Add, CancellationToken.None);
+
+        await Assert.That(_log[0]).Contains("posting to https://acme.kcap.ai:8443,");
+    }
+
+    /// <summary>The server took a call and the disk refused the state that records it. With nothing new to
+    /// send no later call would write that state, so the next cycle writes it first: a restart must not
+    /// begin from the older one.</summary>
+    [Test]
+    public async Task A_state_the_disk_refused_is_written_by_the_next_cycle() {
+        var server  = new Server();
+        var options = OneOldChat();
+        var time    = new FakeTimeProvider(DateTimeOffset.FromUnixTimeMilliseconds(1790595501000).AddMinutes(1));
+        var chat    = Directory.GetFiles(Tmp.PathTo("chats")).Single();
+
+        // Inside the gap, so the session stays open and the entry that follows is one call.
+        await Watcher(server, time).RunAsync(options, _log.Add, CancellationToken.None);
+
+        var state   = Directory.GetFiles(Tmp.PathTo("config"), "state.json", SearchOption.AllDirectories).Single();
+        var blocked = Directory.CreateDirectory(state + ".tmp");
+
+        await File.WriteAllTextAsync(chat, (await File.ReadAllTextAsync(chat)).Replace("]}}",
+            """,{"kind":"message","id":"t1u","role":"user","content":"more","timestampMs":1790595531000,"seq":3}]}}"""));
+
+        var watcher = Watcher(server, time);
+        using var stop  = new CancellationTokenSource();
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var running = watcher.RunAsync(options with { Once = false, Interval = TimeSpan.FromSeconds(10) }, _log.Add, stop.Token);
+
+        while (watcher.Running()?.Failure is null) await Task.Delay(10, limit.Token);
+
+        blocked.Delete();
+
+        while (watcher.Running() is not { Cycled: true, Failure: null }) {
+            time.Advance(TimeSpan.FromSeconds(10));
+            await Task.Delay(10, limit.Token);
+        }
+
+        await stop.CancelAsync();
+        await Assert.That(await running).IsEqualTo(GrokBotWatchOutcome.Stopped);
+
+        await Assert.That(await File.ReadAllTextAsync(state)).Contains("\"lastSeq\":3");
+        await Assert.That(server.Posts.Select(p => p.Path)).IsEquivalentTo(
+            ["/hooks/session-start/grok-bot", "/hooks/transcript", "/hooks/transcript"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
     }
 
     [Test]

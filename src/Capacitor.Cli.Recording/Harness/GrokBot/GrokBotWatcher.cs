@@ -27,8 +27,9 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
 
     public string GatewayDescriptor => Path.Join(home.Path, "sand-data", "gateway.json");
 
-    /// <summary>The server's scheme, host and port: a URL may carry more than that, and this goes in a log.</summary>
-    string Destination => Uri.TryCreate(profiles.Resolution.ServerUrl, UriKind.Absolute, out var url) ? url.GetLeftPart(UriPartial.Authority) : "an unnamed server";
+    /// <summary>The server's scheme, host and port: a URL may carry a sign-in or a path as well, and this
+    /// goes in a log and in the status file.</summary>
+    string Destination => Uri.TryCreate(profiles.Resolution.ServerUrl, UriKind.Absolute, out var url) ? url.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped) : "an unnamed server";
 
     /// <summary>Replaces the redactor, for a test that must not wait on a real deadline. Takes the line
     /// and how many tries of its chat have already run out of time.</summary>
@@ -182,6 +183,15 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
         public HashSet<(string Chat, int LastSeq)> Rolled { get; } = [];
 
         public DateTimeOffset? AcceptedAt { get; set; }
+
+        /// <summary>Whether what the server accepted is ahead of what the state file holds.</summary>
+        public bool Unsaved { get; private set; }
+
+        public void Checkpoint() {
+            Unsaved = true;
+            Store.Save(States);
+            Unsaved = false;
+        }
     }
 
     /// <summary>The source the options name, else the gateway where this computer has one, else the desktop
@@ -198,6 +208,10 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
     /// refused call ends the cycle, since a lapsed sign-in or a server outage refuses every chat alike.</summary>
     async Task<string?> CycleAsync(Run run, CancellationToken ct) {
         var client = await http.ForBackgroundAsync(ct);
+
+        // Owed before anything else: with nothing new to send, no later call would write it, and a
+        // restart would begin from the older state.
+        if (run.Unsaved) run.Checkpoint();
 
         var agents = await run.Source.ListAgentsAsync(ct);
 
@@ -263,7 +277,7 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
                 run.AcceptedAt = time.GetUtcNow();
                 run.Log(Describe(action));
                 run.States[agent.Id] = action.After;
-                run.Store.Save(run.States);
+                run.Checkpoint();
             }
 
             // Forgotten, so the chat is read again when its next try is due whatever its fingerprint says.
