@@ -22,9 +22,8 @@ Grade each part by what the reader does with it:
 - **Must know** — the answer to what they asked, anything you need them to
   decide or do, and anything that would mislead them if missed (a failure, a
   risk, a change of plan). Someone who reads only this can reply. Its length
-  follows the request: a design or a review needs plenty, while a task done
-  as asked needs only "Done." plus any question.
-  Leave it unmarked.
+  follows the request: a design or a review needs more than a task done as
+  asked, which needs only "Done." plus any question. Leave it unmarked.
 - **Detail** — what explains or supports the must know: names and ids
   (branches, commits), how things work, reasons, options they need not weigh.
   They read it to check or dig in. Wrap it in `⌞` and `⌟`.
