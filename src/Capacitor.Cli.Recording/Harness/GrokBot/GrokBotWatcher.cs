@@ -307,7 +307,7 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
     RedactionOutcome Redact(string line, int tries) =>
         Redaction is { } replaced ? replaced(line, tries)
         : tries == 0              ? SecretRedactor.RedactLineWithOutcome(line, time)
-                                    : SecretRedactor.RedactLineWithOutcome(line, new RedactionBudget(time, HeldLineRedaction.BudgetFor(tries)), SecretRedactor.OutOfProcessPatterns.Value);
+                                    : SecretRedactor.RedactLineWithOutcome(line, new RedactionBudget(time, HeldLineRedaction.BudgetFor(tries)), SecretRedactor.OutOfProcessPatterns);
 
     /// <summary>Sends one call; returns why the server refused it, or null when it was accepted.</summary>
     async Task<string?> SendAsync(HttpClient client, GrokBotAction action, CancellationToken ct) {
