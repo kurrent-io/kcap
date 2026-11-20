@@ -140,6 +140,37 @@ public partial class ChatTabViewModelTests {
         } finally { await second.TeardownAsync(); }
     });
 
+    /// Going to a bookmark whose message is on a page still to load pages back until it is shown.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Going_to_a_bookmark_on_an_unloaded_page_pages_back_to_it() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(TextEvent)]);
+        var marks = new ChatMarks();
+        RemoteTranscriptFeed? feed = null;
+        ChatTabViewModel Open() => new("a1", AgentOrigin.Remote, Observable.Return(Ended("s1")), Observable.Return<string[]?>(null),
+            new AcceptingChatInput(), new NoAttachmentUploader(), key => feed = new RemoteTranscriptFeed(key, "gemini", access, server.Reader, new FakeServerLane(), time, _ => { }, prefetch: 0),
+            new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time), chatMarks: marks);
+
+        var first = Open();
+        try {
+            await WaitUntilAsync(() => first.Items.Count > 0, what: "the seed");
+            while (first.RequestOlder()) await feed!.PendingOlderForTesting!;
+            await WaitUntilAsync(() => first.Items.OfType<AssistantTextItem>().Any(static row => row.Text == "m5"), what: "the first page");
+            first.Bookmarks.ToggleMessageCommand.Execute(first.Items.OfType<AssistantTextItem>().Single(static row => row.Text == "m5")).Subscribe();
+        } finally { await first.TeardownAsync(); }
+
+        var second = Open();
+        try {
+            await WaitUntilAsync(() => second.Items.Count > 0, what: "the seed");
+            var bookmark = second.Bookmarks.All.Single();
+            second.Bookmarks.RevealCommand.Execute(bookmark).Subscribe();
+            await WaitUntilAsync(() => second.Items.OfType<AssistantTextItem>().Any(static row => row.Text == "m5"), what: "the bookmark's page");
+            await Assert.That(second.Topics.TakeReveal()?.Row).IsSameReferenceAs(second.Items.OfType<AssistantTextItem>().Single(static row => row.Text == "m5"));
+        } finally { await second.TeardownAsync(); }
+    });
+
     static ChatSessionInfo Ended(string feedKey) => new("Ended", "Ended", "gemini", null, null, null, true, "", feedKey);
 
     /// With no prefetch an ended session pages back only when asked, which is what most of these tests drive.

@@ -947,7 +947,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             HeldMessagesViewModel? heldMessages = null, ChatFindMemory? findMemory = null,
             ChatMarks? chatMarks = null) {
         _topics = new ChatTopics(_items, chatMarks);
-        Bookmarks = new ChatBookmarks(_topics, chatMarks);
+        Bookmarks = new ChatBookmarks(_topics, chatMarks) { LoadOlder = LoadOlderForBookmark };
         ShowsMarks = chatMarks is not null;
         _tracksAccountReadings = accountReadings is not null;
         _drafts = drafts;
@@ -2168,6 +2168,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// Asks the feed for the lines before the oldest one shown; false when it has none or cannot page.
     public bool RequestOlder() => _lease?.Feed is RemoteTranscriptFeed remote && remote.RequestOlder();
 
+    // A page already on its way counts as asked for: its rows come back through the bookmarks' outline.
+    bool LoadOlderForBookmark() {
+        if (_lease?.Feed is not RemoteTranscriptFeed { HasOlder: true } remote) return false;
+        remote.RequestOlder();
+        return true;
+    }
+
     /// Older rows go above the ones on screen. A call they leave open is settled by a result already
     /// shown, and the runs fold again from the start of what is loaded.
     /// A page that adds no rows asks for the next one at once: no scroll would ask for it. A live session
@@ -2511,6 +2518,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // the cancellation before the channel it is sending through goes away.
         foreach (var choice in _terminalMenuChoices) choice.Choose.Dispose();
         try { _lifetime.Cancel(); } catch (ObjectDisposedException) { }
+        // The bookmark list outlives the tab, so the tab lets go of it.
+        Bookmarks.Reset(null);
         _disposables.Dispose();
         Cards.Dispose();
         Tasks.Dispose();

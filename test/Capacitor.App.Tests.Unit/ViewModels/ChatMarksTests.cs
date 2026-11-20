@@ -136,4 +136,53 @@ public class ChatMarksTests {
             await Assert.That(topics.TakeReveal()?.Row).IsSameReferenceAs(again[0]);
         });
     }
+
+    /// A topic's end can load a page ahead of the topic: it waits, saved, for the topic rather than being dropped.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_end_whose_topic_is_on_an_older_page_waits_for_it() {
+        await RunOnUiAsync(async () => {
+            var store = new ChatMarks();
+            store.SetTopics("feed", new Dictionary<ChatMessageKey, ChatTopicMark> {
+                [new(11, 0)] = new(false, "Locks", Anchor: "Point 1"),
+                [new(12, 1)] = new(false, null, End: true, Anchor: "Point 2"),
+            });
+            var items = new AvaloniaList<ChatItemViewModel>();
+            var topics = new ChatTopics(items, store);
+            topics.Reset("feed");
+            var rows = Transcript();
+            items.AddRange(rows.Skip(2));
+            topics.Restore();
+
+            await Assert.That(items.OfType<ChatTopicEndItem>()).IsEmpty();
+            await Assert.That(store.Topics("feed").Count).IsEqualTo(2);
+
+            items.InsertRange(0, rows.Take(2));
+            topics.Restore();
+            await Assert.That(items.Select(static row => row.GetType().Name)).IsEquivalentTo(
+                ["AssistantTextItem", "ChatTopicItem", "UserTurnItem", "AssistantTextItem", "ChatTopicEndItem", "UserTurnItem"], CollectionOrdering.Matching);
+        });
+    }
+
+    /// Two chats on one transcript share its bookmarks, each with its own rows: a second chat opening
+    /// it does not cost the first its way back to a bookmark's message.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_second_chat_on_the_transcript_leaves_the_first_able_to_reveal_its_bookmarks() {
+        await RunOnUiAsync(async () => {
+            var store = new ChatMarks();
+            var rows = Transcript();
+            var topics = new ChatTopics(new AvaloniaList<ChatItemViewModel>(rows), store);
+            var bookmarks = new ChatBookmarks(topics, store);
+            topics.Reset("feed");
+            bookmarks.Reset("feed");
+            bookmarks.Add(["Point 2"], rows[3]);
+
+            var second = new ChatBookmarks(new ChatTopics(new AvaloniaList<ChatItemViewModel>(), store), store);
+            second.Reset("feed");
+
+            bookmarks.RevealCommand.Execute(bookmarks.All.Single()).Subscribe();
+            await Assert.That(topics.TakeReveal()?.Row).IsSameReferenceAs(rows[3]);
+        });
+    }
 }

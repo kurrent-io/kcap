@@ -15,9 +15,6 @@ public sealed class ChatBookmark(string text, ChatMessageKey? message, string? q
     /// The start of its message's text when it was taken, to tell that message from another now at its key.
     public string? Anchor { get; } = anchor;
 
-    /// The row it was taken from, while the chat shows it.
-    internal ChatItemViewModel? Source { get; set; }
-
     /// Whether <paramref name="row"/>, the message now at this bookmark's key, is the one it was taken from.
     public bool Fits(ChatItemViewModel row) => Anchor is null || ChatTopics.AnchorOf(row) == Anchor;
 

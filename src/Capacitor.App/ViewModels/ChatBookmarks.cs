@@ -11,6 +11,9 @@ public sealed class ChatBookmarks : ReactiveObject {
 
     readonly ChatTopics _topics;
     readonly ChatMarks? _store;
+    // The row each bookmark came from, while this chat shows it. Per chat: the bookmarks are shared
+    // by every tab showing the transcript, each with rows of its own.
+    readonly Dictionary<ChatBookmark, ChatItemViewModel> _sources = new(ReferenceEqualityComparer.Instance);
 
     public ChatBookmarks(ChatTopics topics, ChatMarks? store = null) {
         _topics = topics;
@@ -28,8 +31,17 @@ public sealed class ChatBookmarks : ReactiveObject {
 
     public ReactiveCommand<ChatBookmark, Unit> RemoveCommand { get; }
 
-    /// Brings the message a bookmark came from into view, with the bookmarked text picked out.
+    /// Brings the message a bookmark came from into view, with the bookmarked text picked out, paging
+    /// the chat back first when that message is on a page still to load.
     public ReactiveCommand<ChatBookmark, Unit> RevealCommand { get; }
+
+    /// Asks for the page before the oldest one shown; false when there is none.
+    public Func<bool>? LoadOlder { get; init; }
+
+    // The bookmark being revealed once the page holding its message loads.
+    ChatBookmark? _seeking;
+    // Bookmarks whose message is older than every one shown.
+    readonly HashSet<ChatBookmark> _older = new(ReferenceEqualityComparer.Instance);
 
     AvaloniaList<ChatBookmark> _all;
     public AvaloniaList<ChatBookmark> All {
@@ -63,6 +75,8 @@ public sealed class ChatBookmarks : ReactiveObject {
     public void Reset(string? feed) {
         if (feed == _feed) return;
         _feed = feed;
+        _seeking = null;
+        _sources.Clear();
         All = feed is not null && _store is not null ? _store.Bookmarks(feed) : [];
         Outline();
     }
@@ -72,8 +86,10 @@ public sealed class ChatBookmarks : ReactiveObject {
     /// Bookmarks each piece of text, in order, as taken from <paramref name="source"/>. Blank text is skipped.
     public void Add(IEnumerable<string> texts, ChatItemViewModel source) {
         var anchor = ChatTopics.AnchorOf(source);
-        All.AddRange(texts.Select(quote => (Text: Tidy(quote), Quote: quote)).Where(static b => b.Text.Length > 0)
-            .Select(b => new ChatBookmark(b.Text, source.Key, b.Quote, anchor) { Source = source }));
+        var added = texts.Select(quote => (Text: Tidy(quote), Quote: quote)).Where(static b => b.Text.Length > 0)
+            .Select(b => new ChatBookmark(b.Text, source.Key, b.Quote, anchor)).ToList();
+        foreach (var bookmark in added) _sources[bookmark] = source;
+        All.AddRange(added);
     }
 
     void ToggleMessage(ChatItemViewModel source) {
@@ -82,14 +98,27 @@ public sealed class ChatBookmarks : ReactiveObject {
             return;
         }
         var text = Tidy(source switch { UserTurnItem user => user.Text, AssistantTextItem reply => reply.Text, _ => "" });
-        All.Add(new ChatBookmark(text.Length > 0 ? text : "Message", source.Key, anchor: ChatTopics.AnchorOf(source)) { Source = source });
+        var bookmark = new ChatBookmark(text.Length > 0 ? text : "Message", source.Key, anchor: ChatTopics.AnchorOf(source));
+        _sources[bookmark] = source;
+        All.Add(bookmark);
     }
 
     void Reveal(ChatBookmark bookmark) {
-        if (bookmark.Source is { } row) _topics.Reveal(row, bookmark.Quote);
+        _seeking = null;
+        if (_sources.TryGetValue(bookmark, out var row)) _topics.Reveal(row, bookmark.Quote);
+        else if (_older.Contains(bookmark) && LoadOlder?.Invoke() == true) _seeking = bookmark;
+    }
+
+    void Seek() {
+        if (_seeking is not { } wanted) return;
+        if (_sources.TryGetValue(wanted, out var row)) {
+            _seeking = null;
+            _topics.Reveal(row, wanted.Quote);
+        } else if (!_older.Contains(wanted) || LoadOlder?.Invoke() != true) _seeking = null;
     }
 
     void OnChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) {
+        foreach (var gone in e.OldItems?.OfType<ChatBookmark>() ?? []) _sources.Remove(gone);
         Any = _all.Count > 0;
         Outline();
     }
@@ -110,13 +139,20 @@ public sealed class ChatBookmarks : ReactiveObject {
         var first = messages.Select(static m => m.Key).FirstOrDefault(static k => k is not null);
         var last = messages.Select(static m => m.Key).LastOrDefault(static k => k is not null);
         int? PositionOf(ChatBookmark b) {
-            if (b.Source is { } source && shown.TryGetValue(source, out var at)) return at;
-            b.Source = b.Message is { } key && keyed.TryGetValue(key, out var row) && b.Fits(row) ? row : null;
-            if (b.Source is not null) return shown[b.Source];
+            if (_sources.TryGetValue(b, out var source) && shown.TryGetValue(source, out var at)) return at;
+            if (b.Message is { } key && keyed.TryGetValue(key, out var row) && b.Fits(row)) {
+                _sources[b] = row;
+                return shown[row];
+            }
+            _sources.Remove(b);
             if (b.Message is not { } wanted || keyed.ContainsKey(wanted)) return null;
-            if (first is null || wanted < first.Value) return -1;
+            if (first is null || wanted < first.Value) {
+                _older.Add(b);
+                return -1;
+            }
             return wanted > last!.Value ? int.MaxValue : null;
         }
+        _older.Clear();
         var positions = _all.Select(b => (Bookmark: b, At: PositionOf(b))).ToList();
         var placed = positions.Where(static p => p.At is not null)
             .OrderBy(static p => p.At).ThenBy(static p => p.Bookmark.Message).ThenBy(static p => p.Bookmark.Quote is not null).ToList();
@@ -133,6 +169,7 @@ public sealed class ChatBookmarks : ReactiveObject {
             sections.Add(new ChatBookmarkGroup(null, loose));
         Sections = sections;
         MarkMessages();
+        Seek();
     }
 
     readonly List<ChatItemViewModel> _marked = [];
@@ -141,7 +178,7 @@ public sealed class ChatBookmarks : ReactiveObject {
         foreach (var row in _marked) row.Bookmark = null;
         _marked.Clear();
         foreach (var bookmark in _all)
-            if (bookmark is { Quote: null, Source: { Bookmark: null } row }) {
+            if (bookmark.Quote is null && _sources.TryGetValue(bookmark, out var row) && row.Bookmark is null) {
                 row.Bookmark = bookmark;
                 _marked.Add(row);
             }
