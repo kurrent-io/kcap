@@ -124,6 +124,40 @@ public class GrokBotWatcherTests {
         await Assert.That(server.Posts.Count).IsEqualTo(3);
     }
 
+    /// <summary>The lock proves a watcher runs, and only its holder writes the status, so a running watcher is
+    /// described by what it wrote itself. Once it stops, the file it left behind describes nothing.</summary>
+    [Test]
+    public async Task A_running_watcher_says_where_it_posts_and_a_stopped_one_says_nothing() {
+        var watcher = Watcher(new Server());
+        var options = OneOldChat() with { Once = false };
+        using var stop = new CancellationTokenSource();
+
+        await Assert.That(watcher.Running()).IsNull();
+
+        var running = watcher.RunAsync(options, _ => { }, stop.Token);
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (watcher.Running() is null) await Task.Delay(10, limit.Token);
+
+        await Assert.That(watcher.Running()).IsEqualTo(new GrokBotWatchStatus("https://acme.kcap.ai", Environment.ProcessId));
+
+        await stop.CancelAsync();
+        await Assert.That(await running).IsEqualTo(GrokBotWatchOutcome.Stopped);
+        await Assert.That(File.Exists(Tmp.PathTo("config", "grok-bot", "watch.json"))).IsTrue();
+        await Assert.That(watcher.Running()).IsNull();
+    }
+
+    /// <summary>A status left by an earlier watcher sits under a lock a later one holds until that one writes
+    /// its own. It names a process that is gone, and is not taken for the running watcher's.</summary>
+    [Test]
+    [Arguments("""{"pid":2147483646,"server":"https://stale.kcap.ai"}""")]
+    [Arguments("{not json")]
+    public async Task A_status_the_running_watcher_did_not_write_leaves_its_destination_unknown(string left) {
+        Tmp.CreateFile(["config", "grok-bot", "watch.json"], left);
+
+        await using (new FileStream(Tmp.CreateFile(["config", "grok-bot", "watch.lock"]), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            await Assert.That(Watcher(new Server()).Running()).IsEqualTo(new GrokBotWatchStatus(null, null));
+    }
+
     [Test]
     public async Task A_source_that_is_not_there_is_no_source() {
         var server = new Server();

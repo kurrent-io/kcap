@@ -421,29 +421,25 @@ account, not once per Bot.
 ### C1. Check what is already there
 
 ```bash
-command -v kcap && kcap whoami
-pgrep -af "[k]cap grok-bot watch"
+command -v kcap && kcap whoami && kcap grok-bot status
 ```
-
-The bracket keeps `pgrep` from matching the shell that runs it, whose own
-command line holds the same words; without it a watcher always seems to be
-running.
 
 A `Server:` line naming the workspace the user wants plus `Server:   accepts
 this token` means C2 and C3 are done.
 
-A `pgrep` line means a watcher is running, not where it records: it keeps the
-workspace it started with, whatever kcap is signed in to now. Its log says:
+`kcap grok-bot status` speaks for the watcher that is actually running, however
+it was started. A watcher keeps the workspace it started with, whatever kcap is
+signed in to now, so read its answer rather than a log:
 
-```bash
-grep "posting to" ~/.config/kcap/grok-bot/watch.log | tail -1
-```
-
-Only when that line names the workspace the user wants is recording already
-active there: say so and stop. Any other address, or no such line, is a watcher
-recording somewhere the user did not ask for. Tell them where it records, or
-that it cannot be told, and with their agreement stop it the way C4 says before
-going on to C3 and C4.
+- `posting to <address>` naming the workspace the user wants: recording is
+  already active there. Say so and stop.
+- `Where it posts could not be read`: ask once more after a few seconds, since
+  a watcher that has only just started has not said yet.
+- `posting to` any other address, or a second `could not be read`: a watcher is
+  recording somewhere the user did not ask for. Tell them where, or that it
+  cannot be told, and with their agreement stop it the way C4 says before going
+  on to C3 and C4.
+- `No Grok Bot watcher is running`: go on.
 
 ### C2. Install
 
@@ -493,8 +489,12 @@ mkdir -p ~/.config/kcap/grok-bot
 pgrep -af "[k]cap grok-bot watch" || {
   nohup kcap grok-bot watch >> ~/.config/kcap/grok-bot/watch.log 2>&1 &
 }
-sleep 10; tail -5 ~/.config/kcap/grok-bot/watch.log
+sleep 10; tail -5 ~/.config/kcap/grok-bot/watch.log; kcap grok-bot status
 ```
+
+The bracket keeps `pgrep` from matching the shell that runs it, whose own
+command line holds the same words; without it a watcher always seems to be
+running.
 
 The log shows `watching …, posting to <workspace>` and then `open session …` /
 `send N entries …` lines. A second watcher refuses to start, so this block is safe to run again,
@@ -509,7 +509,7 @@ the full path `command -v kcap` prints, written here as `<kcap>`:
 
 To stop recording, in this order: remove that line from the crontab first, so
 nothing starts a watcher again; then `pkill -f "[k]cap grok-bot watch"`; then
-check that `pgrep -af "[k]cap grok-bot watch"` prints nothing.
+check that `kcap grok-bot status` says no watcher is running.
 
 ### C5. Tell the user
 

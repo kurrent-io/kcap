@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -27,6 +28,38 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
     /// <summary>The server's scheme, host and port: a URL may carry more than that, and this goes in a log.</summary>
     string Destination => Uri.TryCreate(profiles.Resolution.ServerUrl, UriKind.Absolute, out var url) ? url.GetLeftPart(UriPartial.Authority) : "an unnamed server";
 
+    string LockPath   => config.Path("grok-bot", "watch.lock");
+    string StatusPath => config.Path("grok-bot", "watch.json");
+
+    /// <summary>The watcher running on this computer, or null when none is. The lock is the proof that one
+    /// runs; its status file is believed only while the process it names is alive, since the file outlives
+    /// the watcher that wrote it and a log line cannot be tied to a running process at all.</summary>
+    public GrokBotWatchStatus? Running() {
+        if (!File.Exists(LockPath)) return null;
+
+        try {
+            using var free = new FileStream(LockPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+
+            return null;
+        } catch (IOException) {
+            // Held: a watcher is running.
+        }
+
+        try {
+            var status = JsonNode.Parse(File.ReadAllTextShared(StatusPath));
+
+            if (status?["pid"]?.GetValue<int>() is { } pid && status["server"]?.GetValue<string>() is { } server) {
+                using var writer = Process.GetProcessById(pid);
+
+                return new GrokBotWatchStatus(server, pid);
+            }
+        } catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or InvalidOperationException or ArgumentException or FormatException) {
+            // Unreadable, or left by a process that is gone.
+        }
+
+        return new GrokBotWatchStatus(null, null);
+    }
+
     /// <param name="log">Receives one line per thing worth telling whoever runs the watcher.</param>
     public async Task<GrokBotWatchOutcome> RunAsync(GrokBotWatchOptions options, Action<string> log, CancellationToken ct) {
         using var plain = new HttpClient();
@@ -39,10 +72,15 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
         if (!options.DryRun) {
             Directory.CreateDirectory(config.Path("grok-bot"));
             try {
-                held = new FileStream(config.Path("grok-bot", "watch.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                held = new FileStream(LockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             } catch (IOException) {
                 return GrokBotWatchOutcome.AlreadyRunning;
             }
+
+            // First thing under the lock, so a held lock never vouches for the watcher before this one.
+            var status = StatusPath + ".tmp";
+            await File.WriteAllTextAsync(status, new JsonObject { ["pid"] = Environment.ProcessId, ["server"] = Destination }.ToJsonString(), ct);
+            File.Move(status, StatusPath, overwrite: true);
         }
 
         using var _ = held;

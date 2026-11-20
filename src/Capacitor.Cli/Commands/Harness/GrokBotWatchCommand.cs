@@ -5,11 +5,18 @@ using Capacitor.Cli.Recording.Harness.GrokBot;
 namespace Capacitor.Cli.Commands.Harness;
 
 /// <summary><c>kcap grok-bot watch</c>: the Grok Bot watcher run by hand, logging to stderr. The daemon runs
-/// the same watcher itself for a profile that sets <c>grok_bot.record</c>.</summary>
+/// the same watcher itself for a profile that sets <c>grok_bot.record</c>. <c>kcap grok-bot status</c> says
+/// whether one is running on this computer, whoever started it, and where it posts.</summary>
 public sealed class GrokBotWatchCommand(GrokBotWatcher watcher, UserHome home, TimeProvider time) {
     public async Task<int> HandleAsync(string[] args) {
+        if (args is [_, "status"]) {
+            await Console.Out.WriteLineAsync(Describe(watcher.Running()));
+            return 0;
+        }
+
         if (args.Length < 2 || args[1] != "watch") {
             await Console.Error.WriteLineAsync("Usage: kcap grok-bot watch [--once] [--dry-run] [--gateway <gateway.json> | --desktop <dir>] [--interval <seconds>] [--gap-minutes <n>]");
+            await Console.Error.WriteLineAsync("       kcap grok-bot status");
             return 1;
         }
 
@@ -50,6 +57,12 @@ public sealed class GrokBotWatchCommand(GrokBotWatcher watcher, UserHome home, T
             Console.CancelKeyPress -= Cancel;
         }
     }
+
+    internal static string Describe(GrokBotWatchStatus? status) => status switch {
+        null                              => "No Grok Bot watcher is running on this computer.",
+        { Server: { } server, Pid: var pid } => $"A Grok Bot watcher is running (pid {pid}), posting to {server}.",
+        _                                 => "A Grok Bot watcher is running. Where it posts could not be read."
+    };
 
     static string? Option(string[] args, string name) {
         var i = Array.IndexOf(args, name);
