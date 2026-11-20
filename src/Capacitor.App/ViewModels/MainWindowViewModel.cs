@@ -43,7 +43,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     static IBrush Paint(string tone) => AppPalette.Brush(tone switch {
         StatusColors.Connected => AppStatusPalette.Connected,
         StatusColors.InProgress => AppStatusPalette.Attention,
-        StatusColors.Pending => AppStatusPalette.Execution,
+        StatusColors.Pending => AppStatusPalette.Pending,
         StatusColors.Disrupted => AppStatusPalette.Disrupted,
         _ => AppStatusPalette.Unavailable,
     });

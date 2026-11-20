@@ -12,7 +12,7 @@ internal static class AppPalette {
 /// Semantic palette keys for status presentation.
 internal static class AppStatusPalette {
     public const string Connected   = "KcapSuccessBrush";
-    public const string Execution   = "KcapPurpleBrush";
+    public const string Pending     = "KcapMutedBrush";
     public const string Attention   = "KcapWarningBrush";
     public const string Disrupted   = "KcapDangerBrush";
     public const string Unavailable = "KcapFaintBrush";

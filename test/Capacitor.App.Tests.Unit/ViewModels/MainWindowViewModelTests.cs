@@ -807,6 +807,8 @@ public class MainWindowViewModelTests {
             service.SnapshotsSubject.OnNext(Snap(connection: "reconnecting"));
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.ReconnectingText);
+            // Reconnecting needs nothing from the user and is not execution, so it stays grey, not purple.
+            await Assert.That(((ISolidColorBrush)vm.StatusBrush).Color).IsEqualTo(Color.Parse(StatusColors.Pending));
 
             lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut));
             await Assert.That(home.ConnectionNotice).IsEqualTo(HomeViewModel.SignInExpiredNotice);
