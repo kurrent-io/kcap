@@ -92,6 +92,13 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public string PullRequestTooltip => $"{PullRequest?.Description}\n\nLinked to this session: {SessionAccessibleName}\n{(HasMultiplePullRequests ? "Choose a pull request" : "Open pull request details")}";
     public bool HasPullRequest => PullRequest is not null;
     public string PullRequestAccessibleName => $"{(HasMultiplePullRequests ? "Choose from" : "Open")} {PullRequestLabel}{(HasPullRequestLifecycle ? $", {PullRequest?.Lifecycle}" : "")} for {Primary ?? Vendor}";
+    /// The right-click menu's items; each disables itself on a row it cannot act on.
+    public bool HasMenu { get; private set; }
+    public ReactiveCommand<Unit, Unit> RenameCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> MakePrivateCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> DeleteCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> TerminateCommand { get; private set; } = null!;
+    public string TerminateLabel => IsAttached ? AttachedAgentCopy.DisconnectSteering : "Terminate";
     readonly ObservableAsPropertyHelper<bool> _isSelected;
     public bool IsSelected => _isSelected.Value;
 
@@ -119,6 +126,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             IObservable<bool>? localOnAppServer = null, Action<string, AgentOrigin, PullRequestSubjectDto?>? openPullRequest = null,
             IObservable<Unit>? ageTicks = null,
             Action<string>? openServer = null, IObservable<RailGrouping>? grouping = null,
+            IRailSessionActions? sessionActions = null,
             IObservable<RailSort>? sort = null) {
         _time = time;
         _row = new BehaviorSubject<AgentRow>(row).DisposeWith(_disposables);
@@ -192,6 +200,20 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
                 openPullRequest?.Invoke(Id, Origin(), item.Subject);
         });
         _disposables.Add(OpenPullRequestChoiceCommand);
+        BuildMenu(sessionActions);
+    }
+
+    void BuildMenu(IRailSessionActions? actions) {
+        HasMenu = actions is not null;
+        var owned = _row.Select(r => actions is not null && RailSessionActions.OwnsSession(r));
+        var running = _row.Select(r => actions is not null && RailSessionActions.CanTerminate(r));
+        var deletable = _row.Select(r => actions is not null && RailSessionActions.CanDelete(r));
+        RenameCommand = ReactiveCommand.Create(() => actions?.Rename(_row.Value), owned).DisposeWith(_disposables);
+        MakePrivateCommand = ReactiveCommand.CreateFromTask(
+            () => actions?.MakePrivateAsync(_row.Value, SessionAccessibleName) ?? Task.CompletedTask, owned).DisposeWith(_disposables);
+        DeleteCommand = ReactiveCommand.CreateFromTask(
+            () => actions?.DeleteAsync(_row.Value, SessionAccessibleName) ?? Task.CompletedTask, deletable).DisposeWith(_disposables);
+        TerminateCommand = ReactiveCommand.Create(() => actions?.Terminate(_row.Value, SessionAccessibleName), running).DisposeWith(_disposables);
     }
 
     AgentOrigin Origin() => IsServer ? AgentOrigin.Server : IsRemote ? AgentOrigin.Remote : AgentOrigin.Local;

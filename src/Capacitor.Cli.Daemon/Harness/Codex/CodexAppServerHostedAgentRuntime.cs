@@ -392,7 +392,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     }
 
     async Task<IReadOnlyList<CodexHookEntry>> ListHooksAsync(CancellationToken ct) {
-        var listParams = new JsonObject { ["cwds"] = new JsonArray((JsonNode?) _launch.Cwd) };
+        var listParams = new JsonObject { ["cwds"] = new JsonArray(_launch.Cwd) };
         var result     = await RequestAsync("hooks/list", listParams, ct).ConfigureAwait(false);
 
         return CodexHookTrust.ParseHooksList(result);
@@ -400,7 +400,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
 
     async Task TryPublishSkillsAsync(CancellationToken ct) {
         try {
-            var listParams = new JsonObject { ["cwds"] = new JsonArray((JsonNode?) _launch.Cwd) };
+            var listParams = new JsonObject { ["cwds"] = new JsonArray(_launch.Cwd) };
             var result     = await RequestAsync("skills/list", listParams, ct).ConfigureAwait(false);
 
             var commands = CodexSkills.Extract(result);

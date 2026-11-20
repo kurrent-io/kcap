@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Antigravity;
 
 /// <summary>
 /// <see cref="AgyTurnProcess"/> against a REAL child — a trivial sleeper, not <c>agy</c>, so this is
-/// ungated and runs everywhere POSIX. What it pins is the process-lifecycle contract the runtime's
+/// ungated and runs everywhere. What it pins is the process-lifecycle contract the runtime's
 /// confirmed-exit gate is built on, and that contract cannot be observed through a fake: the whole
 /// question is whether a KILL has actually landed by the time disposal returns, which only a real
 /// process table can answer.
@@ -29,15 +29,18 @@ public class AgyTurnProcessTests {
     /// </summary>
     [Test]
     public async Task Disposing_a_running_turn_child_kills_it() {
-        Skip.Unless(!OperatingSystem.IsWindows(),
-            "Uses /bin/sh as a long-lived child; the Antigravity reviewer is POSIX-only anyway.");
+        // `ping` rather than `timeout` on Windows: `timeout` exits at once when stdin is not a console.
+        var longLived = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo("cmd.exe", "/c ping -n 300 127.0.0.1 >NUL")
+            : new ProcessStartInfo("/bin/sh", "-c \"sleep 300\"");
 
-        var child = Process.Start(new ProcessStartInfo("/bin/sh", "-c \"sleep 300\"") {
-            RedirectStandardInput  = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError  = true,
-            UseShellExecute        = false,
-        })!;
+        longLived.RedirectStandardInput  = true;
+        longLived.RedirectStandardOutput = true;
+        longLived.RedirectStandardError  = true;
+        longLived.UseShellExecute        = false;
+        longLived.CreateNoWindow         = true;
+
+        var child = Process.Start(longLived)!;
 
         using var observer = Process.GetProcessById(child.Id);
         var turn = new AgyTurnProcess(child, NullLogger<AgyTurnProcess>.Instance, TimeProvider.System);

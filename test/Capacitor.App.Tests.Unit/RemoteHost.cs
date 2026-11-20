@@ -34,7 +34,7 @@ sealed class RemoteHost : IDisposable {
         });
         Directory.Rows.AddOrUpdate(row);
         return new RemoteSessionViewModel(row, Directory, _access, _permissions, WorkspaceFixtures.NewActions(), _lane,
-            (_, _) => Task.FromResult(new SessionDetailFetch(null)), new RecordingOpener(), new FakeTimeProvider(), WorkSource,
+            FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(null))), new RecordingOpener(), new FakeTimeProvider(), WorkSource,
             () => new FakeTerminalSurface(), pullRequests: pullRequests, drafts: drafts);
     }
 
@@ -44,7 +44,7 @@ sealed class RemoteHost : IDisposable {
             new RepoIdentity("daemon:u1/work-mac:/w/r", "r"), "u1/work-mac");
         Directory.Rows.AddOrUpdate(row);
         return new RemoteSessionViewModel(row, Directory, _access, _permissions, WorkspaceFixtures.NewActions(), _lane,
-            (_, _) => Task.FromResult(new SessionDetailFetch(null)), new RecordingOpener(), new FakeTimeProvider(), WorkSource,
+            FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(null))), new RecordingOpener(), new FakeTimeProvider(), WorkSource,
             () => new FakeTerminalSurface());
     }
 
@@ -53,12 +53,12 @@ sealed class RemoteHost : IDisposable {
         var row = ServerRow(sessionId, status);
         Directory.Rows.AddOrUpdate(row);
         return new RemoteSessionViewModel(row, Directory, _access, _permissions, WorkspaceFixtures.NewActions(), _lane,
-            (_, _) => Task.FromResult(new SessionDetailFetch(null)), new RecordingOpener(), new FakeTimeProvider(), WorkSource,
+            FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(null))), new RecordingOpener(), new FakeTimeProvider(), WorkSource,
             () => new FakeTerminalSurface());
     }
 
     public static AgentRow ServerRow(string sessionId, string status = "ended") =>
-        AgentRow.FromServer(new Capacitor.Remote.Models.RepoSessionDto {
+        AgentRow.FromServer(new RepoSessionDto {
             SessionId = sessionId, Status = status, AccessLevel = "full", Vendor = "claude", Title = "Ended session",
             Owner = new() { UserId = "u1", DisplayName = "Alexey" },
             StartedAt = DateTimeOffset.UnixEpoch, LastActivityAt = DateTimeOffset.UnixEpoch.AddHours(1),

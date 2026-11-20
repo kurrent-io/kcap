@@ -1,6 +1,6 @@
 namespace Capacitor.Cli.Core.Harness.Claude;
 
-using Capacitor.Cli.Core.Policy;
+using Policy;
 
 /// <summary>What a Claude seam declares to the judge from the session's transcript file. A null
 /// turn set makes the consultation windowless.</summary>

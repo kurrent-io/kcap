@@ -498,7 +498,7 @@ public class AcpLaunchStageOrchestratorTests {
 
         // The SAME instance the factory wrote to is the one the orchestrator owns on AgentInstance
         // — RuntimeStartContext.ActivityClock threaded to the factory is what makes this a single shared object, not two independent clocks.
-        await Assert.That(ReferenceEquals(cursorFactory.ObservedClock, agent!.ActivityClock)).IsTrue();
+        await Assert.That(ReferenceEquals(cursorFactory.ObservedClock, agent.ActivityClock)).IsTrue();
 
         // Only now is "null after Running" a real assertion about ClearLaunchStage, rather than
         // the vacuous "it was always null" the seq-only check above could not rule out.

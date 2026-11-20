@@ -168,7 +168,7 @@ public class JsonSchemaCheckTests {
 
     [Test]
     public async Task A_root_ref_and_an_escaped_pointer_resolve() {
-        var schema = """{"properties":{"a":{"$ref":"#/$defs/a~1b~0c"}},"$defs":{"a/b~c":{"type":"integer"}}}""";
+        const string schema = """{"properties":{"a":{"$ref":"#/$defs/a~1b~0c"}},"$defs":{"a/b~c":{"type":"integer"}}}""";
         await Assert.That(Check(schema, """{"a":1}""")).IsTrue();
         await Assert.That(Check(schema, """{"a":"x"}""")).IsFalse();
         await Assert.That(Check("""{"properties":{"a":{"$ref":"#"}},"type":"object"}""", """{"a":{"a":{}}}""")).IsTrue();

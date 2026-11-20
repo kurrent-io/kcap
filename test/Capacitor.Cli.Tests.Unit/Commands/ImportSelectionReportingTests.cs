@@ -21,10 +21,11 @@ public class ImportSelectionReportingTests : IDisposable {
     TempDirHandle Projects() {
         var projects = _tmp.CreateDir("projects");
         var dir = projects.CreateDir("-tmp-sel-proj");
-        for (var i = 0; i < 7; i++)
+        for (var i = 0; i < 7; i++) {
             dir.CreateFile($"sess{i}.jsonl",
                 [.. Enumerable.Range(0, 20).Select(n =>
                     $$$"""{"type":"user","timestamp":"2026-03-{{{(i + 1):00}}}T10:00:00Z","cwd":"/tmp/sel-proj","message":{"content":"line {{{n}}}"}}""")]);
+        }
         return projects;
     }
 

@@ -35,6 +35,15 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     int _first = -1;
     int _last = -1;
     ChatTopicRailLayer? _rails;
+    /// After rows go in above the ones on screen: the row the reader was at, how far into it the viewport's
+    /// top was, the offset's distance from the viewport's top, and the offset when this was set. The offset
+    /// follows that row once layout has measured it, since rows measured around it move it from where the
+    /// estimates put it; a scroll the reader made before then is carried along rather than overwritten.
+    (object Item, double Within, double Inset, double Offset)? _insertAnchor;
+    bool _insertArranged;
+    /// How far the viewport moved for an insertion, until a viewport reflecting it arrives: one reported
+    /// from before would measure the inserted rows at the top and move every row below them.
+    double _shiftInFlight;
 
     internal bool MeasuredAtEstimatedEnd { get; private set; }
 
@@ -60,6 +69,10 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     }
 
     void OnViewportChanged(object? sender, EffectiveViewportChangedEventArgs e) {
+        if (_shiftInFlight != 0) {
+            if (Math.Abs(e.EffectiveViewport.Top + _shiftInFlight - _viewport.Top) < 1) return;
+            _shiftInFlight = 0;
+        }
         if (_viewport == e.EffectiveViewport) return;
         var old = _viewport;
         _viewport = e.EffectiveViewport;
@@ -112,9 +125,10 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         _lastWidth = availableSize.Width;
         var overscan = view?.IsSmoothScrolling == true ? KeepAliveOverscan : 0;
         // Keep the presenter's anchor until arrange has compensated for any newly measured rows.
-        foreach (var entry in _realized.ToArray())
+        foreach (var entry in _realized.ToArray()) {
             if ((entry.Key < first || entry.Key > anchor && _starts[entry.Key] >= end) && !KeepAlive(entry.Value, focused, scrollAnchor, overscan))
                 Unrealize(entry.Key);
+        }
         var last = first;
         var width = 0.0;
         var adjustment = 0.0;
@@ -175,6 +189,24 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         || focused is not null && (ReferenceEquals(focused, row.Container) || row.Container.IsVisualAncestorOf(focused));
 
     protected override Size ArrangeOverride(Size finalSize) {
+        if (_insertAnchor is not null && !_insertArranged && this.FindAncestorOfType<ScrollViewer>() is { } scroll) {
+            _insertArranged = true;
+            // Only input moves the offset between the insertion and here; the presenter's own anchoring runs later in this pass.
+            var moved = scroll.Offset.Y - _insertAnchor.Value.Offset;
+            // The presenter takes the grown extent only after this pass; an offset set now is clamped to the old one.
+            void Apply(object? sender, EventArgs e) {
+                scroll.LayoutUpdated -= Apply;
+                _insertArranged = false;
+                if (_insertAnchor is not var (item, within, inset, _)) return;
+                _insertAnchor = null;
+                var index = -1;
+                for (var i = 0; i < Items.Count && index < 0; i++)
+                    if (ReferenceEquals(Items[i], item)) index = i;
+                if (index < 0 || _starts.Length != Items.Count + 1) return;
+                scroll.Offset = new Vector(scroll.Offset.X, _starts[index] + within + inset + moved);
+            }
+            scroll.LayoutUpdated += Apply;
+        }
         var anchors = this.FindAncestorOfType<IScrollAnchorProvider>();
         foreach (var entry in _realized) {
             var container = entry.Value.Container;
@@ -269,6 +301,10 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     }
 
     protected override void OnItemsChanged(IReadOnlyList<object?> items, NotifyCollectionChangedEventArgs e) {
+        var inserted = e is { Action: NotifyCollectionChangedAction.Add, NewStartingIndex: 0, NewItems.Count: var count }
+            && count < items.Count && _realized.Count > 0 ? count : 0;
+        var reading = inserted > 0 ? IndexAt(Math.Max(0, _viewport.Top)) : 0;
+        var within = inserted > 0 ? _viewport.Top - _starts[reading] : 0;
         if (e.Action != NotifyCollectionChangedAction.Add || e.NewStartingIndex != _starts.Length - 1) {
             if (e.Action == NotifyCollectionChangedAction.Reset) {
                 foreach (var index in _realized.Keys.ToArray()) Unrealize(index);
@@ -292,17 +328,36 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
             _first = _last = -1;
         }
         RebuildStarts();
+        // Rows inserted above the ones on screen move the viewport with them, so the reader keeps
+        // reading the same row rather than whatever now sits at the old offset.
+        if (inserted > 0 && reading + inserted < items.Count && this.FindAncestorOfType<ScrollViewer>() is { } scroll
+            && items[reading + inserted] is { } readingItem) {
+            var inset = _insertAnchor?.Inset ?? scroll.Offset.Y - _viewport.Top;
+            var offset = _insertAnchor?.Offset ?? scroll.Offset.Y;
+            var top = _starts[reading + inserted] + within;
+            _shiftInFlight += top - _viewport.Top;
+            _viewport = new Rect(_viewport.X, top, _viewport.Width, _viewport.Height);
+            _insertAnchor = (readingItem, within, inset, offset);
+        }
         InvalidateMeasure();
     }
 
     protected override Control? ScrollIntoView(int index) {
         if (index < 0 || index >= Items.Count) return null;
+        // An explicit scroll outranks the correction a recent insertion still has pending. Until that
+        // correction lands the viewport has moved and the offset has not, so the offset is set outright.
+        var pending = _insertAnchor;
+        _insertAnchor = null;
+        _shiftInFlight = 0;
         if (_starts.Length != Items.Count + 1) RebuildStarts();
         var row = Realize(index);
         InvalidateMeasure();
         if (this.FindAncestorOfType<ScrollViewer>() is { } scroll) {
-            var delta = _starts[index] - _viewport.Top;
-            scroll.Offset = new Vector(scroll.Offset.X, scroll.Offset.Y + delta);
+            var inset = pending?.Inset ?? scroll.Offset.Y - _viewport.Top;
+            var target = _starts[index] + inset;
+            scroll.Offset = new Vector(scroll.Offset.X, target);
+            // Past the extent the presenter has laid out, the offset was clamped; arrange applies it once the extent grows.
+            if (scroll.Offset.Y < target - 0.5) _insertAnchor = (row.Item, 0, inset, scroll.Offset.Y);
         }
         return row.Container;
     }

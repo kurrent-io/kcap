@@ -245,7 +245,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
             .CombineLatest(canAttach, HomeViewModel.AttachHintFor)
             .DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler)
-            .ToProperty(this, x => x.AttachHint, initialValue: (string?)null)
+            .ToProperty(this, x => x.AttachHint, initialValue: null)
             .DisposeWith(_disposables);
 
         var canStart = this.WhenAnyValue(x => x.ProbedStart, x => x.StartsFromOrigin, x => x.DisabledReason, x => x.IsLaunching, x => x.IsResuming,
@@ -294,7 +294,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
 
     ResolvedAccount? RecordedAccount() =>
         _session.Recording is { ConfigDir: { Length: > 0 } store } recording
-            ? new ResolvedAccount(store, recording.AccountId, Services.AccountRows.LastSegment(store))
+            ? new ResolvedAccount(store, recording.AccountId, AccountRows.LastSegment(store))
             : null;
 
     internal HandoffChoicesViewModel ChoicesForTesting => _choices;

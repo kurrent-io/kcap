@@ -151,7 +151,7 @@ public class LaunchIdentityTests {
         var ex = Assert.Throws<InvalidOperationException>(
             () => LaunchIdentity.FromGuids(Guid.Parse(channel), Guid.Parse(unmatchable), Guid.Parse(allowlist), true));
 
-        await Assert.That(ex!.Message).Contains("predictable");
+        await Assert.That(ex.Message).Contains("predictable");
     }
 
     /// <summary>A refactor sharing one GUID between any two names would pass every format assertion.</summary>
@@ -163,7 +163,7 @@ public class LaunchIdentityTests {
             var ex = Assert.Throws<InvalidOperationException>(
                 () => LaunchIdentity.FromGuids(channel, unmatchable, allowlist, alias));
 
-            await Assert.That(ex!.Message).Contains("reused");
+            await Assert.That(ex.Message).Contains("reused");
         }
     }
 }

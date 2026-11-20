@@ -205,7 +205,7 @@ public class DaemonConfig {
 
     /// <summary>Per-vendor fingerprint of the binary <see cref="UnattendedVendorCapabilities"/> was
     /// probed from, taken before that probe; the vendor CLI watcher's starting point.</summary>
-    public IReadOnlyDictionary<string, Services.CliBinaryStat?>? UnattendedVendorBaselines { get; set; }
+    public IReadOnlyDictionary<string, CliBinaryStat?>? UnattendedVendorBaselines { get; set; }
 
     /// <summary>Per-vendor launchable models probed from the installed CLIs. Replaced by reference on
     /// every refresh, never mutated: serializers on other threads may be enumerating the current
@@ -220,7 +220,7 @@ public class DaemonConfig {
     /// <summary>Fingerprints of each vendor's catalog files, taken before the startup probe, and of each
     /// account's, taken before its latest probe; the vendor CLI watcher's starting point for an entry
     /// it begins watching. Replaced by reference.</summary>
-    public IReadOnlyDictionary<string, Services.CatalogPathStat[]>? VendorCatalogBaselines { get; set; }
+    public IReadOnlyDictionary<string, CatalogPathStat[]>? VendorCatalogBaselines { get; set; }
 
     /// <summary>Catalog keys whose startup probe overran its limit and answered afterwards. The vendor CLI
     /// watcher asks for a refresh when one is added, and a refresh probes these vendors though they have no

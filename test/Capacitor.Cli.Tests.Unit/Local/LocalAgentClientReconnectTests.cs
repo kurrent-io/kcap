@@ -55,7 +55,7 @@ public class LocalAgentClientReconnectTests {
         using var listener = Listen();
         using var terminal = new FakeAgentTerminal();
         using var console  = ConsoleOutput.StartErrorCapture("\n");
-        var replay = "earlier output\r\n── kcap daemon restarted; session resumed ──\r\n";
+        const string replay = "earlier output\r\n── kcap daemon restarted; session resumed ──\r\n";
 
         var run = Attach(SocketPath, terminal, Reconnect());
 

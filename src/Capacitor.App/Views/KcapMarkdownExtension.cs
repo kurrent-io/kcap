@@ -29,6 +29,7 @@ public sealed partial class KcapMarkdownExtension(MarkdownFlavor flavor) : IMark
         renderer.ReplaceOrAdd<AutolinkInlineRenderer>(new PolicyAutolinkRenderer(scope));
         renderer.ReplaceOrAdd<HtmlBlockRenderer>(new SourceHtmlBlockRenderer());
         renderer.ReplaceOrAdd<HtmlInlineRenderer>(new SourceHtmlInlineRenderer());
+        renderer.ObjectRenderers.Add(new GradedInlineRenderer());
         if (flavor == MarkdownFlavor.GitHub) {
             renderer.ObjectRenderers.Add(new HtmlPreBlockRenderer());
             renderer.ObjectRenderers.Add(new HtmlIndentBlockRenderer());

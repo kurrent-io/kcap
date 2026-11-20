@@ -129,9 +129,10 @@ public class ReviewerVendorFallbackTests {
                      """{"error":"Reviewer_Vendor_Required","message":"m"}""",
                      """{"error":"reviewer_vendor_require","message":"m"}""",
                      """{"error":" reviewer_vendor_required","message":"m"}""",
-                 })
+                 }) {
             await Assert.That(McpFlowsServer.ShouldPreferenceRetry(
                 "start_review_flow", false, false, null, false, body)).IsFalse();
+        }
     }
 
     /// <summary>Both human-facing surfaces read the SAME vendor list: the flows guidance that offers
@@ -141,9 +142,10 @@ public class ReviewerVendorFallbackTests {
     public async Task Both_vendor_surfaces_share_one_token_list() {
         await Assert.That(McpFlowsServer.PreferenceMissingGuidance("default")).Contains(ReviewerVendors.Tokens);
 
-        foreach (var token in ReviewerVendors.Tokens.Split(", "))
+        foreach (var token in ReviewerVendors.Tokens.Split(", ")) {
             await Assert.That(ReviewerVendors.IsKnown(token)).IsTrue()
                 .Because($"'{token}' is offered to users but would be warned about on save");
+        }
 
         await Assert.That(ReviewerVendors.IsKnown("kodex")).IsFalse();
         await Assert.That(ReviewerVendors.IsKnown(ReviewerVendors.Normalize("  CoDeX "))).IsTrue();

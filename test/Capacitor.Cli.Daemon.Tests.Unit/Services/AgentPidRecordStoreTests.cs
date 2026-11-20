@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -8,7 +9,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// <see cref="AgentPidRecordStore"/> — atomic write/read/delete round-trip
 /// (exact identity preserved) and corrupt-record quarantine.
 /// </summary>
-public class AgentPidRecordStoreTests {
+public partial class AgentPidRecordStoreTests {
     static AgentPidRecord Rec(string agentId, int pid = 123) =>
         new(agentId, pid, "lx:boot:999", PidIdentityKind.Present, "ReviewFlow", "codex", "flow-1", "reviewer", "daemon-id", "epoch-1", DateTimeOffset.UtcNow);
 
@@ -128,8 +129,7 @@ public class AgentPidRecordStoreTests {
         var current = new AgentPidRecord("legacy1", 999, "tk:123456789", PidIdentityKind.Present,
             "ReviewFlow", "codex", "flow-1", "reviewer", "daemon-id", "epoch-1", DateTimeOffset.UtcNow);
         var json = System.Text.Json.JsonSerializer.Serialize(current, CapacitorJsonContext.Default.AgentPidRecord);
-        var legacyJson = System.Text.RegularExpressions.Regex.Replace(
-            json, "\"identity_kind\"\\s*:\\s*\"?[A-Za-z]+\"?,?", "");
+        var legacyJson = IdentityKindMember().Replace(json, "");
 
         await Assert.That(legacyJson).DoesNotContain("identity_kind");
 
@@ -194,8 +194,7 @@ public class AgentPidRecordStoreTests {
         var current = new AgentPidRecord("nulltoken1", 5, "lx:boot:1", PidIdentityKind.Present,
             "ReviewFlow", "codex", "flow-1", "reviewer", "daemon-id", "epoch-1", DateTimeOffset.UtcNow);
         var json = System.Text.Json.JsonSerializer.Serialize(current, CapacitorJsonContext.Default.AgentPidRecord);
-        var nulledJson = System.Text.RegularExpressions.Regex.Replace(
-            json, "\"start_identity\"\\s*:\\s*\"[^\"]*\"", "\"start_identity\":null");
+        var nulledJson = StartIdentityValue().Replace(json, "\"start_identity\":null");
         await Assert.That(nulledJson).Contains("\"start_identity\":null");
 
         // Also drop a healthy record so we prove the sweep CONTINUES past the null one.
@@ -222,8 +221,7 @@ public class AgentPidRecordStoreTests {
         var current = new AgentPidRecord("unknownkind1", 7, "lx:boot:1", PidIdentityKind.Present,
             "ReviewFlow", "codex", "flow-1", "reviewer", "daemon-id", "epoch-1", DateTimeOffset.UtcNow);
         var json = System.Text.Json.JsonSerializer.Serialize(current, CapacitorJsonContext.Default.AgentPidRecord);
-        var unknownJson = System.Text.RegularExpressions.Regex.Replace(
-            json, "\"identity_kind\"\\s*:\\s*\"[A-Za-z]+\"", "\"identity_kind\":99");
+        var unknownJson = IdentityKindValue().Replace(json, "\"identity_kind\":99");
         await Assert.That(unknownJson).Contains("\"identity_kind\":99");
 
         // A healthy record alongside proves the sweep CONTINUES past the bad one.
@@ -250,4 +248,13 @@ public class AgentPidRecordStoreTests {
         var corruptFiles = Directory.GetFiles(tmp.PathTo("agents"), "*.json.corrupt");
         await Assert.That(corruptFiles.Length).IsEqualTo(1);
     }
+
+    [GeneratedRegex("\"identity_kind\"\\s*:\\s*\"?[A-Za-z]+\"?,?")]
+    private static partial Regex IdentityKindMember();
+
+    [GeneratedRegex("\"start_identity\"\\s*:\\s*\"[^\"]*\"")]
+    private static partial Regex StartIdentityValue();
+
+    [GeneratedRegex("\"identity_kind\"\\s*:\\s*\"[A-Za-z]+\"")]
+    private static partial Regex IdentityKindValue();
 }

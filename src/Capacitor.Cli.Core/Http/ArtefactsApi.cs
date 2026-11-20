@@ -19,15 +19,6 @@ internal sealed class ArtefactsApi(ICapacitorHttpClient http, CapacitorServer se
             (c, token) => c.PostWithRetryAsync($"{server.Url}/api/artefacts/{Escape(artefactId)}/versions", content, time, ct: token), ct);
     }
 
-    public async Task<ArtefactWriteResult> SetVisibilityAsync(string artefactId, string visibility,
-                                                              List<ArtefactGrantDto>? grants, CancellationToken ct = default) {
-        using var content = JsonContent.Create(new SetArtefactVisibilityBody(visibility, grants),
-                                               CapacitorJsonContext.Default.SetArtefactVisibilityBody);
-
-        return await WriteAsync(
-            (c, token) => c.PutWithRetryAsync($"{server.Url}/api/artefacts/{Escape(artefactId)}/visibility", content, time, ct: token), ct);
-    }
-
     public async Task<ArtefactWriteResult> DeleteAsync(string artefactId, CancellationToken ct = default) =>
         await WriteAsync((c, token) => c.DeleteWithRetryAsync($"{server.Url}/api/artefacts/{Escape(artefactId)}", time, ct: token), ct);
 

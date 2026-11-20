@@ -151,8 +151,8 @@ public class CursorLiveSubagentIntegrationTests {
 
             var parentDir = Path.Combine(TranscriptsRoot, parentRaw);
             Directory.CreateDirectory(parentDir);
-            var parentLine1 = """{"role":"user","message":{"content":[{"type":"text","text":"kick it off"}]}}""";
-            var parentLine2 = System.Text.Json.JsonSerializer.Serialize(new {
+            const string parentLine1 = """{"role":"user","message":{"content":[{"type":"text","text":"kick it off"}]}}""";
+            var parentLine2          = System.Text.Json.JsonSerializer.Serialize(new {
                 role = "assistant",
                 message = new { content = new object[] { new { type = "tool_use", name = "Task", input = new { prompt } } } },
             });

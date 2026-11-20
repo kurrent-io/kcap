@@ -1,5 +1,4 @@
 using Capacitor.App.Services.LocalSetup;
-using Capacitor.App.Services.Mutation;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
@@ -120,5 +119,7 @@ public sealed class LateBoundKcapCli(Func<IKcapCli> bind, string? cliPath) : IKc
 
     public Task<ProcessResult> LocalStartAsync(CancellationToken ct) => bind().LocalStartAsync(ct);
 
-    public Task<Capacitor.Cli.Core.LocalEdition.LocalServerReading?> LocalStatusAsync(CancellationToken ct) => bind().LocalStatusAsync(ct);
+    public Task<Cli.Core.LocalEdition.LocalServerReading?> LocalStatusAsync(CancellationToken ct) => bind().LocalStatusAsync(ct);
+    public Task<ProcessResult> HideSessionAsync(string sessionId, CancellationToken ct) => bind().HideSessionAsync(sessionId, ct);
+    public Task<ProcessResult> DisableSessionAsync(string sessionId, CancellationToken ct) => bind().DisableSessionAsync(sessionId, ct);
 }

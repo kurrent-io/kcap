@@ -31,7 +31,7 @@ public class AgentOrchestratorStartTitleTests {
         var server = await LaunchAsync(repoPath, "agent-title", "fix the login redirect", "Fix login", derived);
 
         await Assert.That(server.AgentRegisteredTitles)
-            .Contains(("agent-title", (AgentStartTitle?)new AgentStartTitle("Fix login", derived)));
+            .Contains(("agent-title", new AgentStartTitle("Fix login", derived)));
     }
 
     [Test]
@@ -41,7 +41,7 @@ public class AgentOrchestratorStartTitleTests {
         var server = await LaunchAsync(repoPath, "agent-old-server", "\nfix the login redirect\nand add a test", null, false);
 
         await Assert.That(server.AgentRegisteredTitles)
-            .Contains(("agent-old-server", (AgentStartTitle?)new AgentStartTitle("fix the login redirect", Derived: true)));
+            .Contains(("agent-old-server", new AgentStartTitle("fix the login redirect", Derived: true)));
     }
 
     [Test]
@@ -50,7 +50,7 @@ public class AgentOrchestratorStartTitleTests {
 
         var server = await LaunchAsync(repoPath, "agent-untitled", null, null, false);
 
-        await Assert.That(server.AgentRegisteredTitles).Contains(("agent-untitled", (AgentStartTitle?)null));
+        await Assert.That(server.AgentRegisteredTitles).Contains(("agent-untitled", null));
     }
 
     [Test]
@@ -75,7 +75,7 @@ public class AgentOrchestratorStartTitleTests {
         await server.ReRegisterAgentsHook!();
 
         await Assert.That(server.AgentRegisteredTitles)
-            .Contains(("agent-rereg-title", (AgentStartTitle?)new AgentStartTitle("Fix login", Derived: false)));
+            .Contains(("agent-rereg-title", new AgentStartTitle("Fix login", Derived: false)));
     }
 
     [Test]

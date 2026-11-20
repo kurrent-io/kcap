@@ -6,7 +6,7 @@ using static Capacitor.Models.Transcripts.TranscriptText;
 
 namespace Capacitor.Models.Transcripts.Harness.MistralVibe;
 
-public sealed class MistralVibeContext : TranscriptContext { }
+public sealed class MistralVibeContext : TranscriptContext;
 
 /// <summary>
 /// Projects Mistral Vibe's transcript into canonical events. One line in, events out — the caller

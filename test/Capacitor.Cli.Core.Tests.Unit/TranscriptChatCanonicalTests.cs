@@ -225,8 +225,8 @@ public class TranscriptChatCanonicalTests {
 
     [Test]
     public async Task ProjectWithInputs_collects_the_signals_of_every_event_on_a_line() {
-        var chat = new TranscriptChatProjection(ClaudeTranscriptEvents.Instance, new SignallingRules());
-        var line = """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Agent","input":{}},{"type":"text","text":"hi"},{"type":"tool_use","id":"t2","name":"Agent","input":{}}]}}""";
+        var chat          = new TranscriptChatProjection(ClaudeTranscriptEvents.Instance, new SignallingRules());
+        const string line = """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Agent","input":{}},{"type":"text","text":"hi"},{"type":"tool_use","id":"t2","name":"Agent","input":{}}]}}""";
         var result = chat.ProjectWithInputs(line, 1, DateTimeOffset.UnixEpoch, chat.CreateContext("s", null));
         await Assert.That(result.Envelopes.Select(e => e.Kind)).IsEquivalentTo(new[] { AcpEventKind.AssistantText });
         await Assert.That(result.Runs.Cast<RunSignal.Started>().Select(s => s.CallId)).IsEquivalentTo(new[] { "t1", "t2" });

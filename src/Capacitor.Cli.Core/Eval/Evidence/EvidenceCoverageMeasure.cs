@@ -92,9 +92,10 @@ public static class EvidenceCoverageMeasure {
             try { doc = JsonDocument.Parse(page.Text); } catch (JsonException) { continue; }
             using (doc) {
                 if (doc.RootElement.Arr("turns") is not { } rows) continue;
-                foreach (var t in rows.EnumerateArray())
+                foreach (var t in rows.EnumerateArray()) {
                     if (t.Num("index") is { } index && t.Num("start_revision") is { } start && t.Num("end_revision") is { } end && t.Str("range_state") is { } state)
                         turns[(source, (int)index)] = (start, end, state);
+                }
             }
         }
         return turns;

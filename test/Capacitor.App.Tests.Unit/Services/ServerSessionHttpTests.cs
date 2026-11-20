@@ -70,20 +70,20 @@ public class ServerSessionHttpTests {
     }
 
     [Test]
-    public async Task Detail_reader_returns_the_parsed_detail_and_distinguishes_not_found() {
+    public async Task Session_events_reader_asks_from_the_given_count_and_distinguishes_not_found() {
         using var server = WireMockServer.Start();
-        server.Given(Request.Create().WithPath("/api/sessions/s1/detail").UsingGet())
+        server.Given(Request.Create().WithPath("/api/sessions/s1/events").WithParam("from", "3").UsingGet())
               .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
-                  .WithBody("""{"session_id":"s1","ended_at":null,"last_event_number":1,"events":[{"event_type":"InterruptIssued","event_number":1,"payload":{"request_id":"p1","kind":"permission","tool_name":"Bash"}}]}"""));
-        server.Given(Request.Create().WithPath("/api/sessions/nope/detail").UsingGet()).RespondWith(Response.Create().WithStatusCode(404));
+                  .WithBody("""{"last_event_number":9,"events":[{"event_type":"InterruptIssued","event_number":3,"payload":{"request_id":"p1"}}],"next_from":4}"""));
+        server.Given(Request.Create().WithPath("/api/sessions/nope/events").UsingGet()).RespondWith(Response.Create().WithStatusCode(404));
         var (http, profiles, provider) = await WireMockLane.BuildAsync(server, Config.Root);
         await using var _ = provider;
-        var read = ServerSessionHttp.DetailReader(http, profiles);
+        var read = ServerSessionHttp.SessionEventsReader(http, profiles);
 
-        var found = await read("s1", CancellationToken.None);
-        await Assert.That(found.Detail!.Events![0].EventType).IsEqualTo("InterruptIssued");
-        var missing = await read("nope", CancellationToken.None);
-        await Assert.That(missing.Detail).IsNull();
-        await Assert.That(missing.NotFound).IsTrue();
+        var page = (await read("s1", 3, null, CancellationToken.None)).Page!;
+        await Assert.That(page.Events![0].EventNumber).IsEqualTo(3);
+        await Assert.That(page.NextFrom).IsEqualTo(4);
+        await Assert.That(page.LastEventNumber).IsEqualTo(9);
+        await Assert.That((await read("nope", 0, null, CancellationToken.None)).NotFound).IsTrue();
     }
 }

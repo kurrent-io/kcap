@@ -16,8 +16,11 @@ public class SessionAttentionTrackerTests {
         public Func<string, Task<SessionDetailFetch>>? DetailTask;
         public int Fetches;
 
-        public Harness() {
-            Tracker = new SessionAttentionTracker(Lane, (sid, _) => { Fetches++; return DetailTask?.Invoke(sid) ?? Task.FromResult(Detail(sid)); }, Time, TimeSpan.FromMilliseconds(100));
+        public readonly SnapshotInterruptSource Snapshots;
+
+        public Harness(ISessionInterruptSource? interrupts = null) {
+            Snapshots = new SnapshotInterruptSource(sid => { Fetches++; return DetailTask?.Invoke(sid) ?? Task.FromResult(Detail(sid)); });
+            Tracker = new SessionAttentionTracker(Lane, interrupts ?? Snapshots, Time, TimeSpan.FromMilliseconds(100));
             Tracker.SessionsWithAttention.Subscribe(s => Sessions = s);
         }
 
@@ -161,6 +164,7 @@ public class SessionAttentionTrackerTests {
 
         h.Connect(subject: "u2");
         await Assert.That(h.Sessions).IsEmpty();
+        await Assert.That(h.Snapshots.Forgets).IsEqualTo(1);
 
         gate.SetResult();
         await Task.Delay(100);
@@ -340,5 +344,43 @@ public class SessionAttentionTrackerTests {
         h.Lane.PermissionPendingSubject.OnNext("s1");
         h.Time.Advance(TimeSpan.FromMilliseconds(100));
         await WaitUntilAsync(() => !h.Sessions.Contains("s1"), what: "the answered question stays settled");
+    }
+
+    /// No tab is open, so nothing but the reconciliation can light the rail marker; each ping after
+    /// the first reads only the events past the ones already folded.
+    [Test]
+    public async Task An_interrupt_raised_with_no_tab_open_lights_the_marker_from_the_ranged_read() {
+        var stream = new SessionInterruptLogTests.Stream().Append(SessionInterruptLogTests.Line, SessionInterruptLogTests.Issued("r1"));
+        using var h = new Harness(stream.Log());
+        h.Connect();
+        h.Lane.PermissionPendingSubject.OnNext("s1");
+        h.Time.Advance(TimeSpan.FromMilliseconds(100));
+        await WaitUntilAsync(() => h.Sessions.Contains("s1"), what: "attention on");
+
+        lock (stream.Froms) stream.Froms.Clear();
+        stream.Append(SessionInterruptLogTests.Issued("r2"));
+        h.Lane.PermissionPendingSubject.OnNext("s1");
+        h.Time.Advance(TimeSpan.FromMilliseconds(100));
+        await WaitUntilAsync(() => { lock (stream.Froms) return stream.Froms.Count > 0; }, what: "second read");
+        h.Lane.PermissionRespondedSubject.OnNext(new PermissionRespondedPing("s1", "r1"));
+        await Assert.That(h.Sessions).Contains("s1");
+        await Assert.That(stream.Froms[0]).IsEqualTo(2);
+
+        h.Lane.PermissionRespondedSubject.OnNext(new PermissionRespondedPing("s1", "r2"));
+        await WaitUntilAsync(() => !h.Sessions.Contains("s1"), what: "attention off");
+    }
+
+    /// The summary still shows the session ended after it resumed and asked for permission; the
+    /// tracker's log is built without one, so the ping's prompt is read from the stream.
+    [Test]
+    public async Task A_resumed_session_s_prompt_lights_the_marker_while_its_summary_still_shows_an_end() {
+        var stream = new SessionInterruptLogTests.Stream { EndedAt = DateTimeOffset.UnixEpoch }
+            .Append(SessionInterruptLogTests.Ended, SessionInterruptLogTests.Resumed, SessionInterruptLogTests.Issued("r1"));
+        using var h = new Harness(stream.Log(summary: false));
+        h.Connect();
+        h.Lane.PermissionPendingSubject.OnNext("s1");
+        h.Time.Advance(TimeSpan.FromMilliseconds(100));
+        await WaitUntilAsync(() => h.Sessions.Contains("s1"), what: "attention on");
+        await Assert.That(stream.Summaries).IsEqualTo(0);
     }
 }

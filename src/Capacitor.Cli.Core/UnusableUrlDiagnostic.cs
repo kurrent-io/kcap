@@ -62,7 +62,7 @@ public static class UnusableUrlDiagnostic {
         };
 
         return $"[kcap] {name} is not an absolute http(s) URL ({Sanitize(rawUrl)}) — {disposition}."
-             + System.Environment.NewLine
+             + Environment.NewLine
              + $"       {fix}";
     }
 }

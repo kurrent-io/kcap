@@ -152,7 +152,7 @@ public static class TomlConfigFile {
     sealed class TomlTableTypeInfo : TomlSerializerContext {
         static readonly TomlSerializerOptions DefaultOptions = new();
 
-        public readonly TomlTypeInfo<TomlTable> TableInfo = GetBuiltInTypeInfo<TomlTable>(DefaultOptions)!;
+        public readonly TomlTypeInfo<TomlTable> TableInfo = GetBuiltInTypeInfo<TomlTable>(DefaultOptions);
 
         public override TomlTypeInfo? GetTypeInfo(Type type, TomlSerializerOptions options) =>
             type == typeof(TomlTable) ? TableInfo : null;

@@ -7,6 +7,10 @@ namespace Capacitor.App.ViewModels;
 public static class SessionFactText {
     public const string Unknown = "—";
 
+    /// "10 Nov 2026, 14:32" in the viewer's zone.
+    public static string Timestamp(DateTimeOffset? at, TimeZoneInfo zone) =>
+        at is { } value ? TimeZoneInfo.ConvertTime(value, zone).ToString("d MMM yyyy, HH:mm", CultureInfo.InvariantCulture) : Unknown;
+
     /// "12.3k in · 4.5k out": cache reads and writes are left out, they dwarf the real traffic.
     public static string Tokens(SessionStatsDto? stats) =>
         stats is { TokenUsageByModel: { Count: > 0 } usage }

@@ -6,26 +6,35 @@ namespace Capacitor.Cli.Daemon.Services;
 /// <summary>
 /// The cloud mirror's end of an agent's PTY fan-out. <see cref="TryEnqueue"/> never blocks, so a
 /// slow or absent server cannot back-pressure the PTY; the pump sends one chunk at a time, in
-/// order, and only to a connection that has finished registering.
+/// order, and only to a connection that has finished registering. A PTY resize is queued in the
+/// same order, against the output as the daemon read it.
 /// </summary>
 internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposable {
     readonly string                                        _agentId;
     readonly Lock                                          _sinksLock;
     readonly TerminalOutputBuffer                          _ring;
-    readonly Func<string, string, CancellationToken, Task> _send;
-    readonly Func<bool>                                    _isReady;
-    readonly ILogger                                       _logger;
-    readonly TimeProvider                                  _time;
-    readonly CloudTerminalSinkOptions                      _options;
-    readonly CancellationTokenSource                       _pumpCts;
-    readonly CancellationTokenSource                       _deadlineCts;
-    readonly Task                                          _pump;
+    readonly Func<string, string, CancellationToken, Task>   _send;
+    readonly Func<string, int, int, CancellationToken, Task> _sendSize;
+    readonly Func<bool>                                      _isReady;
+    readonly ILogger                                         _logger;
+    readonly TimeProvider                                    _time;
+    readonly CloudTerminalSinkOptions                        _options;
+    readonly CancellationTokenSource                         _pumpCts;
+    readonly CancellationTokenSource                         _deadlineCts;
+    readonly Task                                            _pump;
 
-    readonly Channel<byte[]> _queue = Channel.CreateUnbounded<byte[]>(
+    // Output chunks and Size entries.
+    readonly Channel<object> _queue = Channel.CreateUnbounded<object>(
         new UnboundedChannelOptions { SingleReader = true });
+
+    sealed record Size(int Cols, int Rows);
 
     static readonly byte[] Wake  = [];
     static readonly byte[] Reset = [0x1B, 0x63];
+
+    // A size counts against the budget too, or a held pump would queue every resize of an idle agent.
+    // Nominal: it only has to be more than zero and far below the budget.
+    const int SizeCost = 16;
 
     volatile bool _completed;
     volatile bool _desynced;
@@ -37,10 +46,11 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
     long          _wakeupsWritten;
 
     // Guarded by the sinks lock.
-    long _desyncs;
-    long _unreportedDesyncs;
-    long _lastWarning;
-    bool _warned;
+    Size? _size;
+    long  _desyncs;
+    long  _unreportedDesyncs;
+    long  _lastWarning;
+    bool  _warned;
 
     // CancelAfter is banned (it can't take a TimeProvider); a shorter StopAsync call instead
     // supersedes this timer with a fresh one and disposes the one it replaces. Guarded by the sinks
@@ -49,20 +59,22 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
     bool                     _terminated;
 
     public CloudTerminalSink(
-            string                                        agentId,
-            Lock                                          sinksLock,
-            TerminalOutputBuffer                          ring,
-            Func<string, string, CancellationToken, Task> send,
-            Func<bool>                                    isReady,
-            ILogger                                       logger,
-            TimeProvider                                  time,
-            CloudTerminalSinkOptions                      options,
-            CancellationToken                             shutdown
+            string                                          agentId,
+            Lock                                            sinksLock,
+            TerminalOutputBuffer                            ring,
+            Func<string, string, CancellationToken, Task>   send,
+            Func<string, int, int, CancellationToken, Task> sendSize,
+            Func<bool>                                      isReady,
+            ILogger                                         logger,
+            TimeProvider                                    time,
+            CloudTerminalSinkOptions                        options,
+            CancellationToken                               shutdown
         ) {
         _agentId     = agentId;
         _sinksLock   = sinksLock;
         _ring        = ring;
         _send        = send;
+        _sendSize    = sendSize;
         _isReady     = isReady;
         _logger      = logger;
         _time        = time;
@@ -96,19 +108,36 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
     /// <summary>Caller holds the sinks lock and has already appended this chunk to the ring: a
     /// chunk dropped here (desynced, or over budget) is recovered only by the replay.</summary>
     public void TryEnqueue(byte[] chunk) {
-        if (_completed || _desynced) return;
+        if (_completed || _desynced || !TryChargeLocked(chunk.Length)) return;
 
+        _queue.Writer.TryWrite(chunk);
+    }
+
+    /// <summary>Caller holds the sinks lock and has just resized the PTY, so the size lands after
+    /// every chunk read before the resize and ahead of every chunk read after it. A replay sends
+    /// the latest size first.</summary>
+    public void TryEnqueueSize(int cols, int rows) {
+        _size = new Size(cols, rows);
+
+        if (_completed || _desynced || !TryChargeLocked(SizeCost)) return;
+
+        _queue.Writer.TryWrite(_size);
+    }
+
+    /// <summary>Caller holds the sinks lock.</summary>
+    bool TryChargeLocked(int cost) {
         var queued = Interlocked.Read(ref _queuedBytes);
 
         // An empty queue always accepts, so an overflow implies a pump with work to wake on.
-        if (queued > 0 && queued + chunk.Length > _options.BacklogBudgetBytes) {
+        if (queued > 0 && queued + cost > _options.BacklogBudgetBytes) {
             MarkDesyncedLocked("backlog over budget", abortReplay: false);
 
-            return;
+            return false;
         }
 
-        Interlocked.Add(ref _queuedBytes, chunk.Length);
-        _queue.Writer.TryWrite(chunk);
+        Interlocked.Add(ref _queuedBytes, cost);
+
+        return true;
     }
 
     /// <summary>Caller holds the sinks lock.</summary>
@@ -254,13 +283,21 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
                     continue;
                 }
 
-                if (_queue.Reader.TryRead(out var chunk)) {
-                    if (ReferenceEquals(chunk, Wake)) {
+                if (_queue.Reader.TryRead(out var item)) {
+                    if (ReferenceEquals(item, Wake)) {
                         Interlocked.Exchange(ref _wakePending, 0);
 
                         continue;
                     }
 
+                    if (item is Size size) {
+                        Interlocked.Add(ref _queuedBytes, -SizeCost);
+                        await SendAsync(size, replay: false, ct);
+
+                        continue;
+                    }
+
+                    var chunk = (byte[])item;
                     Interlocked.Add(ref _queuedBytes, -chunk.Length);
                     await SendAsync(chunk, replay: false, ct);
 
@@ -286,6 +323,7 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
         }
 
         List<byte[]> replay;
+        Size?        size;
 
         lock (_sinksLock) {
             // Completion is set under this lock, so beginning a replay is atomic with it.
@@ -297,10 +335,13 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
 
             Interlocked.Exchange(ref _queuedBytes, 0);
             replay       = _ring.GetAll();
+            size         = _size;
             _desynced    = false;
             _abortReplay = false;
         }
 
+        // A size dropped with the queue would leave the server recording the replay under the old one.
+        if (size is not null && !await SendAsync(size, replay: true, ct)) return true;
         if (!await SendAsync(Reset, replay: true, ct)) return true;
 
         foreach (var chunk in replay) {
@@ -315,8 +356,16 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
     /// <summary>False when the chunk was given up because a desync superseded it, or because the
     /// sink completed while waiting on a connection that never became ready. A budget overflow
     /// does not supersede a replay chunk; only <c>_abortReplay</c> does.</summary>
-    async Task<bool> SendAsync(byte[] chunk, bool replay, CancellationToken ct) {
-        var base64   = Convert.ToBase64String(chunk);
+    Task<bool> SendAsync(byte[] chunk, bool replay, CancellationToken ct) {
+        var base64 = Convert.ToBase64String(chunk);
+
+        return SendAsync(token => _send(_agentId, base64, token), replay, ct);
+    }
+
+    Task<bool> SendAsync(Size size, bool replay, CancellationToken ct) =>
+        SendAsync(token => _sendSize(_agentId, size.Cols, size.Rows, token), replay, ct);
+
+    async Task<bool> SendAsync(Func<CancellationToken, Task> send, bool replay, CancellationToken ct) {
         var attempts = 0;
 
         while (true) {
@@ -335,7 +384,7 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
             }
 
             try {
-                await _send(_agentId, base64, ct);
+                await send(ct);
 
                 return true;
             } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
@@ -355,7 +404,7 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Debug, Message = "Terminal output send for agent {AgentId} failed, holding the chunk and retrying")]
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Terminal mirror send for agent {AgentId} failed, holding it and retrying")]
     partial void LogSendRetry(Exception ex, string agentId);
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Terminal mirror drain for agent {AgentId} cut short with {QueuedBytes} bytes unsent")]

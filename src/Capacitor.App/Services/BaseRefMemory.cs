@@ -16,9 +16,10 @@ public static class BaseRefMemory {
             IEqualityComparer<string> pathComparer) {
         if (byRepo is null) return [];
 
-        foreach (var entry in byRepo)
+        foreach (var entry in byRepo) {
             if (Matches(entry.Key, scope, repoPath, pathComparer))
                 return entry.Value;
+        }
 
         return [];
     }
@@ -44,9 +45,10 @@ public static class BaseRefMemory {
             IEqualityComparer<string> pathComparer, string[] refs) {
         var next = new Dictionary<string, IReadOnlyList<string>>();
         if (byRepo is not null)
-            foreach (var entry in byRepo)
+            foreach (var entry in byRepo) {
                 if (!Matches(entry.Key, scope, repoPath, pathComparer))
                     next[entry.Key] = entry.Value;
+            }
 
         if (refs.Length > 0) next[$"{scope}\n{repoPath}"] = refs;
         return next.Count == 0 ? FrozenDictionary<string, IReadOnlyList<string>>.Empty : next;

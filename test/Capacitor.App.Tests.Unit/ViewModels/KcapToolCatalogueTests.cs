@@ -70,6 +70,7 @@ public class KcapToolCatalogueTests {
     [Arguments("schedule_wakeup", ToolCategory.Flow, "Scheduled wake-up", "prompt", ToolCardKind.None)]
     [Arguments("mcp__plugin_kcap_kcap-flows__list_wakeups", ToolCategory.Flow, "Listed wake-ups", null, ToolCardKind.None)]
     [Arguments("cancel_wakeup", ToolCategory.Flow, "Cancelled wake-up", null, ToolCardKind.None)]
+    [Arguments("mcp__plugin_kcap_kcap-sharing__set_sharing_grant", ToolCategory.Sharing, "Set a sharing grant", "relation", ToolCardKind.None)]
     public async Task Entries_carry_category_label_detail_key_and_card_kind(string tool, ToolCategory category, string label, string? detailKey, ToolCardKind card) {
         var entry = KcapToolCatalogue.Match(tool)!;
         await Assert.That(entry.Category).IsEqualTo(category);

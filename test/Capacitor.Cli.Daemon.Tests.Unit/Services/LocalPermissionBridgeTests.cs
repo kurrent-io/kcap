@@ -1111,7 +1111,7 @@ public class LocalPermissionBridgeTests {
 
     [Test, NotInParallel(nameof(LocalPermissionBridgeTests))]
     public async Task Concurrent_reviewer_tokens_are_independent() {
-        var (bridge, server) = CreateBridge((_, _, _, _, _) => Task.FromResult(new PermissionDecision("deny", null, null)));
+        var (bridge, _) = CreateBridge((_, _, _, _, _) => Task.FromResult(new PermissionDecision("deny", null, null)));
         try {
             await bridge.StartAsync(CancellationToken.None);
             var urlA = bridge.RegisterReviewerToken(["kcap-review"]);

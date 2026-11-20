@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Recording;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -51,6 +52,9 @@ internal sealed class ServerRecorderTransport : ISilenceableRecorderTransport, I
     Task?                _supervising;
     int                  _connecting;
     bool                 _restart;
+
+    // This connection's answer, asked once for every source on it. A connection going down or coming up drops it.
+    Task<bool>? _canonical;
 
     /// <param name="mayRegister">Whether a source is still this daemon's to register, asked again as its connect goes out.</param>
     public ServerRecorderTransport(HubConnection hub, TimeProvider time, Action<string> log, Func<RecordingSource, bool>? mayRegister = null) {
@@ -147,14 +151,51 @@ internal sealed class ServerRecorderTransport : ISilenceableRecorderTransport, I
 
             await Carrying(batch.SessionId, either.Token, () => _hub.InvokeAsync("SendTranscriptBatch2", batch, CancellationToken.None)).WaitAsync(either.Token);
         } catch (OperationCanceledException ex) when (!ct.IsCancellationRequested) {
-            // Neither is this source's own stop, which is what a recorder takes a cancellation for.
-            if (budget.IsCancellationRequested) throw new TimeoutException($"The server did not answer a transcript batch within {SendBudget.TotalSeconds}s.", ex);
-
-            throw new IOException($"The connection closed under a transcript batch: {ex.Message}", ex);
+            throw Unanswered(budget, ex);
         }
 
         return batch.LineNumbers is { Length: > 0 } sent ? sent[^1] + 1 : 0;
     }
+
+    public async Task<bool> SupportsCanonicalAsync(CancellationToken ct) {
+        Task<bool> asking;
+
+        lock (_gate) asking = _canonical ??= Task.Run(AskCanonicalAsync, CancellationToken.None);
+
+        return await asking.WaitAsync(ct);
+    }
+
+    async Task<bool> AskCanonicalAsync() {
+        using var budget = new CancellationTokenSource(IngestCapability.Budget, _time);
+        using var either = CancellationTokenSource.CreateLinkedTokenSource(_closing.Token, budget.Token);
+
+        try {
+            return (await _hub.InvokeAsync<CanonicalCapabilities>(IngestCapability.HubMethod, either.Token)).CanonicalFormat == IngestCapability.CanonicalFormat;
+        } catch (Exception ex) {
+            // A server's refusal, an older one's unknown method included, is an answer; anything else is worth a line.
+            if (ex is not HubException && !_closing.IsCancellationRequested) Log($"Could not ask the server whether it takes canonical batches; sending raw lines: {ex.Message}");
+
+            return false;
+        }
+    }
+
+    public async Task<CanonicalSendResult> SendCanonicalBatchAsync(CanonicalTranscriptBatch batch, CancellationToken ct) {
+        using var budget = new CancellationTokenSource(SendBudget, _time);
+        using var either = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
+
+        try {
+            return await Carrying(batch.SessionId, either.Token, () => _hub.InvokeAsync<CanonicalSendResult>(CanonicalRoute.HubMethod, batch, CancellationToken.None))
+                .WaitAsync(either.Token);
+        } catch (OperationCanceledException ex) when (!ct.IsCancellationRequested) {
+            throw Unanswered(budget, ex);
+        }
+    }
+
+    // A send cut by its budget or by the connection closing failed; only the source's own stop is a cancellation to its recorder.
+    static Exception Unanswered(CancellationTokenSource budget, OperationCanceledException ex) =>
+        budget.IsCancellationRequested
+            ? new TimeoutException($"The server did not answer a transcript batch within {SendBudget.TotalSeconds}s.", ex)
+            : new IOException($"The connection closed under a transcript batch: {ex.Message}", ex);
 
     public Task SendTitleAsync(string sessionId, string title, CancellationToken ct) =>
         Carrying(sessionId, ct, () => _hub.InvokeAsync("SendTitle", sessionId, title, null, 0L, 0L, 0L, 0L, CancellationToken.None)).WaitAsync(ct);
@@ -427,11 +468,15 @@ internal sealed class ServerRecorderTransport : ISilenceableRecorderTransport, I
         });
 
     void MarkUp() {
-        lock (_gate) _up.TrySetResult();
+        lock (_gate) {
+            _canonical = null;
+            _up.TrySetResult();
+        }
     }
 
     // Under the gate.
     void MarkDown() {
+        _canonical = null;
         if (_up.Task.IsCompleted) _up = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 

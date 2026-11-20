@@ -10,7 +10,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// never split by another writer.
 /// </summary>
 public class PtyHostedAgentRuntimeInputLaneTests {
-    const string Paste = "\x1b[200~hi\x1b[201~";
+    const string Paste = "\e[200~hi\e[201~";
 
     static readonly TimeSpan PollBudget = TimeSpan.FromSeconds(10);
 
@@ -89,7 +89,7 @@ public class PtyHostedAgentRuntimeInputLaneTests {
         await Assert.That(pty.Writes[0]).IsEqualTo("a");
         await Assert.That(pty.Writes[1]).IsEqualTo(Paste);
         await Assert.That(pty.Writes[2]).IsEqualTo("\r");
-        await Assert.That(pty.Writes.Skip(3)).IsEquivalentTo(new[] { "b", "\x1b" }, CollectionOrdering.Any);
+        await Assert.That(pty.Writes.Skip(3)).IsEquivalentTo(new[] { "b", "\e" }, CollectionOrdering.Any);
     }
 
     [Test]

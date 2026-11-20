@@ -102,7 +102,7 @@ public class WizardCompositionCloudSignUpTests {
     [Test]
     public async Task The_wizard_facade_probes_a_discovered_workspace_before_signing_in_to_it() {
         using var handler = new StatusHandler(System.Net.HttpStatusCode.NotFound);
-        var bridges = WizardComposition.BuildBridges(action => action(), Capacitor.Cli.Core.Telemetry.CliTelemetry.Disabled(TimeProvider.System), AuthEndpoints.Defaults);
+        var bridges = WizardComposition.BuildBridges(action => action(), Cli.Core.Telemetry.CliTelemetry.Disabled(TimeProvider.System), AuthEndpoints.Defaults);
         WizardFacadeSpec? spec = null;
 
         WizardComposition.BuildOperation(

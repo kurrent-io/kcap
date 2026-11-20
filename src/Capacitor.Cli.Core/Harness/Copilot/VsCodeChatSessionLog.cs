@@ -263,7 +263,19 @@ public static class VsCodeChatSessionLog {
             else skipped.Add($"requests[{index}].copilotCredits is not a non-negative number");
         }
 
-        return new(requestId, complete, completionTokens, credits, Model(request, index, skipped));
+        long? sentAt = null;
+        if (request["timestamp"] is { } sentNode) {
+            if (Int(sentNode) is { } ms && ms >= 0) sentAt = ms;
+            else skipped.Add($"requests[{index}].timestamp is not a time");
+        }
+
+        string? text = null;
+        if (request["message"] is JsonObject message && message["text"] is { } textNode) {
+            if (Str(textNode) is { } typed) text = typed;
+            else skipped.Add($"requests[{index}].message.text is not a string");
+        }
+
+        return new(requestId, complete, completionTokens, credits, sentAt, text, Model(request, index, skipped));
     }
 
     // The extension names the model it resolved an alias to; the core's auto-mode part says the same when it is not there.

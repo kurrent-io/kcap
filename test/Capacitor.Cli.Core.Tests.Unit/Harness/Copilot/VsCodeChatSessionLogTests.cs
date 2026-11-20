@@ -5,7 +5,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.Harness.Copilot;
 
 /// <summary>
 /// Replaying VS Code's chat log, from lines shaped like a captured Local session (prompt and reply text replaced) to
-/// what kcap stores: the title and each request's output, credits and resolved model. A shape kcap does not expect
+/// what kcap reads: the title and each request's output, credits, send time, prompt and resolved model. A shape kcap does not expect
 /// leaves out that entry or field only, and is named.
 /// </summary>
 public class VsCodeChatSessionLogTests {
@@ -43,7 +43,7 @@ public class VsCodeChatSessionLogTests {
         var session = Replay(OneRequest());
 
         await Assert.That(session!.CustomTitle).IsEqualTo("Create notes.md and sleep");
-        await Assert.That(session.Requests).IsEquivalentTo([new VsCodeChatRequest("request_1", true, 430, 0.46501515, "gpt-6-luna")]);
+        await Assert.That(session.Requests).IsEquivalentTo([new VsCodeChatRequest("request_1", true, 430, 0.46501515, 1794323247002, "prompt", "gpt-6-luna")]);
         await Assert.That(session.Skipped).IsEmpty();
     }
 
@@ -66,7 +66,7 @@ public class VsCodeChatSessionLogTests {
         var session = Replay([.. OneRequest(), compacted]);
 
         await Assert.That(session!.CustomTitle).IsEqualTo("Renamed");
-        await Assert.That(session.Requests).IsEquivalentTo([new VsCodeChatRequest("request_1", true, 430, 0.5, "gpt-6-luna")]);
+        await Assert.That(session.Requests).IsEquivalentTo([new VsCodeChatRequest("request_1", true, 430, 0.5, null, null, "gpt-6-luna")]);
     }
 
     [Test]
@@ -84,7 +84,7 @@ public class VsCodeChatSessionLogTests {
         var lines   = OneRequest();
         var session = Replay([.. lines[..3], entry, .. lines[3..]]);
 
-        await Assert.That(session!.Requests).IsEquivalentTo([new VsCodeChatRequest("request_1", true, 430, 0.46501515, "gpt-6-luna")]);
+        await Assert.That(session!.Requests).IsEquivalentTo([new VsCodeChatRequest("request_1", true, 430, 0.46501515, 1794323247002, "prompt", "gpt-6-luna")]);
         await Assert.That(session.Skipped.Single()).Contains(named);
     }
 
@@ -117,7 +117,7 @@ public class VsCodeChatSessionLogTests {
             """{"kind":2,"k":["requests"],"v":[{"timestamp":1}]}""",
         ]);
 
-        await Assert.That(session!.Requests).IsEquivalentTo([new VsCodeChatRequest("request_1", true, null, 0.5, null)]);
+        await Assert.That(session!.Requests).IsEquivalentTo([new VsCodeChatRequest("request_1", true, null, 0.5, 1794323247002, "prompt", null)]);
         await Assert.That(session.CustomTitle).IsNull();
         await Assert.That(session.Skipped.Count).IsEqualTo(4);
     }

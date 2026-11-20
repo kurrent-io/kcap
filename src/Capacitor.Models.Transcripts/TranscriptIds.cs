@@ -24,8 +24,10 @@ public static class TranscriptIds {
     public static Guid ClaudeBlock(Guid recordId, int blockIndex) =>
         Sibling(recordId, string.Create(CultureInfo.InvariantCulture, $"block:{blockIndex}"));
 
-    public static Guid ClaudeAttachment(string idScope, Guid recordId, int blockIndex) {
-        var scopeBytes = Encoding.UTF8.GetBytes(idScope);
+    /// The server's own derivation: the session's canonical id (a GUID as 32 lowercase hex digits, any other id as
+    /// given), then the record id, then the image's index little-endian. A subagent's stream hashes its session's id.
+    public static Guid ClaudeAttachment(string sessionId, Guid recordId, int blockIndex) {
+        var scopeBytes = Encoding.UTF8.GetBytes(Guid.TryParse(sessionId, out var session) ? session.ToString("N") : sessionId);
         var input      = new byte[scopeBytes.Length + 20];
         scopeBytes.CopyTo(input, 0);
         recordId.TryWriteBytes(input.AsSpan(scopeBytes.Length));

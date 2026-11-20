@@ -22,6 +22,7 @@
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\Capacitor.Cli.Core\Capacitor.Cli.Core.csproj" />
+        <ProjectReference Include="..\Capacitor.Client\Capacitor.Client.csproj" />
         <ProjectReference Include="..\Capacitor.Remote.Models\Capacitor.Remote.Models.csproj" />
         <PackageReference Include="Avalonia" />
         <PackageReference Include="Avalonia.Controls.WebView" />
@@ -71,6 +72,8 @@
     </ItemGroup>
     <ItemGroup>
         <Using Include="Capacitor.Models.Transcripts" />
+        <Using Include="Capacitor.Client" />
+        <Using Include="Capacitor.Client.Mutation" />
     </ItemGroup>
     <!-- codesign treats every file under the bundle's Contents/MacOS as nested code that must
          carry its own signature, and a managed assembly cannot. The assemblies and json therefore

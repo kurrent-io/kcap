@@ -61,7 +61,7 @@ public class AntigravityWatchExtractorTests {
 
     [Test]
     public async Task PendingToolCalls_tracks_calls_versus_results_and_suppresses_idle() {
-        var state = new Capacitor.Cli.Core.WatchState();
+        var state = new Core.WatchState();
 
         // A PLANNER_RESPONSE with two tool_calls → two in flight.
         AntigravityLiveUsage.UpdateAntigravityPendingToolCalls(state,
@@ -84,7 +84,7 @@ public class AntigravityWatchExtractorTests {
         // reports back through brain/<parent>/messages), never as a result step in this transcript.
         // Counting them would pin the count > 0 forever and suppress idle-end, so a subagent-invoking
         // parent would only end when Antigravity quits. They must be excluded from the in-flight count.
-        var state = new Capacitor.Cli.Core.WatchState();
+        var state = new Core.WatchState();
 
         AntigravityLiveUsage.UpdateAntigravityPendingToolCalls(state,
             """{"type":"PLANNER_RESPONSE","tool_calls":[{"name":"define_subagent"},{"name":"invoke_subagent"},{"name":"invoke_subagent"},{"name":"list_dir"}]}""");

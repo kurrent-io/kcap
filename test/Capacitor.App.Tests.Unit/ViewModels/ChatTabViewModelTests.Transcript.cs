@@ -422,7 +422,7 @@ public partial class ChatTabViewModelTests {
     public async Task A_described_command_row_keeps_its_description_and_opens_on_the_recorded_command_and_output() {
         await RunOnUiAsync(async () => {
             var h = Claude();
-            var call = """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"rm -rf node_modules && npm ci","description":"Reinstall dependencies"}}]}}""";
+            const string call = """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"rm -rf node_modules && npm ci","description":"Reinstall dependencies"}}]}}""";
             await h.PushAsync(Dto(Tmp.CreateFile("t.jsonl", [call, ToolErrorLine])));
 
             var row = Group(h.Chat, 0).Calls[0];

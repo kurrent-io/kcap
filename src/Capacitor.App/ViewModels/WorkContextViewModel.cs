@@ -34,7 +34,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
                 value.PropertyChanged += OnPullRequestChanged;
                 _disposables.Add(Disposable.Create(() => value.PropertyChanged -= OnPullRequestChanged));
             }
-            this.RaisePropertyChanged(nameof(PullRequests));
+            this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(IsStale));
             RebuildLinks();
             RaisePlanProgress();
@@ -150,6 +150,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     bool IsLive => _dto is not null && !SessionStatusDots.IsTerminal(_dto.Status);
     double? ContextPercent => SessionFactText.CurrentContextPercent(_stats);
 
+    public string Created { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
+    public string Updated { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
     string _sessionSharing = SessionFactText.Unknown;
     public string SessionSharing { get => _sessionSharing; private set => this.RaiseAndSetIfChanged(ref _sessionSharing, value); }
     string _agentSharing = SessionFactText.Unknown;
@@ -297,7 +299,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         private set {
             if (_isStale == value) return;
             _isStale = value;
-            this.RaisePropertyChanged(nameof(IsStale));
+            this.RaisePropertyChanged();
         }
     }
     bool _isReading;

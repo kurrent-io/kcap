@@ -177,9 +177,10 @@ public static class ApprovalsYaml {
         // The block's own indent is fixed by its first content line; a shallower non-blank line
         // is a mis-indented sibling that leaked into the block range, not more block content.
         var blockIndent = cursor.RawIndent(firstNonBlank);
-        for (var r = start; r < contentEnd; r++)
+        for (var r = start; r < contentEnd; r++) {
             if (!cursor.IsBlankRaw(r) && cursor.RawIndent(r) < blockIndent)
                 throw new ApprovalsYamlException(r + 1, "line is less indented than the literal block");
+        }
 
         var lines = new string[contentEnd - start];
         for (var r = start; r < contentEnd; r++) {

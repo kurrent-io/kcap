@@ -61,7 +61,7 @@ public class GrokHookCommandTests : IDisposable {
     public async Task Session_start_posts_the_session_and_watches_its_derived_updates_file() {
         _server.Given(Request.Create().WithPath("/hooks/session-start/grok").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200));
-        var cwd = "/repo/demo";
+        const string cwd = "/repo/demo";
 
         var exit = await RunAsync(Payload("session_start", cwd));
 

@@ -681,11 +681,18 @@ internal static class CodingAgentsStep {
             writeLine(AlreadyInstalledLine("Copilot hooks"));
         } else {
             writeLine($"  [green]✓[/] Copilot hooks installed ({Markup.Escape(paths.CopilotHooksPath)})");
-            writeLine("  [dim]  Note: Copilot loads hook config at startup — restart any running copilot session, and quit and reopen VS Code, to pick them up[/]");
+            writeLine(CopilotHooksNote);
         }
 
         return true;
     }
+
+    /// VS Code runs new hooks without a restart; a Copilot CLI session in a terminal loads them at startup.
+    internal const string CopilotHooksNote =
+        "  [dim]  Note: chats in VS Code are stored now. Restart any copilot session running in a terminal to pick up the hooks[/]";
+
+    /// VS Code loads kcap's MCP servers only when it starts.
+    internal const string CopilotMcpNote = "  [dim]  Note: quit and reopen VS Code to give Copilot kcap's tools[/]";
 
     static bool HandleGeminiHooks(
             Options            options,
@@ -1756,6 +1763,7 @@ internal static class CodingAgentsStep {
         switch (installers.RegisterCopilotMcp()) {
             case JsonMcpConfigWriter.Change.Updated:
                 writeLine($"  [green]✓[/] Copilot MCP servers registered ([dim]{configPath}[/])");
+                writeLine(CopilotMcpNote);
 
                 return true;
             case JsonMcpConfigWriter.Change.Unchanged:

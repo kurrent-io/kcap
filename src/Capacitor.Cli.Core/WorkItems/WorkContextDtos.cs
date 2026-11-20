@@ -74,6 +74,8 @@ public sealed record SessionSummaryDto {
     [JsonPropertyName("pr_url")]        public string?                         PrUrl        { get; init; }
     [JsonPropertyName("pr_title")]      public string?                         PrTitle      { get; init; }
     [JsonPropertyName("stats")]         public SessionStatsDto?                Stats        { get; init; }
+    [JsonPropertyName("started_at")]    public DateTimeOffset?                 StartedAt    { get; init; }
+    [JsonPropertyName("last_event_at")] public DateTimeOffset?                 LastEventAt  { get; init; }
     /// The stored audience override; null means the session follows <see cref="DefaultVisibility"/>.
     [JsonPropertyName("visibility")]         public string?                    Visibility        { get; init; }
     [JsonPropertyName("default_visibility")] public string?                    DefaultVisibility { get; init; }

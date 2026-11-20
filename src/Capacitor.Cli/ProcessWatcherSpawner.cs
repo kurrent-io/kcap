@@ -46,11 +46,9 @@ public sealed class ProcessWatcherSpawner(
                 RedirectStandardError  = true,
                 UseShellExecute        = false,
                 CreateNoWindow         = true,
-                Environment = {
-                    [ProfileOverrides.UrlVar]    = Url,
-                    [ConfigRoot.ConfigDirEnvVar] = config.Directory
-                }
+                Environment = { [ConfigRoot.ConfigDirEnvVar] = config.Directory }
             };
+            ChildProfile.Apply(psi, profiles);
 
             // An empty value reads as unset, so a watcher following no known run carries none of this one's.
             if (request.RunsAs is { } run) {

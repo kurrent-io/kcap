@@ -8,11 +8,6 @@ public interface IArtefactsApi {
 
     Task<ArtefactWriteResult> PublishVersionAsync(string artefactId, string html, List<string>? sources, CancellationToken ct = default);
 
-    /// <summary>Replaces the whole audience. A grant left out of <paramref name="grants"/> is one
-    /// being taken away.</summary>
-    Task<ArtefactWriteResult> SetVisibilityAsync(string artefactId, string visibility,
-                                                 List<ArtefactGrantDto>? grants, CancellationToken ct = default);
-
     Task<ArtefactWriteResult> DeleteAsync(string artefactId, CancellationToken ct = default);
 
     Task<List<ArtefactDto>> ListAsync(CancellationToken ct = default);

@@ -61,11 +61,12 @@ public static partial class NextWorkLaneLogic {
         _                                           => "Work item: tracked work of yours",
     };
 
-    /// <summary>What a row shows without being opened: the tracker priority and whether it is a bug.</summary>
+    /// <summary>What a row shows without being opened: the tracker priority, and whether it is a bug when its icon
+    /// does not already say so.</summary>
     public static IReadOnlyList<string> RowMarks(NextWorkRow c) {
         var marks = new List<string>(2);
         if (PriorityLabel(c.Facets.TrackerPriority) is { } p) marks.Add(p);
-        if (c.Facets.IsBug) marks.Add("Bug");
+        if (c.Facets.IsBug && Glyph(c).Icon != "bug") marks.Add("Bug");
         return marks;
     }
 

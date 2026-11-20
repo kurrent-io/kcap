@@ -18,17 +18,19 @@ public class McpCanonicalContractTests {
     public async Task Every_canonical_server_has_a_description() {
         // Every canonical server carries a Description: a null one is a silent
         // routing/discoverability gap.
-        foreach (var s in KcapMcpServers.All)
+        foreach (var s in KcapMcpServers.All) {
             await Assert.That(string.IsNullOrWhiteSpace(s.Description))
                 .IsFalse().Because($"{s.Name} must have a non-empty Description");
+        }
     }
 
     [Test]
     public async Task Every_bundled_claude_mcp_server_has_a_description() {
         var servers = (JsonObject)JsonNode.Parse(File.ReadAllText(Path.Combine(RepoTree.KcapDir(), ".mcp.json")))!["mcpServers"]!;
-        foreach (var (name, node) in servers)
+        foreach (var (name, node) in servers) {
             await Assert.That(string.IsNullOrWhiteSpace(node?["description"]?.GetValue<string>()))
                 .IsFalse().Because($"{name} in .mcp.json must have a non-empty description");
+        }
     }
 
     [Test]

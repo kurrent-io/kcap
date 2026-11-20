@@ -751,7 +751,7 @@ public class LauncherPaneViewSmokeTests {
             return result;
         });
 
-        await Assert.That(thickness).IsEqualTo(new Avalonia.Thickness(0));
+        await Assert.That(thickness).IsEqualTo(new Thickness(0));
         await Assert.That(transparent).IsTrue();
     }
 
@@ -969,7 +969,7 @@ public class LauncherPaneViewSmokeTests {
         Settle(window);
         var menu = Current()!;
         var checks = ((Control)menu.Content!).GetVisualDescendants().OfType<AppIcon>()
-            .Where(i => i.Kind == Lucide.Avalonia.LucideIconKind.Check).ToList();
+            .Where(i => i.Kind == LucideIconKind.Check).ToList();
         return (menu, checks);
     }
 
@@ -1019,7 +1019,7 @@ public class LauncherPaneViewSmokeTests {
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
             var remote = new FakeRemoteAgents();
             remote.DaemonsSubject.OnNext([
-                new Capacitor.Remote.Models.DaemonInfo { Name = "home-pc", OwnerUserId = "u1", Connected = true, RepoPaths = ["/w/repo"] },
+                new DaemonInfo { Name = "home-pc", OwnerUserId = "u1", Connected = true, RepoPaths = ["/w/repo"] },
             ]);
             var vm = new HomeViewModel(
                 service, new AppStateStore(path), new RecordingLaunchClient(), () => Task.FromResult(Array.Empty<string>()),
@@ -1290,7 +1290,7 @@ public class LauncherPaneViewSmokeTests {
             await Assert.That(Texts(work).Single(t => t.Text == "Needs repair").Foreground).IsSameReferenceAs(view.FindResource("KcapWarningBrush"));
 
             static bool Checked(Button row) => row.GetVisualDescendants().OfType<AppIcon>()
-                .Single(i => i.Kind == Lucide.Avalonia.LucideIconKind.Check).IsVisible;
+                .Single(i => i.Kind == LucideIconKind.Check).IsVisible;
             await Assert.That(Checked(home)).IsTrue();
             await Assert.That(Checked(work)).IsFalse();
 

@@ -15,6 +15,7 @@ using Capacitor.Cli.Core.FirstRun;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalEdition;
 using Capacitor.Cli.Core.RepoEvidence;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Harness.Claude;
 using Capacitor.Cli.Harness.Codex;
 using Capacitor.Cli.Harness.Cursor;
@@ -1363,9 +1364,10 @@ class ImportCommand(
         // discovered it rather than to its vendor.
         var sourceBySession = new Dictionary<(HarnessId Vendor, string SessionId), IImportSource>();
 
-        for (var i = 0; i < sources.Count; i++)
+        for (var i = 0; i < sources.Count; i++) {
             foreach (var c in classificationsPerSource[i])
                 sourceBySession.TryAdd((c.Vendor, c.SessionId), sources[i]);
+        }
 
         // Local read failures also carry scope, even though they never reached a probe.
         if (captureScope.Configured) classifications = await captureScope.ApplyAsync(classifications, sessionCwds);
@@ -3183,7 +3185,7 @@ class ImportCommand(
             if (CaptureScope.ExcludesRecorded(profile, home, cwd, rawRepo)) beyondRemap.Add(sessionId);
 
             if (CaptureScope.ExcludesDiscovered(profile, home, cwd, repo, rawRepo)
-             || excludesRepo && checkout is not null && RepoScope.Names(profile.ExcludedRepos!, checkout)) {
+             || excludesRepo && checkout is not null && RepoScope.Names(profile.ExcludedRepos, checkout)) {
                 all.Add(sessionId);
                 if (cwd is not null) folders[sessionId] = cwd;
             }
@@ -3493,10 +3495,11 @@ class ImportCommand(
             string?                              defaultVisibility = null,
             bool                                 stopAtLoss        = false
         ) {
-        var loaded  = 0;
-        var resumed = 0;
-        var errored = 0;
-        var ledger  = TranscriptImportLedger.ForRecording(config);
+        var loaded    = 0;
+        var resumed   = 0;
+        var errored   = 0;
+        var ledger    = TranscriptImportLedger.ForRecording(config);
+        var canonical = new IngestCapability(httpClient, baseUrl, time);
 
         var queue = Channel.CreateUnbounded<List<SessionClassification>>(
             new() {
@@ -3526,7 +3529,7 @@ class ImportCommand(
                                 var linesSent = 0;
 
                                 try {
-                                    (r, linesSent) = await ImportSingleSessionAsync(httpClient, baseUrl, session, slot, events, ledger, ct, sessionCwds, defaultVisibility, stopAtLoss);
+                                    (r, linesSent) = await ImportSingleSessionAsync(httpClient, baseUrl, session, slot, events, ledger, canonical, ct, sessionCwds, defaultVisibility, stopAtLoss);
                                 } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                                     throw;
                                 } catch (Exception ex) {
@@ -3584,6 +3587,7 @@ class ImportCommand(
             int                    slot,
             ChainWorkerEvents      events,
             TranscriptImportLedger ledger,
+            IngestCapability       canonical,
             CancellationToken      ct,
             IReadOnlyDictionary<string, string>? sessionCwds       = null,
             string?                              defaultVisibility = null,
@@ -3631,7 +3635,8 @@ class ImportCommand(
                     progress: perSessionProgress,
                     vendor: session.Vendor,
                     failOnError: true,
-                    completeLines: completeLines
+                    completeLines: completeLines,
+                    canonical: canonical
                 );
 
                 var (_, resumeTitleCancelled) = await TryPostCodexHarnessTitleAsync(httpClient, baseUrl, session, perSessionProgress, ct);
@@ -3804,6 +3809,7 @@ class ImportCommand(
                 time,
                 perSessionProgress,
                 session.Vendor,
+                canonical,
                 stopAtLoss
             );
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {

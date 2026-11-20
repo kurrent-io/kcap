@@ -778,7 +778,7 @@ public class CodexConfigTomlTests {
         CodexConfigToml.RegisterKcapMcpServers(path);
 
         var ledger = Path.Combine(Path.GetDirectoryName(path)!, "mcp-ownership-v1.json");
-        var expected = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        const UnixFileMode expected = UnixFileMode.UserRead | UnixFileMode.UserWrite;
         await Assert.That(File.GetUnixFileMode(path)).IsEqualTo(expected);
         await Assert.That(File.GetUnixFileMode(ledger)).IsEqualTo(expected);
     }

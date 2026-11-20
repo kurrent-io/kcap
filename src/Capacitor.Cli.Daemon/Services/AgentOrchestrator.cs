@@ -839,7 +839,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             var sink = new CloudTerminalSink(
                 agent.Id, agent.SinksLock, agent.OutputBuffer,
-                _server.SendTerminalOutputAsync, () => _server.IsReady,
+                _server.SendTerminalOutputAsync,
+                _server.SendTerminalDimensionsAsync,
+                () => _server.IsReady,
                 _logger, _time, CloudSinkOptions, _shutdownCts.Token);
 
             _cloudSinks.Add(sink);
@@ -1239,8 +1241,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// <summary>An app-server Codex on auto-review raises its person-lane prompts through the bridge rather
     /// than its own approval bridge, so they keep that bridge's fail-closed deadline.</summary>
     TimeSpan? PersonDeadlineOf(AgentInstance agent) =>
-        agent is { ApprovalsReviewer: Core.Harness.Codex.CodexApprovalsReviewers.AutoReview,
-                   RuntimeTransport: Harness.Codex.CodexTransportDecision.AppServer }
+        agent is { ApprovalsReviewer: CodexApprovalsReviewers.AutoReview,
+                   RuntimeTransport: CodexTransportDecision.AppServer }
             ? TimeSpan.FromSeconds(Math.Max(1, _config.CodexAppServerApprovalTimeoutSeconds))
             : null;
 
@@ -1461,7 +1463,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// the transport label rather than type-switching the runtime — the same value the server validates
     /// its launch decision against on registration.</summary>
     static bool IsResumableReviewer(AgentInstance a) =>
-        a.RuntimeTransport == Harness.Codex.CodexTransportDecision.AppServer;
+        a.RuntimeTransport == CodexTransportDecision.AppServer;
 
     internal IReadOnlyList<ReapCandidate> FindReviewersToReap() {
         var result = new List<ReapCandidate>();
@@ -1563,7 +1565,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     // BuildStatusReport only reads the cache (stays pure); the send path refreshes.
     static readonly TimeSpan HarnessInventoryTtl = TimeSpan.FromHours(6);
     readonly object _harnessInventoryGate = new();
-    Capacitor.Cli.Core.Setup.HarnessInventory? _harnessInventory;
+    HarnessInventory? _harnessInventory;
     DateTimeOffset _harnessInventoryEvaluatedAt;
 
     /// <summary>Recomputes the cached harness inventory if it's never been evaluated or is older than
@@ -1590,7 +1592,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         }
     }
 
-    Capacitor.Cli.Core.Setup.HarnessInventory? CurrentHarnessInventory() {
+    HarnessInventory? CurrentHarnessInventory() {
         lock (_harnessInventoryGate) return _harnessInventory;
     }
 
@@ -1796,8 +1798,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     if (vendorsChanged) {
                         Volatile.Write(ref _discoveryPublicationPending, true);
                         _config.SupportedVendors = installed;
-                        _config.AcpPresetVendors = installed.Where(Acp.AcpPermissionPresets.RoutedVendors.Contains).ToArray();
-                        _config.PermissionModeVendors = Harness.Claude.ClaudePermissionModePolicy.AdvertisedVendors(installed);
+                        _config.AcpPresetVendors = installed.Where(AcpPermissionPresets.RoutedVendors.Contains).ToArray();
+                        _config.PermissionModeVendors = ClaudePermissionModePolicy.AdvertisedVendors(installed);
                         _config.PrReviewVendors = DaemonRunner.AdvertisedPrReviewVendors(_runtimeFactories.Values);
                         probeCatalog = true;
                     }
@@ -2466,9 +2468,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             string agentId, LaunchKind kind, string? flowRunId, string? flowRole, AgentActivityClock clock,
             string? vendor = null, string? repoPath = null, string? title = null, DateTime? createdAt = null,
             ResolvedAccount? account = null) {
-        lock (_membership)
+        lock (_membership) {
             _pendingLaunches[agentId] = new PendingLaunch(
                 agentId, kind, createdAt ?? _time.GetUtcNow().UtcDateTime, flowRunId, flowRole, clock, vendor, repoPath, title, account);
+        }
         _statusNotifier.Pulse();
 
         return new PendingLaunchScope(this, agentId);
@@ -4236,9 +4239,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             // Under the lock a stop marks itself requested by, so a stop already under way keeps its report.
             bool reportsItself;
-            lock (_ledgerLock)
+            lock (_ledgerLock) {
                 reportsItself = agent.Status is not "Completed" and not "Failed" && !agent.StopRequested
                     && ClaimRunReport(agent, RunReportSent);
+            }
 
             if (reportsItself) {
                 if (!agent.Runtime.HasExited) LogOutputEndedWhileRunning(agent.Id);
@@ -6272,15 +6276,16 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             var valid = cmd is { Cols: > 0 and <= ushort.MaxValue, Rows: > 0 and <= ushort.MaxValue };
 
             if (clear || valid) {
+                bool queued;
+
                 lock (agent.SinksLock) {
                     agent.WebDims = clear ? null : new AgentInstance.Dim((ushort)cmd.Cols, (ushort)cmd.Rows);
                     ClampPtyLocked(agent);
+                    queued = QueueSizeLocked(agent);
                 }
 
-                // Announce the clamped size so every web viewer re-locks (and reconnect resends the
-                // real size, not stale ones). Outside the lock, best-effort, fire-and-forget — same
-                // as the local resize path in ApplyResizeClamp.
-                _ = SafeSendDimsAsync(agent);
+                // Announce the clamped size so every web viewer re-locks.
+                if (!queued) _ = SafeSendDimsAsync(agent);
             }
         }
 
@@ -6322,11 +6327,20 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                     var registration = await _server.AgentRegisteredAsync(agent.Id, agent.Prompt, agent.Model, agent.Effort, agent.RepoPath, agent.SandboxPolicy, agent.ApprovalPolicy, agent.PermissionPreset, agent.RuntimeTransport, agent.Vendor, agent.StartTitle, agent.ContinuesAgentId,
                         agent.Account?.Directory, agent.Account?.AccountId, CurrentAccountLabel(agent.Account?.AccountId, agent.Account?.Label),
                         agent.AnnouncedResumedSessionId, resumeFirstAnnounce: agent.AnnouncedResumedSessionId is not null && !agent.ResumeAnswered);
+
+                    // Silencing the agent here would leave it out of the next DaemonConnect, and the server would
+                    // fail it as gone while it runs. The registration that follows the slot's recovery sends it again.
+                    if (registration.RefusesConnection) {
+                        LogReRegistrationRefusedForConnection(agent.Id, registration.RefusedReason);
+
+                        break;
+                    }
+
                     if (registration.Answered) agent.ResumeAnswered = true;
 
-                    // A refusal is the server's answer, not a transient failure: it is not retried, and the agent is
-                    // left out of later re-registrations too. A status sent for the refused id could clear the
-                    // failure the server recorded for it.
+                    // A refusal about the agent is the server's answer, not a transient failure: it is not retried,
+                    // and the agent is left out of later re-registrations too. A status sent for the refused id
+                    // could clear the failure the server recorded for it.
                     if (!registration.Registered) {
                         agent.RegistrationRefused = true;
                         LogRegistrationRefused(agent.Id, registration.RefusedReason);
@@ -6854,8 +6868,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // user's own checkout (local in-place launch) — NEVER delete it or its branch:
         // RemoveAsync would Directory.Delete / `git worktree remove --force` + `branch -D`.
         // A pending resume keeps everything the successor daemon resumes from.
+        bool? worktreeRemoved = null;
+
         if (agent.Work == WorkLocation.OwnedWorktree && !agent.ResumePending) {
-            try { await RemoveOwnedWorktreeAsync(agent.Worktree, agentId); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing worktree", agentId); }
+            try { worktreeRemoved = await RemoveOwnedWorktreeAsync(agent.Worktree, agentId); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing worktree", agentId); }
         }
 
         if (!agent.ResumePending) {
@@ -6901,7 +6917,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // catch covers the residual race where shutdown fires mid-call.
         // PrivateLocal agents were never registered, so never unregister them (deny-all).
         if (!agent.IsServerSilent && !_shutdownCts.IsCancellationRequested) {
-            try { await _server.AgentUnregisteredAsync(agentId, StopReasonCode(agent)); } catch (OperationCanceledException) when (_shutdownCts.IsCancellationRequested) { } catch (Exception ex) {
+            try { await _server.AgentUnregisteredAsync(agentId, StopReasonCode(agent), worktreeRemoved); } catch (OperationCanceledException) when (_shutdownCts.IsCancellationRequested) { } catch (Exception ex) {
                 LogCleanupStepFailed(ex, "unregistering", agentId);
             }
         } else if (!_shutdownCts.IsCancellationRequested) {
@@ -7401,6 +7417,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Server refused the registration of agent {AgentId} ({Reason})")]
     partial void LogRegistrationRefused(string agentId, string? reason);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Server refused the re-registration of agent {AgentId} for this connection ({Reason}); it stays reported")]
+    partial void LogReRegistrationRefusedForConnection(string agentId, string? reason);
+
     [LoggerMessage(Level = LogLevel.Warning, Message = "Failed to send terminal dimensions for agent {AgentId} (read-only viewers may render garbled until the next reconnect)")]
     partial void LogTerminalDimsSendFailed(Exception ex, string agentId);
 
@@ -7425,10 +7444,20 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Kept the worktree of agent {AgentId} at {Path} (branch {Branch}): it holds {Reason}. Remove it with `git worktree remove` once the work is saved")]
     partial void LogWorktreeKept(string agentId, string path, string branch, string reason);
 
-    async Task RemoveOwnedWorktreeAsync(WorktreeInfo worktree, string agentId) {
+    /// <summary>True when the worktree is gone, false when it holds work and stays.</summary>
+    async Task<bool> RemoveOwnedWorktreeAsync(WorktreeInfo worktree, string agentId) {
         var removal = await WorktreeManager.RemoveAsync(worktree, _time);
-        if (removal.KeptBecause is { } reason) LogWorktreeKept(agentId, worktree.Path, worktree.Branch, reason);
+
+        if (removal.KeptBecause is { } reason) {
+            if (removal.TreeRemoved) LogCleanupStoppedAfterRemoval(agentId, worktree.Path, worktree.Branch, reason);
+            else LogWorktreeKept(agentId, worktree.Path, worktree.Branch, reason);
+        }
+
+        return removal.TreeRemoved;
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Removed the worktree of agent {AgentId} at {Path} but stopped the rest of its cleanup (branch {Branch}): {Reason}")]
+    partial void LogCleanupStoppedAfterRemoval(string agentId, string path, string branch, string reason);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Agent {AgentId} did not exit after a stop; reporting it Failed rather than Completed")]
     partial void LogStopUnconfirmed(string agentId);

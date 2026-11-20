@@ -4,10 +4,10 @@ namespace Capacitor.Remote.Models.Tests.Unit;
 
 public class TerminalScrollKeyTests {
     [Test]
-    [Arguments("\x1b[<64;1;1M")]
-    [Arguments("\x1b[<65;500;200M")]
-    [Arguments("\x1b[M`!!")]
-    [Arguments("\x1b[Ma!!")]
+    [Arguments("\e[<64;1;1M")]
+    [Arguments("\e[<65;500;200M")]
+    [Arguments("\e[M`!!")]
+    [Arguments("\e[Ma!!")]
     public async Task Wheel_reports_round_trip_without_changing_their_coordinates(string report) {
         var bytes = Encoding.UTF8.GetBytes(report);
         await Assert.That(TerminalScrollKey.TryCreate(bytes, out var key)).IsTrue();
@@ -28,13 +28,13 @@ public class TerminalScrollKeyTests {
 
     [Test]
     [Arguments("text\r")]
-    [Arguments("\x1b[<0;1;1M")]
-    [Arguments("\x1b[<64;0;1M")]
-    [Arguments("\x1b[<64;501;1M")]
-    [Arguments("\x1b[<64;1;201M")]
-    [Arguments("\x1b[<64;1;1M\r")]
-    [Arguments("\x1b[<64;+1;1M")]
-    [Arguments("\x1b[<64;1;1m")]
+    [Arguments("\e[<0;1;1M")]
+    [Arguments("\e[<64;0;1M")]
+    [Arguments("\e[<64;501;1M")]
+    [Arguments("\e[<64;1;201M")]
+    [Arguments("\e[<64;1;1M\r")]
+    [Arguments("\e[<64;+1;1M")]
+    [Arguments("\e[<64;1;1m")]
     public async Task The_wire_cannot_carry_typing_clicks_or_submit_keys(string report) {
         var bytes = Encoding.UTF8.GetBytes(report);
         await Assert.That(TerminalScrollKey.TryCreate(bytes, out _)).IsFalse();

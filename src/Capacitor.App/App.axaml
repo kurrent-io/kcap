@@ -21,6 +21,11 @@
             <!-- Secondary / tertiary body text: both clear AA (≥4.5:1) on Canvas→Border. -->
             <SolidColorBrush x:Key="KcapMutedBrush" Color="#B0B7C6" />
             <SolidColorBrush x:Key="KcapFaintBrush" Color="#949BAA" />
+            <!-- Faded progressive-disclosure text and its inline-code background: detail at 60% opacity, footnotes at 30%. -->
+            <SolidColorBrush x:Key="ProgressiveDisclosureDetailFadeBrush" Color="#99F1F3F7" />
+            <SolidColorBrush x:Key="ProgressiveDisclosureFootnoteFadeBrush" Color="#4CF1F3F7" />
+            <SolidColorBrush x:Key="ProgressiveDisclosureDetailCodeFadeBrush" Color="#99191D27" />
+            <SolidColorBrush x:Key="ProgressiveDisclosureFootnoteCodeFadeBrush" Color="#4C191D27" />
             <!-- Primary CTAs stay on the light ramp. Hover lifts toward white and press steps
                  to a light off-white; a text grey as the fill drops the near-black label's contrast.
                  Green is status only; a selection uses info blue. -->
@@ -571,6 +576,13 @@
             <Setter Property="HorizontalContentAlignment" Value="Center" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
+        <!-- The progressive disclosure toggle: muted while off, info while on. -->
+        <Style Selector="Button.kcapGhost.progressiveDisclosure views|AppIcon">
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Button.kcapGhost.progressiveDisclosure.on views|AppIcon">
+            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+        </Style>
         <Style Selector="Button.kcapGhost.kcapQuiet">
             <Setter Property="Padding" Value="8,5" />
             <Setter Property="FontSize" Value="12.5" />
@@ -585,6 +597,13 @@
         </Style>
         <Style Selector="Button.kcapGhost.kcapQuiet:disabled /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+        </Style>
+        <!-- A keyboard-focused row in a panel takes the hover fill, not Fluent's square white outline. -->
+        <Style Selector="FlyoutPresenter.kcapPanel Button.kcapGhost">
+            <Setter Property="FocusAdorner" Value="{x:Null}" />
+        </Style>
+        <Style Selector="FlyoutPresenter.kcapPanel Button.kcapGhost:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
         </Style>
         <!-- A destructive primary: filled like kcapPrimary so it reads as the action, never bound to
              Enter, so the default key cannot remove or stop anything. -->
@@ -680,7 +699,7 @@
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
         <!-- A refresh glyph turning while its read is in flight: the click's only feedback when
-             the result is unchanged. -->
+             the result is unchanged. Only BusyIndicator.IsBusy applies the class. -->
         <Style Selector="views|AppIcon.kcapSpinning">
             <Setter Property="RenderTransform" Value="rotate(0deg)" />
             <Style.Animations>

@@ -50,7 +50,7 @@ static unsafe partial class WindowsProcessTable {
     const int  MaxPath                 = 32768;
 
     const uint SnapProcess = 0x00000002;
-    static readonly nint InvalidHandle = -1;
+    const nint InvalidHandle = -1;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     struct ProcessEntry32W {

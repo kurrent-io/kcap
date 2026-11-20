@@ -37,7 +37,7 @@ public class PiCliRunnerLiveTests {
         var pi = BinaryProbe.FromEnvironment().Resolve("pi");
         Skip.When(pi is null, "pi is not on PATH");
 
-        return pi!;
+        return pi;
     }
 
     /// <summary><paramref name="before"/> runs in the run's working directory, ahead of the real binary.</summary>

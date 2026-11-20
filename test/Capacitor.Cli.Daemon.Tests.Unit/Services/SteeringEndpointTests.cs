@@ -231,6 +231,26 @@ public class SteeringEndpointTests {
         await Assert.That(server.AgentUnregisteredCalls).IsEquivalentTo([agentId]);
     }
 
+    /// <summary>Once the reply handing a dispatch over is written, a poll holding nothing shows it never reached the mod.</summary>
+    [Test]
+    public async Task A_handover_reply_the_mod_never_recorded_is_dropped_on_its_next_poll() {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        await using var endpoint = Endpoint(routes: new SteeringRoutes(attachments).Table());
+        endpoint.TryBind(out _);
+        var agentId  = ModAttachments.AgentIdFor(SessionIds.Canonical(ModSession)!);
+        var dispatch = Guid.NewGuid();
+        await Assert.That((await PostAsync("/attach", $$"""{"sessionId":"{{ModSession}}","processKey":"4242:start"}""", cts.Token)).Item1).IsEqualTo("200");
+        attachments.TakeInput(new SendInputCommand(agentId, "hello", null, dispatch));
+
+        await Assert.That((await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":true,"processKey":"4242:start"}""", cts.Token)).Item1).IsEqualTo("200");
+        await Assert.That(await PostAsync("/next", $$"""{"agentId":"{{agentId}}","idle":true,"processKey":"4242:start"}""", cts.Token)).IsEqualTo(("204", ""));
+        await attachments.FlushReportsAsync();
+
+        await Assert.That(server.AttachedRejections).IsEquivalentTo([(dispatch, agentId, "not_held_by_mod")]);
+    }
+
     /// <summary>A report the daemon could not save is gone with a restart before the server takes it, so the mod is told
     /// to keep its own: it holds a report through any 5xx and sends it again.</summary>
     [Test]

@@ -1,0 +1,27 @@
+{
+  "jsonrpc": "2.0",
+  "method": "sessions/changed",
+  "params": {
+    "subscription_id": "sub-1",
+    "upserts": [
+      {
+        "key": "server:fedcba9876543210fedcba9876543210",
+        "origin": "server",
+        "id": "fedcba9876543210fedcba9876543210",
+        "session_id": "fedcba9876543210fedcba9876543210",
+        "kind": "session",
+        "vendor": "codex",
+        "status": "Running",
+        "repo_label": "acme/app",
+        "created_at": "2026-01-01T03:04:05Z",
+        "last_activity_at": "2026-01-02T05:04:05Z",
+        "is_stale": false,
+        "is_ended": false,
+        "is_terminal_session": true
+      }
+    ],
+    "removes": [
+      "local:0123456789abcdef0123456789abcdef"
+    ]
+  }
+}

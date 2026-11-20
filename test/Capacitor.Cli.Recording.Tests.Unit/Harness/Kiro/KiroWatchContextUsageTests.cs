@@ -25,7 +25,7 @@ public class KiroWatchContextUsageTests {
     // Writes the sibling {stem}.json and returns the (non-existent-is-fine) {stem}.jsonl transcript path.
     // stem is a DASHED id to prove the sibling is derived from the transcript path, not a dashless session id.
     static string SeedSibling(TempDir tmp, string metaJson) {
-        var stem = "11111111-2222-3333-4444-555555555555";   // dashed, like Kiro's on-disk files
+        const string stem = "11111111-2222-3333-4444-555555555555";   // dashed, like Kiro's on-disk files
         tmp.CreateFile(stem + ".json", metaJson);
         return tmp.PathTo(stem + ".jsonl");
     }

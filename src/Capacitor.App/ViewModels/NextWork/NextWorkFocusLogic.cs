@@ -78,9 +78,10 @@ public static partial class NextWorkFocusLogic {
     }
 
     static (Draft Draft, int Index)? FindSimilar(IEnumerable<Draft> drafts, string text, Tokens tokens) {
-        foreach (var d in drafts)
+        foreach (var d in drafts) {
             for (var i = 0; i < d.Ends.Count; i++)
                 if (tokens.Similar(d.Ends[i].Text, text)) return (d, i);
+        }
         return null;
     }
 

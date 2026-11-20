@@ -431,7 +431,7 @@ public class HarnessSignalTests {
         using var tmp  = new TempDir();
         var       kiro = KiroHarness.Over(new KiroPaths(Nowhere, tmp.CreateDir("kh").Path));
 
-        tmp.CreateDir(["kh", "agents"]);
+        tmp.CreateDir("kh", "agents");
         await Assert.That(kiro.Signals.IsWired).IsFalse();
 
         tmp.CreateFile(["kh", "agents", ".kcap-hooks-version"], "0.1.0");

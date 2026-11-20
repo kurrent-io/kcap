@@ -30,7 +30,7 @@ public sealed class SessionAttentionTracker : IDisposable {
         public ITimer? Timer;
     }
 
-    readonly SessionDetailReader _readDetail;
+    readonly ISessionInterruptSource _interrupts;
     readonly TimeProvider _time;
     readonly TimeSpan _debounce;
     readonly Dictionary<string, Session> _sessions = new(StringComparer.Ordinal);
@@ -46,8 +46,8 @@ public sealed class SessionAttentionTracker : IDisposable {
     string? _subject;
     bool? _laneConnected;
 
-    public SessionAttentionTracker(IServerLane lane, SessionDetailReader readDetail, TimeProvider time, TimeSpan? debounce = null) {
-        _readDetail = readDetail;
+    public SessionAttentionTracker(IServerLane lane, ISessionInterruptSource interrupts, TimeProvider time, TimeSpan? debounce = null) {
+        _interrupts = interrupts;
         _time = time;
         _debounce = debounce ?? TimeSpan.FromMilliseconds(300);
         var status = lane.Status.Subscribe(OnStatus);
@@ -169,6 +169,7 @@ public sealed class SessionAttentionTracker : IDisposable {
             foreach (var s in _sessions.Values) { s.Attempt++; s.Ids.Clear(); s.Questions.Clear(); s.Timer?.Dispose(); s.Timer = null; }
             _sessions.Clear();
             _settledQuestions.Clear();
+            _interrupts.Forget();
             Publish();
         }
     }
@@ -223,21 +224,21 @@ public sealed class SessionAttentionTracker : IDisposable {
     }
 
     async Task ReconcileAsync(string sessionId, Session s, int attempt) {
-        SessionDetailFetch fetch;
-        try { fetch = await _readDetail(sessionId, _lifetime.Token).ConfigureAwait(false); }
+        SessionInterruptsFetch fetch;
+        try { fetch = await _interrupts.ReadAsync(sessionId, _lifetime.Token).ConfigureAwait(false); }
         catch (OperationCanceledException) { return; }
         catch (Exception) { fetch = new(null); }
 
         lock (_lock) {
             if (_disposed || s.Attempt != attempt || !IsCurrent(sessionId, s)) return;
-            if (fetch.Detail is null && !fetch.NotFound) {
+            if (fetch.Interrupts is null && !fetch.NotFound) {
                 if (!_connected) return;
                 Schedule(sessionId, s, Retry[Math.Min(s.Failures++, Retry.Length - 1)]);
                 return;
             }
             s.Ids.Clear();
             s.Questions.Clear();
-            if (fetch.Detail is { } detail && InterruptReconciliation.FromDetail(detail) is { Ended: false } reconciled)
+            if (fetch.Interrupts is { Ended: false } reconciled)
                 foreach (var p in reconciled.Pending) {
                     if (p.Kind == PendingInterruptKind.TranscriptQuestion) {
                         if (s.SettlesQuestions) _settledQuestions.Add(p.RequestId);
@@ -269,6 +270,7 @@ public sealed class SessionAttentionTracker : IDisposable {
             _sessions.Clear();
         }
         _subscriptions.Dispose();
+        _interrupts.Dispose();
         _lifetime.Cancel();
         _lifetime.Dispose();
         _attention.OnCompleted();

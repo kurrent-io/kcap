@@ -267,7 +267,7 @@ internal sealed class AdoptionPrivilegedStep(
     // nothing, which moves the install back rather than deleting what it could not see.
     static IReadOnlyList<string> Listing(string folder) {
         try {
-            return Directory.Exists(folder) ? [.. Directory.EnumerateFileSystemEntries(folder).Select(e => Path.GetFileName(e)!).Order(StringComparer.Ordinal)] : [];
+            return Directory.Exists(folder) ? [.. Directory.EnumerateFileSystemEntries(folder).Select(e => Path.GetFileName(e)).Order(StringComparer.Ordinal)] : [];
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return [];
         }

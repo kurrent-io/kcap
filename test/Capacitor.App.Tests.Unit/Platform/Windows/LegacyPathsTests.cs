@@ -32,8 +32,8 @@ public class LegacyPathsTests {
     [Arguments(5, true)]
     [Arguments(5, false)]
     public async Task A_shortcut_names_the_root_in_either_text_encoding(int header, bool unicode) {
-        var target = Root + @"\current\kcap-desktop.exe" + "\0";
-        var lnk    = new byte[header].Concat(unicode ? Encoding.Unicode.GetBytes(target) : Encoding.Latin1.GetBytes(target)).ToArray();
+        const string target = Root + @"\current\kcap-desktop.exe" + "\0";
+        var lnk             = new byte[header].Concat(unicode ? Encoding.Unicode.GetBytes(target) : Encoding.Latin1.GetBytes(target)).ToArray();
 
         await Assert.That(LegacyPaths.ShortcutMentions(lnk, Root)).IsTrue();
         await Assert.That(LegacyPaths.ShortcutMentions(lnk, @"C:\Users\u\AppData\Local\kcap")).IsFalse();

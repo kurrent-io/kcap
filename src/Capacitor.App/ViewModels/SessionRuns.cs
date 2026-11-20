@@ -38,6 +38,8 @@ public sealed class SessionRuns(TimeProvider time) {
     DateTimeOffset? _reopenedAt;
     bool _sessionOver;
     bool _opensSubagents = true;
+    /// What has been folded, cut down to what folding reads, while KeepsHistory is set.
+    List<ChatProjectionResult>? _history;
 
     public IAvaloniaReadOnlyList<RunRow> Rows => _rows;
     /// The rows of Rows that present as running, in arrival order.
@@ -78,10 +80,42 @@ public sealed class SessionRuns(TimeProvider time) {
 
     public void Apply(ChatProjectionResult projection) => ApplyAll([projection]);
 
+    /// Keeps what has been folded, so lines from before it can still be folded ahead of it.
+    public bool KeepsHistory {
+        get => _history is not null;
+        set => _history = value ? _history ?? [] : null;
+    }
+
+    /// Folds lines from before everything applied so far: the rows rebuild from those lines and the
+    /// kept history, in stream order. Without KeepsHistory there is nothing to fold them ahead of.
+    public void Prepend(IEnumerable<ChatProjectionResult> earlier) {
+        if (_history is not { } history) return;
+        var reduced = earlier.Select(Reduce).OfType<ChatProjectionResult>().ToList();
+        if (reduced.Count == 0) return;
+        var log = reduced.Concat(history).ToList();
+        Reset();
+        foreach (var projection in log) Fold(projection);
+        _history = log;
+        // The rows are new objects even when their counts are not, and a listener holding the old ones must re-read.
+        if (!Refresh()) Changed?.Invoke();
+    }
+
+    /// The run signals and tool-result keys: the only parts Fold reads.
+    static ChatProjectionResult? Reduce(ChatProjectionResult projection) {
+        var results = projection.Envelopes
+            .Where(static e => e.Kind == AcpEventKind.ToolResult && e.ToolCallId is not null)
+            .Select(static e => new AcpEventEnvelope(Kind: AcpEventKind.ToolResult, ToolCallId: e.ToolCallId, ToolIsError: e.ToolIsError, TimestampIso: e.TimestampIso))
+            .ToArray();
+        return results.Length == 0 && projection.Runs.Count == 0 ? null : new(results, [], projection.Runs);
+    }
+
     /// One refresh per batch: a replayed command that started and finished inside it must never
     /// surface as running, or every surface counting commands flickers when a session opens.
     public void ApplyAll(IEnumerable<ChatProjectionResult> projections) {
-        foreach (var projection in projections) Fold(projection);
+        foreach (var projection in projections) {
+            Fold(projection);
+            if (_history is not null && Reduce(projection) is { } kept) _history.Add(kept);
+        }
         Refresh();
     }
 
@@ -144,6 +178,13 @@ public sealed class SessionRuns(TimeProvider time) {
     }
 
     public void Clear() {
+        _history?.Clear();
+        Reset();
+        Refresh();
+    }
+
+    /// Forgets every row without publishing the empty state, for a caller that folds again at once.
+    void Reset() {
         _rows.Clear();
         _byCall.Clear();
         _byAgent.Clear();
@@ -153,7 +194,6 @@ public sealed class SessionRuns(TimeProvider time) {
         _earlyUnpaired.Clear();
         _restartedAt = null;
         _reopenedAt = null;
-        Refresh();
     }
 
     /// Re-reads the clock for the running rows' elapsed time.
@@ -209,7 +249,11 @@ public sealed class SessionRuns(TimeProvider time) {
     }
 
     /// Names the subagent a call started, from a source that reads it outside the projected lines.
-    public void Identify(string callId, string agentId) => Identify(new RunSignal.Identified(callId, agentId));
+    public void Identify(string callId, string agentId) {
+        var identified = new RunSignal.Identified(callId, agentId);
+        Identify(identified);
+        _history?.Add(new([], [], [identified]));
+    }
 
     /// An id with no call names a subagent only when one running subagent is still unnamed: parallel calls
     /// and their start records arrive in no fixed order, so with two candidates either could be the one.
@@ -303,7 +347,8 @@ public sealed class SessionRuns(TimeProvider time) {
         iso is not null && DateTimeOffset.TryParse(iso, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at)
             ? at : time.GetUtcNow();
 
-    void Refresh() {
+    /// True when it raised Changed.
+    bool Refresh() {
         var now = time.GetUtcNow();
         Span<int> counts = stackalloc int[_counts.Length];
         foreach (var row in _rows) {
@@ -314,9 +359,10 @@ public sealed class SessionRuns(TimeProvider time) {
         StableRows.Sync(_agents, _rows.Where(row => !row.IsShell));
         StableRows.Sync(_runningAgents, _running.Where(row => !row.IsShell));
         var runningBackground = _running.Count(row => row.IsBackground);
-        if (counts.SequenceEqual(_counts) && runningBackground == _runningBackground) return;
+        if (counts.SequenceEqual(_counts) && runningBackground == _runningBackground) return false;
         counts.CopyTo(_counts);
         _runningBackground = runningBackground;
         Changed?.Invoke();
+        return true;
     }
 }

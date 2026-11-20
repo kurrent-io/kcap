@@ -24,7 +24,7 @@ public class DetachedBacklogImportTests {
         var psi = starter.Seen!;
         await Assert.That(psi.ArgumentList).IsEquivalentTo(
             ["import", "--pi", "--session", Session, "--min-lines", "0", "--skip-title", "--no-update-check"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
-        await Assert.That(psi.Environment[Capacitor.Cli.Core.ConfigRoot.ConfigDirEnvVar]).IsEqualTo(Config.Root.Directory);
+        await Assert.That(psi.Environment[ConfigRoot.ConfigDirEnvVar]).IsEqualTo(Config.Root.Directory);
         await Assert.That(psi.RedirectStandardInput && psi.RedirectStandardOutput && psi.RedirectStandardError).IsTrue();
         await Assert.That(File.Exists(psi.Environment[DetachedImportLog.EnvVar])).IsTrue();
     }
@@ -61,7 +61,7 @@ public class DetachedBacklogImportTests {
 
     [Test]
     public async Task A_session_the_person_disabled_is_not_handed_over() {
-        Capacitor.Cli.Core.DisabledSessions.Mark(Session, Config.Root);
+        DisabledSessions.Mark(Session, Config.Root);
         var starter = FakeProcessStarter.Refusing();
 
         var handed = DetachedBacklogImport.Spawn("--copilot", Session, Tmp.PathTo("s.jsonl"), null, Config.Root, FromProfile, starter);

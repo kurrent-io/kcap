@@ -281,7 +281,7 @@ public class LaunchAgentCommandWireFormatTests {
     [Test]
     public async Task Requester_fields_roundtrip_and_default_null_when_absent() {
         // Old-server payload without the new fields → nulls (wire compat).
-        var legacyJson = """{"agent_id":"a1","model":"m","repo_path":"/r","vendor":"claude"}""";
+        const string legacyJson = """{"agent_id":"a1","model":"m","repo_path":"/r","vendor":"claude"}""";
         var legacy = JsonSerializer.Deserialize(legacyJson, CapacitorJsonContext.Default.LaunchAgentCommand);
         await Assert.That(legacy.RequesterUserId).IsNull();
         await Assert.That(legacy.RequesterIsOwner).IsNull();
@@ -312,7 +312,7 @@ public class LaunchAgentCommandWireFormatTests {
         // An old server never sends this field —
         // the daemon must default to null (⇒ FindReviewersToReap's no-bound legacy path), never fail
         // to bind the command.
-        var legacyJson = """{"agent_id":"a1","model":"m","repo_path":"/r","vendor":"claude"}""";
+        const string legacyJson = """{"agent_id":"a1","model":"m","repo_path":"/r","vendor":"claude"}""";
         var legacy = JsonSerializer.Deserialize(legacyJson, CapacitorJsonContext.Default.LaunchAgentCommand);
         await Assert.That(legacy.InactivityBoundSeconds).IsNull();
 
@@ -337,7 +337,7 @@ public class LaunchAgentCommandWireFormatTests {
 
     [Test]
     public async Task AccountId_roundtrips_and_defaults_null_when_absent() {
-        var legacyJson = """{"agent_id":"a1","model":"m","repo_path":"/r","vendor":"claude"}""";
+        const string legacyJson = """{"agent_id":"a1","model":"m","repo_path":"/r","vendor":"claude"}""";
         var legacy = JsonSerializer.Deserialize(legacyJson, CapacitorJsonContext.Default.LaunchAgentCommand);
         await Assert.That(legacy.AccountId).IsNull();
 
@@ -354,7 +354,7 @@ public class LaunchAgentCommandWireFormatTests {
     public async Task RequesterDisplay_roundtrips_and_defaults_null_when_absent() {
         // An old server never sends this field (issue #481) — the daemon must default to null,
         // never fail to bind the command.
-        var legacyJson = """{"agent_id":"a1","model":"m","repo_path":"/r","vendor":"claude"}""";
+        const string legacyJson = """{"agent_id":"a1","model":"m","repo_path":"/r","vendor":"claude"}""";
         var legacy = JsonSerializer.Deserialize(legacyJson, CapacitorJsonContext.Default.LaunchAgentCommand);
         await Assert.That(legacy.RequesterDisplay).IsNull();
 

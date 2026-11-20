@@ -108,7 +108,7 @@ public class LocalPermissionBridgeShutdownTests {
     [Test, NotInParallel(nameof(LocalPermissionBridgeShutdownTests))]
     public async Task Admitted_handler_held_before_entry_is_drained_with_the_token_already_cancelled() {
         // The drain cannot expire, so a handler it failed to count would lose its response to the listener closing.
-        var (bridge, _, broker, tmp) = Build(new FrozenWallClock());
+        var (bridge, _, _, tmp) = Build(new FrozenWallClock());
         try {
             var hold = new TaskCompletionSource();
             var entered = new TaskCompletionSource();

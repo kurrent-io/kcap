@@ -34,8 +34,8 @@ public class MuseAssistantPathsTests {
     [Arguments("A/B")]
     [Arguments("..")]
     public async Task Awkward_chat_ids_stay_inside_the_directory(string chatId) {
-        var dir   = "/cfg/muse-assistant/x";
-        var state = MuseAssistantPaths.ChatState(dir, chatId);
+        const string dir = "/cfg/muse-assistant/x";
+        var state        = MuseAssistantPaths.ChatState(dir, chatId);
 
         await Assert.That(Path.GetDirectoryName(state)).IsEqualTo(Path.GetDirectoryName(Path.Join(dir, "x")));
         await Assert.That(Path.GetFileName(state)).Matches("^[0-9a-f]{64}\\.json$");

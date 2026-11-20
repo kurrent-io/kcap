@@ -26,7 +26,7 @@ using Capacitor.Cli.Core.WorkItems;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
 using TUnit.Assertions.Enums;
-using static Capacitor.App.Tests.Unit.FakeDaemonClientService;
+using static Capacitor.Tests.Helpers.FakeDaemonClientService;
 
 namespace Capacitor.App.Tests.Unit.Views;
 
@@ -100,8 +100,9 @@ public class MainWindowSmokeTests {
 
     /// A real WorkspaceViewModel over the fake service and scripted attach/surface fakes — same
     /// pieces MainWindowViewModelTests wires, over the actions this file's NewActions built.
-    static WorkspaceViewModel NewWorkspace(FakeDaemonClientService service, AgentActionService actions, string agentId, IPullRequestSource? pullRequests = null) =>
-        new(agentId, service, actions, new FakeTerminalAttachClientFactory().Factory,
+    static WorkspaceViewModel NewWorkspace(FakeDaemonClientService service, AgentActionService actions, string agentId,
+            IPullRequestSource? pullRequests = null, FakeTerminalAttachClientFactory? attach = null) =>
+        new(agentId, service, actions, (attach ?? new FakeTerminalAttachClientFactory()).Factory,
             () => new FakeTerminalSurface(), new FakeTimeProvider(), new RecordingOpener(), new FakePermissionService(),
             new FakeWorkContextSource(), new ScriptedLocalControlOps(), new NoAttachmentUploader(), pullRequests: pullRequests);
 
@@ -136,7 +137,7 @@ public class MainWindowSmokeTests {
                 connection: "connected", active: 1, max: 5));
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
 
-            var (actions, _) = NewActions(service);
+            _ = NewActions(service);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
                 tenantName: "kurrent");
             var window = new MainWindow { DataContext = vm };
@@ -185,7 +186,7 @@ public class MainWindowSmokeTests {
     public async Task Status_transition_from_a_background_thread_does_not_throw_and_converges() {
         var (thrown, startEnabledAfter) = await AvaloniaSession.DispatchAsync(() => {
             var service = new FakeDaemonClientService();
-            var (actions, _) = NewActions(service);
+            _ = NewActions(service);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
             var window = new MainWindow { DataContext = vm };
             window.Show();
@@ -236,7 +237,7 @@ public class MainWindowSmokeTests {
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, "daemon_unreachable", null));
 
             var shutdown = new CancellationTokenSource();
-            var (actions, _) = NewActions(service);
+            _ = NewActions(service);
             var vm = new MainWindowViewModel(service, shutdown.Token, TestActivity.New(), TimeProvider.System);
             var window = new MainWindow { DataContext = vm };
             window.Show();
@@ -333,7 +334,7 @@ public class MainWindowSmokeTests {
     public async Task Toast_renders_the_notifier_message() {
         var rendered = await AvaloniaSession.DispatchAsync(() => {
             var service = new FakeDaemonClientService();
-            var (actions, notifier) = NewActions(service);
+            var (_, notifier) = NewActions(service);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
             var window = new MainWindow { DataContext = vm, Notifier = notifier };
             window.Show();
@@ -749,7 +750,7 @@ public class MainWindowSmokeTests {
         parts.SetValue(decorations, Enum.ToObject(parts.PropertyType, 0xFF));
         var host = new Panel();
         var window = new Window { Title = "kcap Desktop", Content = host };
-        ((Avalonia.Controls.ISetLogicalParent)decorations).SetParent(window);
+        ((ISetLogicalParent)decorations).SetParent(window);
         typeof(Avalonia.Controls.Chrome.WindowDrawnDecorations).GetMethod("ApplyTemplate", Members)!.Invoke(decorations, null);
         host.Children.Add(decorations.Content!.Overlay!);
         try {
@@ -1207,7 +1208,7 @@ public class MainWindowSmokeTests {
 
                 var selected = RailRow(window, "Fix the flaky test");
                 var sibling = RailRow(window, "Leave this one alone");
-                var hover = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapSurfaceRaisedBrush")!).Color;
+                var hover = ((ISolidColorBrush)Application.Current!.FindResource("KcapSurfaceRaisedBrush")!).Color;
                 static TextBlock Title(Button row) => row.GetVisualDescendants().OfType<TextBlock>().First(t => t.Classes.Contains("rowTitle"));
                 var result = (
                     SelectedBackground: (selected.Background as ISolidColorBrush)?.Color,
@@ -1466,7 +1467,7 @@ public class MainWindowSmokeTests {
                 var ctrl = Bound(KeyModifiers.Control);
 
                 var newSession = window.KeyBindings
-                    .First(k => k.Gesture is { Key: Key.N } g && g.KeyModifiers.HasFlag(KeyModifiers.Meta)).Command!;
+                    .First(k => k.Gesture is { Key: Key.N } g && g.KeyModifiers.HasFlag(KeyModifiers.Meta)).Command;
                 newSession.Execute(null);
                 Dispatcher.UIThread.RunJobs();
                 var after = vm.CurrentWorkspace;
@@ -1504,11 +1505,12 @@ public class MainWindowSmokeTests {
             var service = new FakeDaemonClientService();
             var (actions, _) = NewActions(service);
             var source = new FakeWorkContextSource();
+            var attach = new FakeTerminalAttachClientFactory();
             var time = new FakeTimeProvider();
             var vm = new MainWindowViewModel(
                 service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
                 workspaceFactory: agentId => new WorkspaceViewModel(
-                    agentId, service, actions, new FakeTerminalAttachClientFactory().Factory,
+                    agentId, service, actions, attach.Factory,
                     () => new FakeTerminalSurface(), time, new RecordingOpener(), new FakePermissionService(),
                     source, new ScriptedLocalControlOps(), new NoAttachmentUploader()));
             var window = new MainWindow { DataContext = vm };
@@ -1519,17 +1521,17 @@ public class MainWindowSmokeTests {
             Dispatcher.UIThread.RunJobs();
             try {
                 var bindings = window.KeyBindings.Where(k => k.Gesture is { Key: Key.R }).ToArray();
-                bool Bound(KeyModifiers mod) => bindings.Any(k => k.Gesture!.KeyModifiers == mod);
-                bool Can() => bindings.Single(k => k.Gesture!.KeyModifiers == KeyModifiers.Meta).Command!.CanExecute(null);
+                bool Bound(KeyModifiers mod) => bindings.Any(k => k.Gesture.KeyModifiers == mod);
+                bool Can() => bindings.Single(k => k.Gesture.KeyModifiers == KeyModifiers.Meta).Command.CanExecute(null);
                 var yield = new UnlessTerminalFocused(window, m => m.RefreshWorkCommand);
 
                 await Assert.That(Bound(KeyModifiers.Meta)).IsTrue();
                 await Assert.That(Bound(KeyModifiers.Control)).IsEqualTo(RefreshShortcut.UsesControl);
                 await Assert.That(Bound(KeyModifiers.Control | KeyModifiers.Shift)).IsEqualTo(RefreshShortcut.UsesControl);
-                await Assert.That(bindings.Where(k => k.Gesture!.KeyModifiers != KeyModifiers.Control)
+                await Assert.That(bindings.Where(k => k.Gesture.KeyModifiers != KeyModifiers.Control)
                     .All(k => ReferenceEquals(k.Command, vm.RefreshWorkCommand))).IsTrue();
                 if (RefreshShortcut.UsesControl) {
-                    await Assert.That(bindings.Single(k => k.Gesture!.KeyModifiers == KeyModifiers.Control).Command)
+                    await Assert.That(bindings.Single(k => k.Gesture.KeyModifiers == KeyModifiers.Control).Command)
                         .IsNotSameReferenceAs(vm.RefreshWorkCommand);
                 }
                 await Assert.That(refreshItem.Command).IsSameReferenceAs(vm.RefreshWorkCommand);
@@ -1555,6 +1557,8 @@ public class MainWindowSmokeTests {
 
                 await Assert.That(yield.CanExecute(null)).IsTrue();
                 var workspace = (WorkspaceViewModel)vm.CurrentWorkspace!;
+                await (workspace.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+                await attach.Created.Single().TriggerAttached([]);
                 workspace.ShowTerminalCommand.Execute().Subscribe();
                 Dispatcher.UIThread.RunJobs();
                 var terminal = window.GetVisualDescendants().OfType<TerminalControl>().Single();
@@ -1578,7 +1582,7 @@ public class MainWindowSmokeTests {
                 await Assert.That(Can()).IsTrue();
                 await Assert.That(source.Requested.Count).IsEqualTo(beforePoll + 1);
 
-                bindings[0].Command!.Execute(null);
+                bindings[0].Command.Execute(null);
                 await Assert.That(work.IsRefreshing).IsTrue();
                 await Assert.That(source.Requested.Count).IsEqualTo(beforePoll + 1);
                 await Assert.That(Can()).IsFalse();
@@ -1613,7 +1617,7 @@ public class MainWindowSmokeTests {
             var ok = await AvaloniaSession.DispatchAsync(() => {
                 var service = new FakeDaemonClientService();
                 service.SnapshotsSubject.OnNext(Snap());
-                var (actions, _) = NewActions(service);
+                _ = NewActions(service);
                 var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
                 var window = new MainWindow { DataContext = vm };
                 window.Show();
@@ -1754,7 +1758,7 @@ public class MainWindowSmokeTests {
         var service = new FakeDaemonClientService();
         service.SnapshotsSubject.OnNext(Snap());
         var opener = new RecordingOpener();
-        var reported = new List<Capacitor.Cli.Core.Commands.FeedbackCategory>();
+        var reported = new List<Cli.Core.Commands.FeedbackCategory>();
         var setupOpened = 0;
         var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
             openFeedback: reported.Add, opener: opener, requestSetup: () => setupOpened++);
@@ -1783,84 +1787,14 @@ public class MainWindowSmokeTests {
 
             OpenAndClick("RailHelpBugButton");
             await Assert.That(flyout.IsOpen).IsFalse();
-            await Assert.That(reported).IsEquivalentTo([Capacitor.Cli.Core.Commands.FeedbackCategory.Bug]);
+            await Assert.That(reported).IsEquivalentTo([Cli.Core.Commands.FeedbackCategory.Bug]);
 
             OpenAndClick("RailHelpFeedbackButton");
             await Assert.That(flyout.IsOpen).IsFalse();
             await Assert.That(reported).IsEquivalentTo([
-                Capacitor.Cli.Core.Commands.FeedbackCategory.Bug,
-                Capacitor.Cli.Core.Commands.FeedbackCategory.Feedback,
+                Cli.Core.Commands.FeedbackCategory.Bug,
+                Cli.Core.Commands.FeedbackCategory.Feedback,
             ]);
-        } finally {
-            window.Close();
-            Dispatcher.UIThread.RunJobs();
-        }
-    });
-
-    /// Off macOS the help flyout carries the app menu's Settings, Changelog and version — the only
-    /// in-window route to Settings where no native menu bar is drawn. Settings stays inert until the
-    /// app hands it an action, and Uninstall is not shown until the app can remove itself.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    [Arguments(true)]
-    [Arguments(false)]
-    public Task Rail_help_carries_the_app_menu_when_no_native_menu_is_drawn(bool inWindow) => AvaloniaSession.RunOnUiAsync(async () => {
-        var service = new FakeDaemonClientService();
-        service.SnapshotsSubject.OnNext(Snap());
-        var settings = new System.Reactive.Subjects.BehaviorSubject<Action?>(null);
-        var uninstall = new System.Reactive.Subjects.BehaviorSubject<Action?>(null);
-        var opener = new RecordingOpener();
-        var opened = 0;
-        var uninstalls = 0;
-        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
-            opener: opener, settingsAction: settings, uninstallAction: uninstall, appMenuInWindow: inWindow);
-        var window = new MainWindow { DataContext = vm };
-        try {
-            window.Show();
-            Dispatcher.UIThread.RunJobs();
-
-            var rail = window.FindDescendantOfType<SessionRailView>()!;
-            var help = rail.FindControl<Button>("RailHelpButton")!;
-            var flyout = (Flyout)help.Flyout!;
-            flyout.ShowAt(help);
-            Dispatcher.UIThread.RunJobs();
-
-            var items = rail.FindControl<StackPanel>("RailAppMenuItems")!;
-            var settingsButton = rail.FindControl<Button>("RailHelpSettingsButton")!;
-            var changelogButton = rail.FindControl<Button>("RailHelpChangelogButton")!;
-            await Assert.That(items.IsVisible).IsEqualTo(inWindow);
-            await Assert.That(settingsButton.Content).IsEqualTo("Settings…");
-            await Assert.That(changelogButton.Content).IsEqualTo("Changelog");
-            await Assert.That(rail.FindControl<TextBlock>("RailAppVersionText")!.Text).StartsWith("Desktop app ");
-            await Assert.That(settingsButton.IsEffectivelyEnabled).IsFalse();
-            var uninstallButton = rail.FindControl<Button>("RailHelpUninstallButton")!;
-            await Assert.That(uninstallButton.IsVisible).IsFalse();
-
-            settings.OnNext(() => opened++);
-            uninstall.OnNext(() => uninstalls++);
-            Dispatcher.UIThread.RunJobs();
-            await Assert.That(settingsButton.IsEffectivelyEnabled).IsTrue();
-            await Assert.That(uninstallButton.IsEffectivelyVisible).IsEqualTo(inWindow);
-            if (inWindow) {
-                ClickFlyoutButton(settingsButton);
-                await Assert.That(flyout.IsOpen).IsFalse();
-                await Assert.That(opened).IsEqualTo(1);
-
-                flyout.ShowAt(help);
-                Dispatcher.UIThread.RunJobs();
-                ClickFlyoutButton(changelogButton);
-                await Assert.That(flyout.IsOpen).IsFalse();
-                await Assert.That(opener.Opened).IsEquivalentTo([AppMenuBar.ChangelogUrl]);
-
-                flyout.ShowAt(help);
-                Dispatcher.UIThread.RunJobs();
-                ClickFlyoutButton(uninstallButton);
-                await Assert.That(flyout.IsOpen).IsFalse();
-                await Assert.That(uninstalls).IsEqualTo(1);
-            } else {
-                flyout.Hide();
-                Dispatcher.UIThread.RunJobs();
-            }
         } finally {
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -1885,60 +1819,12 @@ public class MainWindowSmokeTests {
             var rail = window.FindDescendantOfType<SessionRailView>()!;
             var help = rail.FindControl<Button>("RailHelpButton")!;
             var onClick = typeof(Button).GetMethod("OnClick", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-            foreach (var name in new[] { "RailHelpDocsButton", "RailHelpChangelogButton" }) {
-                help.Flyout!.ShowAt(help);
-                Dispatcher.UIThread.RunJobs();
-                onClick.Invoke(rail.FindControl<Button>(name)!, null);
-                Dispatcher.UIThread.RunJobs();
-            }
-
-            await Assert.That(opener.Opened).IsEquivalentTo([AppMenuBar.DocsUrl, AppMenuBar.ChangelogUrl]);
-        } finally {
-            window.Close();
+            help.Flyout!.ShowAt(help);
             Dispatcher.UIThread.RunJobs();
-        }
-    });
-
-    /// Windows has no native About panel, so the rail's help flyout opens the app's own, and a
-    /// second click brings that one forward rather than stacking another.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public Task Rail_help_opens_one_About_window_on_Windows() => AvaloniaSession.RunOnUiAsync(async () => {
-        var service = new FakeDaemonClientService();
-        service.SnapshotsSubject.OnNext(Snap());
-        var opener = new RecordingOpener();
-        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
-            appMenuInWindow: true, opener: opener);
-        var window = new MainWindow { DataContext = vm };
-        try {
-            window.Show();
+            onClick.Invoke(rail.FindControl<Button>("RailHelpDocsButton")!, null);
             Dispatcher.UIThread.RunJobs();
 
-            var rail = window.FindDescendantOfType<SessionRailView>()!;
-            // Opened first: the flyout's rows only bind once they join a tree.
-            var help = rail.FindControl<Button>("RailHelpButton")!;
-            ((Flyout)help.Flyout!).ShowAt(help);
-            Dispatcher.UIThread.RunJobs();
-            var about = rail.FindControl<Button>("RailHelpAboutButton")!;
-            await Assert.That(about.IsVisible).IsEqualTo(OperatingSystem.IsWindows());
-            if (!OperatingSystem.IsWindows()) return;
-
-            about.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-            about.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-            Dispatcher.UIThread.RunJobs();
-
-            var opened = window.OwnedWindows.OfType<AboutWindow>().ToArray();
-            await Assert.That(opened.Length).IsEqualTo(1);
-            await Assert.That(opened[0].FindControl<TextBlock>("AboutVersionText")!.Text).StartsWith("Version ");
-
-            var docs = opened[0].FindControl<Button>("AboutDocsButton")!;
-            var changelog = opened[0].FindControl<Button>("AboutChangelogButton")!;
-            await Assert.That(docs.IsEffectivelyEnabled).IsTrue();
-            await Assert.That(changelog.IsEffectivelyEnabled).IsTrue();
-            docs.Command!.Execute(null);
-            changelog.Command!.Execute(null);
-            Dispatcher.UIThread.RunJobs();
-            await Assert.That(opener.Opened).IsEquivalentTo([AppMenuBar.DocsUrl, AppMenuBar.ChangelogUrl]);
+            await Assert.That(opener.Opened).IsEquivalentTo([AppMenuBar.DocsUrl]);
         } finally {
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -2400,15 +2286,16 @@ public class MainWindowSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public Task Ctrl_k_yields_to_a_focused_terminal_off_mac() => AvaloniaSession.RunOnUiAsync(async () => {
         FakeDaemonClientService? service = null;
-        using var host = new SearchWindowHost(workspaceFactory: id => NewWorkspace(service!, NewActions(service!).Actions, id));
+        var attach = new FakeTerminalAttachClientFactory();
+        using var host = new SearchWindowHost(workspaceFactory: id => NewWorkspace(service!, NewActions(service!).Actions, id, attach: attach));
         service = host.Service;
         var bindings = host.Window.KeyBindings.Where(k => k.Gesture is { Key: Key.K }).ToArray();
         var yield = new UnlessTerminalFocused(host.Window, m => m.OpenSearchCommand);
 
-        await Assert.That(bindings.Single(k => k.Gesture!.KeyModifiers == KeyModifiers.Meta).Command).IsSameReferenceAs(host.Vm.OpenSearchCommand);
-        await Assert.That(bindings.Any(k => k.Gesture!.KeyModifiers == KeyModifiers.Control)).IsEqualTo(!ShortcutLabels.UsesCommandKey);
+        await Assert.That(bindings.Single(k => k.Gesture.KeyModifiers == KeyModifiers.Meta).Command).IsSameReferenceAs(host.Vm.OpenSearchCommand);
+        await Assert.That(bindings.Any(k => k.Gesture.KeyModifiers == KeyModifiers.Control)).IsEqualTo(!ShortcutLabels.UsesCommandKey);
         if (!ShortcutLabels.UsesCommandKey) {
-            await Assert.That(bindings.Single(k => k.Gesture!.KeyModifiers == KeyModifiers.Control).Command).IsNotSameReferenceAs(host.Vm.OpenSearchCommand);
+            await Assert.That(bindings.Single(k => k.Gesture.KeyModifiers == KeyModifiers.Control).Command).IsNotSameReferenceAs(host.Vm.OpenSearchCommand);
         }
 
         const string id = "0123456789abcdef0123456789abcdef";
@@ -2417,6 +2304,8 @@ public class MainWindowSmokeTests {
         host.Settle();
         var workspace = (WorkspaceViewModel)host.Vm.CurrentWorkspace!;
         await Assert.That(yield.CanExecute(null)).IsTrue();
+        await (workspace.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+        await attach.Created.Single().TriggerAttached([]);
         workspace.ShowTerminalCommand.Execute().Subscribe();
         host.Settle();
         var terminal = host.Window.GetVisualDescendants().OfType<TerminalControl>().Single();
@@ -2435,8 +2324,9 @@ public class MainWindowSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public Task Ctrl_page_keys_step_through_the_rail_from_a_focused_terminal() => AvaloniaSession.RunOnUiAsync(async () => {
         FakeDaemonClientService? service = null;
+        var attach = new FakeTerminalAttachClientFactory();
         var opened = new List<string>();
-        using var host = new SearchWindowHost(workspaceFactory: id => NewWorkspace(service!, NewActions(service!).Actions, id), openLocal: opened.Add);
+        using var host = new SearchWindowHost(workspaceFactory: id => NewWorkspace(service!, NewActions(service!).Actions, id, attach: attach), openLocal: opened.Add);
         service = host.Service;
         const string id = "0123456789abcdef0123456789abcdef";
         var now = DateTime.UtcNow;
@@ -2448,7 +2338,10 @@ public class MainWindowSmokeTests {
         host.Vm.OpenSession(id);
         service.Agents.AddOrUpdate(WorkspaceFixtures.Agent(id, "claude", true, "/repo/myproj", sessionId: id));
         host.Settle();
-        ((WorkspaceViewModel)host.Vm.CurrentWorkspace!).ShowTerminalCommand.Execute().Subscribe();
+        var workspace = (WorkspaceViewModel)host.Vm.CurrentWorkspace!;
+        await (workspace.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
+        await attach.Created.Single().TriggerAttached([]);
+        workspace.ShowTerminalCommand.Execute().Subscribe();
         host.Settle();
         await Assert.That(host.Window.GetVisualDescendants().OfType<TerminalControl>().Single().Focus()).IsTrue();
 
@@ -2463,10 +2356,10 @@ public class MainWindowSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public Task Search_menu_item_runs_the_open_search_command() => AvaloniaSession.RunOnUiAsync(async () => {
         using var host = new SearchWindowHost();
-        var windowMenu = new AppMenuBar(new RecordingOpener(), () => [], () => null).Build(host.Window)
+        var windowMenu = new AppMenuBar(new RecordingOpener(), () => [], () => null, inWindow: false).Build(host.Window)
             .Items.OfType<NativeMenuItem>().Single(i => i.Header == "Window").Menu!;
         var items = windowMenu.Items.OfType<NativeMenuItem>().ToList();
-        var search = items.Single(i => i.Header == "Search Sessions");
+        var search = items.Single(i => i.Header == "Search Sessions…");
 
         await Assert.That(search.Command).IsSameReferenceAs(host.Vm.OpenSearchCommand);
         await Assert.That(search.Gesture).IsEqualTo(new KeyGesture(Key.K, KeyModifiers.Meta));

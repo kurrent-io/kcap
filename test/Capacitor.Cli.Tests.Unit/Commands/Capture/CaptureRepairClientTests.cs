@@ -23,7 +23,7 @@ public class CaptureRepairClientTests {
         await client.PrepareAsync([source], false, default);
         await client.AddLineAsync(source, new(0, "{}", 2), default);
         var end = await client.EndSourceAsync(source, 0, default);
-        var uploads = server.LogEntries.Where(e => e.RequestMessage.Path!.EndsWith("/batches", StringComparison.Ordinal)).ToArray();
+        var uploads = server.LogEntries.Where(e => e.RequestMessage.Path.EndsWith("/batches", StringComparison.Ordinal)).ToArray();
         await Assert.That(uploads.Length).IsEqualTo(2);
         var first = uploads[0].RequestMessage.Body!;
         await Assert.That(uploads[1].RequestMessage.Body).IsEqualTo(first);
@@ -50,7 +50,7 @@ public class CaptureRepairClientTests {
         var text = multibyte ? "{\"text\":\"" + new string('漢', 500000) + "\"}" : "{}";
         for (var i = 0; i < count; i++) await client.AddLineAsync(source, new(i, text, text.Length), default);
         var end = await client.EndSourceAsync(source, count - 1, default);
-        var uploads = server.LogEntries.Where(e => e.RequestMessage.Path!.EndsWith("/batches", StringComparison.Ordinal))
+        var uploads = server.LogEntries.Where(e => e.RequestMessage.Path.EndsWith("/batches", StringComparison.Ordinal))
             .ToArray();
         await Assert.That(uploads.Length).IsEqualTo(2);
         var numbers = new List<int>();

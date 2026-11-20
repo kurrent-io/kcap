@@ -27,6 +27,9 @@ public interface IRecorderHousekeeping {
     /// any time-boxed work here is measured from.</param>
     Task AfterFinalDrainAsync(WatchState state, IReadOnlyList<string> drained, long shutdownStarted, CancellationToken ct);
 
+    /// <summary>VS Code's per-workspace storage roots, where the Local chat a chat moved to Copilot came from is found.</summary>
+    IReadOnlyList<string> VsCodeWorkspaceStorageDirs { get; }
+
     /// <summary>Usage rows of an Antigravity conversation database after row <paramref name="afterIdx"/>.</summary>
     IReadOnlyList<(long Idx, string Line)> ReadAntigravityUsage(string dbPath, long afterIdx, string? createdAt);
 

@@ -4,7 +4,6 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using Capacitor.App.Services;
-using Capacitor.App.Services.Mutation;
 using Capacitor.App.Services.Notifications;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;

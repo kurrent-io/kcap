@@ -116,6 +116,30 @@ public class AgentOrchestratorCloudSinkTests {
         await Task.WhenAll(loops).WaitAsync(WaitHarness.Bounded);
     }
 
+    /// <summary>The server drops what it recorded when the size changes, so a resize must reach it after the
+    /// output drawn before the resize and before the output drawn after it.</summary>
+    [Test]
+    public async Task A_web_resize_reaches_the_server_in_order_with_the_output() {
+        var open   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server = new CaptureServerConnection { TerminalSendGate = (_, ct) => open.Task.WaitAsync(ct) };
+
+        await using var orch = Build(server);
+
+        var pty   = new ScriptedPtyProcess();
+        var agent = orch.SeedAgentForTest("hosted", pty: pty);
+        _ = orch.ReadAgentOutputForTest(agent);
+
+        // The output drawn before the resize is still on its way when the resize happens.
+        pty.Emit("before;");
+        await WaitHarness.PollUntilAsync(() => server.TerminalSendStarts == 1);
+        orch.HandleResizeTerminalForTest(new ResizeTerminalCommand("hosted", 100, 30));
+        pty.Emit("after;");
+        open.SetResult();
+        await WaitHarness.PollUntilAsync(() => server.TerminalStream.Count == 3);
+
+        await Assert.That(string.Join(",", server.TerminalStream.Select(e => e.Entry))).IsEqualTo("before;,<SIZE 100x30>,after;");
+    }
+
     [Test]
     public async Task A_private_agent_never_sends_terminal_output() {
         var server = new CaptureServerConnection();
@@ -162,6 +186,31 @@ public class AgentOrchestratorCloudSinkTests {
 
         await Assert.That(server.TerminalSendStarts).IsEqualTo(sendsAtRefusal);
         await Assert.That(string.Concat(MirrorOf(server, "refused"))).DoesNotContain("after;");
+    }
+
+    /// <summary>A reconnect refused for the reporting connection rather than the agent leaves the mirror running.</summary>
+    [Test]
+    public async Task A_reconnect_refused_for_its_connection_keeps_the_agents_mirror() {
+        var server = new CaptureServerConnection();
+
+        await using var orch = Build(server);
+
+        var pty   = new ScriptedPtyProcess();
+        var agent = orch.SeedAgentForTest("displaced", status: "Running", pty: pty);
+        var loop  = orch.ReadAgentOutputForTest(agent);
+
+        pty.Emit("before;");
+        await WaitHarness.PollUntilAsync(() => server.TerminalSends.Any(s => s.AgentId == "displaced"));
+
+        server.RegistrationResponse = _ => new AgentRegisteredResponse(false, "not_a_daemon");
+        await server.ReRegisterAgentsHook!();
+
+        pty.Emit("after;");
+        await WaitHarness.PollUntilAsync(() => string.Concat(MirrorOf(server, "displaced")).Contains("after;", StringComparison.Ordinal));
+        pty.Exit();
+        await loop.WaitAsync(WaitHarness.Bounded);
+
+        await Assert.That(string.Concat(MirrorOf(server, "displaced"))).Contains("after;");
     }
 
     [Test]

@@ -14,7 +14,7 @@ public class PageViewerViewModelTests {
     const string BrowserUrl = "https://srv.test/pages/01ec";
 
     static ArtefactDto Page(string title = "Release checklist") =>
-        new(Id, title, "u1", "org", 3, DateTimeOffset.UtcNow, true, BrowserUrl);
+        new(Id, title, "u1", "org", 3, DateTimeOffset.UtcNow, true, null, null, BrowserUrl);
 
     sealed class Harness {
         public FakePageContentSource Source { get; } = new();

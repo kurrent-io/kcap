@@ -21,8 +21,11 @@ namespace Capacitor.App.Services;
 public sealed class PullRequestToneCache : IDisposable {
     static readonly TimeSpan DefaultRefreshEvery = TimeSpan.FromMinutes(2);
     static readonly TimeSpan DefaultEndedRefreshEvery = TimeSpan.FromMinutes(10);
-    static readonly TimeSpan TickEvery = TimeSpan.FromSeconds(1);
     static readonly TimeSpan MinimumHold = TimeSpan.FromSeconds(1);
+    /// A deadline already past still waits this long, so rounding cannot spin the timer.
+    static readonly TimeSpan MinimumWake = TimeSpan.FromMilliseconds(10);
+    /// The longest delay a system timer accepts is just under 2^32 ms; a server's retry time can lie beyond it.
+    static readonly TimeSpan MaximumWake = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
     /// Every listed session comes due at once after a connect or a scope switch, and the server
     /// refuses a fifth concurrent PR read from one user.
     const int MaxConcurrentReads = 4;
@@ -85,6 +88,8 @@ public sealed class PullRequestToneCache : IDisposable {
         _time = time;
         _refreshEvery = refreshEvery ?? DefaultRefreshEvery;
         _endedRefreshEvery = endedRefreshEvery ?? DefaultEndedRefreshEvery;
+        // Created before the subscription, whose first emission drains and arms it.
+        _timer = time.CreateTimer(_ => Tick(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         directory.Rows.Connect().ToCollection()
             .CombineLatest(directory.LocalDaemonOnAppServer, shown ?? Observable.Return<Func<AgentRow, bool>>(_ => true),
                 (rows, localOnAppServer, isShown) => (
@@ -111,7 +116,6 @@ public sealed class PullRequestToneCache : IDisposable {
                 Tick();
             })
             .DisposeWith(_subscriptions);
-        _timer = time.CreateTimer(_ => Tick(), null, TickEvery, TickEvery);
     }
 
     /// A teammate's session is never read here, whichever lane shows it: each read costs the server
@@ -153,34 +157,42 @@ public sealed class PullRequestToneCache : IDisposable {
 
     TimeSpan CadenceFor(string session) => _slowSessions.Contains(session) ? _endedRefreshEvery : _refreshEvery;
 
-    bool Due(string session, Entry entry) => entry.ReadAt is not { } at
-        || (!(entry.Settled && _endedSessions.Contains(session)) && _time.GetElapsedTime(at) >= CadenceFor(session));
+    bool Due(string session, Entry entry, long stamp) => entry.ReadAt is not { } at
+        || (!(entry.Settled && _endedSessions.Contains(session)) && _time.GetElapsedTime(at, stamp) >= CadenceFor(session));
 
     /// The entry a read started at <paramref name="version"/> may still write to, or null when that read is stale.
     Entry? LiveEntry(string session, long version) =>
         !_disposed && _entries.TryGetValue(session, out var entry) && entry.Version == version ? entry : null;
 
-    int _ticking;
-    bool _tickAgain;
+    const int Idle = 0, Draining = 1, DrainAgain = 2;
+    int _drainState;
 
     /// One drain at a time, iterative: a read that finishes without awaiting calls back in from its
-    /// own stack, and a nested drain per due session would grow with the listing. The caller that
-    /// finds a drain running leaves a note the running one honours before it returns.
+    /// own stack, and a nested drain per due session would grow with the listing. A caller that
+    /// finds a drain running asks it for one more pass. The request and the drain's exit are one
+    /// state, changed only by compare-and-swap, so a request made as the drain exits is never lost:
+    /// nothing else would wake the cache before its next deadline.
     void Tick() {
-        if (Interlocked.Exchange(ref _ticking, 1) == 1) {
-            Volatile.Write(ref _tickAgain, true);
-            return;
+        while (true) {
+            var state = Volatile.Read(ref _drainState);
+            if (state == DrainAgain) return;
+            if (state == Draining) {
+                if (Interlocked.CompareExchange(ref _drainState, DrainAgain, Draining) == Draining) return;
+                continue;
+            }
+            if (Interlocked.CompareExchange(ref _drainState, Draining, Idle) == Idle) break;
         }
         try {
-            do {
-                Volatile.Write(ref _tickAgain, false);
+            while (true) {
                 Drain();
-            } while (Volatile.Read(ref _tickAgain));
-        } finally {
-            Volatile.Write(ref _ticking, 0);
+                if (Interlocked.CompareExchange(ref _drainState, Idle, Draining) == Draining) return;
+                // Only this drain moves the state off DrainAgain.
+                Volatile.Write(ref _drainState, Draining);
+            }
+        } catch {
+            Volatile.Write(ref _drainState, Idle);
+            throw;
         }
-        // A note left after the loop read it, by a caller that arrived between the check and the reset.
-        if (Volatile.Read(ref _tickAgain)) Tick();
     }
 
     void Drain() {
@@ -188,6 +200,10 @@ public sealed class PullRequestToneCache : IDisposable {
         CancellationToken ct;
         lock (_lock) {
             if (_disposed) return;
+            // One reading of each clock for the whole pass: what was not due when the reads were
+            // picked must be what the timer is armed for.
+            var now = _time.GetUtcNow().UtcDateTime;
+            var stamp = _time.GetTimestamp();
             // Taken under the lock: a dispose racing the reads below would otherwise hand them a disposed source.
             ct = _cancel.Token;
             var tonesChanged = false;
@@ -200,7 +216,7 @@ public sealed class PullRequestToneCache : IDisposable {
             }
             foreach (var session in _sessions) EntryFor(session);
             foreach (var entry in _entries.Values.Where(e => e.Access is { } access
-                         && _time.GetElapsedTime(access.Started).TotalSeconds > access.Seconds - 5)) {
+                         && _time.GetElapsedTime(access.Started, stamp).TotalSeconds >= access.Seconds - 5)) {
                 entry.Access = null;
                 entry.Summary = entry.Summary is { } summary
                     ? new(summary.MenuItems.Select(item => item with { Title = null }).ToArray()) : null;
@@ -208,17 +224,43 @@ public sealed class PullRequestToneCache : IDisposable {
             }
             if (tonesChanged) Publish();
             if (summariesChanged) PublishSummaries();
-            due = _time.GetUtcNow().UtcDateTime < _heldUntil ? [] : _sessions
+            due = now < _heldUntil ? [] : _sessions
                 .Select(s => (Session: s, Entry: _entries[s]))
-                .Where(e => !_inFlight.Contains(e.Session) && Due(e.Session, e.Entry))
+                .Where(e => !_inFlight.Contains(e.Session) && Due(e.Session, e.Entry, stamp))
                 .Take(Math.Max(0, MaxConcurrentReads - _inFlight.Count))
                 .Select(e => (e.Session, e.Entry.Version)).ToList();
             foreach (var (session, _) in due) {
                 _inFlight.Add(session);
-                _entries[session].ReadAt = _time.GetTimestamp();
+                _entries[session].ReadAt = stamp;
             }
+            ScheduleNext(now, stamp);
         }
         foreach (var (session, version) in due) _ = ReadAsync(session, version, ct);
+    }
+
+    /// Under the lock. Arms the timer for the earliest moment a drain could find work: a session's
+    /// next read, a summary's titles dropping, or the end of a hold. A session due now but held back
+    /// for a slot needs no wake: the read that frees the slot drains again.
+    void ScheduleNext(DateTime now, long stamp) {
+        TimeSpan? next = null;
+        void Consider(TimeSpan at) { if (next is not { } current || at < current) next = at; }
+        foreach (var entry in _entries.Values) {
+            if (entry.Access is { } access)
+                Consider(TimeSpan.FromSeconds(access.Seconds - 5) - _time.GetElapsedTime(access.Started, stamp));
+        }
+        if (now < _heldUntil) Consider(_heldUntil - now);
+        else
+            foreach (var session in _sessions) {
+                var entry = _entries[session];
+                if (_inFlight.Contains(session) || entry.ReadAt is not { } at || entry.Settled && _endedSessions.Contains(session)) continue;
+                var remaining = CadenceFor(session) - _time.GetElapsedTime(at, stamp);
+                if (remaining > TimeSpan.Zero) Consider(remaining);
+            }
+        // A wake past the far deadline only drains early and re-arms; the hold itself stands.
+        var wait = next is not { } delay ? Timeout.InfiniteTimeSpan
+            : delay < MinimumWake ? MinimumWake
+            : delay > MaximumWake ? MaximumWake : delay;
+        _timer.Change(wait, Timeout.InfiniteTimeSpan);
     }
 
     /// Under the lock. The listing's record has no access window, so its mark stands until the row

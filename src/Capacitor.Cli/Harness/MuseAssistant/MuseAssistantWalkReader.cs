@@ -69,7 +69,7 @@ public static class MuseAssistantWalkReader {
         if (!present.SetEquals(listed))
             return (null, $"files not listed in manifest.json: {string.Join(", ", present.Except(listed).Order(StringComparer.Ordinal))}");
 
-        if (pages[0]!.Cursor is not null) return (null, "page-000 must be fetched without a cursor");
+        if (pages[0].Cursor is not null) return (null, "page-000 must be fetched without a cursor");
 
         var items           = new List<MuseAssistantItem>();
         var pageMin         = new long?[pages.Length];
@@ -79,7 +79,7 @@ public static class MuseAssistantWalkReader {
         var oldestHasMore   = false;
 
         for (var i = 0; i < pages.Length; i++) {
-            var file = pages[i]!.File!;
+            var file = pages[i].File!;
             JsonDocument doc;
 
             try {
@@ -102,7 +102,7 @@ public static class MuseAssistantWalkReader {
 
                     if (i > 0) {
                         if (!previousHasMore) return (null, $"page-{i - 1:000} has has_more:false but {file} follows it");
-                        if (previousNext is null || pages[i]!.Cursor != previousNext) return (null, $"{file} was not fetched with page-{i - 1:000}'s next_cursor");
+                        if (previousNext is null || pages[i].Cursor != previousNext) return (null, $"{file} was not fetched with page-{i - 1:000}'s next_cursor");
                     }
 
                     foreach (var turn in turns.EnumerateArray()) {

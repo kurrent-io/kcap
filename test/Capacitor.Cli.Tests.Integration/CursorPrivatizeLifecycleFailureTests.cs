@@ -272,7 +272,7 @@ public class CursorPrivatizeLifecycleFailureTests : IDisposable {
         var childProbeCalls = _server.LogEntries.Count(e =>
             e.RequestMessage.Method == "GET"
          && e.RequestMessage.Path.EndsWith("/last-line", StringComparison.Ordinal)
-         && e.RequestMessage.Url!.Contains($"agentId={ChildSessionId}", StringComparison.Ordinal));
+         && e.RequestMessage.Url.Contains($"agentId={ChildSessionId}", StringComparison.Ordinal));
         await Assert.That(childProbeCalls).IsEqualTo(2);
 
         var (putPaths, putBodies) = VisibilityPuts();

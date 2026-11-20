@@ -16,7 +16,7 @@ namespace Capacitor.App.Tests.Unit;
 internal static class AvaloniaSession {
     sealed class TestAppBuilder {
         public static AppBuilder BuildAvaloniaApp() =>
-            AppBuilder.Configure<Capacitor.App.App>()
+            AppBuilder.Configure<App>()
                 .UseSkia()
                 .WithAppFont()
                 .UseReactiveUI(_ => { })

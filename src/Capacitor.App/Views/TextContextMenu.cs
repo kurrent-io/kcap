@@ -23,6 +23,7 @@ public static class TextContextMenu {
         new("Select all", c => !string.IsNullOrEmpty(((SelectableTextBlock)c).Text), c => ((SelectableTextBlock)c).SelectAll()));
 
     public static FlyoutBase ForMarkdown { get; } = Build<MarkdownView>(
+        new("Copy image", _ => true, c => _ = ((MarkdownView)c).CopyImageAsync(), c => ((MarkdownView)c).ContextImage is not null),
         new("Copy link", _ => true, c => _ = ((MarkdownView)c).CopyLinkAsync(), c => ((MarkdownView)c).ContextLinkUrl is not null),
         new("Copy", c => ((MarkdownView)c).HasSelection, c => _ = ((MarkdownView)c).CopySelectionAsync()),
         new("Select all", _ => true, c => ((MarkdownView)c).SelectAll()),
@@ -32,6 +33,9 @@ public static class TextContextMenu {
             c => ((MarkdownView)c).Bookmarks is not null && ((MarkdownView)c).ContextListItems is not null),
         new("Bookmark message", _ => true, c => ((MarkdownView)c).BookmarkMessage(),
             c => ((MarkdownView)c) is { Bookmarks: not null, DataContext: ChatItemViewModel { Bookmark: null } }));
+
+    public static FlyoutBase ForImage { get; } = Build<ToolImagePreview>(
+        new Row("Copy image", c => ((ToolImagePreview)c).CanCopyImage, c => _ = ((ToolImagePreview)c).CopyImageAsync()));
 
     static Flyout Build<T>(params Row[] rows) where T : Control {
         var flyout = new Flyout();

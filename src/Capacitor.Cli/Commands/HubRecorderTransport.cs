@@ -1,5 +1,7 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Recording;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.SignalR.Client;
 
 namespace Capacitor.Cli.Commands;
@@ -58,6 +60,25 @@ sealed class HubRecorderTransport : IRecorderTransport {
 
         return batch.LineNumbers is { Length: > 0 } sent ? sent[^1] + 1 : 0;
     }
+
+    public async Task<bool> SupportsCanonicalAsync(CancellationToken ct) {
+        using var budget = new CancellationTokenSource(IngestCapability.Budget, _time);
+        using var either = CancellationTokenSource.CreateLinkedTokenSource(ct, budget.Token);
+
+        try {
+            return (await _hub.InvokeAsync<CanonicalCapabilities>(IngestCapability.HubMethod, either.Token)).CanonicalFormat == IngestCapability.CanonicalFormat;
+        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+            throw;
+        } catch (Exception ex) {
+            // A server's refusal, an older one's unknown method included, is an answer; anything else is worth a line.
+            if (ex is not HubException) _log($"Could not ask the server whether it takes canonical batches; sending raw lines: {ex.Message}");
+
+            return false;
+        }
+    }
+
+    public Task<CanonicalSendResult> SendCanonicalBatchAsync(CanonicalTranscriptBatch batch, CancellationToken ct) =>
+        _hub.InvokeAsync<CanonicalSendResult>(CanonicalRoute.HubMethod, batch, ct);
 
     public Task SendTitleAsync(string sessionId, string title, CancellationToken ct) =>
         _hub.InvokeAsync("SendTitle", sessionId, title, null, 0L, 0L, 0L, 0L, ct);

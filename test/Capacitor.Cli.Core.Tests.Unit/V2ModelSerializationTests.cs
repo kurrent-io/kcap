@@ -29,7 +29,7 @@ public class V2ModelSerializationTests {
 
     [Test]
     public async Task EvalRetrospectiveV2_coerces_null_lists_to_empty() {
-        var json = """{"overall":"x","strengths":null,"issues":null,"suggestions":null}""";
+        const string json = """{"overall":"x","strengths":null,"issues":null,"suggestions":null}""";
         var parsed = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.EvalRetrospectiveV2)!;
 
         await Assert.That(parsed.Strengths).IsNotNull();

@@ -79,7 +79,7 @@ public class AgentOrchestratorInputWaitTests {
         await using var orch  = AgentOrchestratorHarness.BuildOrchestrator(new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
         var             agent = orch.SeedAgentForTest("attach-2", pty: new RecordingPtyProcess(), activityClock: clock);
 
-        await orch.AttachClientLoopAsync(agent, await ScriptedClientAsync(LocalFrame.Stdin("\x1b[A"u8.ToArray())), CancellationToken.None);
+        await orch.AttachClientLoopAsync(agent, await ScriptedClientAsync(LocalFrame.Stdin("\e[A"u8.ToArray())), CancellationToken.None);
 
         await Assert.That(agent.ActivityClock.AwaitingInput).IsTrue();
     }

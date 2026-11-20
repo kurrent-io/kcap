@@ -34,7 +34,7 @@ static class FirstRunNoticeEmitter {
      && McpServerNudgeAvailability.IsRegisteredFor(harness, harnesses, "kcap-analytics");
 
     internal static string Build(bool offerTour) {
-        var notice =
+        const string notice =
             "## kcap is set up\n" +
             "`kcap setup` completed before this session started, and this session is running with " +
             "kcap's hooks loaded. Hooks load when a session starts, so a session that was already " +

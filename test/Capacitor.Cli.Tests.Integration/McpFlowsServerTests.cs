@@ -449,7 +449,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Start_flow_posts_kind_from_definition_id() {
         const string flowRunId = "flow-generic-1";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "round-1",
@@ -507,7 +507,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Send_to_participant_posts_participant_and_message_as_context() {
         const string flowRunId = "flow-generic-2";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "round-2",
@@ -559,7 +559,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Send_to_participant_async_false_posts_async_false() {
         const string flowRunId = "flow-generic-async-false";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "round-2",
@@ -659,7 +659,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Submit_review_round_body_has_no_participant_key() {
         const string flowRunId = "flow-generic-3";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "round-3",
@@ -745,7 +745,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Get_flow_status_and_close_flow_hit_same_endpoints_as_review_tools() {
         const string flowRunId = "flow-generic-5";
 
-        var stubbedStatus = $$"""
+        const string stubbedStatus = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "definition_id": "my-custom-flow",
@@ -857,7 +857,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
         const string roundId    = "round-001";
         const string sessionId  = "claude-session-aabbccdd";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "{{roundId}}",
@@ -1028,7 +1028,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Get_review_flow_status_calls_correct_endpoint_and_surfaces_envelope() {
         const string flowRunId = "flow-status-xyz";
 
-        var stubbedStatus = $$"""
+        const string stubbedStatus = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "definition_id": "spec-review",
@@ -1080,7 +1080,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
         const string flowRunId = "flow-round-abc";
         const string roundId   = "round-002";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "{{roundId}}",
@@ -1537,7 +1537,7 @@ public class McpFlowsServerTests : IAsyncDisposable {
     public async Task Start_flow_with_definition_yaml_posts_it_and_omits_kind() {
         const string flowRunId = "flow-dynamic-1";
 
-        var stubbedResponse = $$"""
+        const string stubbedResponse = $$"""
             {
               "flow_run_id": "{{flowRunId}}",
               "round_id": "round-1",
