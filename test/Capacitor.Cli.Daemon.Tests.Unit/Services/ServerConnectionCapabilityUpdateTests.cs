@@ -34,7 +34,7 @@ public class ServerConnectionCapabilityUpdateTests {
 
         internal override HubConnectionState HubState => HubConnectionState.Connected;
 
-        internal override string? CurrentConnectionId => ConnectionId;
+        internal override string CurrentConnectionId => ConnectionId;
 
         public UpdatingConnection Wired() {
             ReRegisterAgentsHook = () => {

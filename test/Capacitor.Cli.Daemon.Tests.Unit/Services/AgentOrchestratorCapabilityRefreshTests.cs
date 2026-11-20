@@ -295,7 +295,7 @@ public class AgentOrchestratorCapabilityRefreshTests {
     [Test]
     public async Task A_changed_catalog_reaches_a_server_that_takes_updates_without_a_re_registration() {
         var (orch, server, _) = BuildWithCatalog(new StubCatalogFactory("pi", [new("p/a", "A · p")]), Catalog(),
-            capabilityUpdate: update => new(true));
+            capabilityUpdate: _ => new(true));
         await using var __ = orch;
 
         orch.RefreshAdvertisedCapabilities("test");
@@ -308,7 +308,7 @@ public class AgentOrchestratorCapabilityRefreshTests {
     [Test]
     public async Task A_capacity_change_reaches_a_server_that_takes_updates_without_a_re_registration() {
         var (orch, server, config) = BuildWithCatalog(new StubCatalogFactory("pi", models: null), initial: null,
-            capabilityUpdate: update => new(true));
+            capabilityUpdate: _ => new(true));
         await using var __ = orch;
 
         config.MaxConcurrentAgents = 7;
