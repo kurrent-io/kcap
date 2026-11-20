@@ -188,22 +188,23 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         return items;
     }
 
-    /// What dropping a dragged slice or session on <paramref name="target"/>, a slice or a group, does; null when it does
-    /// nothing there. <paramref name="after"/> puts a dropped slice below the target slice rather than above it, a
-    /// slice dropped among another status's slices takes that status, a session dropped on a status becomes a new
-    /// slice there, and a slice dropped on the other sessions hands them its sessions.
-    public Action? DropOn(object dragged, object target, bool after) => (dragged, target) switch {
-        (WorkItemPageSession session, WorkItemPagePart part) when part.Sessions.All(s => s.SessionId != session.SessionId) =>
-            () => _ = MoveSessionAsync(session, part.Id),
-        (WorkItemPageSession session, WorkItemPageGroupViewModel { Key: OnWorkItemKey } group) when group.Sessions.All(s => s.SessionId != session.SessionId) =>
-            () => _ = MoveSessionAsync(session, WorkItemId),
+    /// What dropping a dragged slice or session on <paramref name="target"/> does; null when it can't go there. A
+    /// session goes into a slice or a group, a slice only onto a group: a slice dropped on a status takes that status,
+    /// a session dropped on a status becomes a new slice there, and a slice dropped on the other sessions hands them
+    /// its sessions. Dropped where it already is, it stays, which <see cref="Stay"/> does.
+    public Action? DropOn(object dragged, object target) => (dragged, target) switch {
+        (WorkItemPageSession session, WorkItemPagePart part) =>
+            part.Sessions.Any(s => s.SessionId == session.SessionId) ? Stay : () => _ = MoveSessionAsync(session, part.Id),
+        (WorkItemPageSession session, WorkItemPageGroupViewModel { Key: OnWorkItemKey } group) =>
+            group.Sessions.Any(s => s.SessionId == session.SessionId) ? Stay : () => _ = MoveSessionAsync(session, WorkItemId),
         (WorkItemPageSession session, WorkItemPageGroupViewModel { Status: { } status }) => () => _ = SliceFromAsync(session, status),
         (WorkItemPagePart part, WorkItemPageGroupViewModel { Key: OnWorkItemKey }) when part.HasSessions => () => _ = MoveSessionsOutAsync(part),
-        (WorkItemPagePart part, WorkItemPagePart onto) => PlaceAt(part, onto, after),
-        (WorkItemPagePart part, WorkItemPageGroupViewModel { Status: { } status }) when status != part.Status =>
-            () => part.SetStatusCommand.Execute(status.Wire()).Subscribe(),
+        (WorkItemPagePart part, WorkItemPageGroupViewModel { Status: { } status }) =>
+            status == part.Status ? Stay : () => part.SetStatusCommand.Execute(status.Wire()).Subscribe(),
         _ => null,
     };
+
+    public static readonly Action Stay = () => { };
 
     // Opens the slice it lands in, so the session is seen there.
     Task MoveSessionAsync(WorkItemPageSession session, string containerId) {
@@ -405,7 +406,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         var looseEnds = Group(LooseEndsKey, null, "Loose ends", LucideIconKind.Flag,
             looseEnds: [.. read.LooseEnds.Select(looseEnd => new WorkItemPageLooseEnd(looseEnd.LooseEndId, looseEnd.Text))]);
         var otherSessions = Group(OnWorkItemKey, null, "Other sessions", LucideIconKind.MessagesSquare,
-            sessions: [.. Placed(WorkItemId, read.SessionIds).Select(id => SessionOf(WorkItemId, id, rows, named))]);
+            sessions: [.. Placed(WorkItemId, read.SessionIds, named).Select(id => SessionOf(WorkItemId, id, rows, named))]);
         Groups = [.. Enum.GetValues<WorkStatus>().Where(status => status != WorkStatus.Done).Select(status => byStatus[status])
             .Append(looseEnds).Append(byStatus[WorkStatus.Done]).Append(otherSessions).Where(group => group.Count > 0 || group.IsComposing)];
         Columns = [otherSessions, .. looseEnds.Count > 0 ? [looseEnds] : Array.Empty<WorkItemPageGroupViewModel>(),
@@ -421,8 +422,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
             else _flipped.Add(key);
         }, isComposing);
 
-    IEnumerable<string> Placed(string containerId, IEnumerable<string> read) =>
-        read.Where(id => !_sessionMoves.ContainsKey(id)).Concat(_sessionMoves.Where(move => move.Value.To == containerId).Select(move => move.Key));
+    // Newest first, as the server orders them, so a moved session sits where the reread will put it.
+    IEnumerable<string> Placed(string containerId, IEnumerable<string> read, IReadOnlyList<WorkItemPartSessionDto> named) =>
+        read.Where(id => !_sessionMoves.ContainsKey(id)).Concat(_sessionMoves.Where(move => move.Value.To == containerId).Select(move => move.Key))
+            .OrderByDescending(id => named.FirstOrDefault(session => session.SessionId == id)?.LastActivityAt)
+            .ThenBy(id => id, StringComparer.Ordinal);
 
     WorkItemPagePart PartOf(WorkItemPartDetailDto part, Dictionary<string, AgentRow> rows, IReadOnlyList<WorkItemPartSessionDto> named) {
         if (_setStatuses.TryGetValue(part.WorkItemId, out var set) && set == part.Status) _setStatuses.Remove(part.WorkItemId);
@@ -431,7 +435,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
             ? $"Waits on {string.Join(", ", part.WaitsOn.Select(other => other.Title))}"
             : null;
         var id = part.WorkItemId;
-        var sessionIds = Placed(id, part.SessionIds).ToList();
+        var sessionIds = Placed(id, part.SessionIds, named).ToList();
         var needsYou = sessionIds.Any(sessionId => rows.TryGetValue(sessionId, out var row) && _needsYou.Contains(row.Id));
         // A set status shows at once and a refused one is put back; handing the slice back to its links waits for the
         // server, since only it knows what they work out to.

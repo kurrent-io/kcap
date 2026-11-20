@@ -160,7 +160,7 @@ public class WorkItemPageViewModelTests {
         using var page = Page(api, directory);
         var session = page.Columns.SelectMany(column => column.Sessions).Single();
 
-        page.DropOn(session, page.Columns.Single(column => column.Status == WorkStatus.Blocked), false)!();
+        page.DropOn(session, page.Columns.Single(column => column.Status == WorkStatus.Blocked))!();
 
         await Assert.That(api.Calls).IsEquivalentTo(["add Session s9", "move s9 to p9", "status p9 blocked"],
             TUnit.Assertions.Enums.CollectionOrdering.Matching);
@@ -199,45 +199,50 @@ public class WorkItemPageViewModelTests {
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
 
-        page.DropOn(page.Columns[1].Parts.Single(), page.Columns[0], false)!();
+        page.DropOn(page.Columns[1].Parts.Single(), page.Columns[0])!();
 
         await Assert.That(api.Calls).IsEquivalentTo(["move s1 to w1", "move s2 to w1"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
     });
 
     static string[] Ids(WorkItemPageGroupViewModel group) => [.. group.Parts.Select(part => part.Id)];
 
-    /// A slice dropped below another takes its place at once and keeps it, though the read that follows still reports the
-    /// old order (this fake never catches up).
+    static void Run(WorkItemPageViewModel page, WorkItemPagePart part, string label) => page.MenuFor(part).Single(item => item.Label == label).Run();
+
+    /// A slice moved down takes its place at once and keeps it, though the read that follows still reports the old
+    /// order (this fake never catches up).
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task A_dropped_slice_keeps_its_new_place_before_the_read_model_has_it() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+    public Task A_moved_slice_keeps_its_new_place_before_the_read_model_has_it() => AvaloniaSession.WithImmediateRxScheduler(async () => {
         var api = new FakeApi { Parts = [FakeApi.Part("p1", "open"), FakeApi.Part("p2", "open"), FakeApi.Part("p3", "open")] };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
-        var parts = page.Groups.Single().Parts;
 
-        page.DropOn(parts[0], parts[2], after: true)!();
+        Run(page, page.Groups.Single().Parts[0], "Move down");
 
-        await Assert.That(api.Calls).IsEquivalentTo(["order p2,p3,p1"]);
-        await Assert.That(Ids(page.Groups.Single())).IsEquivalentTo(["p2", "p3", "p1"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await Assert.That(api.Calls).IsEquivalentTo(["order p2,p1,p3"]);
+        await Assert.That(Ids(page.Groups.Single())).IsEquivalentTo(["p2", "p1", "p3"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
     });
 
-    /// A session dropped on another slice shows there at once and stays though the read that follows still reports it
-    /// where it was (this fake never catches up); a refused move puts it back.
+    /// A session dropped on another slice shows there at once, among its sessions newest first as the server lists
+    /// them, and stays though the read that follows still reports it where it was (this fake never catches up); a
+    /// refused move puts it back.
     [Test]
     [NotInParallel("AvaloniaSession")]
     [Arguments(true)]
     [Arguments(false)]
     public Task A_dropped_session_shows_where_it_landed_until_refused(bool accepted) => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi { Accepts = accepted, Parts = [FakeApi.Part("p1", "open", "s1"), FakeApi.Part("p2", "open")] };
+        static WorkItemPartDetailDto Active(WorkItemPartDetailDto part, int day) => part with {
+            Sessions = [.. part.Sessions.Select(session => session with { LastActivityAt = new DateTimeOffset(2026, 1, day, 0, 0, 0, TimeSpan.Zero) })],
+        };
+        var api = new FakeApi { Accepts = accepted, Parts = [Active(FakeApi.Part("p1", "open", "s1"), 2), Active(FakeApi.Part("p2", "open", "s2"), 1)] };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
         var parts = page.Groups.Single().Parts;
 
-        page.DropOn(parts[0].Sessions.Single(), parts[1], after: false)!();
+        page.DropOn(parts[0].Sessions.Single(), parts[1])!();
 
-        await Assert.That(page.Groups.Single().Parts.Select(part => part.Sessions.Count))
-            .IsEquivalentTo(accepted ? new[] { 0, 1 } : [1, 0], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await Assert.That(page.Groups.Single().Parts.Select(part => string.Join(",", part.Sessions.Select(session => session.SessionId))))
+            .IsEquivalentTo(accepted ? new[] { "", "s1,s2" } : ["s1", "s2"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
     });
 
     /// While a row is dragged the page holds its rebuilds, so a change made meanwhile shows only once the drag ends.
@@ -262,25 +267,23 @@ public class WorkItemPageViewModelTests {
         var api = new FakeApi { Accepts = false, Parts = [FakeApi.Part("p1", "open"), FakeApi.Part("p2", "open")] };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
-        var parts = page.Groups.Single().Parts;
 
-        page.DropOn(parts[1], parts[0], after: false)!();
+        Run(page, page.Groups.Single().Parts[1], "Move up");
 
         await Assert.That(Ids(page.Groups.Single())).IsEquivalentTo(["p1", "p2"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
         await Assert.That(page.Message).IsNull();
     });
 
-    /// What each drop sends: a slice among another status's slices takes that status and its place, a session onto
-    /// another slice moves there, and a drop where the thing already is sends nothing.
+    /// What each drop sends: a slice onto another status's group takes that status, a session onto another slice moves
+    /// there, a drop where the thing already is stays, and a slice can't go onto a slice.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    [Arguments("slice above the slice already below it", "p1", "p2", false, "")]
-    [Arguments("slice above a slice of another status", "p1", "p3", false, "status p1 in_review;order p2,p1,p3")]
-    [Arguments("slice onto another status's group", "p1", "in_review", false, "status p1 in_review")]
-    [Arguments("slice onto its own status's group", "p1", "open", false, "")]
-    [Arguments("session onto another slice", "s1", "p3", false, "move s1 to p3")]
-    [Arguments("session onto its own slice", "s1", "p1", false, "")]
-    public Task Each_drop_sends_what_it_changes(string _, string dragged, string target, bool after, string calls) =>
+    [Arguments("slice onto another slice", "p1", "p3", "<none>")]
+    [Arguments("slice onto another status's group", "p1", "in_review", "status p1 in_review")]
+    [Arguments("slice onto its own status's group", "p1", "open", "<stay>")]
+    [Arguments("session onto another slice", "s1", "p3", "move s1 to p3")]
+    [Arguments("session onto its own slice", "s1", "p1", "<stay>")]
+    public Task Each_drop_sends_what_it_changes(string _, string dragged, string target, string calls) =>
         AvaloniaSession.WithImmediateRxScheduler(async () => {
             var api = new FakeApi { Parts = [FakeApi.Part("p1", "open", "s1"), FakeApi.Part("p2", "open"), FakeApi.Part("p3", "in_review")] };
             using var directory = new FakeAgentDirectory();
@@ -290,10 +293,9 @@ public class WorkItemPageViewModelTests {
                 ?? page.Groups.SelectMany(g => g.Parts).FirstOrDefault(p => p.Id == key) as object
                 ?? page.Groups.SelectMany(g => g.Parts).SelectMany(p => p.Sessions).First(s => s.SessionId == key);
 
-            var drop = page.DropOn(Find(dragged), Find(target), after);
+            var drop = page.DropOn(Find(dragged), Find(target));
             drop?.Invoke();
 
-            await Assert.That(string.Join(";", api.Calls)).IsEqualTo(calls);
-            await Assert.That(drop is null).IsEqualTo(calls.Length == 0);
+            await Assert.That(drop is null ? "<none>" : drop == WorkItemPageViewModel.Stay ? "<stay>" : string.Join(";", api.Calls)).IsEqualTo(calls);
         });
 }

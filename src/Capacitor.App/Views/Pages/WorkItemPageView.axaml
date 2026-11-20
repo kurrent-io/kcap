@@ -137,7 +137,7 @@
             </Setter>
         </Style>
         <Style Selector="Button.lifted">
-            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Opacity" Value="0.4" />
         </Style>
         <Style Selector="Border.column">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
@@ -196,9 +196,6 @@
         <Style Selector="Panel.groupHeadRow:pointerover Button.addSlice, Panel.groupHeadRow:focus-within Button.addSlice,
                          Border.column:pointerover Button.addSlice, Border.column:focus-within Button.addSlice">
             <Setter Property="Opacity" Value="1" />
-        </Style>
-        <Style Selector="StackPanel.part.dropOver, StackPanel.group.dropOver">
-            <Setter Property="Background" Value="{StaticResource KcapRowActiveBrush}" />
         </Style>
         <Style Selector="Border.column.dropOver, StackPanel.part.dropOver > Border.card">
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
@@ -715,10 +712,14 @@
             </ScrollViewer>
         </Border>
 
-        <Canvas Grid.ColumnSpan="2" IsHitTestVisible="False">
-            <Border x:Name="DragGhost" IsVisible="False" CornerRadius="6" BorderThickness="1" BoxShadow="0 10 28 0 #80000000"
+        <Canvas x:Name="DragLayer" Grid.ColumnSpan="2" IsHitTestVisible="False">
+            <Border x:Name="DropOutline" IsVisible="False" CornerRadius="8" BorderThickness="1" BorderBrush="{StaticResource KcapInfoBrush}" />
+            <!-- The snapshot sits in a Canvas so a row wider than the ghost is cut at its right, not centred. -->
+            <Border x:Name="DragGhost" IsVisible="False" CornerRadius="6" BorderThickness="1" BoxShadow="0 10 28 0 #80000000" ClipToBounds="True"
                     Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderStrongBrush}">
-                <Image x:Name="DragGhostSnapshot" Stretch="None" />
+                <Canvas>
+                    <Image x:Name="DragGhostSnapshot" Stretch="None" />
+                </Canvas>
             </Border>
         </Canvas>
         <!-- Last child so it hit-tests above the column it overhangs. -->

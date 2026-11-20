@@ -33,6 +33,7 @@ public sealed class RowDrag {
     readonly Action<object>? _started;
     readonly Action? _ended;
     readonly Action? _pressReleased;
+    readonly double? _compactGhostWidth;
     // Moved by transform, not Canvas.Left/Top: a layout pass per pointer move runs every LayoutUpdated handler in the window.
     readonly TranslateTransform _ghostAt = new();
     readonly TranslateTransform _lineAt = new();
@@ -57,9 +58,11 @@ public sealed class RowDrag {
     /// <param name="pressReleased">A press on a row ended without becoming a drag.</param>
     /// <param name="line">Marks a drop at a zone's edge, spanning the zone; needed only when a target names an edge.</param>
     /// <param name="keyOf">Identifies a row's data across a rebuild, so the ghost finds the row a drop landed on.</param>
+    /// <param name="compactGhostWidth">Cuts the ghost to this width and carries it just right of the pointer, rather than
+    /// holding the whole row where it was grabbed.</param>
     public RowDrag(Control host, Control list, Control ghost, Image snapshot, string rowClass, Func<object, object?> pick,
             Func<object, Point, RowDropTarget?> targetAt, Action<object>? started = null, Action? ended = null, Action? pressReleased = null,
-            Control? line = null, Func<object, object>? keyOf = null) {
+            Control? line = null, Func<object, object>? keyOf = null, double? compactGhostWidth = null) {
         _host = host;
         _list = list;
         _ghost = ghost;
@@ -72,6 +75,7 @@ public sealed class RowDrag {
         _ended = ended;
         _pressReleased = pressReleased;
         _keyOf = keyOf ?? (data => data);
+        _compactGhostWidth = compactGhostWidth;
         ghost.RenderTransform = _ghostAt;
         if (line is not null) line.RenderTransform = _lineAt;
         list.AddHandler(InputElement.PointerPressedEvent, OnPressed, RoutingStrategies.Tunnel);
@@ -148,9 +152,9 @@ public sealed class RowDrag {
         var stale = _snapshot.Source as IDisposable;
         _snapshot.Source = bitmap;
         stale?.Dispose();
-        _ghost.Width = row.Bounds.Width;
+        _ghost.Width = Math.Min(row.Bounds.Width, _compactGhostWidth ?? double.PositiveInfinity);
         _ghost.Height = row.Bounds.Height;
-        _grab = _pressAt - (row.TranslatePoint(default, _host) ?? default);
+        _grab = _compactGhostWidth is null ? _pressAt - (row.TranslatePoint(default, _host) ?? default) : new Vector(-12, row.Bounds.Height / 2);
     }
 
     List<Control> RowsCarrying(object carried) {
