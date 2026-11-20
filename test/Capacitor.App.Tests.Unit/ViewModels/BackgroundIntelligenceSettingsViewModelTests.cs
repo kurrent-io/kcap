@@ -176,7 +176,7 @@ public class BackgroundIntelligenceSettingsViewModelTests {
         await Assert.That(rig.SelectedToken).IsEqualTo("provider");
         await Assert.That(rig.Vm.ApiKey).IsEqualTo("sk-bad");
         await Assert.That(rig.Vm.ImportOutcomes).IsTrue();
-        await Assert.That(rig.Vm.OutcomesError).IsEqualTo(IntelligenceRefusals.Describe("import_outcomes_pinned_above_store"));
+        await Assert.That(rig.Vm.OutcomesError).IsEqualTo("The server's own environment decides whether imported sessions get outcomes");
     });
 
     [Test]
@@ -187,7 +187,7 @@ public class BackgroundIntelligenceSettingsViewModelTests {
         await rig.Vm.ShownAsync();
 
         await Assert.That(rig.Vm.ShowsControls).IsFalse();
-        await Assert.That(rig.Vm.NeedsUpdateText).IsEqualTo(IntelligenceRefusals.Describe(IntelligenceSettingsClient.NeedsUpdate));
+        await Assert.That(rig.Vm.NeedsUpdateText).IsEqualTo("The local server needs updating before it can show or change these settings");
     });
 
     [Test]

@@ -116,7 +116,7 @@ public sealed class BackgroundIntelligenceSettingsViewModel : ReactiveObject, ID
 
     public bool NeedsUpdate => _needsUpdate;
 
-    public string? NeedsUpdateText => _needsUpdate ? IntelligenceRefusals.Describe(IntelligenceSettingsClient.NeedsUpdate) : null;
+    public string? NeedsUpdateText => _needsUpdate ? Line(IntelligenceRefusals.Describe(IntelligenceSettingsClient.NeedsUpdate)) : null;
 
     public bool ShowsControls => _server is not null && !_needsUpdate;
 
@@ -251,10 +251,10 @@ public sealed class BackgroundIntelligenceSettingsViewModel : ReactiveObject, ID
                     _needsUpdate = true;
                     break;
                 case IntelligenceSettingsOutcome.Refused { Error: var code }:
-                    _readError = IntelligenceRefusals.Describe(code);
+                    _readError = Line(IntelligenceRefusals.Describe(code));
                     break;
                 case IntelligenceSettingsOutcome.Failed { Problem: var problem }:
-                    _readError = $"Could not read the settings: {problem}";
+                    _readError = Line($"Could not read the settings: {problem}");
                     break;
             }
         } catch (OperationCanceledException) when (_disposed) {
@@ -307,10 +307,10 @@ public sealed class BackgroundIntelligenceSettingsViewModel : ReactiveObject, ID
                     }
                     break;
                 case IntelligenceSetupOutcome.Refused { Error: var code }:
-                    _modeError = IntelligenceRefusals.Describe(code);
+                    _modeError = Line(IntelligenceRefusals.Describe(code));
                     break;
                 case IntelligenceSetupOutcome.Failed { Problem: var problem }:
-                    _modeError = $"Could not reach the local server: {problem}";
+                    _modeError = Line($"Could not reach the local server: {problem}");
                     break;
             }
         } catch (OperationCanceledException) when (_disposed) {
@@ -475,10 +475,13 @@ public sealed class BackgroundIntelligenceSettingsViewModel : ReactiveObject, ID
     };
 
     static string Problem(IntelligenceSettingsOutcome outcome) => outcome switch {
-        IntelligenceSettingsOutcome.Refused { Error: var code }    => IntelligenceRefusals.Describe(code),
-        IntelligenceSettingsOutcome.Failed { Problem: var problem } => $"Could not reach the local server: {problem}",
+        IntelligenceSettingsOutcome.Refused { Error: var code }    => Line(IntelligenceRefusals.Describe(code)),
+        IntelligenceSettingsOutcome.Failed { Problem: var problem } => Line($"Could not reach the local server: {problem}"),
         _                                                          => "The local server did not answer",
     };
+
+    /// The CLI's sentences end in a full stop, which a line on this tab never does.
+    static string Line(string sentence) => sentence.TrimEnd().TrimEnd('.');
 
     int Begin(bool write) {
         _running++;
