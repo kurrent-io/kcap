@@ -54,9 +54,11 @@ public class GrokBotWatcherServiceTests {
     /// token, so the daemon's shutdown does not wait on it.</summary>
     [Test]
     public async Task A_setting_read_that_stalls_ends_with_the_daemon() {
+        var reading = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var watcher = new FakeWatcher();
         using var service = new GrokBotWatcherService(
             async ct => {
+                reading.SetResult();
                 await Task.Delay(Timeout.Infinite, ct);
 
                 return true;
@@ -65,6 +67,8 @@ public class GrokBotWatcherServiceTests {
         using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         await service.StartAsync(CancellationToken.None);
+        // A stop that lands before the service has started reading cancels it unrun, which proves nothing.
+        await reading.Task.WaitAsync(limit.Token);
         await service.StopAsync(limit.Token);
 
         await Assert.That(service.ExecuteTask!.IsCompletedSuccessfully).IsTrue();
