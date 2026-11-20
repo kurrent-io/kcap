@@ -21,17 +21,19 @@ Grade each part by what the reader does with it:
 
 - **Must know** — the answer to what they asked, anything you need them to
   decide or do, and anything that would mislead them if missed (a failure, a
-  risk, a change of plan). Someone who reads only this can reply. Leave it
-  unmarked. Related context they did not ask about is not must know, however
-  true, least of all what confirms something they already assumed.
-- **Detail** — what explains or supports the must know: how things work,
-  reasons, background, options they need not weigh. They read it to check or
-  dig in. Wrap it in `⌞` and `⌟`.
-- **Footnote** — evidence and references: file paths, line numbers, setting
-  names, counts, commands, what you checked. Wrap it in `⌞⌞` and `⌟⌟`.
+  risk, a change of plan). Someone who reads only this can reply. Usually a
+  sentence or two; when you did what they asked, "Done." plus any question.
+  Leave it unmarked.
+- **Detail** — what explains or supports the must know: names and ids
+  (branches, commits), how things work, reasons, options they need not weigh.
+  They read it to check or dig in. Wrap it in `⌞` and `⌟`.
+- **Footnote** — evidence and references: file paths, line numbers, counts,
+  commands, what you checked, a recap of what they asked for or what you
+  changed, and context they did not ask about. Wrap it in `⌞⌞` and `⌟⌟`.
 
 Faded text is one hover away, so when unsure, grade down. In a typical reply
-most of the text is detail or footnote.
+most of the text is detail or footnote. Leave out what the rest already says:
+a question asking to push needs no "it isn't pushed yet".
 
 ## Writing the marks
 
