@@ -242,9 +242,9 @@ public class TranscriptChatCanonicalTests {
     }
 
     /// <summary>A cancelled prompt keeps its row and acknowledges its send; the sibling that cancelled it shows a note
-    /// ahead of its own row, and a compaction boundary shows the compaction note.</summary>
+    /// ahead of its own row, and a compaction boundary shows no row, its summary record being the compaction's row.</summary>
     [Test]
-    public async Task A_claude_cancelled_prompt_and_a_compaction_boundary_read_as_notes() {
+    public async Task A_claude_cancelled_prompt_reads_as_a_note_and_a_compaction_boundary_as_nothing() {
         var chat = TranscriptChat.For("claude")!;
         var ctx  = chat.CreateContext("s", null);
         ChatProjectionResult Line(string line, int n) => chat.ProjectWithInputs(line, n, DateTimeOffset.UnixEpoch, ctx);
@@ -260,7 +260,7 @@ public class TranscriptChatCanonicalTests {
             $"{AcpEventKind.SystemNote}: {TranscriptEnvelopes.RetractedNote}", $"{AcpEventKind.UserMessage}: second try",
         ], CollectionOrdering.Matching);
         await Assert.That(resubmit.SubmittedInputs).IsEquivalentTo(["second try"]);
-        await Assert.That(boundary.Envelopes.Select(e => $"{e.Kind}: {e.Text}")).IsEquivalentTo([$"{AcpEventKind.SystemNote}: {TranscriptEnvelopes.CompactedNote}"]);
+        await Assert.That(boundary.Envelopes).IsEmpty();
     }
 
     [Test]
