@@ -861,6 +861,35 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(feed.ReadAppended().Older.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(100, 300).Select(i => (long)i));
     }
 
+    /// A refusal answering an older page asked for under an earlier grant of access leaves paging on under the next one.
+    [Test]
+    public async Task A_refusal_from_an_earlier_grant_leaves_paging_on() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = Open(server, lane, access);
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+        feed.ReadAppended();
+        var answer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        server.Gate = () => answer.Task;
+        await Assert.That(feed.RequestOlder()).IsTrue();
+        await WaitUntilAsync(() => server.RequestCount == 3, what: "the older request");
+
+        access.OnNext(SessionAccessState.Denied);
+        access.OnNext(SessionAccessState.Established);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the tail under the new grant");
+        server.NotFound = true;
+        answer.SetResult();
+        await feed.PendingOlderForTesting!;
+
+        server.NotFound = false;
+        server.Gate = null;
+        await Assert.That(feed.HasOlder).IsTrue();
+        await Assert.That(feed.RequestOlder()).IsTrue();
+        await feed.PendingOlderForTesting!;
+        await Assert.That(feed.ReadAppended().Older.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(100, 300).Select(i => (long)i));
+    }
+
     /// An older page that fails as an unreachable server would is read again after the retry gap.
     [Test]
     public async Task A_failed_older_page_is_read_again() {

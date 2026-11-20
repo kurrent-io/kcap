@@ -396,7 +396,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             if (_disposed || _olderRun is not null || _olderRefused || _earliest is not (> 0 and var earliest)) return false;
             var token = _lifetime.Token;
             var oldest = _oldest;
-            var run = Task.Run(() => LoadOlderAsync(earliest, oldest, token));
+            var attempt = _attempt;
+            var run = Task.Run(() => LoadOlderAsync(attempt, earliest, oldest, token));
             _olderRun = run;
             PendingOlderForTesting = run.ContinueWith(_ => { lock (_lock) if (ReferenceEquals(_olderRun, run)) _olderRun = null; }, TaskScheduler.Default);
         }
@@ -406,12 +407,12 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// Events past the oldest loaded one in the reply mean the stream's oldest events aged out since it
     /// was counted: the count is worked out again from the reply and the page read once more.
     /// A failed read waits on the tail's ladder and tries again while the feed lives; a refusal stops it.
-    async Task LoadOlderAsync(long earliest, long? oldest, CancellationToken ct) {
+    async Task LoadOlderAsync(int attempt, long earliest, long? oldest, CancellationToken ct) {
         var failures = 0;
         while (!ct.IsCancellationRequested) {
             try {
                 // A page that projects nothing leaves the pane nothing to scroll for, so the next one follows.
-                while (await LoadOlderPageAsync(earliest, oldest, ct).ConfigureAwait(false) is { } next) (earliest, oldest) = next;
+                while (await LoadOlderPageAsync(attempt, earliest, oldest, ct).ConfigureAwait(false) is { } next) (earliest, oldest) = next;
                 return;
             } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                 return;
@@ -425,13 +426,13 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     }
 
     /// The count and oldest event to continue from when the page committed no lines and older events remain.
-    async Task<(long Earliest, long? Oldest)?> LoadOlderPageAsync(long earliest, long? oldest, CancellationToken ct) {
+    async Task<(long Earliest, long? Oldest)?> LoadOlderPageAsync(int attempt, long earliest, long? oldest, CancellationToken ct) {
         var count = earliest;
         var window = _window ?? MaxPage;
         for (var tries = 0; ; tries++) {
             var from = Math.Max(0, count - window);
             var fetch = await _readEvents(_sessionId, from, (int)(count - from), ct).ConfigureAwait(false);
-            if (fetch.Page is not { } page) return Refused(fetch);
+            if (fetch.Page is not { } page) return Refused(attempt, fetch);
             if (tries == 0 && oldest is { } known && page.Events is [var first, ..] && page.Events.Any(e => e.EventNumber >= known)) {
                 count = Math.Max(0, known - (first.EventNumber - from));
                 if (count > 0) continue;
@@ -453,7 +454,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
                 }
             }
             if (reclassifies) {
-                await RereadAsync(earliest, from, ct).ConfigureAwait(false);
+                await RereadAsync(attempt, earliest, from, ct).ConfigureAwait(false);
                 return null;
             }
             if (!Commit(earliest, from, firstNumber ?? oldest, lines) || lines.Count > 0 || from == 0) return null;
@@ -478,9 +479,13 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     }
 
     /// Null for a refusal, which stops paging and refuses the session; any other failure throws, for the retry.
-    (long Earliest, long? Oldest)? Refused(StreamEventsFetch fetch) {
+    /// A refusal answering a request made under an earlier grant of access says nothing about the current one.
+    (long Earliest, long? Oldest)? Refused(int attempt, StreamEventsFetch fetch) {
         if (fetch is { NotFound: false, Unauthorized: false }) throw new InvalidOperationException(fetch.Failure ?? "could not read older events");
-        lock (_lock) _olderRefused = true;
+        lock (_lock) {
+            if (_attempt != attempt) return null;
+            _olderRefused = true;
+        }
         Forget();
         _log($"remote transcript: older events: {(fetch.NotFound ? "not found" : "not signed in")}");
         return null;
@@ -489,7 +494,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// Everything loaded, read again from the new oldest event under the prompts it schedules, and
     /// delivered as a seed. Lines the pane has not drained yet stay out of that history and follow it,
     /// so a send their echo acknowledges is still acknowledged.
-    async Task RereadAsync(long earliest, long from, CancellationToken ct) {
+    async Task RereadAsync(int attempt, long earliest, long from, CancellationToken ct) {
         var scheduled = NewScheduled();
         var lines = new List<ProjectedLine>();
         lock (_lock) _liveDuringReread = [];
@@ -503,7 +508,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         }
         if (fetch.Page is not { } page) {
             lock (_lock) _liveDuringReread = null;
-            Refused(fetch);
+            Refused(attempt, fetch);
             return;
         }
         lock (_lock) {
