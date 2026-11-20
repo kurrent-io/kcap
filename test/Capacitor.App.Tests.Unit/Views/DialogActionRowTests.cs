@@ -4,8 +4,10 @@ using Avalonia.Layout;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.App.Tests.Unit.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.Views;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Http;
 
@@ -50,7 +52,56 @@ public class DialogActionRowTests {
         await Assert.That(row[^1].Name).IsEqualTo("SendButton");
         await Assert.That(row[0].IsCancel).IsTrue();
         await Assert.That(row[^1].IsDefault).IsTrue();
+        await Assert.That(row[0].Classes.Contains("kcapGhost")).IsTrue();
     });
+
+    /// Once sent, Close finishes the flow: it is the primary and sits right of Send another.
+    [Test]
+    public Task A_sent_feedback_ends_with_close_as_the_primary() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var trailer = new BehaviorSubject<string>("trailer");
+        using var vm = new FeedbackViewModel(new NoApi(), FeedbackCategory.Feedback, trailer, "macOS 15.6", null);
+        var window = new FeedbackWindow { DataContext = vm };
+        try {
+            window.Show();
+            window.FindControl<TextBox>("MessageInput")!.Text = "Nice.";
+            Dispatcher.UIThread.RunJobs();
+            window.FindControl<Button>("SendButton")!.Command!.Execute(null);
+            await WorkspaceFixtures.WaitUntilAsync(() => vm.IsSent, what: "feedback sent");
+            Dispatcher.UIThread.RunJobs();
+            var shown = ActionRow(window, "CloseButton").Where(b => b.IsVisible).ToList();
+
+            await Assert.That(string.Join(",", shown.Select(b => b.Name))).IsEqualTo("SendAnotherButton,CloseButton");
+            await Assert.That(shown[^1].Classes.Contains("kcapPrimary")).IsTrue();
+            await Assert.That(shown[^1].IsDefault).IsTrue();
+        } finally { window.Close(); }
+    });
+
+    /// A failed uninstall leads with Retry on the right; Close beside it is tertiary.
+    [Test]
+    public Task A_failed_uninstall_ends_with_retry_as_the_primary() => AvaloniaSession.RunOnUiAsync(async () => {
+        var cli = new FakeKcapCli { UninstallBehavior = _ => Task.FromResult(
+            new StreamingResult(1, false, [new StreamedLine(ProcessStreamKind.Stderr, "Could not stop the daemon.")])) };
+        var run = new UninstallRunViewModel(cli, new KeptRemoval(), false, () => { }, action => action());
+        var window = new UninstallWindow { DataContext = run };
+        try {
+            window.Show();
+            await run.RunAsync();
+            Dispatcher.UIThread.RunJobs();
+            var shown = ActionRow(window, "RetryButton").Where(b => b.IsVisible).ToList();
+
+            await Assert.That(string.Join(",", shown.Select(b => b.Name))).IsEqualTo("CloseButton,RetryButton");
+            await Assert.That(shown[0].Classes.Contains("kcapGhost")).IsTrue();
+            await Assert.That(shown[^1].Classes.Contains("kcapPrimary")).IsTrue();
+            await Assert.That(shown[^1].IsDefault).IsFalse().Because("a retry removes files, so Enter does not run it");
+        } finally { window.Close(); }
+    });
+
+    sealed class KeptRemoval : IAppRemoval {
+        public Task<IReadOnlyList<string>> RemoveLinksAsync(CancellationToken ct) => Task.FromResult<IReadOnlyList<string>>([]);
+        public bool DeleteSupportFiles() => true;
+        public Task<bool> TrashBundleAsync(CancellationToken ct) => Task.FromResult(true);
+        public void RevealBundle() { }
+    }
 
     /// Removing a profile cannot be undone: its Accept is the filled danger button, off Enter.
     [Test]

@@ -16,7 +16,7 @@
                 <TextBlock Text="{Binding ErrorText}" FontSize="11" Foreground="{StaticResource KcapDangerBrush}"
                            IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <StackPanel IsVisible="{Binding OffersAnswers}">
-                    <ItemsControl ItemsSource="{Binding Options}" IsVisible="{Binding HasOptions}">
+                    <ItemsControl ItemsSource="{Binding Options}" IsVisible="{Binding HasOptions}" HorizontalAlignment="Right">
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:AcpOptionViewModel">
@@ -263,7 +263,7 @@
                         </MultiBinding>
                     </DockPanel.IsVisible>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
-                        <Button Content="Back" Classes="kcapChip" Command="{Binding BackCommand}" IsVisible="{Binding ShowsSteps}"
+                        <Button Content="Back" Classes="kcapGhost" Command="{Binding BackCommand}" IsVisible="{Binding ShowsSteps}"
                                 Padding="12,5" FontSize="13" CornerRadius="7" />
                         <Button Content="{Binding NextLabel}" Command="{Binding NextCommand}" IsVisible="{Binding ShowsNext}"
                                 Padding="14,5" FontSize="13" FontWeight="SemiBold"

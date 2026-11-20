@@ -327,6 +327,14 @@ Description: **before writing it, open [.github/PULL_REQUEST_TEMPLATE.md](.githu
   `kcapField` inputs. Fluent `MenuItem` chrome, default `Button` / `ToggleButton` presenters, and
   Fluent accent on a menu or toolbar are out — Fluent paints `PART_ContentPresenter` unless the
   kcap class restyles it.
+- Action ranks, per component (a dialog, banner, card, composer — not the whole window): a sole
+  action is `kcapPrimary`; the main one of several is `kcapPrimary` and sits last (rightmost);
+  actions of equal weight are `kcapChip`; Cancel, Close, Back, Dismiss, Skip and Not now are
+  `kcapGhost` unless they are the only action. A Close or Done that finishes a flow is its main
+  action. Destructive actions stay `kcapDanger` even when alone. When the set of visible actions
+  changes with state, bind the rank (`Classes.kcapPrimary`) so it follows. Menu rows, chips,
+  pickers and choice lists are not actions and keep their own classes. Onboarding maps these to
+  `onboardingPrimary`, `onboardingSecondary` and `onboardingQuiet` / `onboardingLink`.
 - Hierarchy and chrome: chat tool rows and inline `ToolCard`s lead with a human verb in
   `KcapTextBrush` and trailing target/path/detail in `KcapMutedBrush` (only rows with their own prose
   description or question text omit the verb label). Inline cards inside `Border.toolGroup` sit flush
