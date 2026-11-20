@@ -140,7 +140,7 @@ public class OpenCodePluginV2Tests {
     /// its parent unstarted, so a successful start reads the session and its known subagents once more.</summary>
     [Test]
     public async Task A_successful_start_captures_what_settled_while_it_ran() {
-        var start = Between(V2, "flushTitle(sid)\n", "return true");
+        var start = Between(Between(V2, "function ensureStarted(", "async function onEvent("), "flushTitle(sid)", "return true");
 
         await Assert.That(start).Contains("enqueueCapture(sid, file(sid))");
         await Assert.That(start).Contains("for (const [child, parent] of v2.parentOf) if (parent === sid) captureChild(child)");
