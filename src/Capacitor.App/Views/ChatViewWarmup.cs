@@ -6,7 +6,7 @@ using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
-/// Builds one chat a second after the main window is first shown, so the first session opened does
+/// Builds one chat a second after the rail first draws session rows, so the first session opened does
 /// not pay for the session view's first construction: its XAML, row templates, markdown and the
 /// transcript projection. The view sits in the window for one frame, transparent and out of input's
 /// way, over a made-up transcript, and reaches no network, rail or saved state.
@@ -20,10 +20,23 @@ internal sealed class ChatViewWarmup(IPermissionService permissions, IUrlOpener 
     static readonly TimeSpan FrameLimit = TimeSpan.FromMilliseconds(500);
 
     bool _scheduled;
+    bool _rowsPainted;
 
     internal Task? RunForTesting { get; private set; }
 
     internal static bool EnabledByEnvironment => Environment.GetEnvironmentVariable("KCAP_APP_NO_PREWARM") != "1";
+
+    /// The rail has drawn its first session rows. Started any sooner, the warm-up competes with the
+    /// window's first frames and the rows, and delays both.
+    public void RowsPainted(MainWindow window) {
+        _rowsPainted = true;
+        Schedule(window);
+    }
+
+    /// Each show retries a warm-up that found the window hidden, once the rows have been drawn.
+    public void Shown(MainWindow window) {
+        if (_rowsPainted) Schedule(window);
+    }
 
     /// Runs at most once per instance, unless an attempt found the window hidden; disabled, it never runs.
     public void Schedule(MainWindow window) {

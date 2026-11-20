@@ -131,6 +131,22 @@ public class ChatViewWarmupSmokeTests {
         }
     });
 
+    /// A show before the rail has drawn its first session rows starts nothing; the rows starting it is what runs it.
+    [Test]
+    public Task The_warm_up_waits_for_the_rail_to_draw_its_first_rows() => AvaloniaSession.RunOnUiAsync(async () => {
+        var (window, warmup) = Open();
+        try {
+            warmup.Shown(window);
+            await Assert.That(warmup.RunForTesting is null).IsTrue();
+
+            warmup.RowsPainted(window);
+            await Assert.That(warmup.RunForTesting is null).IsFalse();
+            await warmup.RunForTesting!;
+        } finally {
+            window.Close();
+        }
+    });
+
     /// A window hidden to the tray before the warm-up runs is warmed on its next show, not never.
     [Test]
     public Task A_warm_up_that_found_the_window_hidden_runs_on_the_next_show() => AvaloniaSession.RunOnUiAsync(async () => {

@@ -216,6 +216,7 @@ public partial class App : Application {
     // shutdown and startup-failure alike — disposes them in reverse creation order, tray icon
     // first, so a quit never strands a dead icon in the menu bar.
     MainWindowCoordinator? _coordinator;
+    ChatViewWarmup? _chatWarmup;
     PauseController? _pause;
     ConsentService? _consent;
     PermissionService? _permissions;
@@ -1425,7 +1426,7 @@ public partial class App : Application {
                     && await access.GetAsync() == DesktopNotificationAccess.Allowed,
                 notification => _notificationSink?.Show(notification, _ => _coordinator?.ShowMainWindow()))
             : null;
-        var chatWarmup = new ChatViewWarmup(permissions, opener, _time, ChatViewWarmup.EnabledByEnvironment);
+        var chatWarmup = _chatWarmup = new ChatViewWarmup(permissions, opener, _time, ChatViewWarmup.EnabledByEnvironment);
         _coordinator = new MainWindowCoordinator(
             () => TrackStartupMarks(() => TrackNoticeWindow(notifier, TrackViewedAgent(BuildAndShowMainWindow(
                 shownService, _config, _appState, actions, notifier, ticker,
@@ -1473,7 +1474,7 @@ public partial class App : Application {
             onHidden: () => _ = _closeToTrayHint?.OnHiddenAsync(),
             onShown: () => {
                 _closeToTrayHint?.OnShown();
-                if (!_holdingMainWindow && _coordinator?.Window is { } shown) chatWarmup.Schedule(shown);
+                if (!_holdingMainWindow && _coordinator?.Window is { } shown) chatWarmup.Shown(shown);
             });
         // A shutdown that started before this continuation resumed already ran its first
         // pass against a null coordinator, so a window built now must never be
@@ -2535,7 +2536,11 @@ public partial class App : Application {
 
         // A window held behind an update's progress is hidden again before it renders; its mark waits for the real show.
         RenderedFrame.WhenDrawn(window, () => true, _time, at => _ = Task.Run(() => StartupMarks.Mark("window_shown", at)));
-        window.SessionRail.OnFirstSessionsPainted(_time, at => _ = Task.Run(() => StartupMarks.Mark("first_sessions_painted", at)));
+        // The warm-up rides this callback: a second wait on the rail would take the draw probe this one placed.
+        window.SessionRail.OnFirstSessionsPainted(_time, at => {
+            _ = Task.Run(() => StartupMarks.Mark("first_sessions_painted", at));
+            _chatWarmup?.RowsPainted(window);
+        });
         return window;
     }
 
