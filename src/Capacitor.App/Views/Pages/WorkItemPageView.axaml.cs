@@ -13,6 +13,8 @@ public partial class WorkItemPageView : UserControl {
         ContextPaneSizing.Attach(this, SplitGrid.ColumnDefinitions[1], DetailsPane, HideButton, ContextSplitter, ContextShowButton);
         _ = new RowMenu(this, "sessionRow", row =>
             row is WorkItemPageSession session && DataContext is WorkItemPageViewModel page ? page.MenuFor(session) : []);
+        _ = new RowMenu(this, "partRow", row =>
+            row is WorkItemPagePart part && DataContext is WorkItemPageViewModel page ? page.MenuFor(part) : []);
     }
 
     void OnFlyoutItemClick(object? sender, RoutedEventArgs e) =>

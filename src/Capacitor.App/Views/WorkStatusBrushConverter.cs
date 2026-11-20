@@ -11,17 +11,8 @@ namespace Capacitor.App.Views;
 public sealed class WorkStatusBrushConverter : IValueConverter {
     public static readonly WorkStatusBrushConverter Instance = new();
 
-    static string Key(WorkStatus? status) => status switch {
-        WorkStatus.InProgress => "KcapPurpleBrush",
-        WorkStatus.InReview   => "KcapInfoBrush",
-        WorkStatus.Blocked    => "KcapWarningBrush",
-        WorkStatus.Done       => "KcapSuccessBrush",
-        WorkStatus.Open       => "KcapMutedBrush",
-        _                     => "KcapFaintBrush",
-    };
-
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        Application.Current?.FindResource(Key(value as WorkStatus?)) as IBrush;
+        Application.Current?.FindResource(value is WorkStatus status ? status.BrushKey() : "KcapFaintBrush") as IBrush;
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
 }

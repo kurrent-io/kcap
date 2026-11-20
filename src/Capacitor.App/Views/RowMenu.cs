@@ -10,7 +10,7 @@ using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
-/// The right-click menu over a list's rows, the buttons carrying `rowClass`. Anchored to the list rather
+/// The right-click menu over a list's rows, the controls carrying `rowClass`. Anchored to the list rather
 /// than a row, because a live re-sort recycles row containers and would close a menu owned by one.
 /// The row it opened on carries `menuOpen` until it closes, so the row stays highlighted.
 public sealed class RowMenu {
@@ -21,7 +21,7 @@ public sealed class RowMenu {
     readonly Func<object?, IReadOnlyList<RowMenuItem>> _itemsFor;
     readonly Flyout _flyout = new() { Placement = PlacementMode.Pointer };
     readonly ItemsControl _items = new() { Margin = new(6), MinWidth = 188 };
-    Button? _anchor;
+    Control? _anchor;
 
     public RowMenu(Control list, string rowClass, Func<object?, IReadOnlyList<RowMenuItem>> itemsFor) {
         _list = list;
@@ -40,7 +40,7 @@ public sealed class RowMenu {
     }
 
     void OnContextRequested(object? sender, ContextRequestedEventArgs e) {
-        var row = (e.Source as Visual)?.GetSelfAndVisualAncestors().OfType<Button>().FirstOrDefault(b => b.Classes.Contains(_rowClass));
+        var row = (e.Source as Visual)?.GetSelfAndVisualAncestors().OfType<Control>().FirstOrDefault(b => b.Classes.Contains(_rowClass));
         if (row is null) return;
         e.Handled = true;
         var items = _itemsFor(row.DataContext);
@@ -50,6 +50,12 @@ public sealed class RowMenu {
         row.Classes.Add(OpenClass);
         _items.ItemsSource = items;
         _flyout.ShowAt(_list, showAtPointer: true);
+    }
+
+    static AppIcon Icon(RowMenuItem item) {
+        var icon = new AppIcon { Kind = item.Icon, Size = 14 };
+        if (item.IconBrushKey is { } key && Application.Current?.FindResource(key) is Avalonia.Media.IBrush brush) icon.Foreground = brush;
+        return icon;
     }
 
     Button ItemButton(RowMenuItem item) {
@@ -62,7 +68,7 @@ public sealed class RowMenu {
                 Orientation = Orientation.Horizontal,
                 Spacing = 7,
                 Children = {
-                    new AppIcon { Kind = item.Icon, Size = 14 },
+                    Icon(item),
                     new TextBlock { Text = item.Label, VerticalAlignment = VerticalAlignment.Center },
                 },
             },

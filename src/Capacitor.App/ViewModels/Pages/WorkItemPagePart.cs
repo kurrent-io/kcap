@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Reactive;
-using Lucide.Avalonia;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels.Pages;
@@ -34,14 +33,14 @@ public sealed class WorkItemPagePart : ReactiveObject {
         _isExpanded = isExpanded;
         SetStatusCommand = setStatusCommand;
         ToggleCommand = ReactiveCommand.Create(() => {
+            if (!HasSessions) return;
             IsExpanded = !IsExpanded;
             expandedChanged(IsExpanded);
         });
     }
 
-    public LucideIconKind Icon => Status.Icon();
-    public string StatusLabel => Status.Label();
     public bool HasSessions => Sessions.Count > 0;
+    public string SessionSummary => Sessions.Count == 1 ? "1 session" : $"{Sessions.Count} sessions";
     public bool HasLinks => Links.Count > 0;
     int Prs => Links.Count(link => link.IsPr);
     int Merged => Links.Count(link => link.IsPr && link.IsMerged);

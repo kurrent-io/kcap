@@ -65,6 +65,20 @@
                          Button.groupHead:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapRowActiveBrush}" />
         </Style>
+        <Style Selector="Button.partRow">
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="4,0,6,0" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style Selector="Button.partRow.expandable">
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.partRow:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.partRow:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.partRow.menuOpen /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapRowHoverBrush}" />
+        </Style>
         <Style Selector="Border.row">
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Background" Value="Transparent" />
@@ -148,65 +162,16 @@
 
         <DataTemplate x:Key="Part" x:DataType="pages:WorkItemPagePart">
             <StackPanel>
-                <Border Classes="row" ToolTip.Tip="{Binding Tip}">
-                    <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="4" MinHeight="34" Margin="4,0,6,0">
-                        <Panel Width="24">
-                            <Button Classes="kcapGhost kcapIcon" Command="{Binding ToggleCommand}" IsVisible="{Binding HasSessions}"
-                                    AutomationProperties.Name="{Binding Title, StringFormat='Show sessions of {0}'}">
-                                <views:FoldChevron Size="14" Classes="chevron" IsOpen="{Binding IsExpanded}" />
-                            </Button>
-                        </Panel>
-                        <Button Grid.Column="1" Classes="kcapGhost kcapIcon" ToolTip.Tip="{Binding StatusLabel, StringFormat='{}{0}. Set the status by hand'}"
-                                AutomationProperties.Name="{Binding StatusLabel, StringFormat='Status {0}'}">
-                            <views:AppIcon Kind="{Binding Icon}" Size="14"
-                                           Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
-                            <Button.Flyout>
-                                <Flyout Placement="BottomEdgeAlignedLeft" FlyoutPresenterClasses="kcapPanel">
-                                    <StackPanel Spacing="2" Margin="6" MinWidth="160">
-                                        <Button Classes="kcapGhost menuRow" Command="{Binding SetStatusCommand}" CommandParameter="in_progress" Click="OnFlyoutItemClick">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <views:AppIcon Kind="CircleDot" Size="14" Foreground="{StaticResource KcapPurpleBrush}" />
-                                                <TextBlock Text="In progress" />
-                                            </StackPanel>
-                                        </Button>
-                                        <Button Classes="kcapGhost menuRow" Command="{Binding SetStatusCommand}" CommandParameter="in_review" Click="OnFlyoutItemClick">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <views:AppIcon Kind="Contrast" Size="14" Foreground="{StaticResource KcapInfoBrush}" />
-                                                <TextBlock Text="In review" />
-                                            </StackPanel>
-                                        </Button>
-                                        <Button Classes="kcapGhost menuRow" Command="{Binding SetStatusCommand}" CommandParameter="blocked" Click="OnFlyoutItemClick">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <views:AppIcon Kind="CircleSlash" Size="14" Foreground="{StaticResource KcapWarningBrush}" />
-                                                <TextBlock Text="Blocked" />
-                                            </StackPanel>
-                                        </Button>
-                                        <Button Classes="kcapGhost menuRow" Command="{Binding SetStatusCommand}" CommandParameter="open" Click="OnFlyoutItemClick">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <views:AppIcon Kind="Circle" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                                                <TextBlock Text="Open" />
-                                            </StackPanel>
-                                        </Button>
-                                        <Button Classes="kcapGhost menuRow" Command="{Binding SetStatusCommand}" CommandParameter="done" Click="OnFlyoutItemClick">
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <views:AppIcon Kind="CircleCheck" Size="14" Foreground="{StaticResource KcapSuccessBrush}" />
-                                                <TextBlock Text="Done" />
-                                            </StackPanel>
-                                        </Button>
-                                        <Border Height="1" Margin="4" Background="{StaticResource KcapBorderBrush}" />
-                                        <Button Classes="kcapGhost menuRow" Content="Work it out from links" Command="{Binding SetStatusCommand}"
-                                                CommandParameter="" Click="OnFlyoutItemClick" />
-                                    </StackPanel>
-                                </Flyout>
-                            </Button.Flyout>
-                        </Button>
-                        <TextBlock Grid.Column="2" Text="{Binding Title}" FontSize="15" FontWeight="Medium" TextTrimming="CharacterEllipsis"
+                <Button Classes="kcapGhost partRow" Classes.expandable="{Binding HasSessions}" ToolTip.Tip="{Binding Tip}"
+                        Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Title}">
+                    <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="4" MinHeight="34">
+                        <TextBlock Text="{Binding Title}" FontSize="15" FontWeight="Medium" TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center" Margin="4,0,0,0" />
-                        <Border Grid.Column="3" Background="{StaticResource KcapWarningDimBrush}" CornerRadius="9" Padding="7,1"
+                        <Border Grid.Column="1" Background="{StaticResource KcapWarningDimBrush}" CornerRadius="9" Padding="7,1"
                                 VerticalAlignment="Center" IsVisible="{Binding NeedsYou}">
                             <TextBlock Text="Needs you" FontSize="12.5" Foreground="{StaticResource KcapWarningBrush}" />
                         </Border>
-                        <Button Grid.Column="4" Classes="kcapGhost linkSum" IsVisible="{Binding HasLinks}" ToolTip.Tip="{Binding LinkTip}"
+                        <Button Grid.Column="2" Classes="kcapGhost linkSum" IsVisible="{Binding HasLinks}" ToolTip.Tip="{Binding LinkTip}"
                                 AutomationProperties.Name="{Binding LinkTip, StringFormat='Links: {0}'}">
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <views:AppIcon Kind="GitPullRequest" Size="12" IsVisible="{Binding HasPrs}" />
@@ -220,8 +185,13 @@
                                 </Flyout>
                             </Button.Flyout>
                         </Button>
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4" Margin="6,0" VerticalAlignment="Center"
+                                    IsVisible="{Binding HasSessions}" TextElement.Foreground="{StaticResource KcapMutedBrush}">
+                            <TextBlock Text="{Binding SessionSummary}" FontSize="11" />
+                            <views:FoldChevron Size="12" Classes="chevron" IsOpen="{Binding IsExpanded}" />
+                        </StackPanel>
                     </Grid>
-                </Border>
+                </Button>
                 <views:FoldPanel IsOpen="{Binding IsExpanded}">
                     <Border BorderThickness="1,0,0,0" BorderBrush="{StaticResource KcapBorderStrongBrush}" Margin="16,2,0,4">
                         <ItemsControl ItemsSource="{Binding Sessions}" ItemTemplate="{StaticResource SessionRow}" />

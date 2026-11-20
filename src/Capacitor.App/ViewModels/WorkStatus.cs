@@ -31,6 +31,14 @@ public static class WorkStatusExtensions {
         _                     => "Open",
     };
 
+    public static string BrushKey(this WorkStatus status) => status switch {
+        WorkStatus.InProgress => "KcapPurpleBrush",
+        WorkStatus.InReview   => "KcapInfoBrush",
+        WorkStatus.Blocked    => "KcapWarningBrush",
+        WorkStatus.Done       => "KcapSuccessBrush",
+        _                     => "KcapMutedBrush",
+    };
+
     public static LucideIconKind Icon(this WorkStatus status) => status switch {
         WorkStatus.InProgress => LucideIconKind.CircleDot,
         WorkStatus.InReview   => LucideIconKind.Contrast,

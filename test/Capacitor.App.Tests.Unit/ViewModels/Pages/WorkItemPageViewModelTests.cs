@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Reactive.Linq;
 using Capacitor.App.Services;
+using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Pages;
 using Capacitor.Remote.Models;
 
@@ -14,16 +15,19 @@ public class WorkItemPageViewModelTests {
         public IObservable<IReadOnlySet<string>> SuggestedSessions => Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty);
 
         public Task<WorkItemPartsDto?> ReadAsync(string workItemId, CancellationToken ct) => Task.FromResult<WorkItemPartsDto?>(
-            new() { WorkItem = new() { WorkItemId = workItemId, Title = "Checkout" }, Goal = "Pay in two steps" });
+            new() {
+                WorkItem = new() { WorkItemId = workItemId, Title = "Checkout" }, Goal = "Pay in two steps",
+                Parts = [new() { WorkItemId = "p1", Title = "Card form", Status = "in_progress" }],
+            });
         public Task<bool> RenameAsync(string workItemId, string title, CancellationToken ct) => Record($"title {title}");
         public Task<bool> SetGoalAsync(string workItemId, string? goal, CancellationToken ct) => Record($"goal {goal ?? "<none>"}");
+        public Task<bool> SetStatusAsync(string workItemId, string? status, CancellationToken ct) => Record($"status {workItemId} {status ?? "<links>"}");
 
         Task<bool> Record(string call) {
             Calls.Add(call);
             return Task.FromResult(Accepts);
         }
 
-        public Task<bool> SetStatusAsync(string workItemId, string? status, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> MakePartAsync(string workItemId, string looseEndId, CancellationToken ct) => throw new NotSupportedException();
         public Task<string?> AddPartAsync(string workItemId, string title, CancellationToken ct) => throw new NotSupportedException();
         public Task<bool> AddLinkAsync(string workItemId, string reference, CancellationToken ct) => throw new NotSupportedException();
@@ -83,5 +87,25 @@ public class WorkItemPageViewModelTests {
         await Assert.That(page.GoalEditor.IsEditing).IsTrue();
         await Assert.That(page.Goal).IsEqualTo("Pay in two steps");
         await Assert.That(page.Message).IsEqualTo("Couldn't save the goal");
+    });
+
+    /// A slice moves to its new status group as soon as the change is recorded, though the read that follows still
+    /// reports the old status (this fake never catches up), and goes back to the read's status when the viewer hands
+    /// it back to its links.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_set_status_moves_the_slice_before_the_read_model_has_it() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeApi();
+        using var directory = new FakeAgentDirectory();
+        using var page = Page(api, directory);
+
+        await page.Groups.Single().Parts.Single().SetStatusCommand.Execute("in_review");
+
+        await Assert.That(api.Calls).IsEquivalentTo(["status p1 in_review"]);
+        await Assert.That(page.Groups.Single().Status).IsEqualTo(WorkStatus.InReview);
+
+        await page.Groups.Single().Parts.Single().SetStatusCommand.Execute("");
+
+        await Assert.That(page.Groups.Single().Status).IsEqualTo(WorkStatus.InProgress);
     });
 }

@@ -21,7 +21,10 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     readonly IAgentDirectory _directory;
     readonly TimeProvider _time;
     readonly ISet<string> _flippedGroups;
-    readonly HashSet<string> _foldedParts = new(StringComparer.Ordinal);
+    readonly HashSet<string> _openedParts = new(StringComparer.Ordinal);
+    // A status the viewer just set, shown until a read reports it: the read right after the change can come back
+    // before the server's read model has it.
+    readonly Dictionary<string, string> _setStatuses = new(StringComparer.Ordinal);
     readonly Subject<Unit> _reread = new();
     readonly CompositeDisposable _disposables = new();
     WorkItemPartsDto? _read;
@@ -142,6 +145,12 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
             () => _ = ChangeAsync(ct => _api.RemoveSessionAsync(WorkItemId, session.SessionId, ct), "Couldn't remove that session")),
     ];
 
+    public IReadOnlyList<RowMenuItem> MenuFor(WorkItemPagePart part) => [
+        .. Enum.GetValues<WorkStatus>().Where(status => status != part.Status)
+            .Select(status => new RowMenuItem(status.Icon(), $"Move to {status.Label()}", () => part.SetStatusCommand.Execute(status.Wire()).Subscribe(), status.BrushKey())),
+        new(LucideIconKind.Link, "Work it out from links", () => part.SetStatusCommand.Execute("").Subscribe()),
+    ];
+
     void ShowPage(PageViewerViewModel viewer) {
         ClosePage();
         _pageLifetime = new CancellationTokenSource();
@@ -224,17 +233,22 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         });
 
     WorkItemPagePart PartOf(WorkItemPartDetailDto part, Dictionary<string, AgentRow> rows) {
-        var status = WorkStatusExtensions.ParseWorkStatus(part.Status);
+        if (_setStatuses.TryGetValue(part.WorkItemId, out var set) && set == part.Status) _setStatuses.Remove(part.WorkItemId);
+        var status = WorkStatusExtensions.ParseWorkStatus(_setStatuses.GetValueOrDefault(part.WorkItemId, part.Status));
         var tip = status == WorkStatus.Blocked && part.WaitsOn.Count > 0
             ? $"Waits on {string.Join(", ", part.WaitsOn.Select(other => other.Title))}"
             : null;
         var needsYou = part.SessionIds.Any(id => rows.TryGetValue(id, out var row) && _needsYou.Contains(row.Id));
-        var setStatus = ReactiveCommand.CreateFromTask<string>(wire =>
-            ChangeAsync(ct => _api.SetStatusAsync(part.WorkItemId, wire.Length == 0 ? null : wire, ct), "Couldn't set that status"));
+        var setStatus = ReactiveCommand.CreateFromTask<string>(async wire => {
+            if (!await ChangeAsync(ct => _api.SetStatusAsync(part.WorkItemId, wire.Length == 0 ? null : wire, ct), "Couldn't set that status")) return;
+            if (wire.Length == 0) _setStatuses.Remove(part.WorkItemId);
+            else _setStatuses[part.WorkItemId] = wire;
+            Rebuild();
+        });
         var id = part.WorkItemId;
         return new WorkItemPagePart(id, part.Title, status, tip, needsYou, LinksOf(part.Links),
-            [.. part.SessionIds.Select(sessionId => SessionOf(sessionId, rows, part.Sessions))], !_foldedParts.Contains(id),
-            expanded => { if (expanded) _foldedParts.Remove(id); else _foldedParts.Add(id); }, setStatus);
+            [.. part.SessionIds.Select(sessionId => SessionOf(sessionId, rows, part.Sessions))], _openedParts.Contains(id),
+            expanded => { if (expanded) _openedParts.Add(id); else _openedParts.Remove(id); }, setStatus);
     }
 
     static IReadOnlyList<WorkItemPageLink> LinksOf(IEnumerable<WorkItemLinkDto> links) =>
