@@ -3,7 +3,7 @@ using Capacitor.App.Services;
 namespace Capacitor.App.ViewModels;
 
 /// The rail's remembered shape for one user: the controls, the group keys they folded and the project
-/// they narrowed to, null for all projects, and the sessions removed from the rail.
+/// they narrowed to, null for all projects, and the session ids and work item keys removed from the rail.
 /// Value-equal on the folded and removed keys as sequences, so a persisted copy compares equal to the live one.
 public sealed record RailPreferences(
         RailScope Scope, RailState State, RailGrouping Grouping, RailSort Sort, bool Descending,

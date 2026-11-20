@@ -1159,6 +1159,28 @@ public class SessionRailViewModelTests {
         });
     }
 
+    /// A work item removed from the sidebar takes its sessions with it, including one filed under it later, and stays
+    /// removed across preferences until restored.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_work_item_removed_from_the_sidebar_leaves_with_its_sessions() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, rail) = BuildWithWorkItems();
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1)), Tracked("b", "AI-1", Noon.AddHours(-2)));
+
+                rail.MenuFor(rail.Groups.Single(g => g.WorkItemId == "AI-1")).Single(item => item.Label == "Remove from sidebar").Run();
+                List(directory, sessions, Tracked("c", "AI-1", Noon.AddMinutes(-5)));
+
+                await Assert.That(rail.Groups).IsEmpty();
+                await Assert.That(rail.Preferences.Removed).IsEquivalentTo([SessionRailViewModel.WorkItemKey("AI-1")]);
+                await Assert.That(rail.RestoreRemovedText).IsEqualTo("Show 1 removed work item");
+                rail.RestoreRemovedCommand.Execute().Subscribe();
+                await Assert.That(rail.Groups.Single(g => g.WorkItemId == "AI-1").Sessions).Count().IsEqualTo(3);
+            }
+        });
+    }
+
     /// Rename is offered only on a session the app says can be renamed, and renames that row.
     [Test]
     [NotInParallel("AvaloniaSession")]

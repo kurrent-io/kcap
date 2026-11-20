@@ -41,7 +41,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly HashSet<string> _seen = new(StringComparer.Ordinal);
     // Keep the user's folds when the directory empties/re-forms a group during refresh.
     HashSet<string> _collapsed;
+    // Session ids and work item keys removed from the rail.
     HashSet<string> _removed;
+    // Sessions filed under a removed work item, hidden like removed sessions while grouping by work item.
+    FrozenSet<string> _hiddenByWorkItem = FrozenSet<string>.Empty;
     readonly Action? _closeWorkspace;
     readonly IReadOnlyList<RailAction> _actions;
     readonly Func<string, string, Task<bool>>? _fileSession;
@@ -333,7 +336,15 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<Unit, Unit> ToggleAllExpandedCommand { get; }
 
     public bool HasRemoved => _removed.Count > 0;
-    public string RestoreRemovedText => $"Show {_removed.Count} removed session{(_removed.Count == 1 ? "" : "s")}";
+    public string RestoreRemovedText {
+        get {
+            var workItems = _removed.Count(IsWorkItemKey);
+            var sessions = _removed.Count - workItems;
+            return "Show " + string.Join(" and ", new[] { Counted(sessions, "removed session"), Counted(workItems, "removed work item") }.OfType<string>());
+
+            static string? Counted(int count, string noun) => count == 0 ? null : $"{count} {noun}{(count == 1 ? "" : "s")}";
+        }
+    }
 
     public RailPreferences Preferences =>
         new(Scope, State, Grouping, Sort, Descending, [.. _collapsed.Order(StringComparer.Ordinal)], Project,
@@ -690,6 +701,14 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         SetRemoved(_removed.Concat(rows.Select(row => SessionIds.Canonical(row.SessionId)).OfType<string>()), persist: true);
     }
 
+    void RemoveWorkItem(string id) {
+        if (_disposables.IsDisposed) return;
+        if (_openSessionKey is { } open && _directory.Rows.Lookup(open) is { HasValue: true } row
+            && row.Value.SessionId is { } session && _workItemOf.Value.GetValueOrDefault(session) == id)
+            _closeWorkspace?.Invoke();
+        SetRemoved(_removed.Append(WorkItemKey(id)), persist: true);
+    }
+
     public bool HasMarks => _marked.Value.Count > 0;
 
     /// Adds the row to the marked rows, or takes it out.
@@ -746,14 +765,19 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     /// The menu for a work item's header.
     public IReadOnlyList<RowMenuItem> MenuFor(RailGroupViewModel group) {
         ClearMarks();
-        if (_renameWorkItem is not { } rename || group.WorkItemId is not { } id) return [];
-        var original = group.Label;
-        // Relabels the header alone: regrouping the whole rail holds the frame that closes the field.
-        return [new(LucideIconKind.Pencil, "Rename", () => BeginRename(original, "work item", shown => {
-            if (shown is null) _retitled.Remove(id);
-            else _retitled[id] = shown;
-            group.Relabel(shown ?? original);
-        }, async title => new SessionRenameResult(await rename(id, title), null, null), editor => group.TitleEditor = editor))];
+        if (group.WorkItemId is not { } id) return [];
+        var items = new List<RowMenuItem>();
+        if (_renameWorkItem is { } rename) {
+            var original = group.Label;
+            // Relabels the header alone: regrouping the whole rail holds the frame that closes the field.
+            items.Add(new(LucideIconKind.Pencil, "Rename", () => BeginRename(original, "work item", shown => {
+                if (shown is null) _retitled.Remove(id);
+                else _retitled[id] = shown;
+                group.Relabel(shown ?? original);
+            }, async title => new SessionRenameResult(await rename(id, title), null, null), editor => group.TitleEditor = editor)));
+        }
+        items.Add(new(LucideIconKind.EyeOff, "Remove from sidebar", () => RemoveWorkItem(id)));
+        return items;
     }
 
     void BeginRename(AgentRow row) {
@@ -861,7 +885,9 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     void SetRemoved(IEnumerable<string> ids, bool persist) {
         if (_disposables.IsDisposed) return;
         _removed = new HashSet<string>(ids, StringComparer.Ordinal);
+        _hiddenByWorkItem = HiddenByWorkItem();
         _stateFilter.OnNext(StateFilter());
+        ApplyGrouping();
         this.RaisePropertyChanged(nameof(HasRemoved));
         this.RaisePropertyChanged(nameof(RestoreRemovedText));
         this.RaisePropertyChanged(nameof(FiltersDiffer));
@@ -876,6 +902,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         grouping == RailGrouping.WorkItem && !offersWorkItem ? RailGrouping.Repository : grouping;
 
     internal static string WorkItemKey(string workItemId) => $"workitem:{workItemId}";
+
+    static bool IsWorkItemKey(string key) => key.StartsWith("workitem:", StringComparison.Ordinal);
+
+    FrozenSet<string> HiddenByWorkItem() => _effective != RailGrouping.WorkItem ? FrozenSet<string>.Empty
+        : _lastWorkItems.Where(item => _removed.Contains(WorkItemKey(item.Id))).SelectMany(item => item.PartBySession.Keys).ToFrozenSet(StringComparer.Ordinal);
 
     static readonly TimeSpan WorkItemActiveFor = TimeSpan.FromDays(3);
 
@@ -928,7 +959,14 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         var moved = effective != _effective;
         _effective = effective;
         IReadOnlyList<RailWorkItem> items = effective != RailGrouping.WorkItem ? []
-            : [.. _lastWorkItems.Select(item => _retitled.TryGetValue(item.Id, out var title) ? item with { Title = title } : item)];
+            : [.. _lastWorkItems.Where(item => !_removed.Contains(WorkItemKey(item.Id)))
+                .Select(item => _retitled.TryGetValue(item.Id, out var title) ? item with { Title = title } : item)];
+        // Ahead of the work item map, or a hidden item's sessions flash into their day groups.
+        var hidden = HiddenByWorkItem();
+        if (!hidden.SetEquals(_hiddenByWorkItem)) {
+            _hiddenByWorkItem = hidden;
+            _stateFilter.OnNext(StateFilter());
+        }
         var workItemOf = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var item in items)
             foreach (var session in item.PartBySession.Keys) workItemOf.TryAdd(session, item.Id);
@@ -962,8 +1000,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         var selected = _openSessionKey;
         var project = _shownProject;
         var removed = _removed.ToFrozenSet(StringComparer.Ordinal);
+        var hidden = _hiddenByWorkItem;
         return row => row.Key == selected
-            || (!(SessionIds.Canonical(row.SessionId) is { } id && removed.Contains(id)) && StateAdmits(state, row, null) && (project is null || project.Holds(row)));
+            || (!(SessionIds.Canonical(row.SessionId) is { } id && removed.Contains(id)) && !(row.SessionId is { } session && hidden.Contains(session))
+                && StateAdmits(state, row, null) && (project is null || project.Holds(row)));
     }
 
     /// The listed copy of a remembered project, or all projects once a read no longer lists it.
