@@ -71,10 +71,9 @@ public sealed class ChatBookmarks : ReactiveObject {
 
     /// Bookmarks each piece of text, in order, as taken from <paramref name="source"/>. Blank text is skipped.
     public void Add(IEnumerable<string> texts, ChatItemViewModel source) {
-        var message = _topics.OrdinalOf(source);
-        var anchor = message is null ? null : ChatTopics.AnchorOf(source);
+        var anchor = ChatTopics.AnchorOf(source);
         All.AddRange(texts.Select(quote => (Text: Tidy(quote), Quote: quote)).Where(static b => b.Text.Length > 0)
-            .Select(b => new ChatBookmark(b.Text, message, b.Quote, anchor)));
+            .Select(b => new ChatBookmark(b.Text, source.Key, b.Quote, anchor) { Source = source }));
     }
 
     void ToggleMessage(ChatItemViewModel source) {
@@ -83,12 +82,11 @@ public sealed class ChatBookmarks : ReactiveObject {
             return;
         }
         var text = Tidy(source switch { UserTurnItem user => user.Text, AssistantTextItem reply => reply.Text, _ => "" });
-        var message = _topics.OrdinalOf(source);
-        All.Add(new ChatBookmark(text.Length > 0 ? text : "Message", message, anchor: message is null ? null : ChatTopics.AnchorOf(source)));
+        All.Add(new ChatBookmark(text.Length > 0 ? text : "Message", source.Key, anchor: ChatTopics.AnchorOf(source)) { Source = source });
     }
 
     void Reveal(ChatBookmark bookmark) {
-        if (bookmark.Message is { } ordinal && _topics.MessageAt(ordinal) is { } row && bookmark.Fits(row)) _topics.Reveal(row, bookmark.Quote);
+        if (bookmark.Source is { } row) _topics.Reveal(row, bookmark.Quote);
     }
 
     void OnChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) {
@@ -97,32 +95,53 @@ public sealed class ChatBookmarks : ReactiveObject {
     }
 
     // A whole-message bookmark leads its message's picks; the picks keep the order they were taken in.
-    // One whose message has come back as a different message joins those taken from no message.
+    // One whose message is not shown yet sits where its key puts it: before the messages shown when an
+    // older page holds it, after them when it is still to be read. One whose message has come back as a
+    // different message, or is gone, joins those taken from no message.
     void Outline() {
         var runs = _topics.Runs();
         var messages = _topics.Messages();
-        bool Placed(ChatBookmark b) => b.Message is { } m && (m >= messages.Count || b.Fits(messages[m]));
-        var placed = _all.Where(Placed).OrderBy(static b => b.Message).ThenBy(static b => b.Quote is not null).ToList();
+        var shown = new Dictionary<ChatItemViewModel, int>(ReferenceEqualityComparer.Instance);
+        var keyed = new Dictionary<ChatMessageKey, ChatItemViewModel>();
+        for (var i = 0; i < messages.Count; i++) {
+            shown[messages[i]] = i;
+            if (messages[i].Key is { } key) keyed.TryAdd(key, messages[i]);
+        }
+        var first = messages.Select(static m => m.Key).FirstOrDefault(static k => k is not null);
+        var last = messages.Select(static m => m.Key).LastOrDefault(static k => k is not null);
+        int? PositionOf(ChatBookmark b) {
+            if (b.Source is { } source && shown.TryGetValue(source, out var at)) return at;
+            b.Source = b.Message is { } key && keyed.TryGetValue(key, out var row) && b.Fits(row) ? row : null;
+            if (b.Source is not null) return shown[b.Source];
+            if (b.Message is not { } wanted || keyed.ContainsKey(wanted)) return null;
+            if (first is null || wanted < first.Value) return -1;
+            return wanted > last!.Value ? int.MaxValue : null;
+        }
+        var positions = _all.Select(b => (Bookmark: b, At: PositionOf(b))).ToList();
+        var placed = positions.Where(static p => p.At is not null)
+            .OrderBy(static p => p.At).ThenBy(static p => p.Bookmark.Message).ThenBy(static p => p.Bookmark.Quote is not null).ToList();
         var sections = new List<ChatBookmarkGroup>();
         var next = 0;
         for (var i = 0; i < runs.Count; i++) {
             var end = i + 1 < runs.Count ? runs[i + 1].First : int.MaxValue;
             var start = next;
-            while (next < placed.Count && placed[next].Message < end) next++;
-            if (runs[i].Topic is not null || next > start) sections.Add(new ChatBookmarkGroup(runs[i].Topic, placed[start..next]));
+            while (next < placed.Count && (placed[next].At < end || i + 1 == runs.Count)) next++;
+            if (runs[i].Topic is not null || next > start)
+                sections.Add(new ChatBookmarkGroup(runs[i].Topic, [.. placed[start..next].Select(static p => p.Bookmark)]));
         }
-        if (_all.Where(b => !Placed(b)).ToList() is { Count: > 0 } loose) sections.Add(new ChatBookmarkGroup(null, loose));
+        if (positions.Where(static p => p.At is null).Select(static p => p.Bookmark).ToList() is { Count: > 0 } loose)
+            sections.Add(new ChatBookmarkGroup(null, loose));
         Sections = sections;
-        MarkMessages(messages);
+        MarkMessages();
     }
 
     readonly List<ChatItemViewModel> _marked = [];
 
-    void MarkMessages(IReadOnlyList<ChatItemViewModel> messages) {
+    void MarkMessages() {
         foreach (var row in _marked) row.Bookmark = null;
         _marked.Clear();
         foreach (var bookmark in _all)
-            if (bookmark is { Quote: null, Message: { } ordinal } && ordinal < messages.Count && messages[ordinal] is { Bookmark: null } row && bookmark.Fits(row)) {
+            if (bookmark is { Quote: null, Source: { Bookmark: null } row }) {
                 row.Bookmark = bookmark;
                 _marked.Add(row);
             }

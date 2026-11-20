@@ -2061,6 +2061,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                     Acknowledge(acknowledged);
                 }
             }
+            var message = 0;
             foreach (var e in projected.Envelopes) {
                 switch (e.Kind) {
                     case AcpEventKind.UserMessage when e.ToolKind == ChatDisplayKind.Shell:
@@ -2073,12 +2074,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                         cursor.OpenShell = null;
                         var (typed, files) = AttachmentTrailer.Split(e.Text ?? "");
                         cursor.Fresh.Add(new UserTurnItem(typed, [.. files.Select(file => UserAttachment.From(file, _origin == AgentOrigin.Local ? _root : null))],
-                            SenderOf(e, offset), TimeOf(e), undelivered: e.ToolKind == ChatDisplayKind.Undelivered));
+                            SenderOf(e, offset), TimeOf(e), undelivered: e.ToolKind == ChatDisplayKind.Undelivered) { Key = new(offset, message++) });
                         break;
                     case AcpEventKind.AssistantText:
                         cursor.OpenGroup = null;
                         cursor.OpenShell = null;
-                        cursor.Fresh.Add(new AssistantTextItem(e.Text ?? "", TimeOf(e)));
+                        cursor.Fresh.Add(new AssistantTextItem(e.Text ?? "", TimeOf(e)) { Key = new(offset, message++) });
                         break;
                     case AcpEventKind.AssistantThinking when !string.IsNullOrWhiteSpace(e.Text):
                         cursor.OpenGroup = null;
@@ -2206,6 +2207,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         }
         Reconcile();
         SyncPendingCardItems();
+        _topics.Restore();
         if (hasOlder && (older.Fresh.Count == 0 || !_ended || prefetch)) RequestOlder();
     }
 

@@ -98,6 +98,48 @@ public partial class ChatTabViewModelTests {
         } finally { await chat.TeardownAsync(); }
     });
 
+    /// Marks on a message in an older page come back on it once that page loads, not on whatever
+    /// message the opening page put at the same count from the top.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Marks_on_an_older_page_come_back_when_it_loads() => RunOnUiAsync(async () => {
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var time = new FakeTimeProvider();
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 400).Select(static i =>
+            RemoteFixtures.Event(i, CanonicalEventTypes.AssistantTextGenerated, $$"""{"content":"m{{i}}"}"""))]);
+        var marks = new ChatMarks();
+        RemoteTranscriptFeed? feed = null;
+        ChatTabViewModel Open() => new("a1", AgentOrigin.Remote, Observable.Return(Ended("s1")), Observable.Return<string[]?>(null),
+            new AcceptingChatInput(), new NoAttachmentUploader(), key => feed = new RemoteTranscriptFeed(key, "gemini", access, server.Reader, new FakeServerLane(), time, _ => { }, prefetch: 0),
+            new RecordingOpener(), time, new FakePermissionService(), new SessionRuns(time), chatMarks: marks);
+        AssistantTextItem Row(ChatTabViewModel chat, string text) => chat.Items.OfType<AssistantTextItem>().Single(row => row.Text == text);
+
+        var first = Open();
+        try {
+            await WaitUntilAsync(() => first.Items.Count > 0, what: "the seed");
+            await Assert.That(first.RequestOlder()).IsTrue();
+            await feed!.PendingOlderForTesting!;
+            await WaitUntilAsync(() => first.Items.Count >= 400, what: "the older page");
+            first.Topics.ToggleChange(Row(first, "m5"));
+            first.Bookmarks.ToggleMessageCommand.Execute(Row(first, "m5")).Subscribe();
+        } finally { await first.TeardownAsync(); }
+
+        var second = Open();
+        try {
+            await WaitUntilAsync(() => second.Items.Count > 0, what: "the seed");
+            await Assert.That(second.Items.OfType<ChatTopicItem>()).IsEmpty();
+            await Assert.That(second.Items.Any(static row => row.Bookmark is not null)).IsFalse();
+
+            await Assert.That(second.RequestOlder()).IsTrue();
+            await feed!.PendingOlderForTesting!;
+            await WaitUntilAsync(() => second.Items.Count > 400, what: "the older page");
+            var m5 = Row(second, "m5");
+            await Assert.That(second.Items.TakeWhile(row => !ReferenceEquals(row, m5)).Last()).IsTypeOf<ChatTopicItem>();
+            await Assert.That(m5.Bookmark).IsNotNull();
+            await Assert.That(second.Items.OfType<ChatTopicItem>()).Count().IsEqualTo(1);
+        } finally { await second.TeardownAsync(); }
+    });
+
     static ChatSessionInfo Ended(string feedKey) => new("Ended", "Ended", "gemini", null, null, null, true, "", feedKey);
 
     /// With no prefetch an ended session pages back only when asked, which is what most of these tests drive.

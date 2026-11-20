@@ -63,16 +63,16 @@ public sealed partial class ChatMarksFiles(string directory) {
     string PathOf(string feed) =>
         Path.Join(directory, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(feed))) + ".json");
 
-    /// A message is named by its ordinal among the transcript's user and agent messages, with the
-    /// start of its text as the anchor that confirms it is still the same message.
+    /// A message is named by its line's position in the feed and its index on that line, written
+    /// "line.index", with the start of its text as the anchor that confirms it is still the same message.
     public sealed record Entry(int Version, string Feed, DateTimeOffset UpdatedAt, IReadOnlyList<Topic> Topics, IReadOnlyList<Bookmark> Bookmarks);
 
     /// A topic starting at a message, or with <see cref="End"/>, the end of the topic before it.
-    public sealed record Topic(int Message, string? Anchor, string? Name = null, bool? Folded = null, bool? End = null);
+    public sealed record Topic(string Message, string? Anchor, string? Name = null, bool? Folded = null, bool? End = null);
 
     /// Bookmarks keep the order they were taken in; no quote marks the whole message, no message marks text from none.
     /// The colour is its lowercase name, and one this build does not know reads as blue.
-    public sealed record Bookmark(string Text, string Color, int? Message = null, string? Anchor = null, string? Quote = null);
+    public sealed record Bookmark(string Text, string Color, string? Message = null, string? Anchor = null, string? Quote = null);
 
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

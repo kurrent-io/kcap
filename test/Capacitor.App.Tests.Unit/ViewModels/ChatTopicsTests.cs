@@ -163,8 +163,9 @@ public class ChatTopicsTests {
         });
 
         static List<ChatItemViewModel> Transcript() => [
-            new AssistantTextItem("Five points"), new UserTurnItem("Point 1"), new AssistantTextItem("Done"),
-            new AssistantThinkingItem("Hmm"), new UserTurnItem("Point 2"), new AssistantTextItem("Done too"),
+            new AssistantTextItem("Five points") { Key = new(0, 0) }, new UserTurnItem("Point 1") { Key = new(1, 0) },
+            new AssistantTextItem("Done") { Key = new(2, 0) }, new AssistantThinkingItem("Hmm"),
+            new UserTurnItem("Point 2") { Key = new(3, 0) }, new AssistantTextItem("Done too") { Key = new(4, 0) },
         ];
     }
 
@@ -228,8 +229,8 @@ public class ChatTopicsTests {
     public async Task An_end_closes_its_topic_and_goes_with_it() {
         await RunOnUiAsync(async () => {
             var store = new ChatMarks();
-            var one   = new UserTurnItem("Point 1");
-            var done  = new AssistantTextItem("Done");
+            var one   = new UserTurnItem("Point 1") { Key = new(0, 0) };
+            var done  = new AssistantTextItem("Done") { Key = new(1, 0) };
             var items = new AvaloniaList<ChatItemViewModel> { one, done };
             var topics = new ChatTopics(items, store);
             topics.Reset("feed");
@@ -238,7 +239,7 @@ public class ChatTopicsTests {
             topics.ToggleChange(one);
             await Assert.That(topics.CanEnd).IsTrue();
             var end = topics.End()!;
-            var aside = new UserTurnItem("Unrelated");
+            var aside = new UserTurnItem("Unrelated") { Key = new(2, 0) };
             items.Add(aside);
             var topic = (ChatTopicItem)items[0];
             await Assert.That(topics.CanEnd).IsFalse();
@@ -255,7 +256,8 @@ public class ChatTopicsTests {
             var replayed = new AvaloniaList<ChatItemViewModel>();
             var again = new ChatTopics(replayed, store);
             again.Reset("feed");
-            replayed.AddRange([new UserTurnItem("Point 1"), new AssistantTextItem("Done"), new UserTurnItem("Unrelated")]);
+            replayed.AddRange([new UserTurnItem("Point 1") { Key = new(0, 0) }, new AssistantTextItem("Done") { Key = new(1, 0) },
+                new UserTurnItem("Unrelated") { Key = new(2, 0) }]);
             again.Restore();
             await Assert.That(replayed.Select(static row => row.GetType().Name)).IsEquivalentTo(
                 ["ChatTopicItem", "UserTurnItem"], CollectionOrdering.Matching);

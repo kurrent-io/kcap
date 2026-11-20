@@ -14,14 +14,14 @@ public class ChatBookmarksTests {
     public async Task Bookmarks_keep_their_order_and_colour_in_a_new_tab_of_the_transcript() {
         await RunOnUiAsync(async () => {
             var store = new ChatMarks();
-            var reply = new AssistantTextItem("Three points");
-            var items = new AvaloniaList<ChatItemViewModel> { new UserTurnItem("Review this"), reply };
+            var reply = new AssistantTextItem("Three points") { Key = new(40, 1) };
+            var items = new AvaloniaList<ChatItemViewModel> { new UserTurnItem("Review this") { Key = new(40, 0) }, reply };
             var first = new ChatBookmarks(new ChatTopics(items), store);
             first.Reset("feed");
 
             first.Add(["Lock   order", " ", "Retry\njitter", "Logging"], reply);
             await Assert.That(first.All.Select(b => b.Text)).IsEquivalentTo(["Lock order", "Retry jitter", "Logging"]);
-            await Assert.That(first.All.Select(b => b.Message)).IsEquivalentTo(new int?[] { 1, 1, 1 });
+            await Assert.That(first.All.Select(b => b.Message)).IsEquivalentTo(new ChatMessageKey?[] { new(40, 1), new(40, 1), new(40, 1) });
             await Assert.That(first.All.Select(b => b.Quote)).IsEquivalentTo(new string?[] { "Lock   order", "Retry\njitter", "Logging" });
             first.All[0].Color = ChatBookmarkColor.Pink;
             first.RemoveCommand.Execute(first.All[1]).Subscribe();
@@ -110,13 +110,13 @@ public class ChatBookmarksTests {
     /// The request quotes the bookmark line by line, and says when it stands for a whole message.
     [Test]
     public async Task A_request_quotes_its_bookmark_and_names_the_tool() {
-        var picked = ChatBookmarkAsk.FileLooseEnd.For(new ChatBookmark("Retry jitter", 1, "Retry\njitter"));
+        var picked = ChatBookmarkAsk.FileLooseEnd.For(new ChatBookmark("Retry jitter", new(1, 0), "Retry\njitter"));
         await Assert.That(picked).Contains("declare_loose_end").And.EndsWith("The bookmarked text:\n> Retry\n> jitter");
 
-        var whole = ChatBookmarkAsk.StartSession.For(new ChatBookmark("Three points", 1));
+        var whole = ChatBookmarkAsk.StartSession.For(new ChatBookmark("Three points", new(1, 0)));
         await Assert.That(whole).Contains("start_agent").And.EndsWith("The bookmark marks a whole message, which begins:\n> Three points");
 
-        var all = ChatBookmarkAskText.LooseEnds("Locks", [new ChatBookmark("Lock order", 1, "Lock order"), new ChatBookmark("Three points", 1)]);
+        var all = ChatBookmarkAskText.LooseEnds("Locks", [new ChatBookmark("Lock order", new(1, 0), "Lock order"), new ChatBookmark("Three points", new(1, 0))]);
         await Assert.That(all).Contains("one call per bookmark").And.EndsWith(
             "1. The bookmarked text:\n> Lock order\n\n2. The bookmark marks a whole message, which begins:\n> Three points");
     }

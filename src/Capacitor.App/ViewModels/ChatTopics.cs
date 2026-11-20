@@ -15,7 +15,7 @@ public sealed class ChatTopics : ReactiveObject {
     readonly ChatMarks? _store;
     string? _feed;
     // Saved marks whose message has not been replayed yet.
-    Dictionary<int, ChatTopicMark> _restoring = [];
+    Dictionary<ChatMessageKey, ChatTopicMark> _restoring = [];
     // Restored topics saved as folded, folded once the next topic bounds them: until then more of
     // their rows may still be on the way. The last topic stays open, where new activity lands.
     readonly HashSet<ChatTopicItem> _folding = [];
@@ -57,7 +57,8 @@ public sealed class ChatTopics : ReactiveObject {
         return reveal;
     }
 
-    /// Raised once topics have been laid out again after any change to the chat or its marks.
+    /// Raised once topics have been laid out again after any change to the chat or its marks, and once
+    /// each batch of rows has landed, whose messages saved bookmarks may be waiting for.
     public event Action? Laid;
 
     /// Every topic's header, in chat order.
@@ -123,20 +124,19 @@ public sealed class ChatTopics : ReactiveObject {
     /// Puts back the saved topics whose message has been replayed since the last call. Called once a
     /// batch of rows has landed, never from inside the list's own change notification.
     public void Restore() {
-        if (_restoring.Count == 0 && _folding.Count == 0) return;
+        if (_restoring.Count == 0 && _folding.Count == 0) {
+            Laid?.Invoke();
+            return;
+        }
         var found = new List<(ChatItemViewModel Row, ChatTopicMark Mark)>();
         var tail = TailStart();
-        var ordinal = 0;
-        for (var i = 0; i < _items.Count; i++) {
+        for (var i = 0; i < tail; i++) {
             var row = _items[i];
-            if (row is ChatTopicItem { IsExpanded: false } folded) ordinal += folded.Hidden.Count(IsMessage);
-            if (!IsMessage(row)) continue;
             // A mark whose message changed stays saved but is not put back.
-            if (i < tail && _restoring.TryGetValue(ordinal, out var mark) && (mark.Anchor is null || mark.Anchor == AnchorOf(row))) {
-                _restoring.Remove(ordinal);
+            if (row.Key is { } key && _restoring.TryGetValue(key, out var mark) && (mark.Anchor is null || mark.Anchor == AnchorOf(row))) {
+                _restoring.Remove(key);
                 found.Add((row, mark));
             }
-            ordinal++;
         }
         Edit(() => {
             foreach (var (row, mark) in found) {
@@ -230,19 +230,8 @@ public sealed class ChatTopics : ReactiveObject {
         _items.Remove(topic);
     });
 
-    /// The ordinal of a message among all the transcript's messages, folded ones included.
-    public int? OrdinalOf(ChatItemViewModel row) {
-        if (!IsMessage(row)) return null;
-        var ordinal = 0;
-        foreach (var each in Everything()) {
-            if (ReferenceEquals(each, row)) return ordinal;
-            if (IsMessage(each)) ordinal++;
-        }
-        return null;
-    }
-
-    /// The chat as runs of messages in order, each starting at the ordinal of its first message: a
-    /// topic's, or one outside every topic. A topic with no messages yet still has its run.
+    /// The chat as runs of messages in order, each starting at the index in <see cref="Messages"/> of its
+    /// first message: a topic's, or one outside every topic. A topic with no messages yet still has its run.
     public IReadOnlyList<(ChatTopicItem? Topic, int First)> Runs() {
         var runs = new List<(ChatTopicItem?, int)> { (null, 0) };
         var ordinal = 0;
@@ -254,9 +243,7 @@ public sealed class ChatTopics : ReactiveObject {
         return runs;
     }
 
-    public ChatItemViewModel? MessageAt(int ordinal) => Everything().Where(IsMessage).ElementAtOrDefault(ordinal);
-
-    /// Every message, folded ones too, in chat order: a message's ordinal is its index here.
+    /// Every message shown, folded ones too, in chat order.
     public IReadOnlyList<ChatItemViewModel> Messages() => Everything().Where(IsMessage).ToList();
 
     void Toggle(ChatTopicItem topic) => Edit(() => {
@@ -336,17 +323,16 @@ public sealed class ChatTopics : ReactiveObject {
 
     void Save() {
         if (_store is null || _feed is null) return;
-        var marks = new Dictionary<int, ChatTopicMark>(_restoring);
+        var marks = new Dictionary<ChatMessageKey, ChatTopicMark>(_restoring);
         ChatItemViewModel? mark = null;
-        var ordinal = 0;
         foreach (var row in Everything()) {
             if (row is ChatTopicItem or ChatTopicEndItem) { mark = row; continue; }
-            if (IsMessage(row)) {
+            // A topic made at a row from no feed lasts as long as the tab.
+            if (row.Key is { } key) {
                 if (mark is ChatTopicItem header)
-                    marks[ordinal] = new(!header.IsExpanded || _folding.Contains(header), header.CustomName, Anchor: AnchorOf(row));
+                    marks[key] = new(!header.IsExpanded || _folding.Contains(header), header.CustomName, Anchor: AnchorOf(row));
                 else if (mark is ChatTopicEndItem)
-                    marks[ordinal] = new(false, null, End: true, Anchor: AnchorOf(row));
-                ordinal++;
+                    marks[key] = new(false, null, End: true, Anchor: AnchorOf(row));
             }
             mark = null;
         }

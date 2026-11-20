@@ -17,6 +17,9 @@ public abstract class ChatItemViewModel : ReactiveObject {
     /// Whether the user marked this row as where a new topic starts.
     public bool StartsTopic { get => _startsTopic; internal set => this.RaiseAndSetIfChanged(ref _startsTopic, value); }
 
+    /// Where a message row came from in its transcript; null for any other row, and for one built outside a feed.
+    public ChatMessageKey? Key { get; init; }
+
     ChatBookmark? _bookmark;
     /// The bookmark marking this whole message, if the user took one.
     public ChatBookmark? Bookmark { get => _bookmark; internal set => this.RaiseAndSetIfChanged(ref _bookmark, value); }
