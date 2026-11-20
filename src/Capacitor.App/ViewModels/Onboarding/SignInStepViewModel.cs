@@ -54,7 +54,6 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
 
     CancellationTokenSource? _signUpClock;
 
-
     public SignInStepViewModel(
             WizardAuthService    service,
             ConnectChoiceViewModel connect,

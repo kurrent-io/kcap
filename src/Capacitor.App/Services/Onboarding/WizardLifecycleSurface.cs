@@ -11,7 +11,6 @@ namespace Capacitor.App.Services.Onboarding;
 public sealed class WizardLifecycleSurface : ReactiveObject, ILifecycleSurface {
     readonly LifecycleSurface _inner;
 
-
     /// <param name="post">Marshals the text updates onto the UI thread — the outcome consumer runs off it.</param>
     public WizardLifecycleSurface(Func<LifecyclePrompt, CancellationToken, Task<bool>> showPrompt, Action<Action> post) =>
         _inner = new LifecycleSurface(

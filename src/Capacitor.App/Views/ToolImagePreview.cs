@@ -25,7 +25,6 @@ public sealed class ToolImagePreview : Button {
     public static readonly DirectProperty<ToolImagePreview, bool> UnavailableProperty =
         AvaloniaProperty.RegisterDirect<ToolImagePreview, bool>(nameof(Unavailable), o => o.Unavailable);
 
-
     /// True when there is no path, or its load produced no image; false while a load is pending.
     public bool Unavailable {
         get;

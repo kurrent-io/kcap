@@ -15,7 +15,6 @@ public enum ConnectChoice { Discover, Paste }
 public sealed class ConnectChoiceViewModel : ReactiveObject {
     internal const string InvalidServerMessage = "Enter a workspace name (e.g. acme) or a full https:// server URL.";
 
-
     public ConnectChoice Choice {
         get;
         set {

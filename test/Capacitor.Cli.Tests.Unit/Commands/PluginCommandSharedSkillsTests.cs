@@ -15,7 +15,6 @@ public class PluginCommandSharedSkillsTests {
     [TempHome] public required TempHome Home   { get; init; }
     [TempDir]  public required TempDir  BinDir { get; init; }
 
-
     PluginEnvironment Env {
         get {
             if (field is not null) return field;

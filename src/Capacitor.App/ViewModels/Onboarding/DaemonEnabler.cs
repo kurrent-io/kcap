@@ -69,7 +69,6 @@ public sealed class DaemonEnabler : ReactiveObject {
     ObservedEvidence? _evidence;
     string? _replacedName;
 
-
     /// <param name="pickName">The name to save before enabling, or null to keep the configured one.</param>
     public DaemonEnabler(
             IKcapCli cli,

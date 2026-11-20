@@ -7,7 +7,6 @@ namespace Capacitor.App.ViewModels.Onboarding;
 public sealed class IntelligenceOption : ReactiveObject {
     public const string ProviderToken = "provider";
 
-
     IntelligenceOption(string token, string label, string detail) {
         Token  = token;
         Label  = label;

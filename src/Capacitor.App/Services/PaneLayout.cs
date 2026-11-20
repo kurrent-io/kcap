@@ -33,7 +33,6 @@ public sealed class PaneLayout {
 
     public static bool HidesAt(double width, double min) => width < min - HideTolerance;
 
-
     public double RailWidth { get; set => Set(ref field, value); } = RailMinWidth;
     public bool RailCollapsed { get; set => Set(ref field, value); }
     public double ContextWidth { get; set => Set(ref field, value); } = ContextMinWidth;

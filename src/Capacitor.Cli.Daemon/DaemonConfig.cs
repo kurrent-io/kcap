@@ -150,7 +150,6 @@ public class DaemonConfig {
         private set => Volatile.Write(ref field, value);
     } = UnattendedAdvertisement.None;
 
-
     internal void Advertise(IReadOnlyList<UnattendedVendorCapability> capabilities, Harness.Codex.CodexTransportResolution codex) =>
         Advertisement = new(capabilities, codex);
 
@@ -225,7 +224,6 @@ public class DaemonConfig {
         set => Volatile.Write(ref field, value);
     } = Harness.Codex.CodexTransportResolution.Unresolved;
 
-
     /// <summary>Whether app-server applies when the profile never set the <c>codex-app-server</c>
     /// switch. Set from the platform at boot; off for a config built anywhere else.</summary>
     internal bool CodexAppServerByDefault { get; set; }
@@ -272,7 +270,6 @@ public class DaemonConfig {
         get => Volatile.Read(ref field);
         set => Volatile.Write(ref field, value);
     }
-
 
     /// <summary>This daemon's profile's experimental switches, read from disk now. Empty when no
     /// profile was resolved.</summary>
