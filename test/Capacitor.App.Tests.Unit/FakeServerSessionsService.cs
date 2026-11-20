@@ -42,7 +42,7 @@ sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
         MineLiveCache.Connect(suppressEmptyChangeSets: false).ToCollection().StartWith((IReadOnlyCollection<RepoSessionDto>)[]),
         EndedCache.Connect(suppressEmptyChangeSets: false).ToCollection().StartWith((IReadOnlyCollection<RepoSessionDto>)[]),
         PinnedSubject, PinnedIdSubject,
-        (live, mine, ended, pinned, pinnedId) => new ServerSessionsSnapshot([.. live], [.. mine], [.. ended], pinned, pinnedId));
+        (live, mine, ended, pinned, pinnedId) => new ServerSessionsSnapshot([.. live], [.. mine], [.. ended], pinned, pinnedId, ListedProject: Project));
     public IObservable<SessionIdentity> Identity => IdentitySubject;
     public string? PinnedSessionId => PinnedIdSubject.Value;
 

@@ -67,6 +67,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
     readonly int _pageSize;
     int _pages = 1;
     string? _project;
+    string? _listedProject;
     bool _busy;
     bool _rerun;
     bool _fullRequested;
@@ -238,9 +239,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
                 if (_disposed || _project == value) return;
                 _project = value;
                 _pages = 1;
-                _ended.Clear();
-                _paging.OnNext(new(0, 0, 1, false, false));
-                EmitSnapshot();
+                // The previous project's rows stand until this one's read replaces them, so the list swaps in one step.
             }
             ReconcileIfConnected();
         }
@@ -273,7 +272,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         }
         var unlisted = TrackPin();
         var pinned = _pinId is not null && !_pinListed && !_pinGone ? _pinRow : null;
-        _snapshots.OnNext(new([.. _live.Items], [.. _mineLive.Items], ended, pinned, _pinId));
+        _snapshots.OnNext(new([.. _live.Items], [.. _mineLive.Items], ended, pinned, _pinId, _listedProject));
         if (unlisted) IssuePinRefresh();
     }
 
@@ -613,7 +612,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         if (snapshot.Ended is { } ended) {
             var rows = InSet(2).ToList();
             var total = snapshot.EndedTotal;
-            if (snapshot.EndedPartial) {
+            if (snapshot.EndedPartial && _listedProject == _project) {
                 // The pages past the failed one were not read: what they held stands, unless the
                 // session is live again.
                 var read = rows.Select(r => r.SessionId).Concat(snapshot.Live.Select(r => r.SessionId))
@@ -622,6 +621,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
                 if (ended.Length == 0) total = _paging.Value.Total;
             }
             _ended.EditDiff(rows, EqualityComparer<RepoSessionDto>.Default);
+            _listedProject = _project;
             var atCap = pages * _pageSize >= OffsetCap;
             _paging.OnNext(new(rows.Count, total, pages, rows.Count < total && !atCap, atCap));
         }

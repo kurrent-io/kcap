@@ -1,7 +1,9 @@
 using Avalonia;
+using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
 
@@ -42,6 +44,30 @@ public partial class SessionRailView : UserControl {
     }
 
     SessionRailViewModel? RailModel => (DataContext as MainWindowViewModel)?.Rail;
+
+    // A transition, not an animation: an animation's value drops back to the base value for a frame when it ends.
+    readonly Transitions _groupsFadeIn = [new DoubleTransition { Property = OpacityProperty, Duration = Motion.Arrive.Duration, Easing = Motion.Arrive.Easing }];
+    SessionRailViewModel? _rail;
+    int _projectShows;
+
+    protected override void OnDataContextChanged(EventArgs e) {
+        base.OnDataContextChanged(e);
+        if (_rail is not null) _rail.ProjectShowing -= OnProjectShowing;
+        _rail = RailModel;
+        if (_rail is not null) _rail.ProjectShowing += OnProjectShowing;
+    }
+
+    // Hidden until ContextIdle, which runs only once the regroup's posted passes have drained.
+    void OnProjectShowing() {
+        var show = ++_projectShows;
+        RailGroups.Transitions = null;
+        RailGroups.Opacity = 0;
+        Dispatcher.UIThread.Post(() => {
+            if (show != _projectShows) return;
+            RailGroups.Transitions = _groupsFadeIn;
+            RailGroups.Opacity = 1;
+        }, DispatcherPriority.ContextIdle);
+    }
 
     void OnSessionRowAttached(object? sender, VisualTreeAttachmentEventArgs e) {
         if (sender is Button { DataContext: RailSessionViewModel row } button && RailModel?.TakeArrival(row.Key) == true)

@@ -196,7 +196,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     /// The grouping shown: Work item falls back to Repository where it is not offered.
     public RailGrouping EffectiveGrouping => _effective;
     /// Work item is offered once a project is picked on a server with work items version 2.
-    public bool OffersWorkItem => _project is not null && _workItemsOffered;
+    public bool OffersWorkItem => _shownProject is not null && _workItemsOffered;
     RailGrouping DefaultGrouping => OffersWorkItem ? RailGrouping.WorkItem : RailGrouping.Repository;
     public bool ShowsWorkItems => _effective == RailGrouping.WorkItem && _workItems.Count > 0;
     public string WorkItemsCountText => $"{_workItems.Count} open";
@@ -260,17 +260,38 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             if (_disposables.IsDisposed) return;
             if (Equals(_project, value)) return;
             this.RaiseAndSetIfChanged(ref _project, value);
-            if (_sessions is not null) _sessions.Project = value?.Id;
-            _lastWorkItems = WorkItemsIn(_listed, value, _time.GetUtcNow());
             this.RaisePropertyChanged(nameof(ProjectLabel));
             this.RaisePropertyChanged(nameof(ProjectInitial));
             this.RaisePropertyChanged(nameof(IsAllProjects));
             ProjectOptions = Options(_projects, value);
-            _stateFilter.OnNext(StateFilter());
             _projectChanges.OnNext(value);
-            ApplyGrouping();
+            if (_sessions is null) ShowProject();
+            else {
+                _sessions.Project = value?.Id;
+                // A read that fails or never goes out still shows the project, from what is already listed.
+                _showProjectFallback.Disposable = Observable.FromAsync(ct => Task.Delay(ShowProjectFallbackAfter, _time, ct))
+                    .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => ShowProject());
+            }
             Persist();
         }
+    }
+
+    /// The project the list shows: the previous one until the picked one's sessions land, so it changes once instead of emptying and refilling.
+    RailProject? _shownProject;
+    readonly SerialDisposable _showProjectFallback = new();
+    static readonly TimeSpan ShowProjectFallbackAfter = TimeSpan.FromSeconds(2);
+
+    /// Raised before the list changes project, which lands over several posted passes.
+    public event Action? ProjectShowing;
+
+    void ShowProject() {
+        _showProjectFallback.Disposable = null;
+        if (_disposables.IsDisposed || Equals(_shownProject, _project)) return;
+        ProjectShowing?.Invoke();
+        _shownProject = _project;
+        _lastWorkItems = WorkItemsIn(_listed, _shownProject, _time.GetUtcNow());
+        _stateFilter.OnNext(StateFilter());
+        ApplyGrouping();
     }
 
     public string ProjectLabel => _project?.Name ?? AllProjectsLabel;
@@ -390,6 +411,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                 row => SessionIds.Canonical(row.SessionId) is not null, Remove),
         ];
         _disposables.Add(_marked);
+        _disposables.Add(_showProjectFallback);
         _sessions = sessions;
         _persist = persistPreferences;
         _time = time;
@@ -401,6 +423,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         _sort = initial.Sort;
         _descending = initial.Descending;
         _project = initial.Project;
+        _shownProject = _project;
         // Assumed until a read says otherwise, so a project opens in its work items rather than flickering through repositories.
         _workItemsOffered = readWorkItems is not null;
         _effective = Effective(_grouping, OffersWorkItem);
@@ -522,7 +545,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         sessions?.Snapshots.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(snapshot => {
             if (_disposables.IsDisposed) return;
             _listed = snapshot;
-            var items = WorkItemsIn(snapshot, _project, _time.GetUtcNow());
+            if (!Equals(_shownProject, _project) && snapshot.ListedProject == _project?.Id) {
+                ShowProject();
+                return;
+            }
+            var items = WorkItemsIn(snapshot, _shownProject, _time.GetUtcNow());
             foreach (var item in items)
                 if (_retitled.GetValueOrDefault(item.Id) == item.Title) _retitled.Remove(item.Id);
             var landed = _dropped.Where(drop => drop.Value == items.FirstOrDefault(item => item.PartBySession.ContainsKey(drop.Key))?.Id).ToList();
@@ -933,7 +960,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     Func<AgentRow, bool> StateFilter() {
         var state = _state;
         var selected = _openSessionKey;
-        var project = _project;
+        var project = _shownProject;
         var removed = _removed.ToFrozenSet(StringComparer.Ordinal);
         return row => row.Key == selected
             || (!(SessionIds.Canonical(row.SessionId) is { } id && removed.Contains(id)) && StateAdmits(state, row, null) && (project is null || project.Holds(row)));
