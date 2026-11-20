@@ -116,18 +116,9 @@ public partial class ChatTabView : UserControl {
         set => SetValue(LaneWidthProperty, value);
     }
 
-    public static readonly StyledProperty<bool> CanBookmarkProperty =
-        AvaloniaProperty.Register<ChatTabView, bool>(nameof(CanBookmark), true);
-
-    /// Whether text here can be bookmarked: off where the bookmarks would not be listed.
-    public bool CanBookmark {
-        get => GetValue(CanBookmarkProperty);
-        set => SetValue(CanBookmarkProperty, value);
-    }
-
     /// Where a message's text bookmarks to, when it can.
     internal ChatBookmarks? BookmarksFor(Control text) =>
-        CanBookmark && DataContext is ChatTabViewModel chat && text.DataContext is ChatItemViewModel ? chat.Bookmarks : null;
+        DataContext is ChatTabViewModel { ShowsMarks: true } chat && text.DataContext is ChatItemViewModel ? chat.Bookmarks : null;
 
     internal Task? PendingIntakeForTesting => _composer.PendingIntakeForTesting;
 

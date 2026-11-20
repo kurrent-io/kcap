@@ -24,7 +24,15 @@ public static class ExperimentalFeatures {
         DesktopAppOnly: true,
         OnByDefault: false);
 
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork];
+    public static ExperimentalFeature ChatMarks { get; } = new(
+        "chat-marks",
+        "Chat topics and bookmarks",
+        "Split a desktop chat into topics and bookmark its messages and text, listed beside the chat. Applies to chats opened after the change.",
+        AppliesLive: true,
+        DesktopAppOnly: true,
+        OnByDefault: false);
+
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>

@@ -133,14 +133,14 @@ public class ChatTabViewSmokeTests {
         /// ScrollViewer until Show() is called — the order production takes, where the tab's
         /// first read starts before the workspace view exists.
         public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null,
-                ChatFindMemory? findMemory = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null) {
+                ChatFindMemory? findMemory = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, bool marks = true) {
             Runs = new SessionRuns(Time);
             Terminal = new TerminalTabViewModel("a1", Daemon, Attach.Factory, () => new FakeTerminalSurface(), Time);
             Chat = new ChatTabViewModel(
                 "a1", Daemon, new TerminalChatInput(Terminal, "a1", Daemon, new ScriptedLocalControlOps(), _presence), new NoAttachmentUploader(), TranscriptChat.For("claude"), Opener, Time, Permissions, Runs,
                 sessionId: sessionId, localDaemonOnAppServer: Observable.Return(true),
                 accountReadings: accountReadings, usageClock: Observable.Return(StripReadings.Now), findMemory: findMemory,
-                handoffOutcome: handoffOutcome);
+                handoffOutcome: handoffOutcome, chatMarks: marks ? new ChatMarks() : null);
             View = new ChatTabView { DataContext = Chat };
             Window = new Window { Content = View, Width = 800, Height = 600 };
             if (!show) return;
@@ -1617,6 +1617,34 @@ public class ChatTabViewSmokeTests {
                 Invoke(MenuRow(OpenContextMenu(host, reply, item), "Bookmark message"));
                 host.Settle();
                 await Assert.That(toggle.Classes.Contains("on")).IsTrue();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    /// A chat given nowhere to keep topics and bookmarks offers no way to make them: no message
+    /// toggles, no send modes, no bookmark rows in the text menu.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_chat_without_marks_offers_no_topics_or_bookmarks() {
+        await RunOnUiAsync(async () => {
+            var host = new Host(marks: false);
+            try {
+                var path = Tmp.CreateFile("no-marks.jsonl", [UserLine,
+                    """{"type":"assistant","message":{"content":[{"type":"text","text":"To cover:\n\n1. Lock order\n2. Retry jitter"}]}}"""]);
+                await host.AttachAsync(path);
+                var buttons = host.View.GetVisualDescendants().OfType<Button>().ToList();
+                await Assert.That(buttons.Where(b => b.Classes.Contains("topicHere") || b.Classes.Contains("bookmarkHere"))
+                    .Any(b => b.IsEffectivelyVisible)).IsFalse();
+                await Assert.That(buttons.Single(b => b.Name == "SendModeButton").IsEffectivelyVisible).IsFalse();
+                await Assert.That(buttons.Single(b => b.Name == "SendButton").CornerRadius).IsEqualTo(new CornerRadius(7));
+
+                var reply = host.View.GetVisualDescendants().OfType<MarkdownView>().Single(v => v.DataContext is AssistantTextItem);
+                var item = reply.GetVisualDescendants().OfType<TextBlock>()
+                    .First(t => MarkdownViewHarness.Reads(t).EndsWith("Retry jitter", StringComparison.Ordinal));
+                var menu = OpenContextMenu(host, reply, item);
+                await Assert.That(menu.GetVisualDescendants().OfType<Button>()
+                    .Any(b => b.IsEffectivelyVisible && b.Content is string text && text.StartsWith("Bookmark", StringComparison.Ordinal))).IsFalse();
+                await Assert.That(MenuRow(menu, "Select all").IsEffectivelyVisible).IsTrue();
             } finally { await host.CloseAsync(); }
         });
     }

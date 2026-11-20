@@ -154,6 +154,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     readonly ChatTopics _topics;
     public ChatBookmarks Bookmarks { get; }
 
+    /// Whether the user can make topics and bookmarks here: only where they are kept, which a chat
+    /// given no <see cref="ChatMarks"/> is not.
+    public bool ShowsMarks { get; }
+
     ChatSendMode _sendMode;
     /// Whether Send also starts or ends a topic; back to a plain send once a message goes out.
     public ChatSendMode SendMode {
@@ -942,6 +946,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             ChatMarks? chatMarks = null) {
         _topics = new ChatTopics(_items, chatMarks);
         Bookmarks = new ChatBookmarks(_topics, chatMarks);
+        ShowsMarks = chatMarks is not null;
         _tracksAccountReadings = accountReadings is not null;
         _drafts = drafts;
         _findMemory = findMemory;
