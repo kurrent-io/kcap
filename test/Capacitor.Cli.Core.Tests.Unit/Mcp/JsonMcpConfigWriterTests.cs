@@ -500,9 +500,9 @@ public class JsonMcpConfigWriterTests {
     [Test]
     public async Task Register_leaves_an_opencode_server_the_user_disabled() {
         using var tmp = new TempDir();
-        var entry  = """{"type":"local","command":["/gone/bin/kcap","mcp","review"],"enabled":false}""";
-        var path   = tmp.CreateFile("opencode.json", """{"mcp":{"kcap-review":""" + entry + "}}");
-        var marker = new McpMarker("test", Home, _ => tmp.PathTo("marker.json"));
+        const string entry = """{"type":"local","command":["/gone/bin/kcap","mcp","review"],"enabled":false}""";
+        var path           = tmp.CreateFile("opencode.json", """{"mcp":{"kcap-review":""" + entry + "}}");
+        var marker         = new McpMarker("test", Home, _ => tmp.PathTo("marker.json"));
 
         JsonMcpConfigWriter.Register(path, KcapMcpServers.All, McpConfigShape.OpenCode, null, marker,
                                      resolveBinaryPath: () => "/new/kcap");

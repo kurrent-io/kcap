@@ -136,7 +136,7 @@ public class CanonicalBatchAssemblerTests {
 
     [Test]
     public async Task A_title_and_a_turn_end_are_reported_with_their_lines() {
-        var title = $$"""{"type":"custom-title","customTitle":"Renamed","sessionId":"{{Session}}"}""";
+        const string title = $$"""{"type":"custom-title","customTitle":"Renamed","sessionId":"{{Session}}"}""";
 
         var batch = Claude().Assemble(Raw(10, User(1, "hi"), title, Assistant(3, "hello", 1, 10), TurnEnd(4), User(5, "next", 4)), Received);
 
@@ -285,8 +285,8 @@ public class CanonicalBatchAssemblerTests {
 
     [Test]
     public async Task The_batch_round_trips_through_CapacitorJsonContext() {
-        var title = $$"""{"type":"ai-title","aiTitle":"Fix it","sessionId":"{{Session}}"}""";
-        var raw   = Raw(0, Image(1, Convert.ToBase64String([1, 2, 3])), Assistant(2, "hello", 1, 10), title, CaptureLoss, TurnEnd(5)) with {
+        const string title = $$"""{"type":"ai-title","aiTitle":"Fix it","sessionId":"{{Session}}"}""";
+        var raw            = Raw(0, Image(1, Convert.ToBase64String([1, 2, 3])), Assistant(2, "hello", 1, 10), title, CaptureLoss, TurnEnd(5)) with {
             Repository = new() { Branch = "main" }, Strict = true, ObservedCommits = [], MoreFollows = true,
         };
 

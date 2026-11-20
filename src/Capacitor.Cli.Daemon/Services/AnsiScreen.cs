@@ -104,7 +104,7 @@ internal sealed class AnsiScreen {
                 break;
             case Mode.Osc:
                 if (c == '\a') _mode = Mode.Ground;
-                else if (c == '\x1b') _mode = Mode.OscEsc;
+                else if (c == '\e') _mode = Mode.OscEsc;
                 break;
             case Mode.OscEsc:
                 _mode = Mode.Ground;
@@ -114,7 +114,7 @@ internal sealed class AnsiScreen {
 
     void Ground(char c) {
         switch (c) {
-            case '\x1b':
+            case '\e':
                 _mode = Mode.Esc;
                 break;
             case '\r':

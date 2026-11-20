@@ -1440,7 +1440,7 @@ public class DaemonLifecycleControllerTests {
         var words = new Queue<string?>(["adaptive", "app", "", null]);
         h.Cli.StatusBehavior = _ => {
             var word = words.Dequeue();
-            return Task.FromResult<ServiceSnapshot?>(word is null ? null : Snap(state: "running", jobPid: 100, daemonPid: 100) with { LoadedSpawnType = word });
+            return Task.FromResult(word is null ? null : Snap(state: "running", jobPid: 100, daemonPid: 100) with { LoadedSpawnType = word });
         };
         h.Start();
         h.PushConnected();
@@ -2619,8 +2619,8 @@ sealed class FakeKcapCli : IKcapCli {
     public Task<ProcessResult> LocalStartAsync(CancellationToken ct) =>
         Task.FromResult(new ProcessResult(0, "", "", false));
 
-    public Task<Capacitor.Cli.Core.LocalEdition.LocalServerReading?> LocalStatusAsync(CancellationToken ct) =>
-        Task.FromResult<Capacitor.Cli.Core.LocalEdition.LocalServerReading?>(null);
+    public Task<Cli.Core.LocalEdition.LocalServerReading?> LocalStatusAsync(CancellationToken ct) =>
+        Task.FromResult<Cli.Core.LocalEdition.LocalServerReading?>(null);
 
     public Task<ProcessResult> HideSessionAsync(string sessionId, CancellationToken ct) =>
         Task.FromResult(new ProcessResult(0, "", "", false));

@@ -31,7 +31,7 @@ public class LoginShellProbeTests {
 
     [Test]
     public async Task Parse_extracts_between_the_sentinel_pair_amid_chatter() {
-        var stdout = $"motd\n{LoginShellProbe.Sentinel}/a:/b{LoginShellProbe.Sentinel}\n";
+        const string stdout = $"motd\n{LoginShellProbe.Sentinel}/a:/b{LoginShellProbe.Sentinel}\n";
 
         await Assert.That(LoginShellProbe.Parse(stdout)).IsEqualTo("/a:/b");
     }

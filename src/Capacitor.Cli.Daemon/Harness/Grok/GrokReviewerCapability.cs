@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Daemon.Services;
 
 namespace Capacitor.Cli.Daemon.Harness.Grok;
 
@@ -12,19 +13,16 @@ namespace Capacitor.Cli.Daemon.Harness.Grok;
 /// upgrade needs no action.</para>
 /// </summary>
 internal static class GrokReviewerCapability {
-    internal static GrokReviewerDecision Decide(bool operatorEnabled, string? installedVersion, string? minimumVersion) {
-        // Operator flag first and short-circuiting, so a wedged binary cannot stall a switched-off feature.
-        if (!operatorEnabled) return GrokReviewerDecision.Disabled;
+    static readonly ConsentAndMinimumGate<GrokReviewerDecision> Gate = new(
+        allowed:             GrokReviewerDecision.Allowed,
+        disabled:            GrokReviewerDecision.Disabled,
+        versionUnresolved:   GrokReviewerDecision.VersionUnresolved,
+        versionNoMinimum:    GrokReviewerDecision.VersionNoMinimum,
+        versionBelowMinimum: GrokReviewerDecision.VersionBelowMinimum,
+        versionIncomparable: GrokReviewerDecision.VersionIncomparable);
 
-        // No discard: a later arm must be a build failure, not a silent admit.
-        return ReviewerVersionAffirmations.Decide(installedVersion, minimumVersion) switch {
-            ReviewerVersionAffirmation.MeetsMinimum      => GrokReviewerDecision.Allowed,
-            ReviewerVersionAffirmation.Unresolved        => GrokReviewerDecision.VersionUnresolved,
-            ReviewerVersionAffirmation.NoMinimumRecorded => GrokReviewerDecision.VersionNoMinimum,
-            ReviewerVersionAffirmation.BelowMinimum      => GrokReviewerDecision.VersionBelowMinimum,
-            ReviewerVersionAffirmation.Incomparable      => GrokReviewerDecision.VersionIncomparable
-        };
-    }
+    internal static GrokReviewerDecision Decide(bool operatorEnabled, string? installedVersion, string? minimumVersion) =>
+        Gate.Decide(operatorEnabled, installedVersion, minimumVersion);
 
     internal static string DenialReason(GrokReviewerDecision decision, string? installedVersion, string? minimumVersion) =>
         decision switch {

@@ -132,7 +132,7 @@ public class PageContentClientTests {
 
     static async Task<(PageResultsAccess Access, Handler Handler)> Access(string detail, HttpStatusCode status, string body, Exception? throws = null) {
         var (client, handler) = Build((_, _) => (status, body), throws);
-        var page = System.Text.Json.JsonSerializer.Deserialize(detail, CapacitorJsonContext.Default.ArtefactDetailDto)!.Artefact;
+        var page = JsonSerializer.Deserialize(detail, CapacitorJsonContext.Default.ArtefactDetailDto)!.Artefact;
         return (await client.ResultsAccessAsync("a1", page, CancellationToken.None), handler);
     }
 

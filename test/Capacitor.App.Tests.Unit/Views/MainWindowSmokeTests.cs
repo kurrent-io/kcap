@@ -137,7 +137,7 @@ public class MainWindowSmokeTests {
                 connection: "connected", active: 1, max: 5));
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
 
-            var (actions, _) = NewActions(service);
+            _ = NewActions(service);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
                 tenantName: "kurrent");
             var window = new MainWindow { DataContext = vm };
@@ -186,7 +186,7 @@ public class MainWindowSmokeTests {
     public async Task Status_transition_from_a_background_thread_does_not_throw_and_converges() {
         var (thrown, startEnabledAfter) = await AvaloniaSession.DispatchAsync(() => {
             var service = new FakeDaemonClientService();
-            var (actions, _) = NewActions(service);
+            _ = NewActions(service);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
             var window = new MainWindow { DataContext = vm };
             window.Show();
@@ -237,7 +237,7 @@ public class MainWindowSmokeTests {
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, "daemon_unreachable", null));
 
             var shutdown = new CancellationTokenSource();
-            var (actions, _) = NewActions(service);
+            _ = NewActions(service);
             var vm = new MainWindowViewModel(service, shutdown.Token, TestActivity.New(), TimeProvider.System);
             var window = new MainWindow { DataContext = vm };
             window.Show();
@@ -334,7 +334,7 @@ public class MainWindowSmokeTests {
     public async Task Toast_renders_the_notifier_message() {
         var rendered = await AvaloniaSession.DispatchAsync(() => {
             var service = new FakeDaemonClientService();
-            var (actions, notifier) = NewActions(service);
+            var (_, notifier) = NewActions(service);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
             var window = new MainWindow { DataContext = vm, Notifier = notifier };
             window.Show();
@@ -750,7 +750,7 @@ public class MainWindowSmokeTests {
         parts.SetValue(decorations, Enum.ToObject(parts.PropertyType, 0xFF));
         var host = new Panel();
         var window = new Window { Title = "kcap Desktop", Content = host };
-        ((Avalonia.Controls.ISetLogicalParent)decorations).SetParent(window);
+        ((ISetLogicalParent)decorations).SetParent(window);
         typeof(Avalonia.Controls.Chrome.WindowDrawnDecorations).GetMethod("ApplyTemplate", Members)!.Invoke(decorations, null);
         host.Children.Add(decorations.Content!.Overlay!);
         try {
@@ -1208,7 +1208,7 @@ public class MainWindowSmokeTests {
 
                 var selected = RailRow(window, "Fix the flaky test");
                 var sibling = RailRow(window, "Leave this one alone");
-                var hover = ((ISolidColorBrush)Avalonia.Application.Current!.FindResource("KcapSurfaceRaisedBrush")!).Color;
+                var hover = ((ISolidColorBrush)Application.Current!.FindResource("KcapSurfaceRaisedBrush")!).Color;
                 static TextBlock Title(Button row) => row.GetVisualDescendants().OfType<TextBlock>().First(t => t.Classes.Contains("rowTitle"));
                 var result = (
                     SelectedBackground: (selected.Background as ISolidColorBrush)?.Color,
@@ -1467,7 +1467,7 @@ public class MainWindowSmokeTests {
                 var ctrl = Bound(KeyModifiers.Control);
 
                 var newSession = window.KeyBindings
-                    .First(k => k.Gesture is { Key: Key.N } g && g.KeyModifiers.HasFlag(KeyModifiers.Meta)).Command!;
+                    .First(k => k.Gesture is { Key: Key.N } g && g.KeyModifiers.HasFlag(KeyModifiers.Meta)).Command;
                 newSession.Execute(null);
                 Dispatcher.UIThread.RunJobs();
                 var after = vm.CurrentWorkspace;
@@ -1521,17 +1521,17 @@ public class MainWindowSmokeTests {
             Dispatcher.UIThread.RunJobs();
             try {
                 var bindings = window.KeyBindings.Where(k => k.Gesture is { Key: Key.R }).ToArray();
-                bool Bound(KeyModifiers mod) => bindings.Any(k => k.Gesture!.KeyModifiers == mod);
-                bool Can() => bindings.Single(k => k.Gesture!.KeyModifiers == KeyModifiers.Meta).Command!.CanExecute(null);
+                bool Bound(KeyModifiers mod) => bindings.Any(k => k.Gesture.KeyModifiers == mod);
+                bool Can() => bindings.Single(k => k.Gesture.KeyModifiers == KeyModifiers.Meta).Command.CanExecute(null);
                 var yield = new UnlessTerminalFocused(window, m => m.RefreshWorkCommand);
 
                 await Assert.That(Bound(KeyModifiers.Meta)).IsTrue();
                 await Assert.That(Bound(KeyModifiers.Control)).IsEqualTo(RefreshShortcut.UsesControl);
                 await Assert.That(Bound(KeyModifiers.Control | KeyModifiers.Shift)).IsEqualTo(RefreshShortcut.UsesControl);
-                await Assert.That(bindings.Where(k => k.Gesture!.KeyModifiers != KeyModifiers.Control)
+                await Assert.That(bindings.Where(k => k.Gesture.KeyModifiers != KeyModifiers.Control)
                     .All(k => ReferenceEquals(k.Command, vm.RefreshWorkCommand))).IsTrue();
                 if (RefreshShortcut.UsesControl) {
-                    await Assert.That(bindings.Single(k => k.Gesture!.KeyModifiers == KeyModifiers.Control).Command)
+                    await Assert.That(bindings.Single(k => k.Gesture.KeyModifiers == KeyModifiers.Control).Command)
                         .IsNotSameReferenceAs(vm.RefreshWorkCommand);
                 }
                 await Assert.That(refreshItem.Command).IsSameReferenceAs(vm.RefreshWorkCommand);
@@ -1582,7 +1582,7 @@ public class MainWindowSmokeTests {
                 await Assert.That(Can()).IsTrue();
                 await Assert.That(source.Requested.Count).IsEqualTo(beforePoll + 1);
 
-                bindings[0].Command!.Execute(null);
+                bindings[0].Command.Execute(null);
                 await Assert.That(work.IsRefreshing).IsTrue();
                 await Assert.That(source.Requested.Count).IsEqualTo(beforePoll + 1);
                 await Assert.That(Can()).IsFalse();
@@ -1617,7 +1617,7 @@ public class MainWindowSmokeTests {
             var ok = await AvaloniaSession.DispatchAsync(() => {
                 var service = new FakeDaemonClientService();
                 service.SnapshotsSubject.OnNext(Snap());
-                var (actions, _) = NewActions(service);
+                _ = NewActions(service);
                 var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System);
                 var window = new MainWindow { DataContext = vm };
                 window.Show();
@@ -1758,7 +1758,7 @@ public class MainWindowSmokeTests {
         var service = new FakeDaemonClientService();
         service.SnapshotsSubject.OnNext(Snap());
         var opener = new RecordingOpener();
-        var reported = new List<Capacitor.Cli.Core.Commands.FeedbackCategory>();
+        var reported = new List<Cli.Core.Commands.FeedbackCategory>();
         var setupOpened = 0;
         var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
             openFeedback: reported.Add, opener: opener, requestSetup: () => setupOpened++);
@@ -1787,13 +1787,13 @@ public class MainWindowSmokeTests {
 
             OpenAndClick("RailHelpBugButton");
             await Assert.That(flyout.IsOpen).IsFalse();
-            await Assert.That(reported).IsEquivalentTo([Capacitor.Cli.Core.Commands.FeedbackCategory.Bug]);
+            await Assert.That(reported).IsEquivalentTo([Cli.Core.Commands.FeedbackCategory.Bug]);
 
             OpenAndClick("RailHelpFeedbackButton");
             await Assert.That(flyout.IsOpen).IsFalse();
             await Assert.That(reported).IsEquivalentTo([
-                Capacitor.Cli.Core.Commands.FeedbackCategory.Bug,
-                Capacitor.Cli.Core.Commands.FeedbackCategory.Feedback,
+                Cli.Core.Commands.FeedbackCategory.Bug,
+                Cli.Core.Commands.FeedbackCategory.Feedback,
             ]);
         } finally {
             window.Close();
@@ -2292,10 +2292,10 @@ public class MainWindowSmokeTests {
         var bindings = host.Window.KeyBindings.Where(k => k.Gesture is { Key: Key.K }).ToArray();
         var yield = new UnlessTerminalFocused(host.Window, m => m.OpenSearchCommand);
 
-        await Assert.That(bindings.Single(k => k.Gesture!.KeyModifiers == KeyModifiers.Meta).Command).IsSameReferenceAs(host.Vm.OpenSearchCommand);
-        await Assert.That(bindings.Any(k => k.Gesture!.KeyModifiers == KeyModifiers.Control)).IsEqualTo(!ShortcutLabels.UsesCommandKey);
+        await Assert.That(bindings.Single(k => k.Gesture.KeyModifiers == KeyModifiers.Meta).Command).IsSameReferenceAs(host.Vm.OpenSearchCommand);
+        await Assert.That(bindings.Any(k => k.Gesture.KeyModifiers == KeyModifiers.Control)).IsEqualTo(!ShortcutLabels.UsesCommandKey);
         if (!ShortcutLabels.UsesCommandKey) {
-            await Assert.That(bindings.Single(k => k.Gesture!.KeyModifiers == KeyModifiers.Control).Command).IsNotSameReferenceAs(host.Vm.OpenSearchCommand);
+            await Assert.That(bindings.Single(k => k.Gesture.KeyModifiers == KeyModifiers.Control).Command).IsNotSameReferenceAs(host.Vm.OpenSearchCommand);
         }
 
         const string id = "0123456789abcdef0123456789abcdef";

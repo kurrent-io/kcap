@@ -101,11 +101,11 @@ public sealed class ProfilesSettingsViewModel : ReactiveObject, IDisposable {
             ServerLaneState.Retrying when l.Failure is { } failure => ($"This app: can't reach the server ({failure.Reason})", true),
             ServerLaneState.Retrying   => ("This app: reconnecting", false),
             ServerLaneState.SignedOut  => ("This app: sign-in rejected", true),
-            _                          => ((string?)null, false),
+            _                          => (null, false),
         } : (null, false);
         var ours = daemon.Word is not null && string.Equals(daemon.Profile, profile, StringComparison.Ordinal)
             ? ($"Daemon: {daemon.Word}", daemon.Word is not ("connected" or "connecting"))
-            : ((string?)null, false);
+            : (null, false);
         var text = string.Join(" · ", new[] { app.Item1, ours.Item1 }.OfType<string>());
         return (text.Length > 0 ? text : null, app.Item2 || ours.Item2);
     }

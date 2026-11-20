@@ -32,11 +32,11 @@ public class CursorReconnectRewindTests {
         // trivial for a non-positive request, LineNumber just carries the input through.
         var zero = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 0, CancellationToken.None);
         await Assert.That(zero!.Value.ByteOffset).IsEqualTo(0L);
-        await Assert.That(zero!.Value.LineNumber).IsEqualTo(0);
+        await Assert.That(zero.Value.LineNumber).IsEqualTo(0);
 
         var negative = await TranscriptReader.ResolveByteOffsetForLineAsync(path, -1, CancellationToken.None);
         await Assert.That(negative!.Value.ByteOffset).IsEqualTo(0L);
-        await Assert.That(negative!.Value.LineNumber).IsEqualTo(-1);
+        await Assert.That(negative.Value.LineNumber).IsEqualTo(-1);
     }
 
     // a missing file with a POSITIVE requested line number is exactly "fewer lines on disk than
@@ -59,15 +59,15 @@ public class CursorReconnectRewindTests {
         // unchanged; only the unterminated-final-record case (covered below) rewinds it.
         var r1 = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 1, CancellationToken.None);
         await Assert.That(r1!.Value.ByteOffset).IsEqualTo(2L);
-        await Assert.That(r1!.Value.LineNumber).IsEqualTo(1);
+        await Assert.That(r1.Value.LineNumber).IsEqualTo(1);
 
         var r2 = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 2, CancellationToken.None);
         await Assert.That(r2!.Value.ByteOffset).IsEqualTo(7L);
-        await Assert.That(r2!.Value.LineNumber).IsEqualTo(2);
+        await Assert.That(r2.Value.LineNumber).IsEqualTo(2);
 
         var r3 = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 3, CancellationToken.None);
         await Assert.That(r3!.Value.ByteOffset).IsEqualTo(10L);
-        await Assert.That(r3!.Value.LineNumber).IsEqualTo(3);
+        await Assert.That(r3.Value.LineNumber).IsEqualTo(3);
     }
 
     // the truncated-transcript scenario: the method signals "cannot resolve exactly" (null) rather
@@ -102,14 +102,14 @@ public class CursorReconnectRewindTests {
         // Line 1 (newline-terminated) resolves exactly as before.
         var r1 = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 1, CancellationToken.None);
         await Assert.That(r1!.Value.ByteOffset).IsEqualTo(8L); // "{\"a\":1}\n".Length
-        await Assert.That(r1!.Value.LineNumber).IsEqualTo(1);
+        await Assert.That(r1.Value.LineNumber).IsEqualTo(1);
 
         // Line 2 — the complete, unterminated final record — rewinds to the record's own start
         // (same byte offset as line 1's end, NOT EOF) paired with LineNumber - 1 (NOT counted
         // as processed yet).
         var r2 = await TranscriptReader.ResolveByteOffsetForLineAsync(path, 2, CancellationToken.None);
         await Assert.That(r2!.Value.ByteOffset).IsEqualTo(8L);
-        await Assert.That(r2!.Value.LineNumber).IsEqualTo(1);
+        await Assert.That(r2.Value.LineNumber).IsEqualTo(1);
     }
 
     // the completeness gate matters: an unterminated tail that ISN'T a

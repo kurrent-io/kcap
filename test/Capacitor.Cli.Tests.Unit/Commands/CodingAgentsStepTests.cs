@@ -1180,7 +1180,7 @@ public class CodingAgentsStepTests {
         var calls = new InstallerCalls();
         var (options, detected) = AntigravityOnly(skipMcp: true, skipInstr: true, skipSkills: true);
 
-        var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
+        _ = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
         await Assert.That(calls.RegisterAntigravityMcpCalled).IsFalse();
         await Assert.That(calls.InstallAntigravityInstructionsCalled).IsFalse();
@@ -1210,7 +1210,7 @@ public class CodingAgentsStepTests {
         var calls = new InstallerCalls { CapacitorOnPathReturns = false };
         var (options, detected) = AntigravityOnly();
 
-        var result = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
+        _ = await RunAsync(options, detected, TestPaths(), calls.AsInstallers(), prompt: _ => true, writeLine: sink.Write);
 
         await Assert.That(calls.RegisterAntigravityMcpCalled).IsFalse();
         await Assert.That(calls.InstallAntigravityInstructionsCalled).IsFalse();

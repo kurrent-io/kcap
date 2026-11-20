@@ -135,7 +135,7 @@ public class InstallStepWindowsServiceTests {
     public async Task The_offer_hides_behind_a_current_service_and_otherwise_starts_unticked(
             string? supervisor, bool? upgrade, WindowsServiceOffer expected) {
         var cli = new FakeKcapCli {
-            StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(supervisor is null ? null : new ServiceSnapshot(
+            StatusBehavior = _ => Task.FromResult(supervisor is null ? null : new ServiceSnapshot(
                 "daemon", true, "running", null, null, null, 1, false, false, Supervisor: supervisor, ServiceUpgradeAvailable: upgrade)),
         };
 

@@ -169,9 +169,10 @@ static partial class SessionEvalsTool {
         foreach (var category in Items(result.Arr("categories"))) {
             categories.Add((JsonNode)new JsonObject { ["name"] = category.Str("name"), ["score"] = category.Num("score") });
 
-            foreach (var q in Items(category.Arr("questions")))
+            foreach (var q in Items(category.Arr("questions"))) {
                 if (q.Str("question_id") is { } id && q.Num("score") is { } score)
                     verdicts.Add((id, q.Str("category") ?? category.Str("name"), score));
+            }
         }
 
         entry["categories"] = categories;

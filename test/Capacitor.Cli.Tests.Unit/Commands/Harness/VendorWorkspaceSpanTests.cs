@@ -408,13 +408,14 @@ public class VendorWorkspaceSpanTests : IDisposable {
         const string Disabled = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         const string Live     = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         var spool = new WorkspaceSpool(Config.Root, _server.Url!, _time);
-        foreach (var session in new[] { Disabled, Live })
+        foreach (var session in new[] { Disabled, Live }) {
             spool.Write(new WorkspaceChangesRequest(session, Guid.NewGuid(), Repo.Path, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
                 [new WorkspaceChange("x.txt", "edit")], false));
+        }
         Directory.CreateDirectory(Config.Root.Path("disabled"));
         File.WriteAllText(Path.Combine(Config.Root.Path("disabled"), Disabled), "");
 
-        await new Capacitor.Cli.Workspace.WorkspaceSpanHook(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(), _time)
+        await new Workspace.WorkspaceSpanHook(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(), _time)
             .DrainAsync(TimeSpan.FromSeconds(30));
 
         await Assert.That(Posted().Select(p => p.SessionId)).IsEquivalentTo([Live]);
@@ -443,9 +444,10 @@ public class VendorWorkspaceSpanTests : IDisposable {
         var profiles = Resolutions.At(_server.Url!, Config.Root);
         var http     = new FixedCapacitorHttpClient();
         var spool    = new WorkspaceSpool(Config.Root, _server.Url!, _time);
-        foreach (var session in new[] { "dddddddddddddddddddddddddddddddd", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" })
+        foreach (var session in new[] { "dddddddddddddddddddddddddddddddd", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" }) {
             spool.Write(new WorkspaceChangesRequest(session, Guid.NewGuid(), Repo.Path, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch,
                 [new WorkspaceChange("x.txt", "edit")], false));
+        }
         Directory.CreateDirectory(Config.Root.Path("disabled"));
         File.WriteAllText(Path.Combine(Config.Root.Path("disabled"), "dddddddddddddddddddddddddddddddd"), "");
 
@@ -537,7 +539,7 @@ public class VendorWorkspaceSpanTests : IDisposable {
 
         // Codex reads a hook's answer when its process exits, so the span is left for the watcher to post.
         var spooled = Directory.EnumerateFiles(new WorkspaceSpool(Config.Root, _server.Url!, _time).DirectoryPath, "*.json", SearchOption.AllDirectories)
-            .Select(f => System.Text.Json.JsonSerializer.Deserialize(File.ReadAllText(f), WorkspaceJsonContext.Default.WorkspaceChangesRequest)!)
+            .Select(f => JsonSerializer.Deserialize(File.ReadAllText(f), WorkspaceJsonContext.Default.WorkspaceChangesRequest)!)
             .SelectMany(r => r.Changes);
         await Assert.That(spooled).IsEquivalentTo([new WorkspaceChange("codex-turn.txt", "create")]);
         await Assert.That(Posted()).IsEmpty();

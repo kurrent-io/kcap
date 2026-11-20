@@ -29,6 +29,19 @@ public sealed class ComposerHistory {
     }
 
     /// The chat now reads another transcript.
+    /// Inputs from before every observed one, oldest first, filling only what the cap leaves.
+    public void ObserveEarlier(IReadOnlyList<string> texts) {
+        var room = Capacity - _entries.Count;
+        if (room <= 0 || texts.Count == 0) return;
+        var earlier = new List<string>();
+        foreach (var text in texts)
+            if (!string.IsNullOrWhiteSpace(text) && (earlier.Count == 0 || !string.Equals(earlier[^1], text, StringComparison.Ordinal))) earlier.Add(text);
+        if (earlier.Count > 0 && _entries.Count > 0 && string.Equals(earlier[^1], _entries[0], StringComparison.Ordinal)) earlier.RemoveAt(earlier.Count - 1);
+        var kept = earlier.Skip(Math.Max(0, earlier.Count - room)).ToList();
+        _entries.InsertRange(0, kept);
+        _cursor += kept.Count;
+    }
+
     public void Clear() {
         _entries.Clear();
         EndNavigation();

@@ -1,7 +1,7 @@
 namespace Capacitor.Cli.Policy;
 
 using System.Text.Json;
-using Capacitor.Cli.Core;
+using Core;
 using Capacitor.Cli.Core.Policy;
 
 /// <summary>

@@ -38,7 +38,7 @@ public class McpWorkItemEvalToolsTests {
             ["params"] = new JsonObject { ["name"] = tool, ["arguments"] = JsonNode.Parse(argsJson) }
         };
 
-        var response = await Server().HandleToolCallAsync(JsonValue.Create(1)!, request, client, "http://x", () => ValueTask.FromResult<string?>(null));
+        var response = await Server().HandleToolCallAsync(JsonValue.Create(1), request, client, "http://x", () => ValueTask.FromResult<string?>(null));
         var result   = JsonNode.Parse(response)!["result"]!;
         return (handler, result["content"]![0]!["text"]!.GetValue<string>(), result["isError"]?.GetValue<bool>() is true);
     }
@@ -231,7 +231,7 @@ public class McpWorkItemEvalToolsTests {
     /// silently; the first entries still render, so the caps are what cut the rest.</summary>
     [Test]
     public async Task Retrospective_lists_and_scope_reasons_past_their_caps_say_how_many_were_left_out() {
-        var over      = WorkItemEvalToolResults.MaxListItems + 3;
+        const int over      = WorkItemEvalToolResults.MaxListItems + 3;
         string Strings(string prefix) => string.Join(",", Enumerable.Range(0, over).Select(i => $"\"{prefix}{i}\""));
         var suggestions = string.Join(",", Enumerable.Range(0, over).Select(i => $$$"""{"text":"s{{{i}}}","audience":"agent"}"""));
         var text = WorkItemEvalToolResults.RenderRun($$$"""
@@ -270,7 +270,7 @@ public class McpWorkItemEvalToolsTests {
             ["params"] = new JsonObject { ["name"] = "get_work_item_eval", ["arguments"] = JsonNode.Parse($$"""{"work_item_id":"wi-1","run_id":"{{RunId}}"}""") }
         };
 
-        var call = Server(time).HandleToolCallAsync(JsonValue.Create(1)!, request, client, "http://x", () => ValueTask.FromResult<string?>(null));
+        var call = Server(time).HandleToolCallAsync(JsonValue.Create(1), request, client, "http://x", () => ValueTask.FromResult<string?>(null));
         await sent.Task;
         time.Advance(McpWorkItemsServer.NextWorkRequestDeadline - TimeSpan.FromSeconds(1));
         await Assert.That(call.IsCompleted).IsFalse();
@@ -289,7 +289,7 @@ public class McpWorkItemEvalToolsTests {
     }
 
     sealed class StalledContent : HttpContent {
-        protected override Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context) => Task.Delay(Timeout.Infinite);
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => Task.Delay(Timeout.Infinite);
         protected override Task<Stream> CreateContentReadStreamAsync() => Task.FromResult<Stream>(new StalledStream());
         protected override bool TryComputeLength(out long length) { length = 0; return false; }
     }

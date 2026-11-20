@@ -1,8 +1,8 @@
 namespace Capacitor.Cli.Harness.Claude;
 
-using Capacitor.Cli.Commands;
+using Commands;
 using Capacitor.Cli.Core.Harness.Claude;
-using Capacitor.Cli.Core.Mcp;
+using Core.Mcp;
 using Capacitor.Cli.Core.Policy;
 
 /// <summary>

@@ -76,7 +76,7 @@ public class LocalUpgradeTests {
         ["vocab.txt"]  = Encoding.UTF8.GetBytes("vocabulary"),
     };
 
-    string Models => Tmp.PathTo(["r", "models"]);
+    string Models => Tmp.PathTo("r", "models");
 
     /// <summary><see cref="New"/>'s bundle names a built-in model set and serves <paramref name="files"/> under it.</summary>
     FakeBundle PublishModelSet(Dictionary<string, byte[]>? files = null, JsonObject? entry = null) =>
@@ -117,7 +117,7 @@ public class LocalUpgradeTests {
     string? RegistryVersion() =>
         LocalStateFiles.ReadRegistry(Root) is StateRead<InstallRegistry>.Present { Value.Active: { } active } ? active.Version : null;
 
-    bool Staged(string version) => Directory.Exists(Tmp.PathTo(["r", "bin", version]));
+    bool Staged(string version) => Directory.Exists(Tmp.PathTo("r", "bin", version));
 
     [Test]
     public async Task An_upgrade_stages_stops_switches_starts_and_commits_in_that_order() {
@@ -263,7 +263,7 @@ public class LocalUpgradeTests {
         string version) {
         Installed();
         if (unitGone) await Service.UninstallAsync(LocalServerUnit.ForInstallation(Root, Port), CancellationToken.None);
-        else File.Delete(Tmp.PathTo(["r", "bin", Old, "kcap-server"]));
+        else File.Delete(Tmp.PathTo("r", "bin", Old, "kcap-server"));
         _log.Clear();
 
         var failure = await Failure(version);

@@ -234,11 +234,12 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
         if (request is null || row.IsAttached) return [new("open", "Open agent")];
         if (Question(request)) return [new("open", "Respond in app")];
         var actions = new List<DesktopNotificationAction>();
-        foreach (var (id, label) in new[] { ("allow", "Allow"), ("always", "Always"), ("decline", "Decline") })
+        foreach (var (id, label) in new[] { ("allow", "Allow"), ("always", "Always"), ("decline", "Decline") }) {
             if (CanAnswer(request, id)) {
                 var scopeLabel = id == "always" ? request.Options?.FirstOrDefault(o => o.Kind == "allow_always")?.Label : null;
                 actions.Add(new(id, string.IsNullOrWhiteSpace(scopeLabel) ? label : scopeLabel));
             }
+        }
         if (!CanAnswer(request, "allow") || request.Options is { } options && actions.Count < options.Count)
             actions.Insert(0, new("open", "Open agent"));
         return actions;

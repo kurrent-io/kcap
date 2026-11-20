@@ -5,7 +5,7 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 public class SessionImporterScanTests {
     [Test]
     public async Task ScanAgentLifecycle_ExtractsSubagentTypeFromAsyncLaunchedInvocation() {
-        var transcript = """
+        const string transcript = """
                          {"type":"user","message":{"content":"go"}}
                          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Task","input":{"subagent_type":"code-reviewer","prompt":"review this"}}]}}
                          {"type":"result","tool_use_id":"toolu_1","tool_result":{"status":"async_launched","agentId":"agent-abc"}}
@@ -22,7 +22,7 @@ public class SessionImporterScanTests {
 
     [Test]
     public async Task ScanAgentLifecycle_ExtractsSubagentTypeFromForegroundToolUseResult() {
-        var transcript = """
+        const string transcript = """
                          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_2","name":"Task","input":{"subagent_type":"general-purpose"}}]}}
                          {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2"}]},"toolUseResult":{"agentId":"agent-xyz"}}
                          """;
@@ -40,7 +40,7 @@ public class SessionImporterScanTests {
         // When agent_progress for an agentId arrives before the assistant tool_use +
         // async_launched pair, an early-return on FirstLineByAgent.ContainsKey must not
         // stop subagent_type being copied into AgentTypeByAgent.
-        var transcript = """
+        const string transcript = """
                          {"type":"progress","data":{"type":"agent_progress","agentId":"agent-abc"}}
                          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Task","input":{"subagent_type":"code-reviewer"}}]}}
                          {"type":"result","tool_use_id":"toolu_1","tool_result":{"status":"async_launched","agentId":"agent-abc"}}
@@ -58,7 +58,7 @@ public class SessionImporterScanTests {
     [Test]
     public async Task ScanAgentLifecycle_AgentSeenFirstInAgentProgress_StillResolvesTypeFromForegroundToolUseResult() {
         // Same regression as above, but for the foreground toolUseResult path.
-        var transcript = """
+        const string transcript = """
                          {"type":"progress","data":{"type":"agent_progress","agentId":"agent-xyz"}}
                          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_2","name":"Task","input":{"subagent_type":"general-purpose"}}]}}
                          {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2"}]},"toolUseResult":{"agentId":"agent-xyz"}}
@@ -76,7 +76,7 @@ public class SessionImporterScanTests {
     [Test]
     public async Task ScanAgentLifecycle_AgentWithoutInvocation_HasNoType() {
         // progress-only reference — no parent tool_use, so the subagent_type is unknown.
-        var transcript = """
+        const string transcript = """
                          {"type":"progress","data":{"type":"agent_progress","agentId":"agent-orphan"}}
                          """;
 
@@ -93,7 +93,7 @@ public class SessionImporterScanTests {
     /// is what ties the two, which seats the agent at its call and names the call on its start.</summary>
     [Test]
     public async Task ScanAgentLifecycle_LinksAnAgentToItsCallThroughItsMetaFile() {
-        var transcript = """
+        const string transcript = """
                          {"type":"user","message":{"content":"go"}}
                          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Task","input":{"subagent_type":"Explore","prompt":"map it"}}]}}
                          {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1"}]},"toolUseResult":{"totalDurationMs":1000}}
@@ -113,7 +113,7 @@ public class SessionImporterScanTests {
 
     [Test]
     public async Task ScanAgentLifecycle_LinksAForegroundAgentToTheCallItsResultAnswers() {
-        var transcript = """
+        const string transcript = """
                          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_2","name":"Agent","input":{"subagent_type":"general-purpose"}}]}}
                          {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2"}]},"toolUseResult":{"status":"completed","agentId":"agent-xyz"}}
                          """;
@@ -131,7 +131,7 @@ public class SessionImporterScanTests {
     /// transcript from the row.</summary>
     [Test]
     public async Task ScanAgentLifecycle_LeavesConflictingOrSharedCallsUnlinked() {
-        var transcript = """
+        const string transcript = """
                          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Task","input":{}}]}}
                          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_2","name":"Task","input":{}}]}}
                          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_3","name":"Task","input":{}}]}}

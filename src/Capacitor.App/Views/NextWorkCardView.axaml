@@ -24,28 +24,31 @@
                             <Ellipse Classes="nwbNew" IsVisible="{Binding IsNew}" ToolTip.Tip="New since your last visit" />
                             <TextBlock Classes="nwbTitle" Text="{Binding Label}" />
                         </StackPanel>
-                        <!-- Spaced like the text's own " · ", so every dot on the line sits the same way. -->
-                        <StackPanel Orientation="Horizontal" Spacing="4" ClipToBounds="True">
+                        <!-- Spaced like the text's own " · ", so every dot on the line sits the same way. The pills
+                             take the end column so they line up across rows and leave the dotted text unbroken. -->
+                        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="4">
                             <TextBlock x:Name="CardKind" Classes="nwbMeta" Text="{Binding KindLabel}" />
-                            <Border Classes="nwbChip" Classes.warning="{Binding ArmChipWarns}" IsVisible="{Binding HasArmChip}">
-                                <TextBlock Text="{Binding ArmChip}" />
-                            </Border>
-                            <ItemsControl ItemsSource="{Binding Marks}" IsVisible="{Binding HasMarks}">
-                                <ItemsControl.ItemsPanel>
-                                    <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="4" /></ItemsPanelTemplate>
-                                </ItemsControl.ItemsPanel>
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="nw:NextWorkChip">
-                                        <Border Classes="nwbChip" Classes.warning="{Binding IsWarning}" Classes.danger="{Binding IsDanger}"
-                                                Classes.success="{Binding IsSuccess}">
-                                            <TextBlock Text="{Binding Text}" />
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <TextBlock Classes="nwbMeta" Text="·" IsVisible="{Binding HasMeta}" />
-                            <TextBlock x:Name="CardMeta" Classes="nwbMeta" Text="{Binding Meta}" ToolTip.Tip="{Binding Meta}" IsVisible="{Binding HasMeta}" />
-                        </StackPanel>
+                            <TextBlock Grid.Column="1" Classes="nwbMeta" Text="·" IsVisible="{Binding HasMeta}" />
+                            <TextBlock x:Name="CardMeta" Grid.Column="2" Classes="nwbMeta" Text="{Binding Meta}" ToolTip.Tip="{Binding Meta}" IsVisible="{Binding HasMeta}" />
+                            <StackPanel x:Name="CardPills" Grid.Column="3" Orientation="Horizontal" Spacing="4" Margin="8,0,0,0">
+                                <Border Classes="nwbChip" Classes.warning="{Binding ArmChipWarns}" IsVisible="{Binding HasArmChip}">
+                                    <TextBlock Text="{Binding ArmChip}" />
+                                </Border>
+                                <ItemsControl ItemsSource="{Binding Marks}" IsVisible="{Binding HasMarks}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="4" /></ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="nw:NextWorkChip">
+                                            <Border Classes="nwbChip" Classes.warning="{Binding IsWarning}" Classes.danger="{Binding IsDanger}"
+                                                    Classes.success="{Binding IsSuccess}">
+                                                <TextBlock Text="{Binding Text}" />
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Grid>
                         <StackPanel x:Name="CardContext" Orientation="Horizontal" Spacing="4" IsVisible="{Binding HasContext}"
                                     ToolTip.Tip="Loose end noted against this item">
                             <views:AppIcon Kind="CornerDownRight" Size="12" Foreground="{StaticResource KcapFaintBrush}" />

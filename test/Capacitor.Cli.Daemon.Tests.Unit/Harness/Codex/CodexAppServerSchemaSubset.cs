@@ -117,9 +117,10 @@ internal static class CodexAppServerSchemaSubset {
 
         while (frontier.Count > 0) {
             var name = frontier.Dequeue();
-            foreach (var referenced in DefinitionRefs(defs[name]))
+            foreach (var referenced in DefinitionRefs(defs[name])) {
                 if (defs.ContainsKey(referenced) && closure.Add(referenced))
                     frontier.Enqueue(referenced);
+            }
         }
         return closure;
     }

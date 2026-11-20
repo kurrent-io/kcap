@@ -31,13 +31,15 @@ public static class PolicyDocumentBinder {
         try { root = ApprovalsYaml.Parse(yamlText); }
         catch (ApprovalsYamlException e) { throw new PolicyDocumentException(e.Message); }
 
-        foreach (var e in root.Entries)
+        foreach (var e in root.Entries) {
             if (e.Key is not ("version" or "rules" or "judge" or "caps" or "enforcement"))
                 throw new PolicyDocumentException($"unknown key '{e.Key}'");
+        }
         if (scope is PolicyScope.Repo or PolicyScope.User)
-            foreach (var key in (string[])["caps", "enforcement"])
+            foreach (var key in (string[])["caps", "enforcement"]) {
                 if (root[key] is not null)
                     throw new PolicyDocumentException($"'{key}' is a server-scope field and invalid in a {ScopeName(scope)} document");
+            }
 
         if (root["version"] is not YamlScalar { Value: "1" })
             throw new PolicyDocumentException("'version' must be 1");
@@ -53,9 +55,10 @@ public static class PolicyDocumentBinder {
 
     static PolicyRule BindRule(YamlNode item) {
         if (item is not YamlMapping rule) throw new PolicyDocumentException("each rule must be a mapping");
-        foreach (var e in rule.Entries)
+        foreach (var e in rule.Entries) {
             if (e.Key is not ("match" or "outcome" or "reason"))
                 throw new PolicyDocumentException($"unknown rule key '{e.Key}'");
+        }
         if (rule["match"] is not YamlMapping match) throw new PolicyDocumentException("rule is missing 'match'");
         var outcome = rule["outcome"] is YamlScalar o
             ? o.Value switch {
@@ -89,14 +92,16 @@ public static class PolicyDocumentBinder {
             "network" => ActionKind.Network, "mcp_tool" => ActionKind.McpTool, "other" => ActionKind.Other,
             _ => throw new PolicyDocumentException($"unknown kind '{kindName}'"),
         };
-        foreach (var e in match.Entries)
+        foreach (var e in match.Entries) {
             if (e.Key != "kind" && !FieldsByKind[kind].Contains(e.Key))
                 throw new PolicyDocumentException($"'{e.Key}' is not a matcher field for kind '{kindName}'");
+        }
 
         var command = Patterns(match["command"], "command");
-        foreach (var p in command)
+        foreach (var p in command) {
             if (ShellTokenPattern.Parse(p) is null)
                 throw new PolicyDocumentException("empty pattern in 'command'");
+        }
         var exact = match["exact"] switch {
             null => false,
             YamlScalar { Value: "true" } => true,
@@ -124,18 +129,20 @@ public static class PolicyDocumentBinder {
         };
         if (values.Count > MaxPatternsPerMatcher)
             throw new PolicyDocumentException($"more than {MaxPatternsPerMatcher} patterns in '{field}'");
-        foreach (var v in values)
+        foreach (var v in values) {
             if (string.IsNullOrWhiteSpace(v))
                 throw new PolicyDocumentException($"empty pattern in '{field}'");
+        }
         return values;
     }
 
     static JudgeConfig? BindJudge(YamlNode? node) {
         if (node is null) return null;
         if (node is not YamlMapping judge) throw new PolicyDocumentException("'judge' must be a mapping");
-        foreach (var e in judge.Entries)
+        foreach (var e in judge.Entries) {
             if (e.Key is not ("mode" or "prompt"))
                 throw new PolicyDocumentException($"unknown judge key '{e.Key}'");
+        }
         var mode = judge["mode"] is YamlScalar m
             ? m.Value is "off" or "unmatched"
                 ? m.Value

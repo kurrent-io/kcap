@@ -36,7 +36,7 @@ public sealed class TempDaemonStore : IDisposable {
 
     /// <summary>Creates a file inside the daemons directory.</summary>
     public string CreateFile(string relativePath, string content = "") =>
-        _dir.CreateFile(System.IO.Path.Combine(DaemonsSubdir, relativePath), content);
+        _dir.CreateFile(Path.Combine(DaemonsSubdir, relativePath), content);
 
     public void Dispose() => _dir.Dispose();
 

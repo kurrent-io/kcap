@@ -1,6 +1,6 @@
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
-using Capacitor.Cli.Core.Policy;
+using Core.Policy;
 using Capacitor.Cli.Daemon.Services;
 
 public class PolicySnapshotProviderTests {

@@ -10,16 +10,15 @@ public class RailPreferencesStoreTests {
     [Test]
     public async Task Unknown_profile_loads_defaults() {
         using var tmp = TempDir.WithPathTo("app-state.json", out var path);
-        var store = new RailPreferencesStore(new AppStateStore(path));
+        var opening = RailPreferencesStore.Opening(await new AppStateStore(path).LoadAsync(), Url, "kurrent");
 
-        var prefs = await store.LoadAsync(Url, "kurrent");
-
-        await Assert.That(prefs).IsEqualTo(RailPreferences.Default);
+        await Assert.That(opening.Preferences).IsEqualTo(RailPreferences.Default);
+        await Assert.That(opening.UserId).IsNull();
         await Assert.That(RailPreferences.Default).IsEqualTo(new RailPreferences(RailScope.Mine, RailState.All, RailGrouping.Repository, RailSort.LastUpdated, true, []));
     }
 
     [Test]
-    public async Task Save_then_bind_returns_the_users_set_and_load_opens_on_the_last_user() {
+    public async Task Save_then_bind_returns_the_users_set_and_opening_is_on_the_last_user() {
         using var tmp = TempDir.WithPathTo("app-state.json", out var path);
         var store = new RailPreferencesStore(new AppStateStore(path));
 
@@ -27,31 +26,32 @@ public class RailPreferencesStoreTests {
         var bound = await store.BindUserAsync(Url, "kurrent", "u1");
         await Assert.That(bound).IsEqualTo(Teams);
 
-        var fresh = new RailPreferencesStore(new AppStateStore(path));
-        var loaded = await fresh.LoadAsync("https://kurrent.kcap.ai", "kurrent");
-        await Assert.That(loaded).IsEqualTo(Teams);
+        var opening = RailPreferencesStore.Opening(await new AppStateStore(path).LoadAsync(), "https://kurrent.kcap.ai", "kurrent");
+        await Assert.That(opening).IsEqualTo((Teams, "u1"));
     }
 
     [Test]
     public async Task Last_user_is_null_until_a_profile_binds_one() {
         using var tmp = TempDir.WithPathTo("app-state.json", out var path);
-        var store = new RailPreferencesStore(new AppStateStore(path));
+        var state = new AppStateStore(path);
+        var store = new RailPreferencesStore(state);
 
-        await Assert.That(await store.LastUserAsync(Url, "kurrent")).IsNull();
+        await Assert.That(RailPreferencesStore.Opening(await state.LoadAsync(), Url, "kurrent").UserId).IsNull();
         await store.BindUserAsync(Url, "kurrent", "u1");
-        await Assert.That(await store.LastUserAsync(Url, "kurrent")).IsEqualTo("u1");
+        await Assert.That(RailPreferencesStore.Opening(await state.LoadAsync(), Url, "kurrent").UserId).IsEqualTo("u1");
     }
 
     [Test]
     public async Task Two_users_on_one_profile_keep_separate_sets() {
         using var tmp = TempDir.WithPathTo("app-state.json", out var path);
-        var store = new RailPreferencesStore(new AppStateStore(path));
+        var state = new AppStateStore(path);
+        var store = new RailPreferencesStore(state);
         await store.SaveAsync(Url, "u1", Teams);
         await store.BindUserAsync(Url, "kurrent", "u1");
 
         var second = await store.BindUserAsync(Url, "kurrent", "u2");
         await Assert.That(second).IsEqualTo(RailPreferences.Default);
-        await Assert.That(await store.LoadAsync(Url, "kurrent")).IsEqualTo(RailPreferences.Default);
+        await Assert.That(RailPreferencesStore.Opening(await state.LoadAsync(), Url, "kurrent").Preferences).IsEqualTo(RailPreferences.Default);
 
         var mine = Teams with { Scope = RailScope.Mine, Grouping = RailGrouping.Status };
         await store.SaveAsync(Url, "u2", mine);

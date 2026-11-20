@@ -38,7 +38,7 @@ public class AttachmentStoreTests {
     [Test]
     public async Task Lease_removes_on_dispose_unless_kept() {
         var store = new AttachmentStore(Tmp.Path);
-        using (var lease = store.Lease("a")) { Directory.CreateDirectory(store.DirectoryFor("a")); }
+        using (store.Lease("a")) { Directory.CreateDirectory(store.DirectoryFor("a")); }
         await Assert.That(Directory.Exists(store.DirectoryFor("a"))).IsFalse();
         using (var lease = store.Lease("b")) { Directory.CreateDirectory(store.DirectoryFor("b")); lease.Keep(); }
         await Assert.That(Directory.Exists(store.DirectoryFor("b"))).IsTrue();

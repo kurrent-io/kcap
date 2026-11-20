@@ -38,7 +38,7 @@ public class MuseAssistantScopeTests {
         return await waiting.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
-    string Walk(string name, long fetchedAt, params WalkBuilder.Item[] items) => new WalkBuilder(Walks) { FetchedAtMs = fetchedAt }.AddPage(null, null, false, items).Write(name);
+    string Walk(string name, long fetchedAt, params Item[] items) => new WalkBuilder(Walks) { FetchedAtMs = fetchedAt }.AddPage(null, null, false, items).Write(name);
 
     [Test]
     public async Task Add_writes_a_grant_with_a_random_id_then_lists_the_chat_and_a_repeat_is_a_no_op() {
@@ -294,7 +294,7 @@ public class MuseAssistantScopeTests {
     [Test]
     [NotInParallel]
     public async Task Sweep_exits_3_naming_each_listed_chat_without_usable_state_and_still_prints_the_active_ones() {
-        var poster = await Record(async scope => { await scope.AddAsync("chat-a", History, default); await scope.AddAsync("chat-b", History, default); });
+        _ = await Record(async scope => { await scope.AddAsync("chat-a", History, default); await scope.AddAsync("chat-b", History, default); });
         var dir = MuseAssistantPaths.ScopeDir(Config.Root, Acme);
         File.WriteAllText(MuseAssistantPaths.ChatState(dir, "chat-b"), "{ not json");
         var store = Store();

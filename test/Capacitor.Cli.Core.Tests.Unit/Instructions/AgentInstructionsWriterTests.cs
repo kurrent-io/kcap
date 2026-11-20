@@ -116,7 +116,7 @@ public class AgentInstructionsWriterTests {
     public async Task Write_refreshes_stale_block_in_place() {
         using var tmp = new TempDir();
         var path = tmp.PathTo("copilot-instructions.md");
-        var staleBlock = AgentInstructionsWriter.BeginMarker + "\nOLD kcap text\n" + AgentInstructionsWriter.EndMarker;
+        const string staleBlock = AgentInstructionsWriter.BeginMarker + "\nOLD kcap text\n" + AgentInstructionsWriter.EndMarker;
         await File.WriteAllTextAsync(path, "# My rules\n\n" + staleBlock + "\n\nMore user notes.\n");
 
         var change = AgentInstructionsWriter.Write(path, KcapAgentInstructions.Body);
@@ -181,7 +181,7 @@ public class AgentInstructionsWriterTests {
         using var tmp = new TempDir();
         var path = tmp.PathTo("copilot-instructions.md");
         // BEGIN marker but no END (truncation / hand-edit / merge conflict).
-        var orphan = "# rules\n\n" + AgentInstructionsWriter.BeginMarker + "\nhalf a block, no end\n";
+        const string orphan = "# rules\n\n" + AgentInstructionsWriter.BeginMarker + "\nhalf a block, no end\n";
         await File.WriteAllTextAsync(path, orphan);
 
         var change = AgentInstructionsWriter.Write(path, KcapAgentInstructions.Body);
@@ -194,7 +194,7 @@ public class AgentInstructionsWriterTests {
     public async Task Remove_fails_on_orphan_begin_marker() {
         using var tmp = new TempDir();
         var path = tmp.PathTo("copilot-instructions.md");
-        var orphan = AgentInstructionsWriter.BeginMarker + "\nhalf a block, no end\n";
+        const string orphan = AgentInstructionsWriter.BeginMarker + "\nhalf a block, no end\n";
         await File.WriteAllTextAsync(path, orphan);
 
         var change = AgentInstructionsWriter.Remove(path);
@@ -209,7 +209,7 @@ public class AgentInstructionsWriterTests {
         var path = tmp.PathTo("copilot-instructions.md");
         // A prose mention of the begin marker ABOVE a real block → two BEGIN markers in the file.
         // "first BEGIN … first END" would span (and delete) the user prose in between — refuse instead.
-        var content = "# notes\n\nkcap delimits its block with " + AgentInstructionsWriter.BeginMarker + "\n\n"
+        const string content = "# notes\n\nkcap delimits its block with " + AgentInstructionsWriter.BeginMarker + "\n\n"
                     + AgentInstructionsWriter.BeginMarker + "\nold body\n" + AgentInstructionsWriter.EndMarker + "\n";
         await File.WriteAllTextAsync(path, content);
 

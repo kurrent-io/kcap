@@ -317,6 +317,32 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             : new KeyBinding { Gesture = new KeyGesture(Key.B, KeyModifiers.Control), Command = new UnlessTerminalFocused(this, toggle) });
     }
 
+    WarmupHost? _warmup;
+    IInputElement? _focusBeforeWarmup;
+
+    /// Lays a view in the workspace's place, at its width, where nothing can reach it.
+    internal void HostWarmup(Control view) {
+        ReleaseWarmup();
+        _focusBeforeWarmup = FocusManager?.GetFocusedElement();
+        _warmup = new WarmupHost(view);
+        ContentPane.Children.Add(_warmup);
+    }
+
+    /// Focus is put back if anything managed to move it inside, so it is never left on nothing.
+    internal void ReleaseWarmup() {
+        if (_warmup is not { } warmup) return;
+        _warmup = null;
+        var focused = FocusManager?.GetFocusedElement() as Visual;
+        var regain = focused is not null && focused.GetSelfAndVisualAncestors().Contains(warmup);
+        ContentPane.Children.Remove(warmup);
+        warmup.Child = null;
+        var before = _focusBeforeWarmup;
+        _focusBeforeWarmup = null;
+        if (!regain) return;
+        if (before is Visual v && v.IsAttachedToVisualTree() && before.Focus()) return;
+        Focus();
+    }
+
     // ⌘F and ⌘G on macOS. Off macOS Ctrl+F and F3 yield to a focused terminal, where they are shell
     // and TUI keys.
     void BindFindShortcut() {
@@ -337,9 +363,12 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     /// The chat holding focus, else the first one showing: a subagent pane opens beside its parent's.
     ChatTabView? FindTarget() {
         var focused = FocusManager?.GetFocusedElement() as Visual;
-        return focused?.GetSelfAndVisualAncestors().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible)
-            ?? this.GetVisualDescendants().OfType<ChatTabView>().FirstOrDefault(view => view.IsEffectivelyVisible);
+        return focused?.GetSelfAndVisualAncestors().OfType<ChatTabView>().FirstOrDefault(Findable)
+            ?? this.GetVisualDescendants().OfType<ChatTabView>().FirstOrDefault(Findable);
     }
+
+    bool Findable(ChatTabView view) =>
+        view.IsEffectivelyVisible && (_warmup is not { } warmup || !view.GetSelfAndVisualAncestors().Contains(warmup));
 
     // ⌘K everywhere on macOS. Off macOS Ctrl+K is a terminal key, so it yields to a focused terminal.
     void BindSearchShortcuts() {
@@ -498,7 +527,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     internal static TimeSpan ToastDuration(string message) => TimeSpan.FromSeconds(Math.Clamp(message.Length / 15.0, 4, 20));
 
     // The launcher header strip and the bottom-most drag strip — see WindowChrome.
-    void OnChromePointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e) =>
+    void OnChromePointerPressed(object? sender, PointerPressedEventArgs e) =>
         WindowChrome.BeginDrag(this, e);
 
     // IsVisible is what Show()/Hide() toggle, and hide-to-tray never fires Closed/Opened, so this
@@ -518,7 +547,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             var pullRequests = vm.CurrentWorkspace?.PullRequests;
             if (_foregroundPullRequests != pullRequests) _foregroundPullRequests?.SetForeground(false);
             _foregroundPullRequests = pullRequests;
-            pullRequests?.SetForeground(IsVisible && WindowState != Avalonia.Controls.WindowState.Minimized);
+            pullRequests?.SetForeground(IsVisible && WindowState != WindowState.Minimized);
         } else {
             _foregroundPullRequests?.SetForeground(false);
             _foregroundPullRequests = null;

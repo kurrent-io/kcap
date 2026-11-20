@@ -6,6 +6,9 @@ namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>A JSON answer on the steering socket, written as HTTP/1.1 on a connection that then closes.</summary>
 internal sealed record SteeringHttpResponse(int Status, byte[] Body) {
+    /// <summary>Runs once the write is over, whether or not the answer reached the client.</summary>
+    public Action? Written { get; init; }
+
     /// <summary>A body of <c>{"error": code}</c>.</summary>
     public static SteeringHttpResponse Error(int status, string code) {
         using var body = new MemoryStream();

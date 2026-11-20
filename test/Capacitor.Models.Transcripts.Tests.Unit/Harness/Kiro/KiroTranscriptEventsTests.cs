@@ -49,7 +49,7 @@ public class KiroTranscriptEventsTests {
 
     [Test]
     public async Task A_prompts_text_blocks_join_by_newline_and_empty_ones_drop() {
-        var line = """{"version":"v1","kind":"Prompt","data":{"message_id":"m1","content":[{"kind":"text","data":"one"},{"kind":"text","data":""},{"kind":"image","data":"x"},{"kind":"text","data":"two"}]}}""";
+        const string line = """{"version":"v1","kind":"Prompt","data":{"message_id":"m1","content":[{"kind":"text","data":"one"},{"kind":"text","data":""},{"kind":"image","data":"x"},{"kind":"text","data":"two"}]}}""";
 
         await Assert.That(((UserMessageReceived)E(line)[0].Payload).Content).IsEqualTo("one\ntwo");
     }
@@ -58,7 +58,7 @@ public class KiroTranscriptEventsTests {
     /// preceding block with no newline.</summary>
     [Test]
     public async Task A_crew_first_prompt_keeps_only_the_users_request() {
-        var text = "[AGENT SYSTEM PROMPT]\nYou are Kiro -- powered by the Kiro Crew layer.\n[END AGENT SYSTEM PROMPT]\n"
+        const string text = "[AGENT SYSTEM PROMPT]\nYou are Kiro -- powered by the Kiro Crew layer.\n[END AGENT SYSTEM PROMPT]\n"
                  + "[CRITICAL RULES -- always follow these]\nShow a diff.\n[END CRITICAL RULES]\n[RUNTIME] KiroCrew dashboard\n"
                  + "[REPLY FORMAT RULES]\n(ask that inline.)[CURRENT USER REQUEST -- respond to this]\nGive me an overview of this repository";
 
@@ -67,7 +67,7 @@ public class KiroTranscriptEventsTests {
 
     [Test]
     public async Task A_crew_later_prompt_keeps_only_the_users_request() {
-        var text = "[RUNTIME] KiroCrew dashboard\nThis interface is authoritative.\n\n[PROJECT] Active project directory: /work/app\n"
+        const string text = "[RUNTIME] KiroCrew dashboard\nThis interface is authoritative.\n\n[PROJECT] Active project directory: /work/app\n"
                  + "[RESOURCES] Host memory is tight.\n[REPLY FORMAT RULES]\n(end with options)[CURRENT USER REQUEST -- respond to this]\n"
                  + "Why are the subagents queued?\nAnd are they running now?";
 
@@ -85,7 +85,7 @@ public class KiroTranscriptEventsTests {
 
     [Test]
     public async Task A_crew_request_keeps_its_leading_indentation() {
-        var text = "[RUNTIME] KiroCrew dashboard\n(rules)[CURRENT USER REQUEST -- respond to this]\n    var x = 1;\nwhy?";
+        const string text = "[RUNTIME] KiroCrew dashboard\n(rules)[CURRENT USER REQUEST -- respond to this]\n    var x = 1;\nwhy?";
 
         await Assert.That(ContentOf(text)).IsEqualTo("    var x = 1;\nwhy?");
     }
@@ -95,7 +95,7 @@ public class KiroTranscriptEventsTests {
         var ctx = Context();
         P(Prompt, ctx);
 
-        var empty = """{"version":"v1","kind":"Prompt","data":{"message_id":"m9","content":[{"kind":"text","data":""}],"meta":{"timestamp":1791384000}}}""";
+        const string empty = """{"version":"v1","kind":"Prompt","data":{"message_id":"m9","content":[{"kind":"text","data":""}],"meta":{"timestamp":1791384000}}}""";
 
         await Assert.That(E(empty, ctx)).IsEmpty();
         await Assert.That(ctx.LastPromptAt).IsEqualTo(PromptTime);

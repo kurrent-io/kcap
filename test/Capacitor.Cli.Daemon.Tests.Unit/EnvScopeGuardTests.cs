@@ -31,7 +31,7 @@ public class EnvScopeGuardTests {
 
         var ex = Assert.Throws<InvalidOperationException>(() => EnvScope.Exclusive(probe, "set"));
 
-        await Assert.That(ex!.Message).Contains("bare [NotInParallel]");
+        await Assert.That(ex.Message).Contains("bare [NotInParallel]");
         // Refused before it wrote anything.
         await Assert.That(Environment.GetEnvironmentVariable(probe)).IsEqualTo(before);
     }
@@ -55,7 +55,7 @@ public class EnvScopeGuardTests {
 
         var ex = Assert.Throws<InvalidOperationException>(() => new EnvScope(probe, "set").Dispose());
 
-        await Assert.That(ex!.Message).Contains("[NotInParallel]");
+        await Assert.That(ex.Message).Contains("[NotInParallel]");
         await Assert.That(Environment.GetEnvironmentVariable(probe)).IsEqualTo(before);
     }
 }

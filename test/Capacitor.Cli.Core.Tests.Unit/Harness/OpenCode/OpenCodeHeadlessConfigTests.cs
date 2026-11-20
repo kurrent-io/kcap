@@ -120,7 +120,7 @@ public class OpenCodeHeadlessConfigTests {
     [Arguments("""{"provider":"a"}""")]
     [Arguments("""{"provider":{"a":"b"}}""")]
     public async Task A_malformed_file_layer_is_refused_naming_its_path(string text) {
-        foreach (var write in new Func<string, string, string>[] { Global, (n, c) => DotOpenCode(n, c), ConfigDir }) {
+        foreach (var write in new[] { Global, (n, c) => DotOpenCode(n, c), ConfigDir }) {
             var path = write("opencode.json", text);
 
             await Assert.That(() => Build(configDir: true)).Throws<HeadlessRunRefusedException>().WithMessageContaining(path);

@@ -134,9 +134,9 @@ public class PluginCommandCopilotTests {
         // FAIL: make the kcap.json path a directory so InstallCopilotHooks's write throws → returns
         // false. The refresh must warn on the hook failure but still heal the independent MCP +
         // instructions files rather than bailing.
-        var hooksDir = System.IO.Path.GetDirectoryName(env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson)!;
+        var hooksDir = Path.GetDirectoryName(env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson)!;
         Directory.CreateDirectory(env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson);   // kcap.json is a directory → write fails
-        await File.WriteAllTextAsync(System.IO.Path.Combine(hooksDir, CopilotHooksInstaller.MarkerFileName), "0.0.0-stale");
+        await File.WriteAllTextAsync(Path.Combine(hooksDir, CopilotHooksInstaller.MarkerFileName), "0.0.0-stale");
 
         var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(["plugin", "install", "--copilot", "--if-installed"]);
         await Assert.That(exit).IsEqualTo(0);                  // refresh swallows the hook-write failure
@@ -207,7 +207,7 @@ public class PluginCommandCopilotTests {
         CopilotHooksInstaller.DeleteMarker(env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson);
 
         // A pre-existing user instructions file that must survive.
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(env.Harnesses.Of<CopilotHarness>().Paths.InstructionsMd)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(env.Harnesses.Of<CopilotHarness>().Paths.InstructionsMd)!);
         await File.WriteAllTextAsync(env.Harnesses.Of<CopilotHarness>().Paths.InstructionsMd, "# My rules\n\nAlways use tabs.\n");
 
         var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(["plugin", "install", "--copilot", "--if-installed"]);
@@ -239,7 +239,7 @@ public class PluginCommandCopilotTests {
         using var home = new TempHome();
         var env = TestEnv(home.Path);
 
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(env.Harnesses.Of<CopilotHarness>().Paths.InstructionsMd)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(env.Harnesses.Of<CopilotHarness>().Paths.InstructionsMd)!);
         await File.WriteAllTextAsync(env.Harnesses.Of<CopilotHarness>().Paths.InstructionsMd, "# My rules\n\nAlways use tabs.\n");
         AgentInstructionsWriter.Write(env.Harnesses.Of<CopilotHarness>().Paths.InstructionsMd, KcapAgentInstructions.Body);
 
@@ -261,9 +261,9 @@ public class PluginCommandCopilotTests {
         var env   = TestEnv(home.Path);
         var hooks = env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson;
 
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(hooks)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(hooks)!);
         await File.WriteAllTextAsync(hooks, """{"version":1,"hooks":{"sessionStart":[]}}""");
-        await File.WriteAllTextAsync(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(hooks)!, CopilotHooksInstaller.MarkerFileName), CapacitorVersion.Current());
+        await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(hooks)!, CopilotHooksInstaller.MarkerFileName), CapacitorVersion.Current());
 
         var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(["plugin", "install", "--copilot", "--if-installed"]);
 
@@ -281,9 +281,9 @@ public class PluginCommandCopilotTests {
         var env   = TestEnv(home.Path);
         var hooks = env.Harnesses.Of<CopilotHarness>().Paths.KcapHooksJson;
 
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(hooks)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(hooks)!);
         await File.WriteAllTextAsync(hooks, """{"version":1,"hooks":{"sessionStart":[{"type":"command","command":"'/old/kcap' hook --copilot --event sessionStart"}]}}""");
-        await File.WriteAllTextAsync(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(hooks)!, CopilotHooksInstaller.MarkerFileName), sameVersion ? CapacitorVersion.Current() : "0.0.1");
+        await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(hooks)!, CopilotHooksInstaller.MarkerFileName), sameVersion ? CapacitorVersion.Current() : "0.0.1");
 
         var exit = await new PluginCommand(env, workdir: new WorkingDirectory(AppContext.BaseDirectory)).HandleAsync(["plugin", "install", "--copilot", "--if-installed"]);
 

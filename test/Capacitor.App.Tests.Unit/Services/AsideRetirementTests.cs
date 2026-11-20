@@ -61,7 +61,7 @@ public class AsideRetirementTests {
         await Assert.That(retirement.Retire(Path.Combine(root, "versions"), Directory.Exists)).IsTrue();
         await Assert.That(retirement.Retire(install, File.Exists)).IsTrue();
 
-        await Assert.That(Directory.GetFileSystemEntries(root).Select(p => Path.GetFileName(p)!).ToArray()).IsEquivalentTo(["keep.txt"]);
+        await Assert.That(Directory.GetFileSystemEntries(root).Select(p => Path.GetFileName(p)).ToArray()).IsEquivalentTo(["keep.txt"]);
     }
 
     /// <summary>What was renamed may be a tree that replaced the one checked before the rename, so it is never
@@ -114,7 +114,7 @@ public class AsideRetirementTests {
 
         await Assert.That(unfinished).IsEmpty();
         await Assert.That(new FileInfo(current).LinkTarget).IsEqualTo(version);
-        await Assert.That(Directory.GetFileSystemEntries(root).Select(p => Path.GetFileName(p)!).ToArray()).IsEquivalentTo(["versions", "current"]);
+        await Assert.That(Directory.GetFileSystemEntries(root).Select(p => Path.GetFileName(p)).ToArray()).IsEquivalentTo(["versions", "current"]);
         await Assert.That(File.Exists(config.Path(Record))).IsFalse();
     }
 

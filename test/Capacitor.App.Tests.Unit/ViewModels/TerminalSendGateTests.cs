@@ -68,7 +68,7 @@ public class TerminalSendGateTests {
 
             await Assert.That(await vm.ResubmitAsync(CancellationToken.None)).IsTrue();
             await Assert.That(client.SentInput.Select(Encoding.UTF8.GetString)).IsEquivalentTo(
-                ["\x1b[200~hello\x1b[201~", "\r", "\r"], CollectionOrdering.Matching);
+                ["\e[200~hello\e[201~", "\r", "\r"], CollectionOrdering.Matching);
         });
     }
 
@@ -86,7 +86,7 @@ public class TerminalSendGateTests {
             time.Advance(Delay);
             await vm.PendingDeliveryForTesting!;
             await Assert.That(client.SentInput.Select(Encoding.UTF8.GetString)).IsEquivalentTo(
-                ["\x1b[200~hello\x1b[201~", "\r"], CollectionOrdering.Matching);
+                ["\e[200~hello\e[201~", "\r"], CollectionOrdering.Matching);
         });
     }
 
@@ -100,12 +100,12 @@ public class TerminalSendGateTests {
             await Assert.That(vm.TrySendText("hello")).IsTrue();
             time.Advance(Delay);
             await vm.PendingDeliveryForTesting!;
-            ((FakeTerminalSurface)vm.Surface!).RaiseInput("\x1b[5;1R"u8.ToArray(), reply: true);
+            ((FakeTerminalSurface)vm.Surface!).RaiseInput("\e[5;1R"u8.ToArray(), reply: true);
 
             await Assert.That(await vm.ResubmitAsync(CancellationToken.None)).IsTrue();
             await WaitUntilAsync(() => client.SentInput.Count == 4, what: "reply and resubmit written");
             await Assert.That(client.SentInput.Select(Encoding.UTF8.GetString)).IsEquivalentTo(
-                ["\x1b[200~hello\x1b[201~", "\r", "\x1b[5;1R", "\r"], CollectionOrdering.Matching);
+                ["\e[200~hello\e[201~", "\r", "\e[5;1R", "\r"], CollectionOrdering.Matching);
         });
     }
 
@@ -114,7 +114,7 @@ public class TerminalSendGateTests {
     [NotInParallel("AvaloniaSession")]
     public async Task A_resubmit_is_withheld_once_the_viewer_typed_in_the_terminal() {
         await RunOnUiAsync(async () => {
-            var (_, _, time, vm, client) = await BuildAttachedAsync();
+            var (_, _, time, vm, _) = await BuildAttachedAsync();
             await Assert.That(vm.TrySendText("hello")).IsTrue();
             time.Advance(Delay);
             await vm.PendingDeliveryForTesting!;
@@ -138,7 +138,7 @@ public class TerminalSendGateTests {
 
             await Assert.That(await vm.ResubmitAsync(CancellationToken.None)).IsFalse();
             await Assert.That(client.SentInput.Select(Encoding.UTF8.GetString)).IsEquivalentTo(
-                ["\x1b[200~hello\x1b[201~", "\r", "x"], CollectionOrdering.Matching);
+                ["\e[200~hello\e[201~", "\r", "x"], CollectionOrdering.Matching);
         });
     }
 
@@ -159,7 +159,7 @@ public class TerminalSendGateTests {
             await vm.PendingDeliveryForTesting!;
 
             await Assert.That(client.SentInput.Select(Encoding.UTF8.GetString)).IsEquivalentTo(
-                ["\x1b[200~A\x1b[201~", "\r", "\x1b[200~B\x1b[201~", "\r"], CollectionOrdering.Matching);
+                ["\e[200~A\e[201~", "\r", "\e[200~B\e[201~", "\r"], CollectionOrdering.Matching);
         });
     }
 

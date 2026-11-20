@@ -66,7 +66,7 @@ public class OpenCodeReviewerLiveTests {
         using var dataScope   = EnvScope.Exclusive("XDG_DATA_HOME", data);
         using var dirScope    = EnvScope.Exclusive("OPENCODE_CONFIG_DIR", null);
 
-        var control = await RunAsync(opencode!, "debug", "config");
+        var control = await RunAsync(opencode, "debug", "config");
         await Assert.That(control).Contains("planted-global");
         await Assert.That(control).Contains("planted-dot-opencode");
 
@@ -80,7 +80,7 @@ public class OpenCodeReviewerLiveTests {
             Store = Daemons.Store, Name = "live", DaemonEpoch = "live", Home = new UserHome(home), Binaries = BinaryProbe.FromEnvironment(),
         };
         AcpHostedAgentRuntimeFactory.VersionStoreFor(config, AcpVendorDescriptors.OpenCode.Vendor)
-            .Affirm((await RunAsync(opencode!, "--version")).Trim());
+            .Affirm((await RunAsync(opencode, "--version")).Trim());
 
         var worktree   = Tmp.CreateDir("worktree").Path;
         var connection = new RecordingConnection();
@@ -120,7 +120,7 @@ public class OpenCodeReviewerLiveTests {
         return new JsonObject {
             ["model"] = Model,
             ["mcp"] = new JsonObject {
-                [$"planted-{name}"] = new JsonObject { ["type"] = "local", ["command"] = new JsonArray((JsonNode?)server), ["enabled"] = true },
+                [$"planted-{name}"] = new JsonObject { ["type"] = "local", ["command"] = new JsonArray(server), ["enabled"] = true },
             },
         }.ToJsonString();
     }

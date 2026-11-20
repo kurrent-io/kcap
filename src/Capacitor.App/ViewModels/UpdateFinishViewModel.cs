@@ -260,7 +260,7 @@ public sealed class UpdateFinishViewModel : ReactiveObject, IDisposable {
                 LocalUpgradePhase.Stopping => ("Stopping the server", null, "Stopping the local server"),
                 LocalUpgradePhase.Starting => ("Starting the server", null,
                     "Starting the local server. A migration can take a few minutes"),
-                LocalUpgradePhase.Restarting => ($"Starting {local.From} again", (string?)null, "Starting the previous local server again"),
+                LocalUpgradePhase.Restarting => ($"Starting {local.From} again", null, "Starting the previous local server again"),
                 _ => ("Checking the installation", null, "Checking the local server"),
             };
             return new(heading, detail, UpdateStepState.Running, trailing, Activity: activity);

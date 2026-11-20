@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
 
-public class EmbeddedResourcesTests {
+public partial class EmbeddedResourcesTests {
     const string Help = "Usage\r\n#if windows\r\nScheduled Task\r\n#endif\r\n#if unix\r\nLaunchAgent\r\n#endif\r\nSubcommands\r\n";
 
     [Test]
@@ -26,7 +26,6 @@ public class EmbeddedResourcesTests {
     /// <summary>A count of kcap MCP servers goes stale with every server added, so no help text states one.</summary>
     [Test]
     public async Task No_help_text_counts_the_kcap_MCP_servers() {
-        var count = new Regex(@"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+kcap\s+MCP\s+servers\b",RegexOptions.IgnoreCase);
         const string prefix = "Capacitor.Cli.Core.Resources.";
 
         var helps = typeof(EmbeddedResources).Assembly.GetManifestResourceNames()
@@ -37,6 +36,9 @@ public class EmbeddedResourcesTests {
         await Assert.That(helps).Contains("help-plugin.txt");
 
         foreach (var name in helps)
-            await Assert.That(count.Match(EmbeddedResources.Load(name)).Value).IsEmpty().Because(name);
+            await Assert.That(ServerCount().Match(EmbeddedResources.Load(name)).Value).IsEmpty().Because(name);
     }
+
+    [GeneratedRegex(@"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+kcap\s+MCP\s+servers\b", RegexOptions.IgnoreCase)]
+    private static partial Regex ServerCount();
 }

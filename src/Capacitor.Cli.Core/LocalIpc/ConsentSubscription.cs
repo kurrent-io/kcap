@@ -39,7 +39,7 @@ public static class ConsentSubscription {
             while (true) {
                 LocalFrame? frame;
                 try {
-                    frame = await FrameCodec.ReadAsync(stream!, ct);
+                    frame = await FrameCodec.ReadAsync(stream, ct);
                 } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
                     throw;
                 } catch (Exception ex) when (ex is IOException or SocketException or InvalidDataException) {

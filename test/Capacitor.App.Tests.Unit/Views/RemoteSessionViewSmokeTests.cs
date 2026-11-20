@@ -108,7 +108,7 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.Vm.Chat.Items.Count).IsEqualTo(count);
                 await Assert.That(host.Vm.WorkContext.IsReady).IsTrue();
                 CaptureLoading(host, "session-reconnecting");
-                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Capacitor.Cli.Core.Http.ConnectionFailure.Refused));
+                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Cli.Core.Http.ConnectionFailure.Refused));
                 host.Settle();
                 await Assert.That(host.View.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Couldn’t reconnect to this session")).IsTrue();
                 CaptureLoading(host, "session-connection-failed");
@@ -143,10 +143,10 @@ public class RemoteSessionViewSmokeTests {
         await AvaloniaSession.DispatchAsync(async () => {
             var starts = 0;
             using var host = new Host(localServer: lane => new LocalServerRecoveryViewModel(lane.Status, isLocalServer: true,
-                _ => { starts++; return Task.FromResult(new Capacitor.Cli.Core.ProcessResult(0, "", "", false)); }, () => Task.CompletedTask, CancellationToken.None));
+                _ => { starts++; return Task.FromResult(new Cli.Core.ProcessResult(0, "", "", false)); }, () => Task.CompletedTask, CancellationToken.None));
             try {
                 await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "connected");
-                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Capacitor.Cli.Core.Http.ConnectionFailure.Refused));
+                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Cli.Core.Http.ConnectionFailure.Refused));
                 await host.SettleUntilAsync(() => host.Vm.ConnectionNotice?.Title == "Your kcap server is stopped", "stopped notice");
                 var start = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Start server"));
                 await Assert.That(start.Classes.Contains("kcapPrimary")).IsTrue();
@@ -168,12 +168,12 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.View.FindControl<WorkContextView>("WorkContextHost")!.IsEffectivelyVisible).IsTrue();
                 await Assert.That(host.Vm.WorkContext.Phase).IsEqualTo(WorkContextPhase.Loading);
                 CaptureLoading(host, "work-context-loading");
-                gate.SetResult(Capacitor.Cli.Core.WorkItems.WorkContextRead.Of(Capacitor.Cli.Core.WorkItems.WorkContextReadKind.Unreachable));
+                gate.SetResult(WorkContextRead.Of(WorkContextReadKind.Unreachable));
                 await host.SettleUntilAsync(() => host.Vm.WorkContext.ShowsRetry, "context failure");
                 await Assert.That(host.View.GetVisualDescendants().OfType<SessionConnectionNotice>()
                     .Any(n => n.IsEffectivelyVisible && n.DataContext is SessionConnectionPresentation { Title: "Waiting for chat…" })).IsTrue();
                 CaptureLoading(host, "work-context-failed");
-                source.Enqueue(Capacitor.Cli.Core.WorkItems.WorkContextRead.Of(Capacitor.Cli.Core.WorkItems.WorkContextReadKind.Ready));
+                source.Enqueue(WorkContextRead.Of(WorkContextReadKind.Ready));
                 await host.Vm.WorkContext.RefreshCommand.Execute();
                 await host.SettleUntilAsync(() => host.Vm.WorkContext.Phase == WorkContextPhase.NoWorkItem, "context retry");
                 await Assert.That(host.Vm.WorkContext.PhaseNote).IsNotEmpty();
@@ -319,7 +319,7 @@ public class RemoteSessionViewSmokeTests {
             _directory.Rows.AddOrUpdate(row);
             _localServer = localServer?.Invoke(Lane);
             Vm = new RemoteSessionViewModel(row, _directory, _access, Permissions, NewActions(), Lane,
-                (_, _) => Task.FromResult(new SessionDetailFetch(detail ?? Detail())), new RecordingOpener(), Time, workSource ?? new FakeWorkContextSource(),
+                FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(detail ?? Detail()))), new RecordingOpener(), Time, workSource ?? new FakeWorkContextSource(),
                 () => realTerminal ? new XtermTerminalSurface(130, 54) : new FakeTerminalSurface(), planArtifacts,
                 remoteAgents: Remote, notifier: new RecordingNotifier(), handoff: handoff, retryConnection: retryConnection,
                 localServer: _localServer);
@@ -590,7 +590,7 @@ public class RemoteSessionViewSmokeTests {
                 await host.SettleUntilAsync(() => host.Vm.Terminal!.Phase == RemoteTerminalPhase.Live, "live terminal");
                 host.Lane.TerminalDimensionsSubject.OnNext(new TerminalSize("a1", 130, 54));
                 var feed = string.Concat(Enumerable.Range(0, 120).Select(i => $"line {i}\r\n"))
-                    + "prompt\x1b[?1h";
+                    + "prompt\e[?1h";
                 host.Lane.TerminalOutputSubject.OnNext(new TerminalOutputFrame("a1", Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(feed))));
                 host.Window.Height = 450;
                 host.Settle();
@@ -664,7 +664,7 @@ public class RemoteSessionViewSmokeTests {
                 await host.SettleUntilAsync(() => host.Vm.Terminal!.Phase == RemoteTerminalPhase.Live, "live terminal");
                 host.Lane.TerminalDimensionsSubject.OnNext(new TerminalSize("a1", 103, 38));
                 var feed = string.Concat(Enumerable.Range(0, 90).Select(i => $"redraw {i}\r\n"));
-                feed += (alternate ? "\x1b[?1049h" : "") + "\x1b[?1000h\x1b[?1006hfull-screen conversation";
+                feed += (alternate ? "\e[?1049h" : "") + "\e[?1000h\e[?1006hfull-screen conversation";
                 var bytes = System.Text.Encoding.UTF8.GetBytes(feed);
                 host.Lane.TerminalOutputSubject.OnNext(new TerminalOutputFrame("a1", Convert.ToBase64String(bytes)));
                 host.Settle();
@@ -682,14 +682,14 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(viewport.VerticalScrollBarVisibility).IsEqualTo(ScrollBarVisibility.Hidden);
                 foreach (var (_, key) in host.Lane.SpecialKeys) {
                     await Assert.That(TerminalScrollKey.TryDecode(key, out var report)).IsTrue();
-                    await Assert.That(report.AsSpan().StartsWith("\x1b[<64;"u8)).IsTrue();
+                    await Assert.That(report.AsSpan().StartsWith("\e[<64;"u8)).IsTrue();
                 }
                 await Assert.That(terminal.Model.ScrollOffset).IsEqualTo(scrollback);
                 host.Window.Height = 450;
                 host.Lane.TerminalDimensionsSubject.OnNext(new TerminalSize("a1", 100, 30));
                 host.Settle();
                 host.Lane.TerminalOutputSubject.OnNext(new TerminalOutputFrame("a1",
-                    Convert.ToBase64String("\x1b[2J\x1b[Hredrawn history\x1b[30;1Hdraft"u8.ToArray())));
+                    Convert.ToBase64String("\e[2J\e[Hredrawn history\e[30;1Hdraft"u8.ToArray())));
                 host.Settle();
                 // Resizing scrolls the terminal top out of view; aim inside the visible viewport
                 point = viewport.TranslatePoint(new Point(30, 30), host.Window)!.Value;
@@ -698,7 +698,7 @@ public class RemoteSessionViewSmokeTests {
                 host.Window.MouseWheel(point, new Vector(0, -0.5));
                 await host.SettleUntilAsync(() => host.Lane.SpecialKeys.Count == 9, "one downward step after resize");
                 await Assert.That(TerminalScrollKey.TryDecode(host.Lane.SpecialKeys[^1].Key, out var down)).IsTrue();
-                await Assert.That(down.AsSpan().StartsWith("\x1b[<65;"u8)).IsTrue();
+                await Assert.That(down.AsSpan().StartsWith("\e[<65;"u8)).IsTrue();
                 await Assert.That(terminal.Model.ScrollOffset).IsEqualTo(before);
                 var buffer = terminal.Model.Terminal.Buffer;
                 await Assert.That(buffer.GetLine(buffer.BaseY)!.TranslateToString(true)).IsEqualTo("redrawn history");

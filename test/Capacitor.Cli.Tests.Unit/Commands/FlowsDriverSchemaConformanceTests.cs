@@ -193,7 +193,7 @@ public class FlowsDriverSchemaConformanceTests {
             """;
 
         var text = McpFlowsServer.FormatPolledRoundResult(
-            System.Text.Json.Nodes.JsonNode.Parse(roundJson)!.AsObject(), "f1");
+            JsonNode.Parse(roundJson)!.AsObject(), "f1");
 
         await Assert.That(text).Contains("applied_reviewer_vendor: cursor");
         await Assert.That(text).Contains("applied_reviewer_model: composer");
@@ -216,9 +216,10 @@ public class FlowsDriverSchemaConformanceTests {
 
     static string RepoKcapDir() {
         var d = new DirectoryInfo(AppContext.BaseDirectory);
-        for (; d is not null; d = d.Parent)
+        for (; d is not null; d = d.Parent) {
             if (File.Exists(Path.Combine(d.FullName, "kcap", ".mcp.json")))
                 return Path.Combine(d.FullName, "kcap");
+        }
         throw new DirectoryNotFoundException("kcap/ not found above the test base dir");
     }
 
@@ -280,17 +281,17 @@ public class FlowsDriverSchemaConformanceTests {
     /// <summary>Mistral Vibe keeps its servers in a <c>[[mcp_servers]]</c> array of tables keyed by
     /// <c>name</c>, not Codex's table keyed by server.</summary>
     static Projection FromVibeToml(string path) {
-        var servers = (TomlTableArray)TomlSerializer.Deserialize<TomlTable>(File.ReadAllText(path))!["mcp_servers"]!;
-        var entry   = servers.Single(t => (string)t["name"]! == "kcap-flows");
-        return new("Mistral Vibe", (string)entry["command"]!,
-            [.. ((TomlArray)entry["args"]!).Select(a => (string)a!)]);
+        var servers = (TomlTableArray)TomlSerializer.Deserialize<TomlTable>(File.ReadAllText(path))!["mcp_servers"];
+        var entry   = servers.Single(t => (string)t["name"] == "kcap-flows");
+        return new("Mistral Vibe", (string)entry["command"],
+            [.. ((TomlArray)entry["args"]).Select(a => (string)a!)]);
     }
 
     static Projection FromToml(string path) {
-        var servers = (TomlTable)TomlSerializer.Deserialize<TomlTable>(File.ReadAllText(path))!["mcp_servers"]!;
-        var entry   = (TomlTable)servers["kcap-flows"]!;
-        return new("Codex", (string)entry["command"]!,
-            [.. ((TomlArray)entry["args"]!).Select(a => (string)a!)]);
+        var servers = (TomlTable)TomlSerializer.Deserialize<TomlTable>(File.ReadAllText(path))!["mcp_servers"];
+        var entry   = (TomlTable)servers["kcap-flows"];
+        return new("Codex", (string)entry["command"],
+            [.. ((TomlArray)entry["args"]).Select(a => (string)a!)]);
     }
 
     // Each arm seeds "installed but stale" so `--if-installed` takes the refresh branch and registers
@@ -674,8 +675,9 @@ public class FlowsDriverSchemaConformanceTests {
             .Append("--grok")     // writes no MCP config: Grok loads Claude's, covered by the static-config test
             .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var flag in VendorSelection.KnownVendorFlags)
+        foreach (var flag in VendorSelection.KnownVendorFlags) {
             await Assert.That(covered.Contains(flag)).IsTrue()
                 .Because($"{flag} is an installable target with no driver-schema conformance coverage");
+        }
     }
 }

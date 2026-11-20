@@ -54,9 +54,10 @@ public static class McpRegistrationAudit {
             Collect(root["mcpServers"] as JsonObject, UserScope, nativeBinaryPath, projectPath: null, findings);
 
             if (root["projects"] is JsonObject projects)
-                foreach (var (key, project) in projects)
+                foreach (var (key, project) in projects) {
                     Collect((project as JsonObject)?["mcpServers"] as JsonObject,
                             $"projects[{key}]", nativeBinaryPath, projectPath: key, findings);
+                }
         } catch {
             // Unreadable config — nothing to report.
         }
@@ -76,9 +77,10 @@ public static class McpRegistrationAudit {
             RemoveCanonical(root["mcpServers"] as JsonObject, nativeBinaryPath, projectPath: null);
 
             if (root["projects"] is JsonObject projects)
-                foreach (var (key, project) in projects)
+                foreach (var (key, project) in projects) {
                     RemoveCanonical((project as JsonObject)?["mcpServers"] as JsonObject, nativeBinaryPath,
                                     projectPath: key);
+                }
 
             return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
         } catch {
@@ -112,9 +114,10 @@ public static class McpRegistrationAudit {
         if (!IsRecognizedKcapCommand(StringValue(obj["command"]), nativeBinaryPath)) return false;
 
         if (obj["args"] is not JsonArray args || args.Count != descriptor.Args.Length) return false;
-        for (var i = 0; i < descriptor.Args.Length; i++)
+        for (var i = 0; i < descriptor.Args.Length; i++) {
             if (!string.Equals(StringValue(args[i]), descriptor.Args[i], StringComparison.Ordinal))
                 return false;
+        }
 
         foreach (var (key, value) in obj) {
             switch (key) {

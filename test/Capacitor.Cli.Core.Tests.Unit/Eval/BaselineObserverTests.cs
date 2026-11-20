@@ -8,7 +8,7 @@ using Capacitor.Cli.Core.Eval.Evidence;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Eval;
 
-public class BaselineObserverTests {
+public partial class BaselineObserverTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     [Test]
@@ -121,7 +121,7 @@ public class BaselineObserverTests {
         using var doc = JsonDocument.Parse(await File.ReadAllTextAsync(path));
         var copied = doc.RootElement.GetProperty("questions")[0].GetProperty("ledger_path").GetString()!;
         await Assert.That(copied.StartsWith(Path.GetFullPath(path + ".ledgers") + Path.DirectorySeparatorChar, StringComparison.Ordinal)).IsTrue();
-        await Assert.That(Regex.IsMatch(Path.GetFileName(copied), "^007-[0-9a-f]{16}\\.jsonl$")).IsTrue();
+        await Assert.That(CopiedName().IsMatch(Path.GetFileName(copied))).IsTrue();
         await Assert.That(File.Exists(copied)).IsTrue();
     }
 
@@ -232,4 +232,7 @@ public class BaselineObserverTests {
         public void OnFinished(SessionEvalCompletedPayloadV4 aggregate) => FinishedCount++;
         public void OnFailed(string reason) => FailedCount++;
     }
+
+    [GeneratedRegex("^007-[0-9a-f]{16}\\.jsonl$")]
+    private static partial Regex CopiedName();
 }

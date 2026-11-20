@@ -119,6 +119,11 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     ChatTabViewModel? _chat;
     /// Built once, on the first dto; the reader comes from transcript_format and the input channel
     /// from has_terminal.
+    /// Whether the header offers the progressive disclosure toggle: the chat on screen, the session's
+    /// or an open subagent's, has a graded reply.
+    public bool ShowsProgressiveDisclosure => _showsProgressiveDisclosure.Value;
+    readonly ObservableAsPropertyHelper<bool> _showsProgressiveDisclosure;
+
     SubagentPaneViewModel? _subagent;
     /// A subagent's own transcript, shown in place of the chat until the user goes back.
     public SubagentPaneViewModel? Subagent {
@@ -346,6 +351,11 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             actions.OpenWorkItemInWeb, plans, planActivity, artefacts: Artefacts, serverLane: serverLane,
             canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
             sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout);
+        _showsProgressiveDisclosure = Observable.Switch(this.WhenAnyValue(w => w.IsChatActive, w => w.Chat, w => w.Subagent,
+                (active, chat, subagent) => active ? subagent?.Chat ?? chat : null)
+            .Select(static chat => chat is null ? Observable.Return(false) : chat.WhenAnyValue(c => c.HasProgressiveDisclosureMarks)))
+            .ToProperty(this, w => w.ShowsProgressiveDisclosure)
+            .DisposeWith(_disposables);
         WorkContext.HasWorkspaceNotice = HasConnectionNotice;
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));

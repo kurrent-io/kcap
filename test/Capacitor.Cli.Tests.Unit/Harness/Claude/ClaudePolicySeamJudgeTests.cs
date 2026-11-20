@@ -1,11 +1,11 @@
 namespace Capacitor.Cli.Tests.Unit.Harness.Claude;
 
 using System.Text.Json.Nodes;
-using Capacitor.Cli.Core;
-using Capacitor.Cli.Core.Http;
+using Core;
+using Core.Http;
 using Capacitor.Cli.Core.Policy;
 using Capacitor.Cli.Harness.Claude;
-using Capacitor.Cli.Tests.Unit.Policy;
+using Policy;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;

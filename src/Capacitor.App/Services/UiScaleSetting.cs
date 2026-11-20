@@ -12,8 +12,10 @@ public sealed class UiScaleSetting {
         _changes = new BehaviorSubject<double>(initial);
     }
 
-    public static async Task<UiScaleSetting> LoadAsync(IAppStateStore store) =>
-        new(store, UiScale.Normalize((await store.LoadAsync().ConfigureAwait(false)).UiScale));
+    public static async Task<UiScaleSetting> LoadAsync(IAppStateStore store) => From(store, await store.LoadAsync().ConfigureAwait(false));
+
+    /// Over a state the caller has already read from <paramref name="store"/>.
+    public static UiScaleSetting From(IAppStateStore store, AppState state) => new(store, UiScale.Normalize(state.UiScale));
 
     public double Current => _changes.Value;
 

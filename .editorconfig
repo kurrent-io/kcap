@@ -294,6 +294,7 @@ dotnet_diagnostic.cs8524.severity = suggestion ; Switch expression is not exhaus
 dotnet_diagnostic.rs0030.severity = error   ; Banned symbol used
 
 ; --- Code Analysis Rules ---
+dotnet_diagnostic.syslib1045.severity = warning ; Use GeneratedRegex for a constant pattern
 dotnet_diagnostic.ca1801.severity = warning
 dotnet_diagnostic.ca1802.severity = warning
 dotnet_diagnostic.ca1805.severity = warning

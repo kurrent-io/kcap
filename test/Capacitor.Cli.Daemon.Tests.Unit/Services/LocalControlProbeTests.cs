@@ -104,7 +104,7 @@ public class LocalControlProbeTests {
     [Test]
     public async Task Probe_treats_a_structurally_degenerate_snapshot_as_a_snapshot_failure_not_a_throw() {
         using var daemons = new TempDaemonStore();
-        var name = "probe-degenerate";
+        const string name = "probe-degenerate";
         var helloJson = JsonSerializer.Serialize(
             new HelloReplyDto(1, "1.0", name, ["status/1"], 111, "inst-x"),
             HelloIpcJsonContext.Default.HelloReplyDto);
@@ -144,7 +144,7 @@ public class LocalControlProbeTests {
     [Test]
     public async Task Hello_without_ids_is_never_consistent_even_with_a_valid_snapshot() {
         using var daemons = new TempDaemonStore();
-        var name = "probe-noids";
+        const string name = "probe-noids";
         var helloJson = JsonSerializer.Serialize(
             new HelloReplyDto(1, "0.1.0", name, ["status/1"], Pid: null, InstanceId: null),
             HelloIpcJsonContext.Default.HelloReplyDto);

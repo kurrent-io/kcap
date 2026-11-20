@@ -159,9 +159,10 @@ public sealed partial class MacAppRemoval : IAppRemoval {
             using var reader = XmlReader.Create(Path.Combine(root, "Contents", "Info.plist"),
                 new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, XmlResolver = null });
             var entries = XDocument.Load(reader).Root?.Element("dict")?.Elements().ToArray() ?? [];
-            for (var i = 0; i + 1 < entries.Length; i++)
+            for (var i = 0; i + 1 < entries.Length; i++) {
                 if (entries[i].Name == "key" && entries[i].Value == "CFBundleIdentifier" && entries[i + 1].Name == "string")
                     return IsReverseDns(entries[i + 1].Value) ? entries[i + 1].Value : null;
+            }
             return null;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException) {
             return null;

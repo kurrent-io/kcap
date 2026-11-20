@@ -8,7 +8,7 @@ namespace Capacitor.Cli.Core.Tests.Unit;
 public class PlanEntitlementsTests {
     [Test]
     public async Task Parse_blank_allows_everything() {
-        foreach (var raw in new string?[] { null, "", "   " }) {
+        foreach (var raw in new[] { null, "", "   " }) {
             var plan = PlanEntitlements.Parse(raw);
             await Assert.That(plan.Allows(PlanFeature.WorkItems)).IsTrue();
             await Assert.That(plan.Denied).IsEmpty();

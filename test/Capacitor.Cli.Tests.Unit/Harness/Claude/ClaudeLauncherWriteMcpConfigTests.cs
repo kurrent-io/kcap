@@ -279,8 +279,8 @@ public class ClaudeLauncherWriteMcpConfigTests {
     public async Task Trust_write_during_a_parked_doctor_clean_cannot_be_lost() {
         var (paths, configDir, _, worktree) = Seed();
 
-        var cfgPath  = Path.Combine(configDir, ".claude.json");
-        var snapshot = """{ "mcpServers": { "kcap-flows": { "command": "kcap", "args": ["mcp","flows"] } } }""";
+        var cfgPath           = Path.Combine(configDir, ".claude.json");
+        const string snapshot = """{ "mcpServers": { "kcap-flows": { "command": "kcap", "args": ["mcp","flows"] } } }""";
         File.WriteAllText(cfgPath, snapshot);
 
         Task? trust = null;

@@ -1364,9 +1364,10 @@ class ImportCommand(
         // discovered it rather than to its vendor.
         var sourceBySession = new Dictionary<(HarnessId Vendor, string SessionId), IImportSource>();
 
-        for (var i = 0; i < sources.Count; i++)
+        for (var i = 0; i < sources.Count; i++) {
             foreach (var c in classificationsPerSource[i])
                 sourceBySession.TryAdd((c.Vendor, c.SessionId), sources[i]);
+        }
 
         // Local read failures also carry scope, even though they never reached a probe.
         if (captureScope.Configured) classifications = await captureScope.ApplyAsync(classifications, sessionCwds);
@@ -3184,7 +3185,7 @@ class ImportCommand(
             if (CaptureScope.ExcludesRecorded(profile, home, cwd, rawRepo)) beyondRemap.Add(sessionId);
 
             if (CaptureScope.ExcludesDiscovered(profile, home, cwd, repo, rawRepo)
-             || excludesRepo && checkout is not null && RepoScope.Names(profile.ExcludedRepos!, checkout)) {
+             || excludesRepo && checkout is not null && RepoScope.Names(profile.ExcludedRepos, checkout)) {
                 all.Add(sessionId);
                 if (cwd is not null) folders[sessionId] = cwd;
             }

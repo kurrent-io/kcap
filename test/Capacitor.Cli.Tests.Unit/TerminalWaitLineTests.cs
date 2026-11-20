@@ -4,10 +4,10 @@ namespace Capacitor.Cli.Tests.Unit;
 // erase that gets the count wrong takes a line the caller already committed to the scrollback with it,
 // and a hide with no matching show leaves the shell without a cursor after setup has exited.
 public class TerminalWaitLineTests {
-    const string Hide  = "\u001b[?25l";
-    const string Show  = "\u001b[?25h";
-    const string Clear = "\u001b[2K\r";
-    const string Up    = "\u001b[1A";
+    const string Hide  = "\e[?25l";
+    const string Show  = "\e[?25h";
+    const string Clear = "\e[2K\r";
+    const string Up    = "\e[1A";
 
     // Width is injected: the wrap it guards against happens inside Spectre's writer, so the only
     // observable consequence is the row count, and the real console here is a test host's.

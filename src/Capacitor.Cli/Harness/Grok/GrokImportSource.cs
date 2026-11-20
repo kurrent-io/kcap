@@ -71,7 +71,7 @@ internal sealed class GrokImportSource(GrokPaths paths, Func<string, Task<Reposi
         var results = new List<ImportCommand.SessionClassification>(sessions.Count);
 
         foreach (var s in sessions) {
-            var dir  = (string)s.SourceMeta![DirKey]!;
+            var dir  = (string)s.SourceMeta[DirKey]!;
             var meta = new SessionMetadata { SessionId = s.SessionId, Cwd = s.Cwd, FirstTimestamp = s.FirstTimestamp, LastTimestamp = ReadSummary(dir).UpdatedAt };
 
             IReadOnlyList<string> lines;

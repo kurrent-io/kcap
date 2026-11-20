@@ -35,7 +35,7 @@ public class CodexModelCatalogProbeTests {
 
     static Task<IReadOnlyList<VendorModelOption>?> Probe(FakeCodexAppServer fake, IAcpProcess? process = null) =>
         CodexModelCatalogProbe.RunAsync(
-            () => Task.FromResult<(CodexAppServerConnection, IAcpProcess)>((fake.ConnectClient(), process ?? new ExitedProcess())),
+            () => Task.FromResult((fake.ConnectClient(), process ?? new ExitedProcess())),
             "9.9.9", TimeProvider.System, NullLogger.Instance, CancellationToken.None);
 
     /// <summary>Pins that the advertised list is Codex's own answer for its account: every page, in

@@ -54,7 +54,7 @@ public class AgentRunEventQueueTests {
     [Arguments(true)]
     [Arguments(false)]
     public async Task An_unreachable_server_or_a_lapsed_credential_does_not_spend_the_bound(bool unreachable) {
-        var failures = AgentRunEventQueue.MaxRetryableResponses + 5;
+        const int failures = AgentRunEventQueue.MaxRetryableResponses + 5;
         var server = new ScriptedServer((reason, attempt) =>
             reason == "head" && attempt <= failures
                 ? unreachable ? throw new HttpRequestException("connection refused") : HttpStatusCode.Unauthorized

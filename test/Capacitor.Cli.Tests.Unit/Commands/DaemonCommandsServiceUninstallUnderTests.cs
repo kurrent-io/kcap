@@ -58,7 +58,7 @@ public class DaemonCommandsServiceUninstallUnderTests {
 
         await Assert.That(exit).IsEqualTo(0);
         var request = await received.WaitAsync(TimeSpan.FromSeconds(30));
-        await Assert.That(ShutdownIpc.Parse(request!.Text!)).IsEqualTo(new ShutdownRequestDto("end", "final"));
+        await Assert.That(ShutdownIpc.Parse(request!.Text)).IsEqualTo(new ShutdownRequestDto("end", "final"));
         await Assert.That(askedFirst).IsEquivalentTo([true]);
         await Assert.That(manager.Uninstalled).IsEquivalentTo(["laptop"]);
     }
@@ -82,7 +82,7 @@ public class DaemonCommandsServiceUninstallUnderTests {
 
         await Assert.That(exit).IsEqualTo(0);
         var request = await received.WaitAsync(TimeSpan.FromSeconds(30));
-        await Assert.That(ShutdownIpc.Parse(request!.Text!)).IsEqualTo(new ShutdownRequestDto("end", "final"));
+        await Assert.That(ShutdownIpc.Parse(request!.Text)).IsEqualTo(new ShutdownRequestDto("end", "final"));
         await Assert.That(askedFirst).IsEquivalentTo([true]);
         await Assert.That(manager.Uninstalled).IsEquivalentTo(["solo"]);
     }

@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace Capacitor.Cli.Commands;
 
 /// <summary>Cutting and locating text inside judge tool results.</summary>
-static class JudgeText {
+static partial class JudgeText {
     static readonly string[] Operators = ["or", "and", "not", "near"];
 
     /// <summary>A cut position moved back off the middle of a surrogate pair, so neither side holds half a character.</summary>
@@ -15,9 +15,9 @@ static class JudgeText {
     /// operators and negated phrases skipped. Whole words are preferred to substrings throughout. 0 when nothing is found.</summary>
     public static int MatchAt(string text, string query) {
         // A negated phrase names text the row must not hold, so neither it nor its words may anchor the window.
-        var      positive = Regex.Replace(query, "-\"[^\"]*\"", " ");
+        var      positive = NegatedPhrase().Replace(query, " ");
         string[] phrase   = [query.Trim()];
-        var      quoted   = Regex.Matches(positive, "\"([^\"]+)\"").Select(m => m.Groups[1].Value.Trim()).ToArray();
+        var      quoted   = QuotedPhrase().Matches(positive).Select(m => m.Groups[1].Value.Trim()).ToArray();
         var      words    = positive.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
             .Where(t => !t.StartsWith('-'))
             .SelectMany(Words)
@@ -35,7 +35,7 @@ static class JudgeText {
         return 0;
     }
 
-    static string[] Words(string text) => Regex.Split(text, @"[^\p{L}\p{N}]+").Where(w => w.Length > 0).ToArray();
+    static string[] Words(string text) => NonWordRun().Split(text).Where(w => w.Length > 0).ToArray();
 
     // The phrase's words in order with any run of punctuation between them, as the index reads adjacent lexemes.
     static int? PhraseAt(string text, string phrase) {
@@ -54,4 +54,13 @@ static class JudgeText {
         var m = Regex.Match(text, $@"(?<![\p{{L}}\p{{N}}]){Regex.Escape(word)}(?![\p{{L}}\p{{N}}])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         return m.Success ? m.Index : null;
     }
+
+    [GeneratedRegex("-\"[^\"]*\"")]
+    private static partial Regex NegatedPhrase();
+
+    [GeneratedRegex("\"([^\"]+)\"")]
+    private static partial Regex QuotedPhrase();
+
+    [GeneratedRegex(@"[^\p{L}\p{N}]+")]
+    private static partial Regex NonWordRun();
 }

@@ -20,7 +20,7 @@ public class LocalSocketSinkTests {
         // writer never drains until released; tiny capacity → overflow on the producer side
         var tcs  = new TaskCompletionSource();
         var sink = new LocalSocketSink(capacity: 2, async (_, c) => await tcs.Task.WaitAsync(c));
-        var run  = sink.RunAsync(default);
+        _ = sink.RunAsync(default);
 
         for (var i = 0; i < 1000; i++) sink.TryEnqueue([1]); // must not block
 

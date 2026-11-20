@@ -20,7 +20,7 @@ public class CodexHookActionsTests {
 
     [Test]
     public async Task A_patch_is_an_edit_of_every_file_its_headers_name() {
-        var patch = "*** Begin Patch\n*** Add File: notes.txt\n+hello\n*** Update File: /repo/src/a.cs\n*** Move to: src/b.cs\n@@\n*** Delete File: old.txt\n*** End Patch";
+        const string patch = "*** Begin Patch\n*** Add File: notes.txt\n+hello\n*** Update File: /repo/src/a.cs\n*** Move to: src/b.cs\n@@\n*** Delete File: old.txt\n*** End Patch";
 
         var action = CodexHookActions.Normalize("apply_patch", Input(patch), "/repo");
 
@@ -31,7 +31,7 @@ public class CodexHookActionsTests {
     /// Indentation around a header, or a header naming nothing, does not hide the files the patch does name.
     [Test]
     public async Task An_indented_header_still_names_its_file_and_a_blank_one_is_skipped() {
-        var patch = "*** Begin Patch\n  *** Update File: secrets/key.txt\n*** Add File: \n*** End Patch";
+        const string patch = "*** Begin Patch\n  *** Update File: secrets/key.txt\n*** Add File: \n*** End Patch";
 
         await Assert.That(CodexHookActions.Normalize("apply_patch", Input(patch), "/repo").Paths).IsEquivalentTo(new[] { "/repo/secrets/key.txt" });
     }

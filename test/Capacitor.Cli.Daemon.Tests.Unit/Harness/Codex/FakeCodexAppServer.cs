@@ -339,11 +339,12 @@ sealed class FakeCodexAppServer : IAsyncDisposable {
 
     public static JsonArray HookData(IReadOnlyList<(string evt, string cmd, string trust, string? hash)> hooks) {
         var arr = new JsonArray();
-        foreach (var (evt, cmd, trust, hash) in hooks)
+        foreach (var (evt, cmd, trust, hash) in hooks) {
             arr.Add(new JsonObject {
                 ["key"] = $"/home/u/.codex/hooks.json:{evt}:0:0", ["eventName"] = evt,
                 ["command"] = cmd, ["currentHash"] = hash, ["trustStatus"] = trust,
             });
+        }
         return new JsonArray(new JsonObject { ["cwd"] = "/tmp/wt", ["hooks"] = arr, ["errors"] = new JsonArray(), ["warnings"] = new JsonArray() });
     }
 

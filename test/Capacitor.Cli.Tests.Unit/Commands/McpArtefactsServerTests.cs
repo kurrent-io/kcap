@@ -37,7 +37,7 @@ public class McpArtefactsServerTests {
         var file = Path.Combine(Config.Directory, "page.html");
         await File.WriteAllTextAsync(file, "<p>from disk</p>");
 
-        var html = McpArtefactsServer.ResolveHtml(Args($$"""{"path":{{JsonValue.Create(file)!.ToJsonString()}}}"""));
+        var html = McpArtefactsServer.ResolveHtml(Args($$"""{"path":{{JsonValue.Create(file).ToJsonString()}}}"""));
 
         await Assert.That(html).IsEqualTo("<p>from disk</p>");
     }
@@ -59,7 +59,7 @@ public class McpArtefactsServerTests {
     public async Task A_path_that_does_not_exist_is_refused() {
         var missing = Path.Combine(Config.Directory, "nope.html");
 
-        await Assert.That(() => McpArtefactsServer.ResolveHtml(Args($$"""{"path":{{JsonValue.Create(missing)!.ToJsonString()}}}""")))
+        await Assert.That(() => McpArtefactsServer.ResolveHtml(Args($$"""{"path":{{JsonValue.Create(missing).ToJsonString()}}}""")))
                     .Throws<ArgumentException>();
     }
 
@@ -68,7 +68,7 @@ public class McpArtefactsServerTests {
         var file = Path.Combine(Config.Directory, "empty.html");
         await File.WriteAllTextAsync(file, "   \n");
 
-        await Assert.That(() => McpArtefactsServer.ResolveHtml(Args($$"""{"path":{{JsonValue.Create(file)!.ToJsonString()}}}""")))
+        await Assert.That(() => McpArtefactsServer.ResolveHtml(Args($$"""{"path":{{JsonValue.Create(file).ToJsonString()}}}""")))
                     .Throws<ArgumentException>();
     }
 
@@ -458,7 +458,7 @@ public class McpArtefactsServerTests {
     [Test]
     public async Task A_published_page_comes_back_as_one_json_block_carrying_the_follow_up() {
         var response = JsonNode.Parse(McpArtefactsServer.BuildPublishResult(
-            JsonValue.Create(7)!, """{"artefact":{"artefact_id":"a1","url":"https://kcap.test/pages/a1"}}"""))!;
+            JsonValue.Create(7), """{"artefact":{"artefact_id":"a1","url":"https://kcap.test/pages/a1"}}"""))!;
 
         var content = response["result"]!["content"]!.AsArray();
 
@@ -475,7 +475,7 @@ public class McpArtefactsServerTests {
     /// follow-up has nowhere to go and a thrown parse would fail a publish the server accepted.</summary>
     [Test]
     public async Task A_publish_body_that_is_not_json_comes_back_untouched() {
-        var response = JsonNode.Parse(McpArtefactsServer.BuildPublishResult(JsonValue.Create(7)!, "accepted"))!;
+        var response = JsonNode.Parse(McpArtefactsServer.BuildPublishResult(JsonValue.Create(7), "accepted"))!;
 
         var content = response["result"]!["content"]!.AsArray();
 

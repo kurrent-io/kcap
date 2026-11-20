@@ -260,10 +260,10 @@ public class PtyHostedAgentRuntimeFactoryTests {
             await Assert.That(pty.LastArgs!.Any(a => a.Contains("build it", StringComparison.Ordinal))).IsFalse();
 
             _ = PumpAsync(start.Runtime);
-            process.Emit("\x1b[?2004hwelcome banner");
+            process.Emit("\e[?2004hwelcome banner");
             await WaitForWritesAsync(process, 2);
 
-            await Assert.That(process.Writes[0]).IsEqualTo("\x1b[200~build it\nthen test it\x1b[201~");
+            await Assert.That(process.Writes[0]).IsEqualTo("\e[200~build it\nthen test it\e[201~");
             await Assert.That(process.Writes[1]).IsEqualTo("\r");
         } finally {
             process.Exit();
@@ -287,10 +287,10 @@ public class PtyHostedAgentRuntimeFactoryTests {
             await Task.Delay(300);
             await Assert.That(process.Writes).IsEmpty();
 
-            process.Emit("\x1b[?2004hwelcome back");
+            process.Emit("\e[?2004hwelcome back");
             await message.WaitAsync(TimeSpan.FromSeconds(10));
 
-            await Assert.That(string.Join("|", process.Writes)).IsEqualTo("\x1b[200~carry on\x1b[201~|\r");
+            await Assert.That(string.Join("|", process.Writes)).IsEqualTo("\e[200~carry on\e[201~|\r");
         } finally {
             process.Exit();
             await start.Runtime.DisposeAsync();
@@ -350,7 +350,7 @@ public class PtyHostedAgentRuntimeFactoryTests {
 
         try {
             _ = PumpAsync(start.Runtime);
-            process.Emit("\x1b[?2004hwelcome banner");
+            process.Emit("\e[?2004hwelcome banner");
             start.Runtime.NoteSessionStarted();
             await WaitForWritesAsync(process, 2);
             start.Runtime.NoteTurnRelayed();
@@ -379,7 +379,7 @@ public class PtyHostedAgentRuntimeFactoryTests {
 
         try {
             _ = PumpAsync(start.Runtime);
-            process.Emit("\x1b[?2004hwelcome banner");
+            process.Emit("\e[?2004hwelcome banner");
 
             var outcome = await start.Runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(10));
 
@@ -402,7 +402,7 @@ public class PtyHostedAgentRuntimeFactoryTests {
 
         try {
             _ = PumpAsync(start.Runtime);
-            process.Emit("\x1b[?2004hfirst-run screen");
+            process.Emit("\e[?2004hfirst-run screen");
             await Task.Delay(PtyHostedAgentRuntime.LaunchPromptQuietWindow * 2);
 
             await Assert.That(process.Writes).IsEmpty();
@@ -429,7 +429,7 @@ public class PtyHostedAgentRuntimeFactoryTests {
 
         try {
             _ = PumpAsync(start.Runtime);
-            process.Emit("\x1b[?2004hfirst-run screen");
+            process.Emit("\e[?2004hfirst-run screen");
             await Task.Delay(PtyHostedAgentRuntime.LaunchPromptQuietWindow * 2);
 
             await Assert.That(process.Writes).IsEmpty();
@@ -449,7 +449,7 @@ public class PtyHostedAgentRuntimeFactoryTests {
 
         try {
             _ = PumpAsync(start.Runtime);
-            process.Emit("\x1b[?2004hwelcome banner");
+            process.Emit("\e[?2004hwelcome banner");
 
             var outcome = await start.Runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(10));
 

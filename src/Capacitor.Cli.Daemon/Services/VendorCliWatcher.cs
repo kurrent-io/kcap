@@ -103,9 +103,10 @@ internal sealed partial class VendorCliWatcher : BackgroundService {
             DaemonConfig config, IReadOnlyDictionary<string, IHostedAgentRuntimeFactory> factories,
             AccountsSnapshotDto? accounts = null) {
         var vendors = new HashSet<string>(config.UnattendedVendors ?? [], StringComparer.Ordinal);
-        foreach (var f in factories.Values)
+        foreach (var f in factories.Values) {
             if (f.CatalogFingerprintPaths.Count > 0 || (config.VendorModels?.ContainsKey(f.Vendor) ?? false))
                 vendors.Add(f.Vendor);
+        }
 
         var perAccount = VendorModelCatalogs.AccountFactory(factories.Values, config.SupportedVendors ?? []) is { } accountFactory
             ? VendorModelCatalogs.AccountsIn(accounts).Select(a =>

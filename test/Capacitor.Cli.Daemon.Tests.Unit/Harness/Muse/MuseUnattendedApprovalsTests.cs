@@ -71,7 +71,7 @@ public class MuseUnattendedApprovalsTests {
         var ex = Assert.Throws<InvalidOperationException>(
             () => MuseUnattendedApprovals.AdmittedFor([Server("kcap-sessions")], Aliasing));
 
-        await Assert.That(ex!.Message).Contains("muse_reviewer_unclassified_server");
+        await Assert.That(ex.Message).Contains("muse_reviewer_unclassified_server");
     }
 
     [Test]
@@ -103,7 +103,7 @@ public class MuseUnattendedApprovalsTests {
     public async Task An_unclassified_server_fails_the_launch() {
         var ex = Assert.Throws<InvalidOperationException>(() => Admitted("kcap-memory"));
 
-        await Assert.That(ex!.Message).Contains("muse_reviewer_unclassified_server");
+        await Assert.That(ex.Message).Contains("muse_reviewer_unclassified_server");
     }
 
     [Test]

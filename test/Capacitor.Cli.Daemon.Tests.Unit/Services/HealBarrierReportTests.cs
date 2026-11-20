@@ -104,7 +104,7 @@ public class HealBarrierReportTests {
         var server = new CaptureServerConnection();
         await using var orch = AgentOrchestratorHarness.BuildOrchestrator(server, new SpyPtyProcessFactory(),
             new Dictionary<string, IHostedAgentLauncher>());
-        var agent = orch.SeedAgentForTest("rev", LaunchKind.ReviewFlow, status: "Running", flowRunId: "f", flowRole: "reviewer");
+        _ = orch.SeedAgentForTest("rev", LaunchKind.ReviewFlow, status: "Running", flowRunId: "f", flowRole: "reviewer");
         var epoch = orch.DaemonEpochForTest;
 
         await orch.HandleStopAgentV2ForTest(new StopAgentV2("rev", epoch, 1, "cmd-1"));

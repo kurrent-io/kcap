@@ -205,9 +205,9 @@ public class AppMenuBarTests {
         var live = new MainWindowCoordinator(() => throw new InvalidOperationException("factory"));
         var latched = new MainWindowCoordinator(() => throw new InvalidOperationException("factory")) { QuitInProgress = true };
 
-        await Assert.That(Capacitor.App.App.MainWindowAction(live) is not null).IsTrue();
-        await Assert.That(Capacitor.App.App.MainWindowAction(latched) is null).IsTrue();
-        await Assert.That(Capacitor.App.App.MainWindowAction(null) is null).IsTrue();
+        await Assert.That(App.MainWindowAction(live) is not null).IsTrue();
+        await Assert.That(App.MainWindowAction(latched) is null).IsTrue();
+        await Assert.That(App.MainWindowAction(null) is null).IsTrue();
     }
 
     [Test]
@@ -346,7 +346,7 @@ public class AppMenuBarTests {
     public async Task Settings_exported_at_startup_becomes_enabled_and_opens_after_composition() {
         var opened = 0;
         var (before, after) = await AvaloniaSession.DispatchAsync(() => {
-            var app = new Capacitor.App.App();
+            var app = new App();
             app.Initialize();
             var settings = Item(NativeMenu.GetMenu(app)!, "Settings…");
             var before = settings.IsEnabled;

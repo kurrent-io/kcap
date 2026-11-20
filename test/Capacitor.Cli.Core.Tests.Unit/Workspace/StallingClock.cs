@@ -8,7 +8,7 @@ sealed class StallingClock(Func<int, bool> stalls) : TimeProvider {
 
     public override long GetTimestamp() {
         var now = base.GetTimestamp();
-        return stalls(Interlocked.Increment(ref _reads)) ? now + (long) (TimestampFrequency * 3600) : now;
+        return stalls(Interlocked.Increment(ref _reads)) ? now + (TimestampFrequency * 3600) : now;
     }
 
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) => new Silent();

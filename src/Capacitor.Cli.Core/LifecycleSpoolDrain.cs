@@ -140,7 +140,7 @@ public static class LifecycleSpoolDrain {
             HttpClient client, string baseUrl, string route, string body, TimeProvider time,
             CancellationToken ct, Action<string, string>? onWhatsDoneRequested) {
         try {
-            using var content = new System.Net.Http.StringContent(body, System.Text.Encoding.UTF8, "application/json");
+            using var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
             using var resp = await client.PostOnceAsync($"{baseUrl}/hooks/{route}", content, time, PostTimeout, ct);
             if (resp.IsSuccessStatusCode) {
                 if (HookSpool.IsTerminalRoute(route) && onWhatsDoneRequested is not null) {

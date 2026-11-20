@@ -125,7 +125,7 @@ public partial class ChatTabView : UserControl {
         RestoreFind();
         _pointerRoot = TopLevel.GetTopLevel(this);
         _pointerRoot?.AddHandler(PointerReleasedEvent, OnPrimaryReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
-        _pointerRoot?.AddHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost, RoutingStrategies.Direct | RoutingStrategies.Bubble, handledEventsToo: true);
+        _pointerRoot?.AddHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost, handledEventsToo: true);
         if (_pointerRoot is Window window) window.Deactivated += OnWindowDeactivated;
     }
 
@@ -540,6 +540,11 @@ public partial class ChatTabView : UserControl {
     }
 
     void OnScrollChanged(object? sender, ScrollChangedEventArgs e) {
+        // Only the reader's own scrolling asks for older rows: the offset an insertion moves is still
+        // near the top until the panel shifts it. A transcript shorter than the view pages until it fills.
+        if (sender is ScrollViewer reading && reading.Offset.Y <= reading.Viewport.Height
+            && (_readerGesture || reading.Extent.Height <= reading.Viewport.Height)
+            && DataContext is ChatTabViewModel { Items.Count: > 0 } chat) chat.RequestOlder();
         if (_restoringAnchor || _anchorItem is not null) return;
         if (sender is not ScrollViewer scroll) return;
         // A dragged thumb owns its position even when discovering row heights changes the range.

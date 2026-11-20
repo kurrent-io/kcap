@@ -15,7 +15,7 @@ public class OpenCodeExtractorTests {
 
     [Test]
     public async Task TryExtractUserText_OpenCode_JoinsTextParts_OnlyUserRole() {
-        var two = """{"info":{"role":"user"},"parts":[{"type":"text","text":"first"},{"type":"text","text":"second"}]}""";
+        const string two = """{"info":{"role":"user"},"parts":[{"type":"text","text":"first"},{"type":"text","text":"second"}]}""";
         await Assert.That(TranscriptLineText.TryExtractUserText(two, "opencode")).IsEqualTo("first\nsecond");
         await Assert.That(TranscriptLineText.TryExtractUserText(UserLine, "opencode")).IsEqualTo("summarize the files");
         await Assert.That(TranscriptLineText.TryExtractUserText(AssistantLine, "opencode")).IsNull();
@@ -29,10 +29,10 @@ public class OpenCodeExtractorTests {
 
     [Test]
     public async Task Extractors_SkipSyntheticAndIgnoredParts() {
-        var synthetic = """{"info":{"role":"user"},"parts":[{"type":"text","text":"injected","synthetic":true},{"type":"text","text":"real prompt"}]}""";
+        const string synthetic = """{"info":{"role":"user"},"parts":[{"type":"text","text":"injected","synthetic":true},{"type":"text","text":"real prompt"}]}""";
         await Assert.That(TranscriptLineText.TryExtractUserText(synthetic, "opencode")).IsEqualTo("real prompt");
 
-        var ignored = """{"info":{"role":"user"},"parts":[{"type":"text","text":"elided","ignored":true}]}""";
+        const string ignored = """{"info":{"role":"user"},"parts":[{"type":"text","text":"elided","ignored":true}]}""";
         await Assert.That(TranscriptLineText.TryExtractUserText(ignored, "opencode")).IsNull();
     }
 
@@ -42,11 +42,11 @@ public class OpenCodeExtractorTests {
         await Assert.That(TranscriptLineText.IsEvent(AssistantLine, "opencode")).IsTrue();
 
         // A tool-only assistant turn has no titleable text → must not count toward the threshold.
-        var toolOnly = """{"info":{"role":"assistant"},"parts":[{"type":"tool","tool":"read","callID":"c","state":{"status":"completed"}}]}""";
+        const string toolOnly = """{"info":{"role":"assistant"},"parts":[{"type":"tool","tool":"read","callID":"c","state":{"status":"completed"}}]}""";
         await Assert.That(TranscriptLineText.IsEvent(toolOnly, "opencode")).IsFalse();
 
         // Non user/assistant roles never count.
-        var system = """{"info":{"role":"system"},"parts":[{"type":"text","text":"x"}]}""";
+        const string system = """{"info":{"role":"system"},"parts":[{"type":"text","text":"x"}]}""";
         await Assert.That(TranscriptLineText.IsEvent(system, "opencode")).IsFalse();
     }
 }

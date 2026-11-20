@@ -109,6 +109,8 @@ The **Pages** tab appears in the centre switch when the session has a plan, spec
 
 With the experimental **What to do next in the launcher** feature on (Settings → Experimental, or `kcap experimental enable launcher-next-work`), the launcher lists what to pick up next under the composer: who is waiting on you, then the top picks from your own work, as the web dashboard's **Do next** chooses them, with the rest of your work folded under **More to do**. A row whose item has a loose end noted against it shows the first one under its title. Tracker chores and quiet items stay on the dashboard, and the list's header counts them. Press a row to pick it for the composer: the chip above the goal names it, your checkout of its repository is selected, and the composer is left for anything you want to add, so you can start it as it is. The agent gets the task's line (a work item's or loose end's title, or what to do with a pull request), then what you typed, then the prompt the server writes for it: its loose ends and the sessions they came from. A session to resume opens instead. Start from the composer as usual, or press ▶ on a work item or loose end to start an agent on it at once in this machine's checkout, which claims the loose end and attaches the work item as the web's **Work on this** does. Each row's **⋯** menu opens it in the browser, snoozes a loose end until tomorrow or marks it done, and dismisses the suggestion. The composer keeps its place however long the list or the goal grows; the list scrolls in the space below it. It needs a server with next work turned on, and the switch applies within a few seconds.
 
+Ask the agent to "use progressive disclosure" (or "pd on"), at any point in a session, and it grades its replies from then on (the `progressive-disclosure` skill): what you must know stays unmarked, `⌞…⌟` wraps detail and `⌞⌞…⌟⌟` wraps footnotes. Ask it to stop and later replies come unmarked. Once any reply in the session is graded, a **Progressive disclosure** button appears in the header, beside the Chat and Terminal switch; it turns fading of detail and footnotes on and off. Hovering faded text shows it at full strength. The choice applies to every open chat at once and is kept across restarts. Outside the desktop app, the marks show as written.
+
 A published page listed there (see [Pages](#pages)), and a page link in the chat, opens in your system browser. On macOS, and on Windows with the WebView2 runtime installed, the experimental **In-app pages** feature (Settings → Experimental, or `kcap experimental enable in-app-pages`) opens it instead in an in-app viewer in the right-hand pane, where an interactive page can be answered without leaving the app; the switch applies to the next page you open. A link inside an in-app page asks before it opens the browser, and the viewer keeps **Open in browser**. Where the app cannot lock the page's web view down, it opens the page in the browser.
 
 Calls to the `kcap-*` MCP tools read in plain words in the chat ("Attached work item · AI-3084", "Saved memory · …", "Searched sessions · …") instead of the raw tool name, grouped and folded as other tool calls are. A call that produced something you can open becomes a card once its result lands: a published page carries Copy link and Open, a declared document carries Open into the Pages tab. Tools from other MCP servers read as "Server · tool name" with their first argument.
@@ -1779,11 +1781,10 @@ the kcap capture plugin inside it do not reach the reviewer, and your interactiv
 unaffected. The restriction is read back before every launch, and a home that cannot be made owner-only
 refuses the launch rather than running with review context other users could read.
 
-**Not offered on Windows yet.** A Windows daemon withholds Antigravity, hosted agents and reviewers alike,
-with `antigravity_reviewer_unsupported_platform`. The home itself is ready there — a protected ACL admitting
-only you and SYSTEM, with `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and `TEMP`/`TMP` redirected into it
-alongside `HOME` — but no real `agy` run on Windows has yet confirmed that `agy` writes nothing outside it,
-and containment here is proven by a real run, not assumed.
+**Windows works the same way.** There the home carries a protected ACL admitting only you and SYSTEM, and
+`USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and `TEMP`/`TMP` are redirected into it alongside `HOME`. A real
+`agy` run under that home wrote nothing into your own `.gemini` or app-data folders and left no process
+behind.
 
 That home also carries a small `settings.json` holding `permissions.allow` rules for exactly the MCP tools
 the launch injected — the `kcap-flow-result` submit channel, plus any read-only servers the flow definition
@@ -1794,9 +1795,11 @@ reasons, and can never deliver its result. The grant admits those named tools an
 
 **Give the daemon durable credentials.** An unattended reviewer's stdin is closed, so it cannot complete an
 interactive login — an unauthenticated `agy` fails the launch with a coded
-`antigravity_reviewer_auth_unavailable` rather than hanging. Application Default Credentials are the
-supported setup, and every CLI-driven daemon start completes them for you — `daemon start`, `-d`, and
-`service install` alike:
+`antigravity_reviewer_auth_unavailable` rather than hanging. On Windows an `agy` you have already signed
+in to needs nothing more: its sign-in is not kept in the profile the launch redirects, so a daemon started
+with none of the three variables below launches it as it is. Elsewhere, Application Default Credentials
+are the supported setup, and every CLI-driven daemon start completes them for you — `daemon start`, `-d`,
+and `service install` alike:
 
 ```bash
 gcloud auth application-default login
@@ -1815,12 +1818,30 @@ launch redirects `HOME` (and on Windows `APPDATA`) to a per-launch state directo
 location is not visible to the child. Derivation happens in the CLI, at your command; the daemon itself
 still never reads a credential location of its own accord — it only forwards what it was started with.
 
-On Windows, `service install` derives nothing and never carries the credential path, as it carries no
-secret-capable value into a Windows unit, so a Windows daemon gets the trio from `kcap daemon start`/`-d`
-— which is how the desktop app starts it.
+On Windows nothing is derived unless you ask for it. A gcloud credentials file that merely exists does not
+set `AGY_ADC_AUTH=1` there: that flag turns `agy` away from its own sign-in, and with it set and no project
+`agy` fails with `plan model not specified`. ADC on Windows is therefore for a daemon you start yourself
+from a shell: log gcloud in, give it a project, stop the daemon that is running, and set the flag for the
+start command alone; `kcap daemon start`/`-d` then fills in the other two as above:
+
+```powershell
+gcloud auth application-default login
+gcloud config set project <id>
+kcap daemon stop --name $env:USERNAME      # a service-managed one: kcap daemon service stop --name $env:USERNAME
+$env:AGY_ADC_AUTH = '1'; kcap daemon start -d --name $env:USERNAME; Remove-Item Env:AGY_ADC_AUTH
+```
+
+The stop comes first because a start under the name of a running daemon is refused. Removing the flag
+afterwards matters too: left set in your shell, it is the export the end of this section warns against.
+Neither the desktop app nor a service does this for you. With no service installed the app runs
+`kcap daemon start -d` from its own environment, where the flag is normally unset; with one installed it
+starts that service, and `service install` derives nothing on Windows and never carries the credential
+path, as it carries no secret-capable value into a Windows unit. A service-managed daemon on Windows
+therefore has no ADC.
 
 A daemon already running from before you logged in needs a fresh start to pick the trio up — `kcap daemon
-stop` then `kcap daemon start`/`-d` (or re-run `service install`). `kcap daemon restart` reuses the running
+stop` then `kcap daemon start`/`-d` (or, on macOS and Linux, re-run `service install`); on Windows that start
+is the one above, with the flag set for it. `kcap daemon restart` reuses the running
 process's own environment rather than re-deriving, so it will not.
 
 Deliberately unit-only: do **not** export `AGY_ADC_AUTH=1` in your interactive shell — under ADC auth agy
@@ -1936,8 +1957,7 @@ consents specifically to an *unattended review*, whose risk is that it runs unde
 and returns what it read to whoever asked for the review — someone who need not be you. A hosted agent has
 no such gap: the server only ever launches on a daemon you own, so the person launching it is you.
 
-What a hosted launch *does* share with the reviewer is the **minimum `agy` version** (and not being offered
-on Windows yet), because
+What a hosted launch *does* share with the reviewer is the **minimum `agy` version**, because
 the containment that protects is the isolated `HOME` both shapes rely on. Your daemon records that minimum
 at startup whenever `agy` resolves, so there is normally nothing to do; if you installed `agy` after the
 daemon started, restart it or run `kcap daemon reviewer affirm --vendor antigravity`.
@@ -2016,6 +2036,7 @@ kcap records which integrations use the shared tree in `~/.agents/skills/.kcap-c
 | `kcap-pages` | `kcap mcp pages` | Make the artifact, page or report the user asked for as a kcap page: publish it, put the link in the reply, open it in the harness's browser tool when it has one |
 | `kcap-connect-kcap` | `kcap setup` / `kcap login` | Install and sign in kcap for the agent asking; on a Muse Assistant VM also registers the kcap MCP servers as a custom connector, writes the `kcap` skill and an hourly `kcap status` cron |
 | `kcap-worktrees` | `git` | Relative worktree links for a repository opened from a sandbox and its host: enable, undo, never prune, reinstate a pruned worktree |
+| `kcap-progressive-disclosure` | — | Grade chat replies with progressive-disclosure marks when the user asks for it, so the desktop app can fade the detail and footnotes |
 
 The first five (`kcap-recap`, `kcap-errors`, `kcap-hide`, `kcap-disable`, `kcap-validate-plan`) auto-resolve the active session from `CODEX_THREAD_ID`; pass `<sessionId>` explicitly to operate on a different session. `kcap-review-flows` and `kcap-agent-flows` work differently — they operate via flow IDs through `kcap mcp flows`; only the two status tools fall back to the session (from `CODEX_THREAD_ID`, or an explicit `session_id`) when no flow ID is passed; see [Flows MCP server (for agents)](#flows-mcp-server-for-agents) for details. `kcap-start-agents` also goes through `kcap mcp flows`; its tools take the calling session from the harness, or from an explicit `session_id`. `kcap-work-items` declares structure through `kcap mcp workitems` and needs no session id for its breakdown and relation tools. `kcap-plans` writes through `kcap mcp plans` and defaults the session the same way `kcap-work-items` does. `kcap-guided-tour` shells out to `kcap whoami` and otherwise reads through the `kcap-analytics`, `kcap-sessions` and `kcap-flows` MCP servers, so it needs those registered (setup does it) rather than a session id. On a plan without Insights its team table falls back to the user's own session count.
 

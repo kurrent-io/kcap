@@ -878,7 +878,7 @@ public class MainWindowViewModelTests {
     public async Task Start_and_reconnect_visibility_are_mutually_exclusive() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var (vm, home, tmp) = WithLauncher(service);
+            var (_, home, tmp) = WithLauncher(service);
             using var _tmp = tmp;
             using var _home = home;
 
@@ -907,7 +907,7 @@ public class MainWindowViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
             var moving = new BehaviorSubject<bool>(true);
-            var (vm, home, tmp) = WithLauncher(service, moving);
+            var (_, home, tmp) = WithLauncher(service, moving);
             using var _tmp = tmp;
             using var _home = home;
 
@@ -1239,7 +1239,7 @@ public class MainWindowViewModelTests {
     public async Task A_connect_resets_the_banner_to_the_standing_identity_report(bool reportFirst) {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var identity = new System.Reactive.Subjects.BehaviorSubject<string?>(null);
+            var identity = new BehaviorSubject<string?>(null);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
                 identityReport: identity);
             using var activation = vm.Activator.Activate();
@@ -2128,7 +2128,7 @@ public class MainWindowViewModelTests {
                 originOf: id => id == "S" ? AgentOrigin.Server : AgentOrigin.Local,
                 serverWorkspaceFactory: id => built = host.NewServer(id), directory: host.Directory, time: time);
             vm.OpenSession("a1", AgentOrigin.Local);
-            var local = vm.CurrentWorkspace;
+            _ = vm.CurrentWorkspace;
 
             service.Agents.AddOrUpdate(LocalWithSession("a1", "S", "Completed"));
             host.Directory.Rows.Edit(rows => {

@@ -182,7 +182,7 @@ public class McpDoctorSectionTests {
         var snapshot = DuplicateAndConflictConfig;
 
         // Another writer lands between the findings snapshot and the commit.
-        var concurrent = """{ "mcpServers": { "kcap-flows": { "command": "kcap", "args": ["mcp","flows"] } }, "newTrust": true }""";
+        const string concurrent = """{ "mcpServers": { "kcap-flows": { "command": "kcap", "args": ["mcp","flows"] } }, "newTrust": true }""";
         File.WriteAllText(f.ClaudeConfig, concurrent);
 
         var outcome = McpDoctorSection.TryCleanClaudeConfig(f.ClaudeConfig, snapshot, null, out _);

@@ -761,6 +761,46 @@ public class WorkspaceViewSmokeTests {
         });
     }
 
+    /// The header toggle waits for a graded reply in the chat on screen, then a click flips the shared
+    /// basis between faded and normal; another tab hides it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_progressive_disclosure_toggle_shows_for_a_graded_chat_and_flips_the_fade() {
+        await RunOnUiAsync(async () => {
+            var basis = ProgressiveDisclosureViewModel.Shared;
+            var was = basis.Enabled;
+            using var tmp = new TempDir();
+            var (window, vm, daemon, _) = await ShowPtyAsync();
+            try {
+                await Assert.That(Visible(window, "ProgressiveDisclosureButton")).IsFalse();
+
+                var path = tmp.CreateFile("graded.jsonl", [
+                    """{"type":"assistant","message":{"content":[{"type":"text","text":"Done. ⌞It took a while.⌟"}]}}"""]);
+                daemon.Agents.AddOrUpdate(Agent(AgentId, hasTerminal: true) with { TranscriptPath = path });
+                await (vm.Chat!.PendingReadForTesting ?? Task.CompletedTask);
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(vm.Chat.HasProgressiveDisclosureMarks).IsTrue();
+                var button = Find<Button>(window, "ProgressiveDisclosureButton")!;
+                await Assert.That(button.IsEffectivelyVisible).IsTrue();
+                await Assert.That(ToolTip.GetTip(button)).IsEqualTo("Progressive disclosure");
+
+                basis.Enabled = true;
+                button.Command!.Execute(null);
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(basis.Enabled).IsFalse();
+                await Assert.That(button.Classes.Contains("on")).IsFalse();
+
+                vm.ShowTerminalCommand.Execute().Subscribe();
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(button.IsEffectivelyVisible).IsFalse();
+            } finally {
+                basis.Enabled = was;
+                window.Close();
+                await vm.TeardownAsync();
+            }
+        });
+    }
+
     /// The header's right side is icons: the segment is what grows.
     [Test]
     [NotInParallel("AvaloniaSession")]

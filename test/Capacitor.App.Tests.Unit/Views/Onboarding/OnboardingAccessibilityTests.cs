@@ -21,9 +21,9 @@ public class OnboardingAccessibilityTests {
             var addAgent = new DonePaneView { DataContext = done }.FindControl<Button>("AddAgentButton")!;
             var docs = new HistoryPaneView().FindControl<Button>("RepoSettingsDocsButton")!;
 
-            await Assert.That(ControlAutomationPeer.CreatePeerForElement(addAgent)!.GetName())
+            await Assert.That(ControlAutomationPeer.CreatePeerForElement(addAgent).GetName())
                 .IsEqualTo("Add an agent");
-            await Assert.That(ControlAutomationPeer.CreatePeerForElement(docs)!.GetName())
+            await Assert.That(ControlAutomationPeer.CreatePeerForElement(docs).GetName())
                 .IsEqualTo("Repository settings in the docs");
         });
     }

@@ -160,10 +160,11 @@ public sealed class PiTranscriptEvents : ITranscriptProjection {
 
         var (tokens, cacheWrite) = Usage(usage, model);
         var events = new List<CanonicalEvent>(parts.Count);
-        for (var i = 0; i < parts.Count; i++)
+        for (var i = 0; i < parts.Count; i++) {
             events.Add(i == 0
                 ? entry.Event(parts[i].Payload, parts[i].Id, i, tokens, cacheWrite)
                 : entry.Event(parts[i].Payload, parts[i].Id, i));
+        }
 
         return events;
     }

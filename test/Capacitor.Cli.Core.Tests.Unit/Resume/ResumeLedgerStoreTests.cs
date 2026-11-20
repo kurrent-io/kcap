@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Capacitor.Cli.Core.LocalIpc;
 using System.Runtime.Versioning;
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Core.Resume;
 using Microsoft.Extensions.Time.Testing;
 
@@ -8,7 +9,7 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Resume;
 
-public class ResumeLedgerStoreTests {
+public partial class ResumeLedgerStoreTests {
     static readonly DateTimeOffset T0 = new(2026, 10, 17, 8, 0, 0, TimeSpan.Zero);
 
     static ResumeLedgerEntry Entry(string agentId, int schema = ResumeLedgerEntry.CurrentSchemaVersion) => new(
@@ -48,9 +49,7 @@ public class ResumeLedgerStoreTests {
         var       store = ResumeLedgerStore.For(tmp.Store, "d1");
         store.Write(Entry("agent-1"));
         var path = store.EntryPath("agent-1");
-        var json = System.Text.RegularExpressions.Regex.Replace(
-            File.ReadAllText(path),
-            ",\"(daemon_instance_id|worktree_branch|worktree_is_standalone|worktree_source_repo|permission_mode|inactivity_bound_seconds|awaiting_input|account_directory|account_id|worktree_owns_branch|account_label)\":(\"[^\"]*\"|true|false|[0-9]+)", "");
+        var json = NewerMembers().Replace(File.ReadAllText(path), "");
         await Assert.That(json).DoesNotContain("worktree_branch");
         await Assert.That(json).DoesNotContain("permission_mode");
         await Assert.That(json).DoesNotContain("inactivity_bound_seconds");
@@ -409,4 +408,7 @@ public class ResumeLedgerStoreTests {
         await Assert.That(store.TryRead("held")!.State).IsEqualTo(before);
         await Assert.That(store.TryRead("free")!.State).IsEqualTo(ResumeState.Interrupted);
     }
+
+    [GeneratedRegex(",\"(daemon_instance_id|worktree_branch|worktree_is_standalone|worktree_source_repo|permission_mode|inactivity_bound_seconds|awaiting_input|account_directory|account_id|worktree_owns_branch|account_label)\":(\"[^\"]*\"|true|false|[0-9]+)")]
+    private static partial Regex NewerMembers();
 }

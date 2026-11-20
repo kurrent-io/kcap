@@ -27,9 +27,10 @@ public sealed record KcapBundle(string Root, string Version, string Executable, 
             var entries = XDocument.Load(reader).Root?.Element("dict")?.Elements().ToArray();
             if (entries is null) return null;
             string? Value(string key) {
-                for (var i = 0; i + 1 < entries.Length; i += 2)
+                for (var i = 0; i + 1 < entries.Length; i += 2) {
                     if (entries[i].Name == "key" && entries[i].Value == key && entries[i + 1].Name == "string")
                         return entries[i + 1].Value;
+                }
                 return null;
             }
             if ((Value("CFBundleVersion") ?? Value("CFBundleShortVersionString")) is not { Length: > 0 } version) return null;

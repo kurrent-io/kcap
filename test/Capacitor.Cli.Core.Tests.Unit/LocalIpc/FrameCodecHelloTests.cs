@@ -55,7 +55,7 @@ public class FrameCodecHelloTests {
 
     [Test]
     public async Task HelloReply_forward_compat_with_unknown_property() {
-        var json = """{"protocol_version":1,"daemon_version":"x","daemon_name":"n","capabilities":["consent/1"],"unknown_field":"ignored"}""";
+        const string json = """{"protocol_version":1,"daemon_version":"x","daemon_name":"n","capabilities":["consent/1"],"unknown_field":"ignored"}""";
         var dto = JsonSerializer.Deserialize(json, HelloIpcJsonContext.Default.HelloReplyDto);
         await Assert.That(dto).IsNotNull();
         await Assert.That(dto!.ProtocolVersion).IsEqualTo(1);
@@ -71,7 +71,7 @@ public class FrameCodecHelloTests {
         // An older daemon's reply might not carry "capabilities" at all — STJ leaves the absent
         // member at its default (null) rather than throwing. A client must be able to read this
         // without an NRE and treat the absence as "no capabilities advertised".
-        var json = """{"protocol_version":1,"daemon_version":"x","daemon_name":"n"}""";
+        const string json = """{"protocol_version":1,"daemon_version":"x","daemon_name":"n"}""";
         var dto = JsonSerializer.Deserialize(json, HelloIpcJsonContext.Default.HelloReplyDto);
         await Assert.That(dto).IsNotNull();
         await Assert.That(dto!.ProtocolVersion).IsEqualTo(1);

@@ -179,8 +179,8 @@ public sealed class ConPtyProcess : IPtyProcess {
         ) {
         var cmdLine = BuildCommandLine(command, args, ResolveCommand, NpmCmdShim.TryRead);
 
-        var pipeSa = new ConPtyInterop.SECURITY_ATTRIBUTES {
-            nLength        = Marshal.SizeOf<ConPtyInterop.SECURITY_ATTRIBUTES>(),
+        var pipeSa = new SECURITY_ATTRIBUTES {
+            nLength        = Marshal.SizeOf<SECURITY_ATTRIBUTES>(),
             bInheritHandle = true
         };
 
@@ -197,7 +197,7 @@ public sealed class ConPtyProcess : IPtyProcess {
             throw new InvalidOperationException($"CreatePipe (output) failed: {err}");
         }
 
-        var size = new ConPtyInterop.COORD { X = (short)cols, Y = (short)rows };
+        var size = new COORD { X = (short)cols, Y = (short)rows };
         var hr   = CreatePseudoConsole(size, ptyInputRead, ptyOutputWrite, PseudoConsoleFlags, out var hPC);
 
         if (hr != 0) {
@@ -239,15 +239,15 @@ public sealed class ConPtyProcess : IPtyProcess {
                 throw new InvalidOperationException($"CreateJobObjectW failed: {Marshal.GetLastWin32Error()}");
             }
 
-            var limitInfo = new ConPtyInterop.JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
-                BasicLimitInformation = new ConPtyInterop.JOBOBJECT_BASIC_LIMIT_INFORMATION {
+            var limitInfo = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+                BasicLimitInformation = new JOBOBJECT_BASIC_LIMIT_INFORMATION {
                     LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
                 }
             };
 
             if (!SetInformationJobObject(
                     hJob, JobObjectExtendedLimitInformation, ref limitInfo,
-                    (uint)Marshal.SizeOf<ConPtyInterop.JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())) {
+                    (uint)Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())) {
                 var err = Marshal.GetLastWin32Error();
                 CloseHandle(hJob);
 
@@ -308,8 +308,8 @@ public sealed class ConPtyProcess : IPtyProcess {
                 throw new InvalidOperationException($"UpdateProcThreadAttribute(JOB_LIST) failed: {err}");
             }
 
-            var si = new ConPtyInterop.STARTUPINFOEXW();
-            si.StartupInfo.cb      = Marshal.SizeOf<ConPtyInterop.STARTUPINFOEXW>();
+            var si = new STARTUPINFOEXW();
+            si.StartupInfo.cb      = Marshal.SizeOf<STARTUPINFOEXW>();
             si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
             si.lpAttributeList     = attrList;
 
@@ -526,7 +526,7 @@ public sealed class ConPtyProcess : IPtyProcess {
     }
 
     public void Resize(ushort cols, ushort rows) {
-        var size = new ConPtyInterop.COORD { X = (short)cols, Y = (short)rows };
+        var size = new COORD { X = (short)cols, Y = (short)rows };
         ResizePseudoConsole(_hPC, size);
     }
 

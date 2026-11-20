@@ -271,7 +271,7 @@ public class WorkspaceMcpNeutralizationTests {
             var ex = Assert.Throws<WorkspaceMcpNeutralizationException>(
                 () => WorktreeManager.NeutralizeWorkspaceMcpConfig(wt));
 
-            await Assert.That(ex!.Path).Contains("mcp.json");
+            await Assert.That(ex.Path).Contains("mcp.json");
         } finally {
             File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }

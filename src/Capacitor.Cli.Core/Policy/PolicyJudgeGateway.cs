@@ -1,6 +1,6 @@
 namespace Capacitor.Cli.Core.Policy;
 
-using Capacitor.Cli.Core.Http;
+using Http;
 
 /// <summary>
 /// A seam's way to the judge: builds the authenticated client inside the same budget the

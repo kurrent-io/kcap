@@ -133,9 +133,10 @@ class SkillsCommand(
         }
 
         var exitCode = 0;
-        foreach (var target in adopted)
+        foreach (var target in adopted) {
             exitCode = Math.Max(exitCode, await SyncTargetAsync(
                 target, anchor, gitDir, hash, repoHome, identity, dryRun, auto));
+        }
         return exitCode;
     }
 
@@ -270,17 +271,20 @@ class SkillsCommand(
     }
 
     internal static async Task<int> ReportRetirementAsync(LegacyRetirement retirement) {
-        foreach (var copy in retirement.Refused)
+        foreach (var copy in retirement.Refused) {
             await Console.Error.WriteLineAsync(
                 $"Could not remove the global copy {copy}; it stays recorded for the next sync.");
-        foreach (var copy in retirement.Unvouched)
+        }
+        foreach (var copy in retirement.Unvouched) {
             await Console.Error.WriteLineAsync(
                 $"The global copy {copy} holds bytes no receipt kcap kept accounts for; it is reported and left alone.");
+        }
         // Never actionable, so never counted as work left undone — but the operator is the only one
         // who can decide what to do with a copy kcap will not touch again.
-        foreach (var copy in retirement.Unverifiable)
+        foreach (var copy in retirement.Unverifiable) {
             await Console.Error.WriteLineAsync(
                 $"The global copy {copy} is a claim kcap cannot vouch for; it is never deleted.");
+        }
 
         return retirement.Incomplete ? Failed : 0;
     }

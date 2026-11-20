@@ -248,7 +248,7 @@ public class GuidelinesLaneAndCompositeTests {
 
     [Test]
     public async Task Emitter_null_or_empty_rows_returns_null() {
-        await Assert.That(SessionGuidelinesEmitter.BuildFragment((IReadOnlyList<GuidelineRow>?)null)).IsNull();
+        await Assert.That(SessionGuidelinesEmitter.BuildFragment(null)).IsNull();
         await Assert.That(SessionGuidelinesEmitter.BuildFragment(new List<GuidelineRow>())).IsNull();
         await Assert.That(SessionGuidelinesEmitter.BuildFragment(new List<GuidelineRow> { new("safety", " ") })).IsNull();
     }

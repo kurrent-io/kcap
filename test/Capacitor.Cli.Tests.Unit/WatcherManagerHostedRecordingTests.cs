@@ -46,7 +46,7 @@ public class WatcherManagerHostedRecordingTests {
     [Test]
     public async Task A_subagent_goes_to_the_daemon_as_its_own_source() {
         _daemon.Answer = RecordingHandOver.Taken;
-        var key = $"{Session}-agent-1";
+        const string key = $"{Session}-agent-1";
 
         await Watchers.EnsureWatcherRunning(key, "/agent.jsonl", "agent-1", Session);
 

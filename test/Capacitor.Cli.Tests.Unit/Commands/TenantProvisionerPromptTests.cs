@@ -27,7 +27,7 @@ public class TenantProvisionerPromptTests {
         var offer = await Provisioner(handler).OfferCreateAsync(Tokens());
 
         await Assert.That(offer.Status).IsEqualTo(ProvisionOfferStatus.Created);
-        await Assert.That(handler.ProvisionCodes).IsEquivalentTo(new string?[] { null, "abcd" });
+        await Assert.That(handler.ProvisionCodes).IsEquivalentTo(new[] { null, "abcd" });
         await Assert.That(console.Text).Contains("invite-only");
     }
 
@@ -58,7 +58,7 @@ public class TenantProvisionerPromptTests {
         var offer = await Provisioner(handler).OfferCreateAsync(Tokens());
 
         await Assert.That(offer.Status).IsEqualTo(ProvisionOfferStatus.Failed);
-        await Assert.That(handler.ProvisionCodes).IsEquivalentTo(new string?[] { null, "c1", "c2", "c3" });
+        await Assert.That(handler.ProvisionCodes).IsEquivalentTo(new[] { null, "c1", "c2", "c3" });
         await Assert.That(console.Text).Contains("isn't valid");
     }
 
@@ -78,7 +78,7 @@ public class TenantProvisionerPromptTests {
         var offer = await Provisioner(handler).OfferCreateAsync(Tokens());
 
         await Assert.That(offer.Status).IsEqualTo(ProvisionOfferStatus.Failed);
-        await Assert.That(handler.ProvisionCodes).IsEquivalentTo(new string?[] { null, "c1", "c2", "c3" });
+        await Assert.That(handler.ProvisionCodes).IsEquivalentTo(new[] { null, "c1", "c2", "c3" });
     }
 
     static SpectreTenantProvisioner Provisioner(ProvisioningStubHandler handler) =>

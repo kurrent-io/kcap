@@ -283,7 +283,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             (Func<AgentRow, bool>)(row => SessionStatusDots.NeedsAttention(row) || permissions.Contains(row.Id) || answers.Contains(row.Id)));
         _attention = directory.Rows.Connect()
             .Filter(attentionFilter)
-            .QueryWhenChanged(rows => (Count: rows.Count, Failed: rows.Items.Count(row => row.Status == "Failed")))
+            .QueryWhenChanged(rows => (rows.Count, Failed: rows.Items.Count(row => row.Status == "Failed")))
             .DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .ToProperty(this, x => x.Attention, initialValue: (0, 0))

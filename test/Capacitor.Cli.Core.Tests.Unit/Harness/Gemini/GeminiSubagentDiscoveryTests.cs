@@ -159,8 +159,8 @@ public class GeminiSubagentDiscoveryTests {
         using var tmp = new TempDir();
         var chats = tmp.CreateDir("chats");
 
-        var rootId = "00000000-0000-4000-8000-000000000000";
-        var root   = chats.PathTo("session-root.jsonl");
+        const string rootId = "00000000-0000-4000-8000-000000000000";
+        var root            = chats.PathTo("session-root.jsonl");
         File.WriteAllText(root, $$"""{"sessionId":"{{rootId}}","kind":"main"}""" + "\n");
 
         // A 9-level chain of subagent dirs below the root. Each level's directory is
@@ -193,8 +193,8 @@ public class GeminiSubagentDiscoveryTests {
         using var tmp = new TempDir();
         var chats = tmp.CreateDir("chats");
 
-        var rootId = "00000000-0000-4000-8000-000000000000";
-        var root   = chats.PathTo("session-root.jsonl");
+        const string rootId = "00000000-0000-4000-8000-000000000000";
+        var root            = chats.PathTo("session-root.jsonl");
         File.WriteAllText(root, $$"""{"sessionId":"{{rootId}}","kind":"main"}""" + "\n");
 
         // A 10-level chain of subagent dirs below the root.
@@ -230,11 +230,11 @@ public class GeminiSubagentDiscoveryTests {
         using var tmp = new TempDir();
         var chats = tmp.CreateDir("chats");
 
-        var rootId = "00000000-0000-4000-8000-000000000000";
-        var root   = chats.PathTo("session-root.jsonl");
+        const string rootId = "00000000-0000-4000-8000-000000000000";
+        var root            = chats.PathTo("session-root.jsonl");
         File.WriteAllText(root, $$"""{"sessionId":"{{rootId}}","kind":"main"}""" + "\n");
 
-        var childCount = Cap + 50;
+        const int childCount = Cap + 50;
         var rootChatsDir = chats.CreateDir(rootId);
         for (var i = 0; i < childCount; i++) {
             var id = $"11111111-{i / 100000000:D4}-4000-8000-{i:D12}";
@@ -254,8 +254,8 @@ public class GeminiSubagentDiscoveryTests {
         using var tmp = new TempDir();
         var chats = tmp.CreateDir("chats");
 
-        var rootId = "00000000-0000-4000-8000-000000000000";
-        var root   = chats.PathTo("session-root.jsonl");
+        const string rootId = "00000000-0000-4000-8000-000000000000";
+        var root            = chats.PathTo("session-root.jsonl");
         File.WriteAllText(root, $$"""{"sessionId":"{{rootId}}","kind":"main"}""" + "\n");
 
         // A depth 1..8 chain, then Cap + 50 depth-9 children of the depth-8 node: the counting walk
@@ -267,8 +267,8 @@ public class GeminiSubagentDiscoveryTests {
             prevId = id;
         }
 
-        var belowCapCount = Cap + 50;
-        var depth8Dir     = chats.CreateDir(prevId); // prevId is now the depth-8 node's own id
+        const int belowCapCount = Cap + 50;
+        var depth8Dir           = chats.CreateDir(prevId); // prevId is now the depth-8 node's own id
         for (var i = 0; i < belowCapCount; i++) {
             var id = $"22222222-{i / 100000000:D4}-4000-8000-{i:D12}";
             depth8Dir.CreateFile(id + ".jsonl", $$"""{"sessionId":"{{id}}","kind":"subagent"}""" + "\n");
@@ -293,8 +293,8 @@ public class GeminiSubagentDiscoveryTests {
         using var tmp = new TempDir();
         var chats = tmp.CreateDir("chats");
 
-        var rootId = "00000000-0000-4000-8000-000000000000";
-        var root   = chats.PathTo("session-root.jsonl");
+        const string rootId = "00000000-0000-4000-8000-000000000000";
+        var root            = chats.PathTo("session-root.jsonl");
         File.WriteAllText(root, $$"""{"sessionId":"{{rootId}}","kind":"main"}""" + "\n");
 
         // A depth 1..8 chain, then Cap + 50 depth-9 files in one directory: truncation is established
@@ -306,8 +306,8 @@ public class GeminiSubagentDiscoveryTests {
             prevId = id;
         }
 
-        var belowCapCount = Cap + 50;
-        var depth8Dir     = chats.CreateDir(prevId); // prevId is now the depth-8 node's own id
+        const int belowCapCount = Cap + 50;
+        var depth8Dir           = chats.CreateDir(prevId); // prevId is now the depth-8 node's own id
         for (var i = 0; i < belowCapCount; i++) {
             var id = $"22222222-{i / 100000000:D4}-4000-8000-{i:D12}";
             depth8Dir.CreateFile(id + ".jsonl", $$"""{"sessionId":"{{id}}","kind":"subagent"}""" + "\n");
@@ -329,8 +329,8 @@ public class GeminiSubagentDiscoveryTests {
         using var tmp = new TempDir();
         var chats = tmp.CreateDir("chats");
 
-        var rootId = "00000000-0000-4000-8000-000000000000";
-        var root   = chats.PathTo("session-root.jsonl");
+        const string rootId = "00000000-0000-4000-8000-000000000000";
+        var root            = chats.PathTo("session-root.jsonl");
         File.WriteAllText(root, $$"""{"sessionId":"{{rootId}}","kind":"main"}""" + "\n");
 
         // Depth 1..8 chain, then enough depth-9 files to exceed both the cap and
@@ -342,8 +342,8 @@ public class GeminiSubagentDiscoveryTests {
             prevId = id;
         }
 
-        var hugeChildCount = Cap + 2;
-        var depth8Dir      = chats.CreateDir(prevId); // prevId is now the depth-8 node's own id
+        const int hugeChildCount = Cap + 2;
+        var depth8Dir            = chats.CreateDir(prevId); // prevId is now the depth-8 node's own id
         for (var i = 0; i < hugeChildCount; i++) {
             var id = $"22222222-{i / 100000000:D4}-4000-8000-{i:D12}";
             depth8Dir.CreateFile(id + ".jsonl", $$"""{"sessionId":"{{id}}","kind":"subagent"}""" + "\n");
@@ -399,8 +399,8 @@ public class GeminiSubagentDiscoveryTests {
         using var tmp = new TempDir();
         var chats = tmp.CreateDir("chats");
 
-        var rootId = "00000000-0000-4000-8000-000000000000";
-        var root   = chats.PathTo("session-root.jsonl");
+        const string rootId = "00000000-0000-4000-8000-000000000000";
+        var root            = chats.PathTo("session-root.jsonl");
         File.WriteAllText(root, $$"""{"sessionId":"{{rootId}}","kind":"main"}""" + "\n");
 
         var prevId = rootId;
@@ -436,8 +436,8 @@ public class GeminiSubagentDiscoveryTests {
         using var tmp = new TempDir();
         var chats = tmp.CreateDir("chats");
 
-        var rootId = "00000000-0000-4000-8000-000000000000";
-        var root   = chats.PathTo("session-root.jsonl");
+        const string rootId = "00000000-0000-4000-8000-000000000000";
+        var root            = chats.PathTo("session-root.jsonl");
         File.WriteAllText(root, $$"""{"sessionId":"{{rootId}}","kind":"main"}""" + "\n");
 
         var prevId = rootId;
@@ -463,7 +463,7 @@ public class GeminiSubagentDiscoveryTests {
 
         // One more valid file makes Cap + 1 raw entries, exactly the fetch's limit, so the junk file
         // now sits inside the sentinel window.
-        var extraId = "33333333-0000-4000-8000-000000000000";
+        const string extraId = "33333333-0000-4000-8000-000000000000";
         depth8Dir.CreateFile(extraId + ".jsonl", $$"""{"sessionId":"{{extraId}}","kind":"subagent"}""" + "\n");
 
         var after = GeminiSubagentDiscovery.EnumerateDescendantFiles(root, null, maxCountingNodes: Cap);

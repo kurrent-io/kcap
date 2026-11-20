@@ -20,7 +20,7 @@ public sealed class AdoptedLinkInventory(ConfigRoot config) {
 
         if (change(Read()) is not { } updated) return;
 
-        System.IO.Directory.CreateDirectory(config.Directory);
+        Directory.CreateDirectory(config.Directory);
         AtomicFile.Replace(
             config.Path(FileName),
             string.Concat(updated.Select(l => l + "\n")),

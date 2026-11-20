@@ -91,9 +91,9 @@ public class RemoteTerminalViewModelTests {
 
             surface.RaiseInput("l"u8.ToArray());
             await WaitUntilAsync(() => h.Lane.TerminalInputs.Count == 1, what: "the first keystroke");
-            surface.RaiseInput("s\x1b[12;1R\r"u8.ToArray());
-            surface.RaiseInput("\x1b[12;1R"u8.ToArray());
-            surface.RaiseInput("\x1b[<64;10;5M"u8.ToArray());
+            surface.RaiseInput("s\e[12;1R\r"u8.ToArray());
+            surface.RaiseInput("\e[12;1R"u8.ToArray());
+            surface.RaiseInput("\e[<64;10;5M"u8.ToArray());
             await WaitUntilAsync(() => h.Lane.SpecialKeys.Count == 1, what: "the wheel");
 
             await Assert.That(h.Lane.TerminalInputs.Select(i => Encoding.UTF8.GetString(i.Data))).IsEquivalentTo(new[] { "l", "s\r" });

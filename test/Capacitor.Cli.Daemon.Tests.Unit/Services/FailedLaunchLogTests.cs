@@ -24,7 +24,7 @@ public class FailedLaunchLogTests {
         // Lives under the retained failed/ directory, NOT the worktree that gets deleted.
         await Assert.That(path!.Replace('\\', '/')).Contains("/agents/failed/");
 
-        var content = await File.ReadAllTextAsync(path!);
+        var content = await File.ReadAllTextAsync(path);
         await Assert.That(content).Contains("2. Yes, I accept");           // the PTY tail
         await Assert.That(content).Contains("wedged on the consent dialog"); // the reason header
         await Assert.That(content).Contains("agent-1");                     // the agent id header

@@ -103,7 +103,7 @@ internal static class MuseMsp {
         var item = new JsonObject { ["questionId"] = a.QuestionId };
 
         if (a.SelectedLabels is { Count: > 0 } labels)
-            item["selectedLabels"] = new JsonArray(labels.Select(l => (JsonNode)JsonValue.Create(l)!).ToArray());
+            item["selectedLabels"] = new JsonArray(labels.Select(l => (JsonNode)JsonValue.Create(l)).ToArray());
         else if (a.SelectedLabel is not null)
             item["selectedLabel"] = a.SelectedLabel;
         else if (a.FreeText is not null)

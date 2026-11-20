@@ -13,7 +13,7 @@ public class SecretRedactorTests {
     // The watcher's per-pattern deadline is short enough for a loaded runner to reach on a small line, which turns a
     // vocabulary check into a timing one. Its own vocabulary is the out-of-process set, under a longer deadline.
     static string Redact(string line) =>
-        SecretRedactor.RedactLineWithOutcome(line, RedactionBudget.Unlimited, SecretRedactor.OutOfProcessPatterns.Value).Line;
+        SecretRedactor.RedactLineWithOutcome(line, RedactionBudget.Unlimited, SecretRedactor.OutOfProcessPatterns).Line;
 
     [Test]
     public async Task UnchangedUnicodeRecord_DoesNotNeedAnExpandedRewrite() {
@@ -112,8 +112,8 @@ public class SecretRedactorTests {
     public async Task RedactValue_ScansAMultiMegabyteValue_WithoutTheWatcherDeadline() {
         // Every delimiter gate is open, so each pattern scans the whole value before reaching the secret.
         const string secret = "DATABASE_PASSWORD=hunter2-hunter2";
-        var row   = "[inventory row 000001] status=ok bytes=4096 note: none user@host\n";
-        var value = string.Concat(Enumerable.Repeat(row, 8_000_000 / row.Length)) + secret;
+        const string row = "[inventory row 000001] status=ok bytes=4096 note: none user@host\n";
+        var value        = string.Concat(Enumerable.Repeat(row, 8_000_000 / row.Length)) + secret;
 
         var redacted = SecretRedactor.RedactValue(value, keyIsSecret: false);
 
@@ -123,28 +123,34 @@ public class SecretRedactorTests {
     }
 
     [Test]
-    public async Task OutOfProcessPatterns_AreTheWatcherVocabulary_UnderALongerDeadline() {
+    public async Task EachSet_IsTheWatcherVocabulary_UnderItsOwnDeadline() {
+        (SecretPatterns Patterns, int TimeoutMs)[] sets = [
+            (SecretRedactor.WatcherPatterns, SecretRedactor.WatcherMatchTimeoutMs),
+            (SecretRedactor.InlineRetryPatterns, SecretRedactor.InlineRetryMatchTimeoutMs),
+            (SecretRedactor.OutOfProcessPatterns, SecretRedactor.OutOfProcessMatchTimeoutMs)
+        ];
         var slots = typeof(SecretPatterns).GetProperties().Where(p => p.PropertyType == typeof(Regex)).ToList();
         await Assert.That(slots).IsNotEmpty();
+        await Assert.That(slots.Select(s => s.GetValue(SecretRedactor.WatcherPatterns)!.ToString()).Distinct().Count()).IsEqualTo(slots.Count);
 
         foreach (var slot in slots) {
-            var watcher      = (Regex)slot.GetValue(SecretRedactor.WatcherPatterns)!;
-            var outOfProcess = (Regex)slot.GetValue(SecretRedactor.OutOfProcessPatterns.Value)!;
-            await Assert.That(watcher.MatchTimeout).IsLessThan(SecretRedactor.OutOfProcessMatchTimeout);
-            await Assert.That(outOfProcess.MatchTimeout).IsEqualTo(SecretRedactor.OutOfProcessMatchTimeout);
-            await Assert.That(outOfProcess.ToString()).IsEqualTo(watcher.ToString());
-            await Assert.That(outOfProcess.Options & ~RegexOptions.Compiled).IsEqualTo(watcher.Options);
+            var watcher = (Regex)slot.GetValue(SecretRedactor.WatcherPatterns)!;
+            foreach (var (patterns, timeoutMs) in sets) {
+                var regex = (Regex)slot.GetValue(patterns)!;
+                await Assert.That(regex.MatchTimeout).IsEqualTo(TimeSpan.FromMilliseconds(timeoutMs)).Because(slot.Name);
+                await Assert.That(regex.ToString()).IsEqualTo(watcher.ToString()).Because(slot.Name);
+                await Assert.That(regex.Options).IsEqualTo(watcher.Options).Because(slot.Name);
+            }
         }
     }
 
     [Test]
-    public async Task ASuperLinearScan_StillMeetsItsDeadline_OnARebuiltSet() {
+    public async Task ASuperLinearScan_StillMeetsTheWatcherDeadline() {
         // A quote-less run of keywords sends the JSON-key pattern into quadratic backtracking, so
         // the deadline is the only thing that ends this scan.
-        var patterns = SecretRedactor.WatcherPatterns.WithMatchTimeout(TimeSpan.FromMilliseconds(50));
-        var value    = "\"" + string.Concat(Enumerable.Repeat("secret", 200_000)) + ":\n";
+        var value = "\"" + string.Concat(Enumerable.Repeat("secret", 200_000)) + ":\n";
 
-        await Assert.That(() => patterns.Redact(value, keyIsSecret: false, RedactionBudget.Unlimited))
+        await Assert.That(() => SecretRedactor.WatcherPatterns.Redact(value, keyIsSecret: false, RedactionBudget.Unlimited))
             .Throws<RegexMatchTimeoutException>();
     }
 
@@ -173,9 +179,9 @@ public class SecretRedactorTests {
 
     [Test]
     public async Task RedactsLine_OverSizeLimit_ReplacesWithPlaceholder_DoesNotLeakContent() {
-        var secretMarker = "GHOST_TOKEN_DO_NOT_LEAK_ME_xyz12345";
-        var padding      = new string('A', SecretRedactor.MaxRedactableLineChars);
-        var oversized    = padding + secretMarker;
+        const string secretMarker = "GHOST_TOKEN_DO_NOT_LEAK_ME_xyz12345";
+        var padding               = new string('A', SecretRedactor.MaxRedactableLineChars);
+        var oversized             = padding + secretMarker;
 
         var sw = Stopwatch.StartNew();
         var result = Redact(oversized);
@@ -219,7 +225,7 @@ public class SecretRedactorTests {
     [Test]
     public async Task LeavesAssistantText_Unchanged_WhenNoSecretMatch() {
         // Plain assistant prose with no secret-matching tokens — scanned, but nothing to redact.
-        var line = """{"type":"progress","data":{"message":{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}},"uuid":"abc","timestamp":"2026-01-01T00:00:00Z"}""";
+        const string line = """{"type":"progress","data":{"message":{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}},"uuid":"abc","timestamp":"2026-01-01T00:00:00Z"}""";
 
         var result = Redact(line);
 
@@ -228,7 +234,7 @@ public class SecretRedactorTests {
 
     [Test]
     public async Task LeavesMalformedJson_Unchanged_WhenNoSecretMatch() {
-        var line = "not json at all";
+        const string line = "not json at all";
 
         var result = Redact(line);
 
@@ -544,7 +550,7 @@ public class SecretRedactorTests {
         // "hunter2" is below LabeledSecretRegex's 16-char floor; no pattern matches.
         // (A real high-entropy secret in the same shape WOULD be redacted — see
         // RedactsLine_VendorToken_InUserTextContent.)
-        var line = """{"type":"user","message":{"role":"user","content":"my secret password is hunter2"}}""";
+        const string line = """{"type":"user","message":{"role":"user","content":"my secret password is hunter2"}}""";
 
         var result = Redact(line);
 
@@ -555,7 +561,7 @@ public class SecretRedactorTests {
     public async Task LeavesToolUse_Unchanged_WhenNoSecretMatch() {
         // tool_use args reference a file path; "/etc/secret.pem" has no key:value or labeled-secret
         // shape, so the line passes through scanning unmodified.
-        var line = """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"/etc/secret.pem"}}]}}""";
+        const string line = """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"/etc/secret.pem"}}]}}""";
 
         var result = Redact(line);
 
@@ -639,7 +645,7 @@ public class SecretRedactorTests {
         var result = Redact(line);
 
         // Must still be valid JSON after redaction
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         var content = doc.RootElement
             .GetProperty("message")
             .GetProperty("content");
@@ -711,7 +717,7 @@ public class SecretRedactorTests {
         await Assert.That(result).Contains("[REDACTED]");
 
         // Result must remain valid JSON after redaction.
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         await Assert.That(doc.RootElement.GetProperty("message").GetProperty("content")[0].GetProperty("is_error").GetBoolean()).IsFalse();
     }
 
@@ -727,7 +733,7 @@ public class SecretRedactorTests {
         await Assert.That(result).DoesNotContain("opaque-token-1234567890abc");
         await Assert.That(result).Contains("[REDACTED]");
 
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         await Assert.That(doc.RootElement.GetProperty("toolUseResult").GetProperty("headers").GetProperty("Authorization").GetString()).IsEqualTo("[REDACTED]");
     }
 
@@ -952,7 +958,7 @@ public class SecretRedactorTests {
 
         var result = Redact(line);
 
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         var content = doc.RootElement
             .GetProperty("message")
             .GetProperty("content");
@@ -981,7 +987,7 @@ public class SecretRedactorTests {
         await Assert.That(result).IsEqualTo(expected_);
 
         // The sibling is outside the armed subtree, so the disarm on the closing token landed.
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         var payload = doc.RootElement.GetProperty("toolUseResult").GetProperty("payload");
         await Assert.That(payload.GetProperty("items").GetArrayLength()).IsEqualTo(2);
     }
@@ -1025,7 +1031,7 @@ public class SecretRedactorTests {
 
             var result = Redact(line);
 
-            using var doc = System.Text.Json.JsonDocument.Parse(result);
+            using var doc = JsonDocument.Parse(result);
             if (!string.Equals(result, line, StringComparison.Ordinal)) changed++;
         }
 
@@ -1110,7 +1116,7 @@ public class SecretRedactorTests {
     public async Task RedactsSecretsAppearingAsPropertyNames_WithDistinctMarkers() {
         // A name that is itself a token has to go, and two of them cannot both become the bare
         // marker: that would collapse the object into a duplicate key.
-        var line = """{"ghp_abc123def456ghi789jkl012":"repo","AKIAIOSFODNN7EXAMPLE":"acct","keep":"v"}""";
+        const string line = """{"ghp_abc123def456ghi789jkl012":"repo","AKIAIOSFODNN7EXAMPLE":"acct","keep":"v"}""";
 
         var result = Redact(line);
 
@@ -1121,13 +1127,13 @@ public class SecretRedactorTests {
     public async Task PreservesJson_WhenPemMarkersSpanTwoStringValues() {
         // `BEGIN` in one value and `END` in another, at different depths, are two values — not one
         // block — so there is nothing to redact and every structural token between them stays.
-        var line = """{"outer":{"head":"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIB"},"tail":["x",{"rest":"more\n-----END RSA PRIVATE KEY-----"}]}""";
+        const string line = """{"outer":{"head":"-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIB"},"tail":["x",{"rest":"more\n-----END RSA PRIVATE KEY-----"}]}""";
 
         var result = Redact(line);
 
         await Assert.That(result).IsEqualTo(line);
 
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         await Assert.That(doc.RootElement.GetProperty("tail").GetArrayLength()).IsEqualTo(2);
     }
 
@@ -1145,7 +1151,7 @@ public class SecretRedactorTests {
         await Assert.That(result).DoesNotContain("opaque_value_no_prefix_123456");
         await Assert.That(result).DoesNotContain("a8f3b2c91d4e7f0123456789abcdef01");
 
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         var content = doc.RootElement.GetProperty("message").GetProperty("content")[0];
         await Assert.That(content.GetProperty("is_error").GetBoolean()).IsFalse();
         // The inner document survives as text, minus the two values.
@@ -1157,11 +1163,11 @@ public class SecretRedactorTests {
         // A real JSON pair is two tokens, so a `"key": "value"` text pattern cannot see the key at
         // all: the property name decides, and the whole value goes — a value carrying quotes or
         // backslashes must not survive from its first escape onward.
-        var line = """{"type":"user","toolUseResult":{"client_secret":"a\"b\\c-1234567890"}}""";
+        const string line = """{"type":"user","toolUseResult":{"client_secret":"a\"b\\c-1234567890"}}""";
 
         var result = Redact(line);
 
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         await Assert.That(doc.RootElement.GetProperty("toolUseResult").GetProperty("client_secret").GetString())
             .IsEqualTo("[REDACTED]");
     }
@@ -1198,9 +1204,9 @@ public class SecretRedactorTests {
 
         static bool Parses(string text) {
             try {
-                using var doc = System.Text.Json.JsonDocument.Parse(text);
+                using var doc = JsonDocument.Parse(text);
                 return true;
-            } catch (System.Text.Json.JsonException) {
+            } catch (JsonException) {
                 return false;
             }
         }
@@ -1230,7 +1236,7 @@ public class SecretRedactorTests {
     public async Task RedactsLine_WithDuplicatePropertyNames() {
         // JSON permits duplicate keys and transcripts are written by third-party tooling, so a
         // line carrying them must still redact rather than throw at the drain.
-        var line = """{"a":1,"a":2,"tok":"ghp_abc123def456ghi789jkl012mno345"}""";
+        const string line = """{"a":1,"a":2,"tok":"ghp_abc123def456ghi789jkl012mno345"}""";
 
         var result = Redact(line);
 
@@ -1263,7 +1269,7 @@ public class SecretRedactorTests {
         await Assert.That(result).DoesNotContain("ghp_abc123def456ghi789jkl012");
         await Assert.That(result).DoesNotContain("nothing sensitive");
 
-        using var doc = System.Text.Json.JsonDocument.Parse(result);
+        using var doc = JsonDocument.Parse(result);
         await Assert.That(doc.RootElement.GetProperty("a").GetInt32()).IsEqualTo(1);
     }
 
@@ -1271,7 +1277,7 @@ public class SecretRedactorTests {
     public async Task LeavesNonJsonLine_ToTheWholeLinePipeline() {
         // The drop only applies to a line that was JSON going in. Text that never parsed has
         // nothing to corrupt, and replacing it with a placeholder would lose it for no gain.
-        var line = "plain log output with GITHUB_TOKEN=ghp_abc123def456ghi789jkl012 in it";
+        const string line = "plain log output with GITHUB_TOKEN=ghp_abc123def456ghi789jkl012 in it";
 
         var result = Redact(line);
 
@@ -1280,7 +1286,7 @@ public class SecretRedactorTests {
     }
 
     static RedactionLossReason? LossOf(string line) =>
-        SecretRedactor.RedactLineWithOutcome(line, new RedactionBudget(TimeProvider.System, TimeSpan.FromMinutes(1)), SecretRedactor.OutOfProcessPatterns.Value).Loss;
+        SecretRedactor.RedactLineWithOutcome(line, new RedactionBudget(TimeProvider.System, TimeSpan.FromMinutes(1)), SecretRedactor.OutOfProcessPatterns).Loss;
 
     /// The largest growth a rewrite gives a line of <paramref name="bytes"/>: a redacted secret beside a value of DEL
     /// characters, each re-escaped at six bytes.
