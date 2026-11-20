@@ -3,6 +3,7 @@ using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Capacitor.App.ViewModels;
@@ -10,8 +11,8 @@ using Capacitor.App.ViewModels;
 namespace Capacitor.App.Views;
 
 /// Holds a still of the content pane over a session switch until the incoming chat has laid out
-/// its first read. A new workspace fills in over several Background-priority dispatches, each run
-/// after a render, so without the still every half-built state is painted in turn.
+/// its first read, then fades it out. A new workspace fills in over several Background-priority
+/// dispatches, each run after a render, so without the still every half-built state is painted in turn.
 public sealed class WorkspaceSwitchCover {
     static readonly TimeSpan MaxHold = TimeSpan.FromMilliseconds(400);
 
@@ -19,6 +20,7 @@ public sealed class WorkspaceSwitchCover {
     readonly Control _cover;
     readonly StillImage _still;
     readonly SerialDisposable _hold = new();
+    CancellationTokenSource? _fade;
     int _generation;
 
     public WorkspaceSwitchCover(Control pane, Control cover, StillImage still) {
@@ -36,12 +38,14 @@ public sealed class WorkspaceSwitchCover {
         return Disposable.Create(() => {
             vm.PropertyChanging -= OnChanging;
             swaps.Dispose();
-            Lift();
+            Hide();
         });
     }
 
+    // A switch during the fade re-captures, so the still shows the session being left, not the one before it.
     void Capture() {
-        if (_cover.IsVisible) return;
+        if (_cover.IsVisible && _fade is null) return;
+        Hide();
         var size = _pane.Bounds.Size;
         if (size.Width < 1 || size.Height < 1) return;
         var scale = TopLevel.GetTopLevel(_pane)?.RenderScaling ?? 1;
@@ -78,9 +82,32 @@ public sealed class WorkspaceSwitchCover {
     }
 
     void Lift() {
+        EndHold();
+        if (_cover.IsVisible && _fade is null) _ = FadeOut();
+    }
+
+    async Task FadeOut() {
+        var fade = _fade = new CancellationTokenSource();
+        _cover.IsHitTestVisible = false;
+        // The animation drops its value when it ends, a frame before the cover is hidden: the end
+        // opacity is set underneath it so that frame does not flash the still.
+        _cover.Opacity = 0;
+        await Motion.Standard.RunAsync(_cover, fade.Token, (Visual.OpacityProperty, 1d, 0d));
+        if (!fade.IsCancellationRequested) Hide();
+    }
+
+    void EndHold() {
         _generation++;
         _hold.Disposable = null;
+    }
+
+    void Hide() {
+        EndHold();
+        _fade?.Cancel();
+        _fade = null;
         _cover.IsVisible = false;
+        _cover.ClearValue(Visual.OpacityProperty);
+        _cover.ClearValue(InputElement.IsHitTestVisibleProperty);
         var still = _still.Source;
         _still.Source = null;
         still?.Dispose();
