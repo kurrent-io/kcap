@@ -150,7 +150,6 @@ public partial class LaunchChipsView : UserControl {
         var text = this.Brush("KcapTextBrush");
         var muted = this.Brush("KcapMutedBrush");
         var faint = this.Brush("KcapFaintBrush");
-        var raised = this.Brush("KcapSurfaceRaisedBrush");
         var border = this.Brush("KcapBorderBrush");
         var warning = this.Brush("KcapWarningBrush");
         var recording = RecordingStates.Token(RecordingState.Recording);
