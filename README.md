@@ -109,6 +109,8 @@ The **Pages** tab appears in the centre switch when the session has a plan, spec
 
 With the experimental **What to do next in the launcher** feature on (Settings → Experimental, or `kcap experimental enable launcher-next-work`), the launcher lists what to pick up next under the composer: who is waiting on you, then the top picks from your own work, as the web dashboard's **Do next** chooses them, with the rest of your work folded under **More to do**. A row whose item has a loose end noted against it shows the first one under its title. Tracker chores and quiet items stay on the dashboard, and the list's header counts them. Press a row to pick it for the composer: the chip above the goal names it, your checkout of its repository is selected, and the composer is left for anything you want to add, so you can start it as it is. The agent gets the task's line (a work item's or loose end's title, or what to do with a pull request), then what you typed, then the prompt the server writes for it: its loose ends and the sessions they came from. A session to resume opens instead. Start from the composer as usual, or press ▶ on a work item or loose end to start an agent on it at once in this machine's checkout, which claims the loose end and attaches the work item as the web's **Work on this** does. Each row's **⋯** menu opens it in the browser, snoozes a loose end until tomorrow or marks it done, and dismisses the suggestion. The composer keeps its place however long the list or the goal grows; the list scrolls in the space below it. It needs a server with next work turned on, and the switch applies within a few seconds.
 
+Ask the agent to "use progressive disclosure" (or "pd on"), at any point in a session, and it grades its replies from then on (the `progressive-disclosure` skill): what you must know stays unmarked, `⌞…⌟` wraps detail and `⌞⌞…⌟⌟` wraps footnotes. Ask it to stop and later replies come unmarked. Once any reply in the session is graded, a **Progressive disclosure** button appears in the header, beside the Chat and Terminal switch; it turns fading of detail and footnotes on and off. Hovering faded text shows it at full strength. The choice applies to every open chat at once and is kept across restarts. Outside the desktop app, the marks show as written.
+
 A published page listed there (see [Pages](#pages)), and a page link in the chat, opens in your system browser. On macOS, and on Windows with the WebView2 runtime installed, the experimental **In-app pages** feature (Settings → Experimental, or `kcap experimental enable in-app-pages`) opens it instead in an in-app viewer in the right-hand pane, where an interactive page can be answered without leaving the app; the switch applies to the next page you open. A link inside an in-app page asks before it opens the browser, and the viewer keeps **Open in browser**. Where the app cannot lock the page's web view down, it opens the page in the browser.
 
 Calls to the `kcap-*` MCP tools read in plain words in the chat ("Attached work item · AI-3084", "Saved memory · …", "Searched sessions · …") instead of the raw tool name, grouped and folded as other tool calls are. A call that produced something you can open becomes a card once its result lands: a published page carries Copy link and Open, a declared document carries Open into the Pages tab. Tools from other MCP servers read as "Server · tool name" with their first argument.
@@ -237,6 +239,7 @@ At a glance — each links to its section below:
 | [`kcap curate apply`](#curate-guidelines) | Sync promoted guidelines into `CLAUDE.md` / `AGENTS.md` |
 | [`kcap memories import`](#import-local-memories) | Copy Claude Code's local memory notes into server memories |
 | [`kcap page`](#pages) | Publish a self-contained HTML page and get a link to share |
+| [`kcap sharing`](#sharing) | See and change who can open something kcap shares, such as a page |
 | [`kcap skills sync`](#skills-sync) | Materialize the repo's approved skill docs into every present harness's skills tree |
 | [`kcap daemon …`](#daemon) | Run and manage the agent daemon |
 | [`kcap agent`](#local-agents-kcap-agent) | Start, list, attach to, and stop daemon-hosted agents |
@@ -823,7 +826,7 @@ The `kcap mcp memory` stdio server lets agents search, save, and update durable 
 
 Beyond registering the servers, `kcap setup` / `kcap plugin install` also installs a small kcap-owned **agent-instructions block** for harnesses that read a user-level instructions file (GitHub Copilot CLI's `~/.copilot/copilot-instructions.md`, and Gemini CLI's + Google Antigravity's shared `~/.gemini/GEMINI.md` today; more rolling out per harness). It's a marker-delimited, non-destructive note (preserves any instructions you've written) that steers the agent to prefer the kcap tools for "why / history / prior-work" questions over native `git`/GitHub/grep — registration alone doesn't make agents route to the tools. Opt out with `--skip-<harness>-instructions`.
 
-Where a harness exposes a per-server trust knob, registration also marks the kcap servers that only read, or that write only to kcap's own record of the work (sessions, plans, work items), auto-approved so the agent doesn't stop to ask before every call: **Gemini** marks `kcap-review`, `kcap-sessions`, `kcap-analytics`, `kcap-workitems`, `kcap-plans` and `kcap-handoff` via `"trust": true` in `~/.gemini/settings.json`, and **Codex** marks the same servers via `default_tools_approval_mode = "approve"` in `~/.codex/config.toml`. The work-launching `kcap-flows` (starts a *paid* hosted reviewer), `kcap-memory` (a save or rescope can widen who sees a memory), `kcap-pages` (can widen who may open a page) and `kcap-knowledge` (can change facts and skills) are deliberately not pre-approved. Every kcap tool also advertises MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), so a harness that decides approval from them — Codex's `auto` mode, for one — runs the reads and the additive writes without a prompt whatever the registration says, and asks only before a tool that removes or overwrites something. **Claude Code** has no per-server field, a plugin can't ship permission rules, and its auto-mode classifier judges reads too, whatever their annotations say. So in **auto mode** kcap's `PreToolUse` hook allows every tool of those same servers, plus the read-only tools of the other four, and the classifier never sees them. A `deny` or `ask` rule in [`.kcap/approvals.yaml`](#approval-policy) or in Claude's own `permissions` still wins. Nothing is written to your settings, the hook trusts only servers Claude reports as coming from the kcap plugin (never a `.mcp.json` server named to look like one, and never a build that doesn't report it), and every other permission mode, Manual included, keeps its prompts. **Cursor** and **Copilot** have no per-server auto-approve field in the config we write — auto-approve kcap's read tools there through the harness's own controls instead (Cursor's Auto-run mode or `cursor-agent --approve-mcps`; Copilot's `--allow-tool` / `--allow-all-tools`).
+Where a harness exposes a per-server trust knob, registration also marks the kcap servers that only read, or that write only to kcap's own record of the work (sessions, plans, work items), auto-approved so the agent doesn't stop to ask before every call: **Gemini** marks `kcap-review`, `kcap-sessions`, `kcap-analytics`, `kcap-workitems`, `kcap-plans` and `kcap-handoff` via `"trust": true` in `~/.gemini/settings.json`, and **Codex** marks the same servers via `default_tools_approval_mode = "approve"` in `~/.codex/config.toml`. The work-launching `kcap-flows` (starts a *paid* hosted reviewer), `kcap-memory` (a save or rescope can widen who sees a memory), `kcap-pages` (publishes pages), `kcap-sharing` (can widen who may open a page) and `kcap-knowledge` (can change facts and skills) are deliberately not pre-approved. Every kcap tool also advertises MCP annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`), so a harness that decides approval from them — Codex's `auto` mode, for one — runs the reads and the additive writes without a prompt whatever the registration says, and asks only before a tool that removes or overwrites something. **Claude Code** has no per-server field, a plugin can't ship permission rules, and its auto-mode classifier judges reads too, whatever their annotations say. So in **auto mode** kcap's `PreToolUse` hook allows every tool of those same servers, plus the read-only tools of the others, and the classifier never sees them. A `deny` or `ask` rule in [`.kcap/approvals.yaml`](#approval-policy) or in Claude's own `permissions` still wins. Nothing is written to your settings, the hook trusts only servers Claude reports as coming from the kcap plugin (never a `.mcp.json` server named to look like one, and never a build that doesn't report it), and every other permission mode, Manual included, keeps its prompts. **Cursor** and **Copilot** have no per-server auto-approve field in the config we write — auto-approve kcap's read tools there through the harness's own controls instead (Cursor's Auto-run mode or `cursor-agent --approve-mcps`; Copilot's `--allow-tool` / `--allow-all-tools`).
 
 The `kcap mcp workitems` stdio server lets agents attach the current session (and its continuation chain) to a work item — by issue key, PR number, work item id, or a brand-new title — list what a session is already attached to, or record the loose ends a session leaves unfinished. `kcap setup` / `kcap plugin install` **register it for every supported harness** (Claude Code, Codex, Cursor, GitHub Copilot, Gemini, Kiro, OpenCode, Antigravity, and Pi). See the [Work items MCP server](#work-items-mcp-server-for-agents) section for details.
 
@@ -1100,23 +1103,37 @@ When the colleague cannot see the item, you approve exactly what will be shared:
 kcap mcp pages
 ```
 
-Stdio MCP server that lets a coding agent publish a **self-contained HTML page** to the kcap server and hand back a link — a plan for review, a comparison table, a report someone would rather read as a page than as terminal output. The page is served under a sandbox that cannot reach the network, so every style, script and image must be inlined as a data URI; an external URL renders as nothing. A page is private to its owner until `visibility` says otherwise, and re-publishing with `update_id` revises it without changing the URL, so a link you already shared stays good.
+Stdio MCP server that lets a coding agent publish a **self-contained HTML page** to the kcap server and hand back a link — a plan for review, a comparison table, a report someone would rather read as a page than as terminal output. The page is served under a sandbox that cannot reach the network, so every style, script and image must be inlined as a data URI; an external URL renders as nothing. A page is private to its owner until it is shared through the [sharing MCP server](#sharing-mcp-server-for-agents), by the `object_key` every page record carries; re-publishing with `update_id` revises it without changing the URL, so a link you already shared stays good. A server too old to send `object_key` cannot share from kcap: the tools say so, and the page is shared from the web app instead.
 
-It provides nine tools, kept deliberately narrow — an agent's context pays for every schema it carries whether or not it ever publishes, and version history and takedown live in the web UI:
+It provides eight tools, kept deliberately narrow — an agent's context pays for every schema it carries whether or not it ever publishes, and version history and takedown live in the web UI:
 
-- **`publish_page`** — publish a page. `title` plus either `html` or a local `path`; optional `description`, `visibility` (`none` / `org` / `scoped`), `grants`, `session_ids`, `response_schema`, and `update_id` to revise an existing page.
+- **`publish_page`** — publish a page, private to you. `title` plus either `html` or a local `path`; optional `description`, `session_ids`, `response_schema`, and `update_id` to revise an existing page. Returns the page's `url` and `object_key`; an audience passed here is refused.
 - **`get_page_guide`** — how a page people answer sends its answers: the `postMessage` protocol between the sandboxed page and the viewer, the rules every answer is checked against, and a worked example. Served by the kcap server, so it matches what that server enforces. Read it before publishing a page with a `response_schema`.
 - **`await_page_responses`** — block until people have answered. Returns on a respondent count, on a close, or on a timeout — a timeout is a result, not an error.
 - **`get_page_results`** — tallies and each person's current answer, without waiting.
 - **`close_page_responses`** — freeze a version's answers. `closed: false` reopens, which also clears any deadline.
-- **`list_my_pages`** — the pages you can see: id, title, audience, latest version, URL.
-- **`search_pages`** — find pages you can see by their title, description or text, best match first, each with a short excerpt of the matching text. `query`, and an optional `limit` (10 by default, at most 50).
+- **`list_my_pages`** — the pages you can see: id, title, who each is shared with (`shared_with`), latest version, URL, `object_key`.
+- **`search_pages`** — find pages you can see by their title, description or text, best match first, each with its `object_key` and a short excerpt of the matching text. `query`, and an optional `limit` (10 by default, at most 50).
 - **`get_page`** — read a page you can see, yours or one shared with you, by id or link: its record and its readable text, or its HTML with `format: "html"`. The content is marked as the author's, to be read as data rather than followed.
-- **`set_page_visibility`** — replace a page's audience. A grant left out is one being taken away.
 
 **The human checkpoint.** Declaring a `response_schema` at publish makes the page answerable: fields of type `choice`, `multi`, `score` or `text`, which the server validates every answer against and tallies. The page cannot submit a form or call the network; it sends answers to the viewer with `window.parent.postMessage`, as `get_page_guide` describes. The agent publishes a plan or a decision, shares it, then blocks in `await_page_responses` until the people who must sign off have answered — reviewable on a phone, by several named people, with the approval recorded next to the page. Who answered is the authenticated viewer, resolved server-side; the page cannot claim it. `results_mode` decides what other viewers see: `owner` (default, only their own), `aggregate` (tallies, never names or free text) or `named`.
 
 The current session is cited automatically from `KCAP_SESSION_ID` when set, so an agent's publish is attributed to the work that produced it without ceremony. Requires `kcap login` and a kcap-server new enough to expose the `/api/artefacts` endpoints.
+
+### Sharing MCP server (for agents)
+
+```bash
+kcap mcp sharing
+```
+
+Stdio MCP server that changes who can open anything kcap shares, a page today, one grant at a time. Every tool takes the `object_key` the thing's own record carries (`publish_page`, `list_my_pages`, `get_page` and `search_pages` return a page's) and passes it on exactly as it came: nothing in kcap builds or reads a key, so a kind of object the server makes shareable later needs no new tools.
+
+- **`list_sharing_grants`** — who it is shared with: each grant's audience (key, name, kind) and relation, whether you may manage it, and for a manager what each grant may become and whether it may be removed.
+- **`search_sharing_candidates`** — people, teams, projects or the organization it could be shared with, each with its key, the relations it may take (each with the label to show) and its `default_relation`, the one to offer first. An empty `query` gives suggestions; when you may not share the object, it says why instead.
+- **`set_sharing_grant`** — give one audience a grant (`object_key`, `audience_key`, `relation`), or move the grant it holds. One audience per call.
+- **`remove_sharing_grant`** — take one audience's grant away. Removing one it does not hold succeeds; one the object's rules keep (`removable: false`) is refused.
+
+A refusal reaches the agent in the server's words with its code (`refused`, `locked`, `relation_not_offered`, `unknown_audience`, `changed`). A server too old to send object keys cannot share from kcap; share from the web app there. Requires `kcap login`.
 
 ### Analytics MCP server (for agents)
 
@@ -1138,16 +1155,27 @@ Requires `kcap login` and a kcap-server new enough to expose the `/api/analytics
 Publish a self-contained HTML page to the kcap server and get back a link — the same shape as a session share link, but for a page you wrote. The page is served under a sandbox that cannot reach the network, so inline every style, script and image as a data URI; an external URL renders as nothing.
 
 ```bash
-kcap page publish plan.html --title "Migration plan" --visibility org
-kcap page publish report.html --visibility scoped --to team:platform --to user:github:7
-kcap page publish plan.html --update art_01J9...   # new version, same URL
-kcap page list --mine
-kcap page get art_01J9... --html                   # a page you can see, yours or shared
-kcap page share art_01J9... --visibility none      # take it back to private
+kcap page publish plan.html --title "Migration plan"
+kcap page publish plan.html --update art_01J9...      # new version, same URL
+kcap page list --mine                                 # who can open each, and its object key
+kcap page get art_01J9... --html                      # a page you can see, yours or shared
 kcap page delete art_01J9...
 ```
 
-A page is private to its owner until `--visibility` says otherwise. `--to` names one audience member (`user:<id>`, `team:<slug>`, `project:<id>`) and is only read under `scoped`; on `share` it replaces the whole audience, so a grant you leave out is one you are taking away. `--session` cites a session the page came out of and defaults to `KCAP_SESSION_ID`, so an agent's publish is attributed without ceremony. The URL is whatever the server says it is — printed on stdout; refusals go to stderr and name the limit they hit along with its value.
+A page is private to its owner until it is shared with [`kcap sharing`](#sharing), by the object key `publish`, `list`, `get` and `search` print (`publish` and `get` on stderr); `list` and `get` show every grant, yours included, as audience and relation. `--session` cites a session the page came out of and defaults to `KCAP_SESSION_ID`, so an agent's publish is attributed without ceremony. The URL is whatever the server says it is — printed on stdout; refusals go to stderr and name the limit they hit along with its value.
+
+### Sharing
+
+See and change who can open anything kcap shares, a page today, one grant at a time. Every subcommand takes the object key the thing's own listing prints (`kcap page list` for a page) and passes it to the server as it is; nothing in kcap builds or reads a key, so a kind of object the server makes shareable later works without a new command.
+
+```bash
+kcap sharing candidates <objectKey> platform                     # who you could share it with, default relation starred
+kcap sharing set <objectKey> <audienceKey> --relation <relation> # one grant; run again for each audience
+kcap sharing list <objectKey>                                    # who it is shared with now, and what you may change
+kcap sharing remove <objectKey> <audienceKey>
+```
+
+`set` adds a grant or moves the one the audience holds; `remove` succeeds when there is nothing to remove. Audience keys and relations are the server's own: copy them from `candidates` or `list`. A refusal prints the server's reason. A server too old to send object keys cannot share from kcap; share from the web app there.
 
 ### Import local memories
 
@@ -1713,11 +1741,10 @@ the kcap capture plugin inside it do not reach the reviewer, and your interactiv
 unaffected. The restriction is read back before every launch, and a home that cannot be made owner-only
 refuses the launch rather than running with review context other users could read.
 
-**Not offered on Windows yet.** A Windows daemon withholds Antigravity, hosted agents and reviewers alike,
-with `antigravity_reviewer_unsupported_platform`. The home itself is ready there — a protected ACL admitting
-only you and SYSTEM, with `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and `TEMP`/`TMP` redirected into it
-alongside `HOME` — but no real `agy` run on Windows has yet confirmed that `agy` writes nothing outside it,
-and containment here is proven by a real run, not assumed.
+**Windows works the same way.** There the home carries a protected ACL admitting only you and SYSTEM, and
+`USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and `TEMP`/`TMP` are redirected into it alongside `HOME`. A real
+`agy` run under that home wrote nothing into your own `.gemini` or app-data folders and left no process
+behind.
 
 That home also carries a small `settings.json` holding `permissions.allow` rules for exactly the MCP tools
 the launch injected — the `kcap-flow-result` submit channel, plus any read-only servers the flow definition
@@ -1728,9 +1755,11 @@ reasons, and can never deliver its result. The grant admits those named tools an
 
 **Give the daemon durable credentials.** An unattended reviewer's stdin is closed, so it cannot complete an
 interactive login — an unauthenticated `agy` fails the launch with a coded
-`antigravity_reviewer_auth_unavailable` rather than hanging. Application Default Credentials are the
-supported setup, and every CLI-driven daemon start completes them for you — `daemon start`, `-d`, and
-`service install` alike:
+`antigravity_reviewer_auth_unavailable` rather than hanging. On Windows an `agy` you have already signed
+in to needs nothing more: its sign-in is not kept in the profile the launch redirects, so a daemon started
+with none of the three variables below launches it as it is. Elsewhere, Application Default Credentials
+are the supported setup, and every CLI-driven daemon start completes them for you — `daemon start`, `-d`,
+and `service install` alike:
 
 ```bash
 gcloud auth application-default login
@@ -1749,12 +1778,30 @@ launch redirects `HOME` (and on Windows `APPDATA`) to a per-launch state directo
 location is not visible to the child. Derivation happens in the CLI, at your command; the daemon itself
 still never reads a credential location of its own accord — it only forwards what it was started with.
 
-On Windows, `service install` derives nothing and never carries the credential path, as it carries no
-secret-capable value into a Windows unit, so a Windows daemon gets the trio from `kcap daemon start`/`-d`
-— which is how the desktop app starts it.
+On Windows nothing is derived unless you ask for it. A gcloud credentials file that merely exists does not
+set `AGY_ADC_AUTH=1` there: that flag turns `agy` away from its own sign-in, and with it set and no project
+`agy` fails with `plan model not specified`. ADC on Windows is therefore for a daemon you start yourself
+from a shell: log gcloud in, give it a project, stop the daemon that is running, and set the flag for the
+start command alone; `kcap daemon start`/`-d` then fills in the other two as above:
+
+```powershell
+gcloud auth application-default login
+gcloud config set project <id>
+kcap daemon stop --name $env:USERNAME      # a service-managed one: kcap daemon service stop --name $env:USERNAME
+$env:AGY_ADC_AUTH = '1'; kcap daemon start -d --name $env:USERNAME; Remove-Item Env:AGY_ADC_AUTH
+```
+
+The stop comes first because a start under the name of a running daemon is refused. Removing the flag
+afterwards matters too: left set in your shell, it is the export the end of this section warns against.
+Neither the desktop app nor a service does this for you. With no service installed the app runs
+`kcap daemon start -d` from its own environment, where the flag is normally unset; with one installed it
+starts that service, and `service install` derives nothing on Windows and never carries the credential
+path, as it carries no secret-capable value into a Windows unit. A service-managed daemon on Windows
+therefore has no ADC.
 
 A daemon already running from before you logged in needs a fresh start to pick the trio up — `kcap daemon
-stop` then `kcap daemon start`/`-d` (or re-run `service install`). `kcap daemon restart` reuses the running
+stop` then `kcap daemon start`/`-d` (or, on macOS and Linux, re-run `service install`); on Windows that start
+is the one above, with the flag set for it. `kcap daemon restart` reuses the running
 process's own environment rather than re-deriving, so it will not.
 
 Deliberately unit-only: do **not** export `AGY_ADC_AUTH=1` in your interactive shell — under ADC auth agy
@@ -1870,8 +1917,7 @@ consents specifically to an *unattended review*, whose risk is that it runs unde
 and returns what it read to whoever asked for the review — someone who need not be you. A hosted agent has
 no such gap: the server only ever launches on a daemon you own, so the person launching it is you.
 
-What a hosted launch *does* share with the reviewer is the **minimum `agy` version** (and not being offered
-on Windows yet), because
+What a hosted launch *does* share with the reviewer is the **minimum `agy` version**, because
 the containment that protects is the isolated `HOME` both shapes rely on. Your daemon records that minimum
 at startup whenever `agy` resolves, so there is normally nothing to do; if you installed `agy` after the
 daemon started, restart it or run `kcap daemon reviewer affirm --vendor antigravity`.
@@ -1950,6 +1996,7 @@ kcap records which integrations use the shared tree in `~/.agents/skills/.kcap-c
 | `kcap-pages` | `kcap mcp pages` | Make the artifact, page or report the user asked for as a kcap page: publish it, put the link in the reply, open it in the harness's browser tool when it has one |
 | `kcap-connect-kcap` | `kcap setup` / `kcap login` | Install and sign in kcap for the agent asking; on a Muse Assistant VM also registers the kcap MCP servers as a custom connector, writes the `kcap` skill and an hourly `kcap status` cron |
 | `kcap-worktrees` | `git` | Relative worktree links for a repository opened from a sandbox and its host: enable, undo, never prune, reinstate a pruned worktree |
+| `kcap-progressive-disclosure` | — | Grade chat replies with progressive-disclosure marks when the user asks for it, so the desktop app can fade the detail and footnotes |
 
 The first five (`kcap-recap`, `kcap-errors`, `kcap-hide`, `kcap-disable`, `kcap-validate-plan`) auto-resolve the active session from `CODEX_THREAD_ID`; pass `<sessionId>` explicitly to operate on a different session. `kcap-review-flows` and `kcap-agent-flows` work differently — they operate via flow IDs through `kcap mcp flows`; only the two status tools fall back to the session (from `CODEX_THREAD_ID`, or an explicit `session_id`) when no flow ID is passed; see [Flows MCP server (for agents)](#flows-mcp-server-for-agents) for details. `kcap-start-agents` also goes through `kcap mcp flows`; its tools take the calling session from the harness, or from an explicit `session_id`. `kcap-work-items` declares structure through `kcap mcp workitems` and needs no session id for its breakdown and relation tools. `kcap-plans` writes through `kcap mcp plans` and defaults the session the same way `kcap-work-items` does. `kcap-guided-tour` shells out to `kcap whoami` and otherwise reads through the `kcap-analytics`, `kcap-sessions` and `kcap-flows` MCP servers, so it needs those registered (setup does it) rather than a session id. On a plan without Insights its team table falls back to the user's own session count.
 

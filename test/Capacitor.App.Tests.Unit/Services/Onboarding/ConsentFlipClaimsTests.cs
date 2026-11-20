@@ -102,8 +102,8 @@ public class ConsentFlipClaimsTests {
         var store = new ConsentFlipClaims(Config.Root);
         store.Arm(Claim);
 
-        var capturedDaemonName = "original-daemon";
-        var liveDaemonNameAfterRename = "renamed-daemon";
+        const string capturedDaemonName = "original-daemon";
+        const string liveDaemonNameAfterRename = "renamed-daemon";
 
         var consumed = store.TryConsume(
             Claim, () => (Claim.Profile, Claim.CanonicalServer, liveDaemonNameAfterRename), capturedDaemonName);
@@ -184,7 +184,7 @@ public class ConsentFlipClaimsTests {
     // never applied under v1 semantics or rewritten as v1.
     [Test]
     public async Task Future_version_file_is_quarantined_even_with_valid_looking_claims() {
-        var futureVersion = """{"version":2,"claims":[{"profile":"default","server":"https://example.test:443"}]}""";
+        const string futureVersion = """{"version":2,"claims":[{"profile":"default","server":"https://example.test:443"}]}""";
         File.WriteAllText(ClaimsPath, futureVersion);
 
         var store = new ConsentFlipClaims(Config.Root);

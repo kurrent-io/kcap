@@ -1,4 +1,3 @@
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
 using Microsoft.Extensions.Time.Testing;
@@ -451,7 +450,7 @@ public class RemoteAgentsServiceTests {
         var calls = 0;
         IReadOnlyList<DaemonInfo> rows = [new DaemonInfo { Name = "work-mac", Connected = true }];
         var lane = new FakeServerLane {
-            DaemonsHandler = () => Task.FromResult<IReadOnlyList<DaemonInfo>?>(Interlocked.Increment(ref calls) == 1 ? null : rows),
+            DaemonsHandler = () => Task.FromResult(Interlocked.Increment(ref calls) == 1 ? null : rows),
         };
         using var svc = new RemoteAgentsService(lane, NoAgents, TimeSpan.Zero, time: time);
         var listings = new List<DaemonListing>();
@@ -663,7 +662,7 @@ public class RemoteAgentsServiceTests {
         lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 1));
         await Eventually(() => seen.Contains(true));
         lane.AgentsChangedSubject.OnNext(System.Reactive.Unit.Default);
-        await Eventually(() => seen[^1] == false);
+        await Eventually(() => !seen[^1]);
     }
 
     /// A read that outlives its connection reports on a lane that is no longer there.
@@ -797,7 +796,7 @@ public class RemoteAgentsServiceTests {
         var secondAccounts = new TaskCompletionSource<IReadOnlyList<DaemonAccountsDto>?>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var rig = new GateRig("work-mac");
         rig.ListingOverride = () => listingGate.Task;
-        rig.AccountsOverride = () => Volatile.Read(ref rig.AccountCalls) == 1 ? Task.FromResult<IReadOnlyList<DaemonAccountsDto>?>(rig.Accounts) : secondAccounts.Task;
+        rig.AccountsOverride = () => Volatile.Read(ref rig.AccountCalls) == 1 ? Task.FromResult(rig.Accounts) : secondAccounts.Task;
 
         rig.Connect();
         await Assert.That(rig.Retained()).IsEquivalentTo(["work-mac"]);

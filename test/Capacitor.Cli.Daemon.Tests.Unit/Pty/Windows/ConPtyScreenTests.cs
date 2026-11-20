@@ -46,7 +46,7 @@ public class ConPtyScreenTests {
             }
         } catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
 
-        var sent = seen.ToString().Replace("\x1b", "ESC", StringComparison.Ordinal);
+        var sent = seen.ToString().Replace("\e", "ESC", StringComparison.Ordinal);
         await Assert.That(drawn).IsTrue().Because($"the probe was not drawn within {StartupAllowance}; ConPTY sent: {sent}");
         await Assert.That(screen.Text()).DoesNotContain("kcap-erase-probe").Because($"ConPTY sent: {sent}");
     }

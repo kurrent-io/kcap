@@ -26,6 +26,25 @@ public class PageResultKeysTests {
         await Assert.That(payload.ContainsKey("page_id")).IsFalse();
     }
 
+    /// <summary>On a sharing server the placeholders would read as "shared with nobody"; an older server's are its real audience.</summary>
+    [Test]
+    public async Task A_page_with_an_object_key_drops_the_sharing_placeholders_and_one_without_keeps_them() {
+        var record = JsonNode.Parse(PageResultKeys.Rename(
+            """{"artefact":{"artefact_id":"a1","visibility":"see shared_with","object_key":"page:a1","shared_with":[]},"grants":[]}"""))!.AsObject();
+        var listed = JsonNode.Parse(PageResultKeys.Rename(
+            """{"artefacts":[{"artefact_id":"a1","visibility":"see shared_with","object_key":"page:a1"},{"artefact_id":"a2","visibility":"org"}]}"""))!;
+        var older = JsonNode.Parse(PageResultKeys.Rename(
+            """{"artefact":{"artefact_id":"a1","visibility":"scoped"},"grants":[{"grant_type":"user","grantee_id":"u9"}]}"""))!.AsObject();
+
+        await Assert.That(record.ContainsKey("grants")).IsFalse();
+        await Assert.That(record["page"]!.AsObject().ContainsKey("visibility")).IsFalse();
+        await Assert.That(record["page"]!.AsObject().ContainsKey("shared_with")).IsTrue();
+        await Assert.That(listed["pages"]![0]!.AsObject().ContainsKey("visibility")).IsFalse();
+        await Assert.That((string)listed["pages"]![1]!["visibility"]!).IsEqualTo("org");
+        await Assert.That((string)older["page"]!["visibility"]!).IsEqualTo("scoped");
+        await Assert.That(older["grants"]!.AsArray().Count).IsEqualTo(1);
+    }
+
     [Test]
     public async Task A_key_whose_new_name_is_taken_keeps_its_old_name() {
         var renamed = JsonNode.Parse(PageResultKeys.Rename(

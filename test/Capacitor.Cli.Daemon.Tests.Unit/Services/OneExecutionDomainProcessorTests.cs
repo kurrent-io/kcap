@@ -177,9 +177,10 @@ public class OneExecutionDomainProcessorTests {
             Interlocked.Decrement(ref concurrent);
         };
 
-        for (var i = 0; i < 5; i++)
+        for (var i = 0; i < 5; i++) {
             await Assert.That(p.SubmitUnsequenced(h.Unseq(UnsequencedKind.Launch, "a" + i, "l" + i, "launch", body)))
                 .IsEqualTo(SubmitOutcome.Committed);
+        }
 
         await WaitBounded(p.WhenIdleForTest(), "the lane never drained its five launches");
         await Assert.That(maxConcurrent).IsEqualTo(1);
@@ -222,9 +223,10 @@ public class OneExecutionDomainProcessorTests {
         await WaitBounded(park.Started.Task, "the known-target stop never started executing");
         await Assert.That(p.QueuedStopDepth).IsEqualTo(0); // dequeued to start, so its key already retired
 
-        for (var i = 0; i < 12; i++)
+        for (var i = 0; i < 12; i++) {
             await Assert.That(p.SubmitUnsequenced(h.Unseq(UnsequencedKind.Stop, "ghost" + i, "ghost" + i)))
                 .IsEqualTo(SubmitOutcome.DroppedUnknownTarget);
+        }
 
         await Assert.That(p.QueuedStopDepth).IsEqualTo(0);
         park.Release();
@@ -283,9 +285,10 @@ public class OneExecutionDomainProcessorTests {
 
         await Assert.That(p.SubmitUnsequenced(h.Unseq(UnsequencedKind.Stop, "x", "x-stop")))
             .IsEqualTo(SubmitOutcome.Committed);
-        for (var i = 0; i < 9; i++)
+        for (var i = 0; i < 9; i++) {
             await Assert.That(p.SubmitUnsequenced(h.Unseq(UnsequencedKind.Stop, "x", "x-stop-dup" + i)))
                 .IsEqualTo(SubmitOutcome.Coalesced);
+        }
 
         await Assert.That(p.QueuedStopDepth).IsEqualTo(1); // ten submissions, one queued entry
 

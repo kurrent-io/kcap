@@ -316,9 +316,10 @@ public class PiReviewerLaunchTests {
         var noRoot = SnapshotCtx() with { Worktree = new WorktreeInfo(Path: "/abs/snap/sub", Branch: "b", SourceRepo: "/repo") };
         var interactive = SnapshotCtx() with { IsReviewFlow = false };
 
-        foreach (var ctx in new[] { noRoot, interactive })
+        foreach (var ctx in new[] { noRoot, interactive }) {
             await Assert.That(async () => await Factory(config, new FakePiRpcProcess()).StartAsync(ctx, CancellationToken.None))
                 .Throws<InvalidOperationException>().WithMessageContaining("borrowed_snapshot_containment_mismatch");
+        }
     }
 
     [Test]

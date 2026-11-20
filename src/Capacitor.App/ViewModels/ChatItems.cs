@@ -9,7 +9,7 @@ using ReactiveUI.Reactive;
 namespace Capacitor.App.ViewModels;
 
 /// One row of the Chat tab. Matched by DataTemplates on the concrete type.
-public abstract class ChatItemViewModel : ReactiveObject { }
+public abstract class ChatItemViewModel : ReactiveObject;
 
 public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? attachments = null, SenderLabel? sender = null,
     ChatTimestamp? time = null, bool undelivered = false) : ChatItemViewModel {

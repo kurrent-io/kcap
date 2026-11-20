@@ -37,6 +37,10 @@
       "command": "kcap",
       "args": ["mcp", "pages"]
     },
+    "kcap-sharing": {
+      "command": "kcap",
+      "args": ["mcp", "sharing"]
+    },
     "kcap-knowledge": {
       "command": "kcap",
       "args": ["mcp", "knowledge"]

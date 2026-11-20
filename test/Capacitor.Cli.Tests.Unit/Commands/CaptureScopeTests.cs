@@ -153,7 +153,7 @@ public class CaptureScopeTests {
     public async Task An_unresolvable_cwd_does_not_stop_the_sessions_beside_it() {
         var result = await Scope(
                 allowedRepos: ["acme/widgets"],
-                repoDetector: cwd => Task.FromResult<RepositoryPayload?>(
+                repoDetector: cwd => Task.FromResult(
                     cwd == "/tmp/widgets" ? new RepositoryPayload { Owner = "acme", RepoName = "widgets" } : null))
             .ApplyAsync([Session("unplaceable", "/tmp/not-a-repo"), Session("admitted", "/tmp/widgets")], NoResolved);
 
@@ -385,7 +385,7 @@ public class CaptureScopeTests {
     }
 
     static Func<string, Task<RepositoryPayload?>> DetectsAt(string repo) =>
-        cwd => Task.FromResult<RepositoryPayload?>(
+        cwd => Task.FromResult(
             cwd == repo ? new RepositoryPayload { Owner = "acme", RepoName = "widgets" } : null);
 
     /// <summary>

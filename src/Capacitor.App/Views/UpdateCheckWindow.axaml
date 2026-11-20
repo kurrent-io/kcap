@@ -27,7 +27,7 @@
                                    Foreground="{StaticResource KcapMutedBrush}" />
                     </Grid>
                     <ProgressBar Height="4" Minimum="0" Maximum="100" Value="{Binding Value}"
-                                 IsIndeterminate="{Binding Indeterminate}" Foreground="{StaticResource KcapPurpleBrush}"
+                                 views:BusyIndicator.IsBusy="{Binding Indeterminate}" Foreground="{StaticResource KcapPurpleBrush}"
                                  AutomationProperties.Name="Update download progress" />
                 </StackPanel>
             </Border>

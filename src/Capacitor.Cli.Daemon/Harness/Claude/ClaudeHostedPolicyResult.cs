@@ -1,6 +1,6 @@
 namespace Capacitor.Cli.Daemon.Harness.Claude;
 
-using Capacitor.Cli.Core.Policy;
+using Core.Policy;
 
 /// <summary>What the session's policy made of one hosted permission request: the outcome the caller
 /// acts on, and the event that records it. <see cref="PolicyOutcome.None"/> is a judge that was

@@ -262,7 +262,7 @@ public partial class WorktreeManager(
                     await RunGit(repoPath, GitTimeout, time, noHooks,
                         "worktree", "add", "--no-checkout", "--detach", worktreePath, commit);
                 });
-                LogWorktreeBase(worktreePath, baseRef!, source);
+                LogWorktreeBase(worktreePath, baseRef, source);
                 var added = Detached(worktreePath, repoPath);
                 await StripOrRollBackAsync(added, pinned, commonDir);
 
@@ -814,6 +814,7 @@ public partial class WorktreeManager(
         var pinned       = CanonicalPath.TryResolve(worktree.SourceRepo, out var resolved) ? resolved : null;
         var pinnedCommon = pinned is null ? null : await ResolvedCommonDirAsync(worktree.SourceRepo, time);
         var moved        = false;
+        var treeRemoved  = false;
 
         async Task<bool> StillThereAsync() {
             if (pinned is null || await RepositoryStillAtAsync(worktree.SourceRepo, pinned, pinnedCommon, time)) return true;
@@ -831,6 +832,7 @@ public partial class WorktreeManager(
         await WithWorktreeMetadataGate(worktree.SourceRepo, time, async () => {
             if (!await StillThereAsync()) return;
             await RunGit(worktree.SourceRepo, GitTimeout, time, "worktree", "remove", worktree.Path, "--force");
+            treeRemoved = true;
 
             if (deleteBranch && worktree.OwnsBranch && !string.IsNullOrEmpty(worktree.Branch) && await StillThereAsync()) {
                 await RunGitBestEffort(worktree.SourceRepo, time, "branch", "-D", worktree.Branch);
@@ -841,9 +843,13 @@ public partial class WorktreeManager(
             await RunGitBestEffort(worktree.SourceRepo, time, "update-ref", "-d", worktree.FetchedRef);
         }
 
-        return moved
-            ? WorktreeRemoval.Keep($"nothing the daemon may remove: its source repository {worktree.SourceRepo} moved during cleanup")
-            : WorktreeRemoval.Removed;
+        if (!moved) return WorktreeRemoval.Removed;
+
+        var moving = $"its source repository {worktree.SourceRepo} moved during cleanup";
+
+        return treeRemoved
+            ? WorktreeRemoval.KeepAfterRemoving($"what is left of its branch and fetched ref: {moving}")
+            : WorktreeRemoval.Keep($"nothing the daemon may remove: {moving}");
     }
 
     /// <summary>Files the daemon itself deletes or writes in an owned worktree: the MCP configs it removes
@@ -1526,10 +1532,11 @@ public partial class WorktreeManager(
         var protectedName = protectedIndex < protectedSegments.Length
             ? protectedSegments[protectedIndex]
             : null;
-        foreach (var entry in Directory.EnumerateFileSystemEntries(target))
+        foreach (var entry in Directory.EnumerateFileSystemEntries(target)) {
             if (protectedName is null ||
                 !Path.GetFileName(entry).Equals(protectedName, FileSystemPathComparison))
                 DeleteTreeNoFollow(entry);
+        }
         if (staging is not null) foreach (var entry in Directory.EnumerateFileSystemEntries(staging)) {
             if (protectedName is not null &&
                 Path.GetFileName(entry).Equals(protectedName, FileSystemPathComparison))
@@ -1833,10 +1840,11 @@ public partial class WorktreeManager(
     /// <summary>Whether <paramref name="rawPath"/> is a proper ancestor of a reserved path.</summary>
     static bool RoutesToReservedPath(
             ReadOnlySpan<byte> rawPath, (string Canonical, byte[] Bytes)[] reserved, bool caseSensitive) {
-        foreach (var candidate in reserved)
+        foreach (var candidate in reserved) {
             if (candidate.Bytes.Length > rawPath.Length && candidate.Bytes[rawPath.Length] == (byte)'/'
              && AsciiPathEquals(rawPath, candidate.Bytes.AsSpan(0, rawPath.Length), caseSensitive))
                 return true;
+        }
         return false;
     }
 

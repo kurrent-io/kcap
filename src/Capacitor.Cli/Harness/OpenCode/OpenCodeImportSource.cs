@@ -183,7 +183,7 @@ internal sealed class OpenCodeImportSource : IImportSource {
                 continue;
             }
 
-            var meta2 = WithFingerprint(s.SourceMeta!, fingerprint);
+            var meta2 = WithFingerprint(s.SourceMeta, fingerprint);
             var c = (hwm is { } h
                 ? Make(s, meta, ImportCommand.ClassificationStatus.Partial, total) with { ResumeFromLine = h }
                 : Make(s, meta, ImportCommand.ClassificationStatus.New, total)) with { SourceMeta = meta2 };
@@ -264,11 +264,11 @@ internal sealed class OpenCodeImportSource : IImportSource {
         //    new session carries nothing worth recording. A cancellation arriving DURING this
         //    call (rather than one already captured from step 3) is deferred the same way: the
         //    uncancellable re-close below must still run, and `ct` is rechecked after it.
-        if (cancellation is null && !string.IsNullOrWhiteSpace(title) && !OpenCodeTitleLine.IsPlaceholder(title!)) {
+        if (cancellation is null && !string.IsNullOrWhiteSpace(title) && !OpenCodeTitleLine.IsPlaceholder(title)) {
             try {
                 await ImportHarnessTitle.PostAsync(
                     ctx.HttpClient, _time, ctx.BaseUrl, c.SessionId,
-                    new HarnessTitlePost(title!, HarnessTitleKind.Rename, null),
+                    new HarnessTitlePost(title, HarnessTitleKind.Rename, null),
                     ctx.Progress, ct);
             } catch (OperationCanceledException) { /* deferred — see the comment above */ }
         }
@@ -386,7 +386,7 @@ internal sealed class OpenCodeImportSource : IImportSource {
         SessionId      = s.SessionId,
         Cwd            = s.Cwd,
         FirstTimestamp = s.FirstTimestamp,
-        LastTimestamp  = s.SourceMeta!.TryGetValue("TimeUpdated", out var tu) && tu is long tums
+        LastTimestamp  = s.SourceMeta.TryGetValue("TimeUpdated", out var tu) && tu is long tums
             ? FromEpoch(tums) : null,
     };
 

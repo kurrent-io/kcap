@@ -25,24 +25,24 @@ public class RemoteTerminalResizeTests {
             bar.Value = 5;
             await Assert.That(surface.Model.ScrollOffset).IsEqualTo(5);
 
-            surface.Feed("\x1b[?1000h\x1b[?1006h");
+            surface.Feed("\e[?1000h\e[?1006h");
             await Assert.That(bar.Visibility).IsEqualTo(ScrollBarVisibility.Hidden);
             await Assert.That(bar.IsHitTestVisible).IsFalse();
             await Assert.That(control.ColumnDefinitions[1].MaxWidth).IsEqualTo(0);
             surface.Feed("another redraw");
             await Assert.That(bar.Visibility).IsEqualTo(ScrollBarVisibility.Hidden);
 
-            surface.Feed("\x1b[?1000l");
+            surface.Feed("\e[?1000l");
             await Assert.That(bar.Visibility).IsEqualTo(ScrollBarVisibility.Auto);
             await Assert.That(bar.IsHitTestVisible).IsTrue();
-            surface.Feed("\x1b[?1049h");
+            surface.Feed("\e[?1049h");
             await Assert.That(bar.Visibility).IsEqualTo(ScrollBarVisibility.Hidden);
 
             var replacement = new XtermTerminalSurface(80, 24);
             control.Model = replacement.Model;
             await Assert.That((object?)surface.Model.UpdateUI).IsNull();
             await Assert.That(bar.Visibility).IsEqualTo(ScrollBarVisibility.Auto);
-            replacement.Feed("\x1b[?1000h");
+            replacement.Feed("\e[?1000h");
             await Assert.That(bar.Visibility).IsEqualTo(ScrollBarVisibility.Hidden);
             control.Model = null;
             await Assert.That((object?)replacement.Model.UpdateUI).IsNull();

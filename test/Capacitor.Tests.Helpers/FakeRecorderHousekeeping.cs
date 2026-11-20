@@ -46,6 +46,8 @@ public sealed class FakeRecorderHousekeeping : IRecorderHousekeeping {
 
     public Task AfterFinalDrainAsync(WatchState state, IReadOnlyList<string> drained, long shutdownStarted, CancellationToken ct) => OnAfterFinalDrain?.Invoke() ?? Task.CompletedTask;
 
+    public IReadOnlyList<string> VsCodeWorkspaceStorageDirs { get; set; } = [];
+
     public IReadOnlyList<(long Idx, string Line)> ReadAntigravityUsage(string dbPath, long afterIdx, string? createdAt) => [];
 
     /// <summary>Replaces <see cref="GenerateTitleAsync"/>, so a test can hold a title in progress.</summary>

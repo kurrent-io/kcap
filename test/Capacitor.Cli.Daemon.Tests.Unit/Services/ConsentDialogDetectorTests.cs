@@ -51,12 +51,12 @@ public class ConsentDialogDetectorTests {
         var detector = new ConsentDialogDetector();
 
         // A realistic Ink frame: box-drawing borders + SGR colour codes + cursor moves around the text.
-        var framed =
-            "\x1b[2J\x1b[H\x1b[1m\x1b[33m╭──────────────────────────────╮\x1b[0m\n" +
-            "\x1b[1m WARNING: Claude Code running in Bypass Permissions mode \x1b[0m\n" +
-            "\x1b[2m 1. No, exit \x1b[0m\n" +
-            "\x1b[36m 2. Yes, I accept \x1b[0m\n" +
-            "\x1b[33m╰──────────────────────────────╯\x1b[0m\n";
+        const string framed =
+            "\e[2J\e[H\e[1m\e[33m╭──────────────────────────────╮\e[0m\n" +
+            "\e[1m WARNING: Claude Code running in Bypass Permissions mode \e[0m\n" +
+            "\e[2m 1. No, exit \e[0m\n" +
+            "\e[36m 2. Yes, I accept \e[0m\n" +
+            "\e[33m╰──────────────────────────────╯\e[0m\n";
 
         var reason = detector.Observe(Utf8(framed));
 

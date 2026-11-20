@@ -72,7 +72,7 @@
                 <StackPanel Spacing="4" IsVisible="{Binding StatusLineVisible}">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <Panel Classes="onboardingSpinner" IsVisible="{Binding Busy}">
-                            <icons:AppIcon Kind="LoaderCircle" Size="20" Classes.kcapSpinning="{Binding Busy}"
+                            <icons:AppIcon Kind="LoaderCircle" Size="20" icons:BusyIndicator.IsBusy="{Binding Busy}"
                                            Foreground="{StaticResource OnboardingAccentBrush}" />
                         </Panel>
                         <TextBlock x:Name="SignInStatusText" Classes="onboardingLabel" Text="{Binding Status}" TextWrapping="Wrap"

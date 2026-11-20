@@ -55,7 +55,7 @@ public static class ReviewLaunchBuilder {
         var envNode = new JsonObject();
 
         foreach (var kv in mcp.Env) {
-            envNode[kv.Key] = (JsonNode?)kv.Value;
+            envNode[kv.Key] = kv.Value;
         }
 
         var mcpConfig = new JsonObject {

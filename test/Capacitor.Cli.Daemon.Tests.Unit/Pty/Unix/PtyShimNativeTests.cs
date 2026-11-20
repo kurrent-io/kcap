@@ -125,7 +125,7 @@ public class PtyShimNativeTests {
         // ambient PATH points at one, the CHILD's envp PATH points at the other. The contained
         // plan must preflight the one the CHILD's PATH selects.
         using var tmp = new TempDir();
-        var (daemonDir, childDir) = tmp.TwoDirsWithDifferentExecutable("probe-target");
+        var (_, childDir) = tmp.TwoDirsWithDifferentExecutable("probe-target");
         var script    = tmp.ShebangScript("shim.sh", "/usr/bin/env", "probe-target", "true\n");
         var childEnvp = new[] { Env("PATH", childDir) };
         var plan      = Preflight(script, [script], childEnvp, execveatSupported: 1);

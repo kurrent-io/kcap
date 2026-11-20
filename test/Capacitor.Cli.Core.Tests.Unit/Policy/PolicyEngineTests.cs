@@ -62,8 +62,8 @@ public class PolicyEngineTests {
 
     [Test]
     public async Task Full_coverage_across_different_rules_and_scopes_authorizes() {
-        var repoStatusAllow = "version: 1\nrules:\n  - match: { kind: shell, command: \"git status *\" }\n    outcome: allow\n";
-        var userDiffAllow = "version: 1\nrules:\n  - match: { kind: shell, command: \"git diff *\" }\n    outcome: allow\n";
+        const string repoStatusAllow = "version: 1\nrules:\n  - match: { kind: shell, command: \"git status *\" }\n    outcome: allow\n";
+        const string userDiffAllow = "version: 1\nrules:\n  - match: { kind: shell, command: \"git diff *\" }\n    outcome: allow\n";
         var eval = PolicyEngine.Evaluate(
             Snap((PolicyScope.Repo, repoStatusAllow), (PolicyScope.User, userDiffAllow)),
             Bash("git status --porcelain && git diff --stat"), EvaluationMode.Full);
@@ -88,7 +88,7 @@ public class PolicyEngineTests {
     /// reach the shell hiding in that token — while ordinary `env` use stays allow-eligible.
     [Test]
     public async Task Env_allow_does_not_authorize_a_split_string_argument() {
-        var doc = "version: 1\nrules:\n  - match: { kind: shell, command: \"env *\" }\n    outcome: allow\n";
+        const string doc = "version: 1\nrules:\n  - match: { kind: shell, command: \"env *\" }\n    outcome: allow\n";
         var snap = Snap((PolicyScope.User, doc));
         var hidden = PolicyEngine.Evaluate(snap, Bash("env -S 'bash -c \"rm -rf /tmp/x\"'"), EvaluationMode.Full);
         await Assert.That(hidden.Outcome).IsEqualTo(PolicyOutcome.None);
@@ -101,7 +101,7 @@ public class PolicyEngineTests {
     /// command the analyzer refused.
     [Test]
     public async Task Universal_shell_allow_covers_an_unlisted_interpreter_but_not_an_unanalyzed_command() {
-        var doc = "version: 1\nrules:\n  - match: { kind: shell }\n    outcome: allow\n";
+        const string doc = "version: 1\nrules:\n  - match: { kind: shell }\n    outcome: allow\n";
         var snap = Snap((PolicyScope.User, doc));
         var unlisted = PolicyEngine.Evaluate(snap, Bash("someshell -c script.txt"), EvaluationMode.Full);
         await Assert.That(unlisted.Outcome).IsEqualTo(PolicyOutcome.Allow);
@@ -119,15 +119,15 @@ public class PolicyEngineTests {
 
     [Test]
     public async Task Wider_scope_deny_beats_narrower_allow_and_vice_versa() {
-        var repoAllow = "version: 1\nrules:\n  - match: { kind: shell, command: \"npm publish *\" }\n    outcome: allow\n";
-        var userDeny = "version: 1\nrules:\n  - match: { kind: shell, command: \"npm publish\" }\n    outcome: deny\n";
+        const string repoAllow = "version: 1\nrules:\n  - match: { kind: shell, command: \"npm publish *\" }\n    outcome: allow\n";
+        const string userDeny = "version: 1\nrules:\n  - match: { kind: shell, command: \"npm publish\" }\n    outcome: deny\n";
         var eval = PolicyEngine.Evaluate(Snap((PolicyScope.Repo, repoAllow), (PolicyScope.User, userDeny)),
             Bash("npm publish --tag next"), EvaluationMode.Full);
         await Assert.That(eval.Outcome).IsEqualTo(PolicyOutcome.Deny);
         await Assert.That(eval.MatchedRules[0].Scope).IsEqualTo(PolicyScope.User);
 
-        var repoDeny = "version: 1\nrules:\n  - match: { kind: shell, command: \"npm publish\" }\n    outcome: deny\n";
-        var userAllow = "version: 1\nrules:\n  - match: { kind: shell, command: \"npm publish *\" }\n    outcome: allow\n";
+        const string repoDeny = "version: 1\nrules:\n  - match: { kind: shell, command: \"npm publish\" }\n    outcome: deny\n";
+        const string userAllow = "version: 1\nrules:\n  - match: { kind: shell, command: \"npm publish *\" }\n    outcome: allow\n";
         var reversed = PolicyEngine.Evaluate(Snap((PolicyScope.Repo, repoDeny), (PolicyScope.User, userAllow)),
             Bash("npm publish --tag next"), EvaluationMode.Full);
         await Assert.That(reversed.Outcome).IsEqualTo(PolicyOutcome.Deny);
@@ -145,8 +145,8 @@ public class PolicyEngineTests {
 
     [Test]
     public async Task Kind_level_matcher_hits_sentinel_but_field_matcher_does_not() {
-        var kindDeny = "version: 1\nrules:\n  - match: { kind: other }\n    outcome: deny\n";
-        var fieldDeny = "version: 1\nrules:\n  - match: { kind: other, tool: \"X*\" }\n    outcome: deny\n";
+        const string kindDeny = "version: 1\nrules:\n  - match: { kind: other }\n    outcome: deny\n";
+        const string fieldDeny = "version: 1\nrules:\n  - match: { kind: other, tool: \"X*\" }\n    outcome: deny\n";
         var nameless = new CanonicalAction { Kind = ActionKind.Other, Vendor = "v" };
         var hit = PolicyEngine.Evaluate(Snap((PolicyScope.User, kindDeny)), nameless, EvaluationMode.Full);
         await Assert.That(hit.Outcome).IsEqualTo(PolicyOutcome.Deny);
@@ -156,7 +156,7 @@ public class PolicyEngineTests {
 
     [Test]
     public async Task Nameless_other_is_never_allowed_even_by_kind_level_allow() {
-        var kindAllow = "version: 1\nrules:\n  - match: { kind: other }\n    outcome: allow\n";
+        const string kindAllow = "version: 1\nrules:\n  - match: { kind: other }\n    outcome: allow\n";
         var nameless = new CanonicalAction { Kind = ActionKind.Other, Vendor = "v" };
         var eval = PolicyEngine.Evaluate(Snap((PolicyScope.User, kindAllow)), nameless, EvaluationMode.Full);
         await Assert.That(eval.Outcome).IsEqualTo(PolicyOutcome.None);
@@ -164,7 +164,7 @@ public class PolicyEngineTests {
 
     [Test]
     public async Task Scalar_kinds_match_their_fields() {
-        var doc = """
+        const string doc = """
             version: 1
             rules:
               - match: { kind: file_edit, path: "*.pem" }
@@ -191,7 +191,7 @@ public class PolicyEngineTests {
     /// port-scoped ask over an ordinary https URL never fires.
     [Test]
     public async Task Port_scoped_rule_matches_a_url_that_omits_the_default_port() {
-        var doc = """
+        const string doc = """
             version: 1
             rules:
               - match: { kind: network, host: "registry.example", port: 443 }
@@ -208,7 +208,7 @@ public class PolicyEngineTests {
 
     [Test]
     public async Task Path_ask_matches_glob_against_the_absolute_path() {
-        var doc = "version: 1\nrules:\n  - match: { kind: file_edit, path: \"/repo/.github/*\" }\n    outcome: ask\n";
+        const string doc = "version: 1\nrules:\n  - match: { kind: file_edit, path: \"/repo/.github/*\" }\n    outcome: ask\n";
         var a = new CanonicalAction { Kind = ActionKind.FileEdit, Vendor = "v", Paths = ["/repo/.github/workflows/ci.yml"] };
         var eval = PolicyEngine.Evaluate(Snap((PolicyScope.User, doc)), a, EvaluationMode.Full);
         await Assert.That(eval.Outcome).IsEqualTo(PolicyOutcome.Ask);

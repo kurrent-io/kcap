@@ -2,7 +2,7 @@ namespace Capacitor.Cli.Recording;
 
 /// <summary>Read-only view of <c>inner</c> that reports EOF after <c>limit</c> bytes, so a
 /// StreamReader over it can't read past a length sampled before a concurrent append.</summary>
-internal sealed class LengthLimitedReadStream(Stream inner, long limit, Capacitor.Cli.Core.TranscriptLineIndex? observer = null) : Stream {
+internal sealed class LengthLimitedReadStream(Stream inner, long limit, Core.TranscriptLineIndex? observer = null) : Stream {
     long _consumed;
 
     public override int Read(byte[] buffer, int offset, int count) {

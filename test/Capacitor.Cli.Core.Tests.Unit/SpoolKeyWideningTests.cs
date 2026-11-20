@@ -2,8 +2,8 @@ namespace Capacitor.Cli.Core.Tests.Unit;
 
 /// <summary>
 /// The spool key is WIDENED, not hashed. The filename IS the session id —
-/// <c>LifecycleSpoolDrain</c> posts it verbatim as <c>session_id</c> for
-/// <c>session-needs-import</c> — so hashing would put a fabricated id on the wire.
+/// <c>LifecycleSpoolDrain</c> reads it back and names it in what it sends and reports —
+/// so hashing would fabricate an id.
 ///
 /// <para>The old dashless-GUID form silently dropped every OpenCode payload (<c>ses_…</c>), for both
 /// the lifecycle and transcript spools: <c>Append</c> returned void, so the caller reported "spooled"

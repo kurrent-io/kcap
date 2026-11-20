@@ -33,6 +33,7 @@ internal sealed class SingleFlightReader<TState, TResult>(
     public TState? CurrentState => _current is { } lease ? lease.State : default;
     public bool IsCurrentSettled => _current is { Settled: true };
     public bool IsLoading => _current is { Settled: false };
+    public bool IsReading => _current is { IsReading: true };
     public Task? PendingReadForTesting => _current?.Pending ?? _outstanding.LastOrDefault()?.Pending;
 
     public void Switch(TState state, Action? beforeStart = null) {
@@ -126,10 +127,11 @@ internal sealed class SingleFlightReader<TState, TResult>(
         foreach (var lease in leases) lease.Cts.Cancel();
         // Uninterruptible filesystem reads settle and dispose their leases after teardown returns.
         if (!waitForPending) return;
-        foreach (var lease in leases)
+        foreach (var lease in leases) {
             if (lease.Pending is { } pending) {
                 try { await pending; } catch (Exception) { }
             }
+        }
         foreach (var lease in leases) lease.Cts.Dispose();
     }
 }

@@ -86,12 +86,13 @@ public static class ConfigMigration {
         var rawProfiles = raw["profiles"] as JsonObject;
         var profiles    = new Dictionary<string, Profile>();
 
-        foreach (var (name, profile) in config.Profiles ?? new())
+        foreach (var (name, profile) in config.Profiles ?? new()) {
             profiles[name] = ApplyDefaults(
                 profile ?? new(),
                 sharedProfilePayload ? raw : rawProfiles?[name] as JsonObject,
                 fileVersion
             );
+        }
 
         var bindings = new Dictionary<string, string>();
 

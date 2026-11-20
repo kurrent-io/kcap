@@ -100,7 +100,7 @@ public class SetupJsonTests {
     [Test]
     public async Task An_unreachable_server_ends_with_a_failed_line_and_exit_1() {
         // A closed loopback port.
-        var (exit, stdout, _, _) = await Run(["setup", "--server-url", "http://127.0.0.1:9", "--json", "--no-prompt"]);
+        var (exit, stdout, _, _) = await Run("setup", "--server-url", "http://127.0.0.1:9", "--json", "--no-prompt");
 
         await Assert.That(exit).IsEqualTo(SetupExit.Failed);
         await AssertAllJson(stdout);

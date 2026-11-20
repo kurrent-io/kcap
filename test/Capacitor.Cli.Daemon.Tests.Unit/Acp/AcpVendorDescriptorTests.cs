@@ -180,7 +180,7 @@ public class AcpVendorDescriptorTests {
         )).Throws<ArgumentException>();
 
         await Assert.That(thrown!.Message).Contains(HarnessId.Pi.VendorId);
-        await Assert.That(thrown!.Message).DoesNotContain(HarnessId.Claude.VendorId)
+        await Assert.That(thrown.Message).DoesNotContain(HarnessId.Claude.VendorId)
             .Because("naming the default harness would send a reader to the wrong descriptor");
     }
 

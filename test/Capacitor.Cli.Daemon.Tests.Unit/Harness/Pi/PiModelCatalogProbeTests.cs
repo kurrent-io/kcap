@@ -1,5 +1,4 @@
 using Capacitor.Cli.Daemon.Harness.Pi;
-using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
 using TUnit.Assertions.Enums;
@@ -12,7 +11,7 @@ public class PiModelCatalogProbeTests {
 
     const string Response = """{"type":"response","command":"get_available_models","success":true,"data":{"models":[{"id":"claude-opus-5","name":"Claude Opus 5","provider":"anthropic"}]}}""";
 
-    static Task<IReadOnlyList<Capacitor.Cli.Core.VendorModelOption>?> Run(FakePiRpcProcess fake, string dir, TimeProvider? time = null) =>
+    static Task<IReadOnlyList<Core.VendorModelOption>?> Run(FakePiRpcProcess fake, string dir, TimeProvider? time = null) =>
         PiModelCatalogProbe.RunAsync("/opt/pi", dir, (_, _) => Task.FromResult<IPiRpcProcess>(fake),
             time ?? TimeProvider.System, NullLogger.Instance, CancellationToken.None);
 
@@ -94,7 +93,7 @@ public class PiModelCatalogProbeTests {
     public async Task A_spawn_failing_after_the_deadline_is_observed() {
         var time    = new FakeTimeProvider();
         var release = new TaskCompletionSource<IPiRpcProcess>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var logger  = new Capacitor.Tests.Helpers.CapturingLogger();
+        var logger  = new CapturingLogger();
         var run     = PiModelCatalogProbe.RunAsync("/opt/pi", PiModelCatalogProbe.DirectoryFor(Tmp.Path),
             (_, _) => release.Task, time, logger, CancellationToken.None);
 
@@ -168,10 +167,10 @@ public class PiModelCatalogProbeTests {
 
     [Test]
     public async Task Factory_fingerprints_pi_auth_and_models_files() {
-        var paths   = new Capacitor.Cli.Core.Harness.Pi.PiPaths(new Capacitor.Cli.Core.UserHome(Tmp.Path), null);
+        var paths   = new Capacitor.Cli.Core.Harness.Pi.PiPaths(new Core.UserHome(Tmp.Path), null);
         var factory = new PiRpcHostedAgentRuntimeFactory(new DaemonConfig(), NullLoggerFactory.Instance, TimeProvider.System, paths: paths);
 
-        await Assert.That(((IHostedAgentRuntimeFactory) factory).CatalogFingerprintPaths)
+        await Assert.That(factory.CatalogFingerprintPaths)
             .IsEquivalentTo([paths.AuthJson, paths.ModelsJson], CollectionOrdering.Matching);
     }
 

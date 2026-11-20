@@ -11,8 +11,10 @@ public sealed class BetaUpdatesSetting {
         _choice = choice;
     }
 
-    public static async Task<BetaUpdatesSetting> LoadAsync(IAppStateStore store) =>
-        new(store, (await store.LoadAsync().ConfigureAwait(false)).BetaUpdates);
+    public static async Task<BetaUpdatesSetting> LoadAsync(IAppStateStore store) => From(store, await store.LoadAsync().ConfigureAwait(false));
+
+    /// Over a state the caller has already read from <paramref name="store"/>.
+    public static BetaUpdatesSetting From(IAppStateStore store, AppState state) => new(store, state.BetaUpdates);
 
     public bool? Choice {
         get {

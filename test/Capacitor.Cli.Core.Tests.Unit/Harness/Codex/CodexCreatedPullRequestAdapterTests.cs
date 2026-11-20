@@ -47,7 +47,7 @@ public class CodexCreatedPullRequestAdapterTests {
 
     [Test]
     public async Task A_create_gh_refused_because_the_pr_exists_is_not_found() {
-        var output = "a pull request for branch \"feature\" into branch \"main\" already exists:\n" + Url + "\n";
+        const string output = "a pull request for branch \"feature\" into branch \"main\" already exists:\n" + Url + "\n";
 
         await Assert.That(Observe(ExecCommandEnd("call_pr", "gh pr create --fill", output, 1))).IsEmpty();
         await Assert.That(Observe(ItemCompleted("exec-7", "gh pr create --fill", output, 1))).IsEmpty();

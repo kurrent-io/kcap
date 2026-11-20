@@ -96,6 +96,6 @@ internal sealed class PendingAcpInteractionRegistry {
             }
         }
 
-        tcs!.TrySetResult(decision);
+        tcs.TrySetResult(decision);
     }
 }

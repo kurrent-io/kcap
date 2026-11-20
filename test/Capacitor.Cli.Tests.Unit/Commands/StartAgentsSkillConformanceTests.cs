@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 
@@ -5,7 +6,7 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 
 /// <summary>The skill is the only place an agent is told when it may start agents and what it owes
 /// the user first. Each rule is pinned by the sentence that states it.</summary>
-public class StartAgentsSkillConformanceTests {
+public partial class StartAgentsSkillConformanceTests {
     /// <summary>Line endings are normalized: nothing pins the skills tree to LF on a Windows checkout.</summary>
     static string Skill() {
         var path = Path.Combine(RepoTree.SkillsSource(), "start-agents", "SKILL.md");
@@ -52,9 +53,9 @@ public class StartAgentsSkillConformanceTests {
 
     /// <summary>The description as a harness reads it, its <c>&gt;-</c> block folded.</summary>
     static string Description() {
-        var match = System.Text.RegularExpressions.Regex.Match(Skill(), @"(?m)^description: >-\n((?:^  .*\n)+)");
+        var match = DescriptionBlock().Match(Skill());
 
-        return System.Text.RegularExpressions.Regex.Replace(match.Groups[1].Value, @"\s+", " ").Trim();
+        return Whitespace().Replace(match.Groups[1].Value, " ").Trim();
     }
 
     /// <summary>A strict harness drops a skill whose description passes 1024 characters, without a word.</summary>
@@ -78,4 +79,10 @@ public class StartAgentsSkillConformanceTests {
     public async Task The_skill_does_not_promise_an_attachment() {
         await Assert.That(Skill()).Contains("nothing is attached when the call returns");
     }
+
+    [GeneratedRegex(@"(?m)^description: >-\n((?:^  .*\n)+)")]
+    private static partial Regex DescriptionBlock();
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex Whitespace();
 }

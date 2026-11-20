@@ -89,7 +89,7 @@ public class PiReviewerRuntimeGuardTests {
     [Test]
     public async Task A_round_that_outlives_the_limit_reaps_with_the_timeout_reason() {
         var time = new FakeTimeProvider();
-        var (runtime, process) = NewRuntime(reviewerGuards: Guards, time: time);
+        var (runtime, _) = NewRuntime(reviewerGuards: Guards, time: time);
         await runtime.WaitForSessionReadyAsync(CancellationToken.None);
         await runtime.SendUserInputAsync("review this");
 

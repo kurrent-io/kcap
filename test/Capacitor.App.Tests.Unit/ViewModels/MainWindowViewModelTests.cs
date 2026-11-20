@@ -15,7 +15,7 @@ using Capacitor.Cli.Core.PullRequests;
 using Capacitor.Remote.Models;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
-using static Capacitor.App.Tests.Unit.FakeDaemonClientService;
+using static Capacitor.Tests.Helpers.FakeDaemonClientService;
 
 namespace Capacitor.App.Tests.Unit.ViewModels;
 
@@ -154,6 +154,33 @@ public class MainWindowViewModelTests {
 
             gate.SetResult(new StreamingResult(0, false, []));
             await run.Completion;
+        });
+    }
+
+    /// <summary>An import started after the window opened takes the banner, and the banner follows that run
+    /// rather than the one it showed before.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_import_started_after_the_window_opened_takes_the_banner() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var vm = new MainWindowViewModel(new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System);
+            using var activation = vm.Activator.Activate();
+            await Assert.That(vm.HistoryImportBanner).IsNull();
+
+            var gate = new TaskCompletionSource<StreamingResult>();
+            Action<StreamedLine>? emit = null;
+            var run = ImportRun(3, 1);
+            vm.ShowHistoryImport(run);
+            var shown = ProgressShown(vm);
+            run.Start(new FakeKcapCli { ImportBehavior = (_, onLine, _) => { emit = onLine; return gate.Task; } }, [Pass()]);
+            emit!(new StreamedLine(ProcessStreamKind.Stdout, "  Loading s0 (copilot)"));
+
+            await Assert.That(vm.HistoryImportBanner!.Status).IsEqualTo("Importing history · 1 of 3 sessions processed");
+            await Assert.That(shown.LastOrDefault()).IsEqualTo(100.0 / 3);
+
+            gate.SetResult(new StreamingResult(0, false, []));
+            await run.Completion;
+            await Assert.That(vm.HistoryImportBanner.Status).IsEqualTo("History imported · 1 session processed");
         });
     }
 
@@ -851,7 +878,7 @@ public class MainWindowViewModelTests {
     public async Task Start_and_reconnect_visibility_are_mutually_exclusive() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var (vm, home, tmp) = WithLauncher(service);
+            var (_, home, tmp) = WithLauncher(service);
             using var _tmp = tmp;
             using var _home = home;
 
@@ -880,7 +907,7 @@ public class MainWindowViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
             var moving = new BehaviorSubject<bool>(true);
-            var (vm, home, tmp) = WithLauncher(service, moving);
+            var (_, home, tmp) = WithLauncher(service, moving);
             using var _tmp = tmp;
             using var _home = home;
 
@@ -1212,7 +1239,7 @@ public class MainWindowViewModelTests {
     public async Task A_connect_resets_the_banner_to_the_standing_identity_report(bool reportFirst) {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
-            var identity = new System.Reactive.Subjects.BehaviorSubject<string?>(null);
+            var identity = new BehaviorSubject<string?>(null);
             var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
                 identityReport: identity);
             using var activation = vm.Activator.Activate();
@@ -2101,7 +2128,7 @@ public class MainWindowViewModelTests {
                 originOf: id => id == "S" ? AgentOrigin.Server : AgentOrigin.Local,
                 serverWorkspaceFactory: id => built = host.NewServer(id), directory: host.Directory, time: time);
             vm.OpenSession("a1", AgentOrigin.Local);
-            var local = vm.CurrentWorkspace;
+            _ = vm.CurrentWorkspace;
 
             service.Agents.AddOrUpdate(LocalWithSession("a1", "S", "Completed"));
             host.Directory.Rows.Edit(rows => {

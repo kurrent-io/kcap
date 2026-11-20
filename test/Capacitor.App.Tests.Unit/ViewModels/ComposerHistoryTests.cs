@@ -223,4 +223,18 @@ public class ComposerHistoryTests {
         await Assert.That(history.Newer("second", None)).IsNull();
         await Assert.That(history.Older("second", None)).IsEqualTo("second");
     }
+
+    /// Inputs from older transcript pages go behind the ones already seen and stop at the cap.
+    [Test]
+    public async Task Earlier_inputs_recall_after_the_ones_already_seen() {
+        var history = Seen("third", "fourth");
+        history.ObserveEarlier(["first", "second", "third"]);
+        await AssertRecallOrder(history, None, "fourth", "third", "second", "first");
+
+        var full = Seen([.. Enumerable.Range(0, ComposerHistory.Capacity).Select(i => i.ToString(CultureInfo.InvariantCulture))]);
+        full.ObserveEarlier(["older"]);
+        var current = "";
+        for (var i = 0; i < ComposerHistory.Capacity; i++) current = full.Older(current, None)!;
+        await Assert.That(full.Older(current, None)).IsNull();
+    }
 }

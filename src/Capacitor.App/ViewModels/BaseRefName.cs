@@ -18,15 +18,17 @@ public static class BaseRefName {
         if (name.Contains("..", StringComparison.Ordinal)) return "A branch name can't contain “..”.";
         if (name.Contains("@{", StringComparison.Ordinal)) return "A branch name can't contain “@{”.";
 
-        foreach (var c in name)
+        foreach (var c in name) {
             if (c < 0x20 || c == 0x7f || c == ' ')
                 return "A branch name can't contain spaces.";
             else if (c is '~' or '^' or ':' or '?' or '*' or '[' or '\\')
                 return $"A branch name can't contain “{c}”.";
+        }
 
-        foreach (var part in name.Split('/'))
+        foreach (var part in name.Split('/')) {
             if (part.StartsWith('.') || part.EndsWith(".lock", StringComparison.Ordinal))
                 return "A part of a branch name can't start with “.” or end with “.lock”.";
+        }
 
         return null;
     }

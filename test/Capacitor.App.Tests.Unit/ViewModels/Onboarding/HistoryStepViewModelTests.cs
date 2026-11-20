@@ -341,7 +341,7 @@ public class HistoryStepViewModelTests {
 
         acme.OnlyMe = true;
 
-        await Assert.That(mixedAudience).IsEqualTo((true, (bool?)null, "2 repositories · mixed"));
+        await Assert.That(mixedAudience).IsEqualTo((true, null, "2 repositories · mixed"));
         await Assert.That(mixedImport).IsEqualTo(((bool?)null, (bool?)true));
         await Assert.That(none).IsEqualTo(((bool?)false, false));
         // The row's box binds Included. A Level write that does not raise it leaves the row unchecked.
@@ -933,7 +933,7 @@ public class HistoryStepViewModelTests {
             var box = window.GetVisualDescendants().OfType<CheckBox>()
                 .First(c => c.Name == "OwnerOnlyMeCheck" && c.DataContext is HistoryOwnerGroup { Owner: "acme" });
             var mixedShown = box.IsChecked;
-            ((IToggleProvider)ControlAutomationPeer.CreatePeerForElement(box)!).Toggle();
+            ((IToggleProvider)ControlAutomationPeer.CreatePeerForElement(box)).Toggle();
             Dispatcher.UIThread.RunJobs();
             var result = (Mixed: mixedShown, Clicked: box.IsChecked,
                 Levels: h.Vm.Groups.Single(g => g.Owner == "acme").Repos.Select(r => r.Level).ToList());

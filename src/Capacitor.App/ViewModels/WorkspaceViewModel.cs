@@ -33,27 +33,42 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             this.RaiseAndSetIfChanged(ref _connectionNotice, value);
             this.RaisePropertyChanged(nameof(HasConnectionNotice));
             this.RaisePropertyChanged(nameof(ShowsStartingNotice));
-            RaiseBannerNotice();
+            RaiseConnectionPresentation();
             if (Chat is not null) Chat.WorkspaceNotice = ConnectionNotice;
             if (WorkContext is not null) WorkContext.HasWorkspaceNotice = HasConnectionNotice || IsStarting;
         }
     }
     public bool HasConnectionNotice => ConnectionNotice is not null;
-    public bool ShowsStartingNotice => IsStarting && !HasConnectionNotice;
+    public bool ShowsStartingNotice => IsStarting && !HasConnectionNotice && !IsTerminalActive;
     public SessionConnectionPresentation StartingNotice => SessionConnectionPresentation.Starting(StartingText);
     public ReactiveCommand<Unit, Unit> RetryConnectionCommand { get; }
     public ReactiveCommand<Unit, Unit> StartDaemonCommand { get; }
 
-    SessionConnectionPresentation? _terminalNotice;
-    /// The one notice above every surface but the chat, which shows its own: the daemon's state is the
-    /// cause of any terminal state, so it outranks the Terminal tab's.
+    SessionConnectionPresentation? TerminalNotice =>
+        TerminalNotices.For(Terminal.State, Terminal.ReattachCommand, Terminal.DetachCommand, Terminal.RetryResolveCommand);
+
+    // Keep the terminal laid out behind the centered notice so the attach can use its measured size.
+    public bool HasTerminalPaneNotice => IsTerminalActive && Terminal.State.Phase is
+        TerminalSessionPhase.Resolving or TerminalSessionPhase.Connecting or TerminalSessionPhase.Resuming
+        or TerminalSessionPhase.NotFound or TerminalSessionPhase.Failed;
+    public SessionConnectionPresentation? TerminalPaneNotice => HasTerminalPaneNotice ? ConnectionNotice ?? TerminalNotice : null;
+    public bool ShowsTerminalSurface => IsTerminalActive && !HasTerminalPaneNotice;
+
+    // The daemon's notice takes priority when it offers a recovery for the whole session.
     public SessionConnectionPresentation? BannerNotice =>
-        ShowsChat ? null : ConnectionNotice ?? (IsTerminalActive ? _terminalNotice : null);
+        ShowsChat || HasTerminalPaneNotice ? null : ConnectionNotice ?? (IsTerminalActive ? TerminalNotice : null);
     public bool HasBannerNotice => BannerNotice is not null;
 
     void RaiseBannerNotice() {
         this.RaisePropertyChanged(nameof(BannerNotice));
         this.RaisePropertyChanged(nameof(HasBannerNotice));
+    }
+
+    void RaiseConnectionPresentation() {
+        RaiseBannerNotice();
+        this.RaisePropertyChanged(nameof(TerminalPaneNotice));
+        this.RaisePropertyChanged(nameof(HasTerminalPaneNotice));
+        this.RaisePropertyChanged(nameof(ShowsTerminalSurface));
     }
 
     public string AgentId { get; }
@@ -104,6 +119,11 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     ChatTabViewModel? _chat;
     /// Built once, on the first dto; the reader comes from transcript_format and the input channel
     /// from has_terminal.
+    /// Whether the header offers the progressive disclosure toggle: the chat on screen, the session's
+    /// or an open subagent's, has a graded reply.
+    public bool ShowsProgressiveDisclosure => _showsProgressiveDisclosure.Value;
+    readonly ObservableAsPropertyHelper<bool> _showsProgressiveDisclosure;
+
     SubagentPaneViewModel? _subagent;
     /// A subagent's own transcript, shown in place of the chat until the user goes back.
     public SubagentPaneViewModel? Subagent {
@@ -160,7 +180,8 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             this.RaisePropertyChanged(nameof(IsPullRequestActive));
             this.RaisePropertyChanged(nameof(ShowsPullRequestTab));
             this.RaisePropertyChanged(nameof(ShowsSurfaceSwitch));
-            RaiseBannerNotice();
+            RaiseConnectionPresentation();
+            this.RaisePropertyChanged(nameof(ShowsStartingNotice));
             this.RaisePropertyChanged(nameof(IsArtefactsActive));
             Artefacts.IsShown = IsArtefactsActive;
             PullRequests?.SetReaderVisible(value == WorkspaceTab.PullRequest);
@@ -293,10 +314,8 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     _ => ConnectionNotice,
                 };
             }).DisposeWith(_disposables);
-        Terminal.WhenAnyValue(t => t.State).ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(state => {
-            _terminalNotice = TerminalNotices.For(state, Terminal.ReattachCommand, Terminal.DetachCommand, Terminal.RetryResolveCommand);
-            RaiseBannerNotice();
-        }).DisposeWith(_disposables);
+        Terminal.WhenAnyValue(t => t.State).ObserveOn(RxSchedulers.MainThreadScheduler)
+            .Subscribe(_ => RaiseConnectionPresentation()).DisposeWith(_disposables);
 
         var presence = daemon.Agents.Connect()
             .Filter(dto => dto.Id == agentId)
@@ -332,6 +351,11 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             actions.OpenWorkItemInWeb, plans, planActivity, artefacts: Artefacts, serverLane: serverLane,
             canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
             sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout);
+        _showsProgressiveDisclosure = Observable.Switch(this.WhenAnyValue(w => w.IsChatActive, w => w.Chat, w => w.Subagent,
+                (active, chat, subagent) => active ? subagent?.Chat ?? chat : null)
+            .Select(static chat => chat is null ? Observable.Return(false) : chat.WhenAnyValue(c => c.HasProgressiveDisclosureMarks)))
+            .ToProperty(this, w => w.ShowsProgressiveDisclosure)
+            .DisposeWith(_disposables);
         WorkContext.HasWorkspaceNotice = HasConnectionNotice;
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));

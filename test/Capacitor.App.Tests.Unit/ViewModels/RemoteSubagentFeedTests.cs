@@ -22,14 +22,14 @@ public class RemoteSubagentFeedTests {
         public bool Missing;
         public int? FailRequest;
 
-        public Task<SubagentEventsFetch> Read(string sessionId, string agentId, long from, CancellationToken ct) {
+        public Task<StreamEventsFetch> Read(string sessionId, string agentId, long from, CancellationToken ct) {
             Requests.Add(from);
-            if (FailRequest == Requests.Count) return Task.FromResult(new SubagentEventsFetch(null));
-            if (Missing) return Task.FromResult(new SubagentEventsFetch(null, NotFound: true));
+            if (FailRequest == Requests.Count) return Task.FromResult(new StreamEventsFetch(null));
+            if (Missing) return Task.FromResult(new StreamEventsFetch(null, NotFound: true));
             // As the server pages: `from` counts events already received, from the oldest one still kept.
             var page = Events.Skip((int)from).Take(PageSize).ToArray();
             int? next = from + page.Length < Events.Count ? (int)from + page.Length : null;
-            return Task.FromResult(new SubagentEventsFetch(new SubagentEventsDto { Events = page, NextFrom = next, LastEventNumber = Events.Count == 0 ? -1 : Events[^1].EventNumber }));
+            return Task.FromResult(new StreamEventsFetch(new StreamEventsPage { Events = page, NextFrom = next, LastEventNumber = Events.Count == 0 ? -1 : Events[^1].EventNumber }));
         }
     }
 

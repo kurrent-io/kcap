@@ -109,9 +109,10 @@ sealed class SkillsSyncFixture {
         var ledger = SkillsLedgerFile.ReadQuietly(LedgerPath, SkillOrigin.Repository)
                   ?? throw new InvalidOperationException($"no ledger at {LedgerPath}");
 
-        foreach (var row in ledger.Rows)
+        foreach (var row in ledger.Rows) {
             if (SkillsLedgerValidation.Reject(row) is { } reason)
                 throw new InvalidOperationException($"the run saved an illegal row for {row.Path}: {reason}");
+        }
 
         return ledger;
     }

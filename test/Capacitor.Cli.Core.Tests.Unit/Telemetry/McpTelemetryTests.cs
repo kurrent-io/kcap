@@ -107,7 +107,7 @@ public class McpTelemetryTests {
 
     [Test]
     public async Task ResponseOk_is_false_when_the_result_carries_isError_true() {
-        var response = """{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"boom"}],"isError":true}}""";
+        const string response = """{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"boom"}],"isError":true}}""";
 
         await Assert.That(McpTelemetry.ResponseOk(response)).IsFalse();
     }
@@ -116,14 +116,14 @@ public class McpTelemetryTests {
     public async Task ResponseOk_is_true_when_isError_is_absent() {
         // The real wire shape on success: BuildToolResult's `isError ? true : null` combined with
         // DefaultIgnoreCondition.WhenWritingNull means a successful call omits the key entirely.
-        var response = """{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}""";
+        const string response = """{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"ok"}]}}""";
 
         await Assert.That(McpTelemetry.ResponseOk(response)).IsTrue();
     }
 
     [Test]
     public async Task ResponseOk_is_true_when_isError_is_explicitly_false() {
-        var response = """{"jsonrpc":"2.0","id":1,"result":{"content":[],"isError":false}}""";
+        const string response = """{"jsonrpc":"2.0","id":1,"result":{"content":[],"isError":false}}""";
 
         await Assert.That(McpTelemetry.ResponseOk(response)).IsTrue();
     }
@@ -142,7 +142,7 @@ public class McpTelemetryTests {
         // entirely — {"error":...}, no "result" at all — distinct from the tool-level
         // isError:true this helper exists to read. Not this helper's concern either way: it
         // returns true (no isError:true found), same as any other shape lacking that flag.
-        var response = """{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}""";
+        const string response = """{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}""";
 
         await Assert.That(McpTelemetry.ResponseOk(response)).IsTrue();
     }

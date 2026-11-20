@@ -4,21 +4,21 @@ namespace Capacitor.Cli.Core.Tests.Unit.Mcp;
 
 public class KcapMcpServersTests {
     [Test]
-    public async Task All_contains_the_eleven_canonical_servers() {
+    public async Task All_contains_the_twelve_canonical_servers() {
         var names = KcapMcpServers.All.Select(s => s.Name).ToArray();
-        await Assert.That(names).IsEquivalentTo(new[] { "kcap-review", "kcap-sessions", "kcap-flows", "kcap-memory", "kcap-workitems", "kcap-plans", "kcap-handoff", "kcap-pages", "kcap-analytics", "kcap-knowledge", "kcap-pass" });
+        await Assert.That(names).IsEquivalentTo(new[] { "kcap-review", "kcap-sessions", "kcap-flows", "kcap-memory", "kcap-workitems", "kcap-plans", "kcap-handoff", "kcap-pages", "kcap-sharing", "kcap-analytics", "kcap-knowledge", "kcap-pass" });
     }
 
     [Test]
     public async Task ForCodex_is_the_full_set_including_workitems() {
         var names = KcapMcpServers.ForCodex.Select(s => s.Name).ToArray();
-        await Assert.That(names).IsEquivalentTo(new[] { "kcap-review", "kcap-sessions", "kcap-flows", "kcap-memory", "kcap-workitems", "kcap-plans", "kcap-handoff", "kcap-pages", "kcap-analytics", "kcap-knowledge", "kcap-pass" });
+        await Assert.That(names).IsEquivalentTo(new[] { "kcap-review", "kcap-sessions", "kcap-flows", "kcap-memory", "kcap-workitems", "kcap-plans", "kcap-handoff", "kcap-pages", "kcap-sharing", "kcap-analytics", "kcap-knowledge", "kcap-pass" });
     }
 
     [Test]
     public async Task ForCursor_is_the_full_set_including_workitems() {
         var names = KcapMcpServers.ForCursor.Select(s => s.Name).ToArray();
-        await Assert.That(names).IsEquivalentTo(new[] { "kcap-review", "kcap-sessions", "kcap-flows", "kcap-memory", "kcap-workitems", "kcap-plans", "kcap-handoff", "kcap-pages", "kcap-analytics", "kcap-knowledge", "kcap-pass" });
+        await Assert.That(names).IsEquivalentTo(new[] { "kcap-review", "kcap-sessions", "kcap-flows", "kcap-memory", "kcap-workitems", "kcap-plans", "kcap-handoff", "kcap-pages", "kcap-sharing", "kcap-analytics", "kcap-knowledge", "kcap-pass" });
     }
 
     [Test]

@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocol_version": 1,
+    "client": {
+      "name": "example-client",
+      "version": "1.2.3"
+    }
+  }
+}

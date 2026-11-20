@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core.Harness;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Acp;
 using Capacitor.Cli.Core.LocalIpc;
@@ -29,7 +30,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 /// outcome asserted below.
 /// </summary>
 [ParallelLimiter<SubprocessLimit>]
-public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
+public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     [TempHome] public required TempHome Home { get; init; }
 
     readonly List<TempDaemonStore> _daemons = [];
@@ -427,7 +428,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
             .Because("the reviewer's MCP surface must be observable in the record, not only in a test");
 
         // EXACT, ordered — the load-bearing assertion. Anything logging the raw allowlist fails here.
-        var logged = System.Text.RegularExpressions.Regex.Match(line!, @"servers=\[([^\]]*)\]").Groups[1].Value;
+        var logged = LoggedServers().Match(line!).Groups[1].Value;
         var sent   = await WaitForSessionNewServerNamesAsync(fake);
 
         await Assert.That(logged).IsEqualTo(string.Join(",", sent))
@@ -530,7 +531,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
             .Because("the session was established and handed this surface — dropping the record because "
                    + "cancellation arrived during model selection makes the audit log silently incomplete");
 
-        var logged = System.Text.RegularExpressions.Regex.Match(line!, @"servers=\[([^\]]*)\]").Groups[1].Value;
+        var logged = LoggedServers().Match(line!).Groups[1].Value;
         await Assert.That(logged).IsEqualTo(string.Join(",", sent))
             .Because("the recorded surface must still equal what session/new carried");
 
@@ -2015,7 +2016,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         // key-absence assertion would pass vacuously while the redirection leaked in.
         await Assert.That(env.Values.Any(v => v == "would-be-token")).IsFalse();
         await Assert.That(env.Values.Any(v => v is not null && v.Contains(
-            Capacitor.Cli.Daemon.Services.WorktreeManager.VendorStateSuffix, StringComparison.Ordinal))).IsFalse();
+            WorktreeManager.VendorStateSuffix, StringComparison.Ordinal))).IsFalse();
 
         if (Environment.GetEnvironmentVariable("HOME") is { Length: > 0 } ambientHome)
             await Assert.That(env["HOME"]).IsEqualTo(ambientHome);
@@ -2182,9 +2183,9 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     /// rejected behavior.</summary>
     [Test]
     public async Task StartAsync_BorrowedSnapshot_LogsNoVendorVersionAndNoBinaryPath() {
-        var fake          = new FakeAcpAgent();
-        var loggerFactory = new CaptureLoggerFactory();
-        var binaryPath    = "/definitely/not/a/validated/build/cursor-agent";
+        var fake                = new FakeAcpAgent();
+        var loggerFactory       = new CaptureLoggerFactory();
+        const string binaryPath = "/definitely/not/a/validated/build/cursor-agent";
 
         var factory = new AcpHostedAgentRuntimeFactory(
             descriptor: AcpVendorDescriptors.Cursor,
@@ -3346,4 +3347,7 @@ public class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         await Assert.That(fromFactory).IsEqualTo(fromOrch);
         await Assert.That(fromFactory).IsEqualTo($"launch_failed:{nameof(InvalidOperationException)} — see daemon log");
     }
+
+    [GeneratedRegex(@"servers=\[([^\]]*)\]")]
+    private static partial Regex LoggedServers();
 }

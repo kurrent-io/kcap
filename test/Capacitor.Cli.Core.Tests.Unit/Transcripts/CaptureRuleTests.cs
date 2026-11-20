@@ -18,7 +18,7 @@ public class CaptureRuleTests {
     /// secrets.</summary>
     [Test]
     public async Task A_line_a_rewrite_could_take_past_the_limit_is_undecided() {
-        var largestKept = CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth;
+        const int largestKept = CaptureRule.MaxRecordBytes / CaptureRule.MaxRewriteGrowth;
 
         await Assert.That(CaptureRule.Of(LineOf(largestKept))).IsEqualTo(LineCapture.Kept);
         await Assert.That(CaptureRule.Of(LineOf(largestKept + 1))).IsEqualTo(LineCapture.Undecided);

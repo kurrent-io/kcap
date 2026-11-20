@@ -92,7 +92,7 @@ sealed class AntigravityHookCommand(
         // Canonical dashless id — matches how `kcap watch` and `kcap disable` normalize ids,
         // so session-start, the watcher's transcript batches, and disable all resolve to ONE
         // stream (the dashed conversationId is kept only for the transcript file path).
-        var sessionId = conversationId!.Replace("-", "");
+        var sessionId = conversationId.Replace("-", "");
 
         var cwd = ResolveWorkspace(payload, workspaceFallback ?? AgentWorkspaceCwd);
 
@@ -108,7 +108,7 @@ sealed class AntigravityHookCommand(
         }
 
         var hookBudget = clock.Budget(Ceiling);
-        return await HandleSessionStart(sessionId, transcriptPath!, cwd, payload, activeProfile, stdout, hookBudget);
+        return await HandleSessionStart(sessionId, transcriptPath, cwd, payload, activeProfile, stdout, hookBudget);
     }
 
     /// <summary>

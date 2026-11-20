@@ -206,7 +206,7 @@ public class DirectoryExposureTests {
         Skip.When(OperatingSystem.IsWindows(), "POSIX symlinks");
 
         Tmp.CreateDir("safe", "final", "unit");
-        var holder = Tmp.CreateDir("foreign", "holder").Path;
+        _ = Tmp.CreateDir("foreign", "holder").Path;
         File.CreateSymbolicLink(Tmp.PathTo("foreign", "holder", "next"), Tmp.GetResolvedPath("safe", "final"));
         File.CreateSymbolicLink(Tmp.PathTo("safe", "entry"), Tmp.PathTo("foreign", "holder", "next"));
         var resolvedHolder = Tmp.GetResolvedPath("foreign", "holder");

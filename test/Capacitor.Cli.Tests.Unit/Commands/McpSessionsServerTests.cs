@@ -420,7 +420,7 @@ public class McpSessionsServerTests {
     public async Task BuildTranscriptUrl_throws_when_session_id_missing() {
         var ex = Assert.Throws<ArgumentException>(() => InvokeBuildTranscriptUrl("http://srv", new JsonObject()));
 
-        await Assert.That(ex!.Message).Contains("session_id");
+        await Assert.That(ex.Message).Contains("session_id");
     }
 
     [Test]
@@ -505,7 +505,7 @@ public class McpSessionsServerTests {
     public async Task BuildTurnsUrl_throws_when_session_id_missing() {
         var ex = Assert.Throws<ArgumentException>(() => McpSessionsServer.BuildTurnsUrl("http://srv", new JsonObject()));
 
-        await Assert.That(ex!.Message).Contains("session_id");
+        await Assert.That(ex.Message).Contains("session_id");
     }
 
     static string Body(params string[] sessionIds) {
@@ -562,8 +562,8 @@ public class McpSessionsServerTests {
 
     [Test]
     public async Task ShouldWiden_false_on_author_short_circuits() {
-        var disamb = "{\"hits\":[],\"disambiguation\":[{\"git_hub_id\":1}]}";
-        var noAuth = "{\"hits\":[],\"no_author_match\":true}";
+        const string disamb = "{\"hits\":[],\"disambiguation\":[{\"git_hub_id\":1}]}";
+        const string noAuth = "{\"hits\":[],\"no_author_match\":true}";
 
         await Assert.That(McpSessionsServer.ShouldWiden(new JsonObject { ["query"] = "x" }, "abc1234567890def", disamb, out _)).IsFalse();
         await Assert.That(McpSessionsServer.ShouldWiden(new JsonObject { ["query"] = "x" }, "abc1234567890def", noAuth, out _)).IsFalse();

@@ -207,7 +207,7 @@ public class UnitWriterExpansionTests {
 
         var ex = Assert.Throws<InvalidOperationException>(() => SystemdUnit.Unit(spec));
 
-        await Assert.That(ex!.Message).Contains("command separator");
+        await Assert.That(ex.Message).Contains("command separator");
     }
 
     /// <summary>A semicolon INSIDE a value is not a separator — systemd tokenizes on whitespace first.</summary>
@@ -231,7 +231,7 @@ public class UnitWriterExpansionTests {
 
         var ex = Assert.Throws<InvalidOperationException>(() => SystemdUnit.Unit(spec));
 
-        await Assert.That(ex!.Message).Contains(codePoint);
+        await Assert.That(ex.Message).Contains(codePoint);
     }
 
     // ── Windows: cmd metacharacters, which %-doubling alone does not neutralise ──
@@ -263,7 +263,7 @@ public class UnitWriterExpansionTests {
 
         var ex = Assert.Throws<InvalidOperationException>(() => WindowsTaskUnit.Wrapper(spec));
 
-        await Assert.That(ex!.Message).Contains("quote or newline");
+        await Assert.That(ex.Message).Contains("quote or newline");
     }
 
     [Test]
@@ -272,7 +272,7 @@ public class UnitWriterExpansionTests {
 
         var ex = Assert.Throws<InvalidOperationException>(() => WindowsTaskUnit.Wrapper(spec));
 
-        await Assert.That(ex!.Message).Contains("the log path");
+        await Assert.That(ex.Message).Contains("the log path");
     }
 
     /// <summary>
@@ -309,7 +309,7 @@ public class UnitWriterExpansionTests {
     public async Task ServiceExtraArgs_rejects_a_negative_or_non_integer(string bad) {
         var ex = Assert.Throws<ArgumentException>(() => DaemonServiceCommands.ExtraArgs(bad));
 
-        await Assert.That(ex!.Message).Contains("positive integer");
+        await Assert.That(ex.Message).Contains("positive integer");
     }
 
     /// 0 is the unlimited sentinel and must round-trip into the persisted unit, not be rejected.
@@ -397,7 +397,7 @@ public class UnitWriterExpansionTests {
         var ex = Assert.Throws<InvalidOperationException>(() =>
             WindowsTaskUnit.TaskXml(Spec(), @"C:\Users\%USERNAME%\daemon-service-laptop.cmd"));
 
-        await Assert.That(ex!.Message).Contains("percent sign");
+        await Assert.That(ex.Message).Contains("percent sign");
     }
 
     [Test]
@@ -406,7 +406,7 @@ public class UnitWriterExpansionTests {
     public async Task Task_xml_rejects_a_structurally_unrepresentable_wrapper_path(string path) {
         var ex = Assert.Throws<InvalidOperationException>(() => WindowsTaskUnit.TaskXml(Spec(), path));
 
-        await Assert.That(ex!.Message).Contains("quote or newline");
+        await Assert.That(ex.Message).Contains("quote or newline");
     }
 
     // ── systemd: the apostrophe is structural to its word lexer too ──
@@ -467,7 +467,7 @@ public class UnitWriterExpansionTests {
 
         var ex = Assert.Throws<InvalidOperationException>(() => SystemdUnit.Unit(spec));
 
-        await Assert.That(ex!.Message).Contains("PATH");
+        await Assert.That(ex.Message).Contains("PATH");
     }
 
     [Test]
@@ -480,7 +480,7 @@ public class UnitWriterExpansionTests {
 
         var ex = Assert.Throws<InvalidOperationException>(() => SystemdUnit.Unit(spec));
 
-        await Assert.That(ex!.Message).Contains("ExecStart");
+        await Assert.That(ex.Message).Contains("ExecStart");
     }
 
     [Test]
@@ -489,7 +489,7 @@ public class UnitWriterExpansionTests {
 
         var ex = Assert.Throws<InvalidOperationException>(() => SystemdUnit.Unit(spec));
 
-        await Assert.That(ex!.Message).Contains("U+0001");
+        await Assert.That(ex.Message).Contains("U+0001");
     }
 
     /// <summary>The positive control: a unit whose values are all ordinary still renders.</summary>
@@ -517,7 +517,7 @@ public class UnitWriterExpansionTests {
         var ex = Assert.Throws<InvalidOperationException>(() =>
             WindowsTaskUnit.TaskXml(Spec(), $"C:\\Users\\a{bad}b\\daemon-service-laptop.cmd"));
 
-        await Assert.That(ex!.Message).Contains("XML 1.0");
+        await Assert.That(ex.Message).Contains("XML 1.0");
     }
 
     /// <summary>A legal supplementary character in the path is NOT rejected — the guard is not a blanket refusal.</summary>

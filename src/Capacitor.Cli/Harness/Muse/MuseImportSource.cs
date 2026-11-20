@@ -217,7 +217,7 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
         var results = new List<ImportCommand.SessionClassification>(sessions.Count);
 
         foreach (var s in sessions) {
-            var log  = (string)s.SourceMeta![LogPathKey]!;
+            var log  = (string)s.SourceMeta[LogPathKey]!;
             var meta = new SessionMetadata { SessionId = s.SessionId, Cwd = s.Cwd, FirstTimestamp = s.FirstTimestamp };
 
             int nonBlank, lastIdx;
@@ -368,9 +368,10 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
         var lastActivity = lastRecordedAt;
         var childLogs    = MuseSubagentDiscovery.EnumerateChildLogs(parentLog);
 
-        foreach (var log in childLogs.Prepend(parentLog))
+        foreach (var log in childLogs.Prepend(parentLog)) {
             if (ImportPaths.TryGetLastWriteUtc(log) is { } written && (lastActivity is null || written > lastActivity))
                 lastActivity = written;
+        }
 
         if (lastActivity is not { } last || time.GetUtcNow() - last <= AbandonedAfter) return false;
         if (WatcherLiveness.PidAlive(watchers, sessionId)) return false;
@@ -430,7 +431,7 @@ internal sealed class MuseImportSource(MusePaths paths, WatcherPaths watchers, T
             string? probeErrorReason = null) => new() {
         SessionId = s.SessionId, FilePath = "", EncodedCwd = "", Meta = meta, Status = status,
         Vendor = Vendor, ProbeErrorReason = probeErrorReason, TotalLines = totalLines,
-        SourceMeta = SourceMetaFor((string)s.SourceMeta![LogPathKey]!, lastLine),
+        SourceMeta = SourceMetaFor((string)s.SourceMeta[LogPathKey]!, lastLine),
     };
 }
 

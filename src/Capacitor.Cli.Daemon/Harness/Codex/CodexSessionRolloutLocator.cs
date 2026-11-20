@@ -260,7 +260,7 @@ internal static class CodexSessionRolloutLocator {
         var cutoff = spawnedAtUtc.ToLocalTime().Date.AddDays(-1);
 
         foreach (var year in NumericDirs(sessionsRoot, cutoff.Year)) {
-            foreach (var month in NumericDirs(year.Path, year.Value == cutoff.Year ? cutoff.Month : (int?)null)) {
+            foreach (var month in NumericDirs(year.Path, year.Value == cutoff.Year ? cutoff.Month : null)) {
                 var dayMin = year.Value == cutoff.Year && month.Value == cutoff.Month ? cutoff.Day : (int?)null;
 
                 foreach (var day in NumericDirs(month.Path, dayMin)) {

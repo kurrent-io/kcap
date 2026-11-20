@@ -34,6 +34,7 @@ public static class KcapMcpRegistry {
         ["kcap-pages"]     = Pages,
         // Stored flow definitions may still name the server `kcap-artefacts`.
         ["kcap-artefacts"] = Pages,
+        ["kcap-sharing"]   = new("kcap-sharing",   ["mcp", "sharing"],   false),
         ["kcap-knowledge"] = new("kcap-knowledge", ["mcp", "knowledge"], false),
         ["kcap-pass"]      = new("kcap-pass",      ["mcp", "pass"],      false),
     };

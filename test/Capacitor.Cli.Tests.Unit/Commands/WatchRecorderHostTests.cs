@@ -129,11 +129,11 @@ public class WatchRecorderHostTests {
 
     [Test]
     public async Task A_grok_child_finish_posts_the_stop_for_the_child_it_was_given() {
-        var handler = new RecordingHandler();
-        var paths   = new WatcherPaths(Config.PathTo("watchers"));
-        var parent  = Path.Combine(Config.PathTo("grok"), "sessions", "parent-1", "updates.jsonl");
-        var childId = "0199a3b2-1c2d-7e8f-9a0b-1c2d3e4f5a6b";
-        var host    = HostSpawning(paths, new FakeWatcherSpawner(), new RecordingCapacitorHttpClient(handler));
+        var handler          = new RecordingHandler();
+        var paths            = new WatcherPaths(Config.PathTo("watchers"));
+        var parent           = Path.Combine(Config.PathTo("grok"), "sessions", "parent-1", "updates.jsonl");
+        const string childId = "0199a3b2-1c2d-7e8f-9a0b-1c2d3e4f5a6b";
+        var host             = HostSpawning(paths, new FakeWatcherSpawner(), new RecordingCapacitorHttpClient(handler));
 
         var settled = await host.FinishGrokChildAsync("sess-1", parent, childId, "explorer");
 

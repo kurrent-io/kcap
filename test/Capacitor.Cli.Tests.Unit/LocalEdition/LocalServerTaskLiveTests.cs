@@ -40,7 +40,7 @@ public class LocalServerTaskLiveTests {
         // Laid out as an install lays it out: unpacked into bin\<version>, with bin\current a junction to it.
         var root = new LocalRoot(Tmp.PathTo("local"));
         root.EnsureCreated();
-        await LocalBundleUnpacker.UnpackAsync(bundle!, Path.Combine(LocalBin.Directory(root), "0.0.0-test"), CancellationToken.None);
+        await LocalBundleUnpacker.UnpackAsync(bundle, Path.Combine(LocalBin.Directory(root), "0.0.0-test"), CancellationToken.None);
         LocalBin.Switch(root, "0.0.0-test");
         await Assert.That(LocalBin.Current(root)).IsEqualTo("0.0.0-test");
 

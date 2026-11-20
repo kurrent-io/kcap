@@ -39,7 +39,8 @@ public static partial class NextWorkLaneLogic {
     /// <summary>What a row is, in a word or two, leading its facts line: the icon alone does not say.</summary>
     public static string KindLabel(NextWorkRow c) => c.TargetKind switch {
         "pr" when c.Arm == "ReviewRequested"          => "Review requested",
-        "pr" when c.Arm == "ApprovedUnmerged"         => "Approved PR",
+        // Same wording as the PR reader: the facts line must not also say "Approved…".
+        "pr" when c.Arm == "ApprovedUnmerged"         => "Ready to merge",
         "pr"                                          => "Pull request",
         "session" when c.Arm == "ResumeInterrupted"   => "Interrupted session",
         "session"                                     => "Session",
@@ -61,11 +62,12 @@ public static partial class NextWorkLaneLogic {
         _                                           => "Work item: tracked work of yours",
     };
 
-    /// <summary>What a row shows without being opened: the tracker priority and whether it is a bug.</summary>
+    /// <summary>What a row shows without being opened: the tracker priority, and whether it is a bug when its icon
+    /// does not already say so.</summary>
     public static IReadOnlyList<string> RowMarks(NextWorkRow c) {
         var marks = new List<string>(2);
         if (PriorityLabel(c.Facets.TrackerPriority) is { } p) marks.Add(p);
-        if (c.Facets.IsBug) marks.Add("Bug");
+        if (c.Facets.IsBug && Glyph(c).Icon != "bug") marks.Add("Bug");
         return marks;
     }
 

@@ -77,7 +77,7 @@ public class McpSessionIdTests {
         var ex = Assert.Throws<ArgumentException>(() =>
             McpSessionId.Resolve(new JsonObject(), Env(new() { ["KCAP_DAEMON_AGENT_ID"] = "agent-7" }), _ => null));
 
-        await Assert.That(ex!.Message).IsEqualTo(McpSessionId.NoSessionIdMessage);
+        await Assert.That(ex.Message).IsEqualTo(McpSessionId.NoSessionIdMessage);
     }
 
     [Test]
@@ -85,10 +85,10 @@ public class McpSessionIdTests {
         // "." survives escaping, so a dot segment in a session URL would be normalized out of the route.
         var ambient = Assert.Throws<ArgumentException>(() =>
             McpSessionId.Resolve(new JsonObject(), Env(new() { ["CLAUDE_CODE_SESSION_ID"] = ".." })));
-        await Assert.That(ambient!.Message).IsEqualTo(McpSessionId.NoSessionIdMessage);
+        await Assert.That(ambient.Message).IsEqualTo(McpSessionId.NoSessionIdMessage);
 
         var explicitId = Assert.Throws<ArgumentException>(() => McpSessionId.Resolve(Args("""{"session_id":"."}"""), Env(new())));
-        await Assert.That(explicitId!.Message).IsEqualTo(McpSessionId.NoSessionIdMessage);
+        await Assert.That(explicitId.Message).IsEqualTo(McpSessionId.NoSessionIdMessage);
     }
 
     [Test]
@@ -101,6 +101,6 @@ public class McpSessionIdTests {
     public async Task Throws_when_no_source_yields_an_id() {
         var ex = Assert.Throws<ArgumentException>(() => McpSessionId.Resolve(new JsonObject(), Env(new())));
 
-        await Assert.That(ex!.Message).IsEqualTo(McpSessionId.NoSessionIdMessage);
+        await Assert.That(ex.Message).IsEqualTo(McpSessionId.NoSessionIdMessage);
     }
 }

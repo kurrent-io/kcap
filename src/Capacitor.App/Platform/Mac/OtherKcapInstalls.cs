@@ -12,7 +12,7 @@ public static class OtherKcapInstalls {
         var found        = new List<OtherKcapInstall>();
 
         foreach (var dir in terminalPath.Split(':', StringSplitOptions.RemoveEmptyEntries)) {
-            var candidate = System.IO.Path.Combine(dir, "kcap");
+            var candidate = Path.Combine(dir, "kcap");
             if (!IsExecutableFile(candidate)) continue;
 
             var resolved = Resolve(candidate);
@@ -29,9 +29,9 @@ public static class OtherKcapInstalls {
 
     static string Resolve(string path) {
         try {
-            return new FileInfo(path).ResolveLinkTarget(true)?.FullName ?? System.IO.Path.GetFullPath(path);
+            return new FileInfo(path).ResolveLinkTarget(true)?.FullName ?? Path.GetFullPath(path);
         } catch (IOException) {
-            return System.IO.Path.GetFullPath(path);
+            return Path.GetFullPath(path);
         }
     }
 

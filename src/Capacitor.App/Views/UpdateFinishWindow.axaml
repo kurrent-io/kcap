@@ -42,7 +42,7 @@
                                     <Panel Margin="0,2,10,0" VerticalAlignment="Top">
                                         <views:AppIcon Kind="Circle" Size="14" Foreground="{StaticResource KcapFaintBrush}" IsVisible="{Binding Step.IsPending}" />
                                         <views:AppIcon Kind="LoaderCircle" Size="14" Foreground="{StaticResource KcapPurpleBrush}"
-                                                       Classes.kcapSpinning="{Binding Step.IsRunning}" IsVisible="{Binding Step.IsRunning}" />
+                                                       views:BusyIndicator.IsBusy="{Binding Step.IsRunning}" IsVisible="{Binding Step.IsRunning}" />
                                         <views:AppIcon Kind="Check" Size="14" Foreground="{StaticResource KcapSuccessBrush}" IsVisible="{Binding Step.IsDone}" />
                                         <views:AppIcon Kind="Clock" Size="14" Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding Step.IsNote}" />
                                         <views:AppIcon Kind="CircleX" Size="14" Foreground="{StaticResource KcapDangerBrush}" IsVisible="{Binding Step.IsProblem}" />

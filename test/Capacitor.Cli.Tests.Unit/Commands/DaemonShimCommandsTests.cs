@@ -54,8 +54,8 @@ public class DaemonShimCommandsTests {
 
     [Test]
     public async Task ResolveLinkTarget_falls_back_to_the_running_binary_when_no_launcher_sibling_exists() {
-        var native = "/opt/kcap/bin/kcap";
-        var target = DaemonShimCommands.ResolveLinkTarget(() => native, _ => false);
+        const string native = "/opt/kcap/bin/kcap";
+        var target          = DaemonShimCommands.ResolveLinkTarget(() => native, _ => false);
         await Assert.That(target).IsEqualTo(native);
     }
 

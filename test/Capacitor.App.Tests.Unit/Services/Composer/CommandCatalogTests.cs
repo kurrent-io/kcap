@@ -1,5 +1,4 @@
 using System.Reactive.Linq;
-using Capacitor.App.Services;
 using Capacitor.App.Services.Composer;
 using Capacitor.App.ViewModels.Composer;
 using Capacitor.Cli.Core;

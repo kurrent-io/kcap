@@ -44,7 +44,7 @@ internal static class UpdateNotice {
     internal static bool IsHumanFacing(string command, string[] args, bool appBundled) {
         if (appBundled) return false;
         if (CrashReporter.FailOpenCommands.Contains(command)) return false;
-        if (command is "mcp" or "watch" or "daemon" or "muse-assistant") return false;
+        if (command is "mcp" or "watch" or "daemon" or "muse-assistant" or "ide") return false;
         if (command is "update" or "uninstall") return false;
         if (args.Contains("--no-update-check")) return false;
 

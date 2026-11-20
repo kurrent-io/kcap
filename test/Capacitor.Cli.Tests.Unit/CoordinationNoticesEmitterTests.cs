@@ -57,7 +57,7 @@ public class CoordinationNoticesEmitterTests {
         var body = new JsonObject {
             ["coordination_notices"] = new JsonArray(
                 new JsonObject { ["text"] = "real notice" },
-                new JsonObject { },                       // no text
+                new JsonObject(),                          // no text
                 new JsonObject { ["text"] = "" },          // empty
                 new JsonObject { ["text"] = "   " }        // whitespace
             )

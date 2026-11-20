@@ -2,7 +2,6 @@ using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
 using Avalonia.Threading;
 using Capacitor.App.Services;
-using Capacitor.App.Services.Mutation;
 using Capacitor.App.Services.Onboarding;
 using Capacitor.App.ViewModels.Onboarding;
 using Capacitor.Cli.Core.Config;

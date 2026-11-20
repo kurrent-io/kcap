@@ -972,9 +972,10 @@ internal sealed class AntigravityHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             "Antigravity runtime went terminal before establishing a conversation id.");
 
         _pendingTurns.Writer.TryComplete();
-        while (_pendingTurns.Reader.TryRead(out var dropped))
+        while (_pendingTurns.Reader.TryRead(out var dropped)) {
             dropped.Written?.TrySetException(new InvalidOperationException(
                 "Antigravity runtime is terminal; this input was never delivered."));
+        }
 
         _transcript.Writer.TryComplete();
 

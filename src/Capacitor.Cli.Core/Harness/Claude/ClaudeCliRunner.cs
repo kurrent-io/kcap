@@ -506,7 +506,7 @@ static class ClaudeCliRunner {
 
         if (maxBudgetUsd is { } budget) {
             args.Add("--max-budget-usd");
-            args.Add(budget.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+            args.Add(budget.ToString("0.##", CultureInfo.InvariantCulture));
         }
 
         // `--strict-mcp-config` is on in BOTH modes: it tells claude to load

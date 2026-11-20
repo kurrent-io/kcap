@@ -871,9 +871,10 @@ public sealed class TerminalTabViewModel : ReactiveObject {
     /// A resuming entry, or a running one stamped by a different start than the runtime attached to.
     bool IsSuccessor(ResumeLedgerEntry entry) {
         if (entry.State == ResumeState.Resuming) return true;
-        lock (_resumeLock)
+        lock (_resumeLock) {
             return entry.State == ResumeState.Running && _attachedIncarnation is { } attached
                 && entry.StartedAt is { } started && started != attached;
+        }
     }
 
     /// A tab that settled on an end follows a later status change: an interrupted agent shows why, and

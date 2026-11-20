@@ -38,11 +38,27 @@ public class DaemonSpawnEnvironmentTests {
         await Assert.That(env.ContainsKey("GOOGLE_CLOUD_PROJECT")).IsFalse();
     }
 
-    /// <summary>A spawned daemon's environment is never written to disk, so Windows derives the trio
-    /// here as POSIX does; only a service unit keeps the credential path out on Windows.</summary>
+    /// <summary>A signed-in agy on Windows authenticates under the redirected home, and the flag turns
+    /// it away from that sign-in — so a gcloud credentials file that merely exists must not set it. The
+    /// path and project stay out too: without the flag they are a partial trio.</summary>
     [Test]
-    public async Task Derives_on_windows_too() {
+    public async Task On_windows_a_gcloud_login_alone_derives_nothing() {
         var env = new Dictionary<string, string?>();
+
+        DaemonCommands.ApplySpawnEnvironment(
+            env, "/daemons", "/config", isWindows: true,
+            adcCredentialsPath: @"C:\Users\op\AppData\Roaming\gcloud\application_default_credentials.json",
+            gcloudProject: "gcloud-proj");
+
+        await Assert.That(env.ContainsKey("AGY_ADC_AUTH")).IsFalse();
+        await Assert.That(env.ContainsKey("GOOGLE_APPLICATION_CREDENTIALS")).IsFalse();
+        await Assert.That(env.ContainsKey("GOOGLE_CLOUD_PROJECT")).IsFalse();
+    }
+
+    /// <summary>An operator who exported the flag chose ADC, so the rest is filled in as elsewhere.</summary>
+    [Test]
+    public async Task On_windows_an_exported_flag_has_the_rest_derived() {
+        var env = new Dictionary<string, string?> { ["AGY_ADC_AUTH"] = "1" };
 
         DaemonCommands.ApplySpawnEnvironment(
             env, "/daemons", "/config", isWindows: true,

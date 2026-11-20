@@ -272,9 +272,10 @@ public static class ClaudePluginInstaller {
             if (JsonNode.Parse(File.ReadAllText(settingsPath)) is not JsonObject root) return null;
             if (root["enabledPlugins"] is not JsonObject enabled) return null;
 
-            foreach (var key in KcapPluginKeys)
+            foreach (var key in KcapPluginKeys) {
                 if (HasEnabledFlag(enabled, key))
                     return key;
+            }
         } catch {
             // malformed settings → nothing provably enabled
         }

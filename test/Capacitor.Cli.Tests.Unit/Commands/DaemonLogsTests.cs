@@ -21,7 +21,7 @@ public class DaemonLogsTests {
         TestHarnesses.All(), TestBinaries.None, TimeProvider.System, new StandardStreams(Out, Err, TextReader.Null));
 
     string LogPath          => Config.Root.Path("daemon.log");
-    string StderrCapturePath => System.IO.Path.ChangeExtension(LogPath, null) + ".out.log";
+    string StderrCapturePath => Path.ChangeExtension(LogPath, null) + ".out.log";
 
     [Test]
     public async Task Logs_surfaces_the_stderr_capture_sibling() {

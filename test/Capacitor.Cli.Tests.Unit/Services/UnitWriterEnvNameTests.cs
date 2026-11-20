@@ -62,7 +62,7 @@ public class UnitWriterEnvNameTests {
     /// </summary>
     [Test]
     [Arguments("\u0001")]
-    [Arguments("ok\u0000bad")]
+    [Arguments("ok\0bad")]
     [Arguments("pre\u001Fpost")]
     public async Task Launchd_rejects_a_value_xml_cannot_represent(string hostileValue) {
         var spec = new ServiceSpec(

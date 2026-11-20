@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Daemon.Services;
 
 namespace Capacitor.Cli.Daemon.Harness.Gemini;
 
@@ -55,27 +56,21 @@ internal enum GeminiReviewerDecision {
 /// execution.</para>
 /// </summary>
 internal static class GeminiReviewerCapability {
+    static readonly ConsentAndMinimumGate<GeminiReviewerDecision> Gate = new(
+        allowed:             GeminiReviewerDecision.Allowed,
+        disabled:            GeminiReviewerDecision.Disabled,
+        versionUnresolved:   GeminiReviewerDecision.VersionUnresolved,
+        versionNoMinimum:    GeminiReviewerDecision.VersionNoMinimum,
+        versionBelowMinimum: GeminiReviewerDecision.VersionBelowMinimum,
+        versionIncomparable: GeminiReviewerDecision.VersionIncomparable);
+
     /// <summary>
     /// Pure decision. <paramref name="installedVersion"/> is the version of the binary this launch will
     /// actually use — null when it could not be resolved, which is treated as unknown and therefore denied.
     /// </summary>
     internal static GeminiReviewerDecision Decide(
-            bool operatorEnabled, string? installedVersion, string? minimumVersion) {
-        // Operator flag FIRST and short-circuiting, so a daemon that opted out never interrogates the
-        // vendor binary at all — an installed-but-wedged binary must not hang startup on a feature that
-        // is switched off.
-        if (!operatorEnabled) return GeminiReviewerDecision.Disabled;
-
-        // No discard: `_ => Allowed` silently ADMITTED any arm added later, which is the wrong
-        // direction for this gate. CS8509 makes the next one a build failure instead.
-        return ReviewerVersionAffirmations.Decide(installedVersion, minimumVersion) switch {
-            ReviewerVersionAffirmation.MeetsMinimum      => GeminiReviewerDecision.Allowed,
-            ReviewerVersionAffirmation.Unresolved        => GeminiReviewerDecision.VersionUnresolved,
-            ReviewerVersionAffirmation.NoMinimumRecorded => GeminiReviewerDecision.VersionNoMinimum,
-            ReviewerVersionAffirmation.BelowMinimum      => GeminiReviewerDecision.VersionBelowMinimum,
-            ReviewerVersionAffirmation.Incomparable      => GeminiReviewerDecision.VersionIncomparable
-        };
-    }
+            bool operatorEnabled, string? installedVersion, string? minimumVersion) =>
+        Gate.Decide(operatorEnabled, installedVersion, minimumVersion);
 
     /// <summary>
     /// The refusal reason, for a coded error an operator can act on. Separated from

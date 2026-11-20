@@ -9,7 +9,7 @@ public class WindowsPathSpellingTests {
     [Arguments(@"\\.\C:\repos\project", @"C:\repos\project")]
     [Arguments(@"\\.\UNC\server\share\repo", @"\\server\share\repo")]
     [Arguments(@"\\?\c:\repos", @"c:\repos")]
-    [Arguments(@"C:/repos/project", @"C:\repos\project")]
+    [Arguments("C:/repos/project", @"C:\repos\project")]
     [Arguments(@"C:\repos\project", @"C:\repos\project")]
     [Arguments(@"\\server\share\repo", @"\\server\share\repo")]
     public async Task An_equivalent_spelling_folds_to_the_plain_one(string path, string expected) {

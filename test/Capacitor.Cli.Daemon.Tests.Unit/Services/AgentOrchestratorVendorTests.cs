@@ -1711,7 +1711,7 @@ public class AgentOrchestratorVendorTests {
 
         // The model is cleared on BOTH paths — the reported one and the runtime context — so
         // nothing downstream can resurrect it.
-        await Assert.That(server.AgentRegisteredCalls).Contains(("agent-kiro-model", (string?)null));
+        await Assert.That(server.AgentRegisteredCalls).Contains(("agent-kiro-model", null));
         await Assert.That(kiroSpy.LastContext).IsNotNull();
         await Assert.That(kiroSpy.LastContext!.Model).IsNull();
 
@@ -1753,7 +1753,7 @@ public class AgentOrchestratorVendorTests {
         await Assert.That(cursorFactory.StartCalls).IsEqualTo(1);
         await Assert.That(cursorFactory.LastContext!.Model).IsEqualTo("claude-opus-4-8");
 
-        await Assert.That(server.AgentRegisteredCalls).Contains(("agent-acp-unresolved", (string?)null));
+        await Assert.That(server.AgentRegisteredCalls).Contains(("agent-acp-unresolved", null));
 
         await orch.HandleStopAgentForTest("agent-acp-unresolved");
 

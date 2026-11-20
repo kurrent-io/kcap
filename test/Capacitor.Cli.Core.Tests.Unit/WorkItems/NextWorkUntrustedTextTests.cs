@@ -17,7 +17,7 @@ public class NextWorkUntrustedTextTests {
 
     [Test]
     public async Task Control_characters_become_single_spaces_and_the_ends_are_trimmed() {
-        var rendered = NextWorkUntrustedText.Render("  a\u0000\u0007b\u001bc  ", 300);
+        var rendered = NextWorkUntrustedText.Render("  a\0\ab\ec  ", 300);
 
         await Assert.That(rendered).IsEqualTo("a b c");
     }

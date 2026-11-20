@@ -3,6 +3,7 @@
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              xmlns:views="clr-namespace:Capacitor.App.Views"
              xmlns:svc="clr-namespace:Capacitor.App.Services"
+             xmlns:client="clr-namespace:Capacitor.Client;assembly=Capacitor.Client"
              xmlns:cmd="clr-namespace:Capacitor.Cli.Core.Commands;assembly=Capacitor.Cli.Core"
              x:Class="Capacitor.App.Views.SessionRailView"
              x:DataType="vm:MainWindowViewModel">
@@ -28,6 +29,7 @@
         <Style Selector="Border.railSession">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="ContextFlyout" Value="{x:Static views:SessionRowMenu.Flyout}" />
         </Style>
         <Style Selector="Border.railSession.selected">
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
@@ -218,10 +220,10 @@
                             <StackPanel Orientation="Horizontal" Spacing="2">
                                 <Button x:Name="RailScopeMineButton" Content="Mine" Classes="kcapSegmentItem railSegmentItem"
                                         Classes.active="{Binding IsMine}" Command="{Binding SetScopeCommand}"
-                                        CommandParameter="{x:Static svc:RailScope.Mine}" AutomationProperties.Name="Mine" />
+                                        CommandParameter="{x:Static client:RailScope.Mine}" AutomationProperties.Name="Mine" />
                                 <Button x:Name="RailScopeTeamButton" Content="Team" Classes="kcapSegmentItem railSegmentItem"
                                         Classes.active="{Binding IsTeam}" Command="{Binding SetScopeCommand}"
-                                        CommandParameter="{x:Static svc:RailScope.Team}" AutomationProperties.Name="Team" />
+                                        CommandParameter="{x:Static client:RailScope.Team}" AutomationProperties.Name="Team" />
                             </StackPanel>
                         </Border>
                         <Border Grid.Column="2" Classes="kcapSegment" HorizontalAlignment="Right">
@@ -433,37 +435,6 @@
                                                 </Flyout>
                                             </Button.Flyout>
                                         </Button>
-                                        <StackPanel x:Name="RailAppMenuItems" Spacing="2" IsVisible="{Binding AppMenuInWindow}">
-                                            <Border Height="1" Margin="8,4" Background="{StaticResource KcapBorderBrush}" />
-                                            <Button x:Name="RailHelpAboutButton" Classes="kcapGhost" Content="About kcap"
-                                                    Click="OnAboutClick" IsVisible="{Binding ShowsAbout}"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="10,8" FontSize="13.5" />
-                                            <Button x:Name="RailHelpCheckForUpdatesButton" Classes="kcapGhost" Content="Check for Updates…"
-                                                    Command="{Binding CheckForUpdatesCommand}" Click="OnHelpFlyoutItemClick"
-                                                    IsVisible="{Binding ShowsCheckForUpdates}"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="10,8" FontSize="13.5" />
-                                            <Button x:Name="RailLaunchApprovalsButton" Classes="kcapGhost" Content="Launch approvals…"
-                                                    Command="{Binding OpenLaunchApprovalsCommand}" Click="OnHelpFlyoutItemClick"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="10,8" FontSize="13.5" />
-                                            <Button x:Name="RailHelpSettingsButton" Classes="kcapGhost" Content="Settings…"
-                                                    Command="{Binding OpenSettingsCommand}" Click="OnHelpFlyoutItemClick"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="10,8" FontSize="13.5" />
-                                            <Button x:Name="RailHelpUninstallButton" Classes="kcapGhost" Content="Uninstall kcap…"
-                                                    Command="{Binding UninstallCommand}" Click="OnHelpFlyoutItemClick"
-                                                    IsVisible="{Binding ShowsUninstall}"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="10,8" FontSize="13.5" />
-                                            <Button x:Name="RailHelpChangelogButton" Classes="kcapGhost" Content="Changelog"
-                                                    Command="{Binding OpenChangelogCommand}" Click="OnHelpFlyoutItemClick"
-                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                    Padding="10,8" FontSize="13.5" />
-                                            <TextBlock x:Name="RailAppVersionText" Text="{Binding AppVersionLabel}"
-                                                       Foreground="{StaticResource KcapFaintBrush}" FontSize="12" Margin="10,6,10,4" />
-                                        </StackPanel>
                                     </StackPanel>
                                 </Flyout>
                             </Button.Flyout>
@@ -472,7 +443,7 @@
                 </StackPanel>
             </Border>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="10,0,10,4">
+            <ScrollViewer x:Name="RailScroll" VerticalScrollBarVisibility="Auto" Margin="10,0,10,4">
                 <StackPanel>
                     <TextBlock Text="No sessions" Foreground="{StaticResource KcapFaintBrush}" Margin="8,16"
                                IsVisible="{Binding ShowsNoSessions}" />

@@ -19,7 +19,7 @@ public class AgentQuietTurnTests {
 
     // Captured when focusing the finished Claude terminal: character-set selection, shift-in,
     // bracketed paste, and mouse-reporting modes. None of these bytes represents new task output.
-    const string IdleModeFrame = "\x1b(B\x0f\x1b[?2004h\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h";
+    const string IdleModeFrame = "\e(B\x0f\e[?2004h\e[?1000h\e[?1002h\e[?1003h\e[?1006h";
 
     [Test]
     [Arguments(false)]
@@ -90,16 +90,16 @@ public class AgentQuietTurnTests {
 
         var reading = orch.ReadAgentOutputForTest(agent);
         try {
-            pty.Emit("\x1b[2Jredraw");
+            pty.Emit("\e[2Jredraw");
             await WaitHarness.PollUntilAsync(() => agent.ActivityClock.ActivitySeq == 2);
             await Assert.That(Awaiting(orch, agent.Id)).IsTrue();
 
             time.Advance(TimeSpan.FromMilliseconds(100));
-            pty.Emit("\x1b[Hprompt");
+            pty.Emit("\e[Hprompt");
             await WaitHarness.PollUntilAsync(() => agent.ActivityClock.ActivitySeq == 3);
             await Assert.That(Awaiting(orch, agent.Id)).IsTrue();
             await WaitHarness.PollUntilAsync(() => agent.OutputBuffer.GetAll().Count == 2);
-            await Assert.That(agent.OutputBuffer.Snapshot()).IsEquivalentTo("\x1b[2Jredraw\x1b[Hprompt"u8.ToArray(), CollectionOrdering.Matching);
+            await Assert.That(agent.OutputBuffer.Snapshot()).IsEquivalentTo("\e[2Jredraw\e[Hprompt"u8.ToArray(), CollectionOrdering.Matching);
 
             // A resize cannot mask future work when the stop notice was only inferred.
             time.Advance(TimeSpan.FromSeconds(2));
@@ -116,8 +116,8 @@ public class AgentQuietTurnTests {
     /// Claude enables mouse reporting, so scrolling or pointing at its terminal is PTY input, and
     /// Claude repaints its view in reply. Neither the input nor the repaint is a new turn.
     [Test]
-    [Arguments("\x1b[<64;20;8M")]
-    [Arguments("\x1b[<35;20;8M")]
+    [Arguments("\e[<64;20;8M")]
+    [Arguments("\e[<35;20;8M")]
     [Arguments("a")]
     public async Task Viewer_input_to_an_idle_terminal_keeps_its_repaint_from_publishing_working(string input) {
         var time = new FakeTimeProvider();
@@ -136,7 +136,7 @@ public class AgentQuietTurnTests {
 
         var reading = orch.ReadAgentOutputForTest(agent);
         try {
-            pty.Emit("\x1b[2Jscrolled view");
+            pty.Emit("\e[2Jscrolled view");
             await WaitHarness.PollUntilAsync(() => agent.ActivityClock.ActivitySeq == 2);
             await Assert.That(Awaiting(orch, agent.Id)).IsTrue();
         } finally {

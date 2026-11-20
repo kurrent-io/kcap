@@ -1211,8 +1211,8 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
     /// them and broadcasts to subscribed read-only viewers so their xterm locks to
     /// the source size instead of auto-fitting its panel (which garbles the TUI).
     /// </summary>
-    public virtual Task SendTerminalDimensionsAsync(string agentId, int cols, int rows)
-        => _hub.SendAsync("SendTerminalDimensions", agentId, cols, rows, cancellationToken: _ct);
+    public virtual Task SendTerminalDimensionsAsync(string agentId, int cols, int rows, CancellationToken ct = default)
+        => _hub.SendAsync("SendTerminalDimensions", agentId, cols, rows, cancellationToken: ct.CanBeCanceled ? ct : _ct);
 
     public virtual Task AgentStatusChangedAsync(string agentId, string status, string? sessionId)
         => _hub.InvokeAsync("AgentStatusChanged", new AgentStatusChanged(agentId, status, sessionId), cancellationToken: _ct);
@@ -1295,13 +1295,13 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         }
     }
 
-    public virtual Task AgentUnregisteredAsync(string agentId, string? stopReason = null)
-        => _hub.InvokeAsync("AgentUnregistered", BuildAgentUnregistered(agentId, stopReason), cancellationToken: _ct);
+    public virtual Task AgentUnregisteredAsync(string agentId, string? stopReason = null, bool? worktreeRemoved = null)
+        => _hub.InvokeAsync("AgentUnregistered", BuildAgentUnregistered(agentId, stopReason, worktreeRemoved), cancellationToken: _ct);
 
-    AgentUnregistered BuildAgentUnregistered(string agentId, string? stopReason) {
+    AgentUnregistered BuildAgentUnregistered(string agentId, string? stopReason, bool? worktreeRemoved = null) {
         var activeCount = GetActiveCount?.Invoke();
 
-        return new(agentId, activeCount?.Count, activeCount?.Version, stopReason);
+        return new(agentId, activeCount?.Count, activeCount?.Version, stopReason, worktreeRemoved);
     }
 
     /// <summary>Tells the server this daemon dropped a dispatched input rather than delivering it.

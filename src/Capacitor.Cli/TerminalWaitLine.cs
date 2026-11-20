@@ -25,8 +25,8 @@ sealed class TerminalWaitLine(bool tty, TimeProvider time, TextWriter? control =
     /// of the wait, so a narrower terminal wraps on the prefix alone however hard the text is clipped.</summary>
     const int MinWidth = 20;
 
-    const string ClearLine = "\u001b[2K\r";
-    const string CursorUp  = "\u001b[1A";
+    const string ClearLine = "\e[2K\r";
+    const string CursorUp  = "\e[1A";
 
     readonly TextWriter _control = control ?? Console.Out;
 
@@ -179,13 +179,13 @@ sealed class TerminalWaitLine(bool tty, TimeProvider time, TextWriter? control =
         if (_hidden) return;
 
         _hidden = true;
-        _control.Write("\u001b[?25l");
+        _control.Write("\e[?25l");
     }
 
     void ShowCursor() {
         if (!_hidden) return;
 
         _hidden = false;
-        _control.Write("\u001b[?25h");
+        _control.Write("\e[?25h");
     }
 }

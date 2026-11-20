@@ -30,7 +30,7 @@ public class ConnectionToolTests {
 
     [Test]
     public async Task An_unconfigured_server_answers_with_a_null_url_rather_than_failing() {
-        var response = await Server(null, "work").DispatchToolCallAsync(JsonValue.Create(1)!, Call(ConnectionTool.Name));
+        var response = await Server(null, "work").DispatchToolCallAsync(JsonValue.Create(1), Call(ConnectionTool.Name));
 
         var payload = Payload(response);
         await Assert.That(payload["server_url"]).IsNull();
@@ -41,14 +41,14 @@ public class ConnectionToolTests {
     public async Task A_call_whose_params_is_not_an_object_is_answered_rather_than_thrown() {
         var call = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = 1, ["method"] = "tools/call", ["params"] = new JsonArray(1, 2) };
 
-        var response = await Server("https://work.kcap.ai", "work").DispatchToolCallAsync(JsonValue.Create(1)!, call);
+        var response = await Server("https://work.kcap.ai", "work").DispatchToolCallAsync(JsonValue.Create(1), call);
 
         await Assert.That(JsonNode.Parse(response)!["result"]!["isError"]!.GetValue<bool>()).IsTrue();
     }
 
     [Test]
     public async Task Returns_the_resolved_server_and_profile() {
-        var response = await Server("https://work.kcap.ai/", "work").DispatchToolCallAsync(JsonValue.Create(1)!, Call(ConnectionTool.Name));
+        var response = await Server("https://work.kcap.ai/", "work").DispatchToolCallAsync(JsonValue.Create(1), Call(ConnectionTool.Name));
 
         var payload = Payload(response);
         await Assert.That(payload["server_url"]!.GetValue<string>()).IsEqualTo("https://work.kcap.ai");
@@ -61,10 +61,10 @@ public class ConnectionToolTests {
     public async Task Answers_without_any_http_request() {
         var server = Server("https://work.kcap.ai", "work");
 
-        var response = await server.DispatchToolCallAsync(JsonValue.Create(1)!, Call(ConnectionTool.Name));
+        var response = await server.DispatchToolCallAsync(JsonValue.Create(1), Call(ConnectionTool.Name));
         await Assert.That(Payload(response)["server_url"]!.GetValue<string>()).IsEqualTo("https://work.kcap.ai");
 
-        var other = await server.DispatchToolCallAsync(JsonValue.Create(2)!, Call("search_sessions"));
+        var other = await server.DispatchToolCallAsync(JsonValue.Create(2), Call("search_sessions"));
         await Assert.That(JsonNode.Parse(other)!["result"]!["isError"]!.GetValue<bool>()).IsTrue();
     }
 

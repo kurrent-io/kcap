@@ -38,7 +38,7 @@ public class ConfigTelemetryKeyTests {
     public async Task Invalid_telemetry_value_throws_with_an_actionable_message() {
         var ex = Assert.Throws<ArgumentException>(() => new ConfigCommand(Config.Root, new FixedCapacitorHttpClient(), NoTelemetry.Facade, DaemonStore.FromEnvironment(), TimeProvider.System).TryApplyTelemetry("telemetry", "banana"));
 
-        await Assert.That(ex!.Message.Contains("on")).IsTrue();
+        await Assert.That(ex.Message.Contains("on")).IsTrue();
         await Assert.That(ex.Message.Contains("off")).IsTrue();
     }
 
@@ -47,6 +47,6 @@ public class ConfigTelemetryKeyTests {
     public async Task Telemetry_is_not_a_profile_key() {
         var ex = Assert.Throws<ArgumentException>(() => ConfigCommand.ApplySet(new Profile(), "telemetry", "off"));
 
-        await Assert.That(ex!.Message.Contains("Unknown config key")).IsTrue();
+        await Assert.That(ex.Message.Contains("Unknown config key")).IsTrue();
     }
 }

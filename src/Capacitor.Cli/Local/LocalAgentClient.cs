@@ -34,7 +34,7 @@ internal static class LocalAgentClient {
 
         using var cts     = CancellationTokenSource.CreateLinkedTokenSource(outerCt);
         var       ct      = cts.Token;
-        var       current = (NetworkStream?)first;
+        var       current = first;
 
         if (first is not null) await FrameCodec.WriteAsync(first, opening, ct);
 

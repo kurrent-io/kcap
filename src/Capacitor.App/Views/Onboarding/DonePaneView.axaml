@@ -27,7 +27,7 @@
                     </Grid>
                     <StackPanel Spacing="8" IsVisible="{Binding Running}">
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <views:AppIcon Kind="LoaderCircle" Size="14" Classes.kcapSpinning="{Binding Running}"
+                            <views:AppIcon Kind="LoaderCircle" Size="14" views:BusyIndicator.IsBusy="{Binding Running}"
                                            Foreground="{StaticResource OnboardingAccentBrush}" VerticalAlignment="Center" />
                             <TextBlock x:Name="ActivityLineText" Classes="onboardingDetail" VerticalAlignment="Center"
                                        Foreground="{StaticResource OnboardingMutedBrush}" Text="{Binding ActivityLine}" />
@@ -77,6 +77,8 @@
                            Text="{Binding NoAgentsLine}" />
                 <TextBlock x:Name="FirstSessionText" Classes="onboardingBody" IsVisible="{Binding FirstSessionVisible}"
                            Text="{x:Static vm:DoneStepViewModel.FirstSessionLine}" />
+                <TextBlock x:Name="RestartNoteText" Classes="onboardingNote" Text="{Binding RestartLine}"
+                           IsVisible="{Binding RestartLine, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <TextBlock Classes="onboardingNote" IsVisible="{Binding PathHazardVisible}">
                     <Run Text="Nothing is stored until your terminal can find " /><Run Text="kcap" FontFamily="{StaticResource OnboardingMonoFont}" /><Run Text=". Go back to your agents to fix it" />
                 </TextBlock>
@@ -109,7 +111,7 @@
                             Classes.success="{Binding ServiceRunning}" Classes.danger="{Binding ServiceFailed}">
                         <StackPanel Orientation="Horizontal" Spacing="5">
                             <views:AppIcon Kind="LoaderCircle" Size="12" IsVisible="{Binding ServiceInstalling}"
-                                           Classes.kcapSpinning="{Binding ServiceInstalling}" />
+                                           views:BusyIndicator.IsBusy="{Binding ServiceInstalling}" />
                             <views:AppIcon Kind="CircleCheck" Size="12" IsVisible="{Binding ServiceRunning}" />
                             <views:AppIcon Kind="CircleX" Size="12" IsVisible="{Binding ServiceFailed}" />
                             <TextBlock x:Name="ServiceStatusText" Classes="kcapStatusWord" Text="{Binding ServiceStatus}" />
@@ -162,11 +164,9 @@
         </Border>
 
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="24">
-            <TextBlock x:Name="RestartNoteText" Classes="onboardingNote" VerticalAlignment="Center" Text="{Binding RestartLine}"
-                       IsVisible="{Binding RestartLine, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             <StackPanel Grid.Column="1" x:Name="PreparingRow" Orientation="Horizontal" Spacing="8" Margin="0,6"
                         IsVisible="{Binding PreparingVisible}">
-                <views:AppIcon Kind="LoaderCircle" Size="14" Classes.kcapSpinning="{Binding PreparingVisible}"
+                <views:AppIcon Kind="LoaderCircle" Size="14" views:BusyIndicator.IsBusy="{Binding PreparingVisible}"
                                Foreground="{StaticResource OnboardingAccentBrush}" VerticalAlignment="Center" />
                 <TextBlock x:Name="PreparingLineText" Classes="onboardingDetail" VerticalAlignment="Center"
                            Foreground="{StaticResource OnboardingMutedBrush}" Text="{Binding PreparingLine}" />

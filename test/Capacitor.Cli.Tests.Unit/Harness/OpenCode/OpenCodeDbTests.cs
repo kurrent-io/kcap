@@ -274,7 +274,7 @@ public class OpenCodeDbTests {
         InsertManyChildren(db, "ses_n8", "ses_deep", belowCapCount, baseTime: 1000);
 
         using var ocdb = new OpenCodeDb(db);
-        var (descendants, omitted, omittedIds, truncated) = ocdb.QueryDescendants("ses_root");
+        var (descendants, omitted, _, truncated) = ocdb.QueryDescendants("ses_root");
 
         // Sanity: same correctness guarantees as the sibling test above.
         await Assert.That(descendants.Select(d => d.Row.Id).OrderBy(x => x))

@@ -24,7 +24,7 @@ public class RoutedImportClientTests {
             .FetchServerLastLineAsync("s1", CancellationToken.None, agentId);
 
         await Assert.That(line).IsEqualTo(7);
-        var query = HttpUtility.ParseQueryString(server.LogEntries.Single().RequestMessage.RawQuery!);
+        var query = HttpUtility.ParseQueryString(server.LogEntries.Single().RequestMessage.RawQuery);
         await Assert.That(query.GetValues("agentId")).IsEquivalentTo(new[] { agentId });
     }
 

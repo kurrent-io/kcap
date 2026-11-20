@@ -301,7 +301,7 @@ public class GeminiReviewerLiveCertTests {
                 return new(false, false, $"session/new returned no sessionId: {session.GetRawText()[..Math.Min(300, session.GetRawText().Length)]}");
 
             var turn = await CallAsync("session/prompt", new {
-                sessionId = sessionId,
+                sessionId,
                 prompt = new object[] { new { type = "text", text =
                     "Call submit_review_result once with verdict='certified'. No text, no questions." } }
             });

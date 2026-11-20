@@ -103,7 +103,7 @@ public class WorkspaceViewModelTests {
     public async Task The_handoff_outcome_is_read_once_when_the_live_session_id_arrives() {
         await RunOnUiAsync(async () => {
             var daemon = new FakeDaemonClientService();
-            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [Cli.Core.LocalIpc.HandoffWire.Capability]));
+            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [HandoffWire.Capability]));
             var asked = new List<string>();
             var ops = new ScriptedLocalControlOps {
                 ReadHandoffOutcome = id => {
@@ -140,7 +140,7 @@ public class WorkspaceViewModelTests {
         await RunOnUiAsync(async () => {
             var path = Tmp.PathTo("app-state.json");
             var daemon = new FakeDaemonClientService();
-            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [Cli.Core.LocalIpc.HandoffWire.Capability]));
+            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [HandoffWire.Capability]));
             var asked = new List<string>();
             var ops = new ScriptedLocalControlOps {
                 ReadHandoffOutcome = id => {
@@ -183,7 +183,7 @@ public class WorkspaceViewModelTests {
         await RunOnUiAsync(async () => {
             const string next = "fedcba9876543210fedcba9876543210";
             var daemon = new FakeDaemonClientService();
-            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [Cli.Core.LocalIpc.HandoffWire.Capability]));
+            daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, [HandoffWire.Capability]));
             var ops = new ScriptedLocalControlOps {
                 ReadHandoffOutcome = id => Task.FromResult<Cli.Core.Handoff.HandoffOutcomeDto?>(
                     id == Session ? new("s1", "Old", "done", null, []) : null),
@@ -331,7 +331,7 @@ public class WorkspaceViewModelTests {
             var source = new FakePlanArtifactSource();
             source.Enqueue(Ready());
             source.EnqueuePages(new SessionPagesRead(SessionPlansReadKind.Ready,
-                [new ArtefactDto("p", "Report", "u1", "org", 1, DateTimeOffset.UnixEpoch, true, "https://kcap.test/pages/p")]));
+                [new ArtefactDto("p", "Report", "u1", "org", 1, DateTimeOffset.UnixEpoch, true, null, null, "https://kcap.test/pages/p")]));
             var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), new FakeTimeProvider(), planArtifacts: source);
             daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo/x", sessionId: Session));
             await (vm.Terminal.PendingResolveWorkForTesting ?? Task.CompletedTask);
@@ -1122,7 +1122,7 @@ public class WorkspaceViewModelTests {
             SessionRunMonitor? monitor = null;
             using var commands = new SessionRunActivity((key, report, ended, handoff) =>
                 monitor = new SessionRunMonitor(key, report, ended, daemon, directory, access,
-                    (_, _) => Task.FromResult(new SessionDetailFetch(null)), lane, time, handoff));
+                    FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(null))), lane, time, handoff));
             IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), time, commands: commands);
@@ -1179,7 +1179,7 @@ public class WorkspaceViewModelTests {
             SessionRunMonitor? monitor = null;
             using var runs = new SessionRunActivity((key, report, ended, handoff) =>
                 monitor = new SessionRunMonitor(key, report, ended, daemon, directory, access,
-                    (_, _) => Task.FromResult(new SessionDetailFetch(null)), lane, time, handoff));
+                    FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(null))), lane, time, handoff));
             IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = runs.Running.Subscribe(running => latest = running);
             var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), time, commands: runs);

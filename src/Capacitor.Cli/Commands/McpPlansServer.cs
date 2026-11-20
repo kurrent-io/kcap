@@ -143,7 +143,7 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
 
         return await RelayAsync(id, response, baseUrl, task => new JsonObject {
             ["plan_id"] = planId,
-            ["task"]    = TryParseObject(task) ?? (JsonNode)JsonValue.Create(task)!
+            ["task"]    = TryParseObject(task) ?? (JsonNode)JsonValue.Create(task)
         }.ToJsonString());
     }
 
@@ -435,7 +435,7 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
             if (McpToolArguments.OptionalString(task, "note") is { } note) entry["note"] = note;
 
             // Cast to JsonNode so the non-generic Add(JsonNode?) overload is chosen —
-            // the generic Add<T>(T) trips IL2026/IL3050 under AOT (see CLAUDE.md).
+            // the generic Add<T>(T) trips IL2026/IL3050 under AOT (see AGENTS.md).
             tasks.Add((JsonNode?)entry);
         }
 
