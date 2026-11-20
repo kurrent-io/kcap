@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Core.Transcripts;
 
 namespace Capacitor.Cli.Commands;
 
@@ -71,6 +72,9 @@ internal sealed record ImportContext(
     public TextWriter? Stderr { get; init; }
 
     public TranscriptImportLedger? TranscriptLedger { get; init; }
+
+    /// <summary>Asked whether the server takes canonical batches; null sends a routed source's lines raw.</summary>
+    public IngestCapability? Canonical { get; init; }
 
     /// <summary>A one-session import stops at the first batch the server does not take and posts no session-end, so it
     /// never reads as complete over a gap that the next import, resuming from the server's watermark, would not fill.</summary>

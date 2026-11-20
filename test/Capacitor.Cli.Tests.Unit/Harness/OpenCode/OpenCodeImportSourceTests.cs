@@ -3,6 +3,7 @@ using System.Web;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.OpenCode;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Harness.OpenCode;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -167,6 +168,42 @@ public class OpenCodeImportSourceTests {
         var s2 = new OpenCodeImportSource(fix.DbPath, fix.LedgerPath, TimeProvider.System);
         var c2 = await s2.ClassifyAsync(await s2.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None), ctx, CancellationToken.None);
         await Assert.That(c2[0].Status).IsEqualTo(ImportCommand.ClassificationStatus.AlreadyLoaded);
+    }
+
+    /// <summary>A server that takes canonical batches gets an imported session's transcript, a v2 subagent's included,
+    /// on the canonical route, where its v2 messages are read; none of it goes raw.</summary>
+    [Test]
+    public async Task import_sends_the_transcript_canonical_when_the_server_takes_it() {
+        using var fix = new OpenCodeDbFixture(v1: false, v2: true);
+        fix.AddV2Session("ses_p", null, "/w", "Parent", 100);
+        fix.AddV2Message("ses_p", "msg_1", "user", 1, 101, new JsonObject { ["time"] = new JsonObject { ["created"] = 101 }, ["text"] = "hello" });
+        fix.AddV2Session("ses_k", "ses_p", "/w", null, 102);
+        fix.AddV2Message("ses_k", "msg_2", "user", 1, 103, new JsonObject { ["time"] = new JsonObject { ["created"] = 103 }, ["text"] = "count" });
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(404));
+        server.Given(Request.Create().WithPath("/api/ingest/capabilities").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"canonical_format":1}"""));
+        server.Given(Request.Create().WithPath("/hooks/transcript/canonical").UsingPost())
+              .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"next_line_number":1}"""));
+        foreach (var path in new[] { "/hooks/session-start/opencode", "/hooks/transcript", "/hooks/subagent-start", "/hooks/subagent-stop",
+                                     "/hooks/set-title", "/hooks/session-end/opencode" })
+            server.Given(Request.Create().WithPath(path).UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client = new HttpClient();
+
+        var source     = new OpenCodeImportSource(fix.DbPath, fix.LedgerPath, TimeProvider.System);
+        var classified = await source.ClassifyAsync(await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None),
+            new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home), CancellationToken.None);
+        var outcome = await source.ImportSessionAsync(classified.Single(),
+            new ImportContext(client, server.Url!, false) { Canonical = new IngestCapability(client, server.Url!, TimeProvider.System) }, CancellationToken.None);
+
+        var canonical = server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript/canonical").Select(e => e.RequestMessage.Body!).ToList();
+        await Assert.That(outcome.Outcome).IsEqualTo(ImportOutcome.Loaded);
+        await Assert.That(canonical.Count).IsEqualTo(2);
+        await Assert.That(canonical[0]).Contains("hello");
+        await Assert.That(canonical[1]).Contains("count");
+        await Assert.That(server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript")).IsEmpty();
     }
 
     [Test]
