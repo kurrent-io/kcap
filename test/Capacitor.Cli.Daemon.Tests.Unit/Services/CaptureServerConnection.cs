@@ -521,7 +521,7 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>Terminal output as text and sizes as <c>&lt;SIZE colsxrows&gt;</c>, in the order they arrived.</summary>
     public ConcurrentQueue<(string AgentId, string Entry)> TerminalStream { get; } = new();
 
-    /// <summary>Holds every terminal-size send while set.</summary>
+    /// <summary>Holds every terminal-size send while set, until its token is cancelled.</summary>
     public TaskCompletionSource? DimensionsGate { get; set; }
 
     int _dimensionsSends;
@@ -530,7 +530,7 @@ sealed class CaptureServerConnection : ServerConnection {
     public override async Task SendTerminalDimensionsAsync(string agentId, int cols, int rows, CancellationToken ct = default) {
         Interlocked.Increment(ref _dimensionsSends);
 
-        if (DimensionsGate is { } gate) await gate.Task.ConfigureAwait(false);
+        if (DimensionsGate is { } gate) await gate.Task.WaitAsync(ct).ConfigureAwait(false);
 
         TerminalStream.Enqueue((agentId, $"<SIZE {cols}x{rows}>"));
     }

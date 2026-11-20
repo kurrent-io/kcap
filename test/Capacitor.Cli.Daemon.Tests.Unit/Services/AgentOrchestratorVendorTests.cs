@@ -218,7 +218,8 @@ public class AgentOrchestratorVendorTests {
     }
 
     /// <summary>A launch refused for its connection that ends while its owed run start is under way sends no run start
-    /// after its stop, which would mark the stopped run running again.</summary>
+    /// after its stop, which would mark the stopped run running again, and its stop does not wait for the size send
+    /// that start is held on.</summary>
     [Test]
     public async Task A_launch_refused_for_its_connection_that_ends_while_its_run_starts_sends_no_start_after_its_stop() {
         using var repoPath = GitRepo.CreateWithCommit();
@@ -240,17 +241,17 @@ public class AgentOrchestratorVendorTests {
         var reRegistration = server.ReRegisterAgentsHook!();
         await WaitHarness.PollUntilAsync(() => server.DimensionsSends >= 2);
 
-        pty.Exit();
-        await WaitHarness.PollUntilAsync(() => agent.ExitedCts.IsCancellationRequested);
-        held.SetResult();
-        await reRegistration;
-        await agent.RunStartTask!;
-
         List<object> Events() {
             lock (server.RunEvents) return server.RunEvents.Where(e => e.AgentId == "displaced-ending").Select(e => e.Event).ToList();
         }
 
+        pty.Exit();
+        await agent.RunStartTask!.WaitAsync(WaitHarness.Bounded);
         await WaitHarness.PollUntilAsync(() => Events().Any(e => e is AgentRunStopped));
+
+        held.SetResult();
+        await reRegistration;
+
         await Assert.That(Events().SkipWhile(e => e is not AgentRunStopped).Any(e => e is AgentRunStarted)).IsFalse();
     }
 

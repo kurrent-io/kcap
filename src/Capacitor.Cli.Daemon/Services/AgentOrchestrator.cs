@@ -5926,9 +5926,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     async Task StartRegisteredRunAsync(AgentInstance agent) {
         if (agent.RegistrationRefused || agent.ExitedCts.IsCancellationRequested) return;
 
-        // Report the PTY size so read-only viewers lock their xterm to it. Best-effort.
+        // Report the PTY size so read-only viewers lock their xterm to it. Best-effort. The exit cancels it,
+        // because finalization waits for this start.
         try {
-            await _server.SendTerminalDimensionsAsync(agent.Id, agent.CurrentCols, agent.CurrentRows);
+            await _server.SendTerminalDimensionsAsync(agent.Id, agent.CurrentCols, agent.CurrentRows, agent.ExitedCts.Token);
+        } catch (OperationCanceledException) when (agent.ExitedCts.IsCancellationRequested) {
+            return;
         } catch (Exception ex) {
             ReportDimsSendFailed(ex, agent.Id);
         }
