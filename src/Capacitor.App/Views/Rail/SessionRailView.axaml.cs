@@ -12,13 +12,6 @@ namespace Capacitor.App.Views.Rail;
 /// The session rail. DataContext is the window's own MainWindowViewModel, inherited — this view
 /// never builds or assigns one.
 public partial class SessionRailView : UserControl {
-    RailSessionViewModel? _pressRow;
-    Point _pressAt;
-    IReadOnlyList<RailSessionViewModel>? _dragRows;
-    IPointer? _dragPointer;
-    List<Button> _lifted = [];
-    Control? _dropOver;
-
     public SessionRailView() {
         InitializeComponent();
         KeyboardDismissible(RailHelpButton);
@@ -30,9 +23,9 @@ public partial class SessionRailView : UserControl {
             (RailGroupViewModel group, { } rail) => rail.MenuFor(group),
             _ => [],
         });
-        AddHandler(PointerMovedEvent, OnDragPointerMoved, RoutingStrategies.Tunnel);
-        AddHandler(PointerReleasedEvent, OnDragPointerReleased, RoutingStrategies.Tunnel);
-        PointerCaptureLost += (_, _) => EndDrag();
+        _ = new RowDrag(this, RailGroups, RailDragGhost, "railRow",
+            row => row is RailSessionViewModel session && RailModel is { ShowsWorkItems: true } rail ? rail.Picked(session) : null,
+            DropTargetAt, OnDragStarted, OnDragEnded, () => RailModel?.ClearMarks());
         AddHandler(KeyDownEvent, OnRailKeyDown, RoutingStrategies.Bubble);
     }
 
@@ -78,101 +71,45 @@ public partial class SessionRailView : UserControl {
         (source as Visual)?.GetSelfAndVisualAncestors().OfType<Button>().FirstOrDefault(b => b.Classes.Contains("railRow"));
 
     // Ctrl/Cmd+click marks a row and Shift+click a range, for the row menu to act on together; a plain
-    // click opens the row and drops the marks. Tunnelled so a marking click never reaches the row's Click.
+    // click opens the row and drops the marks. Tunnelled, and handled, so a marking click never reaches the
+    // row's Click or starts a drag. A marked row may be dragged with its marks, so a plain press on one
+    // clears them only on release.
     void OnRowsPointerPressed(object? sender, PointerPressedEventArgs e) {
         if (RailModel is not { } rail || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
         if (RowButtonOf(e.Source)?.DataContext is not RailSessionViewModel row) return;
         if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) rail.ExtendMarks(row);
         else if (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)) rail.ToggleMark(row);
         else {
-            // A marked row may be dragged with its marks, so a plain press on one clears them only on release.
-            _pressRow = row;
-            _pressAt = e.GetPosition(this);
             if (!row.IsMarked) rail.ClearMarks();
             return;
         }
         e.Handled = true;
     }
 
-    void OnDragPointerMoved(object? sender, PointerEventArgs e) {
-        var at = e.GetPosition(this);
-        if (_dragRows is null) {
-            if (_pressRow is not { } row || RailModel is not { ShowsWorkItems: true } rail
-                || (Math.Abs(at.X - _pressAt.X) < 4 && Math.Abs(at.Y - _pressAt.Y) < 4)) return;
-            StartDrag(rail, row, e.Pointer);
-        }
-        Canvas.SetLeft(RailDragGhost, at.X - 14);
-        Canvas.SetTop(RailDragGhost, at.Y - 16);
-        ShowDropOver(DropTargetAt(at)?.Zone);
-        e.Handled = true;
-    }
-
-    void OnDragPointerReleased(object? sender, PointerReleasedEventArgs e) {
-        if (_dragRows is null) {
-            if (_pressRow is null) return;
-            _pressRow = null;
-            RailModel?.ClearMarks();
-            return;
-        }
-        var drop = DropTargetAt(e.GetPosition(this))?.Drop;
-        EndDrag();
-        drop?.Invoke();
-        e.Handled = true;
-    }
-
-    // Captured by the rail, the row's button loses its press and never reads the drop's release as a click.
-    void StartDrag(SessionRailViewModel rail, RailSessionViewModel row, IPointer pointer) {
-        _pressRow = null;
-        var rows = _dragRows = rail.Picked(row);
-        _dragPointer = pointer;
-        pointer.Capture(this);
-        RailDragGhost.DataContext = row;
-        RailDragGhostLabel.Text = rows.Count > 1 ? $"{rows.Count} sessions" : row.Primary;
-        RailDragGhost.IsVisible = true;
-        _lifted = [.. RailGroups.GetVisualDescendants().OfType<Button>()
-            .Where(b => b.Classes.Contains("railRow") && b.DataContext is RailSessionViewModel r && rows.Contains(r))];
-        foreach (var button in _lifted) button.Classes.Add("lifted");
+    void OnDragStarted(object carried) {
+        if (carried is not IReadOnlyList<RailSessionViewModel> { Count: > 0 } rows || RailModel is not { } rail) return;
+        RailDragGhost.DataContext = rows[0];
+        RailDragGhostLabel.Text = rows.Count > 1 ? $"{rows.Count} sessions" : rows[0].Primary;
         RailDropOut.IsVisible = rail.DropOn(rows, null) is not null && !rail.Groups.Any(g => !g.IsWorkItem);
     }
 
-    void EndDrag() {
-        _pressRow = null;
-        if (_dragRows is null) return;
-        _dragRows = null;
-        RailDragGhost.IsVisible = false;
+    void OnDragEnded() {
         RailDragGhost.DataContext = null;
         RailDropOut.IsVisible = false;
-        foreach (var button in _lifted) button.Classes.Remove("lifted");
-        _lifted = [];
-        ShowDropOver(null);
-        _dragPointer?.Capture(null);
-        _dragPointer = null;
     }
 
-    (Control Zone, Action Drop)? DropTargetAt(Point at) {
-        if (RailModel is not { } rail || _dragRows is not { } rows) return null;
+    RowDropTarget? DropTargetAt(object carried, Point at) {
+        if (RailModel is not { } rail || carried is not IReadOnlyList<RailSessionViewModel> rows) return null;
         foreach (var visual in (this.InputHitTest(at) as Visual)?.GetSelfAndVisualAncestors() ?? []) {
             if (visual == RailDropOut)
-                return rail.DropOn(rows, null) is { } drop ? (RailDropOut, drop) : null;
+                return rail.DropOn(rows, null) is { } drop ? new(RailDropOut, drop) : null;
             if (visual is Border { DataContext: RailGroupViewModel group } zone && zone.Classes.Contains("railGroup"))
-                return rail.DropOn(rows, group.WorkItemId) is { } drop ? (zone, drop) : null;
+                return rail.DropOn(rows, group.WorkItemId) is { } drop ? new(zone, drop) : null;
         }
         return null;
     }
 
-    void ShowDropOver(Control? zone) {
-        if (_dropOver == zone) return;
-        _dropOver?.Classes.Remove("dropOver");
-        _dropOver = zone;
-        zone?.Classes.Add("dropOver");
-    }
-
     void OnRailKeyDown(object? sender, KeyEventArgs e) {
-        if (e.Key == Key.Escape && _dragRows is not null) {
-            EndDrag();
-            e.Handled = true;
-            return;
-        }
         if (e.Key != Key.Escape || e.Handled || RailModel is not { HasMarks: true } rail) return;
         rail.ClearMarks();
         e.Handled = true;
