@@ -22,6 +22,8 @@ public sealed class ChatTopics : ReactiveObject {
     bool _editing;
     // Until a topic exists, the list's changes need no laying out.
     bool _used;
+    // Marks made for messages being sent, in the order sent, each waiting for its message to land.
+    readonly List<ChatItemViewModel> _pending = [];
 
     public ChatTopics(AvaloniaList<ChatItemViewModel> items, ChatMarks? store = null) {
         _items = items;
@@ -71,33 +73,33 @@ public sealed class ChatTopics : ReactiveObject {
     /// Whether a topic is open at the end of the chat, for <see cref="End"/> to close.
     public bool CanEnd { get => _canEnd; private set => this.RaiseAndSetIfChanged(ref _canEnd, value); }
 
-    /// Starts a topic at the end of the chat, for the message about to be sent.
+    /// Starts a topic at the end of the chat for the message about to be sent. It stays at the end
+    /// until that message lands, so rows that land first stay out of it.
     public ChatTopicItem Start() {
-        var tail = TailStart();
-        if (tail > 0 && _items[tail - 1] is ChatTopicItem waiting) return waiting;
         var topic = NewTopic();
         Edit(() => {
-            if (tail > 0 && _items[tail - 1] is ChatTopicEndItem end) _items.Remove(end);
+            var tail = TailStart();
+            if (tail > 0 && _items[tail - 1] is ChatTopicEndItem end && !_pending.Contains(end)) _items.Remove(end);
             _items.Insert(TailStart(), topic);
         });
+        _pending.Add(topic);
         return topic;
     }
 
     /// Ends the open topic at the end of the chat, so the message about to be sent falls outside it.
     /// Null when no topic is open there.
     public ChatTopicEndItem? End() {
-        var tail = TailStart();
-        if (tail > 0 && _items[tail - 1] is ChatTopicEndItem waiting) return waiting;
         if (!CanEnd) return null;
         var end = new ChatTopicEndItem();
-        Edit(() => _items.Insert(tail, end));
+        Edit(() => _items.Insert(TailStart(), end));
+        _pending.Add(end);
         return end;
     }
 
-    /// Takes back a mark made for a message that never went out, if nothing has landed after it since.
+    /// Takes back a mark made for a message that never went out, unless that message has landed.
     public void Discard(ChatItemViewModel mark) => Edit(() => {
-        var index = _items.IndexOf(mark);
-        if (index >= 0 && index + 1 >= TailStart() && mark is ChatTopicItem or ChatTopicEndItem) _items.RemoveAt(index);
+        Settle();
+        if (_pending.Remove(mark)) _items.Remove(mark);
     });
 
     /// Marks <paramref name="row"/> as where a new topic starts, or unmarks it, which joins its topic to
@@ -116,6 +118,7 @@ public sealed class ChatTopics : ReactiveObject {
         _used = false;
         _feed = feed;
         _folding.Clear();
+        _pending.Clear();
         All.Clear();
         Any = false;
         _restoring = feed is not null && _store is not null ? new(_store.Topics(feed)) : [];
@@ -124,25 +127,31 @@ public sealed class ChatTopics : ReactiveObject {
     /// Puts back the saved topics whose message has been replayed since the last call. Called once a
     /// batch of rows has landed, never from inside the list's own change notification.
     public void Restore() {
-        if (_restoring.Count == 0 && _folding.Count == 0) {
+        if (_restoring.Count == 0 && _folding.Count == 0 && _pending.Count == 0) {
             Laid?.Invoke();
             return;
         }
-        var found = new List<(ChatItemViewModel Row, ChatTopicMark Mark)>();
+        var found = new List<(ChatItemViewModel Row, ChatMessageKey Key, ChatTopicMark Mark)>();
         var tail = TailStart();
         for (var i = 0; i < tail; i++) {
             var row = _items[i];
             // A mark whose message changed stays saved but is not put back.
             if (row.Key is { } key && _restoring.TryGetValue(key, out var mark) && (mark.Anchor is null || mark.Anchor == AnchorOf(row))) {
                 _restoring.Remove(key);
-                found.Add((row, mark));
+                found.Add((row, key, mark));
             }
         }
         Edit(() => {
-            foreach (var (row, mark) in found) {
+            Settle();
+            foreach (var (row, key, mark) in found) {
                 var index = _items.IndexOf(row);
                 if (index > 0 && _items[index - 1] is ChatTopicItem or ChatTopicEndItem) continue;
                 if (mark.End) {
+                    // The topic it ends may be on a page still to load.
+                    if (TopicBefore(index) is null) {
+                        _restoring[key] = mark;
+                        continue;
+                    }
                     _used = true;
                     _items.Insert(index, new ChatTopicEndItem());
                     continue;
@@ -215,6 +224,7 @@ public sealed class ChatTopics : ReactiveObject {
     }
 
     public void RemoveEnd(ChatTopicEndItem end) => Edit(() => {
+        _pending.Remove(end);
         var index = _items.IndexOf(end);
         if (index < 0) return;
         if (TopicBefore(index) is { IsExpanded: false } previous) Unfold(previous);
@@ -227,8 +237,34 @@ public sealed class ChatTopics : ReactiveObject {
         var index = _items.IndexOf(topic);
         if (TopicBefore(index) is { IsExpanded: false } previous) Unfold(previous);
         _folding.Remove(topic);
+        _pending.Remove(topic);
         _items.Remove(topic);
     });
+
+    // Each mark waiting for a message goes before the first message the user sent after it, or the
+    // one before it was bound, and stays at the end of the chat until there is one.
+    void Settle() {
+        ChatItemViewModel? after = null;
+        foreach (var mark in _pending.ToList()) {
+            var index = _items.IndexOf(mark);
+            if (index < 0) {
+                _pending.Remove(mark);
+                continue;
+            }
+            var tail = TailStart();
+            var target = Math.Max(index + 1, after is null ? 0 : _items.IndexOf(after) + 1);
+            while (target < tail && _items[target] is not UserTurnItem) target++;
+            var bound = target < tail;
+            if (target != index + 1) {
+                _items.RemoveAt(index);
+                _items.Insert(target - 1, mark);
+            }
+            if (bound) {
+                _pending.Remove(mark);
+                after = _items[target];
+            } else after = mark;
+        }
+    }
 
     /// The chat as runs of messages in order, each starting at the index in <see cref="Messages"/> of its
     /// first message: a topic's, or one outside every topic. A topic with no messages yet still has its run.

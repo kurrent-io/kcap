@@ -91,7 +91,6 @@ public class ChatTopicsTests {
             var topics = new ChatTopics(items);
 
             var topic = topics.Start();
-            await Assert.That(topics.Start()).IsSameReferenceAs(topic);
             await Assert.That(items[1]).IsSameReferenceAs(topic);
             await Assert.That(topic.Label).IsEqualTo("Topic 1");
 
@@ -270,7 +269,7 @@ public class ChatTopicsTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Removing_an_end_runs_its_topic_on_and_a_new_topic_replaces_a_waiting_end() {
+    public async Task Removing_an_end_runs_its_topic_on_and_each_send_keeps_its_own_mark() {
         await RunOnUiAsync(async () => {
             var one   = new UserTurnItem("Point 1");
             var items = new AvaloniaList<ChatItemViewModel> { one };
@@ -280,8 +279,10 @@ public class ChatTopicsTests {
 
             var end = topics.End()!;
             var started = topics.Start();
-            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { topic, one, started }, CollectionOrdering.Matching);
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { topic, one, end, started }, CollectionOrdering.Matching);
             topics.Discard(started);
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { topic, one, end }, CollectionOrdering.Matching);
+            topics.Discard(end);
 
             end = topics.End()!;
             var aside = new UserTurnItem("Aside");
@@ -318,6 +319,52 @@ public class ChatTopicsTests {
             topics.ReleaseCurrent();
             topics.ShowingAtTop(intro);
             await Assert.That(topic.IsCurrent).IsFalse();
+        });
+    }
+
+    /// A mark made for a send goes before that send's message, whatever lands ahead of it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_topic_started_for_a_send_starts_at_that_message_not_at_a_reply_landing_first() {
+        await RunOnUiAsync(async () => {
+            var card   = new PendingCardItem(null!);
+            var items  = new AvaloniaList<ChatItemViewModel> { new UserTurnItem("Before"), card };
+            var topics = new ChatTopics(items);
+
+            var first = topics.Start();
+            var second = topics.Start();
+            var reply = new AssistantTextItem("Still on the last point");
+            items.Insert(items.IndexOf(card), reply);
+            topics.Restore();
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { items[0], reply, first, second, card }, CollectionOrdering.Matching);
+
+            var one = new UserTurnItem("Point 1");
+            var two = new UserTurnItem("Point 2");
+            items.InsertRange(items.IndexOf(card), [one, two]);
+            topics.Restore();
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { items[0], reply, first, one, second, two, card }, CollectionOrdering.Matching);
+            await Assert.That(reply.Topic).IsNull();
+            await Assert.That((first.Label, second.Label)).IsEqualTo(("Point 1", "Point 2"));
+        });
+    }
+
+    /// A send that fails takes back only its own mark, not one an earlier send is still waiting on.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_failed_send_takes_back_only_its_own_mark() {
+        await RunOnUiAsync(async () => {
+            var items  = new AvaloniaList<ChatItemViewModel> { new UserTurnItem("Before") };
+            var topics = new ChatTopics(items);
+
+            var accepted = topics.Start();
+            var failed = topics.Start();
+            topics.Discard(failed);
+            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { items[0], accepted }, CollectionOrdering.Matching);
+
+            var landed = new UserTurnItem("Point 1");
+            items.Add(landed);
+            topics.Restore();
+            await Assert.That(landed.Topic).IsSameReferenceAs(accepted);
         });
     }
 }
