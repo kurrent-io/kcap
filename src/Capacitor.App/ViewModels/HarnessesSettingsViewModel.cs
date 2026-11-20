@@ -110,12 +110,13 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
                             untrusted: Untrusted(h.Id, wired));
                     }).ToArray();
             }, _lifetime.Token);
-            var (grokBotShown, grokBotRecording) = await Task.Run(ReadGrokBot, _lifetime.Token);
-            GrokBotShown = grokBotShown;
-            // An unreadable setting leaves the switch as it was: off would read as a confirmed opt-out
-            // while the daemon, which keeps its last answer too, may still be recording.
+            var (grokBotFound, grokBotRecording) = await Task.Run(ReadGrokBot, _lifetime.Token);
+            // An unreadable setting leaves the switch as it was, shown or not and on or off: off would
+            // read as a confirmed opt-out while the daemon, which keeps its last answer too, may still
+            // be recording.
+            GrokBotShown = grokBotFound || (grokBotRecording ?? GrokBotShown);
             if (grokBotRecording is { } recording) GrokBotRecording = recording;
-            GrokBotMessage = grokBotShown && grokBotRecording is null ? GrokBotUnread : null;
+            GrokBotMessage = GrokBotShown && grokBotRecording is null ? GrokBotUnread : null;
             Message = null;
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
@@ -123,15 +124,15 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         } finally { Scanning = false; }
     }
 
-    (bool Shown, bool? Recording) ReadGrokBot() {
+    /// <summary>Whether the app is on this computer, and what the profile says: null when it cannot be read.
+    /// A gateway records with no app on the computer, and the switch is where that is turned off, so a
+    /// profile that is recording shows it either way.</summary>
+    (bool Found, bool? Recording) ReadGrokBot() {
         if (_grokBotFound is null) return (false, false);
 
         var found = _grokBotFound();
         try {
-            var recording = _store.LoadProfile().GrokBot?.Record == true;
-
-            // A gateway records with no app on the computer, and this switch is where that is turned off.
-            return (found || recording, recording);
+            return (found, _store.LoadProfile().GrokBot?.Record == true);
         } catch (InvalidOperationException) {
             return (found, null);
         }

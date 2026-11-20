@@ -101,6 +101,16 @@ public class HarnessesSettingsViewModelTests {
         await Assert.That(vm.GrokBotShown).IsTrue();
         await Assert.That(vm.GrokBotRecording).IsTrue();
 
+        var config = AppConfig.GetConfigPath(Config.Root);
+        var saved  = await File.ReadAllTextAsync(config);
+        await File.WriteAllTextAsync(config, "{not json");
+        await vm.RescanAsync();
+
+        await Assert.That(vm.GrokBotShown).IsTrue();
+        await Assert.That(vm.GrokBotMessage).IsEqualTo(HarnessesSettingsViewModel.GrokBotUnread);
+
+        await File.WriteAllTextAsync(config, saved);
+        await vm.RescanAsync();
         await vm.ToggleGrokBotAsync();
         await Assert.That(store.LoadProfile().GrokBot!.Record!.Value).IsFalse();
 
