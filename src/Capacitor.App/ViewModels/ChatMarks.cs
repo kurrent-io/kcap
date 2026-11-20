@@ -44,11 +44,13 @@ public sealed class ChatMarks(ChatMarksFiles? files = null, TimeProvider? time =
         var list = new AvaloniaList<ChatBookmark>();
         if (entry is not null) {
             var topics = new Dictionary<ChatMessageKey, ChatTopicMark>();
+            // The file is ours but hand-editable: a null or incomplete record is skipped, not trusted.
             foreach (var topic in entry.Topics ?? [])
-                if (ChatMessageKey.Parse(topic.Message) is { } key)
-                    topics[key] = new(topic.Folded ?? false, topic.Name, topic.End ?? false, topic.Anchor);
+                if (ChatMessageKey.Parse(topic?.Message) is { } key)
+                    topics[key] = new(topic!.Folded ?? false, topic.Name, topic.End ?? false, topic.Anchor);
             if (topics.Count > 0) _topics[feed] = topics;
             foreach (var mark in entry.Bookmarks ?? []) {
+                if (mark?.Text is null) continue;
                 var bookmark = new ChatBookmark(mark.Text, ChatMessageKey.Parse(mark.Message), mark.Quote, mark.Anchor) {
                     Color = Enum.TryParse<ChatBookmarkColor>(mark.Color, ignoreCase: true, out var color) ? color : ChatBookmarkColor.Blue,
                 };
