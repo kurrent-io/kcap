@@ -10,4 +10,8 @@ public sealed record GrokBotRead(IReadOnlyList<GrokBotEntry> Entries, bool FromT
     public static readonly GrokBotRead Unreadable = new([], true) { Failed = true };
 
     public bool Failed { get; init; }
+
+    /// <summary>The source's copy starts after the entry the read was to continue from, so entries between
+    /// the two may have gone unread. Sequence numbers have holes, so whether any did cannot be told.</summary>
+    public bool RolledPast { get; init; }
 }

@@ -51,6 +51,21 @@ public class GrokBotDesktopChatsTests {
         await Assert.That(read.FromThreadStart).IsTrue();
     }
 
+    /// <summary>A hole in the numbering is ordinary, so only a copy holding nothing at or before the last
+    /// entry sent counts as having moved on past it.</summary>
+    [Test]
+    [Arguments(2, false)]
+    [Arguments(3, false)]
+    [Arguments(0, true)]
+    [Arguments(-1, false)]
+    public async Task A_copy_that_starts_after_the_last_entry_sent_has_rolled_past_it(int lastSeq, bool rolled) {
+        Tmp.CreateFile(ChatFile(), Replica(2, 4, 5));
+
+        var read = await Store().ReadSinceAsync(Chat, lastSeq, CancellationToken.None);
+
+        await Assert.That(read.RolledPast).IsEqualTo(rolled);
+    }
+
     [Test]
     public async Task A_copy_that_opens_past_the_first_entry_does_not_hold_the_chats_beginning() {
         Tmp.CreateFile(ChatFile(), Replica(40, 41));

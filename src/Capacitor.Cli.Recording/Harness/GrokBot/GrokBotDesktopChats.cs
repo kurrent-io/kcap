@@ -55,7 +55,9 @@ public sealed class GrokBotDesktopChats(string storeDir) : IGrokBotSource {
             // The app keeps a long chat's newest entries only; a copy that opens at seq 1 has the whole chat.
             var fromStart = all.Count == 0 || all.Min(e => e.Seq) <= 1;
 
-            return new GrokBotRead([.. all.Where(e => e.Seq > lastSeq)], fromStart);
+            return new GrokBotRead([.. all.Where(e => e.Seq > lastSeq)], fromStart) {
+                RolledPast = lastSeq >= 0 && all.Count > 0 && all.Min(e => e.Seq) > lastSeq
+            };
         }
     }
 

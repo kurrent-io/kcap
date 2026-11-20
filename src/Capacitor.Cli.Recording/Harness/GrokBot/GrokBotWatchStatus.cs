@@ -7,7 +7,8 @@ namespace Capacitor.Cli.Recording.Harness.GrokBot;
 /// <param name="AcceptedAt">When the server last accepted a call from this run, if it has.</param>
 /// <param name="Failure">Why the last cycle stopped short; null when it did not.</param>
 /// <param name="Cycled">Whether a cycle has finished. Until one has, no delivery says nothing.</param>
-/// <param name="Unread">Chats the last cycle could not read, and so sent nothing for.</param>
+/// <param name="Unread">Chats the last cycle could not read, or could not clear of secrets in time, and so
+/// sent nothing for.</param>
 public sealed record GrokBotWatchStatus(string? Server, string? Profile, int? Pid, DateTimeOffset? AcceptedAt = null, string? Failure = null, bool Cycled = false, int Unread = 0) {
     /// <summary>A watcher holds its lock while a server refuses everything it sends, so the sentence about
     /// delivery is what tells a running watcher from a recording one.</summary>

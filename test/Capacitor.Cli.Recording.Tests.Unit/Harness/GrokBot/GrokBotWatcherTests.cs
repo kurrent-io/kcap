@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Recording.Harness.GrokBot;
 using Microsoft.Extensions.Time.Testing;
 
@@ -25,9 +26,9 @@ public class GrokBotWatcherTests {
 
     readonly List<string> _log = [];
 
-    GrokBotWatcher Watcher(Server server, TimeProvider? time = null) => new(
+    GrokBotWatcher Watcher(Server server, TimeProvider? time = null, Func<string, int, RedactionOutcome>? redaction = null) => new(
         new ConfigRoot(Tmp.PathTo("config")), Resolutions.Of(new() { ServerUrl = "https://acme.kcap.ai/", DefaultVisibility = "org_public" }),
-        new UserHome(Tmp.PathTo("home")), new FixedCapacitorHttpClient(background: server), time ?? TimeProvider.System);
+        new UserHome(Tmp.PathTo("home")), new FixedCapacitorHttpClient(background: server), time ?? TimeProvider.System) { Redaction = redaction };
 
     /// <summary>A store holding one chat of two entries, both far older than the gap.</summary>
     GrokBotWatchOptions OneOldChat(bool dryRun = false) {
@@ -71,6 +72,73 @@ public class GrokBotWatcherTests {
 
         await Assert.That(await RunAsync(server, options)).IsEqualTo(GrokBotWatchOutcome.Completed);
         await Assert.That(server.Posts.Count).IsEqualTo(3);
+    }
+
+    /// <summary>A chat is where a token gets pasted, and a private session is still stored: the entry goes
+    /// out with the secret replaced and everything the server reads it by intact.</summary>
+    [Test]
+    public async Task A_secret_in_a_chat_is_replaced_before_it_is_sent() {
+        var server  = new Server();
+        var options = OneOldChat();
+        var file    = Directory.GetFiles(Tmp.PathTo("chats")).Single();
+        await File.WriteAllTextAsync(file, (await File.ReadAllTextAsync(file)).Replace("\"hi\"", "\"use ghp_0123456789abcdefghijklmnopqrstuvwxyz\""));
+
+        await Assert.That(await RunAsync(server, options)).IsEqualTo(GrokBotWatchOutcome.Completed);
+
+        var body = server.Posts.Single(p => p.Path == "/hooks/transcript").Body;
+        await Assert.That(body).DoesNotContain("ghp_");
+
+        using var batch = JsonDocument.Parse(body);
+        using var line  = JsonDocument.Parse(batch.RootElement.GetProperty("lines")[0].GetString()!);
+        await Assert.That(line.RootElement.GetProperty("id").GetString()).IsEqualTo("t0u");
+        await Assert.That(line.RootElement.GetProperty("content").GetString()).Contains("[REDACTED]");
+    }
+
+    /// <summary>An entry that ran out of time is neither sent raw nor passed over: its chat waits there,
+    /// says so in the status, and goes on once a later try clears it.</summary>
+    [Test]
+    public async Task An_entry_that_cannot_be_cleared_in_time_holds_its_chat_until_it_can() {
+        var server  = new Server();
+        var time    = new FakeTimeProvider(DateTimeOffset.FromUnixTimeMilliseconds(1790595501000).AddMinutes(1));
+        var watcher = Watcher(server, time, (line, tries) => new RedactionOutcome(line, tries == 0 ? RedactionLossReason.RegexTimeout : null, line.Length, line.Length));
+        var options = OneOldChat() with { Once = false, Interval = TimeSpan.FromSeconds(10) };
+        using var stop  = new CancellationTokenSource();
+        using var limit = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var running = watcher.RunAsync(options, _log.Add, stop.Token);
+
+        while (watcher.Running() is not { Cycled: true, Unread: 1 }) await Task.Delay(10, limit.Token);
+
+        while (watcher.Running() is not { Cycled: true, Unread: 0 }) {
+            time.Advance(TimeSpan.FromSeconds(10));
+            await Task.Delay(10, limit.Token);
+        }
+
+        await stop.CancelAsync();
+        await Assert.That(await running).IsEqualTo(GrokBotWatchOutcome.Stopped);
+
+        await Assert.That(server.Posts.Select(p => p.Path)).IsEquivalentTo(["/hooks/session-start/grok-bot", "/hooks/transcript"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await Assert.That(_log.Count(l => l.Contains("could not be cleared of secrets in time"))).IsEqualTo(1);
+    }
+
+    /// <summary>The desktop app keeps a long chat's newest entries only. A copy that has moved on past the
+    /// last entry sent cannot give back what it dropped, so the watcher says so instead of sending the rest
+    /// as if nothing were missing.</summary>
+    [Test]
+    public async Task A_copy_that_rolled_past_the_last_entry_sent_is_said_to_have() {
+        var server  = new Server();
+        var options = OneOldChat();
+        var file    = Directory.GetFiles(Tmp.PathTo("chats")).Single();
+
+        await RunAsync(server, options);
+
+        await File.WriteAllTextAsync(file, "{\"schemaVersion\":1,\"value\":{\"entries\":["
+            + """{"kind":"message","id":"t9u","role":"user","content":"later","timestampMs":1790695500000,"seq":40}"""
+            + "]}}");
+        await RunAsync(server, options);
+
+        await Assert.That(_log.Count(l => l.Contains("now starts at seq 40, after seq 2"))).IsEqualTo(1);
+        await Assert.That(server.Posts.Count(p => p.Path == "/hooks/transcript")).IsEqualTo(2);
     }
 
     /// <summary>A watcher keeps the server it started with, so its first line is the only way for whoever

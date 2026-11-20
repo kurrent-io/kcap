@@ -7,6 +7,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.GrokBot;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Recording.Capture;
 
 namespace Capacitor.Cli.Recording.Harness.GrokBot;
 
@@ -28,6 +29,10 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
 
     /// <summary>The server's scheme, host and port: a URL may carry more than that, and this goes in a log.</summary>
     string Destination => Uri.TryCreate(profiles.Resolution.ServerUrl, UriKind.Absolute, out var url) ? url.GetLeftPart(UriPartial.Authority) : "an unnamed server";
+
+    /// <summary>Replaces the redactor, for a test that must not wait on a real deadline. Takes the line
+    /// and how many tries of its chat have already run out of time.</summary>
+    internal Func<string, int, RedactionOutcome>? Redaction { get; init; }
 
     string LockPath   => config.Path("grok-bot", "watch.lock");
     string StatusPath => config.Path("grok-bot", "watch.json");
@@ -169,6 +174,11 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
 
         public HashSet<string> Unread { get; } = new(StringComparer.Ordinal);
 
+        /// <summary>Chats waiting on an entry that could not be cleared of secrets in time.</summary>
+        public Dictionary<string, (int Tries, DateTimeOffset RetryAt)> Held { get; } = new(StringComparer.Ordinal);
+
+        public HashSet<(string Chat, int LastSeq)> Rolled { get; } = [];
+
         public DateTimeOffset? AcceptedAt { get; set; }
     }
 
@@ -195,6 +205,9 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
         foreach (var agent in agents) {
             var state   = run.States.GetValueOrDefault(agent.Id, GrokBotBotState.Empty);
             var now     = time.GetUtcNow();
+
+            if (run.Held.TryGetValue(agent.Id, out var held) && now < held.RetryAt) continue;
+
             var changed = !run.Seen.TryGetValue(agent.Id, out var last)
                        || last.Fingerprint != agent.Fingerprint
                        || now - last.ReadAt >= FullReadInterval;
@@ -211,6 +224,9 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
 
             run.Unread.Remove(agent.Id);
 
+            if (read.RolledPast && run.Rolled.Add((agent.Id, state.LastSeq)))
+                run.Log($"chat {agent.Id}: this copy now starts at seq {read.Entries.Min(e => e.Seq)}, after seq {state.LastSeq} that was last sent; entries between them, if there were any, are not recorded");
+
             var actions = GrokBotSessionizer.Plan(agent.Id, state, read.Entries, now.ToUnixTimeMilliseconds(), agent.IsRunningTurn, run.Options.Gap, read.FromThreadStart);
 
             if (run.Options.DryRun) {
@@ -223,7 +239,20 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
             if (!read.FromThreadStart && state == GrokBotBotState.Empty && actions.Count == 0 && run.WithoutBeginning.Add(agent.Id))
                 run.Log($"chat {agent.Id}: its beginning is not available here, so recording starts at its next quiet gap");
 
-            foreach (var action in actions) {
+            var waiting = false;
+
+            foreach (var planned in actions) {
+                var action = planned;
+
+                if (planned is GrokBotSendLines batch) {
+                    if (Cleared(run, agent.Id, batch, now) is not { } cleared) {
+                        waiting = true;
+                        break;
+                    }
+
+                    action = cleared;
+                }
+
                 if (await SendAsync(client, action, ct) is { } refused) {
                     run.Seen.Remove(agent.Id);
                     return refused;
@@ -235,11 +264,48 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
                 run.Store.Save(run.States);
             }
 
-            if (changed) run.Seen[agent.Id] = (agent.Fingerprint, now);
+            // Forgotten, so the chat is read again when its next try is due whatever its fingerprint says.
+            if (waiting) run.Seen.Remove(agent.Id);
+            else if (changed) run.Seen[agent.Id] = (agent.Fingerprint, now);
         }
 
         return null;
     }
+
+    /// <summary>The batch with the secrets in every line replaced, as every recorder sends its lines, or
+    /// null when a line ran out of time. The chat then waits at that batch and is tried again later under a
+    /// longer budget: the server drops a line numbered below one it already took, so nothing may pass it.
+    /// A line that can never be cleared goes as the redactor's placeholder, never as itself.</summary>
+    GrokBotSendLines? Cleared(Run run, string chat, GrokBotSendLines batch, DateTimeOffset now) {
+        var tries = run.Held.GetValueOrDefault(chat).Tries;
+        var lines = new string[batch.Lines.Length];
+
+        for (var i = 0; i < lines.Length; i++) {
+            var outcome = Redact(batch.Lines[i], tries);
+
+            if (outcome.Loss is { } transient && transient.IsTransient()) {
+                if (tries == 0) run.Log($"chat {chat}: entry seq {batch.Seqs[i]} could not be cleared of secrets in time; nothing more is sent for this chat until it can");
+
+                run.Held[chat] = (tries + 1, now + HeldLineRedaction.DelayAfter(tries + 1));
+                run.Unread.Add(chat);
+
+                return null;
+            }
+
+            if (outcome.Loss is not null) run.Log($"chat {chat}: entry seq {batch.Seqs[i]} cannot be cleared of secrets, so a placeholder is sent in its place");
+
+            lines[i] = outcome.Line;
+        }
+
+        if (run.Held.Remove(chat)) run.Log($"chat {chat}: its held entry is cleared; sending resumes");
+
+        return batch with { Lines = lines };
+    }
+
+    RedactionOutcome Redact(string line, int tries) =>
+        Redaction is { } replaced ? replaced(line, tries)
+        : tries == 0              ? SecretRedactor.RedactLineWithOutcome(line, time)
+                                    : SecretRedactor.RedactLineWithOutcome(line, new RedactionBudget(time, HeldLineRedaction.BudgetFor(tries)), SecretRedactor.OutOfProcessPatterns.Value);
 
     /// <summary>Sends one call; returns why the server refused it, or null when it was accepted.</summary>
     async Task<string?> SendAsync(HttpClient client, GrokBotAction action, CancellationToken ct) {
