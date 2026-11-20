@@ -35,12 +35,15 @@ public partial class MessageCopyButton : UserControl {
     async Task CopyAsync() {
         if (Text is not { Length: > 0 } text) return;
         var mine = ++_copies;
+        string receipt;
         try {
-            Show(await MarkdownClipboard.CopyAsync(this, text, Flavor) ? "Copied" : "Copy failed");
+            receipt = await MarkdownClipboard.CopyAsync(this, text, Flavor) ? "Copied" : "Copy failed";
         } catch (Exception) {
-            Show("Copy failed");
+            receipt = "Copy failed";
         }
-        // A later copy's receipt outranks this one's expiry rather than being cut short by it.
+        // Writes can finish out of order; only the latest click shows a receipt or clears one.
+        if (_copies != mine) return;
+        Show(receipt);
         DispatcherTimer.RunOnce(() => { if (_copies == mine) Show("Copy message"); }, CopiedFor);
     }
 
