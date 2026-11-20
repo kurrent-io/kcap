@@ -191,6 +191,21 @@ public class BackgroundIntelligenceSettingsViewModelTests {
     });
 
     [Test]
+    public Task An_updated_server_shows_the_controls_on_the_next_read() => Run(async rig => {
+        rig.Cli.IntelligenceStatusBehavior = () =>
+            Task.FromResult<IntelligenceSettingsOutcome>(new IntelligenceSettingsOutcome.Refused(IntelligenceSettingsClient.NeedsUpdate));
+        await rig.Vm.ShownAsync();
+        await Assert.That(rig.Vm.NeedsUpdate).IsTrue();
+
+        rig.Cli.IntelligenceStatusBehavior = () => Answer(rig.Server);
+        await rig.Vm.RefocusedAsync();
+
+        await Assert.That(rig.Vm.NeedsUpdate).IsFalse();
+        await Assert.That(rig.Vm.NeedsUpdateText).IsNull();
+        await Assert.That(rig.Vm.ShowsControls).IsTrue();
+    });
+
+    [Test]
     public Task A_failed_read_offers_a_retry() => Run(async rig => {
         rig.Cli.IntelligenceStatusBehavior = () => Task.FromResult<IntelligenceSettingsOutcome>(new IntelligenceSettingsOutcome.Failed("refused"));
         await rig.Vm.ShownAsync();

@@ -244,8 +244,9 @@ public sealed class BackgroundIntelligenceSettingsViewModel : ReactiveObject, ID
                 case IntelligenceSettingsOutcome.Read { Settings: var settings }:
                     MarkFound(found);
                     Apply(settings);
-                    _fresh     = true;
-                    _readError = null;
+                    _fresh       = true;
+                    _readError   = null;
+                    _needsUpdate = false;
                     break;
                 case IntelligenceSettingsOutcome.Refused { Error: IntelligenceSettingsClient.NeedsUpdate }:
                     _needsUpdate = true;
@@ -344,6 +345,7 @@ public sealed class BackgroundIntelligenceSettingsViewModel : ReactiveObject, ID
                         .ConfigureAwait(true)) {
                 case IntelligenceSettingsOutcome.Read { Settings: var settings }:
                     Apply(settings, resetLimit: request.BacklogSessionTouchesPerDay is not null);
+                    _needsUpdate = false;
                     break;
                 case IntelligenceSettingsOutcome.Refused { Error: IntelligenceSettingsClient.NeedsUpdate }:
                     _needsUpdate = true;
