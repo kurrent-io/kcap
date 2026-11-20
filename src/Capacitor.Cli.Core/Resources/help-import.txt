@@ -34,8 +34,7 @@ Vendor filters (additive — pass one or more to restrict the run):
   --gemini                Import Gemini CLI session transcripts
   --kiro                  Import AWS Kiro CLI sessions (~/.kiro/sessions/cli)
   --pi                    Import Pi (badlogic/pi-mono) session transcripts
-  --opencode              Import SST OpenCode sessions (~/.local/share/opencode/opencode.db);
-                          OpenCode v2 history is not supported yet
+  --opencode              Import SST OpenCode v1 and v2 sessions (~/.local/share/opencode/opencode.db)
   --antigravity           Import Google Antigravity conversations (~/.gemini/antigravity/brain)
   --mistral-vibe          Import Mistral Vibe sessions (~/.vibe/logs/session)
   --grok                  Import Grok Build sessions and their subagents (~/.grok/sessions)

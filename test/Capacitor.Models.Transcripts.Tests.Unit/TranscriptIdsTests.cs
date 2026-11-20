@@ -249,6 +249,10 @@ public class TranscriptIdsTests {
     [Arguments("opencode-tool-call", "22531010-9c94-6693-c170-3ac13e3186b8")]
     [Arguments("opencode-tool-result", "62150ae9-7860-c64a-0f74-fc2feecd1481")]
     [Arguments("opencode-text-key", "adc1e9b5-1b07-7f3e-c779-cfaa5e523818")]
+    // An OpenCode v2 text part, and a tool call and its result, recorded from OpenCode 2.3.2.
+    [Arguments("opencode-v2-content", "8b2b59ef-a86b-02c5-84e6-5a870012eb0d")]
+    [Arguments("opencode-v2-call", "3d708028-f8f0-1158-aa74-3a7ae76c0877")]
+    [Arguments("opencode-v2-result", "6b5ed700-91e1-a8b3-0035-9c7605563bd7")]
     [Arguments("antigravity-step", "a2cb583b-f936-f782-f8cb-76217f4cb360")]
     // kcap-server's Antigravity normalizer gives this planner's call, and this usage row, the same ids.
     [Arguments("antigravity-call", "fce1d18b-62bb-9031-2a74-08d3c9b9c0a4")]
@@ -295,6 +299,9 @@ public class TranscriptIdsTests {
         "opencode-tool-call"   => TranscriptIds.OpenCodeToolCall("prt_tool1"),
         "opencode-tool-result" => TranscriptIds.OpenCodeToolResult("prt_tool1"),
         "opencode-text-key"    => TranscriptIds.OpenCode("hello"),
+        "opencode-v2-content"  => TranscriptIds.OpenCodeContent("msg_1f72deebf001W8aQjHceRaA0tX", 0),
+        "opencode-v2-call"     => TranscriptIds.OpenCodeCall("msg_1f72deebf001W8aQjHceRaA0tX", "chatcmpl-tool-b20214b65a82fb5e"),
+        "opencode-v2-result"   => TranscriptIds.OpenCodeCallResult("msg_1f72deebf001W8aQjHceRaA0tX", "chatcmpl-tool-b20214b65a82fb5e"),
         "antigravity-step"        => TranscriptIds.AntigravityStep(AntigravityPlanner),
         "antigravity-call"        => TranscriptIds.Sibling(TranscriptIds.AntigravityStep(AntigravityPlanner), "call:0"),
         "antigravity-usage"       => TranscriptIds.AntigravityUsage("sess:agent", 3),

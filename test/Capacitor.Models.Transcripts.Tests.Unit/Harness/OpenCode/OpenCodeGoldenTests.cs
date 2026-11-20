@@ -6,7 +6,8 @@ using Google.Protobuf;
 
 namespace Capacitor.Models.Transcripts.Tests.Unit.Harness.OpenCode;
 
-/// <summary>The server's OpenCode corpus, each stream projected through one context and every channel of every
+/// <summary>The server's OpenCode corpus and transcripts the plugin recorded on OpenCode 2.3.2 (the <c>v2-</c> fixtures),
+/// each stream projected through one context and every channel of every
 /// result compared against a reviewed golden file. Lines are numbered by their 0-based index, as the recorder
 /// numbers them. Run with <c>KCAP_UPDATE_GOLDEN=1</c> to rewrite the goldens after a deliberate change, then review
 /// the diff.</summary>
@@ -20,6 +21,10 @@ public class OpenCodeGoldenTests {
     [Arguments("real-tool-turn", null)]
     [Arguments("subagent-parent", null)]
     [Arguments("subagent-child", "ses_oc_child")]
+    [Arguments("v2-tool-turn", null)]
+    [Arguments("v2-shell-and-error", null)]
+    [Arguments("v2-subagent-parent", null)]
+    [Arguments("v2-subagent-child", "ses_e08d4e556ffeohsWSjMhC21WqH")]
     public async Task The_fixture_projects_to_its_golden_file(string fixture, string? agentId) {
         var dir       = Path.Combine(SourceDir(), "Fixtures");
         var lines     = await File.ReadAllLinesAsync(Path.Combine(dir, fixture + ".jsonl"));

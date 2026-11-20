@@ -1,0 +1,190 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "5d035d63-d017-8c6d-321b-d978a32c7dd2",
+        "timestamp": "2026-11-20T04:19:05.0140000\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:19:05.0140000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "Create a file hello.txt containing the word hi using a tool, then run the shell command \u0027cat hello.txt\u0027 and tell me what it printed. Keep it short.",
+          "timestamp": "2026-11-20T04:19:05.014Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "8b2b59ef-a86b-02c5-84e6-5a870012eb0d",
+        "timestamp": "2026-11-20T04:19:05.0270000\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:19:05.0270000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "I\u0027ll create the file and then read it.",
+          "timestamp": "2026-11-20T04:19:05.027Z"
+        },
+        "usage": {
+          "inputTokens": "4103",
+          "outputTokens": "30",
+          "totalTokens": "5925",
+          "cachedInputTokens": "1792",
+          "reasoningTokens": "0",
+          "model": "big-pickle"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "3d708028-f8f0-1158-aa74-3a7ae76c0877",
+        "timestamp": "2026-11-20T04:19:05.0270001\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:19:05.0270000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "chatcmpl-tool-b20214b65a82fb5e",
+              "toolName": "write",
+              "arguments": {
+                "path": "hello.txt",
+                "content": "hi"
+              },
+              "toolKind": "edit"
+            }
+          ],
+          "timestamp": "2026-11-20T04:19:05.027000100Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "6b5ed700-91e1-a8b3-0035-9c7605563bd7",
+        "timestamp": "2026-11-20T04:19:05.0270002\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:19:05.0270000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "chatcmpl-tool-b20214b65a82fb5e",
+          "result": "Created file successfully: hello.txt",
+          "timestamp": "2026-11-20T04:19:05.027000200Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": null
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "4e09869c-1cde-1d44-eb97-57e50d57492d",
+        "timestamp": "2026-11-20T04:19:07.3180000\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:19:07.3180000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "chatcmpl-tool-9c4bbfeb20c473a3",
+              "toolName": "shell",
+              "arguments": {
+                "command": "cat hello.txt"
+              },
+              "toolKind": "execute"
+            }
+          ],
+          "timestamp": "2026-11-20T04:19:07.318Z"
+        },
+        "usage": {
+          "inputTokens": "54",
+          "outputTokens": "15",
+          "totalTokens": "5957",
+          "cachedInputTokens": "5888",
+          "reasoningTokens": "0",
+          "model": "big-pickle"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "ea664ea0-3f98-a5d9-072f-b096dd70ba57",
+        "timestamp": "2026-11-20T04:19:07.3180001\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:19:07.3180000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "chatcmpl-tool-9c4bbfeb20c473a3",
+          "result": "hi",
+          "timestamp": "2026-11-20T04:19:07.318000100Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": null
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "f3cbf9e5-9563-94f0-1d32-fec3848491fa",
+        "timestamp": "2026-11-20T04:19:09.7530000\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:19:09.7530000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "The command printed \u0060hi\u0060.",
+          "timestamp": "2026-11-20T04:19:09.753Z"
+        },
+        "usage": {
+          "inputTokens": "81",
+          "outputTokens": "8",
+          "totalTokens": "5977",
+          "cachedInputTokens": "5888",
+          "reasoningTokens": "0",
+          "model": "big-pickle"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      }
+    ],
+    "amendments": 0
+  }
+]

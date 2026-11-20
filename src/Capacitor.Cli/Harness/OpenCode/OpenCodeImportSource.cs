@@ -1,6 +1,5 @@
 using System.Runtime.ExceptionServices;
 using System.Text;
-using System.Text.Json;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
@@ -61,11 +60,6 @@ internal sealed class OpenCodeImportSource : IImportSource {
             // A corrupt / schema-drifted opencode.db must NOT crash the whole `kcap import`
             // (other vendors share the run). On open/query failure, warn and skip OpenCode.
             using var db = new OpenCodeDb(_dbPath);
-            if (db.IsV2Only()) {
-                (filters.Stderr ?? Console.Error).WriteLine(
-                    $"[kcap] OpenCode v2 history import is not supported yet; skipping {_dbPath}.");
-                return Task.FromResult<IReadOnlyList<DiscoveredSession>>([]);
-            }
             foreach (var row in db.QueryRoots()) {
                 ct.ThrowIfCancellationRequested();
                 if (filters.FilterSession is { } fs && !string.Equals(row.Id, fs, StringComparison.Ordinal)) continue;
@@ -370,17 +364,8 @@ internal sealed class OpenCodeImportSource : IImportSource {
         }
     }
 
-    static string ResolveAgentType(OpenCodeDb db, string childId) {
-        foreach (var line in db.SynthesizeLines(childId)) {
-            try {
-                using var doc = JsonDocument.Parse(line);
-                if (doc.RootElement.TryGetProperty("info", out var info) &&
-                    info.TryGetProperty("agent", out var a) && a.GetString() is { Length: > 0 } agent)
-                    return agent;
-            } catch { }
-        }
-        return "subagent";
-    }
+    static string ResolveAgentType(OpenCodeDb db, string childId) =>
+        OpenCodeSubagentDiscovery.FirstAgent(db.SynthesizeLines(childId)) ?? "subagent";
 
     static SessionMetadata MetaFor(DiscoveredSession s) => new() {
         SessionId      = s.SessionId,

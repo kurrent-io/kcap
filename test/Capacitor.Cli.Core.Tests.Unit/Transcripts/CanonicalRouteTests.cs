@@ -3,6 +3,7 @@ using System.IO.Hashing;
 using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Core.Transcripts;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Transcripts;
 
@@ -37,6 +38,25 @@ public class CanonicalRouteTests {
         await Assert.That(CanonicalRoute.For("claude", Session, null, false)).IsNull();
         await Assert.That(CanonicalRoute.For("claude", Session, null, true)).IsNotNull();
         await Assert.That(CanonicalRoute.For(null, Session, null, true)).IsNotNull();
+        await Assert.That(CanonicalRoute.For("opencode", Session, null, true)).IsNotNull();
+    }
+
+    /// <summary>An OpenCode stream goes canonical whichever OpenCode wrote it: a v1 and a v2 message are both projected,
+    /// and the plugin's title line rides as the batch's title, on the line that carried it.</summary>
+    [Test]
+    public async Task An_opencode_batch_carries_v1_and_v2_messages_and_the_title() {
+        const string v1    = """{"info":{"role":"user","id":"msg_1","time":{"created":1795148345014}},"parts":[{"id":"prt_1","type":"text","text":"from v1"}]}""";
+        const string title = """{"type":"session_title","title":"Fix the build","time":1795148348000}""";
+        const string v2    = """{"id":"msg_2","type":"user","time":{"created":1795148349000},"text":"from v2"}""";
+
+        var batch = CanonicalRoute.For("opencode", "ses_1", null, true)!.Encode(Raw(0, v1, title, v2) with { SessionId = "ses_1", Vendor = "opencode" }, Received);
+
+        await Assert.That(batch.Vendor).IsEqualTo("opencode");
+        await Assert.That(batch.Events.Select(e => (e.Line, e.EventId))).IsEquivalentTo(
+            [(0, TranscriptIds.OpenCode("msg_1")), (2, TranscriptIds.OpenCode("msg_2"))], CollectionOrdering.Matching);
+        await Assert.That(batch.Titles!.Single()).IsEqualTo(
+            new CanonicalBatchTitle("rename", "Fix the build", DateTimeOffset.FromUnixTimeMilliseconds(1795148348000), false, 1));
+        await Assert.That(batch.TurnEndLine).IsNull();
     }
 
     /// <summary>The server files a stream under its canonical ids, and derives an image's id from the session's alone,

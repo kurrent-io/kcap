@@ -69,26 +69,24 @@ public class OpenCodeImportSourceTests {
         await Assert.That(stderr.ToString()).Contains("OpenCode discovery skipped");
     }
 
-    /// <summary>OpenCode v2 keeps its sessions in <c>session_v2</c>, which import cannot read yet: the run
-    /// says so plainly rather than reporting a missing table.</summary>
+    /// <summary>A db only OpenCode v2 has written is discovered like a v1 one: its root sessions, with their directory,
+    /// title and creation time.</summary>
     [Test]
-    public async Task a_v2_database_is_reported_as_not_supported_yet() {
-        using var tmp = new TempDir();
-        var       db  = tmp.PathTo("opencode.db");
-        using (var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db};Pooling=False")) {
-            c.Open();
-            using var cmd = c.CreateCommand();
-            cmd.CommandText = "CREATE TABLE session_v2 (id TEXT PRIMARY KEY); CREATE TABLE session_message (id TEXT PRIMARY KEY);";
-            cmd.ExecuteNonQuery();
-        }
-        var source = new OpenCodeImportSource(db, tmp.PathTo("ledger.json"), TimeProvider.System);
+    public async Task a_v2_database_is_discovered() {
+        using var tmp = new OpenCodeDbFixture(v1: false, v2: true);
+        tmp.AddV2Session("ses_root", null, "/work/a", "Root", 1795148344953);
+        tmp.AddV2Session("ses_child", "ses_root", "/work/a", null, 1795148344999);
         var stderr = new StringWriter();
 
+        var source   = new OpenCodeImportSource(tmp.DbPath, tmp.LedgerPath, TimeProvider.System);
         var sessions = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0) { Stderr = stderr }, CancellationToken.None);
 
-        await Assert.That(sessions).IsEmpty();
-        await Assert.That(stderr.ToString()).Contains("OpenCode v2 history import is not supported yet");
-        await Assert.That(stderr.ToString()).DoesNotContain("no such table");
+        var root = sessions.Single();
+        await Assert.That(root.SessionId).IsEqualTo("ses_root");
+        await Assert.That(root.Cwd).IsEqualTo("/work/a");
+        await Assert.That(root.FirstTimestamp).IsEqualTo(DateTimeOffset.FromUnixTimeMilliseconds(1795148344953));
+        await Assert.That(root.SourceMeta["Title"]).IsEqualTo("Root");
+        await Assert.That(stderr.ToString()).IsEmpty();
     }
 
     [Test]
