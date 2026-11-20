@@ -16,7 +16,8 @@ public sealed class GrokBotWatchCommand(GrokBotWatcher watcher, UserHome home, T
         }
 
         if (args.Length < 2 || args[1] != "watch") {
-            await Console.Error.WriteLineAsync("Usage: kcap grok-bot watch [--once] [--dry-run] [--gateway <gateway.json> | --desktop <dir>] [--interval <seconds>] [--gap-minutes <n>]");
+            await Console.Error.WriteLineAsync("Usage: kcap grok-bot watch [--once] [--dry-run] [--gateway <gateway.json> | --desktop <dir>] [--interval <seconds>]");
+            await Console.Error.WriteLineAsync("       kcap grok-bot watch --dry-run [--gap-minutes <n>]");
             await Console.Error.WriteLineAsync("       kcap grok-bot status");
             return 1;
         }
@@ -46,6 +47,11 @@ public sealed class GrokBotWatchCommand(GrokBotWatcher watcher, UserHome home, T
                 case GrokBotWatchOutcome.AlreadyRunning:
                     await Console.Error.WriteLineAsync(
                         "A Grok Bot watcher is already running on this computer: another `kcap grok-bot watch`, or the kcap daemon when grok_bot.record is on.");
+                    return 1;
+
+                case GrokBotWatchOutcome.GapNeedsDryRun:
+                    await Console.Error.WriteLineAsync(
+                        "--gap-minutes needs --dry-run. Every watcher cuts a chat at the same two-hour gap, so that a chat read in two places is stored once.");
                     return 1;
 
                 case GrokBotWatchOutcome.Failed:

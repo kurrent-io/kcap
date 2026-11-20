@@ -48,4 +48,6 @@ Options:
   --gateway <path>        Read this gateway descriptor (default: ~/sand-data/gateway.json)
   --desktop <dir>         Read the desktop app's chat store in this directory
   --interval <seconds>    Polling interval (default: 5)
-  --gap-minutes <n>       Idle gap that splits sessions (default: 120)
+  --gap-minutes <n>       With --dry-run only: show the sessions another idle gap
+                          would cut. A run that sends always uses 120 minutes,
+                          so that a chat read in two places is stored once.

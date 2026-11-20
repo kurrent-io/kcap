@@ -72,6 +72,8 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
 
     /// <param name="log">Receives one line per thing worth telling whoever runs the watcher.</param>
     public async Task<GrokBotWatchOutcome> RunAsync(GrokBotWatchOptions options, Action<string> log, CancellationToken ct) {
+        if (!options.DryRun && options.Gap != GrokBotWatchOptions.DefaultGap) return GrokBotWatchOutcome.GapNeedsDryRun;
+
         using var plain = new HttpClient();
         plain.Timeout = TimeSpan.FromSeconds(30);
 

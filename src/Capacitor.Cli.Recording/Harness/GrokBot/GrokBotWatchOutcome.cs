@@ -15,5 +15,8 @@ public enum GrokBotWatchOutcome {
     NoSource,
 
     /// <summary>Another watcher on this computer holds the lock.</summary>
-    AlreadyRunning
+    AlreadyRunning,
+
+    /// <summary>A gap other than the default was asked of a run that sends.</summary>
+    GapNeedsDryRun
 }

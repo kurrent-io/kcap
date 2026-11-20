@@ -296,6 +296,18 @@ public class GrokBotWatcherTests {
             await Assert.That(Watcher(new Server()).Running()).IsEqualTo(new GrokBotWatchStatus(null, null, null));
     }
 
+    /// <summary>A session's id comes from where the gap falls. A run that sends under its own gap would
+    /// store a chat's messages again under other sessions, so only a dry run may try one.</summary>
+    [Test]
+    public async Task A_gap_of_its_own_is_for_a_dry_run_only() {
+        var server  = new Server();
+        var options = OneOldChat() with { Gap = TimeSpan.FromMinutes(30) };
+
+        await Assert.That(await RunAsync(server, options)).IsEqualTo(GrokBotWatchOutcome.GapNeedsDryRun);
+        await Assert.That(await RunAsync(server, options with { DryRun = true })).IsEqualTo(GrokBotWatchOutcome.Completed);
+        await Assert.That(server.Posts).IsEmpty();
+    }
+
     [Test]
     public async Task A_source_that_is_not_there_is_no_source() {
         var server = new Server();
