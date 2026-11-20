@@ -202,8 +202,10 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         get => _intelligence;
         init {
             _intelligence = value;
-            if (value is not null)
+            if (value is not null) {
+                value.SettingsBusy = IsBusy;
                 value.WhenAnyValue(x => x.Busy).Subscribe(_ => Refresh()).DisposeWith(_subscriptions);
+            }
         }
     }
     public ExperimentalSettingsViewModel? Experimental { get; init; }
@@ -506,6 +508,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     }
 
     void Refresh() {
+        if (_intelligence is not null) _intelligence.SettingsBusy = IsBusy;
         this.RaisePropertyChanged(nameof(HasActiveOperation));
         this.RaisePropertyChanged(nameof(CanEdit));
         this.RaisePropertyChanged(nameof(CanSave));

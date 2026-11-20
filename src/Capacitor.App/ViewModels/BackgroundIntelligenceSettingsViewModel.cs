@@ -56,6 +56,7 @@ public sealed class BackgroundIntelligenceSettingsViewModel : ReactiveObject, ID
     bool                  _disposed;
     bool                  _visible;
     bool                  _writing;
+    bool                  _settingsBusy;
     bool                  _applying;
     int                   _running;
     int                   _sequence;
@@ -108,9 +109,25 @@ public sealed class BackgroundIntelligenceSettingsViewModel : ReactiveObject, ID
     /// <summary>An operation of this tab is running; an upgrade or a search change waits for it.</summary>
     public bool Busy => !_disposed && _running > 0;
 
-    public bool Held => _upgrade.Running || _search.Running;
+    public const string DaemonBusyText = "Settings is changing the daemon. Try again once it has finished";
 
-    public string? HeldText => Held ? LocalSearchViewModel.BusyText : null;
+    public bool Held => _upgrade.Running || _search.Running || _settingsBusy;
+
+    public string? HeldText => _upgrade.Running || _search.Running ? LocalSearchViewModel.BusyText
+        : _settingsBusy ? DaemonBusyText
+        : null;
+
+    /// <summary>The Settings window's own daemon operation runs. A rename can relaunch the app, which would dispose
+    /// this tab before the CLI records a mode the server took, so nothing starts here until it ends.</summary>
+    public bool SettingsBusy {
+        get => _settingsBusy;
+        set {
+            if (value == _settingsBusy) return;
+            _settingsBusy = value;
+            Refresh();
+            if (!value && !Held && _visible) _ = RefreshAsync();
+        }
+    }
 
     public bool IsLoading => _server is null && Busy && !_needsUpdate;
 

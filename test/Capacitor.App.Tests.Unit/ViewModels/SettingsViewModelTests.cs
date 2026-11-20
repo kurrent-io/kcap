@@ -94,6 +94,41 @@ public class SettingsViewModelTests {
         await Assert.That(vm.CanEdit).IsTrue();
     });
 
+    /// <summary>A rename can relaunch the app and dispose the tab under a mode save, so while the window's own daemon
+    /// operation runs the tab starts nothing, and saves again once it has ended.</summary>
+    [Test]
+    public Task The_background_intelligence_tab_starts_nothing_while_a_daemon_operation_runs() => AvaloniaSession.RunOnUiAsync(async () => {
+        var cli = new FakeKcapCli();
+        var server = new Cli.Core.Setup.Intelligence.IntelligenceSettings("none", null, null, null, true, false, 300, false, []);
+        cli.IntelligenceStatusBehavior = () => Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>(
+            new Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome.Read(server));
+        var upgrade = new Capacitor.App.Services.LocalSetup.LocalUpgradeController(() => cli, action => action());
+        var search  = new Capacitor.App.Services.LocalSetup.LocalSearchController(() => cli, action => action());
+        var tab     = new BackgroundIntelligenceSettingsViewModel(cli, _ => Task.FromResult<string[]>(["claude"]), upgrade, search);
+        var ops = new ScriptedLocalControlOps();
+        var ack = ops.ArmPutSettings();
+        var putStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ops.SettingsPutStarted = () => putStarted.TrySetResult();
+        using var vm = Make(Seed(), Connected(), ops, intelligence: tab);
+        await tab.ShownAsync();
+        tab.Options.Single(o => o.Token == "claude").IsSelected = true;
+        await Assert.That(tab.CanSaveMode).IsTrue();
+
+        vm.Capacity = 2;
+        var saving = vm.SaveCommand.Execute().ToTask();
+        await putStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.That(vm.IsBusy).IsTrue();
+        await Assert.That(tab.CanSaveMode).IsFalse();
+        await Assert.That(tab.HeldText).IsEqualTo(BackgroundIntelligenceSettingsViewModel.DaemonBusyText);
+        await tab.SaveModeAsync();
+        await Assert.That(cli.IntelligenceCalls).IsEmpty();
+
+        ack.SetResult(new DaemonSettingsAckDto(true, null, 2));
+        await saving;
+        await Assert.That(tab.HeldText).IsNull();
+        await Assert.That(tab.CanSaveMode).IsTrue();
+    });
+
     [Test]
     public Task Closing_settings_right_after_a_toggle_still_saves_it() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = Seed();
