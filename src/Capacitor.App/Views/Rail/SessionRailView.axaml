@@ -35,17 +35,15 @@
         <Style Selector="Border.railGroup.workItem">
             <Setter Property="Margin" Value="0,2,0,0" />
         </Style>
-        <Style Selector="Border.railGroup.dropOver, Border#RailDropOut.dropOver">
-            <Setter Property="Background" Value="{StaticResource KcapRowActiveBrush}" />
-        </Style>
         <Style Selector="Border#RailDropOut.dropOver TextBlock">
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
         <Style Selector="Border#RailDropOut.dropOver Rectangle">
-            <Setter Property="IsVisible" Value="False" />
+            <Setter Property="Stroke" Value="{StaticResource KcapInfoBrush}" />
+            <Setter Property="StrokeDashArray" Value="{x:Null}" />
         </Style>
         <Style Selector="Button.railRow.lifted">
-            <Setter Property="Opacity" Value="0.35" />
+            <Setter Property="Opacity" Value="0.4" />
         </Style>
         <Style Selector="Border.railGroup.workItem Button#RailWorkItemHeader">
             <Setter Property="Margin" Value="0" />
@@ -813,11 +811,15 @@
         </DockPanel>
     </Border>
     <!-- The ghost follows the pointer out of the rail: the view is unclipped and raised over the content pane. -->
-    <Canvas IsHitTestVisible="False">
+    <Canvas x:Name="RailDragLayer" IsHitTestVisible="False">
+        <Border x:Name="RailDropOutline" IsVisible="False" CornerRadius="6" BorderThickness="1" BorderBrush="{StaticResource KcapInfoBrush}" />
         <Border x:Name="RailDragGhost" IsVisible="False" CornerRadius="5" BorderThickness="1"
                 Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderStrongBrush}">
             <Panel>
-                <Image x:Name="RailDragGhostSnapshot" Stretch="None" />
+                <!-- A Canvas cuts a row wider than the ghost at its right instead of centring it; the badge overhangs outside it. -->
+                <Canvas ClipToBounds="True">
+                    <Image x:Name="RailDragGhostSnapshot" Stretch="None" />
+                </Canvas>
                 <Border x:Name="RailDragGhostCount" IsVisible="False" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-8,-8,0"
                         MinWidth="18" Height="18" Padding="5,0" CornerRadius="9" Background="{StaticResource KcapPrimaryBrush}">
                     <TextBlock x:Name="RailDragGhostCountText" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource KcapOnPrimaryBrush}"

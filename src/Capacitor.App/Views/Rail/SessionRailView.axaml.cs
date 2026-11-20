@@ -26,8 +26,8 @@ public partial class SessionRailView : UserControl {
         });
         _ = new RowDrag(this, RailGroups, RailDragGhost, RailDragGhostSnapshot, "railRow",
             row => row is RailSessionViewModel session && RailModel is { ShowsWorkItems: true } rail ? rail.Picked(session) : null,
-            DropTargetAt, OnDragStarted, OnDragEnded, () => RailModel?.ClearMarks(),
-            keyOf: row => row is RailSessionViewModel session ? session.Key : row);
+            OutlinedTargetAt, OnDragStarted, OnDragEnded, () => RailModel?.ClearMarks(),
+            keyOf: row => row is RailSessionViewModel session ? session.Key : row, compactGhostWidth: 320, glides: false);
         AddHandler(KeyDownEvent, OnRailKeyDown, RoutingStrategies.Bubble);
     }
 
@@ -95,18 +95,48 @@ public partial class SessionRailView : UserControl {
         RailDropOut.IsVisible = rail.DropOn(rows, null) is not null && !rail.Groups.Any(g => !g.IsWorkItem);
     }
 
-    void OnDragEnded() => RailDropOut.IsVisible = false;
+    void OnDragEnded() {
+        RailDropOut.IsVisible = false;
+        Outline(null);
+    }
+
+    RowDropTarget? OutlinedTargetAt(object carried, Point at) {
+        var target = DropTargetAt(carried, at);
+        Outline(target?.Zone == RailDropOut ? null : target?.Zone);
+        return target;
+    }
+
+    Control? _outlined;
+
+    void Outline(Control? zone) {
+        if (zone == _outlined) return;
+        _outlined = zone;
+        if (zone?.TranslatePoint(default, RailDragLayer) is not { } at) {
+            RailDropOutline.IsVisible = false;
+            return;
+        }
+        Canvas.SetLeft(RailDropOutline, at.X);
+        Canvas.SetTop(RailDropOutline, at.Y);
+        RailDropOutline.Width = zone.Bounds.Width;
+        RailDropOutline.Height = zone.Bounds.Height;
+        RailDropOutline.IsVisible = true;
+    }
 
     RowDropTarget? DropTargetAt(object carried, Point at) {
         if (RailModel is not { } rail || carried is not IReadOnlyList<RailSessionViewModel> rows) return null;
         foreach (var visual in (this.InputHitTest(at) as Visual)?.GetSelfAndVisualAncestors() ?? []) {
             if (visual == RailDropOut)
                 return rail.DropOn(rows, null) is { } drop ? new(RailDropOut, drop) : null;
-            if (visual is Border { DataContext: RailGroupViewModel group } zone && zone.Classes.Contains("railGroup"))
-                return rail.DropOn(rows, group.WorkItemId) is { } drop ? new(zone, drop) : null;
+            if (visual is Border { DataContext: RailGroupViewModel group } zone && zone.Classes.Contains("railGroup")) {
+                var drop = rail.DropOn(rows, group.WorkItemId) ?? (rows.All(group.Sessions.Contains) ? Stay : null);
+                return drop is null ? null : new(zone, drop);
+            }
         }
         return null;
     }
+
+    // Dropped back on the group they are in, the rows stay.
+    static void Stay() { }
 
     void OnRailKeyDown(object? sender, KeyEventArgs e) {
         if (e.Key != Key.Escape || e.Handled || RailModel is not { HasMarks: true } rail) return;
