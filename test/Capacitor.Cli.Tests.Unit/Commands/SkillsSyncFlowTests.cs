@@ -677,9 +677,10 @@ public class SkillsSyncFlowTests {
 
         var exclude = Exclude(fx);
 
-        foreach (var root in SkillsCommand.Targets(fx.LegacyRoots))
+        foreach (var root in SkillsCommand.Targets(fx.LegacyRoots)) {
             await Assert.That(exclude).Contains(
                 "/" + root.RelativePath.Replace(Path.DirectorySeparatorChar, '/') + "/kcap-*/");
+        }
     }
 
     /// <summary>A local sync stamps a fresh refresh while its tail can still leave a global copy
@@ -924,7 +925,7 @@ public class SkillsSyncFlowTests {
     };
 
     static IEnumerable<string> Materialized(string root) =>
-        Directory.GetDirectories(root).Select(d => Path.GetFileName(d)!);
+        Directory.GetDirectories(root).Select(d => Path.GetFileName(d));
 
     internal static string Exclude(SkillsSyncFixture fx) {
         var path = Path.Combine(fx.GitDir, "info", "exclude");

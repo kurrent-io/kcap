@@ -323,7 +323,8 @@ public class DoneStepViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_restart_line_shows_only_when_new_hooks_need_one() {
-        var (remote, local, nothing, blocked, pathAdded, copilot) = await AvaloniaSession.DispatchAsync(async () => {
+        var (remote, local, nothing, blocked, pathAdded, copilot, copilotNoTools, copilotOnly, copilotOnlyNewPath, toolsOnly) =
+            await AvaloniaSession.DispatchAsync(async () => {
             async Task<string?> LineFor(DoneFacts facts) {
                 var vm = new DoneStepViewModel(() => facts);
                 await vm.OnEnterAsync(CancellationToken.None);
@@ -332,16 +333,32 @@ public class DoneStepViewModelTests {
 
             return (await LineFor(Facts()), await LineFor(Facts() with { Local = true }),
                 await LineFor(Facts(recording: [])), await LineFor(Facts(hazard: true)),
-                await LineFor(Facts() with { PathAdded = true }), await LineFor(Facts() with { CopilotRecording = true }));
+                await LineFor(Facts() with { PathAdded = true }),
+                await LineFor(Facts(["Claude Code", "Copilot"]) with { CopilotRecording = true, CopilotTools = true }),
+                await LineFor(Facts(["Claude Code", "Copilot"]) with { CopilotRecording = true }),
+                await LineFor(Facts(["Copilot"]) with { CopilotRecording = true, CopilotTools = true }),
+                await LineFor(Facts(["Copilot"]) with { CopilotRecording = true, PathAdded = true }),
+                await LineFor(Facts(recording: []) with { CopilotTools = true }));
         });
 
         await Assert.That(remote).IsEqualTo("Agents already open will start storing sessions the next time you launch them");
         // A terminal open before setup changed PATH still cannot run the hooks; VS Code is not launched from one.
         await Assert.That(pathAdded).IsEqualTo(
             "Agents already open will start storing sessions once you launch them again, from a new terminal if they run in one");
-        // A VS Code already running may keep the hooks it started with, so only a restart is safe to promise.
+        // VS Code runs new hooks at once; only the kcap tools wait for it to start again.
         await Assert.That(copilot).IsEqualTo(
-            "Agents already open will start storing sessions the next time you launch them. Quit and reopen VS Code for its Copilot chats");
+            "Agents already open will start storing sessions the next time you launch them. "
+            + "Chats in VS Code are stored now. Quit and reopen VS Code to give Copilot kcap's tools");
+        await Assert.That(copilotNoTools).IsEqualTo(
+            "Agents already open will start storing sessions the next time you launch them. Chats in VS Code are stored now");
+        // With Copilot alone, only a terminal Copilot CLI session waits for a launch.
+        await Assert.That(copilotOnly).IsEqualTo(
+            "Chats in VS Code are stored now. Quit and reopen VS Code to give Copilot kcap's tools. "
+            + "Restart any Copilot CLI session running in a terminal");
+        await Assert.That(copilotOnlyNewPath).IsEqualTo(
+            "Chats in VS Code are stored now. Launch any Copilot CLI session again from a new terminal");
+        // Copilot's tools with nothing recording still need VS Code to start again.
+        await Assert.That(toolsOnly).IsEqualTo("Quit and reopen VS Code to give Copilot kcap's tools");
         await Assert.That(local).IsEqualTo(remote);
         await Assert.That(nothing).IsNull();
         await Assert.That(blocked).IsNull();

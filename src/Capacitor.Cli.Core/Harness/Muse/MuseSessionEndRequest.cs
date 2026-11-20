@@ -149,9 +149,10 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
             WatcherPaths paths, string sessionId, string owner, TimeProvider? time, Func<string?, bool> forServer) {
         var now = (time ?? TimeProvider.System).GetUtcNow();
 
-        foreach (var source in Pending(paths, sessionId))
+        foreach (var source in Pending(paths, sessionId)) {
             if (Peek(source) is { } stored && stored.NotBefore <= now && forServer(stored.Server) && TryClaimAt(source, owner) is { } request)
                 return request;
+        }
 
         return null;
     }

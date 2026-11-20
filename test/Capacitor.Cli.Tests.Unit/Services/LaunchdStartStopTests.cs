@@ -173,7 +173,7 @@ public partial class LaunchdStartStopTests {
     public async Task Start_probe_loaded_issues_kickstart() {
         Skip.When(OperatingSystem.IsWindows(), "Uid() P/Invokes libc's getuid, POSIX-only");
 
-        var path = SeedPlist();
+        _ = SeedPlist();
 
         List<string[]> calls = [];
         var mgr = new LaunchdServiceManager(Home, TimeProvider.System, runProcess: (_, args) => {
@@ -367,7 +367,7 @@ public partial class LaunchdStartStopTests {
     public async Task Start_probe_unknown_fails_without_issuing_bootstrap_or_kickstart() {
         Skip.When(OperatingSystem.IsWindows(), "Uid() P/Invokes libc's getuid, POSIX-only");
 
-        var path = SeedPlist();
+        _ = SeedPlist();
 
         List<string[]> calls = [];
         var mgr = new LaunchdServiceManager(Home, TimeProvider.System, runProcess: (_, args) => {

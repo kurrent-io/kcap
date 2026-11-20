@@ -46,7 +46,7 @@ public sealed record LocalBundleManifest(string Version, string Rid, string Arch
         if (obj.TryGetPropertyValue("embedding_model", out var entry))
             model = LocalEmbeddingModelManifest.Parse(entry) ?? throw Refused("The bundle manifest carries a malformed embedding model entry.");
 
-        return new(version, rid, archive, sha!, size.Value, keyId!) { EmbeddingModel = model };
+        return new(version, rid, archive, sha!, size.Value, keyId) { EmbeddingModel = model };
     }
 
     static LocalBundleException Refused(string message) => new(LocalInstallFailureCode.VerificationFailed, message);

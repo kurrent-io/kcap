@@ -146,11 +146,12 @@ public class AcpHostedAgentRuntimeFactoryToolUseLiveTests {
             var envelopes = await CollectEnvelopesAsync(transcript.Envelopes, LiveTurnTimeout);
 
             Console.WriteLine($"[ai-688-task5-live] observed {envelopes.Count} AcpEventEnvelope(s):");
-            foreach (var e in envelopes)
+            foreach (var e in envelopes) {
                 Console.WriteLine(
                     $"[ai-688-task5-live]   seq={e.Seq} kind={e.Kind} text={Truncate(e.Text)} " +
                     $"toolCallId={e.ToolCallId} toolName={e.ToolName} toolInput={Truncate(e.ToolInputJson)} " +
                     $"toolResult={Truncate(e.ToolResult)} toolIsError={e.ToolIsError}");
+            }
 
             Console.WriteLine($"[ai-688-task5-live] AcpInteractionRequest(s) seen: {connection.Requests.Count}");
             foreach (var r in connection.Requests)

@@ -151,7 +151,7 @@ public class ShutdownTranscriptSpoolTests {
         using var recorder = new TranscriptRecorder(
             new RecordingSource(Sid, null, transcript, "kiro", null), new FakeRecorderTransport(), new NoStamps(), TimeProvider.System,
             new RecorderContext(
-                new Capacitor.Cli.Core.Http.CapacitorServer("http://127.0.0.1:1", Config.Root, Resolutions.None(Config.Root)), new FakeRecorderHousekeeping(),
+                new Core.Http.CapacitorServer("http://127.0.0.1:1", Config.Root, Resolutions.None(Config.Root)), new FakeRecorderHousekeeping(),
                 TimeProvider.System, _ => { }, () => { })) {
             Abandoned = () => Interlocked.Increment(ref checks) > 1,
         };
@@ -244,7 +244,7 @@ public class ShutdownTranscriptSpoolTests {
         using var recorder = new TranscriptRecorder(
             new RecordingSource(Sid, null, transcript, "claude", null), new FakeRecorderTransport(), new NoStamps(), TimeProvider.System,
             new RecorderContext(
-                new Capacitor.Cli.Core.Http.CapacitorServer("http://127.0.0.1:1", Config.Root, Resolutions.None(Config.Root)), new FakeRecorderHousekeeping(),
+                new Core.Http.CapacitorServer("http://127.0.0.1:1", Config.Root, Resolutions.None(Config.Root)), new FakeRecorderHousekeeping(),
                 TimeProvider.System, _ => { }, () => { })) {
             Abandoned = () => spool.NeedsImport(Sid),
         };

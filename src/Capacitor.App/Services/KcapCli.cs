@@ -135,6 +135,13 @@ public interface IKcapCli {
     /// run failed or printed no report.
     Task<ImportDiscoveryReport?> ImportDiscoverAsync(IReadOnlyList<string> vendorFlags, CancellationToken ct);
 
+    /// <c>hide &lt;sessionId&gt;</c>: makes the session visible to its owner only.
+    Task<ProcessResult> HideSessionAsync(string sessionId, CancellationToken ct);
+
+    /// <c>disable &lt;sessionId&gt;</c>: stops recording the session and deletes its server data. Exit 1 is
+    /// something left unconfirmed, which the output names.
+    Task<ProcessResult> DisableSessionAsync(string sessionId, CancellationToken ct);
+
     /// <summary><c>local intelligence &lt;answer&gt; --json</c>: tells the local server who runs its background model
     /// calls. A provider's key goes in the child's environment, never its arguments, which any local user can read.
     /// <paramref name="importOutcomes"/> null leaves the server's choice as it is.</summary>
@@ -171,6 +178,8 @@ public sealed class KcapCli : IKcapCli {
     // Same tier as VersionTimeout — also a read-only query — so a hung `launchctl print` can
     // never block the per-mutation gate forever once the lifecycle controller polls this.
     static readonly TimeSpan StatusTimeout = TimeSpan.FromSeconds(10);
+    // One server write behind the CLI's own retries.
+    static readonly TimeSpan SessionTimeout = TimeSpan.FromSeconds(30);
     // Above MutationTimeout's 60s — bounds the wrapper without killing a still-forking detach (ProcessOnly).
     static readonly TimeSpan DetachedStartTimeout = TimeSpan.FromSeconds(75);
     // Sits above the CLI's ten-minute readiness budget so the CLI reports its own failure first.
@@ -431,6 +440,24 @@ public sealed class KcapCli : IKcapCli {
             new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false)), onLine, CancellationToken.None).ConfigureAwait(false);
     }
 
+    public async Task<ProcessResult> HideSessionAsync(string sessionId, CancellationToken ct) {
+        if (CliPath is not { } cliPath) return await NoCliResult().ConfigureAwait(false);
+
+        if (await SessionEnvAsync(ct).ConfigureAwait(false) is not { } env) return NoServerResult();
+
+        return await Run(cliPath, ["hide", sessionId, "--no-update-check"],
+            new RunOptions(EnvOverlay: env, Timeout: SessionTimeout), ct).ConfigureAwait(false);
+    }
+
+    public async Task<ProcessResult> DisableSessionAsync(string sessionId, CancellationToken ct) {
+        if (CliPath is not { } cliPath) return await NoCliResult().ConfigureAwait(false);
+
+        if (await SessionEnvAsync(ct).ConfigureAwait(false) is not { } env) return NoServerResult();
+
+        return await Run(cliPath, ["disable", sessionId, "--no-update-check"],
+            new RunOptions(EnvOverlay: env, Timeout: MutationTimeout), ct).ConfigureAwait(false);
+    }
+
     public async Task<ProcessResult> LocalStartAsync(CancellationToken ct) {
         if (CliPath is not { } cliPath) return await NoCliResult().ConfigureAwait(false);
 
@@ -503,6 +530,17 @@ public sealed class KcapCli : IKcapCli {
     // The login shell can resolve kcap to a shim whose interpreter sits outside a GUI app's PATH, so
     // every spawn carries the terminal's.
     Task<Dictionary<string, string>> SpawnEnvAsync(CancellationToken ct) => EnvWithTerminalPathAsync(Env(), ct);
+
+    // A session change carries the server the app shows, so the CLI refuses it when the profile has since moved;
+    // null when the app has no server to name.
+    async Task<Dictionary<string, string>?> SessionEnvAsync(CancellationToken ct) {
+        if (_canonicalServer is not { } server) return null;
+        var env = await SpawnEnvAsync(ct).ConfigureAwait(false);
+        env[ExpectServerUrlVar] = server;
+        return env;
+    }
+
+    static ProcessResult NoServerResult() => new(1, "", "No server is configured for this app", false);
 
     // Null canonicalServer here is a construction bug (mutations are action-scoped) — fail loudly, don't spawn.
     Dictionary<string, string> MutationEnv() {

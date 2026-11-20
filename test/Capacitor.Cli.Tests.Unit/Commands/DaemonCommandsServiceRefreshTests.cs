@@ -206,7 +206,7 @@ public class DaemonCommandsServiceRefreshTests {
 
         await Assert.That(exit).IsEqualTo(0);
         var request = await received.WaitAsync(TimeSpan.FromSeconds(30));
-        await Assert.That(ShutdownIpc.Parse(request!.Text!)).IsEqualTo(new ShutdownRequestDto("keep", "final", WhenIdle: true));
+        await Assert.That(ShutdownIpc.Parse(request!.Text)).IsEqualTo(new ShutdownRequestDto("keep", "final", WhenIdle: true));
         await Assert.That(aliveAtBootout).IsEquivalentTo([false]);
     }
 
@@ -225,7 +225,7 @@ public class DaemonCommandsServiceRefreshTests {
 
         await Assert.That(exit).IsEqualTo(0);
         var request = await received.WaitAsync(TimeSpan.FromSeconds(30));
-        await Assert.That(ShutdownIpc.Parse(request!.Text!)!.WhenIdle).IsTrue();
+        await Assert.That(ShutdownIpc.Parse(request!.Text)!.WhenIdle).IsTrue();
         await Assert.That(calls.Any(c => c[0] == "bootout")).IsFalse();
         await Assert.That(console.GetCapturedOutput()).Contains("is busy, so its service unit change waits");
     }
@@ -243,7 +243,7 @@ public class DaemonCommandsServiceRefreshTests {
 
         await Assert.That(exit).IsEqualTo(0);
         var request = await received.WaitAsync(TimeSpan.FromSeconds(30));
-        await Assert.That(ShutdownIpc.Parse(request!.Text!)).IsEqualTo(new ShutdownRequestDto("keep", "final"));
+        await Assert.That(ShutdownIpc.Parse(request!.Text)).IsEqualTo(new ShutdownRequestDto("keep", "final"));
     }
 
     DummyProcess StartDaemon(string id) {

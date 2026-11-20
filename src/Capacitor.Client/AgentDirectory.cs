@@ -467,9 +467,10 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
             _rows.Edit(cache => {
                 foreach (var key in cache.Keys.Where(k => !nextKeys.Contains(k)).ToList())
                     cache.RemoveKey(key);
-                foreach (var row in next)
+                foreach (var row in next) {
                     if (cache.Lookup(row.Key) is not { HasValue: true, Value: var existing } || existing != row)
                         cache.AddOrUpdate(row);
+                }
             });
 
             // Published inside the lock, like the row edit above, so no subscriber sees this
@@ -535,10 +536,11 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
         foreach (var dto in source) byId[dto.SessionId] = dto;
         if (_serverPinnedId is { } pinnedId && listed.TryGetValue(pinnedId, out var pinnedDto)) byId.TryAdd(pinnedId, pinnedDto);
         var sessionOfRow = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var row in next)
+        foreach (var row in next) {
             if ((row.Origin is AgentOrigin.Local or AgentOrigin.Remote) && Matchable(row)
                 && (listedIdOf.GetValueOrDefault(row.Key) ?? SessionIds.Canonical(row.SessionId)) is { } sid)
                 sessionOfRow[row.Key] = sid;
+        }
         var candidates = next.Where(row => sessionOfRow.ContainsKey(row.Key))
             .GroupBy(row => sessionOfRow[row.Key], StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => (IReadOnlyList<AgentRow>)group.ToList(), StringComparer.Ordinal);

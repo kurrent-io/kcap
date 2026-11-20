@@ -122,7 +122,7 @@ public class AgentCaptureScopeLaunchTests {
         // Assert it is OUR refusal being inspected: without this the test passes for any launch
         // that failed for some other reason, or none.
         await Assert.That(reason).Contains("out_of_capture_scope");
-        await Assert.That(reason).DoesNotContain((string) repoPath);
+        await Assert.That(reason).DoesNotContain(repoPath);
     }
 
     // A profile that scopes nothing is the default, and must leave every launch exactly as it was.

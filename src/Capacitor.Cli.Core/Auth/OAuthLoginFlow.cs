@@ -186,7 +186,7 @@ public static class OAuthLoginFlow {
             ct.ThrowIfCancellationRequested();
 
             if (time.GetUtcNow() >= deadline) {
-                progress.Error($"\nThe code expired before it was approved. Re-run to get a new one.");
+                progress.Error("\nThe code expired before it was approved. Re-run to get a new one.");
 
                 return null;
             }
@@ -224,7 +224,7 @@ public static class OAuthLoginFlow {
                 progress.PollTick();
 
                 continue;
-            } catch (Exception ex) when (ex is System.Text.Json.JsonException or HttpRequestException) {
+            } catch (Exception ex) when (ex is JsonException or HttpRequestException) {
                 // Status distinguishes malformed success from a transient error page.
             }
 
@@ -636,7 +636,7 @@ public static class OAuthLoginFlow {
 
         try {
             device = await authorize.Content.ReadFromJsonAsync(CapacitorJsonContext.Default.DeviceCodeResponse, ct);
-        } catch (System.Text.Json.JsonException) {
+        } catch (JsonException) {
             // fall through
         }
 
@@ -850,8 +850,8 @@ public static class OAuthLoginFlow {
     /// <summary>Human display name from a WorkOS user (first+last, else email, else "unknown").</summary>
     internal static string WorkOSDisplayName(WorkOSUserInfo? user) {
         var parts = new List<string>();
-        if (!string.IsNullOrEmpty(user?.FirstName)) parts.Add(user!.FirstName!);
-        if (!string.IsNullOrEmpty(user?.LastName))  parts.Add(user!.LastName!);
+        if (!string.IsNullOrEmpty(user?.FirstName)) parts.Add(user.FirstName!);
+        if (!string.IsNullOrEmpty(user?.LastName))  parts.Add(user.LastName!);
 
         return parts.Count > 0 ? string.Join(' ', parts) : user?.Email ?? "unknown";
     }

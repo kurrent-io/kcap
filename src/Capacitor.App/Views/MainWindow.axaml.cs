@@ -201,7 +201,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         InitializeComponent();
         WindowControls.Spacing = RailClearance.Spacing;
         RailToggleButton.Margin = new Thickness(0, 0, RailClearance.ToggleGap - RailClearance.Spacing, 0);
-        foreach (var button in new[] { RailToggleButton, BackButton, ForwardButton }) {
+        foreach (var button in new[] { AppMenuButton, RailToggleButton, BackButton, ForwardButton }) {
             button.MinWidth = button.MinHeight = RailClearance.ButtonSize;
             button.Padding = new Thickness((RailClearance.ButtonSize - 16) / 2);
         }
@@ -240,6 +240,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         KeepContentClearOfCaptionButtons();
         ShowInstanceTitle();
         BindFullScreenShortcut();
+        BindAppMenu();
         Closing += (_, e) => {
             if (CloseInterceptor?.Invoke() == true) e.Cancel = true;
         };
@@ -497,7 +498,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     internal static TimeSpan ToastDuration(string message) => TimeSpan.FromSeconds(Math.Clamp(message.Length / 15.0, 4, 20));
 
     // The launcher header strip and the bottom-most drag strip — see WindowChrome.
-    void OnChromePointerPressed(object? sender, Avalonia.Input.PointerPressedEventArgs e) =>
+    void OnChromePointerPressed(object? sender, PointerPressedEventArgs e) =>
         WindowChrome.BeginDrag(this, e);
 
     // IsVisible is what Show()/Hide() toggle, and hide-to-tray never fires Closed/Opened, so this
@@ -517,7 +518,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             var pullRequests = vm.CurrentWorkspace?.PullRequests;
             if (_foregroundPullRequests != pullRequests) _foregroundPullRequests?.SetForeground(false);
             _foregroundPullRequests = pullRequests;
-            pullRequests?.SetForeground(IsVisible && WindowState != Avalonia.Controls.WindowState.Minimized);
+            pullRequests?.SetForeground(IsVisible && WindowState != WindowState.Minimized);
         } else {
             _foregroundPullRequests?.SetForeground(false);
             _foregroundPullRequests = null;

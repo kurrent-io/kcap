@@ -141,7 +141,7 @@ public class DaemonRunnerVersionProbeTests {
         // Capture throws both when the pid is gone AND when a live process's identity is unreadable,
         // so a bare catch is not proof of absence.
         string identity;
-        try { identity = Capacitor.Tests.Helpers.PidIdentity.Capture(pid); }
+        try { identity = PidIdentity.Capture(pid); }
         catch {
             try {
                 using var process = System.Diagnostics.Process.GetProcessById(pid);
@@ -153,10 +153,10 @@ public class DaemonRunnerVersionProbeTests {
         // The marker is read after the capture and the identity checked again after the read, so the
         // command line that carried the marker belongs to the captured incarnation.
         if (!(await CommandLineAsync(pid)).Contains(marker, StringComparison.Ordinal)) return;
-        if (Capacitor.Tests.Helpers.PidIdentity.IsGone(pid, identity)) return;
+        if (PidIdentity.IsGone(pid, identity)) return;
 
-        Capacitor.Cli.Core.ProcessTree.Kill(pid, identity);
-        await Capacitor.Tests.Helpers.PidIdentity.WaitUntilGoneAsync(pid, identity, TimeSpan.FromSeconds(5));
+        Core.ProcessTree.Kill(pid, identity);
+        await PidIdentity.WaitUntilGoneAsync(pid, identity, TimeSpan.FromSeconds(5));
     }
 
     static string ShellQuote(string value) => "'" + value.Replace("'", "'\\''", StringComparison.Ordinal) + "'";

@@ -63,11 +63,11 @@ public sealed class FeedbackViewModel : ReactiveObject, IDisposable {
         set {
             // A two-way chip binding can fire mid-send; the frozen snapshot is not touched, and the
             // re-announce snaps the control back to the category actually being sent.
-            if (IsBusy) { this.RaisePropertyChanged(nameof(Category)); return; }
+            if (IsBusy) { this.RaisePropertyChanged(); return; }
             if (_category == value) return;
             Release();
             _category = value;
-            this.RaisePropertyChanged(nameof(Category));
+            this.RaisePropertyChanged();
             RaiseDerived();
         }
     }
@@ -77,11 +77,11 @@ public sealed class FeedbackViewModel : ReactiveObject, IDisposable {
         set {
             // The text box is disabled mid-send, but the guard belongs with the snapshot it
             // protects: an edit that reached here would release the report already in flight.
-            if (IsBusy) { this.RaisePropertyChanged(nameof(Message)); return; }
+            if (IsBusy) { this.RaisePropertyChanged(); return; }
             if (_message == value) return;
             Release();
             _message = value;
-            this.RaisePropertyChanged(nameof(Message));
+            this.RaisePropertyChanged();
             RaiseDerived();
         }
     }

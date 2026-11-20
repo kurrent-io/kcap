@@ -38,10 +38,11 @@ public static class MistralVibeConfigToml {
         if (!root.TryGetValue("active_model", out var a) || a is not string { Length: > 0 } active) return null;
         if (!root.TryGetValue("models", out var m) || m is not TomlTableArray models) return null;
 
-        foreach (var model in models)
+        foreach (var model in models) {
             if (model.TryGetValue("alias", out var alias) && alias as string == active
              || model.TryGetValue("name", out var named) && named as string == active)
                 return model.TryGetValue("name", out var name) && name is string { Length: > 0 } resolved ? resolved : null;
+        }
 
         return null;
     }

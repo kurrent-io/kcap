@@ -85,9 +85,9 @@ public sealed partial class GeminiCreatedPullRequestAdapter : ICreatedPullReques
         return (string.Join('\n', lines), failed);
     }
 
-    [GeneratedRegex(@"^(?<label>Error|Exit Code|Signal|Background PIDs|Process Group PGID|Stderr): ?(?<value>.*)$")]
+    [GeneratedRegex("^(?<label>Error|Exit Code|Signal|Background PIDs|Process Group PGID|Stderr): ?(?<value>.*)$")]
     private static partial Regex Trailer();
 
-    [GeneratedRegex(@"^(Output|Stdout): ?")]
+    [GeneratedRegex("^(Output|Stdout): ?")]
     private static partial Regex Lead();
 }

@@ -334,7 +334,7 @@ public class TrayViewModelTests {
 
             await Assert.That(seen).IsNotNull();
             await Assert.That(seen!.Value.RemoteLiveAgents).IsEqualTo(0);
-            await Assert.That(seen!.Value.LaneConnected).IsFalse();
+            await Assert.That(seen.Value.LaneConnected).IsFalse();
 
             remoteAgents.Cache.AddOrUpdate(new AgentInstanceDto {
                 AgentId = "r1", Status = status, DaemonName = "other-mac", OwnerUserId = "u1",
@@ -342,14 +342,14 @@ public class TrayViewModelTests {
             });
             lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
 
-            await Assert.That(seen!.Value.RemoteLiveAgents).IsEqualTo(1);
-            await Assert.That(seen!.Value.LaneConnected).IsTrue();
+            await Assert.That(seen.Value.RemoteLiveAgents).IsEqualTo(1);
+            await Assert.That(seen.Value.LaneConnected).IsTrue();
 
             remoteAgents.Cache.AddOrUpdate(new AgentInstanceDto {
                 AgentId = "r2", Status = "Completed", DaemonName = "other-mac", OwnerUserId = "u1",
                 Vendor = "claude", RepoOwner = "o", RepoName = "r",
             });
-            await Assert.That(seen!.Value.RemoteLiveAgents).IsEqualTo(1); // Completed doesn't count
+            await Assert.That(seen.Value.RemoteLiveAgents).IsEqualTo(1); // Completed doesn't count
         });
     }
 

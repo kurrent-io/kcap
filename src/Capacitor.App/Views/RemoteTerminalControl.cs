@@ -34,8 +34,7 @@ public sealed class RemoteTerminalControl : TerminalControl {
         for (var i = 0; i < Math.Abs(steps); i++) {
             var sequence = model.Terminal.Engine.GenerateMouseEvent(
                 up ? XTerm.Input.MouseButton.WheelUp : XTerm.Input.MouseButton.WheelDown,
-                col, row, up ? XTerm.Input.MouseEventType.WheelUp : XTerm.Input.MouseEventType.WheelDown,
-                XTerm.Input.KeyModifiers.None);
+                col, row, up ? XTerm.Input.MouseEventType.WheelUp : XTerm.Input.MouseEventType.WheelDown);
             model.Send(sequence);
         }
     }
@@ -86,7 +85,7 @@ public sealed class RemoteTerminalControl : TerminalControl {
         if (_historyScrollBar is null || ColumnDefinitions.Count != 2 || RowDefinitions.Count > 1) return;
         var typeface = new Typeface(FontFamily);
         if (!FontManager.Current.TryGetGlyphTypeface(typeface, out var glyphs)) {
-            typeface = new Typeface(Avalonia.Media.FontFamily.Default);
+            typeface = new Typeface(FontFamily.Default);
             if (!FontManager.Current.TryGetGlyphTypeface(typeface, out glyphs)) return;
         }
         var shaped = TextShaper.Current.ShapeText("a", new TextShaperOptions(glyphs, FontSize));

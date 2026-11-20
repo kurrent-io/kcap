@@ -473,7 +473,7 @@ public class ServiceVerifyStartTests {
             plistExists: _ => false,
             gateEnv: k => k == "KCAP_CONSENT_SEED_DEFAULT" ? "prompt" : null) { LockWait = TimeSpan.FromMilliseconds(200) };
 
-        using (var capture = ConsoleOutput.StartErrorCapture()) {
+        using (ConsoleOutput.StartErrorCapture()) {
             await Assert.That(await sut.StartVerifiedAsync(Id)).IsEqualTo(VerifyExit.StartGate);
         }
         await Assert.That(sut.LastGateReason).IsNotNull();
@@ -482,7 +482,7 @@ public class ServiceVerifyStartTests {
         using var held = await ServiceTxnLock.TryAcquireAsync(Daemons.Store, Id, TimeSpan.FromSeconds(1), TimeProvider.System);
         await Assert.That(held).IsNotNull();
 
-        using (var capture = ConsoleOutput.StartErrorCapture()) {
+        using (ConsoleOutput.StartErrorCapture()) {
             await Assert.That(await sut.StartVerifiedAsync(Id)).IsEqualTo(VerifyExit.Contended);
         }
         await Assert.That(sut.LastGateReason).IsNull();

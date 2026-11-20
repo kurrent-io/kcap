@@ -36,6 +36,13 @@ static class AntigravityAdcTrio {
         }
     }
 
+    /// <summary>Whether a daemon spawn completes the trio from gcloud's own state. Off Windows, always:
+    /// the redirected home hides agy's sign-in there, so ADC is the only way in. On Windows that sign-in
+    /// survives the redirect, and the flag turns agy away from it to credentials that are rarely
+    /// complete — so only an operator who exported the flag has the rest filled in.</summary>
+    public static bool Derives(bool isWindows, string? exportedFlag) =>
+        !isWindows || exportedFlag?.Trim() == FlagEnabled;
+
     /// <summary>Fills whatever the operator's shell left silent. Exported values always win —
     /// derivation completes a configuration, it never argues with one. The canonical project spelling
     /// is derived even when <c>GOOGLE_CLOUD_PROJECT_ID</c> is exported: that alternate is a Gemini

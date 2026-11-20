@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.VisualTree;
 using Capacitor.App.Services;
 
 namespace Capacitor.App.Views;
@@ -13,6 +14,8 @@ public sealed class ChatColumnSizing {
     // Room for a handle beside the scrollbar once the pointer expands it.
     const double HandleReserve = 20;
     const double HandleWidth = 8;
+    // The lane handle crosses the user's messages; over one, the pointer selects text instead.
+    static readonly string[] UserBubbleClasses = ["userTurn", "shellCommand"];
 
     readonly ChatTabView _view;
     readonly ItemsControl _items;
@@ -31,7 +34,7 @@ public sealed class ChatColumnSizing {
     double _dragStartWidth;
 
     ChatColumnSizing(ChatTabView view, ItemsControl items, Control composerContent,
-            Control leftHandle, Control rightHandle, Control laneHandle) {
+            Control leftHandle, Control rightHandle, YieldingHandle laneHandle) {
         _view = view;
         _items = items;
         _composerContent = composerContent;
@@ -39,6 +42,7 @@ public sealed class ChatColumnSizing {
         _rightHandle = rightHandle;
         _laneHandle = laneHandle;
         _handles = [leftHandle, rightHandle, laneHandle];
+        laneHandle.YieldsAt = OverUserBubble;
 
         items.TemplateApplied += (_, e) => {
             _tail = e.NameScope.Find<ChatTailPanel>("ChatTail");
@@ -62,7 +66,7 @@ public sealed class ChatColumnSizing {
     }
 
     public static ChatColumnSizing Attach(ChatTabView view, ItemsControl items, Control composerContent,
-            Control leftHandle, Control rightHandle, Control laneHandle) =>
+            Control leftHandle, Control rightHandle, YieldingHandle laneHandle) =>
         new(view, items, composerContent, leftHandle, rightHandle, laneHandle);
 
     /// For a view outside a <see cref="MainWindow"/>, which has no layout to read the sizes from.
@@ -115,6 +119,12 @@ public sealed class ChatColumnSizing {
             EndDrag();
             Commit();
         };
+    }
+
+    bool OverUserBubble(Point point) {
+        if (_laneHandle.TranslatePoint(point, _items) is not { } at) return false;
+        return _items.InputHitTest(at) is Visual hit
+            && hit.GetSelfAndVisualAncestors().OfType<StyledElement>().Any(e => UserBubbleClasses.Any(e.Classes.Contains));
     }
 
     void EndDrag() {

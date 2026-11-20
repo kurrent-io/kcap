@@ -108,8 +108,8 @@ static class InteractiveLifetime {
     /// stdout when stderr is redirected, since that is where the cursor was hidden.</summary>
     internal static void ShowCursor(TextWriter error, bool errorRedirected, TextWriter output, bool outputRedirected) {
         try {
-            if (!errorRedirected) error.Write("\u001b[?25h");
-            else if (!outputRedirected) output.Write("\u001b[?25h");
+            if (!errorRedirected) error.Write("\e[?25h");
+            else if (!outputRedirected) output.Write("\e[?25h");
         } catch {
             // A closed or detached stream is exactly the case with no cursor to restore.
         }

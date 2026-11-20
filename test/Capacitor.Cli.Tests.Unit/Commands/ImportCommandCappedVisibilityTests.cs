@@ -23,10 +23,11 @@ public class ImportCommandCappedVisibilityTests : IDisposable {
     TempDirHandle Projects() {
         var projects = _tmp.CreateDir("projects");
         var dir = projects.CreateDir("-tmp-capvis-proj");
-        for (var i = 0; i < SessionIds.Length; i++)
+        for (var i = 0; i < SessionIds.Length; i++) {
             dir.CreateFile($"{SessionIds[i]}.jsonl",
                 [.. Enumerable.Range(0, 20).Select(n =>
                     $$$"""{"type":"user","timestamp":"2026-03-{{{(i + 1):00}}}T10:00:00Z","cwd":"/tmp/capvis-proj","message":{"content":"line {{{n}}}"}}""")]);
+        }
         return projects;
     }
 

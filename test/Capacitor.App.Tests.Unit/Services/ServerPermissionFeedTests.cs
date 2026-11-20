@@ -20,13 +20,15 @@ public class ServerPermissionFeedTests {
         public readonly ServerPermissionFeed Feed;
         public Func<string, Task<SessionDetailFetch>> Detail = _ => Task.FromResult(new SessionDetailFetch(null, NotFound: true));
 
-        public Harness() {
+        public readonly SnapshotInterruptSource Snapshots;
+
+        public Harness(ISessionInterruptSource? interrupts = null) {
             Access = new SessionAccessService(Lane, Time);
             Permissions = new PermissionService(new FakeDaemonClientService(), new ScriptedLocalControlOps(),
                 _ => AsyncEnumerable.Empty<PermissionStreamEvent>(), Time, CancellationToken.None);
             View = Permissions.Pending.AsObservableCache();
-            Feed = new ServerPermissionFeed(Lane, Access, Permissions,
-                (sid, _) => { Interlocked.Increment(ref _fetches); return Detail(sid); }, _ => "claude", Time);
+            Snapshots = new SnapshotInterruptSource(sid => { Interlocked.Increment(ref _fetches); return Detail(sid); });
+            Feed = new ServerPermissionFeed(Lane, Access, Permissions, interrupts ?? Snapshots, _ => "claude", Time);
         }
 
         public int Fetches => Volatile.Read(ref _fetches);
@@ -242,6 +244,7 @@ public class ServerPermissionFeedTests {
         await Task.Delay(100);
 
         await Assert.That(h.View.Count).IsEqualTo(0);
+        await Assert.That(h.Snapshots.Forgets).IsEqualTo(1);
     }
 
     /// A same-user reconnect moves neither the session's generation nor the lane epoch, and the
@@ -358,5 +361,22 @@ public class ServerPermissionFeedTests {
         h.Lane.PermissionRequestsSubject.OnNext(new ServerPermissionRequest("s1", "r1", "Bash", null, null));
         h.Connect("u2");
         await Assert.That(h.View.Count).IsEqualTo(0);
+    }
+
+    /// An interrupt raised before any tab opened still comes back as a card when access is
+    /// established, and establishing again reads only the events past the ones already folded.
+    [Test]
+    public async Task Establishing_reconciles_from_the_ranged_read_and_re_establishing_reads_only_newer_events() {
+        var stream = new SessionInterruptLogTests.Stream().Append(SessionInterruptLogTests.Issued("p1"), SessionInterruptLogTests.Line, SessionInterruptLogTests.Line);
+        using var h = new Harness(stream.Log());
+        h.Connect();
+        using (h.Access.Acquire("s1"))
+            await WaitUntilAsync(() => h.View.Lookup("server:p1").HasValue, what: "reconciled card");
+
+        lock (stream.Froms) stream.Froms.Clear();
+        stream.Append(SessionInterruptLogTests.Resolved("p1"));
+        using var again = h.Access.Acquire("s1");
+        await WaitUntilAsync(() => h.View.Count == 0, what: "resolved card dropped");
+        await Assert.That(stream.Froms).IsEquivalentTo(new long[] { 3 });
     }
 }

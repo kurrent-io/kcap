@@ -105,8 +105,8 @@ public class CursorLiveSubagentLinkerTests {
     public async Task resolve_parent_agrees_with_the_import_path_correlator_over_the_same_transcripts() {
         using var tmp = new TempDir();
         const string prompt = "survey the auth module and report back";
-        var parentId = "11111111111111111111111111111111";
-        var childId  = "22222222222222222222222222222222";
+        const string parentId = "11111111111111111111111111111111";
+        const string childId  = "22222222222222222222222222222222";
 
         var parentPath = tmp.CreateFile($"{parentId}.jsonl",
             "{\"role\":\"user\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"kick things off\"}]}}\n" +

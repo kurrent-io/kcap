@@ -217,7 +217,7 @@ public class DesktopWindowLifecycleTests {
     [Test]
     public Task Feedback_window_is_single_instance_and_switches_category() =>
         AvaloniaSession.RunOnUiAsync(async () => {
-            var app = new Capacitor.App.App();
+            var app = new App();
             app.OpenFeedback(new SilentFeedbackApi(), Trailer, null, FeedbackCategory.Bug);
             var first = app.FeedbackWindowForTests!;
             try {
@@ -235,7 +235,7 @@ public class DesktopWindowLifecycleTests {
     [Test]
     public Task Shutdown_closes_an_idle_feedback_window() =>
         AvaloniaSession.RunOnUiAsync(async () => {
-            var app = new Capacitor.App.App();
+            var app = new App();
             app.OpenFeedback(new SilentFeedbackApi(), Trailer, null, FeedbackCategory.Bug);
             // Without this the assertion below would pass on a window that never opened.
             await Assert.That(app.FeedbackWindowForTests).IsNotNull();
@@ -248,7 +248,7 @@ public class DesktopWindowLifecycleTests {
     [Test]
     public Task Feedback_window_refuses_to_close_while_a_send_is_in_flight() =>
         AvaloniaSession.RunOnUiAsync(async () => {
-            var app = new Capacitor.App.App();
+            var app = new App();
             var api = new BlockingFeedbackApi();
             app.OpenFeedback(api, Trailer, null, FeedbackCategory.Bug);
             var window = app.FeedbackWindowForTests!;
@@ -276,7 +276,7 @@ public class DesktopWindowLifecycleTests {
     [Test]
     public Task Shutdown_closes_a_feedback_window_that_is_mid_send() =>
         AvaloniaSession.RunOnUiAsync(async () => {
-            var app = new Capacitor.App.App();
+            var app = new App();
             var api = new BlockingFeedbackApi();
             app.OpenFeedback(api, Trailer, null, FeedbackCategory.Bug);
             var window = app.FeedbackWindowForTests!;
@@ -308,7 +308,7 @@ public class DesktopWindowLifecycleTests {
             var emitted = new List<string>();
             var threads = new List<int>();
 
-            using var feed = Capacitor.App.App.FeedbackTrailerFeed(service, "9.9.9", () => "0.0.1")
+            using var feed = App.FeedbackTrailerFeed(service, "9.9.9", () => "0.0.1")
                 .Subscribe(t => { emitted.Add(t); threads.Add(Environment.CurrentManagedThreadId); });
             // The seed is synchronous, so a window never opens on an empty trailer.
             await Assert.That(emitted).Count().IsEqualTo(1);
@@ -361,7 +361,7 @@ public class DesktopWindowLifecycleTests {
                 return window;
             }, _ => Releases++);
             Lifecycle = new DesktopWindowLifecycle(Activation.Lifetime,
-                () => Capacitor.App.App.MainWindowAction(Ready ? Coordinator : null), DockVisibility.Add);
+                () => App.MainWindowAction(Ready ? Coordinator : null), DockVisibility.Add);
         }
 
         public void Dispose() {

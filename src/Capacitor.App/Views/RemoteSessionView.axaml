@@ -98,10 +98,23 @@
                 </ContentControl.ContentTemplate>
             </ContentControl>
 
-            <Grid x:Name="TerminalPane" RowDefinitions="*,Auto" IsVisible="{Binding ShowsTerminalPane}">
+            <Grid x:Name="TerminalPane" RowDefinitions="Auto,*,Auto" IsVisible="{Binding ShowsTerminalPane}">
+                <views:SessionConnectionNotice x:Name="TerminalOfflineNotice" IsCompact="True" DataContext="{Binding Terminal.Notice}">
+                    <views:SessionConnectionNotice.IsVisible>
+                        <MultiBinding Converter="{x:Static BoolConverters.And}">
+                            <Binding Path="$parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).Terminal.HasOfflineSurface" />
+                            <Binding Path="!$parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).HasAccessNotice" />
+                        </MultiBinding>
+                    </views:SessionConnectionNotice.IsVisible>
+                </views:SessionConnectionNotice>
                 <!-- A cross-platform monospace font keeps measured cells aligned with rendered text. -->
-                <views:RemoteTerminalViewport x:Name="TerminalViewport" Grid.Row="0">
+                <views:RemoteTerminalViewport x:Name="TerminalViewport" Grid.Row="1"
+                        IsLive="{Binding Terminal.IsLive, FallbackValue=False}"
+                        Opacity="{Binding Terminal.ShowsSurface, Converter={x:Static views:BoolToOpacityConverter.Instance}}"
+                        IsHitTestVisible="{Binding Terminal.ShowsSurface, FallbackValue=False}">
                     <views:RemoteTerminalControl x:Name="TerminalHost"
+                                               IsEnabled="{Binding Terminal.ShowsSurface, FallbackValue=False}"
+                                               AutomationProperties.IsOffscreenBehavior="{Binding Terminal.ShowsSurface, Converter={x:Static views:OffscreenWhenInactiveConverter.Instance}}"
                                                HorizontalAlignment="Left" VerticalAlignment="Top"
                                                FontFamily="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace"
                                                CaretBrush="{StaticResource KcapTextBrush}"
@@ -109,13 +122,11 @@
                                                SourceRows="{Binding Terminal.SourceRows}"
                                                Model="{Binding Terminal.Surface, Converter={x:Static views:TerminalSurfaceModelConverter.Instance}}" />
                 </views:RemoteTerminalViewport>
-                <Border Grid.Row="0" IsVisible="{Binding Terminal.ShowsBanner}"
-                        Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
-                        CornerRadius="8" Padding="14,8" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,14,0,0">
-                    <TextBlock x:Name="TerminalPhaseNote" Text="{Binding Terminal.PhaseNote}" Foreground="{StaticResource KcapMutedBrush}" />
-                </Border>
+                <views:SessionConnectionNotice x:Name="TerminalNotice" Grid.Row="1" DataContext="{Binding Terminal.Notice}"
+                        IsVisible="{Binding !$parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).Terminal.ShowsSurface, FallbackValue=False}" />
                 <!-- Where the server takes no typed input, these keys are the only input that crosses. -->
-                <Border Grid.Row="1" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,1,0,0" Padding="20,8">
+                <Border Grid.Row="2" IsVisible="{Binding Terminal.IsLive, FallbackValue=False}"
+                        BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,1,0,0" Padding="20,8">
                     <StackPanel Spacing="6">
                         <TextBlock x:Name="TerminalControlRefusal" Text="{Binding Terminal.ControlRefusal}" FontSize="12" TextWrapping="Wrap"
                                    Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding Terminal.ShowsControlRefusal, FallbackValue=False}" />

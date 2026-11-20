@@ -16,7 +16,7 @@ public class AgentOrchestratorTerminalDialogTests {
         "\r\n" +
         " Enter to confirm · Esc to cancel\r\n";
 
-    const string Composer = "\x1b[2J\x1b[H> ";
+    const string Composer = "\e[2J\e[H> ";
 
     static AgentOrchestrator Build(CaptureServerConnection server) =>
         AgentOrchestratorHarness.BuildOrchestrator(server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());

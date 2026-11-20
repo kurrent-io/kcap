@@ -108,7 +108,7 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.Vm.Chat.Items.Count).IsEqualTo(count);
                 await Assert.That(host.Vm.WorkContext.IsReady).IsTrue();
                 CaptureLoading(host, "session-reconnecting");
-                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Capacitor.Cli.Core.Http.ConnectionFailure.Refused));
+                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Cli.Core.Http.ConnectionFailure.Refused));
                 host.Settle();
                 await Assert.That(host.View.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Couldn’t reconnect to this session")).IsTrue();
                 CaptureLoading(host, "session-connection-failed");
@@ -143,10 +143,10 @@ public class RemoteSessionViewSmokeTests {
         await AvaloniaSession.DispatchAsync(async () => {
             var starts = 0;
             using var host = new Host(localServer: lane => new LocalServerRecoveryViewModel(lane.Status, isLocalServer: true,
-                _ => { starts++; return Task.FromResult(new Capacitor.Cli.Core.ProcessResult(0, "", "", false)); }, () => Task.CompletedTask, CancellationToken.None));
+                _ => { starts++; return Task.FromResult(new Cli.Core.ProcessResult(0, "", "", false)); }, () => Task.CompletedTask, CancellationToken.None));
             try {
                 await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "connected");
-                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Capacitor.Cli.Core.Http.ConnectionFailure.Refused));
+                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Cli.Core.Http.ConnectionFailure.Refused));
                 await host.SettleUntilAsync(() => host.Vm.ConnectionNotice?.Title == "Your kcap server is stopped", "stopped notice");
                 var start = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Start server"));
                 await Assert.That(start.Classes.Contains("kcapPrimary")).IsTrue();
@@ -168,16 +168,118 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.View.FindControl<WorkContextView>("WorkContextHost")!.IsEffectivelyVisible).IsTrue();
                 await Assert.That(host.Vm.WorkContext.Phase).IsEqualTo(WorkContextPhase.Loading);
                 CaptureLoading(host, "work-context-loading");
-                gate.SetResult(Capacitor.Cli.Core.WorkItems.WorkContextRead.Of(Capacitor.Cli.Core.WorkItems.WorkContextReadKind.Unreachable));
+                gate.SetResult(WorkContextRead.Of(WorkContextReadKind.Unreachable));
                 await host.SettleUntilAsync(() => host.Vm.WorkContext.ShowsRetry, "context failure");
                 await Assert.That(host.View.GetVisualDescendants().OfType<SessionConnectionNotice>()
                     .Any(n => n.IsEffectivelyVisible && n.DataContext is SessionConnectionPresentation { Title: "Waiting for chat…" })).IsTrue();
                 CaptureLoading(host, "work-context-failed");
-                source.Enqueue(Capacitor.Cli.Core.WorkItems.WorkContextRead.Of(Capacitor.Cli.Core.WorkItems.WorkContextReadKind.Ready));
+                source.Enqueue(WorkContextRead.Of(WorkContextReadKind.Ready));
                 await host.Vm.WorkContext.RefreshCommand.Execute();
                 await host.SettleUntilAsync(() => host.Vm.WorkContext.Phase == WorkContextPhase.NoWorkItem, "context retry");
                 await Assert.That(host.Vm.WorkContext.PhaseNote).IsNotEmpty();
                 CaptureLoading(host, "work-context-recovered");
+            } finally { await host.Vm.TeardownAsync(); }
+            return true;
+        });
+    }
+
+    [Test]
+    public async Task A_slow_terminal_subscribe_shows_loading_then_a_retry_can_open_a_quiet_terminal() {
+        await AvaloniaSession.DispatchAsync(async () => {
+            using var host = new Host(realTerminal: true);
+            try {
+                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "ready");
+                var subscribe = new TaskCompletionSource<HubCallOutcome>();
+                host.Lane.TerminalSubscribeHandler = _ => subscribe.Task;
+                await host.Vm.ShowTerminalCommand.Execute();
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.Phase == RemoteTerminalPhase.Connecting, "connecting");
+
+                var notice = Named<SessionConnectionNotice>(host.View, "TerminalNotice");
+                var title = Named<TextBlock>(notice, "SessionNoticeTitle");
+                var viewport = Named<RemoteTerminalViewport>(host.View, "TerminalViewport");
+                await Assert.That(notice.IsEffectivelyVisible).IsTrue();
+                await Assert.That(title.Text).IsEqualTo("Connecting to the terminal…");
+                await Assert.That(viewport.Opacity).IsEqualTo(0.0);
+
+                subscribe.SetResult(HubCallOutcome.Failed(WireTokens.SessionAccessRecheckFailed));
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.Phase == RemoteTerminalPhase.Failed, "subscribe failed");
+                await Assert.That(title.Text).IsEqualTo("Couldn’t connect to the terminal");
+                await Assert.That(host.Vm.Terminal!.Notice!.Detail).Contains("couldn’t verify access");
+
+                host.Lane.TerminalSubscribeHandler = _ => Task.FromResult(HubCallOutcome.Ok);
+                Click(host, notice.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Retry")));
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.IsLive, "live without output");
+                await Assert.That(notice.IsEffectivelyVisible).IsFalse();
+                await Assert.That(viewport.Opacity).IsEqualTo(1.0);
+            } finally { await host.Vm.TeardownAsync(); }
+            return true;
+        });
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_remote_subscribe_takes_focus_only_if_the_user_stays_on_the_terminal(bool editTitle) {
+        await AvaloniaSession.DispatchAsync(async () => {
+            using var host = new Host(realTerminal: true);
+            try {
+                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "ready");
+                var subscribe = new TaskCompletionSource<HubCallOutcome>();
+                host.Lane.TerminalSubscribeHandler = _ => subscribe.Task;
+                Click(host, Named<Button>(host.View, "TerminalTabButton"));
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.Phase == RemoteTerminalPhase.Connecting, "connecting");
+
+                var input = Named<TextBox>(host.View, "TitleInput");
+                if (editTitle) {
+                    await host.Vm.TitleEditor.BeginEditCommand.Execute();
+                    await host.SettleUntilAsync(() => input.IsFocused, "editing the title");
+                }
+
+                subscribe.SetResult(HubCallOutcome.Ok);
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.IsLive, "live without output");
+                await Assert.That(editTitle ? input.IsFocused : Named<RemoteTerminalControl>(host.View, "TerminalHost").IsFocused).IsTrue();
+            } finally { await host.Vm.TeardownAsync(); }
+            return true;
+        });
+    }
+
+    [Test]
+    public async Task An_offline_terminal_keeps_its_output_and_scrolls_without_sending_input() {
+        await AvaloniaSession.DispatchAsync(async () => {
+            using var host = new Host(realTerminal: true);
+            try {
+                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "ready");
+                await host.Vm.ShowTerminalCommand.Execute();
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.IsLive, "live terminal");
+                host.Window.Height = 450;
+                host.Lane.TerminalDimensionsSubject.OnNext(new TerminalSize("a1", 100, 54));
+                var feed = string.Concat(Enumerable.Range(0, 120).Select(i => $"line {i}\r\n")) + "\x1b[?1000h\x1b[?1006h";
+                host.Lane.TerminalOutputSubject.OnNext(new TerminalOutputFrame("a1",
+                    Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(feed))));
+                host.Settle();
+
+                var terminal = Named<RemoteTerminalControl>(host.View, "TerminalHost");
+                var model = terminal.Model!;
+                await Assert.That(model.IsMouseModeActive).IsTrue();
+                host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying));
+                await host.SettleUntilAsync(() => host.Vm.Terminal!.HasOfflineSurface && host.Vm.HasAccessNotice,
+                    "retained offline terminal with the session notice");
+
+                var viewport = Named<RemoteTerminalViewport>(host.View, "TerminalViewport");
+                await Assert.That(Named<Border>(host.View, "AccessBanner").IsEffectivelyVisible).IsTrue();
+                await Assert.That(Named<SessionConnectionNotice>(host.View, "TerminalOfflineNotice").IsEffectivelyVisible).IsFalse();
+                await Assert.That(viewport.Opacity).IsEqualTo(1.0);
+                await Assert.That(terminal.Model).IsSameReferenceAs(model);
+
+                var before = viewport.Offset.Y;
+                var point = viewport.TranslatePoint(new Point(30, 30), host.Window)!.Value;
+                host.Window.MouseWheel(point, new Vector(0, 1));
+                await host.SettleUntilAsync(() => viewport.Offset.Y < before, "offline scroll");
+                terminal.Focus();
+                host.Window.KeyPress(Key.Up, RawInputModifiers.None, PhysicalKey.ArrowUp, null);
+                host.Settle();
+                await Assert.That(host.Lane.SpecialKeys).IsEmpty();
+                await Assert.That(host.Lane.TerminalInputs).IsEmpty();
             } finally { await host.Vm.TeardownAsync(); }
             return true;
         });
@@ -488,7 +590,7 @@ public class RemoteSessionViewSmokeTests {
                 await host.SettleUntilAsync(() => host.Vm.Terminal!.Phase == RemoteTerminalPhase.Live, "live terminal");
                 host.Lane.TerminalDimensionsSubject.OnNext(new TerminalSize("a1", 130, 54));
                 var feed = string.Concat(Enumerable.Range(0, 120).Select(i => $"line {i}\r\n"))
-                    + "prompt\x1b[?1h";
+                    + "prompt\e[?1h";
                 host.Lane.TerminalOutputSubject.OnNext(new TerminalOutputFrame("a1", Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(feed))));
                 host.Window.Height = 450;
                 host.Settle();
@@ -562,7 +664,7 @@ public class RemoteSessionViewSmokeTests {
                 await host.SettleUntilAsync(() => host.Vm.Terminal!.Phase == RemoteTerminalPhase.Live, "live terminal");
                 host.Lane.TerminalDimensionsSubject.OnNext(new TerminalSize("a1", 103, 38));
                 var feed = string.Concat(Enumerable.Range(0, 90).Select(i => $"redraw {i}\r\n"));
-                feed += (alternate ? "\x1b[?1049h" : "") + "\x1b[?1000h\x1b[?1006hfull-screen conversation";
+                feed += (alternate ? "\e[?1049h" : "") + "\e[?1000h\e[?1006hfull-screen conversation";
                 var bytes = System.Text.Encoding.UTF8.GetBytes(feed);
                 host.Lane.TerminalOutputSubject.OnNext(new TerminalOutputFrame("a1", Convert.ToBase64String(bytes)));
                 host.Settle();
@@ -580,14 +682,14 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(viewport.VerticalScrollBarVisibility).IsEqualTo(ScrollBarVisibility.Hidden);
                 foreach (var (_, key) in host.Lane.SpecialKeys) {
                     await Assert.That(TerminalScrollKey.TryDecode(key, out var report)).IsTrue();
-                    await Assert.That(report.AsSpan().StartsWith("\x1b[<64;"u8)).IsTrue();
+                    await Assert.That(report.AsSpan().StartsWith("\e[<64;"u8)).IsTrue();
                 }
                 await Assert.That(terminal.Model.ScrollOffset).IsEqualTo(scrollback);
                 host.Window.Height = 450;
                 host.Lane.TerminalDimensionsSubject.OnNext(new TerminalSize("a1", 100, 30));
                 host.Settle();
                 host.Lane.TerminalOutputSubject.OnNext(new TerminalOutputFrame("a1",
-                    Convert.ToBase64String("\x1b[2J\x1b[Hredrawn history\x1b[30;1Hdraft"u8.ToArray())));
+                    Convert.ToBase64String("\e[2J\e[Hredrawn history\e[30;1Hdraft"u8.ToArray())));
                 host.Settle();
                 // Resizing scrolls the terminal top out of view; aim inside the visible viewport
                 point = viewport.TranslatePoint(new Point(30, 30), host.Window)!.Value;
@@ -596,7 +698,7 @@ public class RemoteSessionViewSmokeTests {
                 host.Window.MouseWheel(point, new Vector(0, -0.5));
                 await host.SettleUntilAsync(() => host.Lane.SpecialKeys.Count == 9, "one downward step after resize");
                 await Assert.That(TerminalScrollKey.TryDecode(host.Lane.SpecialKeys[^1].Key, out var down)).IsTrue();
-                await Assert.That(down.AsSpan().StartsWith("\x1b[<65;"u8)).IsTrue();
+                await Assert.That(down.AsSpan().StartsWith("\e[<65;"u8)).IsTrue();
                 await Assert.That(terminal.Model.ScrollOffset).IsEqualTo(before);
                 var buffer = terminal.Model.Terminal.Buffer;
                 await Assert.That(buffer.GetLine(buffer.BaseY)!.TranslateToString(true)).IsEqualTo("redrawn history");

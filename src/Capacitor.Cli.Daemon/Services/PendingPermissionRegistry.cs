@@ -100,6 +100,6 @@ internal sealed class PendingPermissionRegistry {
             }
         }
 
-        tcs!.TrySetResult(decision);
+        tcs.TrySetResult(decision);
     }
 }

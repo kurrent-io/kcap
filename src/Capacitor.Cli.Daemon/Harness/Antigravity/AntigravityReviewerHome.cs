@@ -175,10 +175,10 @@ internal static class AntigravityReviewerHome {
             foreach (var a in server.Args) args.Add((JsonNode?)a);
 
             var env = new JsonObject();
-            foreach (var e in server.Env) env[e.Name] = (JsonNode?)e.Value;
+            foreach (var e in server.Env) env[e.Name] = e.Value;
 
             mcpServers[server.Name] = new JsonObject {
-                ["command"] = (JsonNode?)server.Command,
+                ["command"] = server.Command,
                 ["args"]    = args,
                 ["env"]     = env
             };

@@ -21,7 +21,7 @@ public class ServerConnectionServiceLaunchFeaturesTests {
         HubTestHost.LaunchFeaturesHandler = () => ["handoff/1"];
         await using var lane = await ConnectedAsync(host);
 
-        var features = await ((ILaunchClient)lane).GetLaunchFeaturesAsync(CancellationToken.None);
+        var features = await lane.GetLaunchFeaturesAsync(CancellationToken.None);
 
         await Assert.That(features!.Contains("handoff/1")).IsTrue();
         await Assert.That(features.Count).IsEqualTo(1);
@@ -45,7 +45,7 @@ public class ServerConnectionServiceLaunchFeaturesTests {
         await using var host = await HubTestHost.StartAsync();
         await using var lane = await ConnectedAsync(host);
 
-        var features = await ((ILaunchClient)lane).GetLaunchFeaturesAsync(CancellationToken.None);
+        var features = await lane.GetLaunchFeaturesAsync(CancellationToken.None);
 
         await Assert.That(features).IsNull();
     }
@@ -63,7 +63,7 @@ public class ServerConnectionServiceLaunchFeaturesTests {
         var time = new FakeTimeProvider();
         await using var lane = await ConnectedAsync(host, time);
         try {
-            var reading = ((ILaunchClient)lane).GetLaunchFeaturesAsync(CancellationToken.None);
+            var reading = lane.GetLaunchFeaturesAsync(CancellationToken.None);
             await entered.WaitAsync(TimeSpan.FromSeconds(30));
 
             time.Advance(TimeSpan.FromSeconds(9));
@@ -82,7 +82,7 @@ public class ServerConnectionServiceLaunchFeaturesTests {
         HubTestHost.LaunchFeaturesHandler = () => throw new InvalidOperationException("boom");
         await using var lane = await ConnectedAsync(host);
 
-        var features = await ((ILaunchClient)lane).GetLaunchFeaturesAsync(CancellationToken.None);
+        var features = await lane.GetLaunchFeaturesAsync(CancellationToken.None);
 
         await Assert.That(features).IsNull();
     }
@@ -92,7 +92,7 @@ public class ServerConnectionServiceLaunchFeaturesTests {
         await using var lane = new ServerConnectionService(TimeProvider.System, "http://127.0.0.1:1", () => Task.FromResult<string?>(null));
         lane.Start();
 
-        var features = await ((ILaunchClient)lane).GetLaunchFeaturesAsync(CancellationToken.None);
+        var features = await lane.GetLaunchFeaturesAsync(CancellationToken.None);
 
         await Assert.That(features).IsNull();
     }

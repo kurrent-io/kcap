@@ -99,8 +99,9 @@ public class MutationRequestFactoryTests {
 
     [Test]
     public async Task ForAccount_refuses_a_non_account_verb() {
-        foreach (var verb in Enum.GetValues<MutationVerb>().Where(v => !v.IsAccountVerb()))
+        foreach (var verb in Enum.GetValues<MutationVerb>().Where(v => !v.IsAccountVerb())) {
             await Assert.That(() => MutationRequestFactory.ForAccount(verb, new AccountArgs(null, null, "abcd1234", null), "daemon-a", "default"))
                 .Throws<ArgumentOutOfRangeException>();
+        }
     }
 }

@@ -61,7 +61,7 @@ public class ArtefactsTabViewModelTests {
     }
 
     static ArtefactDto Page(string id, string title, DateTimeOffset updatedAt, string? url = null) =>
-        new(id, title, "u1", "org", 1, updatedAt, true, url ?? $"https://kcap.test/pages/{id}");
+        new(id, title, "u1", "org", 1, updatedAt, true, null, null, url ?? $"https://kcap.test/pages/{id}");
 
     static SessionPagesRead Pages(params ArtefactDto[] pages) => new(SessionPlansReadKind.Ready, pages);
 
@@ -210,7 +210,7 @@ public class ArtefactsTabViewModelTests {
             using var release = new ManualResetEventSlim();
             var readOnUi = false;
             var vm = new ArtefactsTabViewModel(source, new PlanActivity(), TimeProvider.System, path => {
-                readOnUi |= Avalonia.Threading.Dispatcher.UIThread.CheckAccess();
+                readOnUi |= Dispatcher.UIThread.CheckAccess();
                 if (!path.EndsWith("slow.md", StringComparison.Ordinal)) return null;
                 entered.Set();
                 release.Wait(TimeSpan.FromSeconds(10));

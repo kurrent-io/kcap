@@ -730,7 +730,7 @@ static partial class ProcessHelpers {
         }
     }
 
-    static unsafe (int ppid, IReadOnlyList<string> names)? GetProcessInfoWindows(int pid) {
+    static (int ppid, IReadOnlyList<string> names)? GetProcessInfoWindows(int pid) {
         var handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
 
         if (handle == 0) {

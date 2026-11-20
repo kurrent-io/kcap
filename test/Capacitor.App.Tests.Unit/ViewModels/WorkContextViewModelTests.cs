@@ -1059,7 +1059,7 @@ public class WorkContextViewModelTests {
             await Assert.That(h.Vm.Key).IsEqualTo("WK-2198");
             await Assert.That(h.Vm.Title).IsEqualTo("Desktop shell: work-context sidebar");
             await Assert.That(h.Vm.PartOfTitle).IsEqualTo("Parent epic");
-            await Assert.That(h.Vm.Parts.Select(p => p.Title)).IsEquivalentTo(new[] { "First", "Second", "Third" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            await Assert.That(h.Vm.Parts.Select(p => p.Title)).IsEquivalentTo(new[] { "First", "Second", "Third" }, CollectionOrdering.Matching);
             await Assert.That(h.Vm.Parts[0].Mark).IsEqualTo(WorkContextPartMark.ThisSession);
             await Assert.That(h.Vm.Parts[1].Mark).IsEqualTo(WorkContextPartMark.Unknown);
             await Assert.That(h.Vm.Parts[2].Mark).IsEqualTo(WorkContextPartMark.Settled);
@@ -1067,7 +1067,7 @@ public class WorkContextViewModelTests {
             await Assert.That(h.Vm.PartsHeader).IsEqualTo("1 of 3");
             await Assert.That(h.Vm.PartCounts).IsEquivalentTo(new WorkContextPartCount[] {
                 new(WorkContextPartMark.Unknown, 1), new(WorkContextPartMark.ThisSession, 1), new(WorkContextPartMark.Settled, 1),
-            }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            }, CollectionOrdering.Matching);
             await Assert.That(h.Vm.ThisSessionParts.Select(p => p.Title)).IsEquivalentTo(new[] { "First" });
             await Assert.That(h.Vm.PartsAccessibleName).IsEqualTo("Parts, 1 open, 1 in this session, 1 done");
             await h.Vm.TogglePartsCommand.Execute();
@@ -1385,7 +1385,7 @@ public class WorkContextViewModelTests {
 
             await Assert.That(h.Vm.Issue).IsNotNull();
             await Assert.That(h.Vm.HasMultipleIssues).IsTrue();
-            await Assert.That(h.Vm.Issues.Select(i => i.Key)).IsEquivalentTo(new[] { "#777", "#778" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            await Assert.That(h.Vm.Issues.Select(i => i.Key)).IsEquivalentTo(new[] { "#777", "#778" }, CollectionOrdering.Matching);
             await Assert.That(h.Vm.SeparateIssue!.Key).IsEqualTo("#777");
             await Assert.That(h.Vm.SeparateIssue.Title).IsEqualTo("Read the work item");
             await Assert.That(h.Vm.SeparateIssue.CanOpen).IsTrue();
@@ -1454,7 +1454,7 @@ public class WorkContextViewModelTests {
             }));
             await h.PushAsync(Dto());
             await Assert.That(h.Vm.Issues.Select(i => i.Title).ToArray())
-                .IsEquivalentTo(new[] { "CLI", "Server", "No url A", "No url B" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+                .IsEquivalentTo(new[] { "CLI", "Server", "No url A", "No url B" }, CollectionOrdering.Matching);
             await h.Vm.TeardownAsync();
         });
     }
@@ -1774,9 +1774,9 @@ public class WorkContextViewModelTests {
             await h.PushAsync(Dto());
 
             await Assert.That(h.Vm.HasContributors).IsTrue();
-            await Assert.That(h.Vm.Contributors.Select(c => c.Name)).IsEquivalentTo(new[] { "Ada Lovelace", "github:7", "👩 Grace" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
-            await Assert.That(h.Vm.Contributors.Select(c => c.Initial)).IsEquivalentTo(new[] { "A", "G", "👩" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
-            await Assert.That(h.Vm.Contributors.Select(c => c.LastActivityText)).IsEquivalentTo(new[] { "2h ago", "3d ago", "" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            await Assert.That(h.Vm.Contributors.Select(c => c.Name)).IsEquivalentTo(new[] { "Ada Lovelace", "github:7", "👩 Grace" }, CollectionOrdering.Matching);
+            await Assert.That(h.Vm.Contributors.Select(c => c.Initial)).IsEquivalentTo(new[] { "A", "G", "👩" }, CollectionOrdering.Matching);
+            await Assert.That(h.Vm.Contributors.Select(c => c.LastActivityText)).IsEquivalentTo(new[] { "2h ago", "3d ago", "" }, CollectionOrdering.Matching);
             await Assert.That(h.Vm.WhoCountText).IsEqualTo("4 sessions");
 
             await h.TickAsync();
@@ -1811,13 +1811,13 @@ public class WorkContextViewModelTests {
             await h.PushAsync(Dto() with { Requester = userId, RequesterDisplay = email });
 
             await Assert.That(h.Vm.Requester).IsEqualTo(email);
-            await Assert.That(h.Vm.Contributors.Select(c => c.Name)).IsEquivalentTo(new[] { email }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            await Assert.That(h.Vm.Contributors.Select(c => c.Name)).IsEquivalentTo(new[] { email }, CollectionOrdering.Matching);
 
             await h.TickAsync();
-            await Assert.That(h.Vm.Contributors.Select(c => c.Name)).IsEquivalentTo(new[] { email }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            await Assert.That(h.Vm.Contributors.Select(c => c.Name)).IsEquivalentTo(new[] { email }, CollectionOrdering.Matching);
 
             await h.TickAsync();
-            await Assert.That(h.Vm.Contributors.Select(c => c.Name)).IsEquivalentTo(new[] { "Someone" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            await Assert.That(h.Vm.Contributors.Select(c => c.Name)).IsEquivalentTo(new[] { "Someone" }, CollectionOrdering.Matching);
             await h.Vm.TeardownAsync();
         });
     }
@@ -2079,7 +2079,7 @@ public class WorkContextViewModelTests {
             h.Source.Enqueue(ReadyWith(null, summary: summary));
             await h.PushAsync(Dto());
 
-            await Assert.That(h.Vm.Links.Select(l => l.CanOpen)).IsEquivalentTo(new[] { true, false, false, false }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            await Assert.That(h.Vm.Links.Select(l => l.CanOpen)).IsEquivalentTo(new[] { true, false, false, false }, CollectionOrdering.Matching);
             await h.Vm.Links[0].OpenCommand.Execute();
             await Assert.That(h.Opener.Opened).IsEquivalentTo(new[] { "https://github.com/o/r/pull/1" });
 
@@ -2531,7 +2531,7 @@ public class WorkContextViewModelTests {
             await h.PushAsync(Dto(sessionId: SessionB));
             await h.PlanSettledAsync();
 
-            await Assert.That(h.Plans.Requested).IsEquivalentTo(new[] { SessionA, SessionB }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            await Assert.That(h.Plans.Requested).IsEquivalentTo(new[] { SessionA, SessionB }, CollectionOrdering.Matching);
             await Assert.That(h.Vm.Plan.DoneCount).IsEqualTo(0);
             await Assert.That(h.Vm.Plan.Tasks.Count).IsEqualTo(2);
             await h.Vm.TeardownAsync();

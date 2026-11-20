@@ -218,12 +218,13 @@ public sealed class CanonicalBatchAssembler(ITranscriptProjection projection, IL
                 (metadata ??= new(StringComparer.Ordinal))[key] = JsonSerializer.SerializeToElement(value, CapacitorJsonContext.Default.String);
 
         if (e.VendorMetadataValues is { } values)
-            foreach (var (key, value) in values)
+            foreach (var (key, value) in values) {
                 (metadata ??= new(StringComparer.Ordinal))[key] = value switch {
                     long number => JsonSerializer.SerializeToElement(number, CapacitorJsonContext.Default.Int64),
                     bool flag   => JsonSerializer.SerializeToElement(flag, CapacitorJsonContext.Default.Boolean),
                     _           => throw new ArgumentException($"Vendor metadata {key} is a {value.GetType().Name}, not a long or a bool", nameof(e)),
                 };
+            }
 
         return metadata;
     }

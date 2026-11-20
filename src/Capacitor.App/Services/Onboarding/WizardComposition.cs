@@ -400,7 +400,8 @@ internal static class WizardComposition {
                 daemon.Busy,
                 options.Surface.AttentionText ?? options.Surface.StatusText,
                 harnesses.PathResolved,
-                recording.Any(r => r.Id == HarnessId.Copilot));
+                recording.Any(r => r.Id == HarnessId.Copilot),
+                harnesses.Rows.Any(r => r is { Id: HarnessId.Copilot, Tools: true, Succeeded: true }));
         }, options.UrlOpener, PrepareWorkspaceAsync, serviceChanged,
             // The same page Help and support → Set up kcap leads through to connect an agent.
             addAgent: () => shell?.TryGoTo(WizardStepId.Harnesses));

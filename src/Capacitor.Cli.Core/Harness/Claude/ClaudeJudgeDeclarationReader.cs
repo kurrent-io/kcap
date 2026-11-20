@@ -2,7 +2,7 @@ namespace Capacitor.Cli.Core.Harness.Claude;
 
 using System.Text;
 using System.Text.Json;
-using Capacitor.Cli.Core.Policy;
+using Policy;
 using Capacitor.Models.Transcripts;
 using Capacitor.Models.Transcripts.Harness.Claude;
 using Capacitor.Models.Transcripts.UserMessages;

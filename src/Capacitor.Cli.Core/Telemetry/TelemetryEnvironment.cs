@@ -27,9 +27,10 @@ public static class TelemetryEnvironment {
         if (env.TryGetValue("CI", out var ci) && !string.IsNullOrWhiteSpace(ci) && !IsNegative(ci))
             return true;
 
-        foreach (var name in ProviderVariables)
+        foreach (var name in ProviderVariables) {
             if (env.TryGetValue(name, out var raw) && !string.IsNullOrWhiteSpace(raw))
                 return true;
+        }
 
         return false;
     }

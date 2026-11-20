@@ -314,7 +314,7 @@ public class ServerConnectionAdvertisementTests {
         ServerConnection.ConfigureHubPayload(options);
 
         var json = System.Text.Json.JsonSerializer.Serialize(
-            new Capacitor.Cli.Core.Handoff.HandoffTakeoverBeginRequest("src", "succ"), options);
+            new Core.Handoff.HandoffTakeoverBeginRequest("src", "succ"), options);
 
         await Assert.That(json).IsEqualTo("""{"source_session_id":"src","successor_session_id":"succ"}""");
     }
@@ -324,7 +324,7 @@ public class ServerConnectionAdvertisementTests {
         var options = new System.Text.Json.JsonSerializerOptions();
         ServerConnection.ConfigureHubPayload(options);
 
-        var json = System.Text.Json.JsonSerializer.Serialize(new Capacitor.Cli.Core.Resume.SourceResumeBeginRequest("src"), options);
+        var json = System.Text.Json.JsonSerializer.Serialize(new Core.Resume.SourceResumeBeginRequest("src"), options);
 
         await Assert.That(json).IsEqualTo("""{"source_session_id":"src"}""");
     }

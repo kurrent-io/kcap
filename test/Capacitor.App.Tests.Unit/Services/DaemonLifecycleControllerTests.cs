@@ -1440,7 +1440,7 @@ public class DaemonLifecycleControllerTests {
         var words = new Queue<string?>(["adaptive", "app", "", null]);
         h.Cli.StatusBehavior = _ => {
             var word = words.Dequeue();
-            return Task.FromResult<ServiceSnapshot?>(word is null ? null : Snap(state: "running", jobPid: 100, daemonPid: 100) with { LoadedSpawnType = word });
+            return Task.FromResult(word is null ? null : Snap(state: "running", jobPid: 100, daemonPid: 100) with { LoadedSpawnType = word });
         };
         h.Start();
         h.PushConnected();
@@ -2532,7 +2532,8 @@ sealed class FakeKcapCli : IKcapCli {
     public readonly List<IReadOnlyList<string>> PluginInstallOptions = [];
     public Func<string?, CancellationToken, Task<ProcessResult>> PluginInstallBehavior =
         (_, _) => Task.FromResult(new ProcessResult(0, "", "", false));
-    public Task<ProcessResult> PluginRemoveAsync(string? vendorFlag, CancellationToken ct) => throw new NotSupportedException();
+    public Func<string?, CancellationToken, Task<ProcessResult>> PluginRemoveBehavior = (_, _) => throw new NotSupportedException();
+    public Task<ProcessResult> PluginRemoveAsync(string? vendorFlag, CancellationToken ct) => PluginRemoveBehavior(vendorFlag, ct);
 
     public Task<ProcessResult> PluginInstallAsync(string? vendorFlag, CancellationToken ct, IReadOnlyList<string>? options = null) {
         PluginInstallCallCount++;
@@ -2618,8 +2619,14 @@ sealed class FakeKcapCli : IKcapCli {
     public Task<ProcessResult> LocalStartAsync(CancellationToken ct) =>
         Task.FromResult(new ProcessResult(0, "", "", false));
 
-    public Task<Capacitor.Cli.Core.LocalEdition.LocalServerReading?> LocalStatusAsync(CancellationToken ct) =>
-        Task.FromResult<Capacitor.Cli.Core.LocalEdition.LocalServerReading?>(null);
+    public Task<Cli.Core.LocalEdition.LocalServerReading?> LocalStatusAsync(CancellationToken ct) =>
+        Task.FromResult<Cli.Core.LocalEdition.LocalServerReading?>(null);
+
+    public Task<ProcessResult> HideSessionAsync(string sessionId, CancellationToken ct) =>
+        Task.FromResult(new ProcessResult(0, "", "", false));
+
+    public Task<ProcessResult> DisableSessionAsync(string sessionId, CancellationToken ct) =>
+        Task.FromResult(new ProcessResult(0, "", "", false));
 }
 
 // FakeLoginShellProbe is shared via Capacitor.Tests.Helpers (the controller only ever calls

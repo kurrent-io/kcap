@@ -57,8 +57,8 @@ public class ServerConnectionServiceTests {
         string? updateCheck = null;
         await using var host = await HubTestHost.StartAsync(inspect: request => {
             if (request.Path.Value?.EndsWith("/negotiate", StringComparison.Ordinal) != true) return;
-            negotiated  = request.Headers[Capacitor.Cli.Core.HttpClientExtensions.CliVersionHeader].ToString();
-            updateCheck = request.Headers[Capacitor.Cli.Core.HttpClientExtensions.UpdateCheckHeader].ToString();
+            negotiated  = request.Headers[Cli.Core.HttpClientExtensions.CliVersionHeader].ToString();
+            updateCheck = request.Headers[Cli.Core.HttpClientExtensions.UpdateCheckHeader].ToString();
         });
         await using var lane = new ServerConnectionService(
             TimeProvider.System, host.Url, () => Task.FromResult<string?>(null), updateCheckOff: updateCheckOff);
@@ -66,8 +66,8 @@ public class ServerConnectionServiceTests {
 
         await Next(lane.Status, s => s.State == ServerLaneState.Connected);
 
-        await Assert.That(Capacitor.Cli.Core.HttpClientExtensions.CliVersion).IsNotNull();
-        await Assert.That(negotiated).IsEqualTo(Capacitor.Cli.Core.HttpClientExtensions.CliVersion);
+        await Assert.That(Cli.Core.HttpClientExtensions.CliVersion).IsNotNull();
+        await Assert.That(negotiated).IsEqualTo(Cli.Core.HttpClientExtensions.CliVersion);
         await Assert.That(updateCheck).IsEqualTo(updateCheckOff ? "off" : "");
     }
 
@@ -193,7 +193,7 @@ public class ServerConnectionServiceTests {
         lane.Start();
         await Next(lane.Status, s => s.State == ServerLaneState.Connected);
 
-        var outcome = await ((ILaunchClient)lane).StartAsync(
+        var outcome = await lane.StartAsync(
             new LaunchRequest("work-mac", "/work/repo", "claude", "do it"), CancellationToken.None);
         await Assert.That(outcome.Started).IsTrue();
         await Assert.That(outcome.AgentId).IsEqualTo("agent-42");
@@ -204,7 +204,7 @@ public class ServerConnectionServiceTests {
     public async Task LaunchWhileDisconnectedFailsWithoutThrowing() {
         await using var lane = new ServerConnectionService(TimeProvider.System, "http://127.0.0.1:1", () => Task.FromResult<string?>(null));
         lane.Start();
-        var outcome = await ((ILaunchClient)lane).StartAsync(
+        var outcome = await lane.StartAsync(
             new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
         await Assert.That(outcome.Started).IsFalse();
         await Assert.That(outcome.Error).IsNotNull();
@@ -222,7 +222,7 @@ public class ServerConnectionServiceTests {
         lane.Start();
         await Next(lane.Status, s => s.State == ServerLaneState.Retrying);
 
-        var outcome = await ((ILaunchClient)lane).StartAsync(
+        var outcome = await lane.StartAsync(
             new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
 
         await Assert.That(outcome.Error).IsNull();
@@ -299,7 +299,7 @@ public class ServerConnectionServiceTests {
         await Next(lane.Status, s => s.State == ServerLaneState.Connected);
         lane.ParkSignedOut();
 
-        var outcome = await ((ILaunchClient)lane).StartAsync(
+        var outcome = await lane.StartAsync(
             new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
 
         await Assert.That(outcome.Unauthorized).IsTrue();
@@ -325,7 +325,7 @@ public class ServerConnectionServiceTests {
         lane.Start();
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
 
-        var launch = ((ILaunchClient)lane).StartAsync(new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
+        var launch = lane.StartAsync(new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
         await Task.Delay(300);
         gate.SetResult(null);
         var outcome = await launch.WaitAsync(TimeSpan.FromSeconds(15));
@@ -356,7 +356,7 @@ public class ServerConnectionServiceTests {
             .Subscribe(_ => Interlocked.Increment(ref redials));
         var launches = Enumerable.Range(0, 3).Select(async i => {
             await Task.Delay(i * 50);
-            return await ((ILaunchClient)lane).StartAsync(new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
+            return await lane.StartAsync(new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
         }).ToList();
         var outcomes = await Task.WhenAll(launches);
 
@@ -396,7 +396,7 @@ public class ServerConnectionServiceTests {
         var latest = await lane.Status.Take(1).ToTask();
         await Assert.That(latest.State).IsEqualTo(ServerLaneState.SignedOut);
 
-        var outcome = await ((ILaunchClient)lane).StartAsync(
+        var outcome = await lane.StartAsync(
             new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
         await Assert.That(outcome.Started).IsFalse();
         await Assert.That(outcome.Unauthorized).IsTrue();
@@ -416,7 +416,7 @@ public class ServerConnectionServiceTests {
         lane.ParkSignedOut();
         await Next(lane.Status, s => s.State == ServerLaneState.SignedOut);
 
-        var outcome = await ((ILaunchClient)lane).StartAsync(
+        var outcome = await lane.StartAsync(
             new LaunchRequest("d", "/r", "claude", null), CancellationToken.None);
         await Assert.That(outcome.Started).IsFalse();
         await Assert.That(outcome.Unauthorized).IsTrue();
@@ -852,7 +852,7 @@ public class ServerConnectionServiceTests {
         var tail = Task.Run(async () => {
             await foreach (var _ in lane.TailStreamAsync("AgentSession-s1", null, cts.Token)) { }
         });
-        await WaitUntilAsync(() => HubTestHost.StreamSubscribes.Contains(("AgentSession-s1", (ulong?)null)), what: "the subscribe");
+        await WaitUntilAsync(() => HubTestHost.StreamSubscribes.Contains(("AgentSession-s1", null)), what: "the subscribe");
 
         await HubTestHost.CloseConnectionsAsync();
         await tail.WaitAsync(TimeSpan.FromSeconds(15));

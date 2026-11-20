@@ -55,7 +55,7 @@ public class CodexHookCommandTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/session-start/codex").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
 
-        var payload = """
+        const string payload = """
                       {
                         "hook_event_name": "SessionStart",
                         "session_id": "019e0322-05fc-7570-be65-75719c3ea861",
@@ -92,7 +92,7 @@ public class CodexHookCommandTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/session-end/codex").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
 
-        var payload = """
+        const string payload = """
                       {
                         "hook_event_name": "Stop",
                         "session_id": "abc",
@@ -129,7 +129,7 @@ public class CodexHookCommandTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/stop").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}").WithDelay(TimeSpan.FromSeconds(10)));
 
-        var payload = """
+        const string payload = """
                       {
                         "hook_event_name": "Stop",
                         "session_id": "abc",
@@ -155,7 +155,7 @@ public class CodexHookCommandTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/stop").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
 
-        var payload = """
+        const string payload = """
                       {
                         "hook_event_name": "Stop",
                         "session_id": "abc",
@@ -187,7 +187,7 @@ public class CodexHookCommandTests : IDisposable {
     // A scheme-less server URL is refused before any client is built, and the hook still answers.
     [Test]
     public async Task Stop_with_malformed_base_url_still_emits_continue_and_returns_zero() {
-        var payload = """
+        const string payload = """
                       {
                         "hook_event_name": "Stop",
                         "session_id": "abc",
@@ -210,7 +210,7 @@ public class CodexHookCommandTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/permission-record").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
 
-        var payload = """
+        const string payload = """
                       {
                         "hook_event_name": "PermissionRequest",
                         "session_id": "abc",
@@ -244,7 +244,7 @@ public class CodexHookCommandTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/permission-record").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}").WithDelay(TimeSpan.FromSeconds(10)));
 
-        var payload = """
+        const string payload = """
                       {
                         "hook_event_name": "PermissionRequest",
                         "session_id": "abc",
@@ -273,7 +273,7 @@ public class CodexHookCommandTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/permission-record").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
 
-        var payload = """
+        const string payload = """
                       {
                         "hook_event_name": "PermissionRequest",
                         "session_id": "abc",
@@ -318,7 +318,7 @@ public class CodexHookCommandTests : IDisposable {
     public async Task PreToolUse_answers_a_deny_rule_in_every_mode(bool hostedAppServer) {
         File.WriteAllText(Config.Root.Path("approvals.yaml"),
             "version: 1\nrules:\n  - match: { kind: shell, command: \"rm -rf *\" }\n    outcome: deny\n");
-        var payload = """{"hook_event_name":"PreToolUse","session_id":"01a15cd7-3e2d-75b2-ad28-c00f7dbcf5d0","tool_name":"Bash","tool_input":{"command":"rm -rf build"},"tool_use_id":"exec-1","cwd":"/tmp"}""";
+        const string payload = """{"hook_event_name":"PreToolUse","session_id":"01a15cd7-3e2d-75b2-ad28-c00f7dbcf5d0","tool_name":"Bash","tool_input":{"command":"rm -rf build"},"tool_use_id":"exec-1","cwd":"/tmp"}""";
 
         var exit = await RunAsync(payload, hostedAppServer: hostedAppServer);
 
@@ -383,7 +383,7 @@ public class CodexHookCommandTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/session-start/codex").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
 
-        var payload = $$"""
+        const string payload = $$"""
                         {
                           "hook_event_name": "Stop",
                           "session_id": "{{sessionId}}",
@@ -459,8 +459,8 @@ public class CodexHookCommandTests : IDisposable {
 
     [Test]
     public async Task PermissionRequest_with_daemon_url_set_posts_to_bridge_and_forwards_response_to_stdout() {
-        using var bridge = WireMockServer.Start();
-        var       token  = "abc123";
+        using var bridge   = WireMockServer.Start();
+        const string token = "abc123";
 
         bridge.Given(Request.Create().WithPath($"/{token}/codex/permission-request").UsingPost())
             .RespondWith(
@@ -483,8 +483,8 @@ public class CodexHookCommandTests : IDisposable {
     /// suppresses the hook's transcript watcher for such sessions.</summary>
     [Test]
     public async Task PermissionRequest_in_an_envelope_sourced_hosted_session_yields_to_codex_without_posting_to_the_bridge() {
-        using var bridge = WireMockServer.Start();
-        var       token  = "abc123";
+        using var bridge   = WireMockServer.Start();
+        const string token = "abc123";
         bridge.Given(Request.Create().WithPath($"/{token}/codex/permission-request").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200)
                 .WithBody("""{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}"""));
@@ -502,8 +502,8 @@ public class CodexHookCommandTests : IDisposable {
     /// runtime, so the hook asks the daemon bridge for kcap's policy decision and relays its answer.</summary>
     [Test]
     public async Task PermissionRequest_in_an_auto_review_app_server_session_asks_the_bridge() {
-        using var bridge = WireMockServer.Start();
-        var       token  = "abc123";
+        using var bridge   = WireMockServer.Start();
+        const string token = "abc123";
         bridge.Given(Request.Create().WithPath($"/{token}/codex/permission-request").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
         var hosted = new HostedAgent(null, IsRendered: true, DaemonBridge.Parse($"http://127.0.0.1:{bridge.Ports[0]}/{token}"));
@@ -518,8 +518,8 @@ public class CodexHookCommandTests : IDisposable {
 
     [Test]
     public async Task PermissionRequest_with_daemon_url_emits_deny_and_exits_nonzero_on_500() {
-        using var bridge = WireMockServer.Start();
-        var       token  = "abc123";
+        using var bridge   = WireMockServer.Start();
+        const string token = "abc123";
 
         bridge.Given(Request.Create().WithPath($"/{token}/codex/permission-request").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(500));
@@ -591,9 +591,9 @@ public class CodexHookCommandTests : IDisposable {
 
     [Test]
     public async Task PermissionRequest_with_daemon_url_does_not_double_post_to_server_hooks_endpoint() {
-        using var bridge = WireMockServer.Start();
-        using var server = WireMockServer.Start();
-        var       token  = "abc123";
+        using var bridge   = WireMockServer.Start();
+        using var server   = WireMockServer.Start();
+        const string token = "abc123";
 
         bridge.Given(Request.Create().WithPath($"/{token}/codex/permission-request").UsingPost())
             .RespondWith(
@@ -693,7 +693,7 @@ public class CodexHookCommandTests : IDisposable {
         using var handler = new Accepting();
         var       http    = new RecordingCapacitorHttpClient(handler);
 
-        var payload = """
+        const string payload = """
                       {
                         "hook_event_name": "PermissionRequest",
                         "session_id": "abc",

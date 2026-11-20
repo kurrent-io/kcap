@@ -61,7 +61,7 @@ public class RemoteSessionViewModelTests {
         public readonly RecordingNotifier Notifier = new();
 
         public RemoteSessionViewModel Build(AgentRow row, IPlanArtifactSource? planArtifacts = null,
-                Capacitor.Cli.Core.PullRequests.IPullRequestSource? pullRequests = null, IPlanSource? plans = null,
+                Cli.Core.PullRequests.IPullRequestSource? pullRequests = null, IPlanSource? plans = null,
                 SessionRunActivity? commands = null, SubagentEventsReader? readSubagent = null, AccountReadings? readings = null,
                 Func<AgentRow, HandoffComposerViewModel>? handoff = null, HandoffOutcomeReader? handoffOutcomes = null,
                 IPageContentSource? pageContent = null, IUrlOpener? opener = null, bool? webView = null, bool inAppPages = true,
@@ -104,7 +104,7 @@ public class RemoteSessionViewModelTests {
         var rig = new RemoteAgentsServiceTests.GateRig("work-mac");
         rig.Accounts = [StripReadings.Remote("work-mac", StripReadings.Reading(StripReadings.Window(300, 42, TimeSpan.FromHours(2))))];
         var readings = new AccountReadings(
-            Observable.Return<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>(null), rig.Service.DrawableDaemonAccounts,
+            Observable.Return<Cli.Core.Accounts.AccountsSnapshotDto?>(null), rig.Service.DrawableDaemonAccounts,
             Observable.Return(StripReadings.Now));
         return (rig, readings);
     }
@@ -638,7 +638,7 @@ public class RemoteSessionViewModelTests {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
             var source = new FakePullRequestSource(h.Time) { Links = [],
-                Capability = failed ? Capacitor.Cli.Core.PullRequests.PullRequestCapabilityKind.Unavailable : Capacitor.Cli.Core.PullRequests.PullRequestCapabilityKind.Supported };
+                Capability = failed ? Cli.Core.PullRequests.PullRequestCapabilityKind.Unavailable : Cli.Core.PullRequests.PullRequestCapabilityKind.Supported };
             var vm = h.Build(Harness.Row(), pullRequests: source);
             vm.OpenPullRequest();
             await Assert.That(vm.IsPullRequestActive).IsTrue();
@@ -660,7 +660,7 @@ public class RemoteSessionViewModelTests {
             var vm = h.Build(Harness.Row(), pullRequests: source);
             await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
             vm.PullRequests!.SetForeground(true);
-            vm.OpenPullRequest(Capacitor.Cli.Core.PullRequests.PullRequestWire.Subject(source.Links[0]));
+            vm.OpenPullRequest(Cli.Core.PullRequests.PullRequestWire.Subject(source.Links[0]));
             await WaitUntilAsync(() => vm.PullRequests.CanReveal && !vm.PullRequests.IsReading, what: "PR reader");
             await Assert.That(vm.IsPullRequestActive).IsTrue();
             await Assert.That(vm.ShowsPullRequestPane).IsTrue();
@@ -953,7 +953,7 @@ public class RemoteSessionViewModelTests {
             await vm.ShowTerminalCommand.Execute();
             await WaitUntilAsync(() => vm.Terminal!.Phase == RemoteTerminalPhase.Refused, what: "refused");
             await Assert.That(vm.ShowsTerminalPane).IsTrue();
-            await Assert.That(vm.Terminal!.PhaseNote).IsEqualTo(RemoteTerminalViewModel.RefusedNote);
+            await Assert.That(vm.Terminal!.Notice!.Detail).IsEqualTo("You don't have access to this session's terminal.");
             await vm.TeardownAsync();
         });
     }
@@ -1371,7 +1371,7 @@ public class RemoteSessionViewModelTests {
             await WaitUntilAsync(() => h.Lane.Tails.Count == 2, what: "background monitor tail");
             h.Time.Advance(ChatTabViewModel.PollInterval);
             await Task.Yield();
-            await (monitor!.PendingReadForTesting ?? Task.CompletedTask);
+            await (monitor.PendingReadForTesting ?? Task.CompletedTask);
             await Assert.That(latest.GetValueOrDefault("remote:a1").Commands).IsEqualTo(1);
 
             if (sessionEnds) h.Directory.Rows.AddOrUpdate(row with { Status = "Completed" });
@@ -1383,6 +1383,80 @@ public class RemoteSessionViewModelTests {
                 await Task.Delay(10);
             }
             await Assert.That(latest.ContainsKey("remote:a1")).IsFalse();
+        });
+    }
+
+    /// A background monitor of a remote session never polls: the feed's own signal carries a
+    /// streamed event to the rail with the clock standing still.
+    [Test]
+    public async Task A_remote_background_monitor_reads_on_the_feeds_signal_without_a_poll() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Detail = new(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            var row = Harness.ServerRow("s1", "active");
+            h.Directory.Rows.AddOrUpdate(row);
+            var latest = default(RunningWork);
+            using var monitor = new SessionRunMonitor(row.Key, work => latest = work, () => { }, new FakeDaemonClientService(),
+                h.Directory, h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time);
+
+            await WaitUntilAsync(() => latest.Subagents == 1 && h.Lane.Tails.Count == 1, what: "the seeded subagent and the tail");
+            await Assert.That(monitor.IsTickingForTesting).IsFalse();
+
+            h.Lane.PushStreamEvent(Envelope("s1", 2, CanonicalEventTypes.UserMessageReceived, AgentNotification));
+            await WaitUntilAsync(() => latest.Subagents == 0, what: "the subagent's end, with no time advanced");
+            await Assert.That(monitor.IsTickingForTesting).IsFalse();
+        });
+    }
+
+    /// A burst of streamed events posts one wake to the UI thread, not one per event.
+    [Test]
+    public async Task A_remote_background_monitor_posts_one_wake_for_a_burst() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var row = Harness.ServerRow("s1", "active");
+            h.Directory.Rows.AddOrUpdate(row);
+            using var monitor = new SessionRunMonitor(row.Key, _ => { }, () => { }, new FakeDaemonClientService(),
+                h.Directory, h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time);
+            await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");
+            await WaitUntilAsync(() => monitor.PendingReadForTesting is { IsCompleted: true }, what: "the seed read");
+            await Task.Delay(100);
+            var before = monitor.WakesPostedForTesting;
+
+            // Pushed off the UI thread, which stays busy meanwhile: the first wake cannot run, so every
+            // later event finds it posted. The fake lane resumes the feed inside each push, so every
+            // event has signalled by the time pushing completes.
+            var pushing = Task.Run(() => {
+                for (var i = 0UL; i < 50; i++)
+                    h.Lane.PushStreamEvent(Envelope("s1", i, CanonicalEventTypes.UserMessageReceived, $$"""{"content":"m{{i}}"}"""));
+            });
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!pushing.IsCompleted && DateTime.UtcNow < deadline) Thread.Sleep(10);
+            await Assert.That(pushing.IsCompleted).IsTrue();
+
+            await Assert.That(monitor.WakesPostedForTesting - before).IsEqualTo(1);
+        });
+    }
+
+    /// A row that moves to another session while a read of the first is in flight still has the
+    /// replacement read, with no poll to fall back on.
+    [Test]
+    public async Task A_remote_background_monitor_reads_a_session_switched_to_during_a_read() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var subagent = new SessionDetailFetch(RemoteFixtures.Detail(
+                Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
+                Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
+            var row = Harness.Row(vendor: "claude");
+            h.Directory.Rows.AddOrUpdate(row);
+            var latest = default(RunningWork);
+            using var monitor = new SessionRunMonitor(row.Key, work => latest = work, () => { }, new FakeDaemonClientService(),
+                h.Directory, h.Access, (session, _) => Task.FromResult(session == "s2" ? subagent : h.Detail), h.Lane, h.Time);
+
+            h.Directory.Rows.AddOrUpdate(row with { SessionId = "s2" });
+            await WaitUntilAsync(() => latest.Subagents == 1, what: "the replacement session read, with no time advanced");
+            await Assert.That(monitor.IsTickingForTesting).IsFalse();
         });
     }
 
@@ -1646,22 +1720,148 @@ public class RemoteSessionViewModelTests {
         });
     }
 
+    /// Opening a tab reads each artefacts route once: the grant that follows the session switch
+    /// finds that read in flight or answered.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_artefacts_tab_re_reads_when_access_becomes_ready() {
+    public async Task Opening_a_session_reads_plan_artifacts_and_pages_once() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var accessReady = new TaskCompletionSource<HubCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+            h.Lane.AccessWatchHandler = _ => accessReady.Task;
+            var source = new FakePlanArtifactSource();
+            var documents = source.Gate();
+            var pages = source.GatePages();
+            var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), source);
+            await WaitUntilAsync(() => source.Requested.Count == 1 && source.RequestedPages.Count == 1, what: "open reads started");
+
+            accessReady.SetResult(HubCallOutcome.Ok);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            documents.SetResult(source.Default);
+            pages.SetResult(source.DefaultPages);
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await (vm.Artefacts.PendingPagesForTesting ?? Task.CompletedTask);
+            await Task.Delay(50);
+
+            await Assert.That(source.Requested.Count).IsEqualTo(1);
+            await Assert.That(source.RequestedPages.Count).IsEqualTo(1);
+            await vm.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_grant_after_an_answered_read_does_not_read_again() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
             var accessReady = new TaskCompletionSource<HubCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
             h.Lane.AccessWatchHandler = _ => accessReady.Task;
             var source = new FakePlanArtifactSource();
             var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), source);
-            // Settle the initial read before granting access, so the ready edge must start a new read.
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await (vm.Artefacts.PendingPagesForTesting ?? Task.CompletedTask);
+
+            accessReady.SetResult(HubCallOutcome.Ok);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await Task.Delay(50);
+
+            await Assert.That(source.Requested.Count).IsEqualTo(1);
+            await Assert.That(source.RequestedPages.Count).IsEqualTo(1);
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// A read the server refused before it would grant the session is asked again once it does.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_artefacts_tab_re_reads_an_unavailable_answer_when_access_becomes_ready() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var accessReady = new TaskCompletionSource<HubCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+            h.Lane.AccessWatchHandler = _ => accessReady.Task;
+            var source = new FakePlanArtifactSource();
+            source.Enqueue(PlanArtifactsRead.Of(SessionPlansReadKind.Unavailable));
+            var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), source);
             await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
             await Assert.That(source.Requested.Count).IsEqualTo(1);
 
             accessReady.SetResult(HubCallOutcome.Ok);
             await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
             await WaitUntilAsync(() => source.Requested.Count == 2, what: "re-read on ready");
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// The grant meets the open read in flight; when that read answers Unavailable, the grant's
+    /// read still happens.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_grant_during_the_open_read_re_reads_when_that_read_answers_unavailable() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var accessReady = new TaskCompletionSource<HubCallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
+            h.Lane.AccessWatchHandler = _ => accessReady.Task;
+            var source = new FakePlanArtifactSource();
+            var documents = source.Gate();
+            var pages = source.GatePages();
+            var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), source);
+            await WaitUntilAsync(() => source.Requested.Count == 1 && source.RequestedPages.Count == 1, what: "open reads started");
+
+            accessReady.SetResult(HubCallOutcome.Ok);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await Task.Delay(50);
+            documents.SetResult(PlanArtifactsRead.Of(SessionPlansReadKind.Unavailable));
+            pages.SetResult(Capacitor.Cli.Core.Pages.SessionPagesRead.Of(SessionPlansReadKind.Unavailable));
+
+            await WaitUntilAsync(() => source.Requested.Count == 2 && source.RequestedPages.Count == 2, what: "re-read after the unavailable answer");
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await (vm.Artefacts.PendingPagesForTesting ?? Task.CompletedTask);
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// Giving the lease back and taking it again for the same session is not a new session: the
+    /// grant reads afresh rather than trusting the answer the artefacts kept.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_grant_after_the_same_session_is_leased_again_re_reads_the_artefacts() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var source = new FakePlanArtifactSource();
+            var row = Harness.Row(sessionId: "0123456789abcdef0123456789abcdef");
+            var vm = h.Build(row, source);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await Task.Delay(50);
+            var before = source.Requested.Count;
+            var watches = h.Lane.AccessWatches.Count;
+
+            h.Directory.Rows.AddOrUpdate(row with { Status = "Completed" });
+            await WaitUntilAsync(() => h.Lane.ChatUnsubscribes.Count > 0, what: "lease released");
+            h.Directory.Rows.AddOrUpdate(row);
+            await WaitUntilAsync(() => h.Lane.AccessWatches.Count > watches, what: "lease taken again");
+            await WaitUntilAsync(() => source.Requested.Count > before, what: "re-read on the second lease's grant");
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// Access granted again after the first grant, as a reconnect does, reads afresh.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_later_grant_re_reads_the_artefacts() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var source = new FakePlanArtifactSource();
+            var vm = h.Build(Harness.Row(sessionId: "0123456789abcdef0123456789abcdef"), source);
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            await Task.Delay(50);
+            var before = source.Requested.Count;
+
+            h.Lane.SessionAccessChangedSubject.OnNext("0123456789abcdef0123456789abcdef");
+            await WaitUntilAsync(() => source.Requested.Count > before, what: "re-read on the later grant");
             await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
             await vm.TeardownAsync();
         });

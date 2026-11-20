@@ -30,7 +30,7 @@ public class MacNotificationBlockTests {
             var invoke = Marshal.GetDelegateForFunctionPointer<Authorization>(Marshal.ReadIntPtr(retained, 16));
             invoke(retained, 1, 123);
             await Assert.That(received.Count).IsEqualTo(1);
-            await Assert.That(received[0]).IsEqualTo((true, (nint)123));
+            await Assert.That(received[0]).IsEqualTo((true, 123));
         } finally { release(retained); NativeLibrary.Free(library); }
     }
 
@@ -44,6 +44,6 @@ public class MacNotificationBlockTests {
         });
         var invoke = Marshal.GetDelegateForFunctionPointer<Completion>(Marshal.ReadIntPtr(owner.Handle, 16));
         invoke(owner.Handle, 456);
-        await Assert.That(received).IsEqualTo((nint)456);
+        await Assert.That(received).IsEqualTo(456);
     }
 }

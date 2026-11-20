@@ -48,9 +48,10 @@ public static class CodexHooksInstaller {
             if (JsonNode.Parse(File.ReadAllTextShared(hooksPath)) is not JsonObject root) return false;
             if (root["hooks"] is not JsonObject hooks) return false;
 
-            foreach (var (_, value) in hooks)
+            foreach (var (_, value) in hooks) {
                 if (value is JsonArray entries && entries.Any(CodexHooksParser.EntryReferencesCapacitorCodexHook))
                     return true;
+            }
 
             return false;
         } catch {

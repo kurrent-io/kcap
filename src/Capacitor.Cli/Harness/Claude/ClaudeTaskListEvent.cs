@@ -97,9 +97,10 @@ sealed partial record ClaudeTaskListEvent(string SessionId, ClaudeTaskListEvent.
     /// task the session never saw in a plan result is skipped: the hook cannot tell whether it lags.</summary>
     public IReadOnlyList<(TaskMove Move, PlanTaskState Task)> Lagging(IReadOnlyList<PlanTaskState> plan) {
         var lagging = new List<(TaskMove, PlanTaskState)>();
-        foreach (var move in Moves)
+        foreach (var move in Moves) {
             if (PlanTaskState.Find(plan, move.Task) is { } task && task.Lags(move.Status))
                 lagging.Add((move, task));
+        }
         return lagging;
     }
 

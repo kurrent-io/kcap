@@ -4,7 +4,7 @@ using Capacitor.Cli.Core.Http;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Http;
 
-public class ClientAgentTests {
+public partial class ClientAgentTests {
     [Test]
     [Arguments("1.2.3", "macos", Architecture.Arm64, ClientSurface.Desktop, "kcap/1.2.3 (macos-arm64; desktop)")]
     [Arguments("0.11.28", "linux", Architecture.X64, ClientSurface.Cli, "kcap/0.11.28 (linux-x64; cli)")]
@@ -20,9 +20,10 @@ public class ClientAgentTests {
     /// </summary>
     [Test]
     public async Task This_builds_user_agent_matches_the_shape_kcap_web_accepts() {
-        var shape = new Regex(@"^kcap/\d{1,4}\.\d{1,4}\.\d{1,6}(-[0-9A-Za-z.-]{1,40})? \([a-z]+-[a-z0-9]+; (desktop|cli)\)$");
-
-        await Assert.That(shape.IsMatch(ClientAgent.Cli.UserAgent)).IsTrue().Because(ClientAgent.Cli.UserAgent);
+        await Assert.That(UserAgentShape().IsMatch(ClientAgent.Cli.UserAgent)).IsTrue().Because(ClientAgent.Cli.UserAgent);
         await Assert.That(ClientAgent.Desktop.UserAgent).EndsWith("; desktop)");
     }
+
+    [GeneratedRegex(@"^kcap/\d{1,4}\.\d{1,4}\.\d{1,6}(-[0-9A-Za-z.-]{1,40})? \([a-z]+-[a-z0-9]+; (desktop|cli)\)$")]
+    private static partial Regex UserAgentShape();
 }

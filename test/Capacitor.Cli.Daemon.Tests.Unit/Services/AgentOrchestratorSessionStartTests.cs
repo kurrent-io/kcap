@@ -43,7 +43,7 @@ public class AgentOrchestratorSessionStartTests {
         orch.PermissionBridgeForTest.SessionStartHandler!(agent.Id);
         await WaitForAsync(() => pty.Writes.Count >= 2);
 
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~build it\x1b[201~|\r");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\e[200~build it\e[201~|\r");
         pty.Exit();
     }
 
@@ -67,7 +67,7 @@ public class AgentOrchestratorSessionStartTests {
         await orch.RunDiscoveryForTest(agent, _ => (SessionId, "/t.jsonl"));
         await WaitForAsync(() => pty.Writes.Count >= 2);
 
-        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\x1b[200~build it\x1b[201~|\r");
+        await Assert.That(string.Join("|", pty.Writes)).IsEqualTo("\e[200~build it\e[201~|\r");
         pty.Exit();
     }
 

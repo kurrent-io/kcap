@@ -44,7 +44,7 @@ public class RepoPathStoreTests {
 
     [Test]
     public async Task Add_WhenFileDoesNotExist_CreatesFileWithEntry() {
-        var path = "/tmp/my-project";
+        const string path = "/tmp/my-project";
 
         await Repos.AddAsync(path);
 
@@ -55,7 +55,7 @@ public class RepoPathStoreTests {
 
     [Test]
     public async Task Add_NewPath_AppearsInLoad() {
-        var path = "/tmp/my-project";
+        const string path = "/tmp/my-project";
 
         await Repos.AddAsync(path);
 
@@ -66,7 +66,7 @@ public class RepoPathStoreTests {
 
     [Test]
     public async Task Add_SamePathTwice_DoesNotCreateDuplicate() {
-        var path = "/tmp/my-project";
+        const string path = "/tmp/my-project";
 
         await Repos.AddAsync(path);
         await Repos.AddAsync(path);
@@ -77,7 +77,7 @@ public class RepoPathStoreTests {
 
     [Test]
     public async Task Add_SamePathTwice_UpdatesLastUsed() {
-        var path = "/tmp/my-project";
+        const string path = "/tmp/my-project";
 
         await Repos.AddAsync(path);
         var firstEntries = await Repos.LoadAsync();
@@ -152,8 +152,8 @@ public class RepoPathStoreTests {
 
     [Test]
     public async Task Add_PathWithTrailingSeparator_IsNormalized() {
-        var pathWithSep    = "/tmp/my-project" + Path.DirectorySeparatorChar;
-        var pathWithoutSep = "/tmp/my-project";
+        var pathWithSep             = "/tmp/my-project" + Path.DirectorySeparatorChar;
+        const string pathWithoutSep = "/tmp/my-project";
 
         await Repos.AddAsync(pathWithSep);
 
@@ -164,8 +164,8 @@ public class RepoPathStoreTests {
 
     [Test]
     public async Task Add_SamePathWithAndWithoutTrailingSeparator_TreatedAsSamePath() {
-        var pathWithSep    = "/tmp/my-project" + Path.DirectorySeparatorChar;
-        var pathWithoutSep = "/tmp/my-project";
+        var pathWithSep             = "/tmp/my-project" + Path.DirectorySeparatorChar;
+        const string pathWithoutSep = "/tmp/my-project";
 
         await Repos.AddAsync(pathWithSep);
         await Repos.AddAsync(pathWithoutSep);
@@ -178,7 +178,7 @@ public class RepoPathStoreTests {
 
     [Test]
     public async Task Remove_ExistingPath_ReturnsTrue() {
-        var path = "/tmp/my-project";
+        const string path = "/tmp/my-project";
         await Repos.AddAsync(path);
 
         var result = await Repos.RemoveAsync(path);
@@ -188,7 +188,7 @@ public class RepoPathStoreTests {
 
     [Test]
     public async Task Remove_ExistingPath_PathNoLongerInLoad() {
-        var path = "/tmp/my-project";
+        const string path = "/tmp/my-project";
         await Repos.AddAsync(path);
 
         await Repos.RemoveAsync(path);

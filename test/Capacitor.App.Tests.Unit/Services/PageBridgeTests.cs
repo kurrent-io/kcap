@@ -14,7 +14,7 @@ public class PageBridgeTests {
     const string Nonce = "n0nce-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     const int Version = 3;
 
-    static ArtefactDto Page() => new(Id, "Poll", "u1", "org", Version, DateTimeOffset.UtcNow, false, "https://srv.test/pages/01ec");
+    static ArtefactDto Page() => new(Id, "Poll", "u1", "org", Version, DateTimeOffset.UtcNow, false, null, null, "https://srv.test/pages/01ec");
 
     static PageBridgeReply Reply(int status, string? body = null) =>
         new(status, body is null ? null : JsonDocument.Parse(body).RootElement.Clone());

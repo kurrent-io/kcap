@@ -127,7 +127,7 @@ public class AgentActionServiceTests {
         var states = new StopStateRecorder();
         using var sub = service.StopsInFlight.Subscribe(states.Add);
 
-        var gate = ops.ArmStop();
+        _ = ops.ArmStop();
         service.RequestStop("a", "agent-a", "agent");
         await WaitUntilAsync(() => ops.StopCalls >= 1, what: "stop call issued");
 

@@ -21,7 +21,7 @@ public class McpHandoffServerTests {
         var request = new JsonObject {
             ["params"] = new JsonObject { ["name"] = "continue_session", ["arguments"] = JsonNode.Parse(argsJson) }
         };
-        return await Server().HandleToolCallAsync(JsonValue.Create(1)!, request, client, "http://x", current);
+        return await Server().HandleToolCallAsync(JsonValue.Create(1), request, client, "http://x", current);
     }
 
     static string Text(string response) => JsonNode.Parse(response)!["result"]!["content"]![0]!["text"]!.GetValue<string>();

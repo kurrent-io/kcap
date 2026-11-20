@@ -35,27 +35,30 @@ public static class PolicyEngine {
     static MatchedRuleRef? FirstRestrictiveHit(
         PolicySnapshot snapshot, CanonicalAction action, IReadOnlyList<ActionComponent> restriction, RuleOutcome outcome) {
         foreach (var scope in ScopeOrder)
-            foreach (var doc in snapshot.Documents)
+            foreach (var doc in snapshot.Documents) {
                 if (doc.Scope == scope)
                     for (var i = 0; i < doc.Document.Rules.Count; i++) {
                         var rule = doc.Document.Rules[i];
                         if (rule.Outcome != outcome) continue;
-                        foreach (var component in restriction)
+                        foreach (var component in restriction) {
                             if (RuleMatch.Restrictive(rule, action, component))
                                 return new(scope, i, outcome, rule.Reason);
+                        }
                     }
+            }
         return null;
     }
 
     static MatchedRuleRef? FirstCoveringAllow(PolicySnapshot snapshot, CanonicalAction action, ActionComponent component) {
         foreach (var scope in ScopeOrder)
-            foreach (var doc in snapshot.Documents)
+            foreach (var doc in snapshot.Documents) {
                 if (doc.Scope == scope)
                     for (var i = 0; i < doc.Document.Rules.Count; i++) {
                         var rule = doc.Document.Rules[i];
                         if (rule.Outcome == RuleOutcome.Allow && RuleMatch.Covers(rule, component, action.Kind))
                             return new(scope, i, RuleOutcome.Allow, rule.Reason);
                     }
+            }
         return null;
     }
 }

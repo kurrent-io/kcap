@@ -9,7 +9,7 @@ public class PermissionWireContractsTests {
 
     [Test]
     public async Task Optional_grant_capabilities_roundtrip_and_older_payloads_leave_them_unknown() {
-        var oldJson = """{"request_id":"r1","agent_id":"a1","session_id":"s1","vendor":"copilot","tool_name":"Bash","requested_at":"t"}""";
+        const string oldJson = """{"request_id":"r1","agent_id":"a1","session_id":"s1","vendor":"copilot","tool_name":"Bash","requested_at":"t"}""";
         var older = JsonSerializer.Deserialize(oldJson, PermissionIpcJsonContext.Default.PermissionPendingDto)!;
         await Assert.That(older.SupportsAllowOnce).IsNull();
         await Assert.That(older.SupportsAllowAlways).IsNull();

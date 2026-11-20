@@ -224,8 +224,8 @@ public class PermissionServiceTests {
     }
 
     static PermissionPendingDto PendingDto(string id, string agent, string vendor, string toolName, string? toolInputJson, bool omitted = false) {
-        System.Text.Json.JsonElement? input = null;
-        if (toolInputJson is not null) { using var d = System.Text.Json.JsonDocument.Parse(toolInputJson); input = d.RootElement.Clone(); }
+        JsonElement? input = null;
+        if (toolInputJson is not null) { using var d = JsonDocument.Parse(toolInputJson); input = d.RootElement.Clone(); }
         return new PermissionPendingDto(id, agent, "s1", vendor, toolName, input, null, omitted, false, "2026-08-28T10:00:00.0000000+00:00");
     }
 

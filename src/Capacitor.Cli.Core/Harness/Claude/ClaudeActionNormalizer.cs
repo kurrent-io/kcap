@@ -1,7 +1,7 @@
 namespace Capacitor.Cli.Core.Harness.Claude;
 
 using System.Text.Json;
-using Capacitor.Cli.Core.Policy;
+using Policy;
 
 /// <summary>
 /// Never throws and never skips: any unmappable payload yields kind <see cref="ActionKind.Other"/>

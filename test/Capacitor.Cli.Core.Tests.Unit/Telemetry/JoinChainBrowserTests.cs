@@ -75,7 +75,7 @@ public class JoinChainBrowserTests {
 
             // Published only after InvokeAsync has bound the listener, so a driver that navigates the
             // instant it sees this file cannot beat the port into existence.
-            PublishHandshake(handshake!, baseUrl!, port, $"{redirect}?code=browser-e2e&state={State}");
+            PublishHandshake(handshake, baseUrl, port, $"{redirect}?code=browser-e2e&state={State}");
 
             var result = await invoke;
             await Assert.That(result.ResultType).IsEqualTo(BrowserResultType.Success)
@@ -92,7 +92,7 @@ public class JoinChainBrowserTests {
                 .Because("SameSite=Lax cookies must travel on this top-level navigation — the whole "
                        + "reason the closing page navigates instead of firing a beacon");
         } finally {
-            try { File.Delete(handshake!); } catch { /* best effort */ }
+            try { File.Delete(handshake); } catch { /* best effort */ }
         }
     }
 

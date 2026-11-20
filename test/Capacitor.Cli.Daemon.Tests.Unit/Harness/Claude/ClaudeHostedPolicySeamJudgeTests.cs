@@ -2,9 +2,9 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Claude;
 
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Capacitor.Cli.Core;
-using Capacitor.Cli.Core.Http;
-using Capacitor.Cli.Core.Policy;
+using Core;
+using Core.Http;
+using Core.Policy;
 using Capacitor.Cli.Daemon.Harness.Claude;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Time.Testing;

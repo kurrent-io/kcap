@@ -123,6 +123,8 @@ public class TerminalClipboardTests {
                 Dispatcher.UIThread.RunJobs();
                 try {
                     var terminal = window.GetVisualDescendants().OfType<TerminalControl>().Single(c => c.Name == "TerminalHost");
+                    // These bare views have no connection model to mark the terminal ready.
+                    terminal.IsEnabled = true;
                     terminal.Model = surface.Model;
                     terminal.Focus();
                     await window.Clipboard!.SetTextAsync("pasted");

@@ -91,7 +91,7 @@ public partial class ChatTabViewModelTests {
             await WaitUntilAsync(() => lane.Tails.Count == 2 && chat.Phase == ChatTabPhase.Reading, what: "refusal cleared without a poll");
             var lastRead = chat.PendingReadForTesting;
             time.Advance(TimeSpan.FromSeconds(60));
-            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background);
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
             await Assert.That(ReferenceEquals(lastRead, chat.PendingReadForTesting)).IsTrue();
             for (var i = 1; i <= 20; i++) lane.PushStreamEvent(RemoteFixtures.Envelope("s1", (ulong)i,
                 CanonicalEventTypes.AssistantTextGenerated, "{\"content\":\"live\"}"));

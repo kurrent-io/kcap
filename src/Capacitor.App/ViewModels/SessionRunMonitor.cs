@@ -25,10 +25,14 @@ internal sealed class SessionRunMonitor : IDisposable {
     readonly SerialDisposable _accessLease = new();
     readonly ITimer _timer;
     IChatTranscriptFeed? _feed;
+    Action? _feedChanged;
     string? _key;
     int _generation;
     bool _reading;
     bool _seeded;
+    bool _ticking;
+    int _wakePosted;
+    int _wakesPosted;
     bool _disposed;
 
     public SessionRunMonitor(string rowKey, Action<RunningWork> report, Action ended, IDaemonClientService daemon,
@@ -44,8 +48,7 @@ internal sealed class SessionRunMonitor : IDisposable {
         _remote = !rowKey.StartsWith("local:", StringComparison.Ordinal);
         _agentId = rowKey[(rowKey.IndexOf(':') + 1)..];
         _runs = new SessionRuns(time);
-        _timer = time.CreateTimer(_ => Dispatcher.UIThread.Post(Read), null,
-            ChatTabViewModel.PollInterval, ChatTabViewModel.PollInterval);
+        _timer = time.CreateTimer(_ => Dispatcher.UIThread.Post(Read), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _subscriptions.Add(_accessLease);
         if (_remote) {
             // A server row leaves the loaded set on a page cut or a scope change, not when its session ends.
@@ -74,7 +77,7 @@ internal sealed class SessionRunMonitor : IDisposable {
         }
         if (_key == info.FeedKey) return;
         _generation++;
-        _feed?.Dispose();
+        DropFeed();
         _accessLease.Disposable = Disposable.Empty;
         _key = info.FeedKey;
         _seeded = false;
@@ -84,24 +87,59 @@ internal sealed class SessionRunMonitor : IDisposable {
             _feed = handoff.Feed;
             _runs = handoff.Runs;
             _report(_runs.Work);
+            SetTicking(true);
             Read();
             return;
         }
         handoff?.Feed.Dispose();
         _runs.Clear();
-        if (_key is null) { _feed = null; _report(default); return; }
+        if (_key is null) { _report(default); return; }
         if (_remote) {
             var lease = _access.Acquire(_key);
             var denied = new SingleAssignmentDisposable();
             _accessLease.Disposable = new CompositeDisposable(denied, lease);
-            _feed = new RemoteTranscriptFeed(_key, info.Vendor, lease.State, _readDetail, _lane, _time, Log);
+            var remote = new RemoteTranscriptFeed(_key, info.Vendor, lease.State, _readDetail, _lane, _time, Log);
+            _feed = remote;
+            _feedChanged = SignalRead;
+            remote.Changed += _feedChanged;
             // A replayed denial can dispose this monitor inside Subscribe.
             denied.Disposable = lease.State.ObserveOn(RxSchedulers.MainThreadScheduler)
                 .Where(state => state == SessionAccessState.Denied).Subscribe(_ => _ended());
         } else {
             _feed = new LocalTranscriptFeed(_key, projection!, _agentId, _time, Log);
+            SetTicking(true);
         }
         Read();
+    }
+
+    /// A stream burst raises a change per event; one wake stands for all of them until it runs.
+    void SignalRead() {
+        if (Interlocked.Exchange(ref _wakePosted, 1) != 0) return;
+        Interlocked.Increment(ref _wakesPosted);
+        Dispatcher.UIThread.Post(() => {
+            Volatile.Write(ref _wakePosted, 0);
+            Read();
+        });
+    }
+
+    internal int WakesPostedForTesting => Volatile.Read(ref _wakesPosted);
+
+    /// A remote feed says when it has lines, so only a local file is polled.
+    void SetTicking(bool on) {
+        if (_ticking == on) return;
+        _ticking = on;
+        var period = on ? ChatTabViewModel.PollInterval : Timeout.InfiniteTimeSpan;
+        _timer.Change(period, period);
+    }
+
+    internal bool IsTickingForTesting => _ticking;
+
+    void DropFeed() {
+        SetTicking(false);
+        if (_feed is RemoteTranscriptFeed remote && _feedChanged is not null) remote.Changed -= _feedChanged;
+        _feedChanged = null;
+        _feed?.Dispose();
+        _feed = null;
     }
 
     void Read() {
@@ -133,7 +171,11 @@ internal sealed class SessionRunMonitor : IDisposable {
         } catch (Exception ex) {
             Log(ex.Message);
         } finally {
-            await Dispatcher.UIThread.InvokeAsync(() => _reading = false);
+            await Dispatcher.UIThread.InvokeAsync(() => {
+                _reading = false;
+                // A switch or a change made while this read ran found it busy.
+                if (generation != _generation || _feed is RemoteTranscriptFeed { HasPendingChanges: true }) Read();
+            });
         }
     }
 
@@ -143,10 +185,9 @@ internal sealed class SessionRunMonitor : IDisposable {
         if (_disposed) return;
         _disposed = true;
         _generation++;
+        DropFeed();
         _timer.Dispose();
         _subscriptions.Dispose();
-        _feed?.Dispose();
-        _feed = null;
         _handoff?.Feed.Dispose();
         _handoff = null;
     }

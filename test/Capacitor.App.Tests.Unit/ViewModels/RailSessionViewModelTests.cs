@@ -1,6 +1,8 @@
+using TUnit.Assertions.Enums;
 using System.Collections.Frozen;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.PullRequests;
@@ -92,6 +94,58 @@ public class RailSessionViewModelTests {
             row.OpenPullRequestCommand.Execute().Subscribe();
             await Assert.That(opened).IsEqualTo(AgentOrigin.Remote);
             await Assert.That(openedSubject).IsEqualTo(row.PullRequest!.Subject);
+        });
+    }
+
+    sealed class RecordingRowActions : IRailSessionActions {
+        public readonly List<string> Calls = [];
+        public void Rename(AgentRow row) => Calls.Add($"rename {row.Id}");
+        public Task MakePrivateAsync(AgentRow row, string label) { Calls.Add($"private {label}"); return Task.CompletedTask; }
+        public Task DeleteAsync(AgentRow row, string label) { Calls.Add($"delete {label}"); return Task.CompletedTask; }
+        public void Terminate(AgentRow row, string label) => Calls.Add($"terminate {label}");
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_row_without_actions_offers_no_menu() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var row = new RailSessionViewModel(Row() with { SessionId = "s1" },
+                new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
+            await Assert.That(row.HasMenu).IsFalse();
+            await Assert.That(((System.Windows.Input.ICommand)row.RenameCommand).CanExecute(null)).IsFalse();
+            await Assert.That(((System.Windows.Input.ICommand)row.TerminateCommand).CanExecute(null)).IsFalse();
+        });
+    }
+
+    /// The items follow the row as the directory revises it: a session id arriving enables the session items, and
+    /// the agent ending disables Terminate.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Menu_items_follow_the_row_and_run_against_its_latest_state() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var actions = new RecordingRowActions();
+            using var row = new RailSessionViewModel(Row() with { SessionId = null },
+                new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System,
+                sessionActions: actions);
+            static bool Can(System.Windows.Input.ICommand command) => command.CanExecute(null);
+            await Assert.That(row.HasMenu).IsTrue();
+            await Assert.That(Can(row.RenameCommand)).IsFalse();
+            await Assert.That(Can(row.TerminateCommand)).IsTrue();
+
+            row.Update(Row() with { SessionId = "s1" });
+            await Assert.That(Can(row.RenameCommand)).IsTrue();
+            await Assert.That(Can(row.MakePrivateCommand)).IsTrue();
+            await Assert.That(Can(row.DeleteCommand)).IsTrue();
+            await row.RenameCommand.Execute();
+            await row.MakePrivateCommand.Execute();
+            await row.DeleteCommand.Execute();
+            await row.TerminateCommand.Execute();
+            await Assert.That(actions.Calls).IsEquivalentTo(new[] {
+                "rename a1", "private Fix the flaky test", "delete Fix the flaky test", "terminate Fix the flaky test",
+            }, CollectionOrdering.Matching);
+
+            row.Update(Row(status: "Completed") with { SessionId = "s1" });
+            await Assert.That(Can(row.TerminateCommand)).IsFalse();
         });
     }
 

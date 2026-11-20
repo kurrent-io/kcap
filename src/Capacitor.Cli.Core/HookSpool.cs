@@ -512,9 +512,10 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
 
         try {
             foreach (var path in Directory.EnumerateFiles(DirectoryPath, $"{key}.jsonl").Concat(Temps(key)))
-            foreach (var line in File.ReadLinesShared(path))
+            foreach (var line in File.ReadLinesShared(path)) {
                 if (Entry(line) is { } e && e.Route != RunStartedRoute && (marked || IsTerminalRoute(e.Route)))
                     ids.Add((JsonNode)JsonValue.Create(EntryId(e.Route, e.Body)));
+            }
         } catch {
             // Unreadable: what could not be read stays queued, and the drain's position rule judges it
         }
@@ -709,8 +710,8 @@ public sealed partial class HookSpool(SpoolPartition partition, TimeProvider tim
     }
 
     // Filename-safe superset of the old dashless-GUID form. The filename IS the session id --
-    // LifecycleSpoolDrain posts it verbatim as session_id for session-needs-import -- so the key may
-    // be widened but never transformed (hashing would fabricate an id on the wire). Excludes '.', '/'
+    // LifecycleSpoolDrain reads it back and names it in what it sends and reports -- so the key may
+    // be widened but never transformed (hashing would fabricate an id). Excludes '.', '/'
     // and '\\', preserving both the path-traversal property and the parse-before-first-dot split.
     // Vendors such as OpenCode use ids like "ses_7f3a9c21b8", which the old form silently dropped.
     /// <summary>The pre-upgrade key space: a dashless GUID, case-insensitively one id.</summary>

@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.Config;
 public class ConfigMigrationTests {
     [Test]
     public async Task Migrate_V1FlatConfig_CreatesDefaultProfile() {
-        var v1Json = """
+        const string v1Json = """
             {
                 "server_url": "https://my-server.com",
                 "daemon": { "name": "dev", "max_agents": 3 },
@@ -35,7 +35,7 @@ public class ConfigMigrationTests {
 
     [Test]
     public async Task Migrate_V2Config_NoMigration() {
-        var v2Json = """
+        const string v2Json = """
             {
                 "version": 2,
                 "active_profile": "default",
@@ -110,7 +110,7 @@ public class ConfigMigrationTests {
 
     [Test]
     public async Task ProfileConfig_ExcludedPaths_RoundTrips() {
-        var json = """{ "excluded_paths": ["/home/alice/secret", "/srv/private"] }""";
+        const string json = """{ "excluded_paths": ["/home/alice/secret", "/srv/private"] }""";
         var profile = JsonSerializer.Deserialize(json, ProfileConfigJsonContext.Default.Profile)!;
 
         await Assert.That(profile.ExcludedPaths).Contains("/home/alice/secret");
@@ -119,7 +119,7 @@ public class ConfigMigrationTests {
 
     [Test]
     public async Task ProfileConfig_AllowedPaths_RoundTrips() {
-        var json = """{ "allowed_paths": ["/home/alice/dev", "/srv/work"] }""";
+        const string json = """{ "allowed_paths": ["/home/alice/dev", "/srv/work"] }""";
         var profile = JsonSerializer.Deserialize(json, ProfileConfigJsonContext.Default.Profile)!;
 
         await Assert.That(profile.AllowedPaths).Contains("/home/alice/dev");
@@ -128,7 +128,7 @@ public class ConfigMigrationTests {
 
     [Test]
     public async Task ProfileConfig_AllowedRepos_RoundTrips() {
-        var json = """{ "allowed_repos": ["acme/widgets", "acme/gadgets"] }""";
+        const string json = """{ "allowed_repos": ["acme/widgets", "acme/gadgets"] }""";
         var profile = JsonSerializer.Deserialize(json, ProfileConfigJsonContext.Default.Profile)!;
 
         await Assert.That(profile.AllowedRepos).Contains("acme/widgets");
@@ -138,7 +138,7 @@ public class ConfigMigrationTests {
     [Test]
     public async Task ProfileConfig_without_AllowedPaths_admits_everything() {
         // The upgrade case: a config written before the key existed must not start filtering.
-        var json = """{ "excluded_paths": ["/home/alice/secret"] }""";
+        const string json = """{ "excluded_paths": ["/home/alice/secret"] }""";
         var profile = JsonSerializer.Deserialize(json, ProfileConfigJsonContext.Default.Profile)!;
 
         await Assert.That(profile.AllowedPaths ?? []).IsEmpty();
@@ -168,15 +168,15 @@ public class ConfigMigrationTests {
 
     [Test]
     public async Task ProfileConfig_DisableSessionGuidelines_RoundTripsTrue() {
-        var json   = """{ "disable_session_guidelines": true }""";
-        var config = JsonSerializer.Deserialize(json, ProfileConfigJsonContext.Default.Profile)!;
+        const string json = """{ "disable_session_guidelines": true }""";
+        var config        = JsonSerializer.Deserialize(json, ProfileConfigJsonContext.Default.Profile)!;
         await Assert.That(config.DisableSessionGuidelines).IsTrue();
     }
 
     [Test]
     public async Task ProfileConfig_DisableSessionGuidelines_NullWhenAbsent() {
-        var json   = "{}";
-        var config = JsonSerializer.Deserialize(json, ProfileConfigJsonContext.Default.Profile)!;
+        const string json = "{}";
+        var config        = JsonSerializer.Deserialize(json, ProfileConfigJsonContext.Default.Profile)!;
         await Assert.That(config.DisableSessionGuidelines).IsNull();
     }
 
@@ -191,7 +191,7 @@ public class ConfigMigrationTests {
 
     [Test]
     public async Task Migrate_V1MissingUpdateCheck_DefaultsToTrue() {
-        var v1Json = """
+        const string v1Json = """
             {
                 "server_url": "https://my-server.com"
             }
@@ -205,7 +205,7 @@ public class ConfigMigrationTests {
 
     [Test]
     public async Task Migrate_V1UpdateCheckFalse_StaysFalse() {
-        var v1Json = """
+        const string v1Json = """
             {
                 "server_url": "https://my-server.com",
                 "update_check": false
@@ -220,7 +220,7 @@ public class ConfigMigrationTests {
 
     [Test]
     public async Task Migrate_V1UpdateCheckTrue_StaysTrue() {
-        var v1Json = """
+        const string v1Json = """
             {
                 "server_url": "https://my-server.com",
                 "update_check": true
@@ -235,7 +235,7 @@ public class ConfigMigrationTests {
 
     [Test]
     public async Task Migrate_V1OtherFields_MapOntoDefaultProfile() {
-        var v1Json = """
+        const string v1Json = """
             {
                 "server_url": "https://my-server.com",
                 "default_visibility": "private",
@@ -258,7 +258,7 @@ public class ConfigMigrationTests {
 
     [Test]
     public async Task Migrate_V2Config_IsPassthroughAndUnaffectedByUpdateCheckFix() {
-        var v2Json = """
+        const string v2Json = """
             {
                 "version": 2,
                 "active_profile": "default",

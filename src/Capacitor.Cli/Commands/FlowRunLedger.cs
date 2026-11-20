@@ -30,12 +30,13 @@ public sealed class FlowRunLedger(ConfigRoot config, TimeProvider time) {
                 entries.Insert(0, new(flowRunId, workspace, now));
 
                 var rows = new JsonArray();
-                foreach (var e in entries.Take(MaxEntries))
+                foreach (var e in entries.Take(MaxEntries)) {
                     rows.Add((JsonNode)new JsonObject {
                         ["flow_run_id"] = e.FlowRunId,
                         ["workspace"]   = e.Workspace,
                         ["started_at"]  = e.StartedAt.ToString("O"),
                     });
+                }
 
                 AtomicFile.Replace(_path, new JsonObject { ["runs"] = rows }.ToJsonString());
                 return true;
@@ -51,7 +52,7 @@ public sealed class FlowRunLedger(ConfigRoot config, TimeProvider time) {
 
     List<Entry> Load(DateTimeOffset now) {
         try {
-            if (!File.Exists(_path) || JsonNode.Parse(File.ReadAllText(_path)) is not JsonObject { } root
+            if (!File.Exists(_path) || JsonNode.Parse(File.ReadAllText(_path)) is not JsonObject root
                                     || root["runs"] is not JsonArray rows)
                 return [];
 

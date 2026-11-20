@@ -393,6 +393,6 @@ public class McpEvidenceJudgeToolsTests : IDisposable {
 
     [Test]
     public async Task The_parents_allowlist_names_exactly_the_tools_this_server_serves() =>
-        await Assert.That(Capacitor.Cli.Core.Eval.EvalService.EvidenceMcpAllowedTools)
+        await Assert.That(Core.Eval.EvalService.EvidenceMcpAllowedTools)
             .IsEquivalentTo(McpEvidenceJudgeTools.ToolNames.Select(n => $"mcp__kcap-judge__{n}").ToArray());
 }

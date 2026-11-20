@@ -59,10 +59,11 @@ public static class SkillsExclusion {
     static string DominantNewline(string text) {
         var crlf = 0;
         var lf   = 0;
-        for (var i = 0; i < text.Length; i++)
+        for (var i = 0; i < text.Length; i++) {
             if (text[i] == '\n') {
                 if (i > 0 && text[i - 1] == '\r') crlf++; else lf++;
             }
+        }
         return crlf > lf ? "\r\n" : "\n";
     }
 }

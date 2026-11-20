@@ -116,7 +116,7 @@ sealed class LocalInstaller(
             if (plan.Hint == PlanHint.Reuse) {
                 var existing = plan.Existing!;
 
-                return await ReuseAsync(existing, unitLock!, answers, ct);
+                return await ReuseAsync(existing, unitLock, answers, ct);
             }
 
             if (!answers.SingleUser || !answers.Confirmed)

@@ -39,6 +39,33 @@ public class KcapCliTests {
         new(runner, "kcap", "daemon-a", "work", _ => Task.FromResult(terminalPath), canonicalServer);
 
     [Test]
+    public async Task Session_hide_and_disable_name_the_session_and_skip_the_update_check() {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, "", "", false)) };
+        var cli = MakeCli(runner);
+
+        await cli.HideSessionAsync("abc", CancellationToken.None);
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(["hide", "abc", "--no-update-check"], CollectionOrdering.Matching);
+
+        await Assert.That(runner.SeenOptions!.EnvOverlay![KcapCli.ExpectServerUrlVar]).IsEqualTo(CanonicalServer);
+
+        await cli.DisableSessionAsync("abc", CancellationToken.None);
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(["disable", "abc", "--no-update-check"], CollectionOrdering.Matching);
+        await Assert.That(runner.SeenOptions!.EnvOverlay![KcapCli.ExpectServerUrlVar]).IsEqualTo(CanonicalServer);
+    }
+
+    /// Without a server to name, the CLI could not refuse a repointed profile, so nothing is spawned.
+    [Test]
+    public async Task Session_changes_without_an_app_server_spawn_nothing() {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, "", "", false)) };
+        var cli = MakeCli(runner, canonicalServer: null);
+
+        var result = await cli.DisableSessionAsync("abc", CancellationToken.None);
+
+        await Assert.That(result.ExitCode).IsEqualTo(1);
+        await Assert.That(runner.SeenArgs).IsNull();
+    }
+
+    [Test]
     public async Task VersionAsync_builds_argv_and_parses_stdout() {
         var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, "kcap 9.9.9\n", "", false)) };
         var cli = MakeCli(runner);
@@ -847,8 +874,8 @@ public class KcapCliTests {
     /// read from stdout whatever the exit code.</summary>
     [Test]
     public async Task LocalStatusAsync_reads_a_not_ready_status_from_stdout() {
-        var line = Capacitor.Cli.Core.LocalEdition.LocalStatusJson.From(false, "Not running.", [],
-            new(Capacitor.Cli.Core.LocalEdition.LocalServerCondition.Restarting, 9473)).Render();
+        var line = Cli.Core.LocalEdition.LocalStatusJson.From(false, "Not running.", [],
+            new(Cli.Core.LocalEdition.LocalServerCondition.Restarting, 9473)).Render();
         var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(1, line + "\n", "", false)) };
         var cli = MakeCli(runner);
 
@@ -856,7 +883,7 @@ public class KcapCliTests {
 
         await Assert.That(runner.SeenArgs).IsEquivalentTo(["local", "status", "--json"], CollectionOrdering.Matching);
         await Assert.That(runner.SeenOptions!.EnvOverlay!["KCAP_PROFILE"]).IsEqualTo("work");
-        await Assert.That(reading!.Condition).IsEqualTo(Capacitor.Cli.Core.LocalEdition.LocalServerCondition.Restarting);
+        await Assert.That(reading!.Condition).IsEqualTo(Cli.Core.LocalEdition.LocalServerCondition.Restarting);
     }
 
     /// <summary>A CLI that predates the flag prints usage, and a timed-out one may print half a line: neither is a status.</summary>

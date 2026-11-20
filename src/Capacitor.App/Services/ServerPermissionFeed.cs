@@ -15,7 +15,7 @@ namespace Capacitor.App.Services;
 /// operation on the session can land inside one of those units.
 public sealed class ServerPermissionFeed : IDisposable {
     readonly PermissionService _permissions;
-    readonly SessionDetailReader _readDetail;
+    readonly ISessionInterruptSource _interrupts;
     readonly CompositeDisposable _subscriptions = new();
     readonly CancellationTokenSource _lifetime = new();
     readonly Dictionary<string, int> _attempts = new(StringComparer.Ordinal);
@@ -28,13 +28,16 @@ public sealed class ServerPermissionFeed : IDisposable {
 
     public ServerPermissionFeed(
             IServerLane lane, SessionAccessService access, PermissionService permissions,
-            SessionDetailReader readDetail, Func<string, string?> vendorOfSession, TimeProvider time) {
+            ISessionInterruptSource interrupts, Func<string, string?> vendorOfSession, TimeProvider time) {
         _permissions = permissions;
-        _readDetail = readDetail;
+        _interrupts = interrupts;
 
         lane.Status.Where(s => s.State == ServerLaneState.Connected && s.Subject is not null)
             .Subscribe(s => {
-                if (_subject is not null && _subject != s.Subject) permissions.ClearServerLane();
+                if (_subject is not null && _subject != s.Subject) {
+                    interrupts.Forget();
+                    permissions.ClearServerLane();
+                }
                 _subject = s.Subject;
             }).DisposeWith(_subscriptions);
         lane.PermissionRequests
@@ -100,15 +103,14 @@ public sealed class ServerPermissionFeed : IDisposable {
     async Task ReconcileAsync(string sessionId, int attempt) {
         try {
             if (await MarkerAsync(sessionId, attempt).ConfigureAwait(false) is not { } marker) return;
-            var fetch = await _readDetail(sessionId, _lifetime.Token).ConfigureAwait(false);
+            var fetch = await _interrupts.ReadAsync(sessionId, _lifetime.Token).ConfigureAwait(false);
             // A fetch that merely failed says nothing about the session, so its cards stand; only
             // a 404 is evidence there is nothing to hold.
-            if (fetch.Detail is null) {
+            if (fetch.Interrupts is not { } reconciled) {
                 if (fetch.NotFound)
                     await CommitAsync(sessionId, attempt, () => _permissions.ReplaceServerForSession(sessionId, [], marker)).ConfigureAwait(false);
                 return;
             }
-            var reconciled = InterruptReconciliation.FromDetail(fetch.Detail);
             IReadOnlyList<PendingPermissionRequest> items = reconciled.Ended
                 ? []
                 : [.. reconciled.Pending.Where(p => p.IsAnswerableOverHttp)
@@ -127,6 +129,7 @@ public sealed class ServerPermissionFeed : IDisposable {
         if (_disposed) return;
         _disposed = true;
         _subscriptions.Dispose();
+        _interrupts.Dispose();
         _lifetime.Cancel();
         _lifetime.Dispose();
         // Every in-flight fetch now reads as superseded rather than applying to a disposed cache.

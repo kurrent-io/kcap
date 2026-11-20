@@ -132,7 +132,7 @@ public class ChatTabViewSmokeTests {
         /// `show: false` leaves the window unshown, so the view has no template and no
         /// ScrollViewer until Show() is called — the order production takes, where the tab's
         /// first read starts before the workspace view exists.
-        public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null,
+        public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null,
                 ChatFindMemory? findMemory = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null) {
             Runs = new SessionRuns(Time);
             Terminal = new TerminalTabViewModel("a1", Daemon, Attach.Factory, () => new FakeTerminalSurface(), Time);
@@ -561,7 +561,7 @@ public class ChatTabViewSmokeTests {
     public Task The_handoff_card_sits_above_the_transcript_and_its_close_button_dismisses_it() => RunOnUiAsync(async () => {
         using var cards = new BehaviorSubject<HandoffOutcomeViewModel?>(null);
         var dismissed = 0;
-        cards.OnNext(new HandoffOutcomeViewModel(Capacitor.Cli.Core.Handoff.HandoffOutcomeDto.Refused("s1", "Old", "source_active"), () => {
+        cards.OnNext(new HandoffOutcomeViewModel(Cli.Core.Handoff.HandoffOutcomeDto.Refused("s1", "Old", "source_active"), () => {
             dismissed++;
             cards.OnNext(null);
             return Task.CompletedTask;
@@ -623,7 +623,7 @@ public class ChatTabViewSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public async Task The_strip_draws_a_danger_pill_for_a_blocked_account() {
         await RunOnUiAsync(async () => {
-            var readings = new BehaviorSubject<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>(StripReadings.Snapshot(
+            var readings = new BehaviorSubject<Cli.Core.Accounts.AccountsSnapshotDto?>(StripReadings.Snapshot(
                 StripReadings.Account("acc1", StripReadings.Blocked(TimeSpan.FromMinutes(65),
                     StripReadings.Window(300, 100, TimeSpan.FromMinutes(65)), StripReadings.Window(10080, 81, TimeSpan.FromDays(3))))));
             var host = new Host(accountReadings: readings);
@@ -652,11 +652,11 @@ public class ChatTabViewSmokeTests {
     [NotInParallel("AvaloniaSession")]
     public async Task The_strip_shows_an_exhausted_model_limit_beside_healthy_bars() {
         await RunOnUiAsync(async () => {
-            var modelHit = new Capacitor.Cli.Core.Accounts.Readings.AccountReadingDto(1,
+            var modelHit = new Cli.Core.Accounts.Readings.AccountReadingDto(1,
                 [StripReadings.Window(300, 20, TimeSpan.FromHours(2)), new("claude_opus", 10080, 100, StripReadings.Now + TimeSpan.FromDays(2), StripReadings.Now)],
                 null, null,
                 new(StripReadings.Now.AddMinutes(-5), null, [new("claude_opus", 10080, StripReadings.Now + TimeSpan.FromDays(2), StripReadings.Now.AddMinutes(-5))]));
-            var readings = new BehaviorSubject<Capacitor.Cli.Core.Accounts.AccountsSnapshotDto?>(
+            var readings = new BehaviorSubject<Cli.Core.Accounts.AccountsSnapshotDto?>(
                 StripReadings.Snapshot(StripReadings.Account("acc1", modelHit)));
             var host = new Host(accountReadings: readings);
             var path = Tmp.CreateFile("model-hit.jsonl", [UserLine]);
@@ -684,7 +684,7 @@ public class ChatTabViewSmokeTests {
             var host = new Host();
             var path = Tmp.CreateFile("big.jsonl", Enumerable.Repeat(UserLine, 5000).ToArray());
             var notifications = 0;
-            ((INotifyCollectionChanged)host.Chat.Items).CollectionChanged += (_, _) => notifications++;
+            host.Chat.Items.CollectionChanged += (_, _) => notifications++;
 
             await host.LoadAsync(path);
 
@@ -897,6 +897,36 @@ public class ChatTabViewSmokeTests {
         } finally { await host.CloseAsync(); }
     });
 
+    /// The lane handle takes the pointer beside the agent's messages but yields it to a user message
+    /// it crosses, so the message's text stays selectable.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_lane_handle_lets_the_pointer_through_to_a_user_message() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            host.Window.Width = 1400;
+            await host.LoadAsync(Tmp.CreateFile("lane-yield.jsonl", [UserLine, AssistantLinkLine]));
+            var handle = host.View.FindControl<Border>("ChatLaneHandle")!;
+            var start = PresentAndLocate(host, handle);
+            // At full width the lane's handle sits inside the column's right edge, where a user turn ends.
+            host.Window.MouseMove(start);
+            host.Window.MouseDown(start, MouseButton.Left);
+            host.Window.MouseMove(start + new Point(5000, 0));
+            host.Window.MouseUp(start + new Point(5000, 0), MouseButton.Left);
+            var x = PresentAndLocate(host, handle).X;
+            var bubble = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("userTurn"));
+            var items = host.View.FindControl<ItemsControl>("ChatItems")!;
+            var agentRow = items.ContainerFromItem(host.Chat.Items.OfType<AssistantTextItem>().Single())!;
+            double MiddleY(Control c) => c.TranslatePoint(new Point(0, c.Bounds.Height / 2), host.Window)!.Value.Y;
+            await Assert.That(bubble.TranslatePoint(new Point(bubble.Bounds.Width, 0), host.Window)!.Value.X).IsGreaterThan(x);
+
+            var overBubble = host.Window.InputHitTest(new Point(x, MiddleY(bubble))) as Visual;
+            await Assert.That(overBubble).IsNotNull();
+            await Assert.That(overBubble!.GetSelfAndVisualAncestors().Contains(bubble)).IsTrue();
+            await Assert.That(host.Window.InputHitTest(new Point(x, MiddleY(agentRow)))).IsSameReferenceAs(handle);
+        } finally { await host.CloseAsync(); }
+    });
+
     [Test]
     [Arguments("ChatColumnLeftHandle")]
     [Arguments("ChatColumnRightHandle")]
@@ -987,9 +1017,9 @@ public class ChatTabViewSmokeTests {
             host.Window.UpdateLayout();
             await Assert.That(host.AtBottom()).IsTrue();
             void ScrollUp(object? sender, NotifyCollectionChangedEventArgs e) => WheelUp(host);
-            ((INotifyCollectionChanged)host.Chat.Items).CollectionChanged += ScrollUp;
+            host.Chat.Items.CollectionChanged += ScrollUp;
             await host.AppendAndTickAsync(path, 20);
-            ((INotifyCollectionChanged)host.Chat.Items).CollectionChanged -= ScrollUp;
+            host.Chat.Items.CollectionChanged -= ScrollUp;
             Dispatcher.UIThread.RunJobs();
             host.Window.UpdateLayout();
             Dispatcher.UIThread.RunJobs();
@@ -1402,8 +1432,8 @@ public class ChatTabViewSmokeTests {
             await Assert.That(label.Text).IsEqualTo("Published page");
             await Assert.That(label.FontFamily.Name).IsEqualTo(detail.FontFamily.Name);
             await Assert.That(label.LineHeight).IsEqualTo(detail.LineHeight);
-            await Assert.That(label.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapTextBrush"));
-            await Assert.That(detail.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapMutedBrush"));
+            await Assert.That(label.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
+            await Assert.That(detail.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
             await Assert.That(host.View.GetVisualDescendants().OfType<Control>().Any(c => c.Name == "ToolCard" && c.IsEffectivelyVisible)).IsFalse();
 
             await host.AppendLinesAndTickAsync(path, PublishResultLine);
@@ -1416,9 +1446,9 @@ public class ChatTabViewSmokeTests {
             var meta = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "ToolCardMeta");
             await Assert.That(title.Text).IsEqualTo("Published page");
             await Assert.That(name.Text).IsEqualTo("Retention brief");
-            await Assert.That(title.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapTextBrush"));
-            await Assert.That(name.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapMutedBrush"));
-            await Assert.That(meta.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapFaintBrush"));
+            await Assert.That(title.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
+            await Assert.That(name.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
+            await Assert.That(meta.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapFaintBrush"));
             await Assert.That(name.TranslatePoint(default, host.Window)!.Value.X)
                 .IsGreaterThan(title.TranslatePoint(default, host.Window)!.Value.X);
             await Assert.That(meta.TranslatePoint(default, host.Window)!.Value.X)
@@ -1475,7 +1505,7 @@ public class ChatTabViewSmokeTests {
         await RunOnUiAsync(async () => {
             var host = new Host();
             try {
-                var encoded = System.Text.Json.Nodes.JsonValue.Create(path)!.ToJsonString();
+                var encoded = System.Text.Json.Nodes.JsonValue.Create(path).ToJsonString();
                 var call = ReadCallLine.Replace("\"Read\"", "\"" + name + "\"")
                     .Replace("\"/repo/x/src/a.cs\"", encoded);
                 if (name == "get_file_context") call = call.Replace("file_path", "path");
@@ -1510,8 +1540,8 @@ public class ChatTabViewSmokeTests {
             var host = new Host();
             try {
                 const string path = "/private/tmp/claude-501/a-deliberately-long-worktree-name-for-the-session-bd54/scratchpad/demo.txt";
-                var patch = $"*** Begin Patch\n*** Update File: {path}\n@@\n-a\n+b\n*** Add File: src/another.cs\n+x\n*** End Patch";
-                var input = new System.Text.Json.Nodes.JsonObject { ["input"] = patch }.ToJsonString();
+                const string patch = $"*** Begin Patch\n*** Update File: {path}\n@@\n-a\n+b\n*** Add File: src/another.cs\n+x\n*** End Patch";
+                var input          = new System.Text.Json.Nodes.JsonObject { ["input"] = patch }.ToJsonString();
                 var call = ToolCallLine.Replace("\"Bash\"", "\"apply_patch\"").Replace("""{"command":"ls -la"}""", input);
                 await host.LoadAsync(Tmp.CreateFile("patch-paths.jsonl", [call, ToolResultLine]));
                 host.View.ColumnSizing.UseLayout(1, double.PositiveInfinity);
@@ -1540,7 +1570,7 @@ public class ChatTabViewSmokeTests {
             var host = new Host();
             try {
                 var output = string.Join(wrapped ? " " : "\n", Enumerable.Repeat("recorded output", 800));
-                var encoded = System.Text.Json.Nodes.JsonValue.Create(output)!.ToJsonString();
+                var encoded = System.Text.Json.Nodes.JsonValue.Create(output).ToJsonString();
                 var result = ToolResultLine.Replace("\"ok\"", encoded);
                 await host.LoadAsync(Tmp.CreateFile("large-output.jsonl", [ToolCallLine, result, UserLine]));
                 var row = ToolRows(host.View).Single();
@@ -1558,7 +1588,7 @@ public class ChatTabViewSmokeTests {
 
                 var pointerOffset = scroll.Offset.Y;
                 scroll.Focus();
-                await Assert.That(body.BorderBrush).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapInfoBrush"));
+                await Assert.That(body.BorderBrush).IsSameReferenceAs(Application.Current!.FindResource("KcapInfoBrush"));
                 host.Press(PhysicalKey.PageDown);
                 host.Settle();
                 await Assert.That(scroll.Offset.Y).IsGreaterThan(pointerOffset);
@@ -1578,7 +1608,7 @@ public class ChatTabViewSmokeTests {
             var host = new Host();
             try {
                 var output = string.Join("\n", Enumerable.Repeat("recorded output", 800));
-                var encoded = System.Text.Json.Nodes.JsonValue.Create(output)!.ToJsonString();
+                var encoded = System.Text.Json.Nodes.JsonValue.Create(output).ToJsonString();
                 var result = ToolResultLine.Replace("\"ok\"", encoded);
                 var path = Tmp.CreateFile("return-from-output.jsonl",
                     [.. Enumerable.Repeat(UserLine, 4), ToolCallLine, result, .. Enumerable.Repeat(UserLine, 30)]);
@@ -1678,7 +1708,7 @@ public class ChatTabViewSmokeTests {
             host.Time.Advance(CrDelay);
             await host.Terminal.PendingDeliveryForTesting!;
             await Assert.That(client.SentInput.Select(Encoding.UTF8.GetString))
-                .IsEquivalentTo(["\x1b[200~hi\x1b[201~", "\r"], CollectionOrdering.Matching);
+                .IsEquivalentTo(["\e[200~hi\e[201~", "\r"], CollectionOrdering.Matching);
             await host.CloseAsync();
         });
     }
@@ -2327,7 +2357,7 @@ public class ChatTabViewSmokeTests {
             await Assert.That(bodyBorder.IsEffectivelyVisible).IsTrue();
             var paragraph = bodyBorder.GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.Classes.Contains("markdown-paragraph") && t.IsEffectivelyVisible);
-            await Assert.That(paragraph.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapMutedBrush"));
+            await Assert.That(paragraph.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
             await Assert.That(paragraph.FontSize).IsEqualTo(13.5);
 
             item.Toggle();
@@ -2370,15 +2400,15 @@ public class ChatTabViewSmokeTests {
             await Assert.That(call.HasDetail).IsTrue();
             var pulse = ToolRows(host.View)[0].GetVisualDescendants().OfType<Border>()
                 .Single(b => b.Classes.Contains("toolRunning") && b.IsVisible);
-            await Assert.That(pulse.Background).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapPurpleBrush"));
+            await Assert.That(pulse.Background).IsSameReferenceAs(Application.Current!.FindResource("KcapPurpleBrush"));
             await Assert.That(PulseClock.GetIsActive(pulse)).IsTrue();
             var rowLabel = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.Name == "ToolRowLabel" && t.IsEffectivelyVisible);
             var detail = ToolRows(host.View)[0].GetVisualDescendants().OfType<TextBlock>()
                 .Single(t => t.IsEffectivelyVisible && t.Text == "ls -la");
             await Assert.That(rowLabel.Text).IsEqualTo("Ran command");
-            await Assert.That(rowLabel.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapTextBrush"));
-            await Assert.That(detail.Foreground).IsSameReferenceAs(Avalonia.Application.Current!.FindResource("KcapMutedBrush"));
+            await Assert.That(rowLabel.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapTextBrush"));
+            await Assert.That(detail.Foreground).IsSameReferenceAs(Application.Current!.FindResource("KcapMutedBrush"));
             await host.CloseAsync();
         });
     }
@@ -2778,7 +2808,7 @@ public class ChatTabViewSmokeTests {
             await WaitUntilAsync(() => host.Window.FocusManager?.GetFocusedElement() is Button b
                 && b.Classes.Contains("option") && b.Classes.Contains(":focus-visible")
                 && b.DataContext is QuestionOptionViewModel { Label: "Ship it (Recommended)" }, what: "focus on the first option");
-            var first = (Button)host.Window.FocusManager!.GetFocusedElement()!;
+            var first = (Button)host.Window.FocusManager.GetFocusedElement()!;
             var second = Option(host, "Wait");
             await Assert.That(first.Classes.Contains(":focus-visible")).IsTrue();
             await Assert.That(first.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Ship it (Recommended)" && t.IsEffectivelyVisible)).IsTrue();
@@ -2787,13 +2817,13 @@ public class ChatTabViewSmokeTests {
             await Assert.That(presenter.BorderBrush).IsSameReferenceAs(host.View.FindResource("KcapPurpleBrush"));
 
             host.Window.KeyPressQwerty(PhysicalKey.Tab, RawInputModifiers.Shift);
-            var shifted = host.Window.FocusManager!.GetFocusedElement();
+            var shifted = host.Window.FocusManager.GetFocusedElement();
             await Assert.That(shifted is Button { Classes: var classes } && classes.Contains("option")).IsFalse();
             await Assert.That(shifted is TextBox { PlaceholderText: "Other…" }).IsFalse();
             first.Focus();
 
             host.Press(PhysicalKey.ArrowDown);
-            await Assert.That(host.Window.FocusManager!.GetFocusedElement()).IsSameReferenceAs(second);
+            await Assert.That(host.Window.FocusManager.GetFocusedElement()).IsSameReferenceAs(second);
             await Assert.That(((QuestionOptionViewModel)second.DataContext!).IsSelected).IsFalse();
             await Assert.That(host.Chat.PendingCards.Count).IsEqualTo(1);
 
@@ -2972,7 +3002,7 @@ public class ChatTabViewSmokeTests {
             var prose = string.Join("\\n\\n", Enumerable.Range(1, 60).Select(i => $"Paragraph {i} of a long reply that wraps across the column."));
             var tall = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + prose + "\"}]}}";
             const string question = """{"questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]}]}""";
-            var ask = $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"q-tool","name":"AskUserQuestion","input":{{{question}}}}]}}""";
+            const string ask = $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"q-tool","name":"AskUserQuestion","input":{{{question}}}}]}}""";
             var path = Tmp.CreateFile("card.jsonl", [tall, tall, tall, .. Enumerable.Repeat(UserLine, 20), ask]);
             await host.LoadAsync(path);
             await Assert.That(host.AtBottom()).IsTrue();
@@ -3010,7 +3040,7 @@ public class ChatTabViewSmokeTests {
                 var prose = string.Join("\\n\\n", Enumerable.Range(1, 60).Select(i => $"Paragraph {i} of a long reply that wraps across the column."));
                 var tall = "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + prose + "\"}]}}";
                 const string question = """{"questions":[{"question":"Pick","options":[{"label":"A"},{"label":"B"}]}]}""";
-                var ask = $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"q-tool","name":"AskUserQuestion","input":{{{question}}}}]}}""";
+                const string ask = $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"q-tool","name":"AskUserQuestion","input":{{{question}}}}]}}""";
                 var path = Tmp.CreateFile("pending-question.jsonl",
                     [tall, tall, tall, UserLine, ThinkingLine, CallLine(1), ResultLine(1), UserLine, ThinkingLine, CallLine(2), ResultLine(2),
                      ThinkingLine, CallLine(3), ResultLine(3), CallLine(4), ResultLine(4), ask]);
@@ -3292,7 +3322,7 @@ public class ChatTabViewSmokeTests {
             var list = host.View.FindControl<ItemsControl>("BackgroundTasksList")!;
             await Assert.That(rows.IsVisible).IsTrue();
             await Assert.That(list.IsEffectivelyVisible).IsTrue();
-            await Assert.That(Avalonia.Automation.AutomationProperties.GetName(toggle))
+            await Assert.That(AutomationProperties.GetName(toggle))
                 .IsEqualTo("Background tasks, 1 subagent and 2 commands running, expanded");
             var shown = VisibleTexts(list);
             await Assert.That(shown).Contains("Explore");
@@ -3326,7 +3356,7 @@ public class ChatTabViewSmokeTests {
         await RunOnUiAsync(async () => {
             var host = new Host();
             host.Window.Width = width;
-            var text = "Run every integration suite against the staging server and collect the coverage";
+            const string text = "Run every integration suite against the staging server and collect the coverage";
             var input = described ? $$$"""{"command":"make it","description":"{{{text}}}"}""" : $$$"""{"command":"{{{text}}}"}""";
             await host.LoadAsync(Tmp.CreateFile("sh.jsonl", [ShellCall("toolu_S", input), ShellLaunch("toolu_S", "b1")]));
             Click(host, host.View.FindControl<Button>("BackgroundTasksToggle")!);

@@ -34,7 +34,7 @@ public class SpecialKeyMapperTests {
     }
     [Test]
     public async Task A_wheel_report_keeps_its_coordinates_on_the_remote_lane() {
-        var report = "\x1b[<65;50;19M"u8.ToArray();
+        var report = "\e[<65;50;19M"u8.ToArray();
         var key = SpecialKeyMapper.Map(report);
         await Assert.That(key).IsNotNull();
         await Assert.That(TerminalScrollKey.TryDecode(key!, out var decoded)).IsTrue();

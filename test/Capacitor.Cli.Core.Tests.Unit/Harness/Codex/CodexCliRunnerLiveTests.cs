@@ -34,7 +34,7 @@ public class CodexCliRunnerLiveTests {
         Skip.When(codex is null, "codex is not on PATH");
         Skip.When(OperatingSystem.IsWindows(), "the wrapper is a POSIX shell script");
 
-        return codex!;
+        return codex;
     }
 
     HarnessRegistry Real() => TestHarnesses.Under(Home, BinaryProbe.FromEnvironment());

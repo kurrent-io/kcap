@@ -47,7 +47,7 @@ public class UpdateNoticeDeliveryTests : IDisposable {
         var r = await RunAsync(["config", "show"], cfgDir);
 
         await Assert.That(r.ExitCode).IsEqualTo(0);
-        await Assert.That(r.Stderr).Contains($"Update available:");
+        await Assert.That(r.Stderr).Contains("Update available:");
         await Assert.That(r.Stderr).Contains(NewerVersion);
         await Assert.That(r.Stderr).Contains("Run `kcap update` to update");
     }

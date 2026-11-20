@@ -25,9 +25,10 @@ public static class AccountMemory {
             IReadOnlyDictionary<string, string>? byRepo, string hostId, string vendor, string repoPath, bool remote) {
         if (byRepo is null) return null;
 
-        foreach (var entry in byRepo)
+        foreach (var entry in byRepo) {
             if (Matches(entry.Key, hostId, vendor, repoPath, remote))
                 return entry.Value;
+        }
 
         return null;
     }
@@ -37,9 +38,10 @@ public static class AccountMemory {
         IReadOnlyDictionary<string, string>? existing, string hostId, string vendor, string repoPath, bool remote, string? accountId) {
         var next = new Dictionary<string, string>();
         if (existing is not null)
-            foreach (var entry in existing)
+            foreach (var entry in existing) {
                 if (!Matches(entry.Key, hostId, vendor, repoPath, remote))
                     next[entry.Key] = entry.Value;
+            }
 
         if (accountId is not null) next[KeyFor(hostId, vendor, repoPath, remote)] = accountId;
         return next.Count == 0 ? FrozenDictionary<string, string>.Empty : next;

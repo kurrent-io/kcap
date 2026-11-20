@@ -48,9 +48,10 @@ public static class JsonMcpConfigWriter {
                 changed = true;
             }
 
-            foreach (var name in KcapMcpServers.Retired)
+            foreach (var name in KcapMcpServers.Retired) {
                 if (block[name] is JsonNode retired && marker.Owns(configPath, name, retired) && block.Remove(name))
                     changed = true;
+            }
 
             return changed;
         });
@@ -85,9 +86,10 @@ public static class JsonMcpConfigWriter {
             if (root[shape.BlockKey] is not JsonObject block) return false;
             var changed = false;
 
-            foreach (var name in marker.Owned(configPath).ToArray())
+            foreach (var name in marker.Owned(configPath).ToArray()) {
                 if (block[name] is JsonNode entry && marker.Owns(configPath, name, entry) && block.Remove(name))
                     changed = true;
+            }
 
             if (block.Count == 0 && root.Remove(shape.BlockKey)) changed = true;
             return changed;

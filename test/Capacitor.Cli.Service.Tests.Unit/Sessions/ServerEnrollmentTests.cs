@@ -50,7 +50,7 @@ public class ServerEnrollmentTests {
     }
 
     [Test]
-    [Arguments(@"kcap.exe")]
+    [Arguments("kcap.exe")]
     [Arguments(@"\\server\share\kcap.exe")]
     [Arguments(@"C:\Users\alice\AppData\Local\kcap\current\bin\kcap-daemon.exe")]
     public async Task A_cli_path_that_is_not_a_local_cli_binary_is_refused(string path) {

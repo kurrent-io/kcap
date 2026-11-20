@@ -1,11 +1,11 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
+using Capacitor.Cli.Daemon.Services;
 
 namespace Capacitor.Cli.Daemon.Harness.Antigravity;
 
 internal enum AntigravityReviewerDecision {
     Allowed,
-    UnsupportedPlatform,
     Disabled,
     VersionUnresolved,
     VersionNoMinimum,
@@ -52,7 +52,7 @@ internal enum AntigravityReviewerDecision {
 /// comparison lives in <see cref="Core.ReviewerVersionAffirmations"/> and the record in
 /// <see cref="Core.ReviewerVersionStore"/>.</para>
 ///
-/// <para><b>This is the whole ladder</b> (consent → platform → build), and
+/// <para><b>This is the whole ladder</b> (consent → build), and
 /// <c>AntigravityHostedAgentRuntimeFactory.LaunchRefusal</c> is its only production caller: it adds
 /// the one arm this decision cannot express — a binary that does not resolve at all — and takes every
 /// other verdict, and every text, from here. Both the advertisement seam and the launch boundary read
@@ -64,34 +64,19 @@ internal enum AntigravityReviewerDecision {
 /// must never be sent to the reviewer consent flag by a version arm.</para>
 /// </summary>
 internal static class AntigravityReviewerCapability {
-    /// <summary>
-    /// The decision, with the platform passed IN rather than read from the ambient OS, so every arm is
-    /// reachable from any host. There is deliberately no ambient-reading overload: the one production
-    /// caller holds a platform seam of its own. Reading the OS in here would short-circuit every
-    /// consent and version test to <see cref="AntigravityReviewerDecision.UnsupportedPlatform"/> on a
-    /// Windows test host.
-    /// </summary>
+    static readonly ConsentAndMinimumGate<AntigravityReviewerDecision> Gate = new(
+        allowed:             AntigravityReviewerDecision.Allowed,
+        disabled:            AntigravityReviewerDecision.Disabled,
+        versionUnresolved:   AntigravityReviewerDecision.VersionUnresolved,
+        versionNoMinimum:    AntigravityReviewerDecision.VersionNoMinimum,
+        versionBelowMinimum: AntigravityReviewerDecision.VersionBelowMinimum,
+        versionIncomparable: AntigravityReviewerDecision.VersionIncomparable);
+
+    /// <summary>The decision. It has no platform arm: the per-launch home is owner-only on every host,
+    /// and one that cannot be restricted refuses its own launch.</summary>
     internal static AntigravityReviewerDecision Decide(
-            bool posixHost, bool operatorEnabled, string? installedVersion, string? minimumVersion) {
-        // Consent FIRST and short-circuiting: an installed-but-wedged agy must not be probed — let
-        // alone stall a daemon start — for a feature the operator switched off.
-        if (!operatorEnabled) return AntigravityReviewerDecision.Disabled;
-
-        // The Windows home is owner-only and agy's profile variables point into it, but no real agy run
-        // has confirmed that agy writes nothing outside it there. Containment is proven by a real
-        // process run, never assumed, so Windows stays refused until one does.
-        if (!posixHost) return AntigravityReviewerDecision.UnsupportedPlatform;
-
-        // No discard: `_ => Allowed` would silently ADMIT any arm added later, which is the wrong
-        // direction for this gate. CS8509 makes the next one a build failure instead.
-        return ReviewerVersionAffirmations.Decide(installedVersion, minimumVersion) switch {
-            ReviewerVersionAffirmation.MeetsMinimum      => AntigravityReviewerDecision.Allowed,
-            ReviewerVersionAffirmation.Unresolved        => AntigravityReviewerDecision.VersionUnresolved,
-            ReviewerVersionAffirmation.NoMinimumRecorded => AntigravityReviewerDecision.VersionNoMinimum,
-            ReviewerVersionAffirmation.BelowMinimum      => AntigravityReviewerDecision.VersionBelowMinimum,
-            ReviewerVersionAffirmation.Incomparable      => AntigravityReviewerDecision.VersionIncomparable
-        };
-    }
+            bool operatorEnabled, string? installedVersion, string? minimumVersion) =>
+        Gate.Decide(operatorEnabled, installedVersion, minimumVersion);
 
     /// <summary>
     /// The coded refusal an operator can act on. Separated from <see cref="Decide"/> so the two cannot
@@ -109,12 +94,6 @@ internal static class AntigravityReviewerCapability {
               + "daemon's environment (not on the server) to restore the default, which is enabled — or "
               + "set it to 1. A review runs under this daemon user's authority either way, as it does "
               + "for the never-gated Claude, Codex, Cursor and Copilot reviewers.",
-
-            AntigravityReviewerDecision.UnsupportedPlatform =>
-                "antigravity_reviewer_unsupported_platform: Antigravity is not offered on Windows yet. "
-              + "A launch runs agy under an owner-only per-launch home that holds its conversation "
-              + "transcript, and no real agy run on Windows has yet confirmed that agy writes nothing "
-              + "outside that home.",
 
             AntigravityReviewerDecision.VersionUnresolved =>
                 $"antigravity_reviewer_version_unresolved: the version of '{binaryPath}' could not be "

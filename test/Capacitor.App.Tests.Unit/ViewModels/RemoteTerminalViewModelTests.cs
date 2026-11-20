@@ -91,9 +91,9 @@ public class RemoteTerminalViewModelTests {
 
             surface.RaiseInput("l"u8.ToArray());
             await WaitUntilAsync(() => h.Lane.TerminalInputs.Count == 1, what: "the first keystroke");
-            surface.RaiseInput("s\x1b[12;1R\r"u8.ToArray());
-            surface.RaiseInput("\x1b[12;1R"u8.ToArray());
-            surface.RaiseInput("\x1b[<64;10;5M"u8.ToArray());
+            surface.RaiseInput("s\e[12;1R\r"u8.ToArray());
+            surface.RaiseInput("\e[12;1R"u8.ToArray());
+            surface.RaiseInput("\e[<64;10;5M"u8.ToArray());
             await WaitUntilAsync(() => h.Lane.SpecialKeys.Count == 1, what: "the wheel");
 
             await Assert.That(h.Lane.TerminalInputs.Select(i => Encoding.UTF8.GetString(i.Data))).IsEquivalentTo(new[] { "l", "s\r" });
@@ -186,6 +186,8 @@ public class RemoteTerminalViewModelTests {
 
             h.Drop();
             await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Offline, what: "offline");
+            await Assert.That(h.Vm.HasOfflineSurface).IsTrue();
+            await Assert.That(h.Vm.Surface).IsSameReferenceAs(first);
             await WaitUntilAsync(() => h.Lane.ResizeReleases.Contains("a1"), what: "the viewport released");
 
             h.Reconnect();
@@ -194,6 +196,24 @@ public class RemoteTerminalViewModelTests {
             await Assert.That(h.Vm.Surface).IsNotSameReferenceAs(first);
             await Assert.That(h.Surfaces.Count).IsEqualTo(2);
             await Assert.That(h.Lane.ResizeReleases.Count).IsEqualTo(1);
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_retained_offline_surface_is_hidden_when_access_is_lost(bool signedOut) {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            await WaitUntilAsync(() => h.Vm.IsLive, what: "live");
+            h.Drop();
+            await WaitUntilAsync(() => h.Vm.HasOfflineSurface, what: "retained");
+
+            if (signedOut) h.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut));
+            else h.Access.OnNext(SessionAccessState.Denied);
+
+            await WaitUntilAsync(() => !h.Vm.ShowsSurface, what: "hidden");
             await h.Vm.TeardownAsync();
         });
     }
@@ -219,11 +239,12 @@ public class RemoteTerminalViewModelTests {
         await RunOnUiAsync(async () => {
             var h = new Harness(subscribe: _ => Task.FromResult(HubCallOutcome.NotConnected));
             await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Offline, what: "offline");
+            await Assert.That(h.Vm.ShowsSurface).IsFalse();
             await Assert.That(h.Lane.Resizes).IsEmpty();
 
             h.Ended.OnNext(true);
             await Assert.That(h.Vm.Phase).IsEqualTo(RemoteTerminalPhase.Ended);
-            await Assert.That(h.Vm.PhaseNote).IsEqualTo("This session has ended.");
+            await Assert.That(h.Vm.Notice!.Title).IsEqualTo("This session has ended.");
             h.Access.OnNext(SessionAccessState.Established);
             await Assert.That(h.Lane.TerminalSubscribes.Count).IsEqualTo(1);
             await h.Vm.TeardownAsync();
@@ -345,18 +366,14 @@ public class RemoteTerminalViewModelTests {
         });
     }
 
-    /// <summary>The server says when it refuses the terminal, so the pane says so too, rather than reading
-    /// as a connection that dropped; a failed subscribe stays offline.</summary>
     [Test]
-    [Arguments(true)]
-    [Arguments(false)]
-    public async Task A_denied_subscribe_says_the_terminal_was_refused(bool denied) {
+    public async Task A_denied_subscribe_explains_the_refusal_without_offering_retry() {
         await RunOnUiAsync(async () => {
-            var h = new Harness(subscribe: _ => Task.FromResult(denied ? HubCallOutcome.Denied("no") : HubCallOutcome.Failed("boom")));
-            var expected = denied ? RemoteTerminalPhase.Refused : RemoteTerminalPhase.Offline;
-            await WaitUntilAsync(() => h.Vm.Phase == expected, what: expected.ToString());
+            var h = new Harness(subscribe: _ => Task.FromResult(HubCallOutcome.Denied(WireTokens.SessionNotVisible)));
+            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Refused, what: "refused");
 
-            await Assert.That(h.Vm.PhaseNote).IsEqualTo(denied ? RemoteTerminalViewModel.RefusedNote : "Not connected to the session");
+            await Assert.That(h.Vm.Notice!.Title).IsEqualTo("Terminal access denied");
+            await Assert.That(h.Vm.Notice.HasAction).IsFalse();
             await h.Vm.TeardownAsync();
         });
     }
@@ -498,7 +515,7 @@ public class RemoteTerminalViewModelTests {
         await RunOnUiAsync(async () => {
             var fail = true;
             var h = new Harness(subscribe: _ => Task.FromResult(fail ? HubCallOutcome.Failed("retry") : HubCallOutcome.Ok));
-            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Offline, what: "offline");
+            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Failed, what: "failed");
 
             h.Time.Advance(TimeSpan.FromSeconds(1));
             await Task.Delay(50);

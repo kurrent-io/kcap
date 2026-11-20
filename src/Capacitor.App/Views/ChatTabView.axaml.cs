@@ -125,7 +125,7 @@ public partial class ChatTabView : UserControl {
         RestoreFind();
         _pointerRoot = TopLevel.GetTopLevel(this);
         _pointerRoot?.AddHandler(PointerReleasedEvent, OnPrimaryReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
-        _pointerRoot?.AddHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost, RoutingStrategies.Direct | RoutingStrategies.Bubble, handledEventsToo: true);
+        _pointerRoot?.AddHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost, handledEventsToo: true);
         if (_pointerRoot is Window window) window.Deactivated += OnWindowDeactivated;
     }
 

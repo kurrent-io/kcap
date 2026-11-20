@@ -68,17 +68,18 @@
             <!-- FontFamily MUST be set: the control's default is "Cascadia Mono", which only
                  exists on Windows — elsewhere it silently falls back to ESTIMATED cell metrics
                  while drawing with a real typeface, smearing every styled run off its column. -->
-            <!-- CaretBrush: without it the unfocused caret is a hairline in the default brush,
-                 invisible on this palette. Focus itself is wired in code-behind on Model
-                 assignment — the control only draws the filled caret while focused. -->
+            <!-- The default brush makes the unfocused caret hard to see on this palette. -->
             <terminal:TerminalControl x:Name="TerminalHost" IsVisible="{Binding ShowsTerminalTab}"
-                                       IsEnabled="{Binding IsTerminalActive}"
-                                       IsHitTestVisible="{Binding IsTerminalActive}"
-                                       Opacity="{Binding IsTerminalActive, Converter={x:Static views:BoolToOpacityConverter.Instance}}"
-                                       AutomationProperties.IsOffscreenBehavior="{Binding IsTerminalActive, Converter={x:Static views:OffscreenWhenInactiveConverter.Instance}}"
+                                       IsEnabled="{Binding ShowsTerminalSurface}"
+                                       IsHitTestVisible="{Binding ShowsTerminalSurface}"
+                                       Opacity="{Binding ShowsTerminalSurface, Converter={x:Static views:BoolToOpacityConverter.Instance}}"
+                                       AutomationProperties.IsOffscreenBehavior="{Binding ShowsTerminalSurface, Converter={x:Static views:OffscreenWhenInactiveConverter.Instance}}"
                                        FontFamily="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace"
                                        CaretBrush="{StaticResource KcapTextBrush}"
                                        Model="{Binding Terminal.Surface, Converter={x:Static views:TerminalSurfaceModelConverter.Instance}}" />
+
+            <views:SessionConnectionNotice x:Name="TerminalNotice" DataContext="{Binding TerminalPaneNotice}"
+                    IsVisible="{Binding $parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).HasTerminalPaneNotice}" />
 
             <!-- The automation peer reports offscreen from the control's OWN IsVisible, so hiding
                  an ancestor instead would leave the inactive chat announced as onscreen — and the

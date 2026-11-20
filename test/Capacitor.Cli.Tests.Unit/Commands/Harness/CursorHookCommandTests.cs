@@ -215,8 +215,8 @@ public class CursorHookCommandTests {
 
     [Test]
     public async Task afterAgentThought_canonical_id_is_stable_across_replays() {
-        using var fx   = new Fixture(Config.Root);
-        var       body = """{"hook_event_name":"afterAgentThought","session_id":"abc","generation_id":"gen1","text":"hello"}""";
+        using var fx      = new Fixture(Config.Root);
+        const string body = """{"hook_event_name":"afterAgentThought","session_id":"abc","generation_id":"gen1","text":"hello"}""";
         await fx.HandleAsync(body);
         await fx.HandleAsync(body);
 

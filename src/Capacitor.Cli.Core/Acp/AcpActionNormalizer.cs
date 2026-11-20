@@ -1,7 +1,7 @@
 namespace Capacitor.Cli.Core.Acp;
 
 using System.Text.Json;
-using Capacitor.Cli.Core.Policy;
+using Policy;
 
 /// <summary>
 /// Maps an ACP <c>toolCall</c> onto the vendor-neutral policy vocabulary. Never throws and never

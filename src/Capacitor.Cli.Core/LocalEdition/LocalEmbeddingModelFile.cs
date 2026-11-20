@@ -7,6 +7,6 @@ public sealed partial record LocalEmbeddingModelFile(string Name, string Sha256,
     /// <summary>A bare file name, never a path: it becomes both a URL segment and a file under the model directory.</summary>
     public static bool IsSafeName(string? name) => name is not null && NamePattern().IsMatch(name);
 
-    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")]
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")]
     private static partial Regex NamePattern();
 }

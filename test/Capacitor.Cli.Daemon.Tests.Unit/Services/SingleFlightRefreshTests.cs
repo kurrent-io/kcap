@@ -63,13 +63,14 @@ public class SingleFlightRefreshTests {
         var concurrent = 0;
         var maxSeen    = 0;
 
-        foreach (var _ in Enumerable.Range(0, 25))
+        foreach (var _ in Enumerable.Range(0, 25)) {
             refresh.Trigger(async () => {
                 var now = Interlocked.Increment(ref concurrent);
                 InterlockedMax(ref maxSeen, now);
                 await Task.Delay(5);
                 Interlocked.Decrement(ref concurrent);
             });
+        }
         await refresh.Current;
 
         await Assert.That(maxSeen).IsEqualTo(1);

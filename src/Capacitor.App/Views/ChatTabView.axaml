@@ -212,7 +212,7 @@
         </Style>
         <!-- Invisible: the resize cursor is the only sign of a handle. The transparent fill is what
              makes it hit-testable. -->
-        <Style Selector="Border.chatColumnHandle">
+        <Style Selector="Border.chatColumnHandle, views|YieldingHandle.chatColumnHandle">
             <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Cursor" Value="SizeWestEast" />
@@ -623,7 +623,7 @@
         <!-- Over the list rather than in it, so a handle drag is not read as the scrollbar's. -->
         <Border x:Name="ChatColumnLeftHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset" />
         <Border x:Name="ChatColumnRightHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset" />
-        <Border x:Name="ChatLaneHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the agent's messages. Double-click to reset" />
+        <views:YieldingHandle x:Name="ChatLaneHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the agent's messages. Double-click to reset" />
         <Border x:Name="FindBar" Grid.Row="2" Classes="findBar" DataContext="{Binding Find}" x:DataType="vm:ChatFindViewModel"
                 IsVisible="{Binding IsOpen}">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" ColumnSpacing="2">

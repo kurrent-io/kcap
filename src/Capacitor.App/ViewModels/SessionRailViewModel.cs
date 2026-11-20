@@ -8,6 +8,7 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using Capacitor.App.Services;
 using Capacitor.Cli.Core.PullRequests;
 using DynamicData;
 using DynamicData.Binding;
@@ -228,6 +229,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Action<RailPreferences>? persistPreferences = null,
             bool scopeLocked = false,
             IObserver<Func<AgentRow, bool>>? shownRows = null,
+            IRailSessionActions? sessionActions = null,
             Func<string, Task<RailPreferences>>? bindUserPreferences = null) {
         _directory = directory;
         _sessions = sessions;
@@ -281,7 +283,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             (Func<AgentRow, bool>)(row => SessionStatusDots.NeedsAttention(row) || permissions.Contains(row.Id) || answers.Contains(row.Id)));
         _attention = directory.Rows.Connect()
             .Filter(attentionFilter)
-            .QueryWhenChanged(rows => (Count: rows.Count, Failed: rows.Items.Count(row => row.Status == "Failed")))
+            .QueryWhenChanged(rows => (rows.Count, Failed: rows.Items.Count(row => row.Status == "Failed")))
             .DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .ToProperty(this, x => x.Attention, initialValue: (0, 0))
@@ -338,7 +340,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                     if (expanded) _collapsed.Remove(g.Key);
                     else _collapsed.Add(g.Key);
                     Persist();
-                }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, endedListPartial))
+                }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, sessionActions, endedListPartial))
             .DisposeMany()
             .SortAndBind(_groupsSource, _groupComparer)
             .Subscribe()

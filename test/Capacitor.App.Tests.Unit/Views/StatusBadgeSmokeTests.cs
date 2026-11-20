@@ -20,7 +20,7 @@ public class StatusBadgeSmokeTests {
             try {
                 window.Show();
                 Dispatcher.UIThread.RunJobs();
-                var peer = ControlAutomationPeer.CreatePeerForElement(badge)!;
+                var peer = ControlAutomationPeer.CreatePeerForElement(badge);
                 var glyph = badge.GetVisualDescendants().OfType<AppIcon>().Single();
                 await Assert.That(peer.GetName()).IsEqualTo("Waiting");
                 await Assert.That(glyph.IsEffectivelyVisible).IsFalse();
@@ -34,7 +34,7 @@ public class StatusBadgeSmokeTests {
                 await Assert.That(peer.GetAutomationControlType()).IsEqualTo(AutomationControlType.Text);
                 await Assert.That(peer.GetChildren().Count).IsEqualTo(0);
                 await Assert.That(glyph.IsEffectivelyVisible).IsTrue();
-                await Assert.That(ControlAutomationPeer.CreatePeerForElement(glyph)!.IsContentElement()).IsFalse();
+                await Assert.That(ControlAutomationPeer.CreatePeerForElement(glyph).IsContentElement()).IsFalse();
 
                 badge.Text = "Review finished";
                 badge.Icon = null;

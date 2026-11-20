@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Capacitor.Cli.Recording;
 using Capacitor.Cli.Recording.Capture;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Transcripts;
@@ -315,7 +316,7 @@ public class InlineDrainTests : IDisposable {
 
     static int ReadingsOfALine() {
         var clock = new StallingRedactionClock();
-        new InlineDrainRedaction(clock, UnboundedRedaction.Patterns).Encode(Line, static (_, _) => { });
+        new InlineDrainRedaction(clock, SecretRedactor.OutOfProcessPatterns).Encode(Line, static (_, _) => { });
 
         return clock.Readings;
     }
@@ -344,7 +345,7 @@ public class InlineDrainTests : IDisposable {
 
         var watchers = TestWatchers.For(
             Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient(),
-            () => new InlineDrainRedaction(redactionClock, UnboundedRedaction.Patterns), commits);
+            () => new InlineDrainRedaction(redactionClock, SecretRedactor.OutOfProcessPatterns), commits);
         await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null);
 
         return _server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost())

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Time.Testing;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
@@ -27,6 +28,86 @@ public class SessionTitleEditorViewModelTests {
         public static bool CanExecute(System.Windows.Input.ICommand command) => command.CanExecute(null);
 
         public void Dispose() => Vm.Dispose();
+    }
+
+    [Test]
+    public async Task A_requested_edit_waits_for_the_session_to_be_renamable() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var time = new FakeTimeProvider();
+            h.CanRename.OnNext(false);
+            h.Vm.RequestEdit(time, TimeSpan.FromSeconds(5));
+            await Assert.That(h.Vm.IsEditing).IsFalse();
+
+            time.Advance(TimeSpan.FromSeconds(4));
+            h.CanRename.OnNext(true);
+            await Assert.That(h.Vm.IsEditing).IsTrue();
+            await Assert.That(h.Vm.Draft).IsEqualTo("Old name");
+            time.Advance(TimeSpan.FromSeconds(5));
+            await Assert.That(h.Notifier.Notified).IsEmpty();
+        });
+    }
+
+    /// Eligibility that arrives after the window, from a reconnect or an account change, must not open the editor unasked.
+    [Test]
+    public async Task An_expired_request_is_dropped_with_a_notice() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var time = new FakeTimeProvider();
+            h.CanRename.OnNext(false);
+            h.Vm.RequestEdit(time, TimeSpan.FromSeconds(5));
+            time.Advance(TimeSpan.FromSeconds(5));
+            await Assert.That(h.Notifier.Notified).IsEquivalentTo(new[] { SessionTitleEditorViewModel.CannotRenameCopy });
+
+            h.CanRename.OnNext(true);
+            await Assert.That(h.Vm.IsEditing).IsFalse();
+        });
+    }
+
+    /// A second request restarts the window: the first one's expiry must not drop it or send a notice for it.
+    [Test]
+    public async Task A_repeated_request_answers_to_its_own_window() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var time = new FakeTimeProvider();
+            h.CanRename.OnNext(false);
+            h.Vm.RequestEdit(time, TimeSpan.FromSeconds(5));
+            time.Advance(TimeSpan.FromSeconds(3));
+            h.Vm.RequestEdit(time, TimeSpan.FromSeconds(5));
+            time.Advance(TimeSpan.FromSeconds(3));
+            await Assert.That(h.Notifier.Notified).IsEmpty();
+
+            h.CanRename.OnNext(true);
+            await Assert.That(h.Vm.IsEditing).IsTrue();
+            time.Advance(TimeSpan.FromSeconds(5));
+            await Assert.That(h.Notifier.Notified).IsEmpty();
+        });
+    }
+
+    /// A torn-down workspace's request must not send its notice over whatever session is open next.
+    [Test]
+    public async Task Disposal_retires_a_pending_request() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            var time = new FakeTimeProvider();
+            h.CanRename.OnNext(false);
+            h.Vm.RequestEdit(time, TimeSpan.FromSeconds(5));
+            h.Dispose();
+            time.Advance(TimeSpan.FromSeconds(5));
+            await Assert.That(h.Notifier.Notified).IsEmpty();
+        });
+    }
+
+    [Test]
+    public async Task A_cancelled_edit_does_not_reopen_on_a_later_eligibility_change() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            h.Vm.RequestEdit(new FakeTimeProvider(), TimeSpan.FromSeconds(5));
+            await h.Vm.CancelCommand.Execute();
+            h.CanRename.OnNext(false);
+            h.CanRename.OnNext(true);
+            await Assert.That(h.Vm.IsEditing).IsFalse();
+        });
     }
 
     [Test]

@@ -41,7 +41,7 @@ public class CopilotTranscriptEventsTests {
 
     [Test]
     public async Task A_start_is_a_session_started_carrying_the_transcripts_git_context() {
-        var line = """{"type":"session.start","data":{"sessionId":"1053bee4-574f-40e3-84ca-463bd7a82dc2","version":1,"producer":"copilot-agent","copilotVersion":"1.0.61","startTime":"2026-06-10T20:23:49.363Z","context":{"cwd":"/tmp/work","gitRoot":"/tmp/work","branch":"main","repository":"kurrent-io/scratch","hostType":"github","repositoryHost":"github.com"}},"id":"1499ffe1-8ac5-413f-add7-0998b8e1d47b","timestamp":"2026-06-10T20:23:49.371Z","parentId":null}""";
+        const string line = """{"type":"session.start","data":{"sessionId":"1053bee4-574f-40e3-84ca-463bd7a82dc2","version":1,"producer":"copilot-agent","copilotVersion":"1.0.61","startTime":"2026-06-10T20:23:49.363Z","context":{"cwd":"/tmp/work","gitRoot":"/tmp/work","branch":"main","repository":"kurrent-io/scratch","hostType":"github","repositoryHost":"github.com"}},"id":"1499ffe1-8ac5-413f-add7-0998b8e1d47b","timestamp":"2026-06-10T20:23:49.371Z","parentId":null}""";
 
         var e       = E(line).Single();
         var started = (SessionStarted)e.Payload;
@@ -66,7 +66,7 @@ public class CopilotTranscriptEventsTests {
 
     [Test]
     public async Task A_vs_code_local_start_without_context_still_starts_the_session() {
-        var line = """{"type":"session.start","data":{"sessionId":"d72e59eb-1ced-4194-8df4-c3ae346b63d7","version":1,"producer":"copilot-agent","copilotVersion":"0.73.0","vscodeVersion":"1.145.0","startTime":"2026-11-05T03:39:56.150Z"},"id":"24b4ba4b-0543-4afc-b3c5-aa128944879d","timestamp":"2026-11-05T03:39:56.150Z","parentId":null}""";
+        const string line = """{"type":"session.start","data":{"sessionId":"d72e59eb-1ced-4194-8df4-c3ae346b63d7","version":1,"producer":"copilot-agent","copilotVersion":"0.73.0","vscodeVersion":"1.145.0","startTime":"2026-11-05T03:39:56.150Z"},"id":"24b4ba4b-0543-4afc-b3c5-aa128944879d","timestamp":"2026-11-05T03:39:56.150Z","parentId":null}""";
 
         await Assert.That(Slug(E(line).Single().Payload)).IsEqualTo(
             """{ "cwd": null, "git_root": null, "branch": null, "repository": null, "repository_host": null, "host_type": null, "copilot_version": "0.73.0", "producer": "copilot-agent", "source": null }""");
@@ -76,7 +76,7 @@ public class CopilotTranscriptEventsTests {
 
     [Test]
     public async Task A_prompt_is_its_clean_content_not_the_transformed_one() {
-        var line = """{"type":"user.message","data":{"content":"Reply with exactly: ok","transformedContent":"<current_datetime>2026-06-10</current_datetime>\n\nReply with exactly: ok\n\n<system_reminder>noise</system_reminder>","attachments":[],"interactionId":"i-1"},"id":"b4fbc5e5-3847-423d-8442-acd4bf05a65e","timestamp":"2026-06-10T20:23:50.801Z","parentId":"f77e5cfc-9153-4016-8610-7f873fc65471"}""";
+        const string line = """{"type":"user.message","data":{"content":"Reply with exactly: ok","transformedContent":"<current_datetime>2026-06-10</current_datetime>\n\nReply with exactly: ok\n\n<system_reminder>noise</system_reminder>","attachments":[],"interactionId":"i-1"},"id":"b4fbc5e5-3847-423d-8442-acd4bf05a65e","timestamp":"2026-06-10T20:23:50.801Z","parentId":"f77e5cfc-9153-4016-8610-7f873fc65471"}""";
 
         var e = E(line).Single();
 
@@ -93,7 +93,7 @@ public class CopilotTranscriptEventsTests {
 
     [Test]
     public async Task A_subagents_prompt_carries_its_agent_id() {
-        var line = """{"type":"user.message","data":{"content":"Read the file a.txt","source":"agent-494ed425-f7f6-494a-99cb-4ab2ef7831fe"},"agentId":"56327224-7e62-4f04-ad66-dd8b4168efc8","id":"bf931c6e-aeca-4ed8-93cc-2fb5037d15db","timestamp":"2026-11-05T02:23:08.896Z","parentId":"dc1b61c5"}""";
+        const string line = """{"type":"user.message","data":{"content":"Read the file a.txt","source":"agent-494ed425-f7f6-494a-99cb-4ab2ef7831fe"},"agentId":"56327224-7e62-4f04-ad66-dd8b4168efc8","id":"bf931c6e-aeca-4ed8-93cc-2fb5037d15db","timestamp":"2026-11-05T02:23:08.896Z","parentId":"dc1b61c5"}""";
 
         await Assert.That(Slug(E(line).Single().Payload)).IsEqualTo("""{ "agent_id": "56327224-7e62-4f04-ad66-dd8b4168efc8" }""");
     }
@@ -207,7 +207,7 @@ public class CopilotTranscriptEventsTests {
 
     [Test]
     public async Task A_text_only_reply_carries_its_output_and_model() {
-        var line = """{"type":"assistant.message","data":{"messageId":"m1","model":"claude-sonnet-4.6","content":"ok","toolRequests":[],"outputTokens":5},"id":"35037a88-eb95-4e8b-9c39-d2602b5881dc","timestamp":"2026-06-10T20:23:55Z","parentId":"p1"}""";
+        const string line = """{"type":"assistant.message","data":{"messageId":"m1","model":"claude-sonnet-4.6","content":"ok","toolRequests":[],"outputTokens":5},"id":"35037a88-eb95-4e8b-9c39-d2602b5881dc","timestamp":"2026-06-10T20:23:55Z","parentId":"p1"}""";
 
         var e = E(line).Single();
 
@@ -219,9 +219,9 @@ public class CopilotTranscriptEventsTests {
 
     [Test]
     public async Task A_reply_emits_thinking_text_and_each_tool_request_in_order_a_tick_apart() {
-        var line = """{"type":"assistant.message","data":{"messageId":"m2","model":"claude-sonnet-4.6","content":"On it.","toolRequests":[{"toolCallId":"toolu_A","name":"report_intent","arguments":{"intent":"Creating hello.txt"},"type":"function"},{"toolCallId":"toolu_B","name":"create","arguments":{"path":"/tmp/work/hello.txt","file_text":"hello world"},"type":"function"}],"reasoningText":"User wants a file created.","reasoningOpaque":"BLOB","outputTokens":300},"id":"0d5668ad-cf68-4c8c-a141-a5ad7151d20a","timestamp":"2026-06-10T20:23:58.761Z","parentId":"p2"}""";
-        var id   = Guid.Parse("0d5668ad-cf68-4c8c-a141-a5ad7151d20a");
-        var at   = DateTimeOffset.Parse("2026-06-10T20:23:58.761Z");
+        const string line = """{"type":"assistant.message","data":{"messageId":"m2","model":"claude-sonnet-4.6","content":"On it.","toolRequests":[{"toolCallId":"toolu_A","name":"report_intent","arguments":{"intent":"Creating hello.txt"},"type":"function"},{"toolCallId":"toolu_B","name":"create","arguments":{"path":"/tmp/work/hello.txt","file_text":"hello world"},"type":"function"}],"reasoningText":"User wants a file created.","reasoningOpaque":"BLOB","outputTokens":300},"id":"0d5668ad-cf68-4c8c-a141-a5ad7151d20a","timestamp":"2026-06-10T20:23:58.761Z","parentId":"p2"}""";
+        var id            = Guid.Parse("0d5668ad-cf68-4c8c-a141-a5ad7151d20a");
+        var at            = DateTimeOffset.Parse("2026-06-10T20:23:58.761Z");
 
         var events = E(line);
 
@@ -258,14 +258,14 @@ public class CopilotTranscriptEventsTests {
 
     [Test]
     public async Task A_subagents_reply_carries_its_agent_id() {
-        var line = """{"type":"assistant.message","data":{"model":"claude-haiku-4.5","content":"Found 2 files.","toolRequests":[],"outputTokens":50},"id":"5d5668ad-cf68-4c8c-a141-a5ad7151d20a","timestamp":"2026-06-10T20:24:05Z","parentId":"p5","agentId":"toolu_01G9Tq"}""";
+        const string line = """{"type":"assistant.message","data":{"model":"claude-haiku-4.5","content":"Found 2 files.","toolRequests":[],"outputTokens":50},"id":"5d5668ad-cf68-4c8c-a141-a5ad7151d20a","timestamp":"2026-06-10T20:24:05Z","parentId":"p5","agentId":"toolu_01G9Tq"}""";
 
         await Assert.That(Slug(E(line).Single().Payload)).IsEqualTo("""{ "agent_id": "toolu_01G9Tq" }""");
     }
 
     [Test]
     public async Task A_local_tool_requests_json_text_arguments_are_parsed() {
-        var line = """{"type":"assistant.message","data":{"content":"Reading it.","toolRequests":[{"toolCallId":"call_x","name":"read_file","arguments":"{\"filePath\":\"/work/README.md\",\"startLine\":1}","type":"function"}]},"id":"768b5ce5-c98e-4784-a2f8-b89973f353f6","timestamp":"2026-11-05T03:39:59.153Z","parentId":"p"}""";
+        const string line = """{"type":"assistant.message","data":{"content":"Reading it.","toolRequests":[{"toolCallId":"call_x","name":"read_file","arguments":"{\"filePath\":\"/work/README.md\",\"startLine\":1}","type":"function"}]},"id":"768b5ce5-c98e-4784-a2f8-b89973f353f6","timestamp":"2026-11-05T03:39:59.153Z","parentId":"p"}""";
 
         var call = ((AssistantToolCallsGenerated)E(line)[1].Payload).ToolCalls.Single();
 
@@ -292,7 +292,7 @@ public class CopilotTranscriptEventsTests {
 
     [Test]
     public async Task A_completion_is_a_result_with_its_outcome_and_detail() {
-        var line = """{"type":"tool.execution_complete","data":{"toolCallId":"toolu_A","success":true,"result":{"content":"Intent logged","detailedContent":"Creating hello.txt"},"toolTelemetry":{}},"id":"3e386233-0a46-403c-a518-302bec1a22df","timestamp":"2026-06-10T20:23:58.800Z","parentId":"p3"}""";
+        const string line = """{"type":"tool.execution_complete","data":{"toolCallId":"toolu_A","success":true,"result":{"content":"Intent logged","detailedContent":"Creating hello.txt"},"toolTelemetry":{}},"id":"3e386233-0a46-403c-a518-302bec1a22df","timestamp":"2026-06-10T20:23:58.800Z","parentId":"p3"}""";
 
         var e      = E(line).Single();
         var result = (ToolResultReceived)e.Payload;
@@ -371,8 +371,8 @@ public class CopilotTranscriptEventsTests {
 
     [Test]
     public async Task A_shutdown_backfills_each_model_net_of_cache_with_no_output() {
-        var line = """{"type":"session.shutdown","data":{"shutdownType":"routine","modelMetrics":{"claude-sonnet-4.6":{"usage":{"inputTokens":51647,"outputTokens":581,"cacheReadTokens":43694,"cacheWriteTokens":7946,"reasoningTokens":41}},"claude-haiku-4.5":{"usage":{"inputTokens":26417,"outputTokens":963,"cacheReadTokens":6255,"cacheWriteTokens":20100,"reasoningTokens":356}}}},"id":"1c3cd396-e283-4d76-8118-1a30d9d17617","timestamp":"2026-06-10T20:24:40Z","parentId":null}""";
-        var id   = Guid.Parse("1c3cd396-e283-4d76-8118-1a30d9d17617");
+        const string line = """{"type":"session.shutdown","data":{"shutdownType":"routine","modelMetrics":{"claude-sonnet-4.6":{"usage":{"inputTokens":51647,"outputTokens":581,"cacheReadTokens":43694,"cacheWriteTokens":7946,"reasoningTokens":41}},"claude-haiku-4.5":{"usage":{"inputTokens":26417,"outputTokens":963,"cacheReadTokens":6255,"cacheWriteTokens":20100,"reasoningTokens":356}}}},"id":"1c3cd396-e283-4d76-8118-1a30d9d17617","timestamp":"2026-06-10T20:24:40Z","parentId":null}""";
+        var id            = Guid.Parse("1c3cd396-e283-4d76-8118-1a30d9d17617");
 
         var events = E(line);
 

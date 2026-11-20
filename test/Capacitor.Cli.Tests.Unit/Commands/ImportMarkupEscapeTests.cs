@@ -43,8 +43,8 @@ public class ImportMarkupEscapeTests {
         // A reason that itself contains square brackets must not break
         // either the inner escape (Markup.Escape) or the outer literal
         // brackets.
-        var reason = "got [unexpected] token";
-        var markup = ImportCommand.FormatSkippedReasonMarkup("abc123", reason);
+        const string reason = "got [unexpected] token";
+        var markup          = ImportCommand.FormatSkippedReasonMarkup("abc123", reason);
 
         _ = new Markup(markup);
     }

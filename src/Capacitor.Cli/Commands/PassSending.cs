@@ -90,9 +90,10 @@ static class PassSending {
 
     static async Task<int> ApproveAsync(IPassesApi passes, string serverUrl, StartPassResponseDto pass, PassTerminal terminal) {
         await terminal.Error.WriteLineAsync(pass.ApprovalText ?? "This pass needs your approval to share.");
-        foreach (var grant in pass.Grants ?? [])
+        foreach (var grant in pass.Grants ?? []) {
             await terminal.Error.WriteLineAsync($"  - {grant.Access} ({grant.ItemKind.Replace('_', ' ')} {grant.ItemId})"
                                               + (grant.AlsoAllows is { Length: > 0 } also ? $"; it also lets them {also}" : ""));
+        }
 
         if (!terminal.Interactive) {
             await terminal.Out.WriteLineAsync($"{McpPassServer.WaitingForApproval}: {PassLinks.Sent(serverUrl)}");

@@ -648,6 +648,8 @@ switch (command) {
             case "pages":
             case "artefacts":
                 return await Run<McpArtefactsServer>().RunAsync();
+            case "sharing":
+                return await Run<McpSharingServer>().RunAsync();
             case "knowledge":
                 return await Run<McpKnowledgeServer>().RunAsync();
             case "pass":
@@ -688,6 +690,9 @@ switch (command) {
     case "page":
     case "artefact":
         return await Run<ArtefactCommand>().HandleAsync(args);
+
+    case "sharing":
+        return await Run<SharingCommand>().HandleAsync(args);
     // Not in PrintUsage: both answer as an unknown command does while the server does not offer passes.
     case "pass":
         return await Run<PassCommand>().HandleAsync(args);
@@ -717,6 +722,12 @@ switch (command) {
             return 1;
         }
 
+        if (ExpectedServer.Mismatch(Environment.GetEnvironmentVariable, sp.GetRequiredService<CapacitorServer>().Url) is { } elsewhere) {
+            Console.Error.WriteLine(elsewhere);
+
+            return 1;
+        }
+
         return await Run<DisableCommand>().Handle(sessionId, Api, Console.Out, Console.Error);
     }
     case "hide": {
@@ -735,6 +746,12 @@ switch (command) {
         if (!ArgParsing.TryNormalizeSessionGuid(resolved, out var sessionId)) {
             Console.Error.WriteLine($"Invalid session ID: '{resolved}'");
             Console.Error.WriteLine("  Session ID must be a UUID. Use `kcap recap --repo` to find recent session IDs.");
+
+            return 1;
+        }
+
+        if (ExpectedServer.Mismatch(Environment.GetEnvironmentVariable, sp.GetRequiredService<CapacitorServer>().Url) is { } elsewhere) {
+            Console.Error.WriteLine(elsewhere);
 
             return 1;
         }
