@@ -395,13 +395,15 @@ static class SessionImporter {
     }
 
     /// <summary>
-    /// The agent a <c>&lt;task-notification&gt;</c> reports on, the only reference a background agent's
-    /// finish leaves in the parent; the notice's call id also counts for an agent linked through its call.
+    /// The sender of an agent message or the agent named in a task notification.
+    /// A notice's call id also identifies a child linked through its invocation.
     /// </summary>
     static string? NotifiedAgent(
             JsonElement root, int lineIndex, Dictionary<string, int> agents,
             Dictionary<string, int> toolUsePositions, Dictionary<string, int> callResultLines) {
-        if (root.Obj("message")?.Str("content") is not { } text || !TaskNotificationParser.TryParse(text, out var notice)) return null;
+        if (root.Obj("message")?.Str("content") is not { } text) return null;
+        if (AgentMessageParser.TryParse(text, out var message)) return message.From;
+        if (!TaskNotificationParser.TryParse(text, out var notice)) return null;
 
         if (notice.ToolUseId is { } callId && toolUsePositions.ContainsKey(callId))
             callResultLines.TryAdd(callId, lineIndex);

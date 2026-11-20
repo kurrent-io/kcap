@@ -172,12 +172,10 @@ public class SessionImporterResumeTests : IDisposable {
         await Assert.That(ParentLines()).IsEquivalentTo(Enumerable.Range(101, lineCount - 101));
     }
 
-    /// <summary>
-    /// A subagent first referenced before the watermark but still reporting progress after it was
-    /// running at the earlier import; one whose references all precede the watermark had finished.
-    /// </summary>
     [Test]
-    public async Task Resume_resends_a_subagent_still_running_at_the_watermark_at_its_next_reference() {
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Resume_resends_a_subagent_still_running_at_the_watermark_at_its_next_reference(bool interimMessage) {
         RespondOk("/hooks/transcript");
         RespondOk("/hooks/subagent-start");
         RespondOk("/hooks/subagent-stop");
@@ -185,11 +183,14 @@ public class SessionImporterResumeTests : IDisposable {
         var name        = Guid.NewGuid().ToString("N");
         var sessionPath = Tmp.PathTo($"{name}.jsonl");
         var agentsDir   = Tmp.CreateDir(name, "subagents");
+        var nextReference = interimMessage
+            ? $$$"""{"type":"user","message":{"content":"<agent-message from=\"{{{Late}}}\">interim update</agent-message>"}}"""
+            : $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{Late}}}"}}""";
         await File.WriteAllLinesAsync(sessionPath, [
             $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{Early}}}"}}""",
             $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{Late}}}"}}""",
             """{"type":"user","timestamp":"2026-03-15T10:00:01Z","message":{"content":"p2"}}""",
-            $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{Late}}}"}}""",
+            nextReference,
         ]);
         foreach (var agent in new[] { Early, Late }) {
             await File.WriteAllLinesAsync(agentsDir.PathTo($"agent-{agent}.jsonl"), [
@@ -204,6 +205,11 @@ public class SessionImporterResumeTests : IDisposable {
 
         await Assert.That(result.AgentIds).IsEquivalentTo([Late]);
         await Assert.That(ParentLines()).IsEquivalentTo([2, 3]);
+        var child = Bodies("/hooks/transcript").Single(body => body["agent_id"] is not null);
+        await Assert.That(child["line_numbers"]!.AsArray().Single()!.GetValue<int>()).IsEqualTo(0);
+        var posts = _server.LogEntries.Select(e => e.RequestMessage.Path);
+        await Assert.That(string.Join(" ", posts))
+            .IsEqualTo("/hooks/transcript /hooks/subagent-start /hooks/transcript /hooks/subagent-stop /hooks/transcript");
     }
 
     [Test]
