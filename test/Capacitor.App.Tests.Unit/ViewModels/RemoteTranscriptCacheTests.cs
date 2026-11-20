@@ -5,17 +5,17 @@ using Capacitor.Models.Transcripts.UserMessages;
 
 namespace Capacitor.App.Tests.Unit.ViewModels;
 
-/// The last few closed transcripts: bounded, most recently opened kept, and forgotten when access is lost.
+/// The last few closed transcripts: bounded, most recently closed kept, and forgotten when access is lost.
 public class RemoteTranscriptCacheTests {
     static RemoteTranscriptSnapshot Snapshot(long position = 9) => new([], position, 0, null, 0, new ScheduledPrompts());
 
     [Test]
-    public async Task The_least_recently_opened_session_goes_when_a_sixth_is_kept() {
+    public async Task The_least_recently_closed_session_goes_when_a_sixth_is_kept() {
         using var subject = new BehaviorSubject<string?>("u1");
         using var access = new Subject<(string, SessionAccessState)>();
         using var cache = new RemoteTranscriptCache(subject, access);
         for (var i = 0; i < RemoteTranscriptCache.Capacity; i++) cache.Put($"s{i}", Snapshot(), cache.Stamp($"s{i}"));
-        // Opening s0 again makes it the most recent; s1 is then the oldest.
+        // Reopening and closing s0 makes it the most recent; s1 is then the oldest.
         cache.Put("s0", cache.Take("s0")!, cache.Stamp("s0"));
 
         cache.Put("s5", Snapshot(), cache.Stamp("s5"));

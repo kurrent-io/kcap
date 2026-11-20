@@ -4,7 +4,7 @@ using Capacitor.App.Services;
 
 namespace Capacitor.App.ViewModels;
 
-/// The projected lines of the remote sessions opened most recently, so re-opening one reads only what
+/// The projected lines of the remote sessions closed most recently, so re-opening one reads only what
 /// followed and shows it with that one small read. It holds data, never a view model, so a closed tab's rows are not kept alive. A
 /// session whose access is refused is forgotten, and every session goes when the signed-in account changes.
 public sealed class RemoteTranscriptCache : IDisposable {
@@ -13,7 +13,7 @@ public sealed class RemoteTranscriptCache : IDisposable {
     internal const int MaxLines = 2000;
 
     readonly Lock _lock = new();
-    /// Most recently opened first.
+    /// Most recently closed first: a transcript is kept when its feed closes, so the one read last stays longest.
     readonly LinkedList<(string SessionId, RemoteTranscriptSnapshot Snapshot)> _entries = new();
     readonly IDisposable _subscriptions;
     int _generation;
