@@ -35,10 +35,11 @@ public class SessionImporterResumeTests : IDisposable {
             """{"type":"user","timestamp":"2026-03-15T10:00:02Z","message":{"content":"p4"}}""",
         ]);
 
-        foreach (var agent in new[] { Early, Late })
+        foreach (var agent in new[] { Early, Late }) {
             await File.WriteAllLinesAsync(agentsDir.PathTo($"agent-{agent}.jsonl"), [
                 """{"type":"user","timestamp":"2026-03-15T10:00:00Z","message":{"content":"a"}}""",
             ]);
+        }
 
         return sessionPath;
     }
@@ -95,10 +96,11 @@ public class SessionImporterResumeTests : IDisposable {
         _server.Given(Request.Create().WithPath(refusedPath).UsingPost().WithBody(new JsonPartialMatcher($$"""{"agent_id":"{{Late}}"}""")))
             .AtPriority(1)
             .RespondWith(Response.Create().WithStatusCode(400));
-        foreach (var path in new[] { "/hooks/transcript", "/hooks/subagent-start", "/hooks/subagent-stop" })
+        foreach (var path in new[] { "/hooks/transcript", "/hooks/subagent-start", "/hooks/subagent-stop" }) {
             _server.Given(Request.Create().WithPath(path).UsingPost())
                 .AtPriority(2)
                 .RespondWith(Response.Create().WithStatusCode(200));
+        }
         var sessionPath = await WriteSessionAsync();
 
         using var client = new HttpClient();
@@ -189,10 +191,11 @@ public class SessionImporterResumeTests : IDisposable {
             """{"type":"user","timestamp":"2026-03-15T10:00:01Z","message":{"content":"p2"}}""",
             $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{Late}}}"}}""",
         ]);
-        foreach (var agent in new[] { Early, Late })
+        foreach (var agent in new[] { Early, Late }) {
             await File.WriteAllLinesAsync(agentsDir.PathTo($"agent-{agent}.jsonl"), [
                 """{"type":"user","timestamp":"2026-03-15T10:00:00Z","message":{"content":"a"}}""",
             ]);
+        }
 
         using var client = new HttpClient();
         var result = await SessionImporter.ImportSessionAsync(
@@ -204,23 +207,31 @@ public class SessionImporterResumeTests : IDisposable {
     }
 
     [Test]
-    public async Task A_parent_reference_appended_during_delivery_is_left_for_the_next_resume() {
+    public async Task A_parent_reference_completed_during_delivery_is_left_for_the_next_resume() {
         RespondOk("/hooks/transcript");
         RespondOk("/hooks/subagent-start");
         RespondOk("/hooks/subagent-stop");
 
         var parent = Tmp.PathTo("growing.jsonl");
         var agent = Tmp.CreateDir("growing", "subagents").PathTo($"agent-{Early}.jsonl");
-        var reference = $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{Early}}}"}}""";
-        const string message = """{"type":"user","message":{"content":"line"}}""";
+        const string reference = $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{Early}}}"}}""";
+        const string message = """{"type":"user","timestamp":"2026-03-15T10:00:00Z","message":{"content":"line"}}""";
+        const string later = """{"type":"user","timestamp":"2026-03-15T11:00:00Z","message":{"content":"later"}}""";
         await File.WriteAllLinesAsync(parent, new[] { reference }.Concat(Enumerable.Repeat(message, 101)));
+        var split = reference.Length / 2;
+        await File.AppendAllTextAsync(parent, reference[..split]);
         await File.WriteAllLinesAsync(agent, [message]);
 
         using var client = new HttpClient();
         var first = await SessionImporter.ImportSessionAsync(
             client, _server.Url!, parent, "s1", new SessionMetadata(), encodedCwd: null, TimeProvider.System,
-            new AppendAfterFirstBatch(parent, reference), startLine: 1, strict: true);
+            new OnProgress(progress => {
+                if (progress is BatchFlushed { AgentId: null, LinesAdded: 100 })
+                    File.AppendAllLines(parent, [reference[split..], later]);
+            }), startLine: 1, strict: true);
         await Assert.That(first.AgentIds).IsEmpty();
+        await Assert.That(first.TailDeferred).IsTrue();
+        await Assert.That(first.EndTimestamp).IsEqualTo(new DateTimeOffset(2026, 3, 15, 10, 0, 0, TimeSpan.Zero));
         await Assert.That(first.CompleteLines).IsEqualTo(102);
         await Assert.That(ParentLines().Max()).IsEqualTo(101);
 
@@ -229,17 +240,44 @@ public class SessionImporterResumeTests : IDisposable {
             client, _server.Url!, parent, "s1", new SessionMetadata(), encodedCwd: null, TimeProvider.System,
             startLine: first.CompleteLines, strict: true);
         await Assert.That(second.AgentIds).IsEquivalentTo([Early]);
-        await Assert.That(ParentLines()).IsEquivalentTo([102]);
+        await Assert.That(ParentLines()).IsEquivalentTo([102, 103]);
+        await Assert.That(second.TailDeferred).IsFalse();
+        await Assert.That(second.EndTimestamp).IsEqualTo(new DateTimeOffset(2026, 3, 15, 11, 0, 0, TimeSpan.Zero));
     }
 
-    sealed class AppendAfterFirstBatch(string path, string line) : IProgress<ImportProgress> {
-        bool _appended;
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Missing_child_transcript_leaves_its_parent_reference_retryable(bool disappearsAfterStart) {
+        RespondOk("/hooks/transcript");
+        RespondOk("/hooks/subagent-start");
+        RespondOk("/hooks/subagent-stop");
+        var parent = await WriteSessionAsync();
+        var directory = Path.Combine(Path.ChangeExtension(parent, null), "subagents");
+        var child = Path.Combine(directory, $"agent-{Late}.jsonl");
+        if (!disappearsAfterStart) File.Delete(child);
 
-        public void Report(ImportProgress progress) {
-            if (_appended || progress is not BatchFlushed { AgentId: null }) return;
-            File.AppendAllLines(path, [line]);
-            _appended = true;
-        }
+        using var client = new HttpClient();
+        await Assert.ThrowsAsync<IOException>(async () => await SessionImporter.ImportSessionAsync(
+            client, _server.Url!, parent, "s1", new SessionMetadata(), encodedCwd: null, TimeProvider.System,
+            new OnProgress(progress => {
+                if (progress is SubagentStarted { AgentId: Late }) File.Delete(child);
+            }), startLine: 2, strict: true));
+
+        await Assert.That(ParentLines()).IsEquivalentTo(disappearsAfterStart ? [2] : Array.Empty<int>());
+        await Assert.That(Bodies("/hooks/subagent-stop")).IsEmpty();
+
+        _server.ResetLogEntries();
+        await File.WriteAllTextAsync(child, "");
+        var retry = await SessionImporter.ImportSessionAsync(
+            client, _server.Url!, parent, "s1", new SessionMetadata(), encodedCwd: null,
+            TimeProvider.System, startLine: disappearsAfterStart ? 3 : 2, strict: true);
+        await Assert.That(retry.AgentIds).IsEquivalentTo([Late]);
+        await Assert.That(ParentLines().Max()).IsEqualTo(4);
+    }
+
+    sealed class OnProgress(Action<ImportProgress> action) : IProgress<ImportProgress> {
+        public void Report(ImportProgress progress) => action(progress);
     }
 
     [Test]

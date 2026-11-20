@@ -100,7 +100,7 @@ public class SessionImporterScanTests {
                          """;
 
         using var tmp = new TempDir();
-        var path = tmp.CreateFile("transcript.jsonl", transcript);
+        var path = tmp.CreateFile("transcript.jsonl", transcript + "\n");
         tmp.CreateFile(["transcript", "subagents", "agent-a1.jsonl"], "{}");
         tmp.CreateFile(["transcript", "subagents", "agent-a1.meta.json"], """{"toolUseId":"toolu_1"}""");
 
@@ -122,7 +122,7 @@ public class SessionImporterScanTests {
                          """;
 
         using var tmp = new TempDir();
-        var path = tmp.CreateFile("transcript.jsonl", transcript);
+        var path = tmp.CreateFile("transcript.jsonl", transcript + "\n");
 
         var scan = SessionImporter.ScanAgentLifecycle(path, resumeFromLine: startLine);
 
@@ -130,6 +130,25 @@ public class SessionImporterScanTests {
         await Assert.That(scan.FirstLineByAgent["agent-xyz"]).IsEqualTo(0);
         await Assert.That(scan.ResumeLineByAgent.ContainsKey("agent-xyz")).IsEqualTo(replay);
         if (replay) await Assert.That(scan.ResumeLineByAgent["agent-xyz"]).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments(1, 1)]
+    [Arguments(2, 2)]
+    public async Task A_linked_invocation_precedes_progress_when_both_are_unsent(int startLine, int expected) {
+        const string transcript = """
+                                  {"type":"user","message":{"content":"go"}}
+                                  {"type":"assistant","message":{"content":[{"type":"tool_use","id":"call","name":"Agent","input":{}}]}}
+                                  {"type":"progress","data":{"type":"agent_progress","agentId":"agent-xyz"}}
+                                  {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"call"}]},"toolUseResult":{"agentId":"agent-xyz"}}
+                                  """;
+        using var tmp = new TempDir();
+        var path = tmp.CreateFile("transcript.jsonl", transcript + "\n");
+
+        var scan = SessionImporter.ScanAgentLifecycle(path, resumeFromLine: startLine);
+
+        await Assert.That(scan.FirstLineByAgent["agent-xyz"]).IsEqualTo(2);
+        await Assert.That(scan.ResumeLineByAgent["agent-xyz"]).IsEqualTo(expected);
     }
 
     /// <summary>Evidence that disagrees, even where one side names a call this transcript does not hold, or
@@ -171,7 +190,7 @@ public class SessionImporterScanTests {
                          """;
 
         using var tmp = new TempDir();
-        var path = tmp.CreateFile("transcript.jsonl", transcript);
+        var path = tmp.CreateFile("transcript.jsonl", transcript + "\n");
 
         var scan = SessionImporter.ScanAgentLifecycle(path, resumeFromLine: startLine);
 

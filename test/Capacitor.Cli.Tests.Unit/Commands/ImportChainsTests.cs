@@ -120,7 +120,7 @@ public class ImportChainsTests : IDisposable {
         const string agentId = "bbbbbbbbbbbbbbbb";
         var path = canonical ? CanonicalRoute.HttpPath : TranscriptPost.RawPath;
         var session = MakeNew("resume-child", 5);
-        var lines = File.ReadAllLines(session.FilePath);
+        var lines = await File.ReadAllLinesAsync(session.FilePath);
         lines[3] = $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{agentId}}}"}}""";
         await File.WriteAllLinesAsync(session.FilePath, lines);
         var agentPath = _tmp.CreateDir(session.SessionId, "subagents").PathTo($"agent-{agentId}.jsonl");
@@ -154,8 +154,8 @@ public class ImportChainsTests : IDisposable {
         }]], events, CancellationToken.None);
 
         await Assert.That(failed.Errored).IsEqualTo(1);
-        await Assert.That(_server.LogEntries.Any(e => e.RequestMessage.Path!.StartsWith("/hooks/session-end"))).IsFalse();
-        await Assert.That(_server.LogEntries.Any(e => e.RequestMessage.Path!.EndsWith("/last-line"))).IsFalse();
+        await Assert.That(_server.LogEntries.Any(e => e.RequestMessage.Path.StartsWith("/hooks/session-end"))).IsFalse();
+        await Assert.That(_server.LogEntries.Any(e => e.RequestMessage.Path.EndsWith("/last-line"))).IsFalse();
         var parent = _server.LogEntries.Where(e => e.RequestMessage.Path == path)
             .Select(e => JsonNode.Parse(e.RequestMessage.Body!)!).Single(b => b["agent_id"] is null);
         var watermark = canonical
@@ -181,6 +181,8 @@ public class ImportChainsTests : IDisposable {
             .IsEqualTo($"/hooks/subagent-start {path} /hooks/subagent-stop {path} /hooks/session-end/claude");
         await Assert.That(TranscriptImportLedger.Load(Config.Root).ResumeFrom(_server.Url!, session.SessionId, 4)).IsEqualTo(5);
 
+        return;
+
         void StubTranscriptRoutes() {
             StubAllHookEndpoints(transcriptPriority: 2);
             if (!canonical) return;
@@ -194,6 +196,40 @@ public class ImportChainsTests : IDisposable {
         void StubWatermark(int line, int priority) =>
             _server.Given(Request.Create().WithPath($"/api/sessions/{session.SessionId}/last-line").UsingGet())
                 .AtPriority(priority).RespondWith(Response.Create().WithStatusCode(200).WithBody($$"""{"last_line_number":{{line}}}"""));
+    }
+
+    [Test]
+    public async Task Partial_import_waits_to_finalize_until_its_only_unsent_line_is_complete() {
+        StubAllHookEndpoints();
+        var session = MakeNew("incomplete", 3) with {
+            Status = ImportCommand.ClassificationStatus.Partial,
+            ResumeFromLine = 2,
+        };
+        var lines = await File.ReadAllLinesAsync(session.FilePath);
+        await File.WriteAllTextAsync(session.FilePath, string.Join("\n", lines));
+        var events = new ImportCommand.ChainWorkerEvents {
+            OnSessionStarted      = (_, _) => { },
+            OnSubagentStarted     = (_, _, _) => { },
+            OnSubagentFinished    = (_, _, _, _) => { },
+            OnSessionProgress     = (_, _, _) => { },
+            OnSessionErrored      = (_, _, _) => { },
+            OnSessionWarning      = (_, _, _) => { },
+            OnSessionEnded        = (_, _, _, _) => { },
+            OnTitleTaskReady      = _ => { },
+            OnBackgroundWorkReady = _ => { },
+        };
+
+        using var client = new HttpClient();
+        var deferred = await Import().ImportChainsAsync(client, _server.Url!, [[session]], events, CancellationToken.None);
+        await Assert.That(deferred.Resumed).IsEqualTo(0);
+        await Assert.That(_server.LogEntries.Any(e => e.RequestMessage.Method == "POST")).IsFalse();
+
+        await File.AppendAllTextAsync(session.FilePath, "\n");
+        var resumed = await Import().ImportChainsAsync(client, _server.Url!, [[session]], events, CancellationToken.None);
+        await Assert.That(resumed.Resumed).IsEqualTo(1);
+        var end = _server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/session-end/claude");
+        var body = JsonNode.Parse(end.RequestMessage.Body!)!;
+        await Assert.That(body["ended_at"]?.GetValue<string>()).IsEqualTo("2026-03-15T10:00:00.0000000+00:00");
     }
 
     [Test]

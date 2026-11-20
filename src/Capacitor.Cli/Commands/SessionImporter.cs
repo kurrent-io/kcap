@@ -71,14 +71,22 @@ static class SessionImporter {
         // up collab subagent rollouts (parent_thread_id-linked) after the main transcript.
         var isCodex = vendor is HarnessId.Codex;
 
-        var agentTranscripts = isCodex
-            ? []
-            : DiscoverAgentTranscripts(transcriptPath);
-        var scan = isCodex ? null : ScanAgentLifecycle(transcriptPath, strict || startLine > 0 ? startLine : null);
-        var positions = startLine == 0 ? scan?.FirstLineByAgent : scan?.ResumeLineByAgent;
-        var agentsByLine = positions is null ? null : agentTranscripts
-            .Where(agent => positions.ContainsKey(agent.AgentId))
-            .ToLookup(agent => positions[agent.AgentId]);
+        await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        var snapshotEnd = strict ? FindCompletePrefixEnd(stream) : (long?)null;
+        var resumeFromLine = strict || startLine > 0 ? startLine : (int?)null;
+        AgentLifecycleScan? scan = null;
+
+        if (!isCodex) {
+            using var scanReader = OpenReader(stream, snapshotEnd);
+            scan = ScanAgentLifecycle(transcriptPath, scanReader, resumeFromLine);
+            stream.Position = 0;
+        }
+
+        // A child can appear while the parent is scanned. Discover files against the captured prefix.
+        var agentTranscripts = isCodex ? [] : DiscoverAgentTranscripts(transcriptPath);
+        var agentPaths = agentTranscripts.ToDictionary(agent => agent.AgentId, agent => agent.Path, StringComparer.Ordinal);
+        var positions = resumeFromLine is null ? scan?.FirstLineByAgent : scan?.ResumeLineByAgent;
+        var agentsByLine = positions?.ToLookup(entry => entry.Value, entry => entry.Key);
 
         var sentAgents = new HashSet<string>(StringComparer.Ordinal);
         var agentIds   = new List<string>();
@@ -90,22 +98,29 @@ static class SessionImporter {
         // with agent lifecycle events inserted at the right positions.
         var batch = new TranscriptBatchBuffer();
 
-        await using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var       reader = new StreamReader(stream);
-
-        // A resume can advance only through the lines it scanned for agent references.
-        // Any lines appended during delivery belong to a subsequent import.
-        var scanLimit = strict ? scan?.CompleteLines : null;
+        using var reader = OpenReader(stream, snapshotEnd);
+        DateTimeOffset? endTimestamp = null;
         var lineIndex = 0;
 
-        while ((scanLimit is null || lineIndex < scanLimit) && await reader.ReadLineAsync() is { } line) {
+        while (await reader.ReadLineAsync() is { } line) {
+            if (strict && line.Contains("\"timestamp\"", StringComparison.Ordinal) && ReadTimestamp(line) is { } timestamp)
+                endTimestamp = timestamp;
+
             if (lineIndex < startLine) {
                 lineIndex++;
 
                 continue;
             }
 
-            foreach (var (agentId, agentPath) in agentsByLine?[lineIndex] ?? []) {
+            foreach (var agentId in agentsByLine?[lineIndex] ?? []) {
+                if (!agentPaths.TryGetValue(agentId, out var agentPath)) {
+                    // A notification can name a shell task. Only Claude agent evidence requires a file.
+                    if (strict && scan?.FirstLineByAgent.ContainsKey(agentId) == true)
+                        throw new IOException($"Subagent {agentId} has no transcript at parent line {lineIndex + 1}");
+
+                    continue;
+                }
+
                 if (!batch.IsEmpty) await FlushAsync();
                 await SendClaudeAgentAsync(agentId, agentPath);
             }
@@ -123,10 +138,10 @@ static class SessionImporter {
             lineIndex++;
         }
 
-        if (lineIndex < scanLimit)
+        if (stream.Position < snapshotEnd)
             throw new IOException($"Transcript shortened during import: {transcriptPath}");
 
-        var completeLines = scanLimit ?? CompleteLines(stream, lineIndex);
+        var completeLines = strict ? lineIndex : CompleteLines(stream, lineIndex);
 
         // A strict import delivers the agents that follow the transcript before its last batch: once
         // that batch lands the server holds the whole parent, and the next import would skip them.
@@ -134,7 +149,10 @@ static class SessionImporter {
         if (!batch.IsEmpty) await FlushAsync();
         if (!strict) await SendTrailingAgentsAsync();
 
-        return new ImportResult(sessionId, agentIds, totalSent, completeLines);
+        return new ImportResult(sessionId, agentIds, totalSent, completeLines) {
+            EndTimestamp = endTimestamp,
+            TailDeferred = snapshotEnd is { } end && stream.Length > end,
+        };
 
         async Task FlushAsync() =>
             totalSent += await FlushBatchAsync(
@@ -182,7 +200,7 @@ static class SessionImporter {
                 try {
                     subLines = await SendTranscriptBatches(
                         httpClient, baseUrl, sessionId, sub.FilePath, subAgentId,
-                        startLine: 0, time, progress: progress, vendor: HarnessId.Codex, failOnError: true);
+                        startLine: 0, time, progress: progress, vendor: HarnessId.Codex, failOnError: true, requireFile: strict);
                 } catch (HttpRequestException) when (!strict) {
                     continue;
                 }
@@ -221,8 +239,7 @@ static class SessionImporter {
             Dictionary<string, int>     FirstLineByAgent,
             Dictionary<string, string?> AgentTypeByAgent,
             Dictionary<string, string>  SpawnCallByAgent,
-            Dictionary<string, int>     ResumeLineByAgent,
-            int                         CompleteLines
+            Dictionary<string, int>     ResumeLineByAgent
         );
 
     /// <summary>
@@ -245,6 +262,12 @@ static class SessionImporter {
         ScanAgentLifecycle(transcriptPath).FirstLineByAgent;
 
     internal static AgentLifecycleScan ScanAgentLifecycle(string transcriptPath, int? resumeFromLine = null) {
+        using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = OpenReader(stream, resumeFromLine is null ? null : FindCompletePrefixEnd(stream));
+        return ScanAgentLifecycle(transcriptPath, reader, resumeFromLine);
+    }
+
+    static AgentLifecycleScan ScanAgentLifecycle(string transcriptPath, TextReader reader, int? resumeFromLine) {
         var firstLine  = new Dictionary<string, int>(StringComparer.Ordinal);
         var agentTypes = new Dictionary<string, string?>(StringComparer.Ordinal);
 
@@ -257,14 +280,9 @@ static class SessionImporter {
         var links            = new List<(string AgentId, string CallId)>();
         var resumeLines      = new Dictionary<string, int>(StringComparer.Ordinal);
         var callResultLines  = new Dictionary<string, int>(StringComparer.Ordinal);
-        var completeLines    = 0;
 
+        var lineIndex = 0;
         try {
-            using var fs     = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using var reader = new StreamReader(fs);
-
-            var lineIndex = 0;
-
             while (reader.ReadLine() is { } line) {
                 if (!string.IsNullOrWhiteSpace(line)) {
                     var recordResume = resumeFromLine is { } start && lineIndex >= start;
@@ -275,10 +293,8 @@ static class SessionImporter {
 
                 lineIndex++;
             }
-
-            completeLines = CompleteLines(fs, lineIndex);
-        } catch (Exception ex) when (resumeFromLine is null && ex is (IOException or UnauthorizedAccessException)) {
-            // A new import can still discover agents from their files.
+        } catch (IOException) when (resumeFromLine is null) {
+            // New imports retain the references already scanned and discover other agents from their files.
         }
 
         // The meta file Claude Code writes beside each subagent transcript names the call that
@@ -289,22 +305,27 @@ static class SessionImporter {
         var spawnCalls = SpawnCalls(links, toolUsePositions);
 
         foreach (var (agentId, callId) in spawnCalls) {
-            firstLine.TryAdd(agentId, toolUsePositions[callId]);
+            var invocation = toolUsePositions[callId];
+            firstLine.TryAdd(agentId, invocation);
+            if (resumeFromLine is { } start && invocation >= start)
+                RecordResumeLine(agentId, invocation);
             if (toolUseTypes.TryGetValue(callId, out var subagentType)) agentTypes.TryAdd(agentId, subagentType);
 
             // A result that only names the call still references the agent the call spawned.
-            if (callResultLines.TryGetValue(callId, out var line) && line < resumeLines.GetValueOrDefault(agentId, int.MaxValue))
-                resumeLines[agentId] = line;
+            if (callResultLines.TryGetValue(callId, out var line)) RecordResumeLine(agentId, line);
         }
 
         if (resumeFromLine is { } watermark) {
             foreach (var (agentId, line) in firstLine) {
-                if (line >= watermark && line < resumeLines.GetValueOrDefault(agentId, int.MaxValue))
-                    resumeLines[agentId] = line;
+                if (line >= watermark) RecordResumeLine(agentId, line);
             }
         }
 
-        return new AgentLifecycleScan(firstLine, agentTypes, spawnCalls, resumeLines, completeLines);
+        return new AgentLifecycleScan(firstLine, agentTypes, spawnCalls, resumeLines);
+
+        void RecordResumeLine(string agentId, int line) {
+            if (line < resumeLines.GetValueOrDefault(agentId, int.MaxValue)) resumeLines[agentId] = line;
+        }
     }
 
     /// <summary>
@@ -361,7 +382,7 @@ static class SessionImporter {
                     if (callResultLines is not null) RecordAgentCallResults(root, lineIndex, toolUsePositions, callResultLines);
 
                     return TryExtractFromToolUseResult(root, lineIndex, result, toolUsePositions, toolUseTypes, agentTypes, links)
-                        ?? (callResultLines is null ? null : NotifiedAgent(root, lineIndex, toolUsePositions, callResultLines));
+                        ?? (callResultLines is null ? null : NotifiedAgent(root, lineIndex, result, toolUsePositions, callResultLines));
             }
         } catch (JsonException) {
         }
@@ -374,11 +395,15 @@ static class SessionImporter {
     /// finish leaves in the parent; the notice's call id also counts for an agent linked through its call.
     /// </summary>
     static string? NotifiedAgent(
-            JsonElement root, int lineIndex, Dictionary<string, int> toolUsePositions, Dictionary<string, int> callResultLines) {
+            JsonElement root, int lineIndex, Dictionary<string, int> agents,
+            Dictionary<string, int> toolUsePositions, Dictionary<string, int> callResultLines) {
         if (root.Obj("message")?.Str("content") is not { } text || !TaskNotificationParser.TryParse(text, out var notice)) return null;
 
         if (notice.ToolUseId is { } callId && toolUsePositions.ContainsKey(callId))
             callResultLines.TryAdd(callId, lineIndex);
+
+        if (notice.TaskId is { } agentId && TaskNotificationParser.AgentName(notice) is not null)
+            agents.TryAdd(agentId, lineIndex);
 
         return notice.TaskId;
     }
@@ -594,7 +619,7 @@ static class SessionImporter {
         progress?.Report(new SubagentStarted(agentId));
         var agentLines = await SendTranscriptBatches(
             httpClient, baseUrl, sessionId, agentPath, agentId, startLine: 0, time: time,
-            progress: progress, failOnError: strict, canonical: canonical, stopAtLoss: stopAtLoss);
+            progress: progress, failOnError: strict, canonical: canonical, stopAtLoss: stopAtLoss, requireFile: strict);
         progress?.Report(new SubagentFinished(agentId, agentLines));
 
         var agentStopHook = new JsonObject {
@@ -658,9 +683,10 @@ static class SessionImporter {
             StrongBox<int>?            completeLines     = null,
             TranscriptImportFingerprint? fingerprint    = null,
             IngestCapability?          canonical         = null,
-            bool                       stopAtLoss        = false
+            bool                       stopAtLoss        = false,
+            bool                       requireFile       = false
         ) {
-        if (!File.Exists(filePath)) return 0;
+        if (!requireFile && !File.Exists(filePath)) return 0;
 
         var totalSent = 0;
         var batch     = new TranscriptBatchBuffer();
@@ -805,6 +831,42 @@ static class SessionImporter {
         }
     }
 
+    static StreamReader OpenReader(FileStream stream, long? end) =>
+        new(end is { } length ? new LengthLimitedReadStream(stream, length) : stream, leaveOpen: true);
+
+    // Sample the length once, then find the last delimiter within that bound.
+    // Both passes read exactly that prefix, even when a partial record is completed concurrently.
+    static long FindCompletePrefixEnd(FileStream stream) {
+        Span<byte> buffer = stackalloc byte[4096];
+        var end = stream.Length;
+
+        while (end > 0) {
+            var count = (int)Math.Min(end, buffer.Length);
+            var start = end - count;
+            stream.Position = start;
+            stream.ReadExactly(buffer[..count]);
+            var newline = buffer[..count].LastIndexOfAny((byte)'\n', (byte)'\r');
+            if (newline >= 0) {
+                stream.Position = 0;
+                return start + newline + 1;
+            }
+
+            end = start;
+        }
+
+        stream.Position = 0;
+        return 0;
+    }
+
+    static DateTimeOffset? ReadTimestamp(string line) {
+        try {
+            using var doc = JsonDocument.Parse(line);
+            return DateTimeOffset.TryParse(doc.RootElement.Str("timestamp"), out var timestamp) ? timestamp : null;
+        } catch (JsonException) {
+            return null;
+        }
+    }
+
     /// <summary>
     /// The lines a read that just reached end of file consumed, not counting a last line no newline has
     /// ended yet: the agent may still be writing it, so it is not delivered for good.
@@ -885,4 +947,7 @@ static class SessionImporter {
 
 /// <param name="CompleteLines">How many of the main transcript's lines the read covered, a last line still
 /// being written aside.</param>
-public record ImportResult(string SessionId, List<string> AgentIds, int LinesSent, int CompleteLines = 0);
+public record ImportResult(string SessionId, List<string> AgentIds, int LinesSent, int CompleteLines = 0) {
+    internal DateTimeOffset? EndTimestamp { get; init; }
+    internal bool TailDeferred { get; init; }
+}

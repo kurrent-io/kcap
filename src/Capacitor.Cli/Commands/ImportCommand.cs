@@ -3640,14 +3640,18 @@ class ImportCommand(
                     startLine: session.ResumeFromLine,
                     strict: true
                 );
-                var linesSent = resumed.LinesSent;
+                var (_, _, linesSent, completeLines) = resumed;
+                if (resumed.TailDeferred || completeLines <= session.ResumeFromLine) {
+                    events.OnSessionErrored(slot, session.SessionId, "The transcript tail changed or is incomplete. Retry the import once it is stable.");
+                    return (SessionImportOutcome.Errored, linesSent);
+                }
 
                 var (_, resumeTitleCancelled) = await TryPostCodexHarnessTitleAsync(httpClient, baseUrl, session, perSessionProgress, ct);
 
                 // End-only reassertion: session-end has server-side idempotency guards,
                 // whereas the generic SessionStarted uses random ids — re-asserting start
                 // would duplicate it. So finalize a resumed session with end ONLY.
-                var resumeLastTs  = ExtractLastTimestamp(session.FilePath);
+                var resumeLastTs  = resumed.EndTimestamp;
                 var resumeEndHook = new JsonObject {
                     ["session_id"]      = session.SessionId,
                     ["transcript_path"] = session.FilePath,
@@ -3676,7 +3680,7 @@ class ImportCommand(
                     return (SessionImportOutcome.Errored, linesSent);
                 }
 
-                if (!transcriptDropped) await ledger.RecordAsync(httpClient, baseUrl, session.SessionId, resumed.CompleteLines, ct);
+                if (!transcriptDropped) await ledger.RecordAsync(httpClient, baseUrl, session.SessionId, completeLines, ct);
 
                 return (SessionImportOutcome.Resumed, linesSent);
             } catch (HttpRequestException ex) {
