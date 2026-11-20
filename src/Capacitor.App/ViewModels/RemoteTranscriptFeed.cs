@@ -268,6 +268,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             _position = page.LastEventNumber;
             _earliest = from;
             _oldest = oldest;
+            // A read from 0 starts at the oldest event held. Left null on an empty stream, the first live event sets both.
+            if (_window is null) _base = oldest;
             _older.Clear();
             _loaded?.Clear();
             _loaded?.AddRange(lines);

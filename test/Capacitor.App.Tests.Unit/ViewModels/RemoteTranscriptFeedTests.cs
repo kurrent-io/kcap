@@ -946,6 +946,30 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(second.HasOlder).IsTrue();
     }
 
+    /// A feed that reads its whole session is kept too, and counts from the oldest event the stream still holds:
+    /// the stream starts past 0, so a re-open counting from event 0 would ask for the wrong events.
+    [Test]
+    public async Task A_whole_session_read_is_kept_and_reopens_from_its_last_event() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(100, 50).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = Cache();
+        using (var first = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, window: null, cache: cache)) {
+            await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the first tail");
+            first.ReadAppended();
+        }
+        await Assert.That(cache.Contains("s1")).IsTrue();
+        server.Events.AddRange(Enumerable.Range(150, 2).Select(i => Text(i, $"m{i}")));
+        server.Requests.Clear();
+
+        using var second = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, window: null, cache: cache);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the second tail");
+
+        var seed = second.ReadAppended();
+        await Assert.That(seed.Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(100, 52).Select(i => (long)i));
+        await Assert.That(server.Requests).IsEquivalentTo(new[] { (49L, 1000) });
+    }
+
     /// A session the server no longer shows this reader is not kept, and its kept lines go.
     [Test]
     public async Task A_refused_reopen_drops_the_kept_lines() {
