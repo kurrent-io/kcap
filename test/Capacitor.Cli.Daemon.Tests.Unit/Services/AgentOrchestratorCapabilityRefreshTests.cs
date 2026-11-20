@@ -50,7 +50,9 @@ public class AgentOrchestratorCapabilityRefreshTests {
             Func<DaemonCapabilitiesUpdate, DaemonCapabilitiesUpdateResponse?>? capabilityUpdate = null,
             bool classifyAtStartup = false) {
         // A server that takes updates builds them from the orchestrator's config, as the one DI singleton does.
-        var shared = capabilityUpdate is null ? null : new DaemonConfig { Binaries = TestBinaries.None };
+        var shared = capabilityUpdate is null
+            ? null
+            : new DaemonConfig { Name = "test", ServerUrl = "http://127.0.0.1:1", Binaries = TestBinaries.None };
         var server = new CaptureServerConnection(shared) { RegisterDaemonThrow = registerThrow, CapabilityUpdate = capabilityUpdate };
         DaemonConfig? captured = null;
         var orch = AgentOrchestratorHarness.BuildOrchestrator(
