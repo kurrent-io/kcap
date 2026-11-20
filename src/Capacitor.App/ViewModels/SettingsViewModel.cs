@@ -188,7 +188,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     public string ServerLabel => Uri.TryCreate(_settings.ServerUrl, UriKind.Absolute, out var url) ? url.Authority : _settings.ServerUrl;
     public CaptureSettingsViewModel Capture { get; }
     public HarnessesSettingsViewModel? Harnesses { get; }
-    public bool HasActiveOperation => IsBusy || Capture.Busy || Harnesses?.Busy == true;
+    public bool HasActiveOperation => IsBusy || Capture.Busy || Harnesses?.Busy == true || Intelligence?.Busy == true;
 
     public AccountsSettingsViewModel? Accounts { get; init; }
     public AppearanceSettingsViewModel? Appearance { get; init; }
