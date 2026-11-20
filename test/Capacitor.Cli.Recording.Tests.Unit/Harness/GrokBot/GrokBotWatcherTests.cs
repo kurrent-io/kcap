@@ -73,6 +73,15 @@ public class GrokBotWatcherTests {
         await Assert.That(server.Posts.Count).IsEqualTo(3);
     }
 
+    /// <summary>A watcher keeps the server it started with, so its first line is the only way for whoever
+    /// finds it running to learn where it records.</summary>
+    [Test]
+    public async Task The_first_log_line_names_the_server_it_posts_to() {
+        await RunAsync(new Server(), OneOldChat(dryRun: true));
+
+        await Assert.That(_log[0]).Contains("posting to https://acme.kcap.ai,");
+    }
+
     [Test]
     public async Task A_refused_call_fails_the_run_and_leaves_everything_to_send_again() {
         var refusing = new Server(HttpStatusCode.BadRequest);

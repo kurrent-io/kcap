@@ -430,13 +430,20 @@ command line holds the same words; without it a watcher always seems to be
 running.
 
 A `Server:` line naming the workspace the user wants plus `Server:   accepts
-this token` means C2 and C3 are done; a `pgrep` line as well means the watcher
-is already recording there: say so and stop.
+this token` means C2 and C3 are done.
 
-A `pgrep` line while kcap is signed in to another workspace, or to none, is a
-watcher recording somewhere the user did not ask for. Tell them where it
-records, and with their agreement stop it the way C4 says before going on to
-C3 and C4.
+A `pgrep` line means a watcher is running, not where it records: it keeps the
+workspace it started with, whatever kcap is signed in to now. Its log says:
+
+```bash
+grep "posting to" ~/.config/kcap/grok-bot/watch.log | tail -1
+```
+
+Only when that line names the workspace the user wants is recording already
+active there: say so and stop. Any other address, or no such line, is a watcher
+recording somewhere the user did not ask for. Tell them where it records, or
+that it cannot be told, and with their agreement stop it the way C4 says before
+going on to C3 and C4.
 
 ### C2. Install
 
@@ -489,8 +496,8 @@ pgrep -af "[k]cap grok-bot watch" || {
 sleep 10; tail -5 ~/.config/kcap/grok-bot/watch.log
 ```
 
-The log shows `watching …` and then `open session …` / `send N entries …`
-lines. A second watcher refuses to start, so this block is safe to run again,
+The log shows `watching …, posting to <workspace>` and then `open session …` /
+`send N entries …` lines. A second watcher refuses to start, so this block is safe to run again,
 and it needs running again after the computer restarts. If `crontab -l` works
 here, ask the user whether to add a line so it restarts by itself, and add it
 only once they agree. Cron reads no shell profile, so the line names `kcap` by

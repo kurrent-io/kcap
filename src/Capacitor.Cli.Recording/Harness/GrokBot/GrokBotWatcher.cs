@@ -24,6 +24,9 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
 
     public string GatewayDescriptor => Path.Join(home.Path, "sand-data", "gateway.json");
 
+    /// <summary>The server's scheme, host and port: a URL may carry more than that, and this goes in a log.</summary>
+    string Destination => Uri.TryCreate(profiles.Resolution.ServerUrl, UriKind.Absolute, out var url) ? url.GetLeftPart(UriPartial.Authority) : "an unnamed server";
+
     /// <param name="log">Receives one line per thing worth telling whoever runs the watcher.</param>
     public async Task<GrokBotWatchOutcome> RunAsync(GrokBotWatchOptions options, Action<string> log, CancellationToken ct) {
         using var plain = new HttpClient();
@@ -48,7 +51,9 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
         var run     = new Run(source, store, store.Load(), options, log);
         var backoff = new GrokBotBackoff(options.Interval, BackoffCeiling);
 
-        log($"watching {source.Description}, gap {options.Gap.TotalMinutes:0} min, {run.States.Count} chat(s) in state");
+        // Names the destination: a watcher keeps the server it started with, and whoever finds it running
+        // has no other way to tell where it records.
+        log($"watching {source.Description}, posting to {Destination}, gap {options.Gap.TotalMinutes:0} min, {run.States.Count} chat(s) in state");
 
         while (true) {
             string? failure;
