@@ -48,4 +48,12 @@ public class MarkdownListsTests {
     public async Task Any_paragraph_of_a_loose_item_reads_its_list() =>
         await Assert.That(MarkdownLists.ItemsAround("- Retry\n\n  with jitter\n\n- Logging", "with jitter"))
             .IsEquivalentTo(["Retry with jitter", "Logging"]);
+
+    /// A code block reading the same as an item counts towards the occurrence, as the viewer counts it.
+    [Test]
+    public async Task A_code_block_reading_the_same_counts_as_an_occurrence() =>
+        await Assert.That(MarkdownLists.ItemsAround(CodeThenTwoLists, "Retry", occurrence: 1))
+            .IsEquivalentTo(["Retry", "Lock order"]);
+
+    internal const string CodeThenTwoLists = "```\nRetry\n```\n\n- Retry\n- Lock order\n\nThen:\n\n- Retry\n- Logging";
 }

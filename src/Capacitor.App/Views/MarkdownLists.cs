@@ -18,14 +18,20 @@ public static class MarkdownLists {
         MarkdownDocument document;
         try { document = Markdown.Parse(markdown, Pipeline); }
         catch (Exception) { return null; }
-        var same = document.Descendants<LeafBlock>()
-            .Where(leaf => leaf.Inline is { } inline && Normalize(Plain(inline)) == hit).ToList();
+        // Counted as the viewer counts its blocks, code blocks included.
+        var same = document.Descendants<LeafBlock>().Where(leaf => Normalize(TextOf(leaf)) == hit).ToList();
         if (same.Count == 0) return null;
         var paragraph = same[Math.Min(occurrence, same.Count - 1)];
         return paragraph.Parent is ListItemBlock { Parent: ListBlock list }
             ? list.OfType<ListItemBlock>().Select(TextOf).Where(static item => item.Length > 0).ToList()
             : null;
     }
+
+    static string TextOf(LeafBlock leaf) => leaf switch {
+        CodeBlock code => code.Lines.ToString(),
+        { Inline: { } inline } => Plain(inline),
+        _ => "",
+    };
 
     static string TextOf(ListItemBlock item) =>
         Normalize(string.Join(' ', item.OfType<LeafBlock>().Select(static leaf => leaf.Inline is { } inline ? Plain(inline) : ""))) ?? "";
