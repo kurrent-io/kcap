@@ -2508,11 +2508,16 @@ public readonly record struct ReportAgentTerminalDialogArgs(
 /// <param name="StopReason">The code of the daemon's own termination verdict, when it ended the agent.
 /// A server that predates it ignores the field.</param>
 /// <param name="ActiveCount">The daemon's ActiveCount, read with <paramref name="ActiveCountVersion"/>.</param>
+/// <param name="WorktreeRemoved">True when the teardown removed the worktree the daemon made for the agent, so nothing
+/// is left to resume in place; false when it kept it; null when the teardown did not try (no worktree of the daemon's,
+/// a pending resume, or a shutdown, which reports before it) or the removal failed. A server that predates it ignores
+/// the field.</param>
 public readonly record struct AgentUnregistered(
         string  AgentId,
         int?    ActiveCount        = null,
         long?   ActiveCountVersion = null,
-        string? StopReason         = null
+        string? StopReason         = null,
+        bool?   WorktreeRemoved    = null
     );
 
 public readonly record struct LaunchFailed(

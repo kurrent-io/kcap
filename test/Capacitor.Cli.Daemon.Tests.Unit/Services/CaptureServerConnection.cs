@@ -423,6 +423,8 @@ sealed class CaptureServerConnection : ServerConnection {
 
     public Dictionary<string, string?> AgentUnregisteredStopReasons { get; } = [];
 
+    public Dictionary<string, bool?> AgentUnregisteredWorktreeRemoved { get; } = [];
+
     /// <summary>Every dropped-input report, in call order — the only place a drop reason becomes
     /// observable to anyone but this daemon's own log.</summary>
     public List<(Guid DispatchId, string AgentId, string Reason)> InputRejections { get; } = [];
@@ -462,12 +464,13 @@ sealed class CaptureServerConnection : ServerConnection {
 
     public TaskCompletionSource UnregisterEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public override async Task AgentUnregisteredAsync(string agentId, string? stopReason = null) {
+    public override async Task AgentUnregisteredAsync(string agentId, string? stopReason = null, bool? worktreeRemoved = null) {
         if (AgentUnregisteredThrow is { } ex) throw ex;
 
         lock (AgentUnregisteredCalls) {
             AgentUnregisteredCalls.Add(agentId);
             AgentUnregisteredStopReasons[agentId] = stopReason;
+            AgentUnregisteredWorktreeRemoved[agentId] = worktreeRemoved;
         }
         lock (AttachedCallOrder) AttachedCallOrder.Add($"unregister:{agentId}");
         OnAgentUnregistered?.Invoke();

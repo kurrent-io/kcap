@@ -1295,13 +1295,13 @@ internal partial class ServerConnection : IAsyncDisposable, IDaemonHeartbeatPort
         }
     }
 
-    public virtual Task AgentUnregisteredAsync(string agentId, string? stopReason = null)
-        => _hub.InvokeAsync("AgentUnregistered", BuildAgentUnregistered(agentId, stopReason), cancellationToken: _ct);
+    public virtual Task AgentUnregisteredAsync(string agentId, string? stopReason = null, bool? worktreeRemoved = null)
+        => _hub.InvokeAsync("AgentUnregistered", BuildAgentUnregistered(agentId, stopReason, worktreeRemoved), cancellationToken: _ct);
 
-    AgentUnregistered BuildAgentUnregistered(string agentId, string? stopReason) {
+    AgentUnregistered BuildAgentUnregistered(string agentId, string? stopReason, bool? worktreeRemoved = null) {
         var activeCount = GetActiveCount?.Invoke();
 
-        return new(agentId, activeCount?.Count, activeCount?.Version, stopReason);
+        return new(agentId, activeCount?.Count, activeCount?.Version, stopReason, worktreeRemoved);
     }
 
     /// <summary>Tells the server this daemon dropped a dispatched input rather than delivering it.

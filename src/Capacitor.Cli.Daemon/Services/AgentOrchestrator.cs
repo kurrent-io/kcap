@@ -6868,8 +6868,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // user's own checkout (local in-place launch) — NEVER delete it or its branch:
         // RemoveAsync would Directory.Delete / `git worktree remove --force` + `branch -D`.
         // A pending resume keeps everything the successor daemon resumes from.
+        bool? worktreeRemoved = null;
+
         if (agent.Work == WorkLocation.OwnedWorktree && !agent.ResumePending) {
-            try { await RemoveOwnedWorktreeAsync(agent.Worktree, agentId); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing worktree", agentId); }
+            try { worktreeRemoved = await RemoveOwnedWorktreeAsync(agent.Worktree, agentId); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing worktree", agentId); }
         }
 
         if (!agent.ResumePending) {
@@ -6915,7 +6917,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // catch covers the residual race where shutdown fires mid-call.
         // PrivateLocal agents were never registered, so never unregister them (deny-all).
         if (!agent.IsServerSilent && !_shutdownCts.IsCancellationRequested) {
-            try { await _server.AgentUnregisteredAsync(agentId, StopReasonCode(agent)); } catch (OperationCanceledException) when (_shutdownCts.IsCancellationRequested) { } catch (Exception ex) {
+            try { await _server.AgentUnregisteredAsync(agentId, StopReasonCode(agent), worktreeRemoved); } catch (OperationCanceledException) when (_shutdownCts.IsCancellationRequested) { } catch (Exception ex) {
                 LogCleanupStepFailed(ex, "unregistering", agentId);
             }
         } else if (!_shutdownCts.IsCancellationRequested) {
@@ -7442,9 +7444,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Kept the worktree of agent {AgentId} at {Path} (branch {Branch}): it holds {Reason}. Remove it with `git worktree remove` once the work is saved")]
     partial void LogWorktreeKept(string agentId, string path, string branch, string reason);
 
-    async Task RemoveOwnedWorktreeAsync(WorktreeInfo worktree, string agentId) {
+    /// <summary>True when the worktree is gone, false when it holds work and stays.</summary>
+    async Task<bool> RemoveOwnedWorktreeAsync(WorktreeInfo worktree, string agentId) {
         var removal = await WorktreeManager.RemoveAsync(worktree, _time);
         if (removal.KeptBecause is { } reason) LogWorktreeKept(agentId, worktree.Path, worktree.Branch, reason);
+
+        return !removal.Kept;
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Agent {AgentId} did not exit after a stop; reporting it Failed rather than Completed")]
