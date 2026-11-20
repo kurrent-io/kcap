@@ -41,44 +41,30 @@ public class DaemonConfig {
     public TimeSpan ResumeReadinessWindow { get; set; } = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// Absolute path of the native <c>kcap</c> CLI binary, resolved as the daemon's sibling
-    /// (<see cref="Capacitor.Cli.Core.Mcp.KcapBinaryCommand.ResolveCliSibling"/>) — inside the
-    /// daemon, <see cref="Environment.ProcessPath"/> is <c>kcap-daemon</c>, NOT the binary that
-    /// generated MCP registrations point at. Used to recognize a canonical absolute-path kcap
-    /// entry (e.g. <see cref="ClaudeLauncher"/>'s worktree merge-skip). Null when no
-    /// sibling resolves; consumers then recognize only the literal <c>"kcap"</c>.
+    /// The <c>kcap</c> CLI binary beside the daemon (inside the daemon, <see cref="Environment.ProcessPath"/>
+    /// is <c>kcap-daemon</c>), used to recognize an absolute-path kcap MCP entry (as in <see cref="ClaudeLauncher"/>'s
+/// worktree merge). Null when no sibling
+    /// resolves; then only the literal <c>"kcap"</c> is recognized.
     /// </summary>
     public string? KcapCliPath { get; set; } = Core.Mcp.KcapBinaryCommand.ResolveCliSibling();
 
     /// <summary>
-    /// Backstop lifetime/idle bounds for a hosted review-flow reviewer, enforced
-    /// in the daemon heartbeat. A reviewer whose run went terminal on the server without the daemon
-    /// hearing about it (or whose driver vanished) is reaped here so it can't hold a slot forever.
-    /// Defaults 6h lifetime / 2h idle; <see cref="TimeSpan.Zero"/> disables that bound. Overridden at
-    /// startup from env <c>KCAP_REVIEWER_MAX_LIFETIME</c>/<c>KCAP_REVIEWER_IDLE_TIMEOUT</c> (seconds);
-    /// a profile config-key form is reserved but not yet wired. Interactive agents are never touched
-    /// by these.
+    /// Heartbeat backstops for a review-flow reviewer whose run ended on the server without the daemon
+    /// hearing, so it cannot hold a slot forever. Zero disables a bound. Env
+    /// <c>KCAP_REVIEWER_MAX_LIFETIME</c>/<c>KCAP_REVIEWER_IDLE_TIMEOUT</c> (seconds). Interactive agents
+    /// are never affected.
     /// </summary>
     public TimeSpan ReviewerMaxLifetime { get; set; } = TimeSpan.FromHours(6);
     public TimeSpan ReviewerIdleTimeout { get; set; } = TimeSpan.FromHours(2);
 
-    /// <summary>How long a RESUMABLE hosted reviewer (app-server Codex) may sit idle
-    /// between rounds before the daemon PARKS it (freeing the slot, keeping the thread for resume) —
-    /// distinct from and shorter than <see cref="ReviewerIdleTimeout"/> (arm-B, the 2h hard reap).</summary>
+    /// <summary>How long a resumable reviewer (app-server Codex) may idle between rounds before it is
+    /// parked: the slot is freed and the thread kept for resume.</summary>
     public TimeSpan ReviewerResumableIdleTimeout { get; set; } = TimeSpan.FromMinutes(10);
 
     /// <summary>
-    /// The daemon-local ceiling on a held ACP turn with a frozen activity seq: once <c>TurnInFlight</c>
-    /// has stayed true with no further <c>Advance()</c> for longer than this, the reviewer is reaped as
-    /// <c>turn_wedged</c>. Applies to EVERY review-flow reviewer, alongside
-    /// <see cref="ReviewerMaxLifetime"/>/<see cref="ReviewerIdleTimeout"/> — the server-sent inactivity
-    /// bound gates nothing here (see <c>AgentOrchestrator.FindReviewersToReap</c>).
-    ///
-    /// <para>Deliberately NOT sent by the server: its equivalent
-    /// <c>Flows:TurnWedgeCeilingSeconds</c> is independently defaulted on the same 60m (the
-    /// <c>kcap watch</c> long-tool envelope) rather than plumbed onto the wire — this is a local safety
-    /// net against an evidence-free held turn. <see cref="TimeSpan.Zero"/> disables it. Overridden at
-    /// startup from env <c>KCAP_REVIEWER_TURN_WEDGE_CEILING</c> (seconds).</para>
+    /// How long a reviewer's turn may stay in flight with no activity before it is reaped as
+    /// <c>turn_wedged</c>. A local safety net, deliberately not taken from the server. Zero disables it;
+    /// env <c>KCAP_REVIEWER_TURN_WEDGE_CEILING</c> (seconds).
     /// </summary>
     public TimeSpan ReviewerTurnWedgeCeiling { get; set; } = TimeSpan.FromMinutes(60);
 
@@ -95,12 +81,11 @@ public class DaemonConfig {
         set;
     }
 
-    /// <summary>The profile this daemon resolved at boot. A separate process from the CLI, so it
-    /// resolves its own; nothing re-resolves later, which is what keeps its token reads and its
-    /// daemon identity naming one profile for the daemon's whole life.</summary>
     /// <summary>The local installation's root, so every transport to the server is checked against its registry.</summary>
     public LocalRoot? LocalRoot { get; set; }
 
+    /// <summary>The profile this daemon resolved at boot. Nothing re-resolves it, so its token reads and
+    /// daemon identity name one profile for the daemon's whole life.</summary>
     public ProfileContext Profiles {
         get => _profiles ?? throw new InvalidOperationException($"DaemonConfig.Profiles was never set; pass a {nameof(ProfileContext)} in from the entry point.");
         set => _profiles = value;
@@ -118,31 +103,21 @@ public class DaemonConfig {
     /// <summary>Whether the resolved profile opted out of the update check; false when nothing was resolved.</summary>
     public bool UpdateCheckOff => _profiles?.Effective?.UpdateCheck == false;
 
-    /// <summary>A fresh per-boot epoch (GUID). Written into each spawned child's
-    /// <c>KCAP_DAEMON_EPOCH</c> env marker; the startup env-marker scan kills same-daemon children
-    /// whose epoch differs from the current one (i.e. survivors of a prior incarnation). Null → the
-    /// orchestrator generates one at construction. <c>DaemonRunner</c> pins this before building
-    /// services so the advertised connect epoch and the orchestrator's own boot epoch
-    /// agree.</summary>
+    /// <summary>A per-boot GUID written into each child's <c>KCAP_DAEMON_EPOCH</c>, so the startup scan can
+    /// kill this daemon's survivors from a prior boot. <c>DaemonRunner</c> pins it before building services
+    /// so the advertised epoch and the orchestrator's agree; null lets the orchestrator generate one.</summary>
     public string? DaemonEpoch { get; set; }
 
     /// <summary>
-    /// The durable coverage boot-chain verdict,
-    /// folded by <c>CoverageJournal.RecordBoot</c> in <c>DaemonRunner</c> BEFORE any Connect/spawn and
-    /// advertised on <c>DaemonConnect</c>. True only where OS containment leaves genuinely no recordless
-    /// survivor class (the Windows Job Object); absent/false ⇒ "has a recordless class" (the server
-    /// requires per-id death proof). The server consumes it only on Windows, so a Linux/macOS value is
-    /// inert. Fail-closed to false when the fold/persist fails.
+    /// Whether OS containment leaves no recordless survivor class (the Windows Job Object), recorded before
+    /// any connect or spawn and advertised on <c>DaemonConnect</c>. False makes the server require per-id
+    /// death proof; a failed record fails closed to false.
     /// </summary>
     public bool RecordlessSurvivorsImpossible { get; set; }
 
     /// <summary>
-    /// Per-process GUID generated at startup, also written to the daemon's
-    /// flock-file content. Sent over <c>DaemonConnect</c> so the server
-    /// can tell "same daemon reconnecting" from "different daemon
-    /// claiming the same name". Set in <c>DaemonRunner.RunAsync</c> once
-    /// the lock has been acquired; <c>null</c> in tests that bypass lock
-    /// acquisition.
+    /// Per-process GUID, also in the flock file, sent over <c>DaemonConnect</c> so the server can tell a
+    /// reconnect from a different daemon claiming the same name.
     /// </summary>
     public string? InstanceId { get; set; }
 
@@ -150,34 +125,15 @@ public class DaemonConfig {
     /// the lock could not tell. A flow participant resumes only from that instance's planned stop.</summary>
     public string? PriorInstanceId { get; set; }
 
-    /// <summary>
-    /// Daemon binary version (<c>AssemblyInformationalVersion</c>). Sent
-    /// over <c>DaemonConnect</c> and surfaced on the server's
-    /// <c>Daemon connected:</c> log line + <c>DaemonInfo</c>. Set in
-    /// <c>DaemonRunner.RunAsync</c>.
-    /// </summary>
+    /// <summary>The daemon's <c>AssemblyInformationalVersion</c>, sent over <c>DaemonConnect</c>.</summary>
     public string? Version { get; set; }
 
-    /// <summary>
-    /// Vendor tokens this daemon can actually spawn — populated in
-    /// <c>DaemonRunner.RunAsync</c> by probing each registered
-    /// <c>IHostedAgentLauncher.IsAvailable()</c>. Sent over
-    /// <c>DaemonConnect</c> so the server's launch dialog only
-    /// offers vendors this daemon has installed. <c>null</c> when the
-    /// host hasn't been built yet or in tests that bypass the runner.
-    /// </summary>
+    /// <summary>Installed vendors, sent over <c>DaemonConnect</c> so the launch dialog offers only
+    /// these.</summary>
     public string[]? SupportedVendors { get; set; }
 
-    /// <summary>
-    /// Vendor tokens this daemon can run fully unattended (a subset of
-    /// <see cref="SupportedVendors"/>) — populated in
-    /// <c>DaemonRunner.RunAsync</c> by probing each registered
-    /// <c>IHostedAgentRuntimeFactory.IsAvailable()</c> and
-    /// <c>.SupportsUnattended</c>. Sent over <c>DaemonConnect</c> so the
-    /// server can gate a reviewer-vendor override on unattended capability,
-    /// not merely installation. <c>null</c> when the host hasn't been built
-    /// yet or in tests that bypass the runner.
-    /// </summary>
+    /// <summary>The installed vendors that can run unattended, so the server gates a reviewer-vendor
+    /// override on capability, not just installation.</summary>
     public string[]? UnattendedVendors { get; set; }
 
     internal bool StartupUnattendedClassificationPending { get; set; }
@@ -228,12 +184,8 @@ public class DaemonConfig {
     public System.Collections.Concurrent.ConcurrentDictionary<string, byte> LateCatalogKeys { get; } = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Vendor tokens this daemon accepts a launch-time ACP permission preset for — the installed
-    /// hostable vendors (a subset of <see cref="SupportedVendors"/>) that route permissions through
-    /// the ACP bridge, computed INDEPENDENTLY of unattended certification (a preset is an
-    /// interactive-launch feature). Sent over <c>DaemonConnect</c> so the server enables the launch
-    /// dialog's preset selector and refuses a preset toward a non-advertising daemon. <c>null</c> when
-    /// the host hasn't been built yet or in tests that bypass the runner.
+    /// Installed vendors that accept a launch-time ACP permission preset, independent of unattended
+    /// support, so the server enables the preset selector and refuses a preset elsewhere.
     /// </summary>
     public string[]? AcpPresetVendors { get; set; }
 
@@ -335,102 +287,49 @@ public class DaemonConfig {
     /// Consumed as <c>TimeSpan.FromSeconds(Math.Max(1, …))</c>.</summary>
     public int CodexAppServerApprovalTimeoutSeconds { get; set; } = 45;
 
-    /// <summary>
-    /// Path or bare command for the Cursor CLI's ACP entry point, spawned as
-    /// <c>{CursorPath} acp</c> by <c>AcpHostedAgentRuntimeFactory</c>. Overridable
-    /// via <c>KCAP_CURSOR_PATH</c>, mirroring <see cref="ClaudePath"/>/<see cref="CodexPath"/>.
-    /// </summary>
+    /// <summary>The Cursor CLI, spawned as <c>{CursorPath} acp</c>. Env <c>KCAP_CURSOR_PATH</c>.</summary>
     public string CursorPath { get; set; } = Core.Harness.Cursor.CursorHarness.CliBinary;
 
     /// <summary>
-    /// Family-prefix default model for Cursor ACP sessions, e.g.
-    /// <c>"claude-sonnet-4-5"</c>. Cursor's wire protocol requires the exact, parameterized
-    /// <c>modelId</c> from <c>session/new</c>'s <c>availableModels</c> (e.g.
-    /// <c>claude-sonnet-4-5[thinking=true,context=200k]</c>), so this bare family name is resolved
-    /// against that list at launch time by <c>AcpModelResolver.Resolve</c> — not sent verbatim.
-    /// Overridable via <c>KCAP_CURSOR_MODEL</c>, mirroring <see cref="CursorPath"/>. A per-launch
-    /// model override (<c>RuntimeStartContext.Model</c>, when the launch specifies one) takes
-    /// precedence over this daemon-wide default — see <c>AcpHostedAgentRuntimeFactory</c>.
+    /// Default Cursor model family. Cursor needs the exact parameterized <c>modelId</c> from
+    /// <c>availableModels</c>, so <c>AcpModelResolver.Resolve</c> matches this against it at launch. Env
+    /// <c>KCAP_CURSOR_MODEL</c>; a per-launch model wins.
     /// </summary>
     public string CursorModel { get; set; } = "claude-sonnet-4-5";
 
-    /// <summary>Reserved for a future AcpVendorDescriptor (this change adds the plumbing; no
-    /// descriptor consumes this yet). Overridable via KCAP_COPILOT_PATH, mirroring CursorPath.</summary>
+    /// <summary>The Copilot CLI. Env <c>KCAP_COPILOT_PATH</c>.</summary>
     public string CopilotPath { get; set; } = Core.Harness.Copilot.CopilotHarness.CliBinary;
 
-    /// <summary>
-    /// Path or bare command for AWS Kiro CLI's ACP entry point, spawned as <c>{KiroPath} acp</c> by
-    /// <c>AcpHostedAgentRuntimeFactory</c>. Overridable via <c>KCAP_KIRO_PATH</c>, mirroring
-    /// <see cref="CursorPath"/>. Only this one name is probed, so an operator whose binary is named
-    /// otherwise sets the variable.
-    /// </summary>
+    /// <summary>The Kiro CLI, spawned as <c>{KiroPath} acp</c>. Env <c>KCAP_KIRO_PATH</c>; only this one
+    /// name is probed.</summary>
     public string KiroPath { get; set; } = Core.Harness.Kiro.KiroHarness.CliBinary;
 
-    /// <summary>
-    /// Daemon-wide default model for Kiro ACP sessions, e.g. <c>"claude-haiku-4.5"</c>, resolved
-    /// against <c>session/new</c>'s <c>availableModels</c> at launch time by
-    /// <c>AcpModelResolver.Resolve</c> (Kiro's ids are bare, unlike Cursor's parameterized ones,
-    /// but the resolution path is shared) and applied via <c>session/set_model</c> —
-    /// probe-verified at effect level (<c>docs/probes/2026-08-05-kiro-model-override/</c>).
-    /// Overridable via <c>KCAP_KIRO_MODEL</c>, mirroring <see cref="CursorModel"/>.
-    ///
-    /// <para>Unlike <see cref="CursorModel"/> the default is NULL, deliberately: zero-configuration
-    /// Kiro hosting keeps the vendor's own default model, with nothing requested and nothing
-    /// reported — the behaviour Kiro hosting shipped with. A per-launch model override
-    /// (<c>RuntimeStartContext.Model</c>) takes precedence over this daemon-wide default — see
-    /// <c>AcpHostedAgentRuntimeFactory</c>.</para>
-    /// </summary>
+    /// <summary>Default Kiro model, resolved against <c>availableModels</c> and applied with
+    /// <c>session/set_model</c>. Null keeps Kiro's own default and reports none. Env <c>KCAP_KIRO_MODEL</c>;
+    /// a per-launch model wins.</summary>
     public string? KiroModel { get; set; }
 
     /// <summary>
-    /// Whether THIS daemon may run Gemini as an unattended review-flow reviewer. **Default TRUE — the
-    /// variable is an opt-OUT.**
-    ///
-    /// <para>An unattended reviewer runs in a daemon-owned worktree with this daemon's own HOME, so
-    /// repository content that steers the model into tool use gets code execution with this user's full
-    /// authority — including the credentials in the token store, writes that reach other worktrees and the
-    /// installed CLI, and processes that outlive the review. That is a genuine risk and it is unchanged.
-    /// What changed is the recognition that a PER-VENDOR gate never addressed it: the reviewer vendor is
-    /// a caller-chosen parameter, and Claude, Codex, Cursor and Copilot have the same authority with no
-    /// gate at all, so anyone the gate excluded just asked for one of those.</para>
-    ///
-    /// <para>The build affirmation still applies: the reviewer's containment is the vendor's exact-name
-    /// MCP allowlist, a behaviour of the installed build, so a build BELOW this daemon's recorded floor
-    /// is refused. The floor is seeded automatically at startup so it never blocks a first launch —
-    /// see <c>GeminiReviewerCapability</c>.</para>
-    ///
-    /// <para>Set <c>KCAP_GEMINI_UNATTENDED_REVIEWER=0</c> in the DAEMON's environment to disable, which
-    /// for a supervised daemon means the service unit — <c>ServiceEnvironment</c> carries it there,
-    /// since a unit inherits nothing from the installing shell.</para>
+    /// Whether this daemon may run Gemini as an unattended reviewer; default true. Set
+    /// <c>KCAP_GEMINI_UNATTENDED_REVIEWER=0</c> in the daemon's environment to disable; for a supervised
+    /// daemon that is the service unit, which <c>ServiceEnvironment</c> writes. A build below the recorded
+    /// floor is still refused (<c>GeminiReviewerCapability</c>).
     /// </summary>
     public bool GeminiUnattendedReviewerEnabled { get; set; } = true;
 
-    /// <summary>
-    /// Whether THIS daemon may run Kiro as an unattended review-flow reviewer. **Default TRUE — the
-    /// variable is an opt-OUT** (<c>KCAP_KIRO_UNATTENDED_REVIEWER=0</c> disables). A trusted read tool
-    /// is not path-scoped, so a review can read every file this daemon user can and return it to the
-    /// requester — true here and equally true of the never-gated Claude/Codex/Cursor/Copilot reviewers,
-    /// which can additionally write and execute. See <c>KiroReviewerCapability</c>.
-    /// </summary>
+    /// <summary>Whether this daemon may run Kiro as an unattended reviewer; default true,
+    /// <c>KCAP_KIRO_UNATTENDED_REVIEWER=0</c> disables. See <c>KiroReviewerCapability</c>.</summary>
     public bool KiroUnattendedReviewerEnabled { get; set; } = true;
 
     /// <summary>
-    /// One absolute budget, in seconds, for a Kiro reviewer launch: spawn through the first prompt
-    /// completing. On expiry the child is terminated, its isolated home removed, and the launch fails
-    /// with a coded error.
-    ///
-    /// <para>Not a per-stage timeout — a fresh one per stage lets a slow sequence approach a multiple
-    /// of the budget. The failure it exists for is measured: an unauthenticated kiro-cli does not
-    /// error, it opens a browser prompt and stays alive indefinitely.</para>
+    /// One budget for a Kiro reviewer launch, from spawn through the first prompt completing; on expiry the
+    /// child is terminated and the launch fails with a coded error. Not per stage, which would multiply it.
+    /// An unauthenticated kiro-cli opens a browser prompt and waits forever.
     /// </summary>
     public int KiroReviewerLaunchTimeoutSeconds { get; set; } = 120;
 
-    /// <summary>
-    /// Path or bare command for the Antigravity CLI, spawned per turn by
-    /// <c>AntigravityHostedAgentRuntimeFactory</c>. Overridable via <c>KCAP_ANTIGRAVITY_PATH</c>.
-    /// Availability is <c>Binaries.Finds(AntigravityPath)</c>, so a name that is not what the install
-    /// puts on PATH withdraws the vendor silently rather than failing visibly.
-    /// </summary>
+    /// <summary>The Antigravity CLI, spawned per turn. Env <c>KCAP_ANTIGRAVITY_PATH</c>. A name not on PATH
+    /// withdraws the vendor silently.</summary>
     public string AntigravityPath { get; set; } = Core.Harness.Antigravity.AntigravityHarness.CliBinary;
 
     /// <summary>Daemon-wide default model for Antigravity reviewer launches, passed as
@@ -438,14 +337,9 @@ public class DaemonConfig {
     /// which is a clean audit signal rather than a silent downgrade.</summary>
     public string? AntigravityModel { get; set; }
 
-    /// <summary>Whether THIS daemon may run unattended Antigravity reviews. **Default TRUE — the
-    /// variable is an opt-OUT** (<c>KCAP_ANTIGRAVITY_UNATTENDED_REVIEWER=0</c> disables), matching the
-    /// never-gated Claude/Codex/Cursor/Copilot reviewers that carry the same authority.
-    ///
-    /// <para>The minimum <c>agy</c> build is deliberately NOT config: it is a daemon-owned record
-    /// (<c>ReviewerVersionStore</c>, moved by <c>kcap daemon reviewer affirm --vendor antigravity</c>),
-    /// exactly as for Kiro and Gemini. A floor an operator could set from a shell profile would be
-    /// re-affirmed by their dotfiles rather than by them.</para></summary>
+    /// <summary>Whether this daemon may run Antigravity unattended reviews; default true,
+    /// <c>KCAP_ANTIGRAVITY_UNATTENDED_REVIEWER=0</c> disables. The minimum build is a daemon-owned record,
+    /// not config (<c>ReviewerVersionStore</c>).</summary>
     public bool AntigravityUnattendedReviewerEnabled { get; set; } = true;
 
     /// <summary>Absolute ceiling on the FIRST turn — spawn, NDJSON handshake and auth. An
@@ -457,86 +351,44 @@ public class DaemonConfig {
     /// unbounded, and with ReadOutputAsync parked by design nothing else would ever complete.</summary>
     public int AntigravityReviewerTurnTimeoutSeconds { get; set; } = 600;
 
-    /// <summary>Path or bare command for SST OpenCode's ACP entry point, spawned as
-    /// <c>{OpenCodePath} acp</c> by <c>AcpHostedAgentRuntimeFactory</c>. It drives interactive
-    /// hosting, and availability is <c>Binaries.Finds(OpenCodePath)</c>. Overridable via
-    /// <c>KCAP_OPENCODE_PATH</c>.</summary>
+    /// <summary>The OpenCode CLI, spawned as <c>{OpenCodePath} acp</c>. Env <c>KCAP_OPENCODE_PATH</c>.</summary>
     public string OpenCodePath { get; set; } = Core.Harness.OpenCode.OpenCodeHarness.CliBinary;
 
     /// <summary>
-    /// Optional daemon-wide default model for hosted OpenCode agents, resolved against
-    /// <c>session/new</c>'s selectable-model list at launch time by <c>AcpModelResolver.Resolve</c>
-    /// and applied via <c>session/set_config_option</c> — probe-verified at effect level
-    /// (<c>docs/probes/2026-08-07-opencode-acp/</c>: the model self-identified as the requested id).
-    /// Overridable via <c>KCAP_OPENCODE_MODEL</c>, mirroring <see cref="KiroModel"/>.
-    ///
-    /// <para>Ids are <c>provider/model</c> (e.g. <c>opencode/big-pickle</c>), and OpenCode publishes
-    /// its list as <c>configOptions</c> rather than a <c>models</c> object — see
-    /// <c>AcpSessionModelList</c>. A display label ("DeepSeek V4 Flash Free") also resolves, via the
-    /// resolver's name arm.</para>
-    ///
-    /// <para>Like <see cref="KiroModel"/> and unlike <see cref="CursorModel"/> the default is NULL,
-    /// deliberately: a zero-configuration launch keeps OpenCode's own configured default and reports
-    /// no model. A per-launch <c>RuntimeStartContext.Model</c> takes precedence over this
-    /// daemon-wide default.</para>
+    /// Default OpenCode model as <c>provider/model</c> or a display label, resolved against
+    /// <c>configOptions</c> and applied with <c>session/set_config_option</c>. Null keeps OpenCode's own
+    /// default and reports none. Env <c>KCAP_OPENCODE_MODEL</c>; a per-launch model wins.
     /// </summary>
     public string? OpenCodeModel { get; set; }
 
-    /// <summary>
-    /// Whether THIS daemon may run OpenCode as an unattended review-flow reviewer. **Default TRUE — the
-    /// variable is an opt-OUT** (<c>KCAP_OPENCODE_UNATTENDED_REVIEWER=0</c> disables). This is the most
-    /// contained reviewer of the eight: no shell, no write, no network. Its read tools are still not
-    /// path-scoped, as with every other reviewer. See <c>OpenCodeReviewerCapability</c>.
-    /// </summary>
+    /// <summary>Whether this daemon may run OpenCode as an unattended reviewer; default true,
+    /// <c>KCAP_OPENCODE_UNATTENDED_REVIEWER=0</c> disables. See <c>OpenCodeReviewerCapability</c>.</summary>
     public bool OpenCodeUnattendedReviewerEnabled { get; set; } = true;
 
     /// <summary>Whether this daemon may run Grok Build as an unattended review-flow reviewer. Default
     /// true; <c>KCAP_GROK_UNATTENDED_REVIEWER=0</c> disables. See <c>GrokReviewerCapability</c>.</summary>
     public bool GrokUnattendedReviewerEnabled { get; set; } = true;
 
-    /// <summary>
-    /// One absolute budget, in seconds, for an OpenCode reviewer launch: spawn through the first prompt
-    /// completing. On expiry the child is terminated, its isolated config dir removed, and the launch
-    /// fails with a coded error.
-    ///
-    /// <para>Not a per-stage timeout — a fresh one per stage lets a slow sequence approach a multiple of
-    /// the budget. The failure it exists for is the same one Kiro's budget covers: an unauthenticated
-    /// vendor CLI that does not error but waits on an interactive login.</para>
-    /// </summary>
+    /// <summary>One budget for an OpenCode reviewer launch, from spawn through the first prompt; not per
+    /// stage. Covers a CLI that waits on an interactive login instead of failing.</summary>
     public int OpenCodeReviewerLaunchTimeoutSeconds { get; set; } = 120;
 
-    /// <summary>Path or bare command for Pi's RPC entry point, spawned as
-    /// <c>{PiPath} --mode rpc</c> by <c>PiRpcHostedAgentRuntimeFactory</c> for both interactive hosting
-    /// and the gated unattended reviewer. Availability is <c>Binaries.Finds(PiPath)</c>. Overridable
-    /// via <c>KCAP_PI_PATH</c>.</summary>
+    /// <summary>The Pi CLI, spawned as <c>{PiPath} --mode rpc</c>. Env <c>KCAP_PI_PATH</c>.</summary>
     public string PiPath { get; set; } = Core.Harness.Pi.PiHarness.CliBinary;
 
-    /// <summary>
-    /// Optional daemon-wide default model for hosted Pi agents, passed as <c>--model</c> on the
-    /// spawned <c>pi --mode rpc</c> child. Overridable via <c>KCAP_PI_MODEL</c>, mirroring
-    /// <see cref="OpenCodeModel"/>.
-    ///
-    /// <para>Like <see cref="OpenCodeModel"/> and <see cref="KiroModel"/> the default is NULL,
-    /// deliberately: a zero-configuration launch keeps Pi's own configured default and reports no
-    /// model. A per-launch <c>RuntimeStartContext.Model</c> takes precedence over this daemon-wide
-    /// default (the <c>"default"</c> sentinel falls through to it, same convention as every other
-    /// vendor's <c>ResolveModel</c>).</para>
-    /// </summary>
+    /// <summary>Default Pi model, passed as <c>--model</c>. Null keeps Pi's own default and reports none.
+    /// Env <c>KCAP_PI_MODEL</c>; a per-launch model other than <c>"default"</c> wins.</summary>
     public string? PiModel { get; set; }
 
-    /// <summary>Whether THIS daemon may run Pi as an unattended review-flow reviewer. **Default TRUE —
-    /// the variable is an opt-OUT** (<c>KCAP_PI_UNATTENDED_REVIEWER=0</c> disables), matching the other
-    /// gated reviewers and the never-gated Claude/Codex/Cursor/Copilot ones that carry the same
-    /// authority. See <c>PiReviewerCapability</c>.</summary>
+    /// <summary>Whether this daemon may run Pi as an unattended reviewer; default true,
+    /// <c>KCAP_PI_UNATTENDED_REVIEWER=0</c> disables. See <c>PiReviewerCapability</c>.</summary>
     public bool PiUnattendedReviewerEnabled { get; set; } = true;
 
     /// <summary>How long a Pi reviewer round may go without a frame from Pi before it is reaped.</summary>
     public int PiReviewerTurnTimeoutSeconds { get; set; } = 600;
 
-    /// <summary>Path or bare command for Google Gemini CLI's ACP entry point, spawned as
-    /// <c>{GeminiPath} --experimental-acp …</c> by <c>AcpHostedAgentRuntimeFactory</c>. It drives
-    /// interactive hosting AND the gated unattended reviewer, whose build-affirmation probe reads
-    /// whichever binary this names. Overridable via <c>KCAP_GEMINI_PATH</c>.</summary>
+    /// <summary>The Gemini CLI, for hosting and the reviewer, whose build probe reads this binary. Env
+    /// <c>KCAP_GEMINI_PATH</c>.</summary>
     public string GeminiPath { get; set; } = Core.Harness.Gemini.GeminiHarness.CliBinary;
 
     /// <summary>Path or bare command for Mistral Vibe's ACP entry point, spawned with no arguments by

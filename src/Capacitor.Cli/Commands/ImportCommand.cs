@@ -488,43 +488,14 @@ class ImportCommand(
     }
 
     /// <summary>
-    /// A routed-phase
-    /// <c>AlreadyLoaded</c> classification (Cursor) is included in `routed` solely so its
-    /// <c>ImportSessionAsync</c> call can re-assert lifecycle hooks and backfill the
-    /// <c>repository</c> node on an already-fully-ingested session (the C2 suppressed-repo-import
-    /// contract), or — for a correlated nested child — because its parent needs it present in
-    /// `routed` to import it inline; neither case is "new work" on its own. Because nothing past
-    /// the parent's own watermark exists, its own call still returns <see cref="ImportOutcome.Loaded"/>
-    /// or <see cref="ImportOutcome.Resumed"/> (no line 0 to distinguish "nothing sent" from "brand
-    /// new"), and a nested child's own call always short-circuits to <see cref="ImportOutcome.Skipped"/>
-    /// (its content is sent inline by the parent, not by its own call). Without this check either
-    /// success would double-count on top of the classify-time <c>AlreadyLoaded</c> bucket the same
-    /// session already contributes to (as both Loaded/Already-loaded, or as both Excluded/Already-
-    /// loaded), and a parent replay would wrongly join <c>importedSessionIds</c> so a later
-    /// <c>--private</c> pass re-privates a session this run never actually (re)imported.
-    ///
-    /// <para>
-    /// An <c>AlreadyLoaded</c> parent can still ship brand-new content by
-    /// attaching a previously-unloaded nested child — real work that must NOT be suppressed just
-    /// because the parent's OWN outcome looks like a no-op replay. <c>sentChildContent</c> is the
-    /// out-of-band signal (see <see cref="ImportSessionResult"/>) that lets this distinguish the
-    /// two: only a replay that sent no child content either is truly lifecycle-only.
-    /// </para>
-    ///
-    /// <para>
-    /// This gate is vendor-NEUTRAL: <c>sentChildContent</c> carries a real signal for Cursor,
-    /// Antigravity, and Gemini alike (Copilot/Kiro/Pi/OpenCode permanently default it
-    /// <c>false</c>, which is already correct for their no-op replay shape).
-    /// </para>
-    ///
-    /// <para>
-    /// This gate alone only decides whether a replay is suppressed — it does NOT decide which
-    /// bucket a non-suppressed call lands in for counting. See
-    /// <see cref="IsSkippedChildContentOverride"/> and <see cref="ResolveRoutedOutcomeForCounting"/>
-    /// for the central aggregation boundary that fixes the case this gate can't: a <c>Skipped</c>
-    /// <c>AlreadyLoaded</c> call (e.g. Antigravity's) that attached genuinely-new nested-child
-    /// content must count as Loaded, even though its own raw outcome is <c>Skipped</c>.
-    /// </para>
+    /// An <c>AlreadyLoaded</c> session is routed only to re-assert lifecycle hooks and backfill its
+    /// repository, or because a nested child's parent imports it inline. Its own call still reports
+    /// Loaded, Resumed or Skipped, so without this check it would be counted twice and join
+    /// <c>importedSessionIds</c>, letting a later <c>--private</c> pass re-private a session this run
+    /// never imported.
+    /// <para>A replay that attached a previously unloaded child (<c>sentChildContent</c>) did real work and
+    /// is not suppressed. Which bucket it counts in is decided by
+    /// <see cref="ResolveRoutedOutcomeForCounting"/>.</para>
     /// </summary>
     internal static bool IsLifecycleOnlyRoutedReplay(
             ClassificationStatus  status,

@@ -10,47 +10,24 @@ using System.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// One terminal tab: resolves the agent's terminal capability against the daemon's Agents cache,
-/// then drives the attach/reattach/detach lifecycle over ITerminalAttachClient. Constructed once
-/// per tab (like HomeViewModel/ActivityViewModel), not gated behind IActivatableViewModel — the
-/// resolve gate and the Agents-cache watch must be live from construction, and TeardownAsync
-/// (not Dispose/WhenActivated) is the one lifecycle exit a tab tracker calls when the tab closes.
+/// One terminal tab: resolves the agent's terminal capability from the daemon's Agents cache, then
+/// drives attach/reattach/detach over ITerminalAttachClient. Not an IActivatableViewModel: the resolve
+/// gate and cache watch must be live from construction, and TeardownAsync is the only exit.
 ///
-/// State machine (TerminalSessionPhase): Resolving -> {NoTerminal | NotFound | Connecting} ->
-/// {Attached -> Detached/Exited/Failed/SessionEnded}; a drop while the resume ledger holds the agent
-/// goes to Resuming, then to a fresh attempt, Interrupted or Failed. Two independent linearizations guard it:
+/// * Resolve gate (_resolveState CAS): the first of a DTO, the 10s timeout or teardown claims it. A
+///   timeout renders NotFound but keeps watching, because Claude can take well past 10s to produce a
+///   linked transcript and a late DTO must still attach without Retry.
+/// * Attempts (_attemptGeneration): a completion from a retired generation mutates nothing.
+///   _attachLane is try-entered, never awaited: ReactiveCommand.Execute runs eagerly without checking
+///   CanExecute, so a queued wait would let a double-click spawn two clients.
+/// * Send gate (_openingToken): advanced only by BeginAttempt and Invalidate, with the gate and
+///   in-flight flag derived from token ownership so an advance needs nothing remembered. A terminal
+///   outcome invalidates only while its own attempt holds the token, since a reattach takes its token
+///   before disposing the old client. Publish is State's only assignment site.
 ///
-/// * Resolve gate (_resolveState, CAS 0 pending/1 dto-won/2 timeout-won/3 disposed): the FIRST of
-///   {a DTO observed, the 10s TimeProvider timeout, TeardownAsync} claims the gate from pending.
-///   A timeout-win renders NotFound but keeps the Agents subscription: Claude (and similar) can
-///   take well past 10s to produce a transcript the daemon links as a session id, and a late DTO
-///   must still be able to claim timeout-won → dto-won and attach without Retry. Retry remains for
-///   a DTO that is already in the cache with no change notification. A dto-win leaves the
-///   subscription alive so a LATER removal can still render SessionEnded.
-/// * Attempt lifecycle (_attemptGeneration): every attach/reattach bumps it; a completion whose
-///   captured generation no longer matches the current one is a retired attempt and mutates
-///   nothing (silent, not an error). _attachLane (SemaphoreSlim(1,1), TRY-entered via Wait(0) --
-///   never awaited) single-flights the swap: two ReattachCommand.Execute() calls issued before the
-///   first has reached its own await point collapse to exactly one new client, because
-///   ReactiveCommand.Execute() invokes its Func&lt;Task&gt; eagerly, without consulting
-///   CanExecute/IsExecuting, so a queueing WaitAsync() here would let a double-click spawn two
-///   real clients.
-///   A call that loses the try-enter is a clean no-op, not a queued retry.
-/// * Send gate (_openingToken): who may accept composer text. BeginAttempt and Invalidate are its
-///   only advances, and both the gate and the in-flight flag are DERIVED from ownership
-///   (_gateOpenToken / _sendInFlightToken == _openingToken), so an advance settles them with
-///   nothing to remember and no window in which a passed token check still sets one. A publish that is not an attempt's own Connecting/Attached invalidates -- a
-///   terminal outcome only while its OWN attempt still holds the token, since a reattach takes
-///   its token before it disposes the client whose outcome it is retiring. State has one
-///   assignment site, Publish, which applies both rules.
-///
-/// UI affinity: the resolve gate mutates State after ObserveOn(RxSchedulers.MainThreadScheduler)
-/// or RxSchedulers.MainThreadScheduler.Schedule(...) (the TimeProvider timer fires off-thread in
-/// production, synchronously on the CALLING thread under FakeTimeProvider.Advance -- Schedule onto
-/// MainThreadScheduler is what makes that synchronous under WithImmediateRxScheduler too). Every
-/// attempt-lifecycle mutation (the swap, OnAttached/OnOutput's Feed, the outcome mapping) goes
-/// through Dispatcher.UIThread.InvokeAsync awaited with the attempt's own token -- these arrive
-/// from the attach client's own async continuations, which carry no Rx scheduler affinity at all.
+/// The resolve gate mutates State on MainThreadScheduler (the timer fires off-thread). Attempt
+/// mutations go through Dispatcher.UIThread.InvokeAsync, since attach-client continuations carry no
+/// scheduler affinity.
 public sealed class TerminalTabViewModel : ReactiveObject {
     const int ResolvePending = 0, ResolveDtoWon = 1, ResolveTimeoutWon = 2, ResolveDisposed = 3;
 

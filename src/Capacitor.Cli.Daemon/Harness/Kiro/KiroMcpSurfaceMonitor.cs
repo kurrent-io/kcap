@@ -4,38 +4,16 @@ using Capacitor.Cli.Daemon.Acp;
 namespace Capacitor.Cli.Daemon.Harness.Kiro;
 
 /// <summary>
-/// Watches Kiro's own MCP notifications and trips when the reviewer's callable surface is not
-/// exactly what this launch injected.
-///
-/// <para><b>This is a tripwire, not the containment.</b> Containment is source suppression — the
-/// empty per-launch <see cref="KiroReviewerHome"/> and the worktree layer's removal of
-/// branch-authored config. What this adds is DETECTION of a suppression failure, which is why its
-/// residual (below) degrades detection rather than the boundary.</para>
-///
-/// <para><b>Why not a certified-version set</b> (the Gemini shape): there, the vendor's name-matching
-/// semantics ARE the boundary, so a build change can void consent. Here the ordinary regression —
-/// Kiro stops honouring <c>KIRO_HOME</c>, or gains a second global config source — surfaces as global
-/// servers initializing under names outside the injected set, which is exactly what this catches.
-/// <see cref="Capacitor.Cli.Core.ReviewerVersionStore"/> handles the build-change axis separately.</para>
-///
-/// <para><b>Enforced continuously, not sampled.</b> These are asynchronous notifications and the
-/// protocol has no initialization-complete event, so there is no barrier to wait for. Sampling after
-/// a settle has a gap by construction: a server can initialize, be used, and be missed between two
-/// samples. Judging each notification on arrival closes it.</para>
-///
-/// <para><b>Membership, not counting.</b> Do not require each injected name to initialize exactly
-/// once. Every injected name carries a per-launch GUID (Kiro aliases the result channel and the
-/// allowlist servers), so nothing in the operator's global config can be standing under one — a
-/// suppression failure surfaces as the operator's own server NAMES, which the membership arm catches.
-/// And kiro-cli 2.16.0 announces one injected server's initialization more than once as ordinary
-/// behaviour, so a count rule reaps every reviewer launch while the surface is exactly the
-/// injected set. A repeated announce of an injected name is therefore benign.</para>
-///
-/// <para><b>Known residual, not mitigated:</b> a build that stopped emitting
-/// <c>server_initialized</c> for extra servers while still emitting it for injected ones defeats
-/// this, and nothing here detects that. Accepted because the tripwire is not the boundary, both
-/// suppression mechanisms would have to fail in the same build as the notification change, and the
-/// exposure it would hide is bounded by the read surface the operator already consented to.</para>
+/// Watches Kiro's MCP notifications and trips when the reviewer's surface is not exactly what this launch
+/// injected. A tripwire for a source-suppression failure (Kiro ignoring <c>KIRO_HOME</c>, or a new global
+/// config source), not the containment itself.
+/// <para>Each notification is judged on arrival: there is no initialization-complete event, and a
+/// sampled check can miss a server that starts and is used between samples.</para>
+/// <para>Membership, not counting. Injected names carry a per-launch GUID, so a suppression failure
+/// shows up as the operator's own server names, and kiro-cli announces an injected server more than once,
+/// so a count rule would reap every reviewer.</para>
+/// <para>Not detected: a build that stops announcing extra servers. Accepted, since the boundary is the
+/// suppression.</para>
 /// </summary>
 internal sealed class KiroMcpSurfaceMonitor {
     internal const string InitializedMethod = "_kiro.dev/mcp/server_initialized";

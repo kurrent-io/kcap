@@ -11,44 +11,17 @@ public sealed class BranchFilterInventoryException(string repoPath, string detai
 
 public partial class WorktreeManager {
     /// <summary>
-    /// Config overrides disabling EVERY defined clean/smudge/process filter, for the git commands that
-    /// materialise or ingest branch content.
-    ///
-    /// <para><b>The vector.</b> <c>.gitattributes</c> is branch content and SELECTS which driver applies to
-    /// a path. The command comes from the operator's config, but a relative one resolves against the
-    /// worktree, so the branch supplies the executable. Measured: <c>filter.x.smudge=./tools/f</c> with a
-    /// branch-committed <c>tools/f</c> runs during <c>worktree add</c>. <c>core.hooksPath</c> does not
-    /// affect filters.</para>
-    ///
-    /// <para><b>Why there is no exemption, not even for git-lfs.</b> Four successive designs tried to keep
-    /// LFS working and each was defeated in review, always in the same place — the exemption:</para>
-    /// <list type="number">
-    /// <item>Classify the command, disable relative ones. <c>sh tools</c> and <c>python filter.py</c> run a
-    /// branch file with no separator; <c>/bin/true;./tools/f</c> is one rooted token whose shell runs the
-    /// relative half; <c>%f</c> is substituted after any inspection.</item>
-    /// <item>Allowlist the NAME <c>lfs</c>. A name is a convention — <c>filter.lfs.smudge=./tools/f</c> is
-    /// legal config, and a branch selecting <c>filter=lfs</c> rides the allowlist to its own file.</item>
-    /// <item>Authenticate the binding by the command's first token. Git runs the whole value through a
-    /// shell, so <c>git-lfs smudge -- %f; ./tools/f</c> passes and then executes branch content.</item>
-    /// <item>Rebind to a <c>git-lfs</c> we resolve ourselves. The daemon's PATH is ambient — it inherits the
-    /// launching shell's, which may carry a relative or repo-local entry — and the resolved path was
-    /// interpolated unquoted into what is, again, a shell program.</item>
-    /// </list>
-    ///
-    /// <para>Four mechanisms, four holes, all guarding one exception. Disabling every driver has no such
-    /// surface: nothing is parsed, nothing is resolved, nothing is authenticated, and there is no name to
-    /// impersonate. The cost is real and is documented rather than hidden. Be precise about the boundary:
-    /// these overrides are PER-COMMAND, covering the git commands kcap uses to create and populate a
-    /// worktree — the window in which branch content is first materialised, before an agent is running.
-    /// Git the agent runs there afterwards uses the repository's own configuration. What that means for
-    /// file contents also differs by path: an owned worktree checks out through git and so holds LFS
-    /// pointer text, while standalone and borrowed snapshots carry the source's own bytes (see the README).
-    /// Removals are logged so an operator sees it happen instead of wondering why a file looks wrong.</para>
+    /// Config overrides disabling every defined clean/smudge/process filter for the git commands that
+    /// create and populate a worktree.
+    /// <para><c>.gitattributes</c> is branch content and selects the driver, and a relative driver command
+    /// resolves against the worktree, so the branch can supply the executable that runs during
+    /// <c>worktree add</c>.</para>
+    /// <para>There is no exemption, not even for git-lfs. Git runs a driver value through a shell, so no
+    /// classification, name allowlist, first-token check or self-resolved <c>git-lfs</c> can tell a safe
+    /// command from <c>git-lfs smudge -- %f; ./tools/f</c>. The cost: an owned worktree holds LFS pointer
+    /// text, while snapshots carry the source's bytes. Removals are logged. Git the agent runs later uses
+    /// the repository's own configuration.</para>
     /// </summary>
-    /// <exception cref="BranchFilterInventoryException">Enumeration failed, or a driver name cannot be
-    /// safely expressed as an override.</exception>
-    /// <exception cref="GitConfigTransportException">Thrown by the runner these overrides are passed to,
-    /// when the transport carrying them does not reach git and they would be silently dropped.</exception>
     internal static async Task<GitConfigOverride[]> BranchFilterOverridesAsync(
             string gitContextPath, TimeProvider time) {
         // Enumerate EVERY key and match the shape here, rather than asking git to match a regex.

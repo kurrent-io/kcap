@@ -25,43 +25,19 @@ internal static partial class AcpEventTranslator {
     static bool IsTerminalToolStatus(string? status) => status is "completed" or "failed";
 
     /// <summary>
-    /// Translates ONE <paramref name="update"/> into an <see cref="AcpEventEnvelope"/>, or
-    /// <see langword="null"/> when the kind is dropped:
+    /// Translates one <paramref name="update"/> into an envelope, or null when the kind is dropped:
     /// <list type="bullet">
-    /// <item><description><see cref="AcpUpdateKind.AgentMessageChunk"/> → <see cref="AcpEventKind.AssistantText"/>,
-    /// <see cref="AcpUpdateKind.AgentThoughtChunk"/> → <see cref="AcpEventKind.AssistantThinking"/> —
-    /// both use <paramref name="aggregatedText"/> when supplied (the caller's chunk-aggregation
-    /// result — this translator holds no aggregation state of its own), else the update's own
-    /// <see cref="AcpSessionUpdate.Text"/>.</description></item>
-    /// <item><description><see cref="AcpUpdateKind.ToolCall"/> → <see cref="AcpEventKind.ToolCall"/>,
-    /// carrying <see cref="AcpSessionUpdate.ToolCallId"/>/<see cref="AcpSessionUpdate.ToolTitle"/>
-    /// (as <see cref="AcpEventEnvelope.ToolName"/> — ACP's <c>tool_call</c> has no separate machine
-    /// "name" field, only <c>title</c>/<c>kind</c>; <c>title</c> is the closest analogue and is what
-    /// the server's <c>AssistantToolCallsGenerated.ToolCallInfo.ToolName</c> expects to
-    /// display)/<see cref="AcpSessionUpdate.ToolInputJson"/>, plus the update's own <c>kind</c>
-    /// normalized onto <see cref="AcpToolKind"/>'s closed set — the agent supplies it, so an
-    /// unrecognised token becomes <c>other</c> rather than reaching a consumer that switches on
-    /// the vocabulary.</description></item>
-    /// <item><description><see cref="AcpUpdateKind.ToolCallUpdate"/> → <see cref="AcpEventKind.ToolResult"/>
-    /// ONLY when the status is terminal (<see cref="IsTerminalToolStatus"/>) AND
-    /// <see cref="AcpSessionUpdate.ToolResultText"/> is non-null — a status-only update (non-terminal,
-    /// or terminal with no extractable content) returns <see langword="null"/> rather than an empty
-    /// <c>ToolResultReceived</c>.</description></item>
-    /// <item><description><see cref="AcpUpdateKind.SessionInfo"/> → <see cref="AcpEventKind.SessionTitle"/>
-    /// when the update carries a non-blank <see cref="AcpSessionUpdate.Title"/> (the agent's
-    /// auto-generated session title), else <see langword="null"/>.</description></item>
-    /// <item><description><see cref="AcpUpdateKind.Plan"/>/<see cref="AcpUpdateKind.AvailableCommands"/>
-    /// → always <see langword="null"/> (not transcript content; deferred to future work).</description></item>
-    /// <item><description><see cref="AcpUpdateKind.Unknown"/> → <see langword="null"/>, but
-    /// logged via <paramref name="logger"/> (when supplied) at debug level — never silently
-    /// swallowed. <see cref="AcpSessionUpdate.Raw"/> itself is only logged verbatim when
-    /// <paramref name="debugFrames"/> is <see langword="true"/> (the operator-opt-in
-    /// <c>KCAP_ACP_DEBUG_FRAMES</c>); otherwise only its length is logged, since an unknown update's
-    /// raw JSON can carry prompt/tool/file content.</description></item>
+    /// <item><description>Message and thought chunks use <paramref name="aggregatedText"/> when the caller
+    /// supplies it.</description></item>
+    /// <item><description>A tool call's <c>title</c> becomes <see cref="AcpEventEnvelope.ToolName"/>, since ACP
+    /// has no machine name; its <c>kind</c> is normalized to <see cref="AcpToolKind"/>, unknown tokens to
+    /// <c>other</c>.</description></item>
+    /// <item><description>A tool-call update becomes a result only when terminal and carrying result text.</description></item>
+    /// <item><description>Session info becomes a title only when non-blank. Plan and available commands are
+    /// dropped.</description></item>
+    /// <item><description>Unknown updates are logged at debug, with raw JSON only under
+    /// <c>KCAP_ACP_DEBUG_FRAMES</c>, since it can carry prompt or file content.</description></item>
     /// </list>
-    /// Every emitted envelope carries <paramref name="seq"/>/<paramref name="timestampIso"/> and the
-    /// default <c>ContractVersion = 1</c> (the <see cref="AcpEventEnvelope"/> record's own default —
-    /// this translator never overrides it, since v1 is the only contract version this daemon speaks).
     /// </summary>
     public static AcpEventEnvelope? Translate(
             AcpSessionUpdate update,

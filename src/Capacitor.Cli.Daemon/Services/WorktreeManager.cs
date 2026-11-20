@@ -553,37 +553,14 @@ public partial class WorktreeManager(
     }
 
     /// <summary>
-    /// Git config that must be forced on any git command that checks out or commits branch content.
-    ///
-    /// <para>A relative <c>core.hooksPath</c> — <c>.githooks</c> is a widespread convention, and a
-    /// documented setup step in many repos — makes the hook scripts themselves branch content. Git then runs
-    /// the branch's <c>post-checkout</c> during <c>worktree add</c>, i.e. BEFORE anything in this class has
-    /// had a chance to neutralize the tree. Review caught it: the MCP strip is pointless if creating the
-    /// tree already executed the branch's code. Pointing <c>core.hooksPath</c> at a daemon-owned empty
-    /// directory disables the whole mechanism for these commands without touching the operator's config.</para>
-    ///
-    /// <para><b>This covers the hook-DIRECTORY mechanism only.</b> Clean/smudge filters are a separate
-    /// vector — a branch selects them through its own <c>.gitattributes</c>, and this flag does not affect
-    /// them at all — handled by <see cref="BranchFilterOverridesAsync"/>, which disables every defined
-    /// driver rather than trying to judge commands. Git's config-based hooks
-    /// (<c>hook.&lt;name&gt;.event</c> / <c>.command</c>) are not covered and need not be: measured on git
-    /// 2.49, that config is undocumented and does not run.</para>
-    /// </summary>
-    /// <summary>
-    /// A <c>core.hooksPath</c> that cannot contain a hook, because it cannot be a directory.
-    ///
-    /// <para>Three earlier revisions of this created an empty directory instead, and every review round
-    /// found a new problem with it: a fixed temp name another user could pre-create with a
-    /// <c>post-checkout</c>; a mkdir-then-chmod race; a Windows temp location not guaranteed private; an
-    /// empty <c>LocalApplicationData</c> silently yielding a RELATIVE path; and one leaked directory per
-    /// daemon process. All of that was incidental to needing somewhere with no hooks in it.</para>
-    ///
-    /// <para><c>/dev/null</c> is not a directory, so git finds no hook there and there is nothing to
-    /// create, permission, or clean up — and nothing for another user to squat. Measured: with the
-    /// branch's own <c>core.hooksPath</c> a committed <c>post-checkout</c> RUNS during
-    /// <c>worktree add</c>; with this it does not, and the worktree is still created normally. Safe on
-    /// Windows by construction too — git there either resolves it the same way or treats it as a relative
-    /// path that does not exist, and both mean no hook.</para>
+    /// The <c>core.hooksPath</c> forced on any git command that checks out or commits branch content. A
+    /// relative <c>core.hooksPath</c> such as <c>.githooks</c> makes hooks branch content, and git would run
+    /// the branch's <c>post-checkout</c> during <c>worktree add</c>, before anything neutralizes the tree.
+    /// <para><c>/dev/null</c> is not a directory, so it can hold no hook and there is nothing to create,
+    /// secure, clean up or let another user pre-create. On Windows it resolves to a path that does not
+    /// exist, which also means no hook.</para>
+    /// <para>Filters are a separate vector, handled by <see cref="BranchFilterOverridesAsync"/>. Git's
+    /// config-based hooks (<c>hook.&lt;name&gt;.command</c>) do not run.</para>
     /// </summary>
     internal const string NoHooksPath = "/dev/null";
 
