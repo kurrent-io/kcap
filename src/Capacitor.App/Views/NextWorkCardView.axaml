@@ -23,7 +23,15 @@
                                            views:BusyIndicator.IsBusy="{Binding Busy}" />
                         </Border>
                         <Ellipse Classes="nwbBadge" Classes.wait="{Binding Glyph.BadgeWait}" Classes.ok="{Binding Glyph.BadgeOk}"
-                                 Classes.stop="{Binding Glyph.BadgeStop}" IsVisible="{Binding Glyph.HasBadge}" />
+                                 Classes.stop="{Binding Glyph.BadgeStop}">
+                            <!-- Local IsVisible beats a style setter, so hide here while Busy — not via .busy styles. -->
+                            <Ellipse.IsVisible>
+                                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                    <Binding Path="Glyph.HasBadge" />
+                                    <Binding Path="!Busy" />
+                                </MultiBinding>
+                            </Ellipse.IsVisible>
+                        </Ellipse>
                     </Panel>
                     <!-- The right margin keeps the text clear of the actions that show over the row's end. Each line is a
                          Grid, not a horizontal StackPanel: a StackPanel measures with infinite width, so nothing trims. -->
@@ -69,7 +77,7 @@
 
             <StackPanel x:Name="CardActions" Classes="nwbActs" Orientation="Horizontal" Spacing="2"
                         HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0"
-                        IsHitTestVisible="{Binding !Busy}">
+                        IsEnabled="{Binding !Busy}" IsHitTestVisible="{Binding !Busy}">
                 <Button x:Name="CardStart" Classes="kcapGhost nwbIconAction" Command="{Binding StartCommand}" IsVisible="{Binding CanWorkOn}"
                         ToolTip.Tip="Start an agent on this now, on this machine"
                         AutomationProperties.Name="{Binding Label, StringFormat='Start an agent on: {0}'}">

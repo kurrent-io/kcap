@@ -49,9 +49,6 @@
         <Style Selector="Grid.nwbRowHost.busy StackPanel.nwbBody">
             <Setter Property="Opacity" Value="0.55" />
         </Style>
-        <Style Selector="Grid.nwbRowHost.busy Ellipse.nwbBadge">
-            <Setter Property="IsVisible" Value="False" />
-        </Style>
         <!-- A row's own actions show where the viewer is: under the pointer, on the picked row, while it works, or with
              keyboard focus on the actions themselves. Not on the row's own focus, which a click leaves behind. -->
         <Style Selector="Grid.nwbRowHost StackPanel.nwbActs">
