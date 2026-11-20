@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              xmlns:views="clr-namespace:Capacitor.App.Views"
+             xmlns:client="clr-namespace:Capacitor.Client;assembly=Capacitor.Client"
              x:Class="Capacitor.App.Views.WorkContextView"
              x:DataType="vm:WorkContextViewModel"
              Background="{StaticResource KcapSurfaceBrush}">
@@ -171,18 +172,18 @@
             </Panel>
         </DataTemplate>
         <!-- One template for the rows and the folded counts alike, so the two cannot drift apart. -->
-        <DataTemplate x:Key="PlanMark" x:DataType="vm:PlanTaskState">
+        <DataTemplate x:Key="PlanMark" x:DataType="client:PlanTaskState">
             <Panel Width="12" Height="12">
                 <views:AppIcon Kind="Circle" Size="12"
-                               IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlanTaskState.Pending}}"
+                               IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:PlanTaskState.Pending}}"
                                Foreground="{StaticResource KcapFaintBrush}" />
                 <views:AppIcon Kind="Circle" Size="12"
-                               IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlanTaskState.InProgress}}"
+                               IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:PlanTaskState.InProgress}}"
                                Foreground="{StaticResource KcapPurpleBrush}" />
-                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlanTaskState.Completed}}">
+                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:PlanTaskState.Completed}}">
                     <views:AppIcon Kind="CircleCheck" Size="12" Foreground="{StaticResource KcapSuccessBrush}" />
                 </Panel>
-                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlanTaskState.Skipped}}">
+                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:PlanTaskState.Skipped}}">
                     <views:AppIcon Kind="CircleMinus" Size="12" Foreground="{StaticResource KcapBorderBrush}" />
                 </Panel>
             </Panel>
@@ -208,17 +209,17 @@
         </DataTemplate>
         <!-- Settled is green (outcome). This session is purple like IN FLIGHT — location, not done.
              One template for the rows and the folded counts alike. -->
-        <DataTemplate x:Key="PartMark" x:DataType="vm:WorkContextPartMark">
+        <DataTemplate x:Key="PartMark" x:DataType="client:WorkContextPartMark">
             <Panel Width="12" Height="12">
                 <views:AppIcon Kind="Circle" Size="12"
-                               IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:WorkContextPartMark.Unknown}}"
+                               IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:WorkContextPartMark.Unknown}}"
                                Foreground="{StaticResource KcapBorderBrush}" />
-                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:WorkContextPartMark.ThisSession}}">
+                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:WorkContextPartMark.ThisSession}}">
                     <views:AppIcon Kind="Circle" Size="12" Foreground="{StaticResource KcapPurpleBrush}" />
                     <Ellipse Width="5" Height="5" Fill="{StaticResource KcapPurpleBrush}"
                              HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False" />
                 </Panel>
-                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:WorkContextPartMark.Settled}}">
+                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:WorkContextPartMark.Settled}}">
                     <views:AppIcon Kind="CircleCheck" Size="12" Foreground="{StaticResource KcapSuccessBrush}" />
                 </Panel>
             </Panel>

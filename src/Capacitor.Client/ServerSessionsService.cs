@@ -61,7 +61,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
     // a read's generation check and its publish.
     readonly Lock _lock = new();
     int _generation;
-    string? _lastSubject;
+    readonly LaneAccount _laneAccount = new();
     int _laneEpoch;
     bool _connected;
     int _pages = 1;
@@ -137,8 +137,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
                 return;
             }
             lock (_lock) {
-                if (status.Subject is not null && _lastSubject is not null && _lastSubject != status.Subject) ClearForNewAccount();
-                if (status.Subject is not null) _lastSubject = status.Subject;
+                if (_laneAccount.SwitchedBy(status)) ClearForNewAccount();
                 _generation++;
                 _laneEpoch = status.Epoch;
                 _connected = true;

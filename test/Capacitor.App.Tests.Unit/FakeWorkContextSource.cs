@@ -1,4 +1,3 @@
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.WorkItems;
 
 namespace Capacitor.App.Tests.Unit;
@@ -25,6 +24,8 @@ sealed class FakeWorkContextSource : IWorkContextSource {
     }
 
     public WorkContextRead? Cached(string sessionId) => null;
+
+    public void InvalidateAuthentication() { }
 
     public async Task<WorkContextRead> ReadAsync(string sessionId, CancellationToken ct) {
         Requested.Add(sessionId);

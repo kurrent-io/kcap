@@ -1,7 +1,6 @@
 using System.Reactive;
 using System.Reactive.Concurrency;
 using Avalonia.Collections;
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.Plans;
 using ReactiveUI.Reactive;
 
@@ -14,9 +13,7 @@ namespace Capacitor.App.ViewModels;
 /// read; a result applies only for the current lease, every lease is kept until its read settles
 /// so teardown can await them all, and every lease transition happens on the UI thread.
 public sealed class PlanSectionViewModel : ReactiveObject {
-    /// The server answers a read from a projection that can trail the write that prompted it, so a
-    /// write is read twice: at once, and again after this long.
-    internal static readonly TimeSpan SettleDelay = TimeSpan.FromSeconds(2);
+    internal static readonly TimeSpan SettleDelay = WorkContextTiming.PlanSettleDelay;
 
     readonly IPlanSource? _source;
     readonly SingleFlightReader<string, SessionPlansRead> _reader;
@@ -75,6 +72,7 @@ public sealed class PlanSectionViewModel : ReactiveObject {
             },
             Apply,
             "plan section",
+            UiReads.Post,
             onSettled: RaiseLoading,
             cached: id => _source?.Cached(id));
         _activity = activity;
@@ -128,7 +126,7 @@ public sealed class PlanSectionViewModel : ReactiveObject {
         switch (read.Kind) {
             case SessionPlansReadKind.Ready:
                 _readOnce = true;
-                Show(read.Plans.FirstOrDefault(plan => plan.IsCurrent) ?? (read.Plans.Count > 0 ? read.Plans[0] : null));
+                Show(PlanBoard.From(read));
                 return;
             case SessionPlansReadKind.Unreachable:
                 return;
@@ -139,25 +137,21 @@ public sealed class PlanSectionViewModel : ReactiveObject {
         }
     }
 
-    void Show(SessionPlanDto? plan) {
-        if (plan is null) { Clear(); return; }
+    void Show(PlanBoard? board) {
+        if (board is null) { Clear(); return; }
 
-        var tasks = plan.Tasks.OrderBy(task => task.Ordinal).ToList();
-        StableRows.Sync(_tasks, RowsFor(tasks));
-        for (var i = 0; i < tasks.Count; i++) _tasks[i].Present(tasks[i], _activity.SessionOver);
+        StableRows.Sync(_tasks, RowsFor(board.Tasks));
+        for (var i = 0; i < board.Tasks.Count; i++) _tasks[i].Present(board.Tasks[i], _activity.SessionOver);
 
         RaiseShape();
     }
 
     /// A task the plan still names keeps its row, whatever was added, dropped or moved around it.
-    List<PlanTaskRow> RowsFor(List<PlanLedgerTaskDto> tasks) {
+    List<PlanTaskRow> RowsFor(IReadOnlyList<PlanBoardTask> tasks) {
         var known = new Dictionary<string, PlanTaskRow>(StringComparer.Ordinal);
         foreach (var row in _tasks) known.TryAdd(row.TaskId, row);
-        return [.. tasks.Select(task => known.Remove(RowKey(task), out var row) ? row : new PlanTaskRow(RowKey(task)))];
+        return [.. tasks.Select(task => known.Remove(task.TaskId, out var row) ? row : new PlanTaskRow(task.TaskId))];
     }
-
-    /// A task the server sent without an id is still one row per position.
-    static string RowKey(PlanLedgerTaskDto task) => task.TaskId is { Length: > 0 } id ? id : $"#{task.Ordinal}";
 
     void Clear() {
         if (_tasks.Count == 0) return;

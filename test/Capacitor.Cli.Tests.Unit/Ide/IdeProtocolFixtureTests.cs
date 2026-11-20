@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.Plans;
+using Capacitor.Cli.Core.WorkItems;
 using Capacitor.Cli.Ide;
 using Capacitor.Client;
 
@@ -108,4 +110,86 @@ public class IdeProtocolFixtureTests {
     [Test]
     public Task Connection_retry_request() =>
         EnvelopeAsync(Fixture("connection.retry.request.json"), Kind.Request, "connection/retry", withParams: false);
+
+    [Test]
+    public Task Context_subscribe_request() =>
+        RoundTripsAsync("context.subscribe.request.json", Kind.Request, "context/subscribe", Params, IdeJsonContext.Default.ContextSubscribeParams);
+
+    [Test]
+    public Task Context_refresh_request() =>
+        RoundTripsAsync("context.refresh.request.json", Kind.Request, "context/refresh", Params, IdeJsonContext.Default.ContextRefParams);
+
+    [Test]
+    public Task Context_unsubscribe_request() =>
+        RoundTripsAsync("context.unsubscribe.request.json", Kind.Request, "context/unsubscribe", Params, IdeJsonContext.Default.ContextRefParams);
+
+    [Test]
+    public Task Context_snapshot() => RoundTripsAsync("context.snapshot.json", Kind.Notification, "context/snapshot", Params, IdeJsonContext.Default.ContextSnapshot);
+
+    [Test]
+    public Task Context_changed() => RoundTripsAsync("context.changed.json", Kind.Notification, "context/changed", Params, IdeJsonContext.Default.ContextChanged);
+
+    [Test]
+    public async Task Context_snapshot_sections_are_what_a_ready_read_maps_to() {
+        var fixture = Fixture("context.snapshot.json")["params"]!;
+        const string itemId = "wi_01J8Z3K4M5N6P7Q8R9S0T1V2W3";
+        const string viewerId = "user_01J8Z3VQ4M8R2T6W9Y3B5D7F";
+        var primary = new SessionWorkItemAssignmentDto { WorkItemId = itemId, Label = "APP-412 — Retry uploads that time out", IsPrimary = true };
+        var item = new WorkItemDto {
+            WorkItemId    = itemId,
+            Title         = "APP-412",
+            EnrichedTitle = "Retry uploads that time out",
+            Overview      = "Uploads that hit the gateway timeout are dropped without a trace. Retry them with backoff and report the last failure.",
+            Key           = new WorkItemKeyDto { ShortKey = "APP-412", Provider = "tracker", Kind = "issue", Value = "APP-412" },
+            State         = new WorkItemStateDto { Kind = "in_flight" },
+            Links = [
+                new WorkItemLinkDto {
+                    Kind = "issue", Provider = "tracker", Value = "APP-388", ShortKey = "APP-388", Url = "https://issues.example.com/APP-388",
+                    Title = "Large uploads fail silently", LinkClass = "link",
+                },
+            ],
+            Parts = [
+                new WorkItemPartDto { WorkItemId = "wi_part_policy", Title = "Add a retry policy", Ordinal = 0, IsSettled = true },
+                new WorkItemPartDto { WorkItemId = "wi_part_report", Title = "Report the last failure", Ordinal = 1 },
+                new WorkItemPartDto { WorkItemId = "wi_part_docs", Title = "Document the retry limits", Ordinal = 2 },
+            ],
+            Contributors = [
+                new WorkItemContributorDto { UserId = viewerId, DisplayName = "Viewer Example", LastActivityAt = Utc(2026, 3, 4, 10, 15) },
+                new WorkItemContributorDto {
+                    UserId = "user_01J8Z3DN5P7R9T2V4X6Z8B1C", DisplayName = "Dana Example", AvatarUrl = "https://avatars.example.com/dana.png",
+                    LastActivityAt = Utc(2026, 3, 3, 16, 40),
+                },
+                new WorkItemContributorDto { UserId = "user_01J8Z3ABCDEFGHJKMNPQRSTV", LastActivityAt = Utc(2026, 3, 2, 9, 5) },
+            ],
+            SessionCount = 3,
+        };
+        var topology = new WorkItemTopologyDto {
+            PartOf    = new WorkItemRefDto { WorkItemId = "wi_parent", Title = "Reliable uploads" },
+            BlockedBy = [new WorkItemRefDto { WorkItemId = "wi_blocker", Title = "Expose the upload queue depth" }],
+        };
+        var read = new WorkContextRead(
+            WorkContextReadKind.Ready, [primary, new SessionWorkItemAssignmentDto { WorkItemId = "wi_part_report", Label = "Report the last failure" }],
+            primary, item, topology, new SessionSummaryDto { SessionId = "4f2b9c1e7a3d4e8f9b6c2d1a0e5f3c7b" }, false, false, false, null) {
+            Viewer = new ViewerIdentityDto { UserId = viewerId, AvatarUrl = "https://avatars.example.com/viewer.png" },
+        };
+        var plans = new SessionPlansRead(SessionPlansReadKind.Ready, [
+            new SessionPlanDto {
+                PlanId = "plan-retry", IsCurrent = true,
+                Tasks = [
+                    new PlanLedgerTaskDto { TaskId = "t1", Ordinal = 0, Title = "Write the failing retry test", Status = "completed" },
+                    new PlanLedgerTaskDto { TaskId = "t2", Ordinal = 1, Title = "Add the retry policy", Note = "Backoff starts at one second", Status = "in_progress" },
+                    new PlanLedgerTaskDto { TaskId = "t3", Ordinal = 2, Title = "Drop the old retry flag", Status = "skipped" },
+                    new PlanLedgerTaskDto { TaskId = "t4", Ordinal = 3, Title = "Document the retry limits", Status = "pending" },
+                ],
+            },
+        ]);
+
+        var work = ContextMapping.Work(WorkContextCards.Apply(WorkContextCard.Empty(WorkContextPhase.Loading), read, null), "https://kcap.example.com/");
+        var plan = ContextMapping.Plan(PlanBoard.From(plans)!);
+
+        await Assert.That(JsonSerializer.SerializeToNode(work, IdeJsonContext.Default.WorkSection)!.ToJsonString()).IsEqualTo(fixture["work"]!.ToJsonString());
+        await Assert.That(JsonSerializer.SerializeToNode(plan, IdeJsonContext.Default.PlanSection)!.ToJsonString()).IsEqualTo(fixture["plan"]!.ToJsonString());
+    }
+
+    static DateTimeOffset Utc(int year, int month, int day, int hour, int minute) => new(year, month, day, hour, minute, 0, TimeSpan.Zero);
 }

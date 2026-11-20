@@ -1,3 +1,3 @@
-namespace Capacitor.App.ViewModels;
+namespace Capacitor.Client;
 
 public enum PlanTaskState { Pending, InProgress, Completed, Skipped }

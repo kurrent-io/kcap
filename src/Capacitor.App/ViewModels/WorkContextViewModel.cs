@@ -16,8 +16,6 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-public enum WorkContextPhase { WaitingForSession, Loading, Ready, NoWorkItem, SignedOut, NotInPlan, Unreachable, SessionUnknown }
-
 /// The work-context sidebar for one session: facts from the daemon's dto, the work item from the
 /// server. Ctor-scoped; TeardownAsync is the one exit.
 ///
@@ -50,7 +48,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             if (changed) PullRequests?.PrimaryRepositoryChanged();
         }
     }
-    internal static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan PollInterval = WorkContextTiming.PollInterval;
     internal const double CompactThreshold = 80;
     internal static readonly TimeSpan CompactPollInterval = TimeSpan.FromSeconds(3);
     internal static readonly TimeSpan CompactPollLimit = TimeSpan.FromMinutes(2);
@@ -213,19 +211,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         return string.Concat(value.AsSpan(0, head), "…", value.AsSpan(value.Length - tail));
     }
 
-    WorkContextPhase _phase = WorkContextPhase.WaitingForSession;
-    public WorkContextPhase Phase {
-        get => _phase;
-        private set {
-            if (_phase == value) return;
-            this.RaiseAndSetIfChanged(ref _phase, value);
-            this.RaisePropertyChanged(nameof(PhaseNote));
-            this.RaisePropertyChanged(nameof(IsReady));
-            this.RaisePropertyChanged(nameof(ShowsSignIn));
-            this.RaisePropertyChanged(nameof(ShowsRetry));
-            RaiseRelated();
-        }
-    }
+    public WorkContextPhase Phase => _card.Phase;
 
     bool _hasWorkspaceNotice;
     public bool HasWorkspaceNotice {
@@ -288,15 +274,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         _branchReader.Switch(state);
     }
 
-    bool _isStale;
-    public bool IsStale {
-        get => _isStale || _pullRequests?.HasStaleOverview == true;
-        private set {
-            if (_isStale == value) return;
-            _isStale = value;
-            this.RaisePropertyChanged();
-        }
-    }
+    public bool IsStale => _card.IsStale || _pullRequests?.HasStaleOverview == true;
     bool _isReading;
     public bool IsReading {
         get => _isReading;
@@ -371,12 +349,14 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             }, ct),
             _ => string.IsNullOrWhiteSpace(_reportedBranch) ? "—" : _reportedBranch,
             branch => Branch = branch,
-            "checkout branch");
+            "checkout branch",
+            UiReads.Post);
         _reader = new SingleFlightReader<string, WorkContextRead>(
             _source.ReadAsync,
             ex => WorkContextRead.Of(WorkContextReadKind.Unreachable, ex.Message),
             Apply,
             "work context",
+            UiReads.Post,
             reading => IsReading = reading,
             cached: _source.Cached);
         Plan = new PlanSectionViewModel(plans, planActivity ?? new PlanActivity(), time);
@@ -459,10 +439,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             IsReading = false;
             SessionIdText = "resolving…";
             PrimaryRepository = null;
-            ClearServerProjections();
+            ClearServerProjections(WorkContextPhase.WaitingForSession);
             ApplySessionFacts(null);
-            IsStale = false;
-            Phase = WorkContextPhase.WaitingForSession;
             Plan.SwitchSession(null);
             Artefacts?.SwitchSession(null, null);
             _runs.Clear();
@@ -529,12 +507,10 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         HasSession = true;
         SessionIdText = SessionIds.Canonical(id) ?? id;
         PrimaryRepository = null;
-        ClearServerProjections();
+        ClearServerProjections(WorkContextPhase.Loading);
         ApplySessionFacts(null);
-        IsStale = false;
-        Phase = WorkContextPhase.Loading;
         _reader.Switch(id);
-        if (_serverDown && Phase == WorkContextPhase.Loading) Phase = WorkContextPhase.Unreachable;
+        if (_serverDown && Phase == WorkContextPhase.Loading) ShowCard(_card with { Phase = WorkContextPhase.Unreachable });
         Plan.SwitchSession(id);
         Artefacts?.SwitchSession(id, _isRemote ? null : WorktreePath ?? RepositoryPath);
     }
@@ -543,7 +519,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         if (_tornDown) return;
         _serverDown = down;
         Plan.SetServerDown(down);
-        if (down && Phase == WorkContextPhase.Loading) Phase = WorkContextPhase.Unreachable;
+        if (down && Phase == WorkContextPhase.Loading) ShowCard(_card with { Phase = WorkContextPhase.Unreachable });
     }
 
     void OnTick() {
@@ -572,39 +548,33 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         _reader.Refresh();
     }
 
-    /// Applies one read for the current lease. Section-level merging lives in the projections half.
+    /// Applies one read for the current lease: the card merges in the client library, the session
+    /// facts and link cards here.
     void Apply(WorkContextRead read) {
-        switch (read.Kind) {
-            case WorkContextReadKind.SignedOut:      ApplyTerminal(WorkContextPhase.SignedOut);      return;
-            case WorkContextReadKind.NotInPlan:
-                // The plan gates work items only; a failed summary keeps the last session facts, stale.
-                ApplyTerminal(WorkContextPhase.NotInPlan, keepSessionFacts: true);
-                if (!read.SummaryFailed) ApplySessionFacts(read.Summary);
-                else IsStale = _hasSessionFacts;
-                return;
-            case WorkContextReadKind.SessionUnknown: ApplyTerminal(WorkContextPhase.SessionUnknown); return;
-            case WorkContextReadKind.Unreachable:
-                // A plan-gated pane that holds session facts goes stale rather than blank.
-                if (Phase is WorkContextPhase.Ready or WorkContextPhase.NoWorkItem
-                    || (Phase == WorkContextPhase.NotInPlan && _hasSessionFacts)) IsStale = true;
-                else Phase = WorkContextPhase.Unreachable;
-                return;
-            case WorkContextReadKind.Ready:
-                ApplyReady(read);
-                return;
-            default:
-                Phase = WorkContextPhase.Unreachable;
-                return;
+        // A plan-gated pane that holds session facts goes stale rather than blank.
+        if (read.Kind == WorkContextReadKind.Unreachable && Phase == WorkContextPhase.NotInPlan && _hasSessionFacts) {
+            ShowCard(_card with { IsStale = true });
+            return;
         }
-    }
-
-    /// The server has just said the viewer may not have this data, so nothing it gates stays visible.
-    void ApplyTerminal(WorkContextPhase phase, bool keepSessionFacts = false) {
-        ClearServerProjections();
-        if (!keepSessionFacts) ApplySessionFacts(null);
-        ForgetViewer();
-        Phase = phase;
-        IsStale = false;
+        var card = WorkContextCards.Apply(_card, read, SessionRequester());
+        switch (read.Kind) {
+            case WorkContextReadKind.SignedOut or WorkContextReadKind.SessionUnknown:
+                ClearLinks();
+                ApplySessionFacts(null);
+                break;
+            case WorkContextReadKind.NotInPlan:
+                ClearLinks();
+                // The plan gates work items only; a failed summary keeps the last session facts, stale.
+                if (!read.SummaryFailed) ApplySessionFacts(read.Summary);
+                else card = card with { IsStale = _hasSessionFacts };
+                break;
+            case WorkContextReadKind.Ready:
+                // A failed summary keeps the last figures, marked stale with the rest of the pane.
+                if (!read.SummaryFailed) ApplySessionFacts(read.Summary);
+                break;
+        }
+        ShowCard(card, itemServed: read.Item is not null);
+        if (read.Kind == WorkContextReadKind.Ready) ApplyLinks(read);
     }
 
     public async Task TeardownAsync() {

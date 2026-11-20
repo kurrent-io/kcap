@@ -1,0 +1,122 @@
+using TUnit.Assertions.Enums;
+
+namespace Capacitor.Client.Tests.Unit;
+
+public class SingleFlightReaderTests {
+    static Task Inline(Action action) {
+        action();
+        return Task.CompletedTask;
+    }
+
+    sealed class Harness {
+        public List<(string State, TaskCompletionSource<string> Result)> Reads { get; } = [];
+        public List<string> Applied { get; } = [];
+        public SingleFlightReader<string, string> Reader { get; }
+
+        public Harness(Func<string, string?>? cached = null) {
+            Reader = new SingleFlightReader<string, string>(
+                (state, ct) => {
+                    var result = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    Reads.Add((state, result));
+                    return result.Task;
+                },
+                ex => $"error: {ex.Message}",
+                Applied.Add,
+                "test",
+                Inline,
+                cached: cached);
+        }
+    }
+
+    [Test]
+    public async Task A_result_for_a_superseded_state_is_not_applied() {
+        var h = new Harness();
+
+        h.Reader.Switch("a");
+        var superseded = h.Reader.PendingReadForTesting!;
+        h.Reader.Switch("b");
+        h.Reads[0].Result.SetResult("a result");
+        await superseded;
+        h.Reads[1].Result.SetResult("b result");
+        await (h.Reader.PendingReadForTesting ?? Task.CompletedTask);
+
+        await Assert.That(h.Applied).IsEquivalentTo(["b result"]);
+        await h.Reader.TeardownAsync();
+    }
+
+    /// A read that answers before it returns settles inside the call that started it, when results are
+    /// posted inline. The reader must already count that read as outstanding, or it ends up reporting a
+    /// read in progress and keeping a settled lease it later cancels after disposing it.
+    [Test]
+    public async Task A_read_that_answers_at_once_leaves_nothing_reading() {
+        var reading = new List<bool>();
+        var applied = new List<string>();
+        var reader = new SingleFlightReader<string, string>(
+            (state, _) => Task.FromResult($"{state} result"), ex => ex.Message, applied.Add, "test", Inline, reading.Add);
+
+        reader.Switch("a");
+        reader.Switch("b");
+
+        await Assert.That(applied).IsEquivalentTo(["a result", "b result"], CollectionOrdering.Matching);
+        await Assert.That(reading).IsEquivalentTo([true, false, true, false], CollectionOrdering.Matching);
+        await reader.TeardownAsync();
+    }
+
+    [Test]
+    public async Task A_refresh_during_a_read_runs_one_follow_up() {
+        var h = new Harness();
+
+        h.Reader.Switch("a");
+        h.Reader.Refresh();
+        h.Reader.Refresh();
+        // Captured first: settling starts the follow-up, which replaces the pending read
+        var first = h.Reader.PendingReadForTesting!;
+        h.Reads[0].Result.SetResult("first");
+        await first;
+
+        await Assert.That(h.Reads.Count).IsEqualTo(2);
+        h.Reads[1].Result.SetResult("second");
+        await (h.Reader.PendingReadForTesting ?? Task.CompletedTask);
+        await Assert.That(h.Reads.Count).IsEqualTo(2);
+        await Assert.That(h.Applied).IsEquivalentTo(["first", "second"]);
+        await h.Reader.TeardownAsync();
+    }
+
+    [Test]
+    public async Task A_cached_result_is_applied_before_the_read() {
+        var h = new Harness(state => state == "a" ? "cached a" : null);
+
+        h.Reader.Switch("a");
+        await Assert.That(h.Applied).IsEquivalentTo(["cached a"]);
+
+        h.Reads[0].Result.SetResult("fresh a");
+        await (h.Reader.PendingReadForTesting ?? Task.CompletedTask);
+        await Assert.That(h.Applied).IsEquivalentTo(["cached a", "fresh a"]);
+        await h.Reader.TeardownAsync();
+    }
+
+    [Test]
+    public async Task A_throwing_read_applies_the_error_result() {
+        var h = new Harness();
+
+        h.Reader.Switch("a");
+        h.Reads[0].Result.SetException(new InvalidOperationException("boom"));
+        await (h.Reader.PendingReadForTesting ?? Task.CompletedTask);
+
+        await Assert.That(h.Applied).IsEquivalentTo(["error: boom"]);
+        await h.Reader.TeardownAsync();
+    }
+
+    [Test]
+    public async Task Nothing_is_applied_after_teardown() {
+        var h = new Harness();
+
+        h.Reader.Switch("a");
+        var pending = h.Reader.PendingReadForTesting;
+        await h.Reader.TeardownAsync(waitForPending: false);
+        h.Reads[0].Result.TrySetResult("late");
+        await (pending ?? Task.CompletedTask);
+
+        await Assert.That(h.Applied).IsEmpty();
+    }
+}
