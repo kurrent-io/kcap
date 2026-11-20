@@ -332,7 +332,9 @@ Description: **before writing it, open [.github/PULL_REQUEST_TEMPLATE.md](.githu
   action is `kcapPrimary`; the main one of several is `kcapPrimary` and sits last (rightmost);
   actions of equal weight are `kcapChip`; Cancel, Close, Back, Dismiss, Skip and Not now are
   `kcapGhost` unless they are the only action. A Close or Done that finishes a flow is its main
-  action. Destructive actions stay `kcapDanger` even when alone. When the set of visible actions
+  action. The action that commits to a destructive change is danger-styled (`kcapDanger`,
+  `kcapDangerFill` when it is the main action) even when alone; retrying or continuing one the user
+  already confirmed takes its normal rank, kept off Enter. When the set of visible actions
   changes with state, bind the rank (`Classes.kcapPrimary`) so it follows. Menu rows, chips,
   pickers and choice lists are not actions and keep their own classes. Onboarding maps these to
   `onboardingPrimary`, `onboardingSecondary` and `onboardingQuiet` / `onboardingLink`.

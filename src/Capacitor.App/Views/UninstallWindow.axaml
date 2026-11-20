@@ -97,7 +97,7 @@
                     <Button x:Name="CloseButton" Content="{Binding CloseButtonText}" Command="{Binding CloseCommand}"
                             Classes.kcapPrimary="{Binding !CanRetry}" Classes.kcapGhost="{Binding CanRetry}"
                             IsVisible="{Binding !IsBusy}" IsDefault="{Binding IsFinished}" IsCancel="{Binding IsFinished}" />
-                    <Button x:Name="RetryButton" Content="Retry" Classes="kcapDangerFill" Command="{Binding RetryCommand}" IsVisible="{Binding CanRetry}" />
+                    <Button x:Name="RetryButton" Content="Retry" Classes="kcapPrimary" Command="{Binding RetryCommand}" IsVisible="{Binding CanRetry}" />
                 </StackPanel>
             </Grid>
         </Grid>
