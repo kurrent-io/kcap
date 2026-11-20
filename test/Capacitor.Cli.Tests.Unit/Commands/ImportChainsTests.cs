@@ -114,16 +114,27 @@ public class ImportChainsTests : IDisposable {
     }
 
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public async Task Partial_import_retries_a_refused_subagent_before_finalizing_the_parent(bool canonical) {
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    public async Task Partial_import_retries_a_refused_subagent_before_finalizing_the_parent(bool canonical, bool lateSidecar) {
         const string agentId = "bbbbbbbbbbbbbbbb";
         var path = canonical ? CanonicalRoute.HttpPath : TranscriptPost.RawPath;
-        var session = MakeNew("resume-child", 5);
+        var lineCount = lateSidecar ? 104 : 5;
+        var session = MakeNew("resume-child", lineCount);
         var lines = await File.ReadAllLinesAsync(session.FilePath);
-        lines[3] = $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{agentId}}}"}}""";
+        var agents = _tmp.CreateDir(session.SessionId, "subagents");
+        var sidecarPath = agents.PathTo($"agent-{agentId}.meta.json");
+        if (lateSidecar) {
+            // The parent names the call, but only the sidecar can identify the child it spawned.
+            lines[2] = """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call","name":"Agent","input":{}}]}}""";
+            await File.WriteAllTextAsync(sidecarPath, "{");
+        } else {
+            lines[3] = $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{agentId}}}"}}""";
+        }
         await File.WriteAllLinesAsync(session.FilePath, lines);
-        var agentPath = _tmp.CreateDir(session.SessionId, "subagents").PathTo($"agent-{agentId}.jsonl");
+        var agentPath = agents.PathTo($"agent-{agentId}.jsonl");
         await File.WriteAllLinesAsync(agentPath, [
             """{"type":"user","uuid":"8ae2506b-7f4c-4e18-bfb3-ac5b77f472fc","timestamp":"2026-03-15T10:00:00Z","message":{"role":"user","content":"child"}}""",
         ]);
@@ -161,8 +172,9 @@ public class ImportChainsTests : IDisposable {
         var watermark = canonical
             ? parent["lines"]!.AsArray().Last()!["number"]!.GetValue<int>()
             : parent["line_numbers"]!.AsArray().Last()!.GetValue<int>();
-        await Assert.That(watermark).IsEqualTo(2);
+        await Assert.That(watermark).IsEqualTo(lateSidecar ? 101 : 2);
 
+        if (lateSidecar) await File.WriteAllTextAsync(sidecarPath, """{"toolUseId":"call"}""");
         _server.ResetMappings();
         _server.ResetLogEntries();
         StubTranscriptRoutes();
@@ -171,15 +183,19 @@ public class ImportChainsTests : IDisposable {
             new GitProviderRouter(), Config.Root, Home, client, TimeProvider.System, _server.Url!,
             [(session.SessionId, session.FilePath, session.EncodedCwd)], minLines: 1, CancellationToken.None)).Single();
         await Assert.That(retry.Status).IsEqualTo(ImportCommand.ClassificationStatus.Partial);
-        await Assert.That(retry.ResumeFromLine).IsEqualTo(3);
+        await Assert.That(retry.ResumeFromLine).IsEqualTo(watermark + 1);
 
-        StubWatermark(4, priority: 1);
+        StubWatermark(lineCount - 1, priority: 1);
         var completed = await Import().ImportChainsAsync(client, _server.Url!, [[retry]], events, CancellationToken.None);
         await Assert.That(completed.Resumed).IsEqualTo(1);
         var postPaths = _server.LogEntries.Where(e => e.RequestMessage.Method == "POST").Select(e => e.RequestMessage.Path);
         await Assert.That(string.Join(" ", postPaths))
             .IsEqualTo($"/hooks/subagent-start {path} /hooks/subagent-stop {path} /hooks/session-end/claude");
-        await Assert.That(TranscriptImportLedger.Load(Config.Root).ResumeFrom(_server.Url!, session.SessionId, 4)).IsEqualTo(5);
+        await Assert.That(TranscriptImportLedger.Load(Config.Root).ResumeFrom(_server.Url!, session.SessionId, lineCount - 1)).IsEqualTo(lineCount);
+        if (lateSidecar) {
+            var start = _server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/subagent-start");
+            await Assert.That(JsonNode.Parse(start.RequestMessage.Body!)?["spawn_call_id"]?.GetValue<string>()).IsEqualTo("call");
+        }
 
         return;
 

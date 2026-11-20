@@ -168,8 +168,9 @@ static class SessionImporter {
         async Task SendTrailingAgentsAsync() {
             foreach (var (agentId, agentPath) in agentTranscripts) {
                 if (sentAgents.Contains(agentId)) continue;
-                // Skip previously referenced agents with no evidence in the unsent parent tail.
-                if (scan?.FirstLineByAgent.ContainsKey(agentId) == true && positions?.ContainsKey(agentId) != true) continue;
+                // A sidecar can become readable after a failed trailing upload. Its invocation
+                // may already be on the server even though the child still needs delivery.
+                if (scan?.DirectlyReferencedAgents.Contains(agentId) == true && positions?.ContainsKey(agentId) != true) continue;
                 await SendClaudeAgentAsync(agentId, agentPath);
             }
 
@@ -239,7 +240,8 @@ static class SessionImporter {
             Dictionary<string, int>     FirstLineByAgent,
             Dictionary<string, string?> AgentTypeByAgent,
             Dictionary<string, string>  SpawnCallByAgent,
-            Dictionary<string, int>     ResumeLineByAgent
+            Dictionary<string, int>     ResumeLineByAgent,
+            HashSet<string>             DirectlyReferencedAgents
         );
 
     /// <summary>
@@ -297,6 +299,8 @@ static class SessionImporter {
             // New imports retain the references already scanned and discover other agents from their files.
         }
 
+        var directlyReferencedAgents = firstLine.Keys.ToHashSet(StringComparer.Ordinal);
+
         // The meta file Claude Code writes beside each subagent transcript names the call that
         // started it, which ties the agent to its call when the parent's result does not.
         foreach (var (toolUseId, agentId) in ClaudeSubagentFiles.Starts(transcriptPath, FrozenSet<string>.Empty))
@@ -321,7 +325,7 @@ static class SessionImporter {
             }
         }
 
-        return new AgentLifecycleScan(firstLine, agentTypes, spawnCalls, resumeLines);
+        return new AgentLifecycleScan(firstLine, agentTypes, spawnCalls, resumeLines, directlyReferencedAgents);
 
         void RecordResumeLine(string agentId, int line) {
             if (line < resumeLines.GetValueOrDefault(agentId, int.MaxValue)) resumeLines[agentId] = line;
