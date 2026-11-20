@@ -42,7 +42,7 @@ Subcommands:
       --json                One JSON object per line on stdout, for the desktop app.
   intelligence <answer> [--model <model>] [--import-outcomes | --no-import-outcomes] [--json]
                             Choose who runs the server's background model calls: titles, outcomes, evals.
-                            <answer> is claude or codex (your own agent, run by this machine's daemon),
+                            <answer> is claude, codex, pi or opencode (your own agent, run by this machine's daemon),
                             anthropic, openai, openrouter or cohere (a provider, with your API key), or none.
                             A provider's key is read from its variable (ANTHROPIC_API_KEY, OPENAI_API_KEY,
                             OPENROUTER_API_KEY, COHERE_API_KEY) or asked for, never taken from the command
@@ -51,6 +51,13 @@ Subcommands:
       --import-outcomes     Imported sessions also get a summary of what each achieved, at the server's daily
                             pace for background work on imports. --no-import-outcomes turns that off.
       --json                One JSON object on stdout, for the desktop app.
+  intelligence [--import-outcomes | --no-import-outcomes] [--daily-limit <n>] [--json]
+                            With no answer, change only whether imported sessions get outcomes and how many
+                            older sessions a day background work takes on (1 to 100,000; today's sessions are
+                            never held back). --daily-limit cannot go with an answer.
+  intelligence status [--json]
+                            Show who runs background intelligence, what it runs, whether imported sessions get
+                            outcomes and the daily limit, and which of them the server's service environment sets.
   uninstall [--purge] [--force] [--yes] [--quick]
                             Stop every kcap daemon and watcher and the local server, then remove the
                             server's service and binaries. Its data and identity are kept, so
@@ -74,8 +81,8 @@ upgrade exits 0 when it upgraded or the stack already runs this version or a new
 before the switch, 2 when it failed after the switch, 3 when nothing is installed, and 4 when no bundle is
 published for this version yet. fetch exits 0 when the
 bundle is in the cache, 1 when it failed, 3 when the installation already runs this version, and 4 when no
-bundle is published for it yet. intelligence exits 0 when the server took the answer, 1 when it could not be
-asked, and 2 when the arguments or the server refused it, storing nothing.
+bundle is published for it yet. intelligence exits 0 when the server took the answer or answered the read, 1 when
+it could not be asked, and 2 when the arguments or the server refused it, storing nothing.
 
 The installation lives in ~/.config/kcap/local (%USERPROFILE%\.config\kcap\local on Windows), or in
 KCAP_LOCAL_ROOT when it is set; its logs are in the logs directory under it. The root must leave room

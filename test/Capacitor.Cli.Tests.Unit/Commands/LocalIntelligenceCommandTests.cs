@@ -3,6 +3,7 @@ using Capacitor.Cli.Core.LocalEdition;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -22,6 +23,20 @@ public class LocalIntelligenceCommandTests {
             Installation = () => server is null ? null : new LocalInstallation(InstallationId, new Uri(server).Port, server, "1.0.0"),
             Variable     = env ?? (_ => null),
         };
+
+    const string Settings =
+        """{"mode":"provider","harness":null,"vendor":"openai","model":"gpt-5-mini","import_outcomes":false,"import_outcomes_pinned":true,"backlog_session_touches_per_day":500,"backlog_limit_pinned":false,"resolving":["titles"]}""";
+
+    const string SettingsLine =
+        """{"ok":true,"settings":{"mode":"provider","vendor":"openai","model":"gpt-5-mini","import_outcomes":false,"import_outcomes_pinned":true,"backlog_session_touches_per_day":500,"backlog_limit_pinned":false,"resolving":["titles"]}}""";
+
+    static WireMockServer ServeSettings(string method, string path, int status, string body) {
+        var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath(path).UsingMethod(method))
+            .RespondWith(Response.Create().WithStatusCode(status).WithBody(body));
+
+        return server;
+    }
 
     static WireMockServer Serve(int status, string body) {
         var server = WireMockServer.Start();
@@ -133,5 +148,61 @@ public class LocalIntelligenceCommandTests {
         await Command(server.Url, _ => "sk").HandleAsync(["local", "intelligence", "anthropic", "--json"]);
 
         await Assert.That(LocalIntelligenceRecord.For(Config.Root, InstallationId).Mode).IsEqualTo("local_agent");
+    }
+
+    [Test]
+    public async Task Status_reads_the_settings_into_one_json_line() {
+        using var server = ServeSettings("GET", "/api/admin/intelligence", 200, Settings);
+        using var stdout = ConsoleOutput.StartCapture();
+
+        var exit = await Command(server.Url).HandleAsync(["local", "intelligence", "status", "--json"]);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(stdout.GetCapturedOutput().Trim()).IsEqualTo(SettingsLine);
+    }
+
+    [Test]
+    public async Task Status_names_each_setting_the_servers_environment_pins() {
+        using var server = ServeSettings("GET", "/api/admin/intelligence", 200, Settings);
+        using var stdout = ConsoleOutput.StartCapture();
+
+        await Command(server.Url).HandleAsync(["local", "intelligence", "status"]);
+
+        var lines = stdout.GetCapturedOutput().Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        await Assert.That(lines).IsEquivalentTo([
+            "Background intelligence: openai (gpt-5-mini), with your API key.",
+            "Runs: titles.",
+            "Imported sessions get no outcome. The server's service environment sets this.",
+            "Daily limit: 500 older sessions a day.",
+        ], CollectionOrdering.Matching);
+    }
+
+    /// <summary>The record follows the mode, which a preference write never changes.</summary>
+    [Test]
+    public async Task Preferences_alone_put_only_what_was_given_and_touch_no_record() {
+        new LocalIntelligenceRecord(InstallationId, "local_agent").Save(Config.Root);
+        using var server = ServeSettings("PUT", "/api/admin/intelligence/preferences", 200, Settings);
+        using var stdout = ConsoleOutput.StartCapture();
+
+        var exit = await Command(server.Url).HandleAsync(["local", "intelligence", "--daily-limit", "500", "--json"]);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(server.LogEntries.Single().RequestMessage.Body)
+            .IsEqualTo("""{"import_outcomes":null,"backlog_session_touches_per_day":500}""");
+        await Assert.That(stdout.GetCapturedOutput().Trim()).IsEqualTo(SettingsLine);
+        await Assert.That(LocalIntelligenceRecord.For(Config.Root, InstallationId).Mode).IsEqualTo("local_agent");
+    }
+
+    [Test]
+    [Arguments("GET", "/api/admin/intelligence", "status")]
+    [Arguments("PUT", "/api/admin/intelligence/preferences", "--no-import-outcomes")]
+    public async Task A_server_without_the_route_is_refused_as_needing_an_update(string method, string path, string arg) {
+        using var server = ServeSettings(method, path, 404, "");
+        using var stdout = ConsoleOutput.StartCapture();
+
+        var exit = await Command(server.Url).HandleAsync(["local", "intelligence", arg, "--json"]);
+
+        await Assert.That(exit).IsEqualTo(2);
+        await Assert.That(stdout.GetCapturedOutput().Trim()).IsEqualTo("""{"ok":false,"error":"needs_update"}""");
     }
 }
