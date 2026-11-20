@@ -36,8 +36,6 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public int PartsDone { get => _partsDone; private set => this.RaiseAndSetIfChanged(ref _partsDone, value); }
     int _partsTotal;
     public int PartsTotal { get => _partsTotal; private set => this.RaiseAndSetIfChanged(ref _partsTotal, value); }
-    bool _isDone;
-    public bool IsDone { get => _isDone; private set => this.RaiseAndSetIfChanged(ref _isDone, value); }
     public bool IsNoRepository { get; }
     /// Grouped by its folder rather than by a repository's remote, so the header must not read as one.
     public bool IsFolder => Kind == RailGrouping.Repository && !IsNoRepository && !Key.StartsWith("repo:", StringComparison.Ordinal);
@@ -50,7 +48,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public string ToggleAccessibleName => $"{(IsExpanded ? "Collapse" : "Expand")} {(IsFolder ? "folder " : "")}{Label}";
     public string Tooltip {
         get {
-            if (IsWorkItem) return IsDone ? $"{Label}\nDone" : $"{Label}\n{PartsDone} of {PartsTotal} parts done";
+            if (IsWorkItem) return $"{Label}\n{PartsDone} of {PartsTotal} parts done";
             return IsFolder ? $"{RootDisplay}\nFolder, not a repository with a remote" : RootDisplay;
         }
     }
@@ -137,7 +135,6 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         Relabel(item.Title);
         PartsDone = item.PartsDone;
         PartsTotal = item.PartsTotal;
-        IsDone = item.Done;
         this.RaisePropertyChanged(nameof(Tooltip));
         _workItem.OnNext(item);
     }

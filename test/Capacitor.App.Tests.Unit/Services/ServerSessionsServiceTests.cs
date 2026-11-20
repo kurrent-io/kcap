@@ -10,7 +10,8 @@ namespace Capacitor.App.Tests.Unit.Services;
 
 public class ServerSessionsServiceTests {
     /// A session sits under the work item it arrived with, the work item worked on most recently first, and a
-    /// later page brings a work item no earlier page held. A session that arrived with none stays in its day.
+    /// later page brings a work item no earlier page held. A session that arrived with none stays in its day, and a
+    /// done work item is not shown, nor are its sessions.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Listed_sessions_gather_under_the_work_item_they_arrive_with() => AvaloniaSession.RunOnUiAsync(async () => {
@@ -40,16 +41,16 @@ public class ServerSessionsServiceTests {
             readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, [])));
         Connect(lane);
         IEnumerable<RailGroupViewModel> WorkItems() => rail.Groups.Where(g => g.IsWorkItem);
-        await Eventually(() => WorkItems().Sum(g => g.Sessions.Count) == 3 && rail.ShowsViewAll, "first page in rail");
+        await Eventually(() => WorkItems().Sum(g => g.Sessions.Count) == 2 && rail.ShowsViewAll, "first page in rail");
 
         await Assert.That(listing.Calls.Where(q => q.State == "ended").All(q => q.ProjectId == "p1")).IsTrue();
-        await Assert.That(string.Join(",", rail.Groups.TakeWhile(g => g.IsWorkItem).Select(g => g.WorkItemId))).IsEqualTo("offline-queue,plan-ledger");
+        await Assert.That(string.Join(",", rail.Groups.TakeWhile(g => g.IsWorkItem).Select(g => g.WorkItemId))).IsEqualTo("offline-queue");
         await Assert.That(WorkItems().First().Sessions.Select(s => s.Id)).IsEquivalentTo(["s1", "s4"]);
-        await Assert.That(WorkItems().Select(g => g.IsDone)).IsEquivalentTo([false, true]);
+        await Assert.That(rail.Groups.SelectMany(g => g.Sessions).Any(s => s.Id == "s2")).IsFalse();
         await Assert.That(rail.Groups.Where(g => !g.IsWorkItem).Sum(g => g.Sessions.Count)).IsEqualTo(17);
 
         await service.ShowMoreAsync();
-        await Eventually(() => WorkItems().Count() == 3, "second page in rail");
+        await Eventually(() => WorkItems().Count() == 2, "second page in rail");
 
         await Assert.That(WorkItems().Last().Sessions.Select(s => s.Id)).IsEquivalentTo(["s21"]);
         await Assert.That(rail.ShowsViewAll).IsFalse();

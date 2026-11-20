@@ -906,7 +906,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     static bool IsWorkItemKey(string key) => key.StartsWith("workitem:", StringComparison.Ordinal);
 
     FrozenSet<string> HiddenByWorkItem() => _effective != RailGrouping.WorkItem ? FrozenSet<string>.Empty
-        : _lastWorkItems.Where(item => _removed.Contains(WorkItemKey(item.Id))).SelectMany(item => item.PartBySession.Keys).ToFrozenSet(StringComparer.Ordinal);
+        : _lastWorkItems.Where(item => item.Done || _removed.Contains(WorkItemKey(item.Id))).SelectMany(item => item.PartBySession.Keys).ToFrozenSet(StringComparer.Ordinal);
 
     static readonly TimeSpan WorkItemActiveFor = TimeSpan.FromDays(3);
 
@@ -959,7 +959,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         var moved = effective != _effective;
         _effective = effective;
         IReadOnlyList<RailWorkItem> items = effective != RailGrouping.WorkItem ? []
-            : [.. _lastWorkItems.Where(item => !_removed.Contains(WorkItemKey(item.Id)))
+            : [.. _lastWorkItems.Where(item => !item.Done && !_removed.Contains(WorkItemKey(item.Id)))
                 .Select(item => _retitled.TryGetValue(item.Id, out var title) ? item with { Title = title } : item)];
         // Ahead of the work item map, or a hidden item's sessions flash into their day groups.
         var hidden = HiddenByWorkItem();

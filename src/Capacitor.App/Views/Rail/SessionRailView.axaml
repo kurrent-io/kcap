@@ -695,8 +695,6 @@
                                                         </TextBlock>
                                                     </Panel>
                                                 </DockPanel>
-                                                <views:AppIcon x:Name="RailWorkItemDone" Grid.Column="2" Kind="Check" Size="14" Margin="0,0,10,0" VerticalAlignment="Center"
-                                                               IsVisible="{Binding IsDone}" Foreground="{StaticResource KcapSuccessBrush}" />
                                                 <views:AppIcon Kind="Folder" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
                                             </Grid>
                                         </Button>
