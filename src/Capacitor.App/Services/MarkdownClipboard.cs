@@ -4,6 +4,7 @@ using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Capacitor.App.GitHubHtml;
 using Capacitor.App.ProgressiveDisclosure;
 using Capacitor.App.Views;
@@ -47,10 +48,25 @@ public static class MarkdownClipboard {
         return transfer;
     }
 
+    // A platform write can retry after a delay, so an earlier copy left running could land over a later one.
+    static Task _lastWrite = Task.CompletedTask;
+
+    /// Writes go one at a time in click order. Called on the UI thread only.
     public static async Task<bool> CopyAsync(Visual owner, string markdown, MarkdownFlavor flavor) {
         if (TopLevel.GetTopLevel(owner)?.Clipboard is not { } clipboard) return false;
-        await clipboard.SetDataAsync(Transfer(markdown, flavor));
+        var write = WriteAfterAsync(_lastWrite, clipboard, Transfer(markdown, flavor));
+        _lastWrite = write;
+        await write;
         return true;
+    }
+
+    static async Task WriteAfterAsync(Task previous, IClipboard clipboard, DataTransfer transfer) {
+        try {
+            await previous;
+        } catch (Exception) {
+            // The earlier click reports its own failure.
+        }
+        await clipboard.SetDataAsync(transfer);
     }
 
     /// CF_HTML: a header of byte offsets, which are fixed-width so the header's own length is known before they are.

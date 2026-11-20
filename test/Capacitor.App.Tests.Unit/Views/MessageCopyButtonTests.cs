@@ -36,10 +36,35 @@ public class MessageCopyButtonTests {
 
                 var clipboard = TopLevel.GetTopLevel(copy)!.Clipboard!;
                 await Assert.That(await clipboard.TryGetTextAsync()).IsEqualTo("1. **one**\n2. two");
-                var html = await clipboard.TryGetValueAsync((DataFormat<string>)MarkdownClipboard.HtmlFormat);
+                var html = MarkdownClipboard.HtmlFormat is DataFormat<byte[]> bytes
+                    ? System.Text.Encoding.UTF8.GetString(await clipboard.TryGetValueAsync(bytes) ?? [])
+                    : await clipboard.TryGetValueAsync((DataFormat<string>)MarkdownClipboard.HtmlFormat);
                 await Assert.That(html).Contains("<ol>");
                 await Assert.That(html).Contains("<strong>one</strong>");
                 await Assert.That(ToolTip.GetTip(ButtonOf(copy))).IsEqualTo("Copied");
+            } finally {
+                window.Close();
+            }
+        });
+    }
+
+    /// Two buttons clicked in turn leave the later message on the clipboard, whichever write is slower.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_later_of_two_copies_is_what_the_clipboard_holds() {
+        await RunOnUiAsync(async () => {
+            var first = new MessageCopyButton { Text = "first" };
+            var second = new MessageCopyButton { Text = "second" };
+            var window = new Window { Content = new StackPanel { Children = { first, second } }, Width = 200, Height = 100 };
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            try {
+                ClickCentre(window, ButtonOf(first));
+                ClickCentre(window, ButtonOf(second));
+                await Task.WhenAll(first.PendingCopyForTesting!, second.PendingCopyForTesting!);
+
+                await Assert.That(await TopLevel.GetTopLevel(first)!.Clipboard!.TryGetTextAsync()).IsEqualTo("second");
             } finally {
                 window.Close();
             }
