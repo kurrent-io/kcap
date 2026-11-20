@@ -275,8 +275,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         var lines = new List<ProjectedLine>(snapshot.Lines);
         var scheduled = snapshot.Scheduled;
         ProjectInto(page, lines, scheduled, above: snapshot.Position);
-        if (page.NextFrom is { } next) {
-            (fetch, _) = await ReadForwardAsync(next, lines, scheduled, ct).ConfigureAwait(false);
+        if (page.NextFrom is { } next && page.Events is [.., var tail]) {
+            (fetch, _) = await ReadForwardAsync(next - 1, lines, scheduled, ct, after: tail.EventNumber).ConfigureAwait(false);
             if (!Admit(attempt, fetch, out page)) return false;
         }
         // The account can change while the read is out; what it returned then belongs to the earlier one.
@@ -323,9 +323,11 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// and the number of the first event read.
     /// Each later page starts one event early: that event coming back first shows the count still lines up.
     /// When it does not, events aged out between pages, and the page is asked for again that much earlier.
-    async Task<(StreamEventsFetch Fetch, long? First)> ReadForwardAsync(long from, List<ProjectedLine> lines, ScheduledPrompts scheduled, CancellationToken ct) {
+    /// <paramref name="after"/> is the last event a caller already read, which the first page then overlaps.
+    async Task<(StreamEventsFetch Fetch, long? First)> ReadForwardAsync(long from, List<ProjectedLine> lines, ScheduledPrompts scheduled,
+            CancellationToken ct, long? after = null) {
         long? first = null;
-        long? last = null;
+        long? last = after;
         var realigned = false;
         while (true) {
             var fetch = await _readEvents(_sessionId, from, MaxPage, ct).ConfigureAwait(false);

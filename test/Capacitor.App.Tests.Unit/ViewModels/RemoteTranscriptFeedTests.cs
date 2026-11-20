@@ -1046,6 +1046,27 @@ public class RemoteTranscriptFeedTests {
         await Assert.That(second.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 2510).Select(i => (long)i));
     }
 
+    /// Events aging out between a reopen's first page and the next move the count; the next page is asked for
+    /// again, so none of the events recorded while closed is skipped.
+    [Test]
+    public async Task A_reopen_across_events_aging_out_skips_nothing() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 10).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = await CachedAsync(server, lane, access);
+        server.Events.AddRange(Enumerable.Range(10, 2500).Select(i => Text(i, $"m{i}")));
+        var calls = 0;
+        server.Gate = () => {
+            if (Interlocked.Increment(ref calls) == 2) server.Events.RemoveRange(0, 5);
+            return Task.CompletedTask;
+        };
+
+        using var second = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the second tail");
+
+        await Assert.That(second.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 2510).Select(i => (long)i));
+    }
+
     /// Events that aged out with nothing new after them still move the count: the kept lines go.
     [Test]
     public async Task A_reopen_after_events_aged_out_with_nothing_new_reads_a_fresh_seed() {
