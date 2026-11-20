@@ -102,7 +102,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
 
     double RowWidth(object item, double width) {
         var inner = Math.Max(0, width - Indent(item));
-        return SpansColumn(item) ? inner : Math.Min(inner, LaneWidth - Indent(item));
+        return SpansColumn(item) ? inner : Math.Min(inner, Math.Max(0, LaneWidth - Indent(item)));
     }
 
     protected override Size MeasureOverride(Size availableSize) {
