@@ -1,9 +1,10 @@
 using Avalonia.Controls;
+using System.Runtime.CompilerServices;
 using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
-using Avalonia.VisualTree;
 
 namespace Capacitor.App.Views;
 
@@ -14,6 +15,7 @@ public static class CaretBlink {
     /// GTK's cursor-blink-timeout default.
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
+    static readonly ConditionalWeakTable<TextBox, TextPresenter> Presenters = [];
     static bool _installed;
     static DispatcherTimer? _timer;
     static TextBox? _current;
@@ -28,6 +30,7 @@ public static class CaretBlink {
         InputElement.KeyDownEvent.AddClassHandler<TextBox>((box, _) => Wake(box), tunnel, handledEventsToo: true);
         InputElement.TextInputEvent.AddClassHandler<TextBox>((box, _) => Wake(box), tunnel, handledEventsToo: true);
         InputElement.PointerPressedEvent.AddClassHandler<TextBox>((box, _) => Wake(box), tunnel, handledEventsToo: true);
+        TemplatedControl.TemplateAppliedEvent.AddClassHandler<TextBox>(OnTemplateApplied);
     }
 
     static void Wake(TextBox box) {
@@ -49,7 +52,20 @@ public static class CaretBlink {
 
     internal static void Settle() {
         _timer?.Stop();
-        if (_current is not { IsFocused: true } box || Presenter(box) is not { } presenter) return;
+        if (_current is { IsFocused: true } box && Presenters.TryGetValue(box, out var presenter)) Freeze(presenter);
+    }
+
+    // The text box shows the caret on a new presenter whose blink comes from the template, and a
+    // settled box gets no input to settle it again.
+    static void OnTemplateApplied(TextBox box, TemplateAppliedEventArgs e) {
+        if (e.NameScope.Find<TextPresenter>("PART_TextPresenter") is not { } presenter) return;
+        Presenters.AddOrUpdate(box, presenter);
+        if (box != _current || _frozen is null) return;
+        _frozen = null;
+        Freeze(presenter);
+    }
+
+    static void Freeze(TextPresenter presenter) {
         presenter.SetCurrentValue(TextPresenter.CaretBlinkIntervalProperty, TimeSpan.Zero);
         // With no blink timer the caret keeps whatever phase it stopped on; this draws it.
         presenter.ShowCaret();
@@ -62,8 +78,6 @@ public static class CaretBlink {
         presenter.SetCurrentValue(TextPresenter.CaretBlinkIntervalProperty, box.CaretBlinkInterval);
         // The rebuilt blink timer starts stopped. A presenter a new template replaced would blink
         // detached, with nothing left to stop it.
-        if (box.IsFocused && Presenter(box) == presenter) presenter.ShowCaret();
+        if (box.IsFocused && Presenters.TryGetValue(box, out var current) && current == presenter) presenter.ShowCaret();
     }
-
-    static TextPresenter? Presenter(TextBox box) => box.GetVisualDescendants().OfType<TextPresenter>().FirstOrDefault();
 }

@@ -75,7 +75,7 @@ public class CaretBlinkTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task A_presenter_replaced_while_steady_is_not_restarted() => RunOnUiAsync(async () => {
+    public Task A_presenter_replaced_while_steady_stays_steady_and_the_old_one_stays_stopped() => RunOnUiAsync(async () => {
         var (window, box, stale) = Show();
         try {
             CaretBlink.Settle();
@@ -86,10 +86,13 @@ public class CaretBlinkTests {
             box.ApplyTemplate();
             Dispatcher.UIThread.RunJobs();
             var replacement = box.GetVisualDescendants().OfType<TextPresenter>().Single();
+            await Assert.That(replacement).IsNotSameReferenceAs(stale);
+            await Assert.That(BlinkTimerRunning(replacement)).IsFalse();
+            await Assert.That(CaretDrawn(replacement)).IsTrue();
 
             window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.None);
-            await Assert.That(replacement).IsNotSameReferenceAs(stale);
             await Assert.That(BlinkTimerRunning(stale)).IsFalse();
+            await Assert.That(BlinkTimerRunning(replacement)).IsTrue();
         } finally {
             window.Close();
             Dispatcher.UIThread.RunJobs();
