@@ -35,9 +35,6 @@ internal sealed record HookMemoryOutput(
     [property: JsonPropertyName("hookEventName")] string HookEventName,
     [property: JsonPropertyName("additionalContext")] string AdditionalContext);
 
-internal sealed record HookSpecificMemoryOutput(
-    [property: JsonPropertyName("hookSpecificOutput")] HookMemoryOutput HookSpecificOutput);
-
 internal sealed record ClaudeMemoryEnvelope(
     [property: JsonPropertyName("hookSpecificOutput")] HookMemoryOutput HookSpecificOutput);
 

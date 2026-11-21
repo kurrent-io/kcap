@@ -49,12 +49,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     enum RuntimePhase { Running, Reconnecting, Terminal }
 
     /// <summary>The in-flight registration: the one turn past pre-gate admission, its
-    /// write-state advanced by the write path (`not-started` → `entered` → `written`).</summary>
-    sealed class InFlightTurn(PendingTurn turn, long incarnationId) {
-        public const int NotStarted = 0, Entered = 1, Written = 2;
+    /// write-state advanced by the write path (0, not started → `entered` → `written`).</summary>
+    sealed class InFlightTurn(PendingTurn turn) {
+        public const int Entered = 1, Written = 2;
 
-        public PendingTurn Turn          { get; } = turn;
-        public long        IncarnationId { get; } = incarnationId;
+        public PendingTurn Turn { get; } = turn;
         public int         WriteState;
     }
 
@@ -66,8 +65,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     // CA1001: disposing Cts on removal severs the sweep's tail (see RouteServerRequestAsync's
     // finally); disposing in the sweep races that method's read of Cts.Token.
 #pragma warning disable CA1001
-    sealed class PendingInteraction(long incarnationId) {
-        public long IncarnationId { get; } = incarnationId;
+    sealed class PendingInteraction {
         public bool Cancelled; // mutated under the reconnect lock only
         public readonly CancellationTokenSource    Cts             = new();
         public readonly TaskCompletionSource       CancelledSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -333,11 +331,6 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// is watching. Decides who a silent turn is worth telling.</summary>
     readonly bool _isReviewFlow;
 
-    /// <summary>The <c>@server/tool</c> identities this launch injected — the set
-    /// <see cref="AcpUnattendedInteractionPolicy.AllowlistedAutoApprove"/> approves. Null for every
-    /// other policy.</summary>
-    readonly IReadOnlySet<string>? _admittedToolIds;
-
     /// <summary>The approval policy this launch is judged against. Held beyond the interaction
     /// bridge because a degraded one owes the user a transcript note: the daemon log that records
     /// the same fact is not somewhere the person watching the session can see.</summary>
@@ -512,8 +505,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         _questionProtocol = questionProtocol;
         _announcedToolCalls = completesPermissionToolCall ? new AcpAnnouncedToolCalls() : null;
         _journal = journal;
-        _admittedToolIds = admittedToolIds;
-        _policySnapshot  = policySnapshot;
+        _policySnapshot = policySnapshot;
         _firstOutputDeadline = firstOutputDeadline;
         _isReviewFlow        = isReviewFlow;
         _mcpSurfaceMonitor = mcpSurfaceMonitor;
@@ -1246,7 +1238,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                         _heldTurn = turn;
                         reopen    = _gateOpen.Task;
                     } else {
-                        _inFlight = new InFlightTurn(turn, _installed.Id);
+                        _inFlight = new InFlightTurn(turn);
                     }
                 }
 
@@ -2986,7 +2978,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             if (_intentionalStop || Phase != RuntimePhase.Running || incarnationId != _installed.Id)
                 return DeclineFor(request);
 
-            entry = new PendingInteraction(incarnationId);
+            entry = new PendingInteraction();
             _pendingInteractions.Add(entry);
         }
 

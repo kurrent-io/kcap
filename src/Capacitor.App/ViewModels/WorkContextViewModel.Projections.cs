@@ -158,7 +158,7 @@ public sealed partial class WorkContextViewModel {
         && !ShowsPullRequestCard;
     public const string PullRequestEmptyNote = "No pull request linked";
     public bool ShowsPullRequestSection => ShowsPullRequestCard || ShowsLegacyLinkCards || ShowsPullRequestEmpty;
-    public string WhoCountText => _sessionCount switch {
+    public string WhoCountText => SessionCount switch {
         0     => "",
         1     => "1 session",
         var n => $"{n} sessions",

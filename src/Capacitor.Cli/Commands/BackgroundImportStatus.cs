@@ -1,3 +1,5 @@
+using Capacitor.Cli.Core.FirstRun;
+
 namespace Capacitor.Cli.Commands;
 
 /// <summary><see cref="Running"/> means the child said it accepted its work; <see cref="Unconfirmed"/>
@@ -6,13 +8,13 @@ internal enum BackgroundImportStatus { NotNeeded, Running, ExitedZero, Failed, U
 
 internal static class BackgroundImportStatusExtensions {
     public static string Wire(this BackgroundImportStatus status) => status switch {
-        BackgroundImportStatus.NotNeeded   => "not_needed",
-        BackgroundImportStatus.Running     => "running",
-        BackgroundImportStatus.ExitedZero  => "exited_zero",
-        BackgroundImportStatus.Failed      => "failed",
+        BackgroundImportStatus.NotNeeded   => FirstRunImportBackground.NotNeeded,
+        BackgroundImportStatus.Running     => FirstRunImportBackground.Running,
+        BackgroundImportStatus.ExitedZero  => FirstRunImportBackground.ExitedZero,
+        BackgroundImportStatus.Failed      => FirstRunImportBackground.Failed,
         // The server refuses an import outcome carrying a status it does not know, and older eval-watch
         // skills a handoff file it does not know; an alive child reported "running" before it had to confirm.
-        BackgroundImportStatus.Unconfirmed => "running",
+        BackgroundImportStatus.Unconfirmed => FirstRunImportBackground.Running,
         _ => throw new ArgumentOutOfRangeException(nameof(status)),
     };
 }
