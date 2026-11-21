@@ -27,7 +27,7 @@ public class ConsentFlipCoordinatorTests {
     /// Deliberately returns the server in a non-canonical form by default (no explicit port) —
     /// the happy-path test therefore also proves the coordinator canonicalizes before matching.
     sealed class ScriptedResolver {
-        readonly string Profile = "default";
+        const string Profile = "default";
         public string Server = "https://example.test";
         public string DaemonName = "kcap-daemon";
         int Calls;

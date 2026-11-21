@@ -59,10 +59,7 @@ public sealed class UpdateCoordinator {
     /// on the UI thread via `RunMenuActionAsync`, and `CheckAsync` holds `_lock` across
     /// `RunCheckAsync`'s synchronous prefix (which can reach `_menu.OnNext` and `ConfirmAsync`) — so
     /// this must never block on `_lock`, or a UI-thread caller blocked on the same dialog deadlocks.
-    UpdateCandidate? Ready {
-        get => Volatile.Read(ref _ready);
-        set => Volatile.Write(ref _ready, value);
-    }
+    UpdateCandidate? Ready => Volatile.Read(ref _ready);
 
     /// <param name="handingOver">Runs immediately before the updater takes over, so the next process can tell
     /// it finishes this update.</param>
