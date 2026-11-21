@@ -15,6 +15,9 @@ namespace Capacitor.Cli.Commands;
 internal sealed class TranscriptImportLedger {
     internal const string FileName = "transcript-imports.json";
 
+    /// <summary>The watermark a mark records for a session that exists but holds no transcript line.</summary>
+    internal const int NoLines = -1;
+
     const           int      MaxIdleRounds   = 5;
     static readonly TimeSpan ConfirmBudget   = TimeSpan.FromSeconds(30);
     static readonly TimeSpan ConfirmInterval = TimeSpan.FromSeconds(1);
@@ -114,6 +117,12 @@ internal sealed class TranscriptImportLedger {
         try {
             using var resp = await httpClient.GetAsync($"{d.Server}/api/sessions/{d.SessionId}/last-line", ct);
             if (resp.StatusCode == HttpStatusCode.NotFound || HttpClientExtensions.IsRetryableStatus(resp.StatusCode)) return false;
+
+            if (resp.StatusCode == HttpStatusCode.NoContent) {
+                if (d.Lines > 0) Record(d.Server, d.SessionId, new TranscriptImportMark(d.Lines, NoLines, d.PrefixSha256));
+                return true;
+            }
+
             if (resp.StatusCode != HttpStatusCode.OK) return true;
 
             using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));

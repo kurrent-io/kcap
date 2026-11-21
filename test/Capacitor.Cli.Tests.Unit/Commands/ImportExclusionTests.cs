@@ -135,7 +135,7 @@ public class ImportExclusionTests {
     [Arguments("y", 404, 2, 0, 3, 0, 0)]
     [Arguments("n", 404, 1, 1, 0, 0, 0)]
     [Arguments("y", 200, 2, 0, 2, 1, 0)]
-    [Arguments("y", 204, 1, 0, 1, 0, 1)]
+    [Arguments("y", 204, 2, 0, 2, 1, 0)]
     public async Task An_excluded_session_is_probed_only_after_its_terminal_opt_in(
             string answer, int secretStatus, int imported, int excludedCount, int probes, int resumed, int alreadyLoaded) {
         var (projects, excluded) = Fixture();
@@ -167,7 +167,8 @@ public class ImportExclusionTests {
                     : Array.Empty<int>();
             }).ToArray();
         if (secretStatus == 200) await Assert.That(sentLines).IsEquivalentTo(Enumerable.Range(5, 15));
-        if (secretStatus == 204 || answer == "n") await Assert.That(sentLines).IsEmpty();
+        if (secretStatus == 204) await Assert.That(sentLines).IsEquivalentTo(Enumerable.Range(0, 20));
+        if (answer == "n") await Assert.That(sentLines).IsEmpty();
     }
 
     sealed class ObservedReader(string text, Action onRead) : StringReader(text) {
