@@ -515,7 +515,7 @@ public class DaemonMutationLaneTests {
         IDaemonObservation? seenObservation = null;
         var scripted = new ScriptedObservation();
         var lane = MakeLane(factory, oneShotFactory: request => { oneShotCalls++; seenRequest = request; return scripted; });
-        lane.Classify = (request, result, executor, observation, attemptId, predecessor, ct) => {
+        lane.Classify = (_, _, _, observation, _, _, _) => {
             seenObservation = observation;
             return Task.FromResult<MutationOutcome>(new MutationOutcome.Succeeded());
         };

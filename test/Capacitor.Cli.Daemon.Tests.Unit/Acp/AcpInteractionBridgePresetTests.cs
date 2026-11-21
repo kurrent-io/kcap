@@ -38,7 +38,7 @@ public class AcpInteractionBridgePresetTests {
         var notices   = new List<AcpAutoApprovalNotice>();
 
         var bridge = new AcpInteractionBridge(
-            requestInteraction: (req, ct) => { forwarded = true; return Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)); },
+            requestInteraction: (_, _) => { forwarded = true; return Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)); },
             agentId: AgentId,
             logger: NullLogger.Instance,
             unattendedPolicy: policy,
@@ -198,7 +198,7 @@ public class AcpInteractionBridgePresetTests {
     [Test]
     public async Task A_throwing_audit_sink_does_not_affect_the_returned_selection() {
         var bridge = new AcpInteractionBridge(
-            requestInteraction: (req, ct) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)),
+            requestInteraction: (_, _) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)),
             agentId: AgentId,
             logger: NullLogger.Instance,
             preset: Preset(AcpPermissionPresets.Explore),

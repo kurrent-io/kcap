@@ -1394,7 +1394,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             _queueKey = info.FeedKey;
             foreach (var foreign in _queuedMessages.Where(q => q.IsForeign).ToList()) _queuedMessages.Remove(foreign);
         }
-        var switched = _openFeed is { } open && info.FeedKey is { } key && key != _feedKey;
+        var switched = _openFeed is not null && info.FeedKey is { } key && key != _feedKey;
         if (switched) SwitchFeed(info.FeedKey!, _openFeed!);
         ApplyTerminalMenu(info.UsageLimit, info.TerminalDialog);
         RefreshActivityNote();

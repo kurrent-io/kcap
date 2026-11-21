@@ -138,7 +138,7 @@ sealed class FakeTerminalAttachClientFactory {
     /// HangOnOutputForever/HangDetachForever before the VM triggers the attach that creates it.
     public Action<FakeTerminalAttachClient>? ConfigureNext { get; set; }
 
-    public TerminalAttachClientFactory Factory => (agentId, requestRuntime, onAttached, onOutput) => {
+    public TerminalAttachClientFactory Factory => (_, requestRuntime, onAttached, onOutput) => {
         var client = new FakeTerminalAttachClient(requestRuntime, onAttached, onOutput);
         ConfigureNext?.Invoke(client);
         ConfigureNext = null;

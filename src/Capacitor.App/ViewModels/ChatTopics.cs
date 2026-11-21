@@ -118,7 +118,7 @@ public sealed class ChatTopics : ReactiveObject {
         var index = _items.IndexOf(row);
         if (index < 0 || index >= TailStart() || row is ChatTopicItem or ChatTopicEndItem) return;
         if (index > 0 && _items[index - 1] is ChatTopicItem topic) Remove(topic);
-        else if (index > 0 && _items[index - 1] is ChatTopicEndItem end) _items[index - 1] = NewTopic();
+        else if (index > 0 && _items[index - 1] is ChatTopicEndItem) _items[index - 1] = NewTopic();
         else _items.Insert(index, NewTopic());
     });
 

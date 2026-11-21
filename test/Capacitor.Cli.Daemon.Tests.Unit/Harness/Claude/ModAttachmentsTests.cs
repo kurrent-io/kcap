@@ -368,7 +368,7 @@ public class ModAttachmentsTests {
 
         var next = Guid.NewGuid();
         Push(attachments, agentId, next, "next one");
-        server.HandoverAnswer = r => server.AttachedRejections.Count == 0
+        server.HandoverAnswer = _ => server.AttachedRejections.Count == 0
             ? new ConfirmInputHandoverResponse(InputHandoverOutcome.Hold, lost)
             : new ConfirmInputHandoverResponse(InputHandoverOutcome.HandedOver);
 

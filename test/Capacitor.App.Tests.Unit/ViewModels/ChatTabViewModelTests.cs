@@ -90,7 +90,7 @@ public partial class ChatTabViewModelTests {
         public override string? SenderUserId => "u2";
         public TaskCompletionSource<ChatSendOutcome>? Pending;
         public int Disposals;
-        readonly bool CanAttachValue = true;
+        const bool CanAttachValue = true;
         /// Off for a channel whose send has already gone out when the tab is torn down.
         public bool HonoursCancellation = true;
         public List<(string Text, IReadOnlyList<string> Ids, CancellationToken Ct)> Sends { get; } = [];

@@ -376,7 +376,7 @@ public class ServerSessionsServiceTests {
 
     [Test]
     public async Task A_subject_change_clears_every_cache_before_the_new_read() {
-        var (lane, listing, _, service) = Build(ct => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("me")));
+        var (lane, listing, _, service) = Build(_ => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("me")));
         using var _ = service;
         ScriptDefault(listing);
         Connect(lane, "u1", 1);

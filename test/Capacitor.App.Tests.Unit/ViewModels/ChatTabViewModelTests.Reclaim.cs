@@ -80,7 +80,7 @@ public partial class ChatTabViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public async Task A_replayed_short_transcript_does_not_reclaim_the_heap() {
         await RunOnUiAsync(async () => {
-            var half = HeapReclaimer.LineThreshold / 2 + 200;
+            const int half = HeapReclaimer.LineThreshold / 2 + 200;
             var h = new ReclaimHarness(_ => half, resets: 2);
             await WaitUntilAsync(() => h.Chat.HasSeed, what: "the seed");
             await h.PollAsync();

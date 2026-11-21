@@ -218,7 +218,7 @@ internal sealed class CodexHostedAgentRuntimeFactory : IHostedAgentRuntimeFactor
             // SessionStarted, since the resumed thread keeps its canonical id).
             ResumeSessionId: ctx.ResumeSessionId);
 
-        CodexAppServerSpawn spawn = (seed, spawnCt) =>
+        CodexAppServerSpawn spawn = (seed, _) =>
             _spawnFactory(_launcher.CliPath, appServerArgs, seed, ctx.Worktree.Path, env, removeEnv, _config, _loggerFactory);
 
         ctx.Journal?.Open(ctx.Worktree.Path, ctx.Model);

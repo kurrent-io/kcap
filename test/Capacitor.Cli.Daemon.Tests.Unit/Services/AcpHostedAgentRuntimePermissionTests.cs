@@ -42,7 +42,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => gate.Task);
+            requestInteraction: (_, _) => gate.Task);
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -138,7 +138,7 @@ public class AcpHostedAgentRuntimePermissionTests {
         var gate    = new TaskCompletionSource<AcpInteractionDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var runtime = new AcpHostedAgentRuntime(
-            conn, process, NullLogger.Instance, TimeProvider.System, requestInteraction: (req, ct) => gate.Task) {
+            conn, process, NullLogger.Instance, TimeProvider.System, requestInteraction: (_, _) => gate.Task) {
             ActivityClock = new AgentActivityClock(new FakeTimeProvider())
         };
 
@@ -191,7 +191,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
+            requestInteraction: (_, _) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -310,7 +310,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => { captured = req; return Task.FromResult(new AcpInteractionDecision("allow", "allow-once", "Allow", null, null, null)); });
+            requestInteraction: (req, _) => { captured = req; return Task.FromResult(new AcpInteractionDecision("allow", "allow-once", "Allow", null, null, null)); });
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -373,7 +373,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
+            requestInteraction: (_, _) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -414,7 +414,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
+            requestInteraction: (_, _) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -454,7 +454,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
+            requestInteraction: (_, _) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -496,7 +496,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => Task.FromResult(new AcpInteractionDecision("allow", "allow-once", "Allow", null, null, null)));
+            requestInteraction: (_, _) => Task.FromResult(new AcpInteractionDecision("allow", "allow-once", "Allow", null, null, null)));
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);

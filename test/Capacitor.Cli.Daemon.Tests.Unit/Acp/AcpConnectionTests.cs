@@ -188,7 +188,7 @@ public class AcpConnectionTests {
         using var       cts     = new CancellationTokenSource();
         var              runTask = harness.Connection.RunAsync(cts.Token);
 
-        harness.Connection.OnServerRequest = (request, _) => {
+        harness.Connection.OnServerRequest = (_, _) => {
             var result = JsonSerializer.SerializeToElement(new { content = "file contents" });
             return Task.FromResult<JsonElement?>(result);
         };
@@ -470,7 +470,7 @@ public class AcpConnectionTests {
         using var       cts     = new CancellationTokenSource();
         var              runTask = harness.Connection.RunAsync(cts.Token);
 
-        harness.Connection.OnServerRequest = (request, _) => {
+        harness.Connection.OnServerRequest = (_, _) => {
             var result = JsonSerializer.SerializeToElement(new { content = "file contents" });
             return Task.FromResult<JsonElement?>(result);
         };

@@ -161,7 +161,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
             time, logger,
             postSessionEnd: (source, end) => new SessionEndPoster(
                     config.ConfigRoot, config.ServerUrl, http, time, message => logger.LogInformation("Recording {Key}: {Message}", source.Key, message),
-                    (session, vendor) => StartCli(config, logger, session, GenerateWhatsDone, session))
+                    (session, _) => StartCli(config, logger, session, GenerateWhatsDone, session))
                 .PostAsync(source.SessionId, source.Vendor, end, repository: null, "Process-exit"));
 
         return recorder;
