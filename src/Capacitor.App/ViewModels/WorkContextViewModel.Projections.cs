@@ -116,12 +116,11 @@ public sealed partial class WorkContextViewModel {
         }
     }
 
-    int _sessionCount;
     int SessionCount {
-        get => _sessionCount;
+        get;
         set {
-            if (_sessionCount == value) return;
-            _sessionCount = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged(nameof(WhoCountText));
         }
     }
