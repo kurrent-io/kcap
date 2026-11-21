@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
 
@@ -52,33 +53,36 @@ public class AcpEventEnvelopeWireCompatTests {
         var json = JsonSerializer.Serialize(env, CapacitorJsonContext.Default.AcpEventEnvelope);
 
         // Every server-side property name, snake_cased — field-for-field per AcpEventEnvelope.cs.
-        await Assert.That(json).Contains(@"""contract_version"":1");
-        await Assert.That(json).Contains(@"""seq"":7");
-        await Assert.That(json).Contains($@"""kind"":""{AcpEventKind.ToolCall}""");
-        await Assert.That(json).Contains(@"""text"":""hello""");
-        await Assert.That(json).Contains(@"""thinking_encrypted"":true");
-        await Assert.That(json).Contains(@"""tool_call_id"":""call-1""");
-        await Assert.That(json).Contains(@"""tool_name"":""bash""");
-        await Assert.That(json).Contains(@"""tool_input_json""");
-        await Assert.That(json).Contains(@"""tool_kind"":""execute""");
-        await Assert.That(json).Contains(@"""tool_result"":""ok""");
-        await Assert.That(json).Contains(@"""tool_is_error"":true");
-        await Assert.That(json).Contains(@"""repo_owner"":""kurrent-io""");
-        await Assert.That(json).Contains(@"""repo_name"":""widgets""");
-        await Assert.That(json).Contains(@"""repo_remote_url"":""https://github.com/kurrent-io/widgets.git""");
-        await Assert.That(json).Contains(@"""repo_branch"":""main""");
-        await Assert.That(json).Contains(@"""agent_id"":""agent-7""");
-        await Assert.That(json).Contains(@"""agent_type"":""general-purpose""");
-        await Assert.That(json).Contains(@"""model"":""claude-opus-4-8""");
-        await Assert.That(json).Contains(@"""cwd"":""/repo""");
-        await Assert.That(json).Contains(@"""raw_session_id"":""raw-sess-1""");
-        await Assert.That(json).Contains(@"""session_mode"":""agent""");
-        await Assert.That(json).Contains(@"""end_reason"":""completed""");
-        await Assert.That(json).Contains(@"""context_used_tokens"":142000");
-        await Assert.That(json).Contains(@"""context_window_tokens"":200000");
-        await Assert.That(json).Contains(@"""timestamp_iso"":""2026-07-08T00:00:00Z""");
-        await Assert.That(json).Contains(@"""ephemeral"":true");
-        await Assert.That(json).Contains(@"""item_id"":""item-42""");
+        JsonObject expected = new() {
+            ["contract_version"]      = 1,
+            ["seq"]                   = 7,
+            ["kind"]                  = AcpEventKind.ToolCall,
+            ["text"]                  = "hello",
+            ["thinking_encrypted"]    = true,
+            ["tool_call_id"]          = "call-1",
+            ["tool_name"]             = "bash",
+            ["tool_input_json"]       = """{"command":"ls"}""",
+            ["tool_kind"]             = "execute",
+            ["tool_result"]           = "ok",
+            ["tool_is_error"]         = true,
+            ["repo_owner"]            = "kurrent-io",
+            ["repo_name"]             = "widgets",
+            ["repo_remote_url"]       = "https://github.com/kurrent-io/widgets.git",
+            ["repo_branch"]           = "main",
+            ["agent_id"]              = "agent-7",
+            ["agent_type"]            = "general-purpose",
+            ["model"]                 = "claude-opus-4-8",
+            ["cwd"]                   = "/repo",
+            ["raw_session_id"]        = "raw-sess-1",
+            ["session_mode"]          = "agent",
+            ["end_reason"]            = "completed",
+            ["context_used_tokens"]   = 142_000,
+            ["context_window_tokens"] = 200_000,
+            ["timestamp_iso"]         = "2026-07-08T00:00:00Z",
+            ["ephemeral"]             = true,
+            ["item_id"]               = "item-42"
+        };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
 
         var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.AcpEventEnvelope);
         await Assert.That(back.Seq).IsEqualTo(7L);
@@ -100,7 +104,8 @@ public class AcpEventEnvelopeWireCompatTests {
         await Assert.That(env.ItemId).IsNull();
 
         var json = JsonSerializer.Serialize(env, CapacitorJsonContext.Default.AcpEventEnvelope);
-        await Assert.That(json).Contains(@"""ephemeral"":false");
+        JsonObject expected = new() { ["ephemeral"] = false };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
     }
 
     [Test]
@@ -112,7 +117,8 @@ public class AcpEventEnvelopeWireCompatTests {
         await Assert.That(env.ContractVersion).IsEqualTo(1);
 
         var json = JsonSerializer.Serialize(env, CapacitorJsonContext.Default.AcpEventEnvelope);
-        await Assert.That(json).Contains(@"""contract_version"":1");
+        JsonObject expected = new() { ["contract_version"] = 1 };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
     }
 
     [Test]
@@ -146,12 +152,15 @@ public class AcpEventEnvelopeWireCompatTests {
             UsageReasoningTokens:       128);
 
         var json = JsonSerializer.Serialize(env, CapacitorJsonContext.Default.AcpEventEnvelope);
-        await Assert.That(json).Contains(@"""kind"":""token_usage""");
-        await Assert.That(json).Contains(@"""usage_input_tokens"":1200");
-        await Assert.That(json).Contains(@"""usage_cached_input_tokens"":300");
-        await Assert.That(json).Contains(@"""usage_cache_write_input_tokens"":64");
-        await Assert.That(json).Contains(@"""usage_output_tokens"":450");
-        await Assert.That(json).Contains(@"""usage_reasoning_tokens"":128");
+        JsonObject expected = new() {
+            ["kind"]                           = "token_usage",
+            ["usage_input_tokens"]             = 1200,
+            ["usage_cached_input_tokens"]      = 300,
+            ["usage_cache_write_input_tokens"] = 64,
+            ["usage_output_tokens"]            = 450,
+            ["usage_reasoning_tokens"]         = 128
+        };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
 
         var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.AcpEventEnvelope);
         await Assert.That(back.UsageInputTokens).IsEqualTo(1200L);
@@ -175,9 +184,8 @@ public class AcpEventEnvelopeWireCompatTests {
         await Assert.That(ack.ExpectedNextSeq).IsEqualTo(5L);
 
         var json = JsonSerializer.Serialize(ack, CapacitorJsonContext.Default.AcpBatchAck);
-        await Assert.That(json).Contains(@"""accepted_seq"":4");
-        await Assert.That(json).Contains(@"""persisted_seq"":4");
-        await Assert.That(json).Contains(@"""expected_next_seq"":5");
+        JsonObject expected = new() { ["accepted_seq"] = 4, ["persisted_seq"] = 4, ["expected_next_seq"] = 5 };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
     }
 
     [Test]
@@ -186,8 +194,8 @@ public class AcpEventEnvelopeWireCompatTests {
         var json = JsonSerializer.Serialize(ack, CapacitorJsonContext.Default.AcpBatchAck);
 
         await Assert.That(ack.ExpectedNextSeq).IsNull();
-        await Assert.That(json).Contains(@"""accepted_seq"":10");
-        await Assert.That(json).Contains(@"""expected_next_seq"":null");
+        JsonObject expected = new() { ["accepted_seq"] = 10, ["expected_next_seq"] = null };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
     }
 
     // ── Source-claim / confirm outcomes (mirror the server's AcpSessionSourceClaim / ConfirmSessionLaunch) ──
@@ -230,7 +238,8 @@ public class AcpEventEnvelopeWireCompatTests {
         var set   = JsonSerializer.Serialize(new AcpEventEnvelope(Kind: AcpEventKind.UserMessage, DispatchId: dispatch), CapacitorJsonContext.Default.AcpEventEnvelope);
         var unset = JsonSerializer.Serialize(new AcpEventEnvelope(Kind: AcpEventKind.UserMessage), CapacitorJsonContext.Default.AcpEventEnvelope);
 
-        await Assert.That(set).Contains($@"""dispatch_id"":""{dispatch}""");
+        JsonObject expected = new() { ["dispatch_id"] = dispatch.ToString() };
+        await Assert.That(WireJson.Pick(set, expected)).IsEqualTo(expected.ToJsonString());
         await Assert.That(unset).DoesNotContain("dispatch_id");
     }
 
@@ -239,7 +248,8 @@ public class AcpEventEnvelopeWireCompatTests {
         var set   = JsonSerializer.Serialize(new AcpEventEnvelope(Kind: AcpEventKind.UserMessage, TurnId: "turn-3"), CapacitorJsonContext.Default.AcpEventEnvelope);
         var unset = JsonSerializer.Serialize(new AcpEventEnvelope(Kind: AcpEventKind.UserMessage), CapacitorJsonContext.Default.AcpEventEnvelope);
 
-        await Assert.That(set).Contains(@"""turn_id"":""turn-3""");
+        JsonObject expected = new() { ["turn_id"] = "turn-3" };
+        await Assert.That(WireJson.Pick(set, expected)).IsEqualTo(expected.ToJsonString());
         await Assert.That(unset).DoesNotContain("turn_id");
     }
 

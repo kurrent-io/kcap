@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
 
@@ -58,13 +59,15 @@ public class V2ModelSerializationTests {
 
         var json = JsonSerializer.Serialize(src, CapacitorJsonContext.Default.SessionEvalCompletedPayloadV2);
 
-        await Assert.That(json).Contains(@"""eval_run_id""");
-        await Assert.That(json).Contains(@"""judge_model""");
-        await Assert.That(json).Contains(@"""overall_score""");
-        await Assert.That(json).Contains(@"""retrospective""");
-        await Assert.That(json).Contains(@"""suggestions""");
-        await Assert.That(json).Contains(@"""text""");
-        await Assert.That(json).Contains(@"""audience""");
-        await Assert.That(json).Contains(@"""overall"":"); // EvalRetrospectiveV2.OverallSummary maps to "overall"
+        JsonObject expected = new() {
+            ["eval_run_id"]   = "run-1",
+            ["judge_model"]   = "j",
+            ["overall_score"] = 4,
+            ["retrospective"] = new JsonObject {
+                ["overall"]     = "x",
+                ["suggestions"] = new JsonArray(new JsonObject { ["text"] = "t", ["audience"] = "agent" })
+            }
+        };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
     }
 }

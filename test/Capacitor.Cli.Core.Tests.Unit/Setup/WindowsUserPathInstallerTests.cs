@@ -99,7 +99,7 @@ public class WindowsUserPathInstallerTests {
 
     [Test]
     public async Task Remove_takes_the_cli_folder_off_and_keeps_every_other_entry_byte_for_byte() {
-        var store = new FakeUserPathStore($@"C:\tools;""{TargetDir.ToUpperInvariant()}\"";%USERPROFILE%\bin;;D:\x");
+        var store = new FakeUserPathStore($"""C:\tools;"{TargetDir.ToUpperInvariant()}\";%USERPROFILE%\bin;;D:\x""");
 
         var removed = new WindowsUserPathInstaller(store, new FakeLoginShellProbe()).Remove(Target);
 

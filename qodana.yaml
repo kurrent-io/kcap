@@ -25,6 +25,8 @@ exclude:
   - name: PreferConcreteValueOverDefault
   # Explicit `new T()` stays allowed where the type isn't evident, though .editorconfig prefers `new()`
   - name: ArrangeObjectCreationWhenTypeNotEvident
+  # The parentheses group each range in a pattern for a reader: that `and` binds tighter than `or` is not obvious
+  - name: RedundantPatternParentheses
   # Tests may keep `new[] { … }` and collection initializers; production code still gets the suggestion
   - name: UseCollectionExpression
     paths:

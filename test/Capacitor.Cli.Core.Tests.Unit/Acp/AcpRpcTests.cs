@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Acp;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Acp;
@@ -11,10 +12,13 @@ public class AcpRpcTests {
 
         var json = JsonSerializer.Serialize(request, CapacitorJsonContext.Default.AcpRequest);
 
-        await Assert.That(json).Contains(@"""jsonrpc"":""2.0""");
-        await Assert.That(json).Contains(@"""id"":1");
-        await Assert.That(json).Contains(@"""method"":""initialize""");
-        await Assert.That(json).Contains(@"""params"":{""protocolVersion"":1}");
+        JsonObject expected = new() {
+            ["jsonrpc"] = "2.0",
+            ["id"]      = 1,
+            ["method"]  = "initialize",
+            ["params"]  = new JsonObject { ["protocolVersion"] = 1 }
+        };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
 
         var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.AcpRequest)!;
         await Assert.That(back.Id).IsEqualTo(request.Id);
@@ -35,9 +39,8 @@ public class AcpRpcTests {
 
         var json = JsonSerializer.Serialize(notification, CapacitorJsonContext.Default.AcpNotification);
 
-        await Assert.That(json).Contains(@"""jsonrpc"":""2.0""");
-        await Assert.That(json).Contains(@"""method"":""session/cancel""");
-        await Assert.That(json).DoesNotContain(@"""id""");
+        JsonObject expected = new() { ["jsonrpc"] = "2.0", ["method"] = "session/cancel", ["id"] = WireJson.Missing };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
     }
 
     [Test]
@@ -46,7 +49,8 @@ public class AcpRpcTests {
 
         var json = JsonSerializer.Serialize(request, CapacitorJsonContext.Default.AcpRequest);
 
-        await Assert.That(json).DoesNotContain(@"""params""");
+        JsonObject expected = new() { ["params"] = WireJson.Missing };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
     }
 
     [Test]
@@ -93,9 +97,12 @@ public class AcpRpcTests {
 
         var json = JsonSerializer.Serialize(response, CapacitorJsonContext.Default.AcpResponse);
 
-        await Assert.That(json).Contains(@"""jsonrpc"":""2.0""");
-        await Assert.That(json).Contains(@"""result""");
-        await Assert.That(json).DoesNotContain(@"""error""");
+        JsonObject expected = new() {
+            ["jsonrpc"] = "2.0",
+            ["result"]  = new JsonObject { ["stopReason"] = "end_turn" },
+            ["error"]   = WireJson.Missing
+        };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
     }
 
     [Test]
@@ -105,11 +112,11 @@ public class AcpRpcTests {
 
         var json = JsonSerializer.Serialize(response, CapacitorJsonContext.Default.AcpResponse);
 
-        await Assert.That(json).Contains(@"""jsonrpc"":""2.0""");
-        await Assert.That(json).Contains(@"""error""");
-        await Assert.That(json).Contains(@"""code"":-32601");
-        await Assert.That(json).Contains(@"""message"":""Method not found""");
-        await Assert.That(json).DoesNotContain(@"""result""");
-        await Assert.That(json).DoesNotContain(@"""data""");
+        JsonObject expected = new() {
+            ["jsonrpc"] = "2.0",
+            ["error"]   = new JsonObject { ["code"] = -32601, ["message"] = "Method not found", ["data"] = WireJson.Missing },
+            ["result"]  = WireJson.Missing
+        };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
     }
 }

@@ -72,6 +72,8 @@ public static partial class TriggerFrame {
     [GeneratedRegex("""^\s*<(?<tag>ci-monitor-event|cross-session-message)(?<attributes>\s(?:[^>"]|"[^"]*")*)?>(?<body>(?:(?!</?\k<tag>[\s>]).)*)(?:</\k<tag>>\s*)?$""", RegexOptions.Singleline)]
     private static partial Regex Frame();
 
-    [GeneratedRegex(@"\sfrom-name=""([^""]+)""")]
+    [GeneratedRegex("""
+        \sfrom-name="([^"]+)"
+        """)]
     private static partial Regex SenderName();
 }
