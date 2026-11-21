@@ -52,7 +52,7 @@ public static class MuseAssistantWalkReader {
 
         if (manifest?.ChatId is not { Length: > 0 } chatId) return (null, "manifest.json has no chat_id");
         if (manifest.IsMain is not { } isMain) return (null, "manifest.json is_main must be a boolean");
-        if (manifest.FetchedAtMs is not { } fetched || fetched <= 0) return (null, "manifest.json fetched_at_ms must be a positive integer");
+        if (manifest.FetchedAtMs is not (> 0 and var fetched)) return (null, "manifest.json fetched_at_ms must be a positive integer");
         if (manifest.Pages is not { Length: > 0 } pages) return (null, "manifest.json lists no pages");
 
         var listed = new HashSet<string>(StringComparer.Ordinal) { "manifest.json" };

@@ -199,7 +199,7 @@ public sealed class PageBridge : IAsyncDisposable {
             StopPolling();
             return;
         }
-        if (reply.Status is < 200 or >= 300 || reply.Body is not { } body || !body.IsObject) return;
+        if (reply.Status is < 200 or >= 300 || reply.Body is not { IsObject: true } body) return;
 
         var etag = body.Prop("etag")?.GetRawText();
         // No etag says nothing about whether the results moved, so every such answer is delivered.

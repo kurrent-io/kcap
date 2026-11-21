@@ -44,7 +44,7 @@ public class WorkContextPlanProgressTests {
         }
 
         public async Task SettlePrAsync() {
-            await WaitUntilAsync(() => Prs.CanReveal && !Prs.IsReading, what: "PR overview");
+            await WaitUntilAsync(() => Prs is { CanReveal: true, IsReading: false }, what: "PR overview");
             Dispatcher.UIThread.RunJobs();
         }
 

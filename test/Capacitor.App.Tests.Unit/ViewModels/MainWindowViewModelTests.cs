@@ -264,7 +264,7 @@ public class MainWindowViewModelTests {
                     _ => throw new InvalidOperationException(),
                 };
                 before.SetForeground(true);
-                await WorkspaceFixtures.WaitUntilAsync(() => before.CanReveal && !before.IsReading, what: "chosen PR");
+                await WorkspaceFixtures.WaitUntilAsync(() => before is { CanReveal: true, IsReading: false }, what: "chosen PR");
                 await Assert.That(before.Selected!.Subject.Number).IsEqualTo(1);
                 if (startRemote) {
                     host.Directory.ProvenTwins.Add("a1");
@@ -282,7 +282,7 @@ public class MainWindowViewModelTests {
                     _ => throw new InvalidOperationException("Handoff did not preserve the PR tab"),
                 };
                 after.SetForeground(true);
-                await WorkspaceFixtures.WaitUntilAsync(() => after.CanReveal && !after.IsReading, what: "PR after handoff");
+                await WorkspaceFixtures.WaitUntilAsync(() => after is { CanReveal: true, IsReading: false }, what: "PR after handoff");
                 await Assert.That(after.Selected!.Subject.Number).IsEqualTo(1);
             } finally {
                 var current = vm.CurrentWorkspace;

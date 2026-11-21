@@ -327,7 +327,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     public bool OpenDocument(string path) {
         var row = Find(path);
         if (row is null) {
-            if (_reads.HasCurrent && !_reads.IsCurrentSettled) _pendingPath = path;
+            if (_reads is { HasCurrent: true, IsCurrentSettled: false }) _pendingPath = path;
             else return false;
             if (!HasDocuments) return false;
             RequestOpen();

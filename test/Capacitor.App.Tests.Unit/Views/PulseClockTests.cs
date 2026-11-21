@@ -146,7 +146,7 @@ public class PulseClockTests {
     static IEnumerable<Style> Animated(IEnumerable<IStyle> styles) {
         foreach (var style in styles) {
             switch (style) {
-                case Style s when s.Animations.Count > 0:
+                case Style { Animations.Count: > 0 } s:
                     yield return s;
                     break;
                 case Styles nested:

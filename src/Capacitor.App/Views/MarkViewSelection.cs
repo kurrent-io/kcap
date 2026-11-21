@@ -36,7 +36,7 @@ static class MarkViewSelection {
     /// Continues a drag at a point in the viewer's coordinates. Used when the chat scrolls under a
     /// pointer that is sitting on the viewport edge, so the selection grows without a new move.
     public static void Extend(MarkdownViewer viewer, Point pointInViewer) {
-        if (LayerOf(viewer) is not Visual layer) return;
+        if (LayerOf(viewer) is not { } layer) return;
         if (Anchor(layer) is null) return;
         IsDragging(viewer) = true;
         var point = viewer.TranslatePoint(pointInViewer, layer) ?? pointInViewer;
@@ -62,7 +62,7 @@ static class MarkViewSelection {
     /// Selects the first run of text that reads as <paramref name="quote"/>, whitespace aside, and
     /// returns where it starts in the viewer's coordinates; null when the viewer shows no such text.
     public static Rect? Select(MarkdownViewer viewer, string quote) {
-        if (LayerOf(viewer) is not Visual layer) return null;
+        if (LayerOf(viewer) is not { } layer) return null;
         var needle = string.Join(' ', quote.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         if (needle.Length == 0) return null;
         // Each character kept, with the offset it starts at and the entry it is laid out in. A
@@ -117,7 +117,7 @@ static class MarkViewSelection {
     /// The text of the block under a point in the viewer's coordinates, or the nearest one, without a
     /// list item's marker, and how many blocks before it read the same, whitespace aside.
     public static (string Text, int Occurrence)? BlockAt(MarkdownViewer viewer, Point pointInViewer) {
-        if (LayerOf(viewer) is not Visual layer) return null;
+        if (LayerOf(viewer) is not { } layer) return null;
         var point = viewer.TranslatePoint(pointInViewer, layer) ?? pointInViewer;
         var entry = HitTestEntry(layer, point) ?? (Nearest(layer, point) is { } inside ? HitTestEntry(layer, inside) : null);
         if (entry is null) return null;
@@ -146,7 +146,7 @@ static class MarkViewSelection {
 
     static void OnPressed(MarkdownViewer viewer, PointerPressedEventArgs e) {
         if (!e.GetCurrentPoint(viewer).Properties.IsLeftButtonPressed) return;
-        if (LayerOf(viewer) is not Visual layer) return;
+        if (LayerOf(viewer) is not { } layer) return;
         var point = e.GetPosition(layer);
         if (e.ClickCount == 2) {
             if (HitTestEntry(layer, point) is not { } entry || HitTestOffset(layer, point) is not { } offset) return;
@@ -163,7 +163,7 @@ static class MarkViewSelection {
 
     public static bool TryStartFromLeft(MarkdownViewer viewer, PointerPressedEventArgs e) {
         if (e.ClickCount != 1 || !e.GetCurrentPoint(viewer).Properties.IsLeftButtonPressed || PressedOnControl(e)) return false;
-        if (LayerOf(viewer) is not Visual layer) return false;
+        if (LayerOf(viewer) is not { } layer) return false;
         var point = e.GetPosition(layer);
         if (HitTestOffset(layer, point) is not null) return false;
         // Padding sits outside the glyph bounds, so MarkView records no anchor and the drag never starts.
@@ -205,7 +205,7 @@ static class MarkViewSelection {
     /// blocks are exactly as wide as their text: leaving one past its last glyph keeps whatever
     /// the last sample inside hit, often the caret before that glyph.
     static void OnMoved(MarkdownViewer viewer, PointerEventArgs e) {
-        if (!IsDragging(viewer) || LayerOf(viewer) is not Visual layer) return;
+        if (!IsDragging(viewer) || LayerOf(viewer) is not { } layer) return;
         var point = e.GetPosition(layer);
         if (HitTestOffset(layer, point) is not null) return;
         if (Nearest(layer, point) is { } inside) MoveFocus(layer, inside);

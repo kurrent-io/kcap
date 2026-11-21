@@ -43,7 +43,7 @@ public sealed class RemoteTerminalViewport : ScrollViewer {
     }
 
     void OnTerminalWheel(object? sender, PointerWheelEventArgs e) {
-        if (Content is not RemoteTerminalControl terminal || terminal.Model is not { } model) return;
+        if (Content is not RemoteTerminalControl { Model: { } model } terminal) return;
         if (!double.IsFinite(e.Delta.Y) || !double.IsFinite(e.Delta.X)) { e.Handled = true; return; }
         // Mouse-tracking apps own scrolling in either buffer. Their intermediate redraws are not history.
         if (IsLive && model.IsMouseModeActive) {

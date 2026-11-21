@@ -114,7 +114,7 @@ internal sealed class AcpPermissionSurface(
             request.ToolName ?? "", outcome, source));
 
     static AcpInteractionDecision MapSettlement(PermissionSettlement settlement, IReadOnlyList<AcpInteractionOption> options) {
-        var preferAlways = settlement.Decision.ApplyPermissions is { } apply && apply.IsTrue;
+        var preferAlways = settlement.Decision.ApplyPermissions is { IsTrue: true };
         if (settlement.Outcome == PermissionSettlements.Allow && PickAllow(options, preferAlways) is { } allow)
             return new AcpInteractionDecision(allow.Kind ?? "allow", allow.OptionId, allow.Label, null, null, null);
 

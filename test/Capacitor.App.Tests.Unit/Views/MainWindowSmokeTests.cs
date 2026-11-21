@@ -63,7 +63,7 @@ public class MainWindowSmokeTests {
             await Assert.That(footerText).Contains("kurrent");
             await Assert.That(footerText).Contains("daemon-a");
             var help = rail.FindControl<Button>("RailHelpButton")!;
-            await Assert.That(help.IsEffectivelyVisible && help.IsEffectivelyEnabled).IsTrue();
+            await Assert.That(help is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true }).IsTrue();
 
             var longName = "engineering-workstation-" + new string('a', 100);
             service.SnapshotsSubject.OnNext(Snap(daemon: longName, connection: "connected", active: 1, max: 5));
@@ -1973,7 +1973,7 @@ public class MainWindowSmokeTests {
             flyout.ShowAt(help);
             Dispatcher.UIThread.RunJobs();
             var signIn = rail.FindControl<Button>("RailHelpSignInButton")!;
-            var whileOut = signIn.IsVisible && signIn.IsEffectivelyEnabled;
+            var whileOut = signIn is { IsVisible: true, IsEffectivelyEnabled: true };
             ClickFlyoutButton(signIn);
             var closedOnClick = !flyout.IsOpen;
 
@@ -2312,7 +2312,7 @@ public class MainWindowSmokeTests {
     public Task Command_left_steps_back_from_an_empty_text_box_but_not_from_one_holding_text_or_a_composition() => AvaloniaSession.RunOnUiAsync(async () => {
         Skip.Unless(ShortcutLabels.UsesCommandKey, "⌘← steps back only on macOS");
         using var host = new SearchWindowHost();
-        var box = host.Window.GetVisualDescendants().OfType<TextBox>().First(t => t.IsEffectivelyVisible && t.IsEffectivelyEnabled);
+        var box = host.Window.GetVisualDescendants().OfType<TextBox>().First(t => t is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true });
         box.Focus();
         host.Vm.History.Left(NavigationEntry.Launcher);
 

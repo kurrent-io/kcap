@@ -205,7 +205,7 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
     public int SelectedCount => Rows.Count(r => r.Selected);
 
-    public IReadOnlyList<HarnessId> Recording => [.. Rows.Where(r => r.Record && r.Succeeded).Select(r => r.Id)];
+    public IReadOnlyList<HarnessId> Recording => [.. Rows.Where(r => r is { Record: true, Succeeded: true }).Select(r => r.Id)];
 
     public string? NextLabel =>
         _installed ? "Continue"
@@ -260,7 +260,7 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
             var missing = AgentVendors.All.Where(v => !detected.ContainsKey(v.Id)).Select(v => v.Label).ToList();
             NotFoundLine = missing.Count == 0 ? null : "Not found: " + string.Join(", ", missing);
-            SettingsOnlyNote = SettingsOnlyNoteFor([.. Rows.Where(r => r.SettingsOnly && !r.Declined).Select(r => r.Label)]);
+            SettingsOnlyNote = SettingsOnlyNoteFor([.. Rows.Where(r => r is { SettingsOnly: true, Declined: false }).Select(r => r.Label)]);
             _detected = true;
 
             this.RaisePropertyChanged(nameof(Rows));

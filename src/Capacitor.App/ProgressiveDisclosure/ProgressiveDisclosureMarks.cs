@@ -147,7 +147,7 @@ public sealed class ProgressiveDisclosureMarks : IMarkdownExtension {
     /// A hidden span leaves the spaces either side of it; one is kept, and none at the block's edges.
     /// Only text that renders side by side is compared, so the space before inline code stays.
     static void TidySpaces(ContainerInline root) {
-        var leaves = root.Descendants<Inline>().Where(static inline => inline is not ContainerInline || inline is LinkInline { IsImage: true }).ToList();
+        var leaves = root.Descendants<Inline>().Where(static inline => inline is not ContainerInline or LinkInline { IsImage: true }).ToList();
         for (var i = 1; i < leaves.Count; i++) {
             if (leaves[i - 1] is not LiteralInline before || leaves[i] is not LiteralInline after) continue;
             var previous = before.Content.ToString();

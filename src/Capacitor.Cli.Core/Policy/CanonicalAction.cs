@@ -57,8 +57,8 @@ public static class PolicyComponents {
     /// <summary>What allow rules must fully cover. Empty = never allow-eligible.</summary>
     public static IReadOnlyList<ActionComponent> CoverageOf(CanonicalAction a) => a switch {
         { Kind: ActionKind.Shell, Analyzed: false } => [],
-        { Kind: ActionKind.Shell } when a.Segments.Count == 0 => [],
-        { Kind: ActionKind.Other } when a.RawToolName is not { Length: > 0 } => [],
+        { Kind: ActionKind.Shell, Segments.Count: 0 } => [],
+        { Kind: ActionKind.Other, RawToolName: not { Length: > 0 } } => [],
         _ when RestrictionOf(a) is [SentinelComponent] => [],
         _ => RestrictionOf(a),
     };

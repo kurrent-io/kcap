@@ -464,7 +464,7 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
     static TrayPauseItem BuildPause(AttachStatus status, PauseState pauseState) {
         var connected = status.State == AttachState.Connected;
         var hasCapability = status.Capabilities?.Contains(ConsentCapability) ?? false;
-        var enabled = connected && hasCapability && pauseState.Verified && !pauseState.Busy;
+        var enabled = connected && hasCapability && pauseState is { Verified: true, Busy: false };
         return new TrayPauseItem(enabled, pauseState.Checked);
     }
 }

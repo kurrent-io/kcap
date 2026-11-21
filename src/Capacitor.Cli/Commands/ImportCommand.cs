@@ -2534,7 +2534,7 @@ class ImportCommand(
                         ? doc.RootElement.Obj("payload")?.Str("cwd")
                         : doc.RootElement.Str("cwd");
 
-                    if (cwd is { }) {
+                    if (cwd is not null) {
                         return cwd;
                     }
                 } catch (JsonException) { }

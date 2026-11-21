@@ -68,7 +68,7 @@ public class ChatTabViewSmokeTests {
     }
 
     static List<Control> ToolRows(ChatTabView view) => view.GetVisualDescendants().OfType<Control>()
-        .Where(c => c.Name == "ToolCallRow" && c.DataContext is ToolCallItem).ToList();
+        .Where(c => c is { Name: "ToolCallRow", DataContext: ToolCallItem }).ToList();
     static Button Summary(ChatTabView view) => view.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("toolSummary") && b.DataContext is ToolGroupItem);
     static Button? SummaryOrNull(ChatTabView view) => view.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => b.Classes.Contains("toolSummary") && b.DataContext is ToolGroupItem);
     static ToolGroupItem OnlyGroup(Host host) => host.Chat.Items.OfType<ToolGroupItem>().Single();
@@ -414,7 +414,7 @@ public class ChatTabViewSmokeTests {
             using var retry = ReactiveUI.Reactive.ReactiveCommand.Create(() => { retries++; });
             host.Chat.WorkspaceNotice = SessionConnectionPresentation.Failed(retry);
             host.Settle();
-            Click(host, banner.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Retry")));
+            Click(host, banner.GetVisualDescendants().OfType<Button>().Single(b => b is { IsEffectivelyVisible: true, Content: "Retry" }));
             await Assert.That(retries).IsEqualTo(1);
             await Assert.That(host.Chat.Find.Query).IsEqualTo("needle");
             await Assert.That(find.IsEffectivelyVisible).IsTrue();
@@ -1055,8 +1055,8 @@ public class ChatTabViewSmokeTests {
             await host.LoadAsync(path);
             var items = host.View.FindControl<ItemsControl>("ChatItems")!;
             var markdown = host.View.GetVisualDescendants().OfType<MarkdownView>()
-                .First(view => view.TranslatePoint(default, host.Scroll) is { } point
-                    && point.Y >= 0 && point.Y < host.Scroll.Viewport.Height);
+                .First(view => view.TranslatePoint(default, host.Scroll) is { Y: >= 0 } point
+                    && point.Y < host.Scroll.Viewport.Height);
             var center = PresentAndLocate(host, markdown);
             var bottomRow = items.GetRealizedContainers().MaxBy(c => c.Bounds.Bottom)!;
             var startY = bottomRow.TranslatePoint(default, host.Scroll)!.Value.Y;
@@ -1447,7 +1447,7 @@ public class ChatTabViewSmokeTests {
                 host.Settle();
                 await Assert.That(host.AtBottom()).IsTrue();
 
-                var toggle = host.View.GetVisualDescendants().OfType<Button>().First(b => b.Name == "TopicToggle" && b.DataContext is ChatTopicItem { IsExpanded: false });
+                var toggle = host.View.GetVisualDescendants().OfType<Button>().First(b => b is { Name: "TopicToggle", DataContext: ChatTopicItem { IsExpanded: false } });
                 Click(host, toggle);
                 host.Settle();
                 host.Settle();
@@ -1636,7 +1636,7 @@ public class ChatTabViewSmokeTests {
                     .First(t => MarkdownViewHarness.Reads(t).EndsWith("Retry jitter", StringComparison.Ordinal));
                 var menu = OpenContextMenu(host, reply, item);
                 await Assert.That(menu.GetVisualDescendants().OfType<Button>()
-                    .Any(b => b.IsEffectivelyVisible && b.Content is string text && text.StartsWith("Bookmark", StringComparison.Ordinal))).IsFalse();
+                    .Any(b => b is { IsEffectivelyVisible: true, Content: string text } && text.StartsWith("Bookmark", StringComparison.Ordinal))).IsFalse();
                 await Assert.That(MenuRow(menu, "Select all").IsEffectivelyVisible).IsTrue();
             } finally { await host.CloseAsync(); }
         });
@@ -2140,7 +2140,7 @@ public class ChatTabViewSmokeTests {
             var host = new Host();
             var client = await host.AttachAsync(Tmp.CreateFile("draft.jsonl", UserLine));
             host.Type("note");
-            host.View.GetVisualDescendants().OfType<Button>().First(b => b.Focusable && b.IsEffectivelyVisible).Focus();
+            host.View.GetVisualDescendants().OfType<Button>().First(b => b is { Focusable: true, IsEffectivelyVisible: true }).Focus();
             host.Settle();
 
             host.Chat.Draft("File it");

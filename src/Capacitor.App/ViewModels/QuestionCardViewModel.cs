@@ -197,7 +197,7 @@ public sealed class QuestionCardViewModel : PendingCardViewModel {
 
         var idle = Ready;
         Questions = parsed.Questions.Select((q, i) => new QuestionGroupViewModel(i, q, PickAsync, EnterAsync, g => GoTo(g.Index), idle)).ToList();
-        IsFastPath = Questions.Count == 1 && !Questions[0].MultiSelect && Questions[0].Options.Count > 0;
+        IsFastPath = Questions is [{ MultiSelect: false, Options.Count: > 0 }];
         foreach (var q in Questions) {
             q.InFastPath = IsFastPath;
             q.ShowsHeader = !HasReview && q.Header is not null;

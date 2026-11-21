@@ -173,7 +173,7 @@ public class CopilotLocalUsageTests {
 
         await Assert.That(after.LineNumbers).IsEquivalentTo(before.LineNumbers.Skip(2).ToArray());
         await Assert.That(before.LineNumbers.Distinct().Count()).IsEqualTo(4);
-        await Assert.That(before.LineNumbers.All(n => n > CopilotLocalUsage.LineBase && n < 2_000_000_000)).IsTrue();
+        await Assert.That(before.LineNumbers.All(n => n is > CopilotLocalUsage.LineBase and < 2_000_000_000)).IsTrue();
     }
 
     [Test]

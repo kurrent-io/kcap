@@ -84,7 +84,7 @@ internal sealed class ApplicationRetirement(ConfigRoot config, TimeProvider time
         try {
             var lines = File.ReadAllLines(config.Path(FileName));
             if (lines.Length is < 2 or > 3 || !Path.IsPathFullyQualified(lines[0]) || lines[1].Length == 0) return null;
-            return new Pending(lines[0], lines[1], lines.Length == 3 && lines[2].Length > 0 ? lines[2] : null);
+            return new Pending(lines[0], lines[1], lines is [_, _, { Length: > 0 } third] ? third : null);
         } catch (FileNotFoundException) {
             return null;
         }

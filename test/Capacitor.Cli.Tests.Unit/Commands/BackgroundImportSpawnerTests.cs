@@ -37,7 +37,7 @@ public class BackgroundImportSpawnerTests {
         await Assert.That(psi.Environment[DetachedImportLog.VisibilityEnvVar]).IsEqualTo("private");
         await Assert.That(psi.WorkingDirectory).IsEqualTo("/tmp/wd");
         await Assert.That(psi.UseShellExecute).IsFalse();
-        await Assert.That(psi.RedirectStandardInput && psi.RedirectStandardOutput && psi.RedirectStandardError).IsTrue();
+        await Assert.That(psi is { RedirectStandardInput: true, RedirectStandardOutput: true, RedirectStandardError: true }).IsTrue();
         await Assert.That(launch.Status).IsEqualTo(BackgroundImportStatus.Running);
         await Assert.That(File.Exists(launch.LogPath!)).IsTrue();
     }

@@ -2697,8 +2697,8 @@ public class CodingAgentsStepTests {
             await Assert.That(sink.Lines).DoesNotContain(l => l.Contains($"{what} installed"));
         }
         await Assert.That(InstalledPaths(result, TestPaths()).Intersect(HookFiles).ToList()).IsEmpty();
-        await Assert.That(result.ClaudeInstalled && result.CodexHooksInstalled && result.CopilotHooksInstalled).IsTrue();
-        await Assert.That(result.PiExtensionInstalled && result.PiMcpInstalled && result.OpenCodeExtensionInstalled).IsTrue();
+        await Assert.That(result is { ClaudeInstalled: true, CodexHooksInstalled: true, CopilotHooksInstalled: true }).IsTrue();
+        await Assert.That(result is { PiExtensionInstalled: true, PiMcpInstalled: true, OpenCodeExtensionInstalled: true }).IsTrue();
     }
 
     [Test]

@@ -26,7 +26,7 @@ public static class ProsConsLists {
         paragraphs = new();
         if (list.Count == 0) return false;
         foreach (var child in list) {
-            if (child is not ListItemBlock { Count: 1 } item || item[0] is not ParagraphBlock { Inline: { } inline }) return false;
+            if (child is not (ListItemBlock and [ParagraphBlock { Inline: { } inline }])) return false;
             var text = InlineText.Plain(inline).TrimStart();
             string sign;
             string rest;

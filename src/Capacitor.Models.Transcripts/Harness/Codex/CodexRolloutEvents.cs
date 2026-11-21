@@ -318,7 +318,7 @@ public sealed class CodexRolloutEvents : ITranscriptProjection {
     static (TokenUsage Usage, long? CacheWrite) Usage(JsonElement last, long? window, string? model) {
         var gross      = last.Num("input_tokens");
         var cached     = last.Num("cached_input_tokens");
-        var cacheWrite = last.Num("cache_write_input_tokens") is > 0 and { } write ? write : (long?)null;
+        var cacheWrite = last.Num("cache_write_input_tokens") is > 0 and var write ? write : (long?)null;
         var output     = last.Num("output_tokens");
         var reasoning  = last.Num("reasoning_output_tokens");
         var additive   = gross is not null || cached is not null || output is not null || cacheWrite is not null;

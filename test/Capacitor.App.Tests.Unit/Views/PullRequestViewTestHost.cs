@@ -40,7 +40,7 @@ internal sealed class PullRequestViewTestHost : IAsyncDisposable {
     }
 
     public async Task SettleAsync() {
-        await WaitUntilAsync(() => Model.CanReveal && !Model.IsReading, what: "PR view settled");
+        await WaitUntilAsync(() => Model is { CanReveal: true, IsReading: false }, what: "PR view settled");
         Dispatcher.UIThread.RunJobs();
         Window.UpdateLayout();
     }

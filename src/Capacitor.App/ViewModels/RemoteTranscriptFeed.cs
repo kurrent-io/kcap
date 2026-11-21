@@ -305,7 +305,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         // A copy, so an attempt that fails part way leaves the snapshot as it was for the retry.
         var scheduled = snapshot.Scheduled.Copy();
         ProjectInto(page, lines, scheduled, above: snapshot.Position);
-        if (page.NextFrom is { } next && page.Events is [.., var tail]) {
+        if (page is { NextFrom: { } next, Events: [.., var tail] }) {
             (fetch, _) = await ReadForwardAsync(next - 1, lines, scheduled, ct, after: tail.EventNumber).ConfigureAwait(false);
             if (!Admit(attempt, fetch, out page)) return false;
         }

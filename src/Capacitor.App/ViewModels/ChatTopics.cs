@@ -408,7 +408,7 @@ public sealed class ChatTopics : ReactiveObject {
     }
 
     // A folded topic holds its end, if it has one.
-    static bool Ended(ChatTopicItem topic) => !topic.IsExpanded && topic.Hidden is [.., ChatTopicEndItem];
+    static bool Ended(ChatTopicItem topic) => topic is { IsExpanded: false, Hidden: [.., ChatTopicEndItem] };
 
     // The end of a topic's rows, an end of its own included, so folding takes the end in too. Marks
     // still waiting for their message stay out: they move once it lands.

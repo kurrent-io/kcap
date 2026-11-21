@@ -134,7 +134,7 @@ public sealed class SetupJoin(CliTelemetry telemetry, string signupUrl) : ILoopb
             // real absence rather than a moment in between.
             var accepted = new JsonObject();
 
-            if (Param(query, "v") is { } variant && variant is "legacy" or "redesign")
+            if (Param(query, "v") is { } variant and ("legacy" or "redesign"))
                 accepted["site_variant"] = variant;
 
             if (Param(query, "w1") is { } capacitorId && IsWebId(capacitorId))

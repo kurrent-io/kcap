@@ -968,7 +968,7 @@ public class WorkContextViewSmokeTests {
             pullRequests.SetForeground(true);
             try {
                 await host.ShowAsync(KeyOnlyRead());
-                await WorkspaceFixtures.WaitUntilAsync(() => pullRequests.CanReveal && !pullRequests.IsReading, what: "linked PRs loaded");
+                await WorkspaceFixtures.WaitUntilAsync(() => pullRequests is { CanReveal: true, IsReading: false }, what: "linked PRs loaded");
                 Dispatcher.UIThread.RunJobs();
                 host.Window.UpdateLayout();
 
@@ -993,7 +993,7 @@ public class WorkContextViewSmokeTests {
                 source.Links = [];
                 host.Time.Advance(TimeSpan.FromSeconds(16));
                 await pullRequests.RefreshCommand.Execute();
-                await WorkspaceFixtures.WaitUntilAsync(() => !pullRequests.HasPullRequest && !pullRequests.IsReading, what: "PRs unlinked");
+                await WorkspaceFixtures.WaitUntilAsync(() => pullRequests is { HasPullRequest: false, IsReading: false }, what: "PRs unlinked");
                 Dispatcher.UIThread.RunJobs();
                 host.Window.UpdateLayout();
                 await Assert.That(card.IsEffectivelyVisible).IsTrue();

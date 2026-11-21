@@ -138,7 +138,7 @@ public static class McpRegistrationAudit {
                     if (StringValue(value) is null) return false;
                     break;
                 case "env":
-                    if (value is not JsonObject env || env.Count != 0) return false;
+                    if (value is not JsonObject { Count: 0 }) return false;
                     break;
                 default:
                     return false; // custom field → not canonical

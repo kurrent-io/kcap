@@ -103,7 +103,7 @@ public sealed class SessionRuns(TimeProvider time) {
     /// The run signals and tool-result keys: the only parts Fold reads.
     static ChatProjectionResult? Reduce(ChatProjectionResult projection) {
         var results = projection.Envelopes
-            .Where(static e => e.Kind == AcpEventKind.ToolResult && e.ToolCallId is not null)
+            .Where(static e => e is { Kind: AcpEventKind.ToolResult, ToolCallId: not null })
             .Select(static e => new AcpEventEnvelope(Kind: AcpEventKind.ToolResult, ToolCallId: e.ToolCallId, ToolIsError: e.ToolIsError, TimestampIso: e.TimestampIso))
             .ToArray();
         return results.Length == 0 && projection.Runs.Count == 0 ? null : new(results, [], projection.Runs);
@@ -230,7 +230,7 @@ public sealed class SessionRuns(TimeProvider time) {
             if (!_pending.Remove(detached.CallId, out var pending)) return;
             row = Add(pending);
         }
-        if (row.IsEnded && !row.IsCutOff) return;
+        if (row is { IsEnded: true, IsCutOff: false }) return;
         row.MarkBackground();
         Name(row, detached.AgentId);
         PairUnpaired();

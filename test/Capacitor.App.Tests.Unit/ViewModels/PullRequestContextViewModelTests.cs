@@ -27,7 +27,7 @@ public class PullRequestContextViewModelTests {
             await Assert.That(h.Vm.SectionMeta).IsEmpty();
 
             h.Source.ListGate.SetResult();
-            await WaitUntilAsync(() => h.Vm.HasListed && !h.Vm.IsReading, what: "empty discovery settled");
+            await WaitUntilAsync(() => h.Vm is { HasListed: true, IsReading: false }, what: "empty discovery settled");
             await Assert.That(h.Vm.Notice).IsEqualTo("No pull requests yet.");
             await Assert.That(h.Vm.HasNotice).IsTrue();
 
@@ -41,7 +41,7 @@ public class PullRequestContextViewModelTests {
 
             h.Source.Links = [Link(1)];
             h.Source.ListGate.SetResult();
-            await WaitUntilAsync(() => h.Vm.HasPullRequest && !h.Vm.IsReading, what: "PR discovered");
+            await WaitUntilAsync(() => h.Vm is { HasPullRequest: true, IsReading: false }, what: "PR discovered");
             await Assert.That(h.Vm.Notice).IsEmpty();
             await Assert.That(h.Vm.SectionMeta).IsEqualTo("1");
         } finally {
@@ -59,12 +59,12 @@ public class PullRequestContextViewModelTests {
             h.Source.AccessSeconds = 300;
             h.Push();
             h.Vm.SetForeground(true);
-            await WaitUntilAsync(() => h.Vm.HasListed && !h.Vm.IsReading, what: "initial empty list");
+            await WaitUntilAsync(() => h.Vm is { HasListed: true, IsReading: false }, what: "initial empty list");
             await Assert.That(notifications.Count).IsEqualTo(1);
 
             h.Source.Links = [Link(1)];
             h.Time.Advance(TimeSpan.FromSeconds(30));
-            await WaitUntilAsync(() => h.Vm.HasPullRequest && !h.Vm.IsReading, what: "attachment discovered by poll");
+            await WaitUntilAsync(() => h.Vm is { HasPullRequest: true, IsReading: false }, what: "attachment discovered by poll");
             await Assert.That(notifications.Count).IsEqualTo(2);
 
             h.Source.Links = [Link(1), Link(2)];
@@ -81,7 +81,7 @@ public class PullRequestContextViewModelTests {
             h.Source.Links = [];
             h.Time.Advance(TimeSpan.FromSeconds(3));
             h.Vm.Refresh();
-            await WaitUntilAsync(() => !h.Vm.HasPullRequest && !h.Vm.IsReading, what: "removal discovered by manual refresh");
+            await WaitUntilAsync(() => h.Vm is { HasPullRequest: false, IsReading: false }, what: "removal discovered by manual refresh");
             await Assert.That(h.Vm.Notice).IsEqualTo("No pull requests yet.");
             await Assert.That(h.Vm.SectionMeta).IsEmpty();
             await Assert.That(notifications).IsEquivalentTo(new[] { "session", "session", "session", "session" });
@@ -111,7 +111,7 @@ public class PullRequestContextViewModelTests {
             await Assert.That(entered.IsSet).IsTrue();
             repository = latest;
             release.Set();
-            await WaitUntilAsync(() => h.Vm.CanReveal && !h.Vm.IsReading, what: "current repository described");
+            await WaitUntilAsync(() => h.Vm is { CanReveal: true, IsReading: false }, what: "current repository described");
             await Assert.That(h.Source.Descriptions.Single().Repository).IsEqualTo(latest);
         } finally {
             release.Set();
@@ -228,7 +228,7 @@ public class PullRequestContextViewModelTests {
             await first.Show();
             await Assert.That(first.Vm.Selected!.Subject.Number).IsEqualTo(2);
             first.Vm.Selected = first.Vm.Choices.Single(choice => choice.Subject.Number == 1);
-            await WaitUntilAsync(() => first.Vm.CanReveal && !first.Vm.IsReading, what: "explicit selection admitted");
+            await WaitUntilAsync(() => first.Vm is { CanReveal: true, IsReading: false }, what: "explicit selection admitted");
         } finally {
             await first.Dispose();
         }
@@ -241,7 +241,7 @@ public class PullRequestContextViewModelTests {
             second.Vm.SetForeground(true);
             await WaitUntilAsync(() => second.Source.Lists == 1, what: "the list read again");
             second.Source.ListGate.SetResult();
-            await WaitUntilAsync(() => second.Vm.CanReveal && !second.Vm.IsReading, what: "restored selection admitted");
+            await WaitUntilAsync(() => second.Vm is { CanReveal: true, IsReading: false }, what: "restored selection admitted");
             await Assert.That(second.Vm.Selected!.Subject.Number).IsEqualTo(1);
         } finally {
             await second.Dispose();
@@ -257,7 +257,7 @@ public class PullRequestContextViewModelTests {
             first.Source.Links = [Link(1), Link(2), Link(3)];
             first.Source.Lifecycles[3] = "merged";
             first.Push(); first.Vm.SetForeground(true);
-            await WaitUntilAsync(() => first.Vm.Selected?.Subject.Number == 2 && first.Vm.CanReveal && !first.Vm.IsReading, what: "merged default advanced");
+            await WaitUntilAsync(() => first.Vm is { Selected.Subject.Number: 2, CanReveal: true, IsReading: false }, what: "merged default advanced");
         } finally {
             await first.Dispose();
         }
@@ -286,12 +286,12 @@ public class PullRequestContextViewModelTests {
             h.Source.Links = [Link(1), Link(2), Link(3)];
             h.Source.Lifecycles[3] = "merged";
             h.Push(); h.Vm.SetForeground(true);
-            await WaitUntilAsync(() => h.Vm.Selected?.Subject.Number == 2 && h.Vm.CanReveal && !h.Vm.IsReading, what: "merged default advanced");
+            await WaitUntilAsync(() => h.Vm is { Selected.Subject.Number: 2, CanReveal: true, IsReading: false }, what: "merged default advanced");
             await Assert.That(snapshots.Get("session")!.Merged).IsNotEmpty();
             snapshots.Clear();
             h.Source.Lifecycles.Clear();
             h.SignIn.OnNext(System.Reactive.Unit.Default);
-            await WaitUntilAsync(() => h.Vm.Selected?.Subject.Number == 3 && h.Vm.CanReveal && !h.Vm.IsReading, what: "default re-learned under the new account");
+            await WaitUntilAsync(() => h.Vm is { Selected.Subject.Number: 3, CanReveal: true, IsReading: false }, what: "default re-learned under the new account");
             await Assert.That(snapshots.Get("session")!.Merged).IsEmpty();
         } finally {
             await h.Dispose();
@@ -306,7 +306,7 @@ public class PullRequestContextViewModelTests {
         try {
             first.Source.Lifecycles[2] = "closed";
             first.Push(); first.Vm.SetForeground(true);
-            await WaitUntilAsync(() => first.Vm.Selected?.Subject.Number == 1 && first.Vm.CanReveal && !first.Vm.IsReading, what: "closed default advanced");
+            await WaitUntilAsync(() => first.Vm is { Selected.Subject.Number: 1, CanReveal: true, IsReading: false }, what: "closed default advanced");
         } finally {
             await first.Dispose();
         }
@@ -332,7 +332,7 @@ public class PullRequestContextViewModelTests {
             first.Push();
             await first.Show();
             first.Vm.Selected = first.Vm.Choices.Single(choice => choice.Subject.Number == 1);
-            await WaitUntilAsync(() => first.Vm.CanReveal && !first.Vm.IsReading, what: "explicit selection admitted");
+            await WaitUntilAsync(() => first.Vm is { CanReveal: true, IsReading: false }, what: "explicit selection admitted");
         } finally {
             await first.Dispose();
         }
@@ -384,7 +384,7 @@ public class PullRequestContextViewModelTests {
             first.Push();
             await first.Show();
             first.Vm.Selected = first.Vm.Choices.Single(choice => choice.Subject.Number == 1);
-            await WaitUntilAsync(() => first.Vm.CanReveal && !first.Vm.IsReading, what: "explicit selection admitted");
+            await WaitUntilAsync(() => first.Vm is { CanReveal: true, IsReading: false }, what: "explicit selection admitted");
             first.Source.Links = [Link(2)];
             first.Time.Advance(TimeSpan.FromSeconds(16)); await first.Vm.RefreshCommand.Execute();
             await WaitUntilAsync(() => first.Vm is { IsReading: false, Selected.IsAvailable: false }, what: "unlinked pick kept in this pane");
@@ -456,7 +456,7 @@ public class PullRequestContextViewModelTests {
             await Task.Run(() => entered.Wait(TimeSpan.FromSeconds(5)));
             await Assert.That(entered.IsSet).IsTrue();
             h.SignIn.OnNext(System.Reactive.Unit.Default);
-            await WaitUntilAsync(() => h.Vm.CanReveal && !h.Vm.IsReading, what: "replacement refresh");
+            await WaitUntilAsync(() => h.Vm is { CanReveal: true, IsReading: false }, what: "replacement refresh");
             release.Set();
             await h.Vm.TeardownAsync();
             await Task.Run(() => finished.Wait(TimeSpan.FromSeconds(5)));
@@ -491,7 +491,7 @@ public class PullRequestContextViewModelTests {
             h.Source.Links = [FakePullRequestSource.Link(1) with { HeadRef = "another" }, FakePullRequestSource.Link(2)];
             release.Set();
             h.Source.ListGate?.TrySetResult();
-            await WaitUntilAsync(() => h.Vm.CanReveal && !h.Vm.IsReading, what: "new branch selected");
+            await WaitUntilAsync(() => h.Vm is { CanReveal: true, IsReading: false }, what: "new branch selected");
             await Assert.That(h.Vm.Selected!.Subject.Number).IsEqualTo(1);
             if (duringLookup) await Assert.That(h.Source.Descriptions.Single().Branch).IsEqualTo("another");
         } finally { release.Set(); h.Source.ListGate?.TrySetResult(); await h.Dispose(); }
@@ -546,7 +546,7 @@ public class PullRequestContextViewModelTests {
         var discoveries = h.Source.Discoveries;
         h.Vm.Reconnected();
 
-        await WaitUntilAsync(() => h.Vm.CanReveal && !h.Vm.IsReading, what: "rediscovered on reconnect");
+        await WaitUntilAsync(() => h.Vm is { CanReveal: true, IsReading: false }, what: "rediscovered on reconnect");
         await Assert.That(h.Source.Discoveries).IsGreaterThan(discoveries);
         await h.Dispose();
     });
@@ -567,7 +567,7 @@ public class PullRequestContextViewModelTests {
         await Assert.That(h.Vm.CanReveal).IsFalse();
         h.Source.Capability = PullRequestCapabilityKind.Supported;
         h.SignIn.OnNext(System.Reactive.Unit.Default);
-        await WaitUntilAsync(() => h.Vm.CanReveal && !h.Vm.IsReading, what: "signed-in PR reader");
+        await WaitUntilAsync(() => h.Vm is { CanReveal: true, IsReading: false }, what: "signed-in PR reader");
         await Assert.That(h.Vm.Selected!.Subject.Number).IsEqualTo(1);
         h.Vm.Selected = h.Vm.Choices.Single(choice => choice.Subject.Number == 2);
         h.Time.Advance(TimeSpan.FromSeconds(4));
@@ -576,7 +576,7 @@ public class PullRequestContextViewModelTests {
         await WaitUntilAsync(() => h.Vm.Notice == "Sign in to see pull requests.", what: "second sign-out");
         h.Source.Capability = PullRequestCapabilityKind.Supported;
         h.SignIn.OnNext(System.Reactive.Unit.Default);
-        await WaitUntilAsync(() => h.Vm.CanReveal && !h.Vm.IsReading, what: "new choice recovered");
+        await WaitUntilAsync(() => h.Vm is { CanReveal: true, IsReading: false }, what: "new choice recovered");
         await Assert.That(h.Vm.Selected!.Subject.Number).IsEqualTo(2);
         await h.Dispose();
     });
@@ -588,7 +588,7 @@ public class PullRequestContextViewModelTests {
         h.Vm.SelectSubject(PullRequestWire.Subject(FakePullRequestSource.Link(1)));
         await h.Show();
         h.Presence.OnNext(Agent("agent", "claude", hasTerminal: false, sessionId: "another-session", branch: "feature"));
-        await WaitUntilAsync(() => h.Vm.CanReveal && !h.Vm.IsReading, what: "new session reader");
+        await WaitUntilAsync(() => h.Vm is { CanReveal: true, IsReading: false }, what: "new session reader");
         await Assert.That(h.Vm.Selected!.Subject.Number).IsEqualTo(2);
         await h.Dispose();
     });
@@ -683,7 +683,7 @@ public class PullRequestContextViewModelTests {
         h.Source.Capability = PullRequestCapabilityKind.Legacy;
         h.Push();
         h.Vm.SetForeground(true);
-        await WaitUntilAsync(() => h.Vm.HasListed && h.Vm.IsLegacy, what: "legacy list applied");
+        await WaitUntilAsync(() => h.Vm is { HasListed: true, IsLegacy: true }, what: "legacy list applied");
         await Assert.That(h.Vm.ShowsOpenSource).IsTrue();
         await h.Dispose();
     });
@@ -873,7 +873,7 @@ public class PullRequestContextViewModelTests {
         h.Push(); h.Vm.SetForeground(true);
         await WaitUntilAsync(() => h.Vm.Notice.Contains("cannot read"), what: "first session denied");
         h.Presence.OnNext(Agent("agent", "claude", hasTerminal: false, sessionId: "other-session", branch: "feature"));
-        await WaitUntilAsync(() => h.Vm.CanReveal && !h.Vm.IsReading, what: "new session loaded");
+        await WaitUntilAsync(() => h.Vm is { CanReveal: true, IsReading: false }, what: "new session loaded");
         await Assert.That(h.Source.Lists).IsEqualTo(2);
         await h.Dispose();
     });
@@ -1017,12 +1017,12 @@ public class PullRequestContextViewModelTests {
         await WaitUntilAsync(() => h.Source.Overviews == 2 && !h.Vm.IsReading, what: "rate limit received");
         h.Vm.Selected = h.Vm.Choices.Single(choice => choice.Subject.Number == 1);
         if (anotherHost) {
-            await WaitUntilAsync(() => h.Vm.CanReveal && !h.Vm.IsReading, what: "independent host loaded");
+            await WaitUntilAsync(() => h.Vm is { CanReveal: true, IsReading: false }, what: "independent host loaded");
         } else {
             await Assert.That(h.Source.Overviews).IsEqualTo(2);
             await Assert.That(h.Vm.Notice).Contains("cooldown");
             h.Time.Advance(TimeSpan.FromSeconds(60)); Dispatcher.UIThread.RunJobs();
-            await WaitUntilAsync(() => h.Vm.CanReveal && !h.Vm.IsReading, what: "cooldown expired");
+            await WaitUntilAsync(() => h.Vm is { CanReveal: true, IsReading: false }, what: "cooldown expired");
         }
         await Assert.That(h.Source.Overviews).IsEqualTo(3);
         await h.Dispose();
@@ -1081,7 +1081,7 @@ public class PullRequestContextViewModelTests {
         await WaitUntilAsync(() => h.Vm.Notice.Contains("cannot read"), what: "initial PR failed with retry backoff");
         h.Vm.Selected = h.Vm.Choices[0];
         await Assert.That(h.Vm.HasNotice).IsFalse();
-        await WaitUntilAsync(() => h.Vm.CanReveal && h.Vm.Selected?.Subject.Number == 1, what: "second PR loaded immediately despite previous PR RetryAt");
+        await WaitUntilAsync(() => h.Vm is { CanReveal: true, Selected.Subject.Number: 1 }, what: "second PR loaded immediately despite previous PR RetryAt");
         await h.Dispose();
     });
 
@@ -1435,7 +1435,7 @@ public class PullRequestContextViewModelTests {
         await Assert.That(h.Vm.ShowsSignIn).IsTrue();
         h.Source.Capability = PullRequestCapabilityKind.Supported;
         h.Time.Advance(TimeSpan.FromSeconds(16)); await h.Vm.RefreshCommand.Execute();
-        await WaitUntilAsync(() => h.Vm.HasPullRequest && !h.Vm.IsReading, what: "PRs rediscovered");
+        await WaitUntilAsync(() => h.Vm is { HasPullRequest: true, IsReading: false }, what: "PRs rediscovered");
         await h.Dispose();
     });
 
@@ -1512,7 +1512,7 @@ public class PullRequestContextViewModelTests {
         /// job re-arms the tick after the job that reveals it, and a clock advance made before that re-arm fires nothing.
         internal async Task Show() {
             Vm.SetForeground(true);
-            await WaitUntilAsync(() => Vm.CanReveal && !Vm.IsReading, what: "PR overview admitted and settled");
+            await WaitUntilAsync(() => Vm is { CanReveal: true, IsReading: false }, what: "PR overview admitted and settled");
         }
         internal async Task Dispose() { await Vm.TeardownAsync(); Presence.Dispose(); SignIn.Dispose(); }
     }

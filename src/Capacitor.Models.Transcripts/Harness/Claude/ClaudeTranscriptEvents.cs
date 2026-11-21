@@ -80,7 +80,7 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
                 case null:
                     recordId = TranscriptIds.ClaudeFallback(lineNumber, line);
                     break;
-                case { } uuid when uuid.IsString && Guid.TryParse(uuid.GetString(), out var parsed):
+                case { IsString: true } uuid when Guid.TryParse(uuid.GetString(), out var parsed):
                     recordId = parsed;
                     break;
                 default:

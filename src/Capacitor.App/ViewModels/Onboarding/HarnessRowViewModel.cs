@@ -21,7 +21,7 @@ public sealed class HarnessRowViewModel : ReactiveObject {
         Label    = vendor.Label;
         Flag     = vendor.Flag;
         Declined = declined;
-        SettingsOnly = !detected.BinaryFound && !detected.DesktopAppFound;
+        SettingsOnly = detected is { BinaryFound: false, DesktopAppFound: false };
         Signal   = detected.HostApp is { } host ? $"in {host}" : detected.BinaryFound ? "on your PATH" : detected.DesktopAppFound ? "desktop app or its data" : "settings folder only";
 
         // A settings folder outlives an uninstall and can be written by something else, so it is no

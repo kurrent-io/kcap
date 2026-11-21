@@ -833,7 +833,7 @@ public partial class ChatTabView : UserControl {
     }
 
     bool TryInterrupt() {
-        if (DataContext is not ChatTabViewModel chat || !chat.CanInterruptWithEscape
+        if (DataContext is not ChatTabViewModel { CanInterruptWithEscape: true } chat
             || !((ICommand)chat.InterruptCommand).CanExecute(null)) return false;
         chat.InterruptCommand.Execute().Subscribe();
         return true;

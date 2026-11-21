@@ -50,7 +50,7 @@ public class McpProtocolTests {
     [Test]
     public async Task Ping_returns_empty_object_result() {
         var r = Parse(McpProtocol.TryHandleStandardMethod("ping", 1)!);
-        await Assert.That(r["result"] is JsonObject o && o.Count == 0).IsTrue();
+        await Assert.That(r["result"] is JsonObject { Count: 0 }).IsTrue();
     }
 
     [Test]

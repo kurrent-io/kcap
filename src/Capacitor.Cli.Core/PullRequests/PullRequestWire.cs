@@ -6,8 +6,8 @@ namespace Capacitor.Cli.Core.PullRequests;
 public static class PullRequestWire {
     public static bool ValidSubject(PullRequestSubjectDto subject) => subject is { Provider.Length: > 0 and <= 100, Host.Length: > 0 and <= 256 } && ValidSegment(subject.RepoHash)
         && ValidSegment(subject.Owner) && ValidSegment(subject.RepoName) && subject.Number > 0;
-    public static bool ValidSegment(string? value) => value is { Length: > 0 and <= 256 }
-        && value is not ("." or "..") && !value.Any(c => char.IsControl(c) || c is '/' or '\\');
+    public static bool ValidSegment(string? value) => value is { Length: > 0 and <= 256 } and not ("." or "..")
+        && !value.Any(c => char.IsControl(c) || c is '/' or '\\');
     public static bool ValidHandle(string? value) => value is { Length: 64 } && value.All(char.IsAsciiHexDigitLower);
     public static bool IsGitHub(PullRequestSubjectDto subject) => subject is { Provider: "github", Host: "github.com" };
     public static PullRequestSubjectDto Subject(PullRequestLinkDto link) => new() { Provider = link.Provider, Host = link.Host,
@@ -72,6 +72,6 @@ public static class PullRequestWire {
             || page is { HasMore: true, Items.Length: 0 } || page.SnapshotCompletedAt < page.SnapshotStartedAt
             || page.Total is null || page.ExcludedByFilter is null) return false;
         var ids = new HashSet<string>(StringComparer.Ordinal);
-        return page.Items.All(row => row is not null && identity(row) is { Id: { Length: > 0 and <= 256 }, Availability: not null } item && ids.Add(item.Id));
+        return page.Items.All(row => row is not null && identity(row) is { Id.Length: > 0 and <= 256, Availability: not null } item && ids.Add(item.Id));
     }
 }

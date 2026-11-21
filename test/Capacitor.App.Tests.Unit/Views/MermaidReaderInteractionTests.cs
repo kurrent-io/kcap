@@ -36,7 +36,7 @@ public class MermaidReaderInteractionTests {
         try {
             model.SetForeground(true);
             model.SetReaderVisible(true);
-            await WaitUntilAsync(() => model.CanReveal && !model.IsReading, what: "PR diagram loaded");
+            await WaitUntilAsync(() => model is { CanReveal: true, IsReading: false }, what: "PR diagram loaded");
             Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
             await Assert.That(opener.Opened).IsEmpty();
             var overview = All<MermaidFallback>(reader).Single(f => f.IsEffectivelyVisible);

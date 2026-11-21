@@ -740,7 +740,7 @@ public sealed class TranscriptRecorder(
         state is { TitleGenerated: false, TitleInFlight: false, TitleAttempts: < 5, ThresholdReached: true, HarnessTitleSeen: false, FirstUserText: not null }
      && (state.FirstAssistantText is not null || state.EventCount >= 5)
      && agentId is null
-     && !(state.InlineHarnessTitleSeen && state.ServerRecordsHarnessTitles == true);
+     && state is not { InlineHarnessTitleSeen: true, ServerRecordsHarnessTitles: true };
 
     /// <summary>How long shutdown waits for a title still generating, from the time already spent since shutdown began.
     /// Nothing at all once the connection is gone, since the title could not be sent.</summary>

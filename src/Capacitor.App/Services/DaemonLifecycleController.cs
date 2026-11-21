@@ -930,7 +930,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
                 var snap = await QueryStatusForActionAsync(lct).ConfigureAwait(false);
                 if (RequireAppRestart() || snap is null) return;
 
-                if (snap.TxnMarker && !snap.TxnActive) {
+                if (snap is { TxnMarker: true, TxnActive: false }) {
                     var missing = await FailingRepairPreconditionAsync(snap).ConfigureAwait(false);
                     if (missing is not null) {
                         _surface.Status(missing);

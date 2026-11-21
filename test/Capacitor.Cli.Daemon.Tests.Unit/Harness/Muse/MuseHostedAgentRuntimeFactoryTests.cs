@@ -211,7 +211,7 @@ public class MuseHostedAgentRuntimeFactoryTests {
         await Assert.That(psi.Environment["KCAP_DAEMON_ID"]).IsEqualTo("daemon-1");
         await Assert.That(psi.Environment["KCAP_DAEMON_EPOCH"]).IsEqualTo("epoch-1");
         await Assert.That(psi.Environment["KCAP_URL"]).IsEqualTo("http://kcap.test");
-        await Assert.That(psi.RedirectStandardInput && psi.RedirectStandardOutput && psi.RedirectStandardError).IsTrue();
+        await Assert.That(psi is { RedirectStandardInput: true, RedirectStandardOutput: true, RedirectStandardError: true }).IsTrue();
     }
 
     [Test]

@@ -28,7 +28,7 @@ public static class JsonMcpConfigWriter {
 
             foreach (var s in servers) {
                 var rendered = RenderEntry(s, shape, cwd, command);
-                if (block[s.Name] is JsonNode existing) {
+                if (block[s.Name] is { } existing) {
                     var owned     = marker.Owns(configPath, s.Name, existing);
                     var identical = JsonNode.DeepEquals(existing, rendered);
                     // An entry the marker does not vouch for is adopted only when it is a kcap registration
@@ -49,7 +49,7 @@ public static class JsonMcpConfigWriter {
             }
 
             foreach (var name in KcapMcpServers.Retired) {
-                if (block[name] is JsonNode retired && marker.Owns(configPath, name, retired) && block.Remove(name))
+                if (block[name] is { } retired && marker.Owns(configPath, name, retired) && block.Remove(name))
                     changed = true;
             }
 
@@ -87,7 +87,7 @@ public static class JsonMcpConfigWriter {
             var changed = false;
 
             foreach (var name in marker.Owned(configPath).ToArray()) {
-                if (block[name] is JsonNode entry && marker.Owns(configPath, name, entry) && block.Remove(name))
+                if (block[name] is { } entry && marker.Owns(configPath, name, entry) && block.Remove(name))
                     changed = true;
             }
 

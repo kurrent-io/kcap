@@ -145,7 +145,7 @@ internal sealed class CodexHostedAgentRuntimeFactory : IHostedAgentRuntimeFactor
         var appServer = pinned switch {
             CodexTransportDecision.Pty       => false,
             CodexTransportDecision.AppServer => true,
-            _ => !(ctx.IsReview && !ctx.IsReviewFlow) && _config.AcknowledgedCodexResolution.Active,
+            _ => ctx is not { IsReview: true, IsReviewFlow: false } && _config.AcknowledgedCodexResolution.Active,
         };
         if (!appServer) return new(AppServer: false, Refusal: null);
 

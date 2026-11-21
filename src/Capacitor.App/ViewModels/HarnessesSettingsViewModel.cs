@@ -149,7 +149,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
                 removed = result.Stderr.Trim();
             } else {
                 // Install only ever adds, so anything the new answer drops comes out first.
-                var drops = !repair && ((row.IsConfigured && !record) || (row.OffersTools && row.Tools && !tools));
+                var drops = !repair && ((row.IsConfigured && !record) || (row is { OffersTools: true, Tools: true } && !tools));
                 result = drops ? await _cli.PluginRemoveAsync(flag, _lifetime.Token) : new ProcessResult(0, "", "", false);
                 if (result is { ExitCode: 0, TimedOut: false }) {
                     removed = result.Stderr.Trim();

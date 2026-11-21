@@ -38,8 +38,7 @@ public partial class WorkspaceView : UserControl {
             _tabFocus?.Dispose();
             PullRequestHost.Content = null;
             ArtefactsHost.Content = null;
-            var model = DataContext as WorkspaceViewModel;
-            _tabFocus = model is null ? null : model
+            _tabFocus = DataContext is not WorkspaceViewModel model ? null : model
                 .WhenAnyValue(vm => vm.ActiveTab, vm => vm.Chat)
                 .Subscribe(pair => Dispatcher.UIThread.Post(() => {
                     if (!ReferenceEquals(model, DataContext) || model?.ActiveTab != pair.Property1) return;

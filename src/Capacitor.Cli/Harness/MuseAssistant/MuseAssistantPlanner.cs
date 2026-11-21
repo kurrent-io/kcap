@@ -40,7 +40,7 @@ public static class MuseAssistantPlanner {
             if (state.Watermark is { } w && item.Seq <= w) continue;
             if (!MuseAssistantRoles.IsSelected(item.Role) || state.Grant.Floor is { } f && item.Seq <= f) continue;
 
-            if (WireSize(item.Line) is var size && size > MaxLinesBytes)
+            if (WireSize(item.Line) is var size and > MaxLinesBytes)
                 return $"item seq {item.Seq} in turn {item.TurnId} is too large to send ({size} bytes; a request carries at most 4 MiB)";
         }
 

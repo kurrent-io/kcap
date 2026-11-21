@@ -76,7 +76,7 @@ public sealed class OnboardingViewModel : ReactiveObject {
     public string NextLabel => Current.NextLabel ?? (_index == Steps.Count - 1 ? "Get started" : "Next");
     public string SkipLabel => Current.SkipLabel;
     public bool NextVisible => !Current.OwnsPrimaryAction;
-    public bool SkipVisible => _index < Steps.Count - 1 && Current.Skippable && !Current.OwnsPrimaryAction;
+    public bool SkipVisible => _index < Steps.Count - 1 && Current is { Skippable: true, OwnsPrimaryAction: false };
     public bool BackVisible => Current.BackVisible && PreviousShownIndex() >= 0;
     public bool FooterVisible => StepVisible && (BackVisible || NextVisible || SkipVisible || TenantActionsVisible);
     /// Hidden, not disabled, where setup cannot be left half-done, and where the step's own primary

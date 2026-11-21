@@ -140,7 +140,7 @@ public static class FirstRunFlowOutcomes {
             //
             // Tested BEFORE the duplicate guard, or a leading neither-entry claims the vendor's slot
             // and the real choice behind it is dropped as the duplicate — leaving nothing.
-            if (!entry.Record && !entry.Tools) continue;
+            if (entry is { Record: false, Tools: false }) continue;
 
             // A vendor named twice cannot happen against the server this was written for, which
             // validates on the way in. Keeping the first is the reading that installs what was asked

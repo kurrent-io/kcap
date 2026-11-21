@@ -1385,7 +1385,7 @@ public class LauncherPaneViewSmokeTests {
             await Assert.That(Shows(agent, "5h")).IsTrue();
 
             var expiredFill = NamedRow(agent, "d2")!.GetVisualDescendants().OfType<Border>()
-                .Single(b => b.Width == 46 && b.Child is Border).Child as Border;
+                .Single(b => b is { Width: 46, Child: Border }).Child as Border;
             await Assert.That(expiredFill!.Width).IsEqualTo(46);
 
             rig.Remote.DrawableDaemonAccountsSubject.OnNext([]);

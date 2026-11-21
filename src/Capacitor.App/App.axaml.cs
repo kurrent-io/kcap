@@ -2682,7 +2682,7 @@ public partial class App : Application {
 
     // A hidden window shows no toast, and its toast overlay exists only once it has loaded.
     MainWindow TrackNoticeWindow(IAppNotifier notifier, MainWindow window) {
-        void Publish() => _noticeWindow.OnNext(window.IsVisible && window.IsLoaded ? notifier : null);
+        void Publish() => _noticeWindow.OnNext(window is { IsVisible: true, IsLoaded: true } ? notifier : null);
         var visible = window.GetObservable(Visual.IsVisibleProperty).Subscribe(_ => Publish());
         window.Loaded += (_, _) => Publish();
         window.Closed += (_, _) => {

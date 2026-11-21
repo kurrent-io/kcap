@@ -107,7 +107,7 @@ public sealed class BrowserTenantPicker(
                 // Checked every tick rather than waited on: Console.ReadLine is not cancellable, so
                 // a blocking read on another thread cannot lose this race cleanly. It also has to be
                 // checked before the poll, or a slow one holds the keypress for its whole timeout.
-                if (Keys.CanWatch && Keys.KeyAvailable) {
+                if (Keys is { CanWatch: true, KeyAvailable: true }) {
                     // Drain, not ReadKey: the escape key is usually followed by a Return, and the
                     // Spectre prompt about to run would read that as its answer.
                     Keys.Drain();

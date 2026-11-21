@@ -596,7 +596,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
                 case { Refusal: HandoffRefusals.RepoNotAllowed }:
                     refused ??= new(NotAllowed(checkout));
                     continue;
-                case { Refusal: { } }: return new(InvalidTarget);
+                case { Refusal: not null }: return new(InvalidTarget);
                 case { FetchError: { } detail }:
                     Console.Error.WriteLine($"kcap: hand-off {(localOnly ? "check" : "origin read")}: {detail}");
                     return localOnly ? new(CheckoutUnreadable) : new(OriginUnreachable(detail), OriginFailed: true);

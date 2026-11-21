@@ -168,7 +168,7 @@ sealed class DaemonServiceCommands(
             return 1;
         }
 
-        var cap  = enrollment.MaxAgents is { } n && n >= 0 ? n.ToString(CultureInfo.InvariantCulture) : null;
+        var cap  = enrollment.MaxAgents is { } n and >= 0 ? n.ToString(CultureInfo.InvariantCulture) : null;
         var spec = new ServiceSpec(name, daemonPath, root.Path($"daemon-{name}.log"), CaptureUnitEnvironment(name, enrollment.Profile), ExtraArgs(cap));
 
         if (!windows.MoveToTask(spec, out var started, out var error)) {

@@ -362,7 +362,7 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
                     _launched?.Invoke(agentId);
                     _ = RefreshAsync();
                     break;
-                case { Kind: NextWorkReadKind.Ready, Value: { Outcome: "pending" } }:
+                case { Kind: NextWorkReadKind.Ready, Value.Outcome: "pending" }:
                     _notify?.Invoke("The work is reserved but the launch was not confirmed. Check the sidebar before starting another agent.");
                     break;
                 case { Kind: NextWorkReadKind.Ready, Value: { } result }:

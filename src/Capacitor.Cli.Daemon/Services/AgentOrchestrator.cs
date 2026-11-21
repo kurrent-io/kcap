@@ -3010,7 +3010,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // review-specific check and of the worktree, so a refused launch never inspects a
             // repository it may not report on. A BORROWED launch is judged further down instead,
             // on the canonical path its authorization resolves.
-            if ((isReview || isReviewFlow) && !cmd.Borrowed && !cmd.ScratchWorkspace
+            if ((isReview || isReviewFlow) && cmd is { Borrowed: false, ScratchWorkspace: false }
              && await RefuseOutOfCaptureScopeAsync(agentId, sourceRepo) is { } scopeRefusal) {
                 return scopeRefusal;
             }
@@ -3079,7 +3079,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
             // A directory under the allowed tree can be swapped for a link after the check above. Re-walked
             // with no await before worktree creation, which pins the source as it resolves on entry.
-            if (resume is null && !cmd.Borrowed && !cmd.ScratchWorkspace && !StillResolvesToItself(sourceRepo)) {
+            if (resume is null && cmd is { Borrowed: false, ScratchWorkspace: false } && !StillResolvesToItself(sourceRepo)) {
                 await LaunchFailedUnlessPrivateAsync(isPrivate, agentId, $"Repo path changed after it was allowed: {repoPath}");
 
                 return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
@@ -6887,7 +6887,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // A pending resume keeps everything the successor daemon resumes from.
         bool? worktreeRemoved = null;
 
-        if (agent.Work == WorkLocation.OwnedWorktree && !agent.ResumePending) {
+        if (agent is { Work: WorkLocation.OwnedWorktree, ResumePending: false }) {
             try { worktreeRemoved = await RemoveOwnedWorktreeAsync(agent.Worktree, agentId); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing worktree", agentId); }
         }
 

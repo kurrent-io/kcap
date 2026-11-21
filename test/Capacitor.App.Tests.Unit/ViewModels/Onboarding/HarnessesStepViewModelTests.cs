@@ -645,7 +645,7 @@ public class HarnessesStepViewModelTests {
                 canLeave = await h.Vm.CanLeaveAsync(direction, CancellationToken.None);
             }
 
-            return (canLeave && h.Vm.CanContinue && h.Vm.CanSkip, h.Vm.VisibilityVisible,
+            return (canLeave && h.Vm is { CanContinue: true, CanSkip: true }, h.Vm.VisibilityVisible,
                 ConfigMutator.LoadPure(ConfigPath).Profiles["default"].DefaultVisibility);
         });
 

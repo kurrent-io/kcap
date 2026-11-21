@@ -23,6 +23,6 @@ public sealed record ImageSize(double? Width, double? Height) {
         if (value is null) return null;
         var text = value.Trim();
         if (text.EndsWith("px", StringComparison.OrdinalIgnoreCase)) text = text[..^2];
-        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var pixels) && pixels > 0 && pixels <= 4096 ? pixels : null;
+        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var pixels) && pixels is > 0 and <= 4096 ? pixels : null;
     }
 }

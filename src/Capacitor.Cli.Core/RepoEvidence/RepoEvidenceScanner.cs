@@ -109,8 +109,7 @@ public static class RepoEvidencePaths {
                 if (block["type"]?.GetValue<string>() != "tool_use") continue;
 
                 var name  = block["name"]?.GetValue<string>();
-                var input = block["input"] as JsonObject;
-                if (name is null || input is null) continue;
+                if (block["input"] is not JsonObject input || name is null) continue;
 
                 (string key, RepoEvidenceKind kind)? spec = name switch {
                     "Edit" or "MultiEdit" or "Write" => ("file_path", RepoEvidenceKind.Mutation),
@@ -139,7 +138,7 @@ public static class RepoEvidencePaths {
     internal static bool IsLexicallyAbsolute(string path) {
         if (string.IsNullOrEmpty(path)) return false;
         if (path[0] == '/') return true;                                        // Unix
-        if (path.Length >= 2 && path[0] == '\\' && path[1] == '\\') return true; // UNC \\host\share
+        if (path is ['\\', '\\', ..]) return true; // UNC \\host\share
         if (path.Length >= 3 && IsAsciiLetter(path[0]) && path[1] == ':'
             && (path[2] == '\\' || path[2] == '/')) return true;                 // C:\... or C:/...
         return false;

@@ -517,8 +517,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
                         // the retired remote one is retained history rather than a takeover.
                         if (!SessionEnded
                             && directory.IsProvenLocalTwin(row.Id)
-                            && directory.Rows.Lookup($"local:{row.Id}") is { HasValue: true, Value: var twin }
-                            && twin.SessionId is { Length: > 0 } && twin.SessionId == _row.SessionId) {
+                            && directory.Rows.Lookup($"local:{row.Id}") is { HasValue: true, Value: { SessionId.Length: > 0 } twin }
+                            && twin.SessionId == _row.SessionId) {
                             OriginChangedToLocal = true;
                             // Nothing is answerable through a released lease, and the agent is not
                             // this host's to stop any more.

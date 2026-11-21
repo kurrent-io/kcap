@@ -64,7 +64,7 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.Vm.Chat.ShowsTerminalOffer).IsFalse();
                 var title = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t is { Text: "Starting session…", IsEffectivelyVisible: true });
                 await Assert.That(title.IsEffectivelyVisible).IsTrue();
-                var action = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Open Terminal"));
+                var action = host.View.GetVisualDescendants().OfType<Button>().Single(b => b is { IsEffectivelyVisible: true, Content: "Open Terminal" });
                 host.Window.MouseMove(new Point(0, 0));
                 host.Settle();
                 CaptureLoading(host, "session-starting");
@@ -108,7 +108,7 @@ public class RemoteSessionViewSmokeTests {
                 host.Settle();
                 await Assert.That(host.View.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Couldn’t reconnect to this session")).IsTrue();
                 CaptureLoading(host, "session-connection-failed");
-                var retry = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Retry"));
+                var retry = host.View.GetVisualDescendants().OfType<Button>().Single(b => b is { IsEffectivelyVisible: true, Content: "Retry" });
                 host.Window.MouseMove(new Point(0, 0));
                 host.Settle();
                 retry.Focus(NavigationMethod.Tab);
@@ -142,7 +142,7 @@ public class RemoteSessionViewSmokeTests {
                 await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "connected");
                 host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Cli.Core.Http.ConnectionFailure.Refused));
                 await host.SettleUntilAsync(() => host.Vm.ConnectionNotice?.Title == "Your kcap server is stopped", "stopped notice");
-                var start = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Start server"));
+                var start = host.View.GetVisualDescendants().OfType<Button>().Single(b => b is { IsEffectivelyVisible: true, Content: "Start server" });
                 Click(host, start);
                 await host.SettleUntilAsync(() => starts == 1, "start requested");
             } finally { await host.Vm.TeardownAsync(); }
@@ -200,7 +200,7 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.Vm.Terminal!.Notice!.Detail).Contains("couldn’t verify access");
 
                 host.Lane.TerminalSubscribeHandler = _ => Task.FromResult(HubCallOutcome.Ok);
-                Click(host, notice.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Retry")));
+                Click(host, notice.GetVisualDescendants().OfType<Button>().Single(b => b is { IsEffectivelyVisible: true, Content: "Retry" }));
                 await host.SettleUntilAsync(() => host.Vm.Terminal!.IsLive, "live without output");
                 await Assert.That(notice.IsEffectivelyVisible).IsFalse();
                 await Assert.That(viewport.Opacity).IsEqualTo(1.0);

@@ -16,7 +16,7 @@ public static class ToolCommandText {
         if (root.Str("command") is { } command) return command;
         if (root.Arr("command") is not { } argv) return null;
         var parts = argv.EnumerateArray().Where(p => p.IsString).Select(p => p.GetString()!).ToList();
-        if (parts.Count == 3 && parts[1] is "-lc" or "-c" && parts[0].EndsWith("sh", StringComparison.Ordinal)) return parts[2];
+        if (parts is [var shell, "-lc" or "-c", var script] && shell.EndsWith("sh", StringComparison.Ordinal)) return script;
         return string.Join(' ', parts);
     }
 

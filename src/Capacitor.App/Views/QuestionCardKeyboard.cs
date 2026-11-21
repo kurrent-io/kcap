@@ -190,7 +190,7 @@ public sealed class QuestionCardKeyboard {
             var index = options.IndexOf(focused);
             if (index < 0) return;
 
-            var next = digit is int n && n >= 1 && n <= options.Count ? n - 1
+            var next = digit is { } n and >= 1 && n <= options.Count ? n - 1
                 : e.Key is Key.Up or Key.Left ? (index - 1 + options.Count) % options.Count
                 : e.Key is Key.Down or Key.Right ? (index + 1) % options.Count
                 : -1;

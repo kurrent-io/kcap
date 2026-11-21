@@ -110,7 +110,7 @@ public static class WindowSizeMemory {
     }
 
     static double Fit(double? saved, double min, double fallback) {
-        if (saved is not double value || !double.IsFinite(value) || value <= 0) return fallback;
+        if (saved is not { } value || !double.IsFinite(value) || value <= 0) return fallback;
         return Math.Max(min, value);
     }
 }

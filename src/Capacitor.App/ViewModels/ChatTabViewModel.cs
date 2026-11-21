@@ -432,7 +432,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// Recall leaves the box alone until its own send settles: the outcome decides whether the
     /// text is cleared or stays as a draft, and a recall in between would take it from both.
     /// The edit count, not the text, decides: retyping the same words is a new draft.
-    bool BoxHoldsOwnSend() => Tracked.Any(q => !q.IsForeign && !q.Acknowledged
+    bool BoxHoldsOwnSend() => Tracked.Any(q => q is { IsForeign: false, Acknowledged: false }
         && q.ComposerEdits == _composerEdits && string.Equals(q.Text, _composerText, StringComparison.Ordinal));
 
     List<string> Unechoed() {
@@ -1365,7 +1365,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         ApplyAccount(info);
         _status = info.Status;
         _interruption = info.Interruption;
-        var writerDone = info.Ended && info.WriterDone;
+        var writerDone = info is { Ended: true, WriterDone: true };
         if (writerDone && !_writerDone) _settleEpoch++;
         _writerDone = writerDone;
         if (_ended != info.Ended) {
@@ -1925,7 +1925,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 ? lease.Feed.ReadAppended()
                 : await Task.Run(lease.Feed.ReadAppended).ConfigureAwait(false);
             if (read.Status != FeedStatus.Failed) Volatile.Write(ref _settledEpoch, settleEpoch);
-            if (canSkipEmpty && read.Status == FeedStatus.Ok && read.Lines.Count == 0 && read.Runs.Count == 0 && read.Older.Count == 0
+            if (canSkipEmpty && read is { Status: FeedStatus.Ok, Lines.Count: 0, Runs.Count: 0, Older.Count: 0 }
                 && baselineVersion == Volatile.Read(ref _baselineVersion) && inputGeneration == Volatile.Read(ref _inputGeneration)) return;
             await Dispatcher.UIThread.InvokeAsync(() => ApplyAsync(lease.Generation, read));
         } catch (Exception ex) {
@@ -1973,7 +1973,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     bool CanProjectAway() =>
         _openGroup is null && _openShell is null && _superseded.Count == 0
         && _pendingTools.Count == 0
-        && !Tracked.Any(static q => !q.IsForeign && !q.Acknowledged);
+        && !Tracked.Any(static q => q is { IsForeign: false, Acknowledged: false });
 
     bool Prepare(int generation, FeedRead read) {
         if (generation != Volatile.Read(ref _generation)) return false;
@@ -2027,7 +2027,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // A send made before the transcript existed has no safe baseline. Its first successful
         // read establishes one; that initial history cannot acknowledge the send.
         var rebased = false;
-        foreach (var queued in Tracked.Where(q => !q.HasBaseline && !q.IsForeign)) {
+        foreach (var queued in Tracked.Where(q => q is { HasBaseline: false, IsForeign: false })) {
             queued.Rebase(_inputGeneration, read.SnapshotOffset ?? CurrentOffset ?? 0);
             rebased = true;
         }
@@ -2039,7 +2039,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         foreach (var (line, offset) in read.Lines) {
             var projected = line.RestoreSubmittedInputs(text => {
                 if (!matchSends) return false;
-                if (!Tracked.Any(q => !q.IsForeign && !q.Acknowledged && q.Matches(text, _inputGeneration, offset))
+                if (!Tracked.Any(q => q is { IsForeign: false, Acknowledged: false } && q.Matches(text, _inputGeneration, offset))
                     && !_superseded.Any(pair => !pair.Old.Acknowledged && pair.Old.Matches(text, _inputGeneration, offset))) return false;
                 _literalInputHistory.Add((offset, text));
                 return true;

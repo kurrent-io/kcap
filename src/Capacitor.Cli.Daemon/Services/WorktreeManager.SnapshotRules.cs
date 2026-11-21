@@ -44,7 +44,7 @@ public partial class WorktreeManager {
         // Reject EVERY rooted form, not just fully-qualified absolutes. On Windows `\foo` and `C:foo` are
         // rooted-but-not-fully-qualified and would otherwise reach the depth walk as though relative.
         if (Path.IsPathRooted(rawTarget) || Path.IsPathFullyQualified(rawTarget)) return false;
-        if (rawTarget.Length >= 2 && rawTarget[1] == ':') return false;
+        if (rawTarget is [_, ':', ..]) return false;
 
         // Judged the same way on every platform rather than by the host's own rules. A backslash is a legal
         // FILENAME character on Unix, so `\foo` there is a relative name that Path.IsPathRooted calls

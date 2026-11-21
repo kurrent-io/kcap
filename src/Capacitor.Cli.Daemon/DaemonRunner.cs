@@ -48,7 +48,7 @@ public static partial class DaemonRunner {
     /// Answers `--version` before any config, environment or profile work, so a signed binary can
     /// be smoke-run on a machine with no daemon setup.
     internal static bool TryHandleVersionFlag(string[] args, TextWriter stdout) {
-        if (args.Length != 1 || args[0] != "--version") return false;
+        if (args is not ["--version"]) return false;
         stdout.WriteLine($"kcap-daemon {ResolveDaemonVersion()}");
         return true;
     }
