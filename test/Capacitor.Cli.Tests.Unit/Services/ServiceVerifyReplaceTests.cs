@@ -46,8 +46,8 @@ public class ServiceVerifyReplaceTests {
         public bool Bootstrapped, Uninstalled;
         public bool UninstallSucceeds = true;
         public int? RunningPid = 4242;
-        readonly string PlistPath = "/fake/agents/io.kurrent.kcap.daemon.svc-verify-replace.plist";
-        readonly string PlistContent = OwnPlistContent;
+        const string PlistPath = "/fake/agents/io.kurrent.kcap.daemon.svc-verify-replace.plist";
+        const string PlistContent = OwnPlistContent;
 
         public int QueryCalls             => Calls.Count(c => c == "query");
         public int WriteAndBootstrapCalls => Calls.Count(c => c == "writeAndBootstrap");

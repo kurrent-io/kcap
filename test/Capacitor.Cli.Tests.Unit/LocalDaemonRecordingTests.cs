@@ -20,7 +20,7 @@ public class LocalDaemonRecordingTests {
 
     TerminalHandOff Terminal(ProcessIncarnation? process = null, string daemonName = DaemonName) => new(
         daemonName, "work", "https://kcap.example", "/config", "/config/watchers",
-        transcript => {
+        _ => {
             _reads++;
 
             return "/home/claude";

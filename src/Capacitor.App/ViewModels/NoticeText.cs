@@ -23,7 +23,7 @@ internal static class NoticeText {
         // An unbalanced backtick is not a quoted command; leave the line as written.
         if (parts.Length < 3 || parts.Length % 2 == 0) return (text, null);
 
-        if (parts.Where((part, i) => i > 0 && i % 2 == 0).Any(part => part.Trim().TrimEnd('.').Length > 0)) return (text, null);
+        if (parts.Where((_, i) => i > 0 && i % 2 == 0).Any(part => part.Trim().TrimEnd('.').Length > 0)) return (text, null);
         var commands = parts.Where((part, i) => i % 2 == 1 && part.Trim().Length > 0).Select(part => part.Trim()).ToArray();
         if (commands.Length == 0) return (text, null);
         var prose = string.Join(' ', parts[0].Split(' ', StringSplitOptions.RemoveEmptyEntries)).TrimEnd(':', ',', ' ');

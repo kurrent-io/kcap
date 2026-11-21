@@ -182,7 +182,7 @@ public class SessionImporterScanTests {
     [Arguments(1, 1)]
     [Arguments(2, 3)]
     public async Task ScanAgentLifecycle_CountsATaskNotificationAsAReferenceToTheBackgroundAgent(int startLine, int expected) {
-        var transcript = """
+        const string transcript = """
                          {"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_9","name":"Agent","input":{"subagent_type":"Explore","run_in_background":true}}]}}
                          {"type":"result","tool_use_id":"toolu_9","tool_result":{"status":"async_launched","agentId":"bg1"}}
                          {"type":"user","message":{"content":"go on"}}

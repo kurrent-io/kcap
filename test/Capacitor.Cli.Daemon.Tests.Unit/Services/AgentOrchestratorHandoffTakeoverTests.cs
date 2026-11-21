@@ -408,7 +408,7 @@ public class AgentOrchestratorHandoffTakeoverTests : IDisposable {
         });
         await using var f = Build();
         var failing = false;
-        f.Server.RenewHandoff = (_, ct) => !Volatile.Read(ref failing) ? Task.FromResult(true) : renewal switch {
+        f.Server.RenewHandoff = (_, _) => !Volatile.Read(ref failing) ? Task.FromResult(true) : renewal switch {
             "false"  => Task.FromResult(false),
             "throws" => Task.FromException<bool>(new TaskCanceledException("the hub is gone")),
             _        => new TaskCompletionSource<bool>().Task

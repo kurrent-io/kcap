@@ -318,7 +318,7 @@ public class ReadNewCompleteLinesAsyncTests {
         // new-range record are the SAME bytes decoded into the sent lines) must survive making the
         // capture incremental, not just the whole-file case.
         const string padding = "prefix-line-already-checkpointed";
-        var content          = padding + "\nnew1\nnew2\n";
+        const string content = padding + "\nnew1\nnew2\n";
         var path             = WriteTemp(content);
         var paddingLineByteLength = Encoding.UTF8.GetByteCount(padding) + 1;
 

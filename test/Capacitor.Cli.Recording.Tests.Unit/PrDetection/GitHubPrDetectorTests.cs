@@ -7,7 +7,7 @@ public class GitHubPrDetectorTests {
     public async Task Parses_gh_pr_view_json() {
         string? capturedCmd = null, capturedArgs = null;
 
-        CommandRunner fake = (cmd, args, cwd, _) => {
+        CommandRunner fake = (cmd, args, _, _) => {
             capturedCmd  = cmd;
             capturedArgs = args;
             return Task.FromResult<string?>(

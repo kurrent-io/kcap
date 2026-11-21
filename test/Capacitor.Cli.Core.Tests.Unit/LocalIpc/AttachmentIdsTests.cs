@@ -15,7 +15,7 @@ public class AttachmentIdsTests {
 
     [Test]
     public async Task Ten_distinct_ids_are_acceptable_and_eleven_are_not() {
-        var ten = Enumerable.Range(0, 10).Select(i => Guid.NewGuid().ToString("N")).ToArray();
+        var ten = Enumerable.Range(0, 10).Select(_ => Guid.NewGuid().ToString("N")).ToArray();
         await Assert.That(AttachmentIds.Validate(ten)).IsNull();
         await Assert.That(AttachmentIds.Validate([.. ten, Guid.NewGuid().ToString("N")]))
             .IsEqualTo("up to 10 attachments per message");
