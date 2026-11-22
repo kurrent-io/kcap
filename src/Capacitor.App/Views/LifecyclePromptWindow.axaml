@@ -61,6 +61,11 @@
                                FontSize="13.5" LineHeight="21"
                                Foreground="{StaticResource KcapMutedBrush}" />
 
+                    <CheckBox x:Name="ChoiceCheckBox" Margin="0,14,0,0" HorizontalAlignment="Left"
+                              IsChecked="{Binding ChoiceChecked, Mode=TwoWay}" Content="{Binding ChoiceLabel}"
+                              FontSize="13.5" Foreground="{StaticResource KcapTextBrush}"
+                              IsVisible="{Binding ChoiceLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
                     <Border Margin="0,16,0,0" Padding="12,9" CornerRadius="8" BorderThickness="1"
                             Background="{StaticResource KcapWarningDimBrush}"
                             BorderBrush="{StaticResource KcapWarningBrush}"

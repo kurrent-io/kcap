@@ -843,14 +843,16 @@ public class KcapCliTests {
     }
 
     [Test]
-    [Arguments(false, new[] { "uninstall", "--yes", "--force", "--keep-path-links" })]
-    [Arguments(true, new[] { "uninstall", "--yes", "--force", "--keep-path-links", "--purge-local" })]
-    public async Task UninstallAsync_builds_argv_env_with_no_timeout(bool purgeLocal, string[] expected) {
+    [Arguments(false, false, new[] { "uninstall", "--yes", "--force", "--keep-path-links" })]
+    [Arguments(true, false, new[] { "uninstall", "--yes", "--force", "--keep-path-links", "--purge-local" })]
+    [Arguments(false, true, new[] { "uninstall", "--yes", "--force", "--keep-path-links", "--keep-config" })]
+    [Arguments(true, true, new[] { "uninstall", "--yes", "--force", "--keep-path-links", "--keep-config" })]
+    public async Task UninstallAsync_builds_argv_env_with_no_timeout(bool purgeLocal, bool keepConfig, string[] expected) {
         var runner = new FakeProcessRunner();
         var cli = MakeCli(runner);
         using var caller = new CancellationTokenSource();
 
-        await cli.UninstallAsync(purgeLocal, _ => { }, caller.Token);
+        await cli.UninstallAsync(purgeLocal, keepConfig, _ => { }, caller.Token);
 
         await Assert.That(runner.SeenArgs).IsEquivalentTo(expected, CollectionOrdering.Matching);
         await Assert.That(runner.SeenOptions!.EnvOverlay!["KCAP_PROFILE"]).IsEqualTo("work");

@@ -17,13 +17,27 @@ public sealed class LifecyclePromptViewModel : ReactiveObject {
         "The terminal PATH could not be determined — the reinstalled service may not match your shell's PATH.";
 
     readonly Subject<Unit> _closeRequested = new();
+    readonly LifecyclePrompt _prompt;
 
     public string Title { get; }
-    public string Disclosure { get; }
+    public string Disclosure => ChoiceChecked ? _prompt.Choice!.Disclosure : _prompt.Disclosure;
     public bool PathDegraded { get; }
 
     /// Null collapses the warning box.
-    public string? Warning { get; }
+    public string? Warning => ChoiceChecked ? _prompt.Choice!.Warning : _prompt.Warning;
+
+    /// Null collapses the checkbox.
+    public string? ChoiceLabel => _prompt.Choice?.Label;
+
+    public bool ChoiceChecked {
+        get;
+        set {
+            if (_prompt.Choice is null) return;
+            this.RaiseAndSetIfChanged(ref field, value);
+            this.RaisePropertyChanged(nameof(Disclosure));
+            this.RaisePropertyChanged(nameof(Warning));
+        }
+    }
 
     /// False for the acknowledge-only kinds (quarantine, update info).
     public bool ShowDeclineButton { get; }
@@ -55,10 +69,9 @@ public sealed class LifecyclePromptViewModel : ReactiveObject {
     public ReactiveCommand<Unit, Unit> DeclineCommand { get; }
 
     public LifecyclePromptViewModel(LifecyclePrompt prompt, TaskCompletionSource<bool> tcs) {
+        _prompt           = prompt;
         Title             = TitleFor(prompt.Kind);
-        Disclosure        = prompt.Disclosure;
         PathDegraded      = prompt.PathDegraded;
-        Warning           = prompt.Warning;
         IsUpdate          = prompt.Kind is LifecyclePrompt.KindUpdateReady or LifecyclePrompt.KindUpdateInfo or LifecyclePrompt.KindUpdateWaiting;
         if (IsUpdate) InstalledVersion = prompt.CliVersion?.Split('+', 2)[0];
         if (prompt.Kind is LifecyclePrompt.KindUpdateReady or LifecyclePrompt.KindUpdateWaiting)

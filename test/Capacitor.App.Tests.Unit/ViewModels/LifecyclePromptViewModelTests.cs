@@ -218,4 +218,42 @@ public class LifecyclePromptViewModelTests {
             await Assert.That(vm.Warning).IsEqualTo("data is deleted");
         });
     }
+
+    /// The dialog describes only the answer it is about to take, so ticking the choice swaps both texts.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Ticking_the_choice_swaps_in_its_disclosure_and_warning() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var prompt = new LifecyclePrompt(LifecyclePrompt.KindUninstall, null, null, false, "settings are kept.",
+                Choice: new LifecycleChoice("Also remove my settings", "settings are removed.", "data is deleted"));
+            var vm = new LifecyclePromptViewModel(prompt, new TaskCompletionSource<bool>());
+            var changed = new List<string?>();
+            vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+            await Assert.That(vm.ChoiceLabel).IsEqualTo("Also remove my settings");
+            await Assert.That(vm.Disclosure).IsEqualTo("settings are kept.");
+            await Assert.That(vm.Warning).IsNull();
+
+            vm.ChoiceChecked = true;
+
+            await Assert.That(vm.Disclosure).IsEqualTo("settings are removed.");
+            await Assert.That(vm.Warning).IsEqualTo("data is deleted");
+            await Assert.That(changed).Contains(nameof(vm.Disclosure));
+            await Assert.That(changed).Contains(nameof(vm.Warning));
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_prompt_without_a_choice_has_no_checkbox_to_tick() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var vm = new LifecyclePromptViewModel(Prompt(LifecyclePrompt.KindRepair), new TaskCompletionSource<bool>());
+
+            vm.ChoiceChecked = true;
+
+            await Assert.That(vm.ChoiceLabel).IsNull();
+            await Assert.That(vm.ChoiceChecked).IsFalse();
+            await Assert.That(vm.Disclosure).IsEqualTo("the unit will be replaced.");
+        });
+    }
 }

@@ -39,17 +39,37 @@ public class UninstallModeTests {
     }
 
     [Test]
-    [Arguments(null, false, false)]
-    [Arguments(new string[0], false, false)]
-    [Arguments(new[] { "--setup", "--relaunch" }, false, false)]
-    [Arguments(new[] { "--purge-local" }, false, false)]
-    [Arguments(new[] { "--uninstall", "--relaunch" }, true, false)]
-    [Arguments(new[] { "--uninstall", "--purge-local", "--relaunch" }, true, true)]
-    public async Task Parse_reads_the_flags(string[]? args, bool uninstall, bool purgeLocal) {
+    [Arguments(null, false, false, false)]
+    [Arguments(new string[0], false, false, false)]
+    [Arguments(new[] { "--setup", "--relaunch" }, false, false, false)]
+    [Arguments(new[] { "--purge-local" }, false, false, false)]
+    [Arguments(new[] { "--confirm" }, false, false, false)]
+    [Arguments(new[] { "--uninstall", "--relaunch" }, true, false, false)]
+    [Arguments(new[] { "--uninstall", "--purge-local", "--relaunch" }, true, true, false)]
+    [Arguments(new[] { "--uninstall", "--confirm" }, true, false, true)]
+    public async Task Parse_reads_the_flags(string[]? args, bool uninstall, bool purgeLocal, bool confirm) {
         var mode = UninstallMode.Parse(args);
 
         await Assert.That(mode is not null).IsEqualTo(uninstall);
-        if (mode is not null) await Assert.That(mode.PurgeLocal).IsEqualTo(purgeLocal);
+        if (mode is null) return;
+        await Assert.That(mode.PurgeLocal).IsEqualTo(purgeLocal);
+        await Assert.That(mode.Confirm).IsEqualTo(confirm);
+        // No command line keeps the settings: only the answer to the confirmation does.
+        await Assert.That(mode.KeepConfig).IsFalse();
+    }
+
+    [Test]
+    public async Task A_run_that_keeps_the_settings_tells_the_cli_and_says_so() {
+        var runner = new Runner();
+        var cli = App.NewWizardCli(Config.Root, ProfileOverrides.None, NoLocalInstallation.Root, runner, "/test/kcap", new FakeLoginShellProbe());
+
+        var run = new UninstallMode(PurgeLocal: false, KeepConfig: true)
+            .BuildRun(Bundle(withInfoPlist: true), _ => new Removal(), cli, () => { }, action => action())!;
+        await run.RunAsync();
+
+        await Assert.That(runner.StreamedArgs).Contains("--keep-config");
+        await Assert.That(runner.StreamedArgs).DoesNotContain("--purge-local");
+        await Assert.That(run.Receipt.Select(item => item.Text)).Contains("Kept your kcap settings and sign-in for a reinstall");
     }
 
     string Bundle(bool withInfoPlist) {

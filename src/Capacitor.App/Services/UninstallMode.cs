@@ -7,13 +7,17 @@ namespace Capacitor.App.Services;
 
 /// Options shared by the app menu and a standalone --uninstall launch. The standalone mode
 /// builds none of the normal app; the menu supplies preparation to tear that app down first.
-internal sealed record UninstallMode(bool PurgeLocal) {
+/// <param name="KeepConfig">Leave the settings and sign-in, and a local server's data with them.</param>
+/// <param name="Confirm">Nobody has agreed to this launch yet, as when Windows starts it from Installed apps: it asks
+/// before removing anything, and takes the other two options from the answer.</param>
+internal sealed record UninstallMode(bool PurgeLocal, bool KeepConfig = false, bool Confirm = false) {
     public const string Arg = "--uninstall";
     public const string PurgeLocalArg = "--purge-local";
+    public const string ConfirmArg = "--confirm";
 
     public static UninstallMode? Parse(string[]? args) =>
         args?.Contains(Arg, StringComparer.Ordinal) == true
-            ? new UninstallMode(args.Contains(PurgeLocalArg, StringComparer.Ordinal))
+            ? new UninstallMode(args.Contains(PurgeLocalArg, StringComparer.Ordinal), Confirm: args.Contains(ConfirmArg, StringComparer.Ordinal))
             : null;
 
     /// Null unless the process runs from a real bundle: the removal trashes the bundle root, so a
@@ -23,7 +27,7 @@ internal sealed record UninstallMode(bool PurgeLocal) {
             Func<Task>? prepare = null) {
         if (InstallLocation.BundleRoot(processPath) is not { } root
          || !File.Exists(Path.Combine(root, "Contents", "Info.plist"))) return null;
-        return new UninstallRunViewModel(cli, removalFor(root), PurgeLocal, quit, post, prepare);
+        return new UninstallRunViewModel(cli, removalFor(root), PurgeLocal, quit, post, prepare, KeepConfig);
     }
 
     /// Null unless the process runs from an AppImage that is still on disk: the removal trashes the image, so
@@ -32,7 +36,7 @@ internal sealed record UninstallMode(bool PurgeLocal) {
             AppImageInstall? install, Func<AppImageInstall, IAppRemoval> removalFor, IKcapCli cli, Action quit, Action<Action>? post = null,
             Func<Task>? prepare = null) =>
         install is not null && File.Exists(install.Image)
-            ? new UninstallRunViewModel(cli, removalFor(install), PurgeLocal, quit, post, prepare)
+            ? new UninstallRunViewModel(cli, removalFor(install), PurgeLocal, quit, post, prepare, KeepConfig)
             : null;
 
     /// Null unless the process runs from a per-user Velopack install whose updater is still there: the removal hands
@@ -41,6 +45,6 @@ internal sealed record UninstallMode(bool PurgeLocal) {
             VelopackInstall? install, Func<VelopackInstall, IAppRemoval> removalFor, IKcapCli cli, Action quit, Action<Action>? post = null,
             Func<Task>? prepare = null) =>
         install is not null && File.Exists(install.UpdateExe)
-            ? new UninstallRunViewModel(cli, removalFor(install), PurgeLocal, quit, post, prepare)
+            ? new UninstallRunViewModel(cli, removalFor(install), PurgeLocal, quit, post, prepare, KeepConfig)
             : null;
 }

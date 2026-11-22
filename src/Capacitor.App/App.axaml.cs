@@ -320,6 +320,9 @@ public partial class App : Application {
     FeedbackWindow? _feedbackWindow;
     internal FeedbackWindow? FeedbackWindowForTests => _feedbackWindow;
     readonly AppMenu _appMenu;
+    // The menu's uninstall, which a launch from Windows' Installed apps asks this running copy for; null until the
+    // app can gather what the confirmation names.
+    Action? _requestUninstall;
     // A field, not a local: the report items it retains are enabled only once the profile has
     // resolved, long after the bar is attached.
     AppMenuBar? _menuBar;
@@ -368,6 +371,16 @@ public partial class App : Application {
                 () => _shutdownStarted ? null : MainWindowAction(_coordinator), AppKitDock.SetVisible);
             _windowLifecycle = windowLifecycle;
             desktop.Exit += (_, _) => { windowLifecycle.Dispose(); Program.Host.Dispose(); };
+            Program.Host.SingleInstance.UninstallRequested += () => Dispatcher.UIThread.Post(() => {
+                if (_shutdownStarted || _uninstalling || _uninstallRun is not null) return;
+                // Setup and the startup screens have no uninstall to offer yet; their own window is all there is to show.
+                if (_requestUninstall is { } request) {
+                    MainWindowAction(_coordinator)?.Invoke();
+                    request();
+                } else {
+                    desktop.Windows.FirstOrDefault(w => w.IsVisible)?.Activate();
+                }
+            });
             Program.Host.SingleInstance.ShowRequested += () => Dispatcher.UIThread.Post(() => {
                 if (_uninstallRun is not null && desktop.MainWindow is { } uninstallWindow) {
                     if (uninstallWindow.WindowState == WindowState.Minimized) uninstallWindow.WindowState = WindowState.Normal;
@@ -476,6 +489,7 @@ public partial class App : Application {
             }
             if (OperatingSystem.IsWindows() && !_shutdown.IsCancellationRequested
              && Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is { } install) {
+                PointInstalledAppsAtThisUninstall(install);
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
                 var warning = await RefreshIntegrationsAfterUpdateAsync(install);
                 if (warning is not null) _coordinator?.Window?.Notifier?.Notify(warning);
@@ -765,8 +779,45 @@ public partial class App : Application {
 
     // A standalone launch and the app menu share the same window and removal pipeline.
     // The menu supplies preparation so normal app services stop before cleanup starts.
-    void RunUninstallMode(IClassicDesktopStyleApplicationLifetime desktop, UninstallMode uninstall) =>
-        StartUninstall(desktop, uninstall, prepareApp: false);
+    void RunUninstallMode(IClassicDesktopStyleApplicationLifetime desktop, UninstallMode uninstall) {
+        if (uninstall.Confirm) _ = ConfirmThenUninstallAsync(desktop);
+        else StartUninstall(desktop, uninstall, prepareApp: false);
+    }
+
+    // Best effort: an entry left as the installer wrote it still uninstalls, only without the question.
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    static void PointInstalledAppsAtThisUninstall(Platform.Windows.VelopackInstall install) {
+        if (Environment.ProcessPath is not { } exe) return;
+        try {
+            Platform.Windows.WindowsUninstallCommand.PointAtApp(install.Root, exe);
+        } catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or System.Security.SecurityException) {
+            Console.Error.WriteLine($"kcap: could not point Installed apps at kcap's own uninstall: {ex.Message}");
+        }
+    }
+
+    // No copy of the app was running, so this process is only the uninstaller: there is no attached daemon or
+    // profile to name, and the confirmation says what it can read without them.
+    async Task ConfirmThenUninstallAsync(IClassicDesktopStyleApplicationLifetime desktop) {
+        try {
+            if (Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is not { } install) {
+                await Console.Error.WriteLineAsync("kcap: uninstalling from the app needs kcap installed by its Windows installer.");
+                desktop.Shutdown(1);
+                return;
+            }
+            var facts = UninstallFactsFor(install.Root, "", null, null, NewTerminalProbe(new ProcessRunner(_time)));
+            var request = UninstallConfirmation.Build(await facts.GatherAsync(_shutdown.Token));
+            var (accepted, removeSettings) = await ShowLifecycleChoiceDialogAsync(null, request.Prompt, _shutdown.Token);
+            if (!accepted) {
+                desktop.Shutdown(0);
+                return;
+            }
+            StartUninstall(desktop, request.Mode(removeSettings), prepareApp: false);
+        } catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
+        } catch (Exception ex) {
+            await Console.Error.WriteLineAsync($"kcap: could not start the uninstall: {ex.Message}");
+            desktop.Shutdown(1);
+        }
+    }
 
     bool StartUninstall(IClassicDesktopStyleApplicationLifetime desktop, UninstallMode uninstall, bool prepareApp) {
         var previous = prepareApp ? desktop.Windows.ToArray() : [];
@@ -825,6 +876,7 @@ public partial class App : Application {
         _appMenu.SetCheckForUpdatesAction(null);
         _appMenu.SetSetupAction(null);
         _appMenu.SetUninstallAction(null);
+        _requestUninstall = null;
         _shutdown.Cancel();
         await DisposeAppAsync(shutdown: false);
         // Close normal windows while their persisted state still exists. Their shutdown latch
@@ -1607,7 +1659,8 @@ public partial class App : Application {
                     : AppImageInstall.StagedRoot(Environment.GetEnvironmentVariable, _userHome),
                 () => Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory)?.Root) is { } uninstallRoot) {
             var facts = UninstallFactsFor(uninstallRoot, service.DaemonName, profiles?.Resolution.ServerUrl, lifecycle, lifecycleProbe);
-            _appMenu.SetUninstallAction(() => _ = UninstallFromAppAsync(desktop, facts));
+            _requestUninstall = () => _ = UninstallFromAppAsync(desktop, facts);
+            _appMenu.SetUninstallAction(_requestUninstall);
         }
 
         // LAST, deliberately: anything above throwing lands in the catch with no
@@ -1670,10 +1723,10 @@ public partial class App : Application {
         : null;
 
     UninstallFactsSource UninstallFactsFor(string bundleRoot, string daemonName, string? profileServerUrl,
-            DaemonLifecycleController lifecycle, ILoginShellProbe probe) => new(
+            DaemonLifecycleController? lifecycle, ILoginShellProbe probe) => new(
         LocalServerUrl: () => LocalServerFact.Read(_localRoot),
         AttachedDaemon: daemonName,
-        Activity: () => lifecycle.LatestActivity,
+        Activity: () => lifecycle?.LatestActivity,
         LiveDaemons: () => DaemonPidLiveness.LiveDaemons(_daemonStore),
         HostedServerUrl: () => profileServerUrl is { Length: > 0 } && !IsLocalServer(profileServerUrl, _localRoot) ? profileServerUrl : null,
         TerminalPath: probe.TerminalPathAsync,
@@ -1696,8 +1749,9 @@ public partial class App : Application {
         var started = false;
         try {
             var request = UninstallConfirmation.Build(await source.GatherAsync(_shutdown.Token));
-            if (!await ShowLifecyclePromptDialogAsync(_coordinator?.Window, request.Prompt, _shutdown.Token)) return;
-            started = StartUninstall(desktop, new UninstallMode(request.PurgeLocal), prepareApp: true);
+            var (accepted, removeSettings) = await ShowLifecycleChoiceDialogAsync(DialogOwner(), request.Prompt, _shutdown.Token);
+            if (!accepted) return;
+            started = StartUninstall(desktop, request.Mode(removeSettings), prepareApp: true);
             if (!started)
                 _coordinator?.Window?.Notifier?.Notify("Uninstall needs the installed kcap app. Run kcap uninstall in a terminal instead.");
         } catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
@@ -3108,7 +3162,20 @@ public partial class App : Application {
 
     internal static Task<bool> ShowLifecyclePromptDialogAsync(Window? owner, LifecyclePrompt prompt, CancellationToken ct) {
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var dialog = new LifecyclePromptWindow { DataContext = new LifecyclePromptViewModel(prompt, tcs) };
+        return ShowLifecycleDialog(owner, new LifecyclePromptViewModel(prompt, tcs), tcs, ct);
+    }
+
+    /// The answer, and whether the prompt's choice was ticked when it was accepted.
+    internal static async Task<(bool Accepted, bool Chosen)> ShowLifecycleChoiceDialogAsync(
+            Window? owner, LifecyclePrompt prompt, CancellationToken ct) {
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var viewModel = new LifecyclePromptViewModel(prompt, tcs);
+        var accepted = await ShowLifecycleDialog(owner, viewModel, tcs, ct).ConfigureAwait(true);
+        return (accepted, accepted && viewModel.ChoiceChecked);
+    }
+
+    static Task<bool> ShowLifecycleDialog(Window? owner, LifecyclePromptViewModel viewModel, TaskCompletionSource<bool> tcs, CancellationToken ct) {
+        var dialog = new LifecyclePromptWindow { DataContext = viewModel };
         // Closing via the titlebar/Esc without Accept/Decline also resolves false —
         // BuildConfirmForceStopWindow's same rule below. TrySetResult is idempotent, so this is a
         // no-op once AcceptCommand/DeclineCommand already resolved it.

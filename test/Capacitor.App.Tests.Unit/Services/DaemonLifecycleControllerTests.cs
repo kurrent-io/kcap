@@ -2626,10 +2626,12 @@ sealed class FakeKcapCli : IKcapCli {
     }
 
     public List<bool> UninstallPurgeFlags { get; } = [];
+    public List<bool> UninstallKeepConfigFlags { get; } = [];
     public Func<Action<StreamedLine>, Task<StreamingResult>> UninstallBehavior =
         _ => Task.FromResult(new StreamingResult(1, false, []));
-    public Task<StreamingResult> UninstallAsync(bool purgeLocal, Action<StreamedLine> onLine, CancellationToken ct) {
+    public Task<StreamingResult> UninstallAsync(bool purgeLocal, bool keepConfig, Action<StreamedLine> onLine, CancellationToken ct) {
         UninstallPurgeFlags.Add(purgeLocal);
+        UninstallKeepConfigFlags.Add(keepConfig);
         return UninstallBehavior(onLine);
     }
 

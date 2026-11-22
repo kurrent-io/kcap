@@ -14,16 +14,18 @@ public sealed class UninstallRunViewModel : ReactiveObject {
     readonly IKcapCli      _cli;
     readonly IAppRemoval   _removal;
     readonly bool          _purgeLocal;
+    readonly bool          _keepConfig;
     readonly Action<Action> _post;
     readonly Func<Task>?    _prepare;
     bool                   _prepared;
     UninstallRunState      _state = UninstallRunState.Running;
 
     public UninstallRunViewModel(IKcapCli cli, IAppRemoval removal, bool purgeLocal, Action quit, Action<Action>? post = null,
-            Func<Task>? prepare = null) {
+            Func<Task>? prepare = null, bool keepConfig = false) {
         _cli        = cli;
         _removal    = removal;
         _purgeLocal = purgeLocal;
+        _keepConfig = keepConfig;
         _post       = post ?? (action => Dispatcher.UIThread.Post(action));
         _prepare    = prepare;
         _prepared   = prepare is null;
@@ -122,7 +124,7 @@ public sealed class UninstallRunViewModel : ReactiveObject {
         var streamed = 0;
         var purged = 0;
         try {
-            result = await _cli.UninstallAsync(_purgeLocal, line => {
+            result = await _cli.UninstallAsync(_purgeLocal, _keepConfig, line => {
                 Interlocked.Increment(ref streamed);
                 // The CLI's own outcome line: a purge that was asked for may have found no server to purge.
                 if (line.Text.StartsWith("Purged the local server", StringComparison.Ordinal)) Interlocked.Exchange(ref purged, 1);
@@ -191,7 +193,7 @@ public sealed class UninstallRunViewModel : ReactiveObject {
         Receipt.Add(new("Removed kcap from your coding agents’ user settings"));
         Receipt.Add(new("Removed kcap’s background services"));
         if (purgedLocal) Receipt.Add(new("Deleted the local server and every session it recorded"));
-        Receipt.Add(new("Removed your kcap settings and sign-in"));
+        Receipt.Add(new(_keepConfig ? "Kept your kcap settings and sign-in for a reinstall" : "Removed your kcap settings and sign-in"));
         Receipt.Add(new("Removed the kcap command the app installed"));
         Receipt.Add(new(_removal.Trashed, Done: !_removal.RemovedOnExit));
         if (supportFilesLeft)

@@ -120,9 +120,11 @@ public interface IKcapCli {
     /// contract as <see cref="SetupLocalAsync"/>.
     Task<StreamingResult> LocalUpgradeAsync(Action<StreamedLine> onLine, CancellationToken interrupt, CancellationToken ct);
 
-    /// `uninstall --yes --force --keep-path-links` (and `--purge-local`), streamed live via onLine. No internal
-    /// timeout; <paramref name="ct"/> bounds only the work before the spawn, so a running uninstall is never killed.
-    Task<StreamingResult> UninstallAsync(bool purgeLocal, Action<StreamedLine> onLine, CancellationToken ct);
+    /// `uninstall --yes --force --keep-path-links` (and `--keep-config` or `--purge-local`), streamed live via onLine.
+    /// No internal timeout; <paramref name="ct"/> bounds only the work before the spawn, so a running uninstall is never killed.
+    /// <param name="keepConfig">Leaves the settings and sign-in, and a local server's data with them, so it outranks
+    /// <paramref name="purgeLocal"/>.</param>
+    Task<StreamingResult> UninstallAsync(bool purgeLocal, bool keepConfig, Action<StreamedLine> onLine, CancellationToken ct);
 
     /// `local start`, bounded above the CLI's own readiness budget.
     Task<ProcessResult> LocalStartAsync(CancellationToken ct);
@@ -435,13 +437,15 @@ public sealed class KcapCli : IKcapCli {
             onLine, CancellationToken.None).ConfigureAwait(false);
     }
 
-    public async Task<StreamingResult> UninstallAsync(bool purgeLocal, Action<StreamedLine> onLine, CancellationToken ct) {
+    public async Task<StreamingResult> UninstallAsync(bool purgeLocal, bool keepConfig, Action<StreamedLine> onLine, CancellationToken ct) {
         if (CliPath is not { } cliPath)
             return new StreamingResult(-1, false, [new StreamedLine(ProcessStreamKind.Stderr, "kcap CLI not found")]);
 
-        string[] args = purgeLocal
-            ? ["uninstall", "--yes", "--force", "--keep-path-links", "--purge-local"]
-            : ["uninstall", "--yes", "--force", "--keep-path-links"];
+        string[] args = keepConfig
+            ? ["uninstall", "--yes", "--force", "--keep-path-links", "--keep-config"]
+            : purgeLocal
+                ? ["uninstall", "--yes", "--force", "--keep-path-links", "--purge-local"]
+                : ["uninstall", "--yes", "--force", "--keep-path-links"];
 
         return await _runner.RunStreamingAsync(cliPath, args,
             new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false)), onLine, CancellationToken.None).ConfigureAwait(false);

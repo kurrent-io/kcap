@@ -44,6 +44,35 @@ public class WindowsSingleInstanceLockTests {
         await Assert.That(second).IsNull();
     }
 
+    /// Windows starts the uninstall as a second launch; the copy already running is the one that can ask first.
+    [Test]
+    public async Task A_launch_that_came_to_uninstall_asks_the_running_copy_for_its_uninstall_not_its_window() {
+        var name = UniqueName();
+        var asked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var shown = false;
+        using var held = new ManualResetEventSlim();
+        using var exit = new ManualResetEventSlim();
+        var owner = OnOwnThread(() => {
+            var guard = WindowsSingleInstanceLock.TryAcquire(name, TimeSpan.Zero);
+            if (guard is not null) {
+                guard.UninstallRequested += () => asked.TrySetResult();
+                guard.ShowRequested += () => shown = true;
+            }
+            held.Set();
+            exit.Wait();
+            return guard;
+        });
+        held.Wait();
+
+        var second = await OnOwnThread(() => WindowsSingleInstanceLock.TryAcquire(name, TimeSpan.Zero, uninstall: true));
+        await asked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        exit.Set();
+        using var first = await owner;
+
+        await Assert.That(second).IsNull();
+        await Assert.That(shown).IsFalse();
+    }
+
     [Test]
     public async Task A_relaunch_waits_for_the_old_copy_to_exit_and_then_takes_the_lock() {
         var name = UniqueName();
