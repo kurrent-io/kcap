@@ -47,25 +47,12 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     Task?          _run;
     string?        _lastReport;
 
-    string  _status = "";
-    bool    _statusIsError;
-    string? _statusDetail;
-    bool    _busy;
-    bool    _satisfied;
-    string? _deviceCode;
-    string? _verificationUri;
-    string? _browserUrl;
-    string? _waitingText;
-    string? _quarantineNotice;
     bool    _tenantPickerVisible;
     bool    _tenantChoiceMade;
-    bool    _urlPanelVisible;
     bool    _statusIsReady;
     bool    _expireAfterRun;
 
     CancellationTokenSource? _signUpClock;
-
-    DiscoveredTenant? _selectedTenant;
 
     public SignInStepViewModel(
             WizardAuthService    service,
@@ -226,19 +213,19 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
 
     /// The "I have a workspace URL" field under the work-account action.
     public bool UrlPanelVisible {
-        get => _urlPanelVisible;
-        set => this.RaiseAndSetIfChanged(ref _urlPanelVisible, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string Status {
-        get => _status;
-        private set => this.RaiseAndSetIfChanged(ref _status, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     public bool StatusIsError {
-        get => _statusIsError;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _statusIsError, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(PrimaryActionLabel));
             this.RaisePropertyChanged(nameof(WorkAccountLabel));
         }
@@ -250,14 +237,14 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
 
     /// The last error line the façade rendered. Detail behind the generic failure headline.
     public string? StatusDetail {
-        get => _statusDetail;
-        private set => this.RaiseAndSetIfChanged(ref _statusDetail, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Busy {
-        get => _busy;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _busy, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Idle));
             this.RaisePropertyChanged(nameof(ShowPrimaryAction));
             RestatePhase();
@@ -267,9 +254,9 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     public bool Idle => !Busy;
 
     public bool Satisfied {
-        get => _satisfied;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _satisfied, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowPrimaryAction));
             this.RaisePropertyChanged(nameof(OwnsPrimaryAction));
             this.RaisePropertyChanged(nameof(StatusLineVisible));
@@ -281,29 +268,29 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     public bool ShowPrimaryAction => Idle && !Satisfied;
 
     public string? DeviceCode {
-        get => _deviceCode;
-        private set => this.RaiseAndSetIfChanged(ref _deviceCode, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? VerificationUri {
-        get => _verificationUri;
-        private set => this.RaiseAndSetIfChanged(ref _verificationUri, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? BrowserUrl {
-        get => _browserUrl;
-        private set => this.RaiseAndSetIfChanged(ref _browserUrl, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? WaitingText {
-        get => _waitingText;
-        private set => this.RaiseAndSetIfChanged(ref _waitingText, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? QuarantineNotice {
-        get => _quarantineNotice;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _quarantineNotice, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(OwnsPrimaryAction));
         }
     }
@@ -321,8 +308,8 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     public bool TenantChoicePending => _tenantPickerVisible && !_tenantChoiceMade;
 
     public DiscoveredTenant? SelectedTenant {
-        get => _selectedTenant;
-        set => this.RaiseAndSetIfChanged(ref _selectedTenant, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public Task OnEnterAsync(CancellationToken ct) {

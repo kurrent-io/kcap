@@ -49,6 +49,7 @@
             <Setter Property="MinHeight" Value="2" />
             <Setter Property="Margin" Value="0,4,0,2" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+            <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
         </Style>
         <Style Selector="StackPanel.noticeActions, WrapPanel.noticeActions">
             <Setter Property="HorizontalAlignment" Value="Left" />
@@ -183,13 +184,13 @@
                                              IsVisible="{Binding LocalStack.StartMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         <StackPanel x:Name="LocalUpgradeActions" Classes="noticeActions"
                                     IsVisible="{Binding LocalStack.ActionsVisible, FallbackValue=False}">
-                            <Button x:Name="LocalUpgradeDismissButton" Classes="kcapChip" Content="Dismiss"
+                            <Button x:Name="LocalUpgradeDismissButton" Classes.kcapPrimary="{Binding LocalStack.DismissIsPrimary, FallbackValue=False}" Classes.kcapGhost="{Binding !LocalStack.DismissIsPrimary, FallbackValue=True}" Content="Dismiss"
                                     Command="{Binding LocalStack.DismissCommand}"
                                     IsVisible="{Binding LocalStack.DismissVisible, FallbackValue=False}" />
                             <Button x:Name="LocalUpgradeStartButton" Classes="kcapPrimary" Content="Start"
                                     Command="{Binding LocalStack.StartCommand}"
                                     IsVisible="{Binding LocalStack.StartVisible, FallbackValue=False}" />
-                            <Button x:Name="LocalUpgradeTryAgainButton" Classes="kcapPrimary" Content="Try again"
+                            <Button x:Name="LocalUpgradeTryAgainButton" Classes.kcapPrimary="{Binding LocalStack.TryAgainIsPrimary, FallbackValue=False}" Classes.kcapChip="{Binding !LocalStack.TryAgainIsPrimary, FallbackValue=True}" Content="Try again"
                                     Command="{Binding LocalStack.TryAgainCommand}"
                                     IsVisible="{Binding LocalStack.TryAgainVisible, FallbackValue=False}" />
                             <Button x:Name="LocalUpgradeReinstallButton" Classes="kcapPrimary" Content="Reinstall"
@@ -285,14 +286,14 @@
                                     Command="{Binding StartDaemonCommand}" IsVisible="{Binding DaemonStartVisible}" />
                             <Button x:Name="RepairDaemonButton" Classes="kcapPrimary" Content="Repair"
                                     Command="{Binding RepairDaemonCommand}" IsVisible="{Binding DaemonRepairVisible}" />
-                            <Button x:Name="RetryDaemonButton" Classes="kcapPrimary" Content="Reconnect"
+                            <Button x:Name="RetryDaemonButton" Classes.kcapPrimary="{Binding !DaemonRepairVisible}" Classes.kcapChip="{Binding DaemonRepairVisible}" Content="Reconnect"
                                     Command="{Binding RetryDaemonCommand}" IsVisible="{Binding DaemonRetryVisible}" />
                             <Button x:Name="HomeSignInButton" Classes="kcapPrimary" Content="Sign in"
                                     Command="{Binding SignInCommand}" IsVisible="{Binding SignInVisible}" />
-                            <Button x:Name="RetryServerButton" Classes="kcapPrimary" Content="Retry"
+                            <Button x:Name="RetryServerButton" Classes.kcapPrimary="{Binding !SignInVisible}" Classes.kcapChip="{Binding SignInVisible}" Content="Retry"
                                     AutomationProperties.Name="Retry the server connection"
                                     Command="{Binding RetryServerCommand}" IsVisible="{Binding ServerRetryVisible}" />
-                            <Button x:Name="OpenHarnessesSettingsButton" Classes="kcapChip" Content="Open Harnesses settings"
+                            <Button x:Name="OpenHarnessesSettingsButton" Classes="kcapPrimary" Content="Open Harnesses settings"
                                     Command="{Binding OpenHarnessesSettingsCommand}" IsVisible="{Binding HarnessesSettingsVisible}"
                                     ToolTip.Tip="{x:Static vm:HomeViewModel.HarnessesSettingsTip}" />
                         </StackPanel>
@@ -409,7 +410,7 @@
                                 <Grid ColumnDefinitions="*,Auto">
                                     <views:LaunchChipsView x:Name="LaunchChips" DataContext="{Binding}" VerticalAlignment="Center">
                                         <views:LaunchChipsView.Leading>
-                                            <Button x:Name="AttachButton" Classes="kcapGhost"
+                                            <Button x:Name="AttachButton" Classes="kcapGhost kcapIcon"
                                                     IsEnabled="{Binding CanAttach}" ToolTip.Tip="{Binding AttachHint}"
                                                     ToolTip.ShowOnDisabled="True" AutomationProperties.Name="Attach files"
                                                     Width="26" Height="26" Padding="0" FontSize="15" Cursor="Hand"
@@ -480,7 +481,7 @@
                                     Padding="10,4" FontSize="12"
                                     Command="{Binding UsageNotice.TurnOffCommand, FallbackValue={x:Null}}"
                                     IsVisible="{Binding UsageNotice.CanTurnOff, FallbackValue=False}" />
-                            <Button x:Name="UsageNoticeOkButton" Classes="kcapChip" Content="Dismiss"
+                            <Button x:Name="UsageNoticeOkButton" Classes.kcapPrimary="{Binding !UsageNotice.CanTurnOff, FallbackValue=True}" Classes.kcapGhost="{Binding UsageNotice.CanTurnOff, FallbackValue=False}" Content="Dismiss"
                                     Padding="10,4" FontSize="12"
                                     Command="{Binding UsageNotice.AcknowledgeCommand, FallbackValue={x:Null}}" />
                         </StackPanel>

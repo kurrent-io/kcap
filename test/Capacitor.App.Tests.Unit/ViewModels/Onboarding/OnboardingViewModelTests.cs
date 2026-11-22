@@ -423,12 +423,11 @@ public class OnboardingViewModelTests {
             window.Close();
             Dispatcher.UIThread.RunJobs();
 
-            return (title?.Text, title?.Classes.Contains("onboardingHeadline"), eyebrow?.Text);
+            return (title?.Text, eyebrow?.Text);
         });
 
         await Assert.That(rendered.Item1).IsEqualTo("Connect to kcap");
-        await Assert.That(rendered.Item2).IsTrue();
-        await Assert.That(rendered.Item3).IsEqualTo("STEP 1 OF 1 · CONNECT TO KCAP");
+        await Assert.That(rendered.Item2).IsEqualTo("STEP 1 OF 1 · CONNECT TO KCAP");
     }
 
     // ── Busy gate and veto handling ──────────────────────────

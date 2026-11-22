@@ -459,9 +459,9 @@ public class SessionImporterProgressTests : IDisposable {
         await File.WriteAllLinesAsync(path, lines);
 
         using var client = new HttpClient();
-        await SessionImporter.SendTranscriptBatches(
-            client, _server.Url!, "s1", path, agentId: null, startLine: 3, TimeProvider.System,
-            canonical: new IngestCapability(client, _server.Url!, TimeProvider.System));
+        await SessionImporter.ImportSessionAsync(
+            client, _server.Url!, path, "s1", new SessionMetadata(), encodedCwd: null, TimeProvider.System,
+            canonical: new IngestCapability(client, _server.Url!, TimeProvider.System), startLine: 3, strict: true);
 
         var uninterrupted = CanonicalRoute.For("claude", "s1", null, true)!;
         uninterrupted.Encode(new() { SessionId = "s1", Lines = lines[..3], LineNumbers = [0, 1, 2] }, DateTimeOffset.UnixEpoch);

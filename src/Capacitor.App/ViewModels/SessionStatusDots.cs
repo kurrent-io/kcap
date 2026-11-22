@@ -119,7 +119,7 @@ public static class SessionStatusDots {
         if (pending && kind != AgentStatusKind.Answer) Add(facts, "Pending response");
         if (waitsOnUser && kind is not AgentStatusKind.Idle and not AgentStatusKind.Answer)
             Add(facts, "Waiting for input.");
-        if (liveSubagents is int live and > 0)
+        if (liveSubagents is { } live and > 0)
             Add(facts, $"{live} subagent{(live == 1 ? "" : "s")} running");
         if (liveCommands > 0)
             Add(facts, $"{liveCommands} command{(liveCommands == 1 ? "" : "s")} running");

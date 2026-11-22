@@ -135,6 +135,6 @@ internal static class BorrowedReviewTokenCommand {
 
         var trimmed = line.ToString().Trim();
 
-        return trimmed.Length == 0 || trimmed.Length > MaxTokenLength ? null : trimmed;
+        return trimmed.Length is 0 or > MaxTokenLength ? null : trimmed;
     }
 }

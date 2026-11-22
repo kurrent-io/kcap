@@ -204,10 +204,10 @@
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
                         <Button x:Name="BackButton" Classes="onboardingQuiet" Content="Back"
                                 Command="{Binding BackCommand}" IsVisible="{Binding BackVisible}" />
-                        <Button Grid.Column="2" x:Name="SkipButton" Classes="onboardingSecondary" Command="{Binding SkipCommand}"
+                        <Button Grid.Column="2" x:Name="SkipButton" Classes="onboardingQuiet" Command="{Binding SkipCommand}"
                                 Content="{Binding SkipLabel}"
                                 IsVisible="{Binding SkipVisible}" />
-                        <Button Grid.Column="2" x:Name="CancelTenantButton" Classes="onboardingSecondary" Content="Cancel"
+                        <Button Grid.Column="2" x:Name="CancelTenantButton" Classes="onboardingQuiet" Content="Cancel"
                                 Command="{Binding CancelTenantCommand}" IsVisible="{Binding TenantActionsVisible}" />
                         <Button Grid.Column="2" x:Name="OpenInBrowserButton" Classes="onboardingLink" Content="Open in browser"
                                 Command="{Binding OpenInBrowserCommand}" IsVisible="{Binding OpenInBrowserVisible}" />

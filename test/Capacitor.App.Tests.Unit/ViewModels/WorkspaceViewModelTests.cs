@@ -1160,7 +1160,7 @@ public class WorkspaceViewModelTests {
     }
 
     static string Notification(string taskId, string? callId, string summary) {
-        var call = callId is null ? "" : $$"""<tool-use-id>{{callId}}</tool-use-id>\n""";
+        var call = callId is null ? "" : $"""<tool-use-id>{callId}</tool-use-id>\n""";
         return $$$"""{"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>{{{taskId}}}</task-id>\n{{{call}}}<status>completed</status>\n<summary>{{{summary}}}</summary>\n</task-notification>"}}""" + "\n";
     }
 

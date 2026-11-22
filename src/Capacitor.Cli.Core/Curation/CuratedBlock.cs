@@ -52,7 +52,7 @@ public static class CuratedBlock {
 
         if (loc is null) {
             // Append, separated by a blank line if the file has trailing content.
-            if (lines.Count > 0 && !(lines.Count == 1 && lines[0].Length == 0) && lines[^1].Trim().Length != 0)
+            if (lines.Count > 0 && !(lines is [{ Length: 0 }]) && lines[^1].Trim().Length != 0)
                 lines.Add("");
             lines.AddRange(blockLines);
         } else {

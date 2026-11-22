@@ -41,16 +41,16 @@ public class LocalControlRecordingTests {
                 });
         }
 
-        public AgentOrchestrator Orch { get; }
+        AgentOrchestrator Orch { get; }
         public DaemonConfig Config { get; private set; } = null!;
         public DaemonRecorder Recorder { get; private set; } = null!;
-        public RecordingProbe Probe { get; } = new();
+        RecordingProbe Probe { get; } = new();
         public FakeRecorderTransport Transport { get; } = new() { IsConnected = true };
 
         public bool Exited { get; set; }
 
         /// <summary>The daemon's own Claude directory.</summary>
-        public string ClaudeHome => new ClaudePaths(Config.Home, null).Home;
+        string ClaudeHome => new ClaudePaths(Config.Home, null).Home;
 
         public string Projects => new ClaudePaths(Config.Home, ClaudeHome).Projects;
 

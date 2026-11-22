@@ -46,12 +46,12 @@ public class PiHeadlessHarnessTests {
         var systemCopy = Bin.PathTo("system.txt");
         var harness   = Harness(TestBinaries.Searching(Bin, "pi"));
 
-        Bin.CreateExecutable("pi", $$"""
+        Bin.CreateExecutable("pi", $"""
             #!/bin/sh
-            printf '%s\n' "$@" > '{{argsFile}}'
-            cat > '{{stdinFile}}'
+            printf '%s\n' "$@" > '{argsFile}'
+            cat > '{stdinFile}'
             while [ $# -gt 0 ]; do
-              if [ "$1" = "--system-prompt" ]; then cp "$2" '{{systemCopy}}'; fi
+              if [ "$1" = "--system-prompt" ]; then cp "$2" '{systemCopy}'; fi
               shift
             done
             exit 0

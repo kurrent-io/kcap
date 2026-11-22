@@ -119,8 +119,8 @@ public class InstallKindDetectionTests {
         var windows = InstallProvenance.NotOnPathHint(InstallKind.App, windows: true, @"C:\Users\Jane Doe\AppData\Local\kcap\current\kcap.exe");
         var mac     = InstallProvenance.NotOnPathHint(InstallKind.App, windows: false, "/Users/jane/My Apps/kcap.app/Contents/MacOS/kcap");
 
-        await Assert.That(windows).Contains(@"or run: & ""C:\Users\Jane Doe\AppData\Local\kcap\current\kcap.exe"" daemon shim ensure.");
-        await Assert.That(mac).Contains(@"or run: ""/Users/jane/My Apps/kcap.app/Contents/MacOS/kcap"" daemon shim ensure.");
+        await Assert.That(windows).Contains("""or run: & "C:\Users\Jane Doe\AppData\Local\kcap\current\kcap.exe" daemon shim ensure.""");
+        await Assert.That(mac).Contains("""or run: "/Users/jane/My Apps/kcap.app/Contents/MacOS/kcap" daemon shim ensure.""");
     }
 
     [Test]

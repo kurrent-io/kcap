@@ -72,11 +72,10 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     public bool ShowsTerminalTab => Terminal is not null;
     public PullRequestContextViewModel? PullRequests { get; }
     public ReactiveCommand<Unit, Unit> ShowPullRequestCommand { get; }
-    bool _showsPullRequestTab;
     public bool ShowsPullRequestTab {
-        get => _showsPullRequestTab || IsPullRequestActive;
+        get => field || IsPullRequestActive;
         private set {
-            this.RaiseAndSetIfChanged(ref _showsPullRequestTab, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsSurfaceSwitch));
         }
     }
@@ -89,18 +88,17 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
 
     public ArtefactsTabViewModel Artefacts { get; }
     public ReactiveCommand<Unit, Unit> ShowArtefactsCommand { get; }
-    bool _showsArtefactsTab;
     public bool ShowsArtefactsTab {
-        get => _showsArtefactsTab;
+        get => field;
         private set {
-            this.RaiseAndSetIfChanged(ref _showsArtefactsTab, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsSurfaceSwitch));
         }
     }
     public bool ShowsSurfaceSwitch => ShowsTerminalTab || ShowsPullRequestTab || ShowsArtefactsTab;
 
     void PrefillComposer(string prompt) {
-        Chat.ComposerText = PullRequestContextViewModel.WithFixPrompt(Chat.ComposerText, prompt);
+        Chat.Draft(prompt);
         // The prompt is in the session's own composer, which an open subagent pane would hide.
         CloseSubagent();
         ActiveTab = RemoteTab.Chat;
@@ -119,25 +117,22 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         if (card.Url is { } url) Artefacts.OpenLink(url);
     }
 
-    string _title = "";
-    public string Title { get => _title; private set => this.RaiseAndSetIfChanged(ref _title, value); }
+    public string Title { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
     public SessionTitleEditorViewModel TitleEditor { get; }
 
-    string _repoLabelText = "";
-    public string RepoLabelText { get => _repoLabelText; private set => this.RaiseAndSetIfChanged(ref _repoLabelText, value); }
+    public string RepoLabelText { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
-    RemoteTab _activeTab = RemoteTab.Chat;
     public RemoteTab ActiveTab {
-        get => _activeTab;
+        get => field;
         private set {
-            this.RaiseAndSetIfChanged(ref _activeTab, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             if (value == RemoteTab.Chat) _held?.Refresh();
             RaiseTabProjections();
             Artefacts.IsShown = IsArtefactsActive;
             PullRequests?.SetReaderVisible(IsPullRequestActive);
         }
-    }
+    } = RemoteTab.Chat;
     public bool IsChatActive => ActiveTab == RemoteTab.Chat;
     public bool IsTerminalActive => ActiveTab == RemoteTab.Terminal;
     public bool IsPullRequestActive => ActiveTab == RemoteTab.PullRequest;
@@ -148,12 +143,11 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     // code having built the app primes. Never disposed, so a set after teardown cannot throw.
     readonly BehaviorSubject<bool> _sessionEndedChanges = new(false);
 
-    bool _sessionEnded;
     public bool SessionEnded {
-        get => _sessionEnded;
+        get => field;
         private set {
-            if (_sessionEnded == value) return;
-            this.RaiseAndSetIfChanged(ref _sessionEnded, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(AccessNote));
             RaiseConnectionNotice();
             _sessionEndedChanges.OnNext(value);
@@ -167,9 +161,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     /// Stopping an attached agent removes the steering and leaves its session running in the terminal.
     public string StopLabel => _row.IsAttached ? AttachedAgentCopy.DisconnectSteering : "Stop";
 
-    string? _stopRefusal;
     /// Why the viewer may not stop this agent, when their rights are the reason.
-    public string? StopRefusal { get => _stopRefusal; private set => this.RaiseAndSetIfChanged(ref _stopRefusal, value); }
+    public string? StopRefusal { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     readonly ReplaySubject<Unit> _ended = new(1);
     public IObservable<Unit> Ended => _ended.Take(1);
@@ -189,14 +182,13 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     readonly BehaviorSubject<bool> _originChangedChanges = new(false);
     public IObservable<bool> OriginChangedChanges => _originChangedChanges.AsObservable();
 
-    bool _originChangedToLocal;
     /// The local daemon has proven this row is its twin: the remote row is gone but the agent is
     /// not, so the window replaces this host with the local workspace for the same id.
     public bool OriginChangedToLocal {
-        get => _originChangedToLocal;
+        get => field;
         private set {
-            if (_originChangedToLocal == value) return;
-            this.RaiseAndSetIfChanged(ref _originChangedToLocal, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(AccessNote));
             RaiseTabProjections();
             _originChangedChanges.OnNext(value);
@@ -223,15 +215,14 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         _ => null,
     };
 
-    RemoteSessionAccess _accessState = RemoteSessionAccess.NoSession;
     public RemoteSessionAccess Access {
-        get => _accessState;
+        get => field;
         private set {
-            this.RaiseAndSetIfChanged(ref _accessState, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(AccessNote));
             RaiseTabProjections();
         }
-    }
+    } = RemoteSessionAccess.NoSession;
 
     /// The tabs' content lives while the lease's last verdict stands; an ended session keeps its
     /// transcript, and so does a dropped lane — the access banner has its own row above the panes,
@@ -257,12 +248,11 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     public bool ShowsProgressiveDisclosure => _showsProgressiveDisclosure.Value;
     readonly ObservableAsPropertyHelper<bool> _showsProgressiveDisclosure;
 
-    SubagentPaneViewModel? _subagent;
     /// A subagent's own transcript, shown in place of the chat until the user goes back.
     public SubagentPaneViewModel? Subagent {
-        get => _subagent;
+        get => field;
         private set {
-            this.RaiseAndSetIfChanged(ref _subagent, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsChatPane));
             this.RaisePropertyChanged(nameof(ShowsSubagentPane));
         }
@@ -340,7 +330,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             HandoffOutcomeReader? handoffOutcomes = null, IHeldMessagesApi? heldMessages = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
             Func<bool>? inAppPages = null, Func<Task>? retryConnection = null, LocalServerRecoveryViewModel? localServer = null,
-            IAttachmentUploader? uploader = null, RemoteTranscriptCache? transcripts = null) {
+            IAttachmentUploader? uploader = null, RemoteTranscriptCache? transcripts = null, ChatMarks? chatMarks = null) {
         _drafts = drafts;
         _localMachine = localMachine;
         _handoffFactory = handoff;
@@ -380,7 +370,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             requestSignIn, signInCompleted, actions.OpenWorkItemInWeb, plans, planActivity,
             artefacts: Artefacts, isRemote: true, serverLane: lane.Status,
             canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
-            sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout);
+            sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false),
+            canDraftForAgent: CanPrefillComposer, draftForAgent: PrefillComposer, layout: workContextLayout);
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));
         // An open subagent belongs to the session it was opened from.
@@ -435,15 +426,19 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
                 .Select(sid => sid is null
                     ? Observable.Empty<IReadOnlyList<QueuedInputItem>>()
                     : lane.PendingInputChanged.Where(u => u.SessionId == sid).Select(u => u.Items))),
-            planActivity: planActivity, openCard: OpenCard, drafts: drafts, senders: senders,
+            planActivity: planActivity, openCard: OpenCard, drafts: drafts, chatMarks: chatMarks, senders: senders,
             accountReadings: row.MachineBadge is { } daemon ? readings?.Remote(daemon) : null, usageClock: readings?.Clock,
             signInCompleted: signInCompleted,
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
                 .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending };
+            openLink: Artefacts.OpenLink, viewerAccess: viewer, heldMessages: _held, findMemory: finds) { InputSending = inputSending, Reclaimer = HeapReclaimer.Shared };
+        WorkContext.Topics = Chat.Topics;
+        WorkContext.Bookmarks = Chat.Bookmarks;
+        Chat.Topics.Revealing += ShowTopic;
+        _disposables.Add(Disposable.Create(() => Chat.Topics.Revealing -= ShowTopic));
         this.WhenAnyValue(vm => vm.AccessNote).Subscribe(_ => RaiseConnectionNotice()).DisposeWith(_disposables);
         lane.Status.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(status => {
-            _connectionFailed = status.State == ServerLaneState.Retrying && status.Failure is not null;
+            _connectionFailed = status is { State: ServerLaneState.Retrying, Failure: not null };
             RaiseConnectionNotice();
         }).DisposeWith(_disposables);
         _showsProgressiveDisclosure = Observable.Switch(this.WhenAnyValue(vm => vm.IsChatActive, vm => vm.Chat, vm => vm.Subagent,
@@ -478,7 +473,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             : _rows.CombineLatest(_sessionEndedChanges, _originChangedChanges, appSubject ?? SignedInSubject.From(lane.Status),
                 (r, ended, movedLocal, viewer) => (!ended || r.Origin == AgentOrigin.Server) && !movedLocal
                     && r.SessionId is { Length: > 0 } && viewer is not null
-                    && (r.OwnerUserId == viewer || (r.Origin == AgentOrigin.Server && r.OwnerIsViewer == true)))
+                    && (r.OwnerUserId == viewer || (r is { Origin: AgentOrigin.Server, OwnerIsViewer: true })))
                 .ObserveOn(RxSchedulers.MainThreadScheduler);
         TitleEditor = new SessionTitleEditorViewModel(_titles, canRename, async (title, ct) => {
                 if (remoteAgents is null || _row.SessionId is not { Length: > 0 } sessionId)
@@ -522,8 +517,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
                         // the retired remote one is retained history rather than a takeover.
                         if (!SessionEnded
                             && directory.IsProvenLocalTwin(row.Id)
-                            && directory.Rows.Lookup($"local:{row.Id}") is { HasValue: true, Value: var twin }
-                            && twin.SessionId is { Length: > 0 } && twin.SessionId == _row.SessionId) {
+                            && directory.Rows.Lookup($"local:{row.Id}") is { HasValue: true, Value: { SessionId.Length: > 0 } twin }
+                            && twin.SessionId == _row.SessionId) {
                             OriginChangedToLocal = true;
                             // Nothing is answerable through a released lease, and the agent is not
                             // this host's to stop any more.
@@ -709,7 +704,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     /// aliases and the service empties it on an account switch, so a daemon kept under a merged older id
     /// still qualifies. An attached terminal session submits text alone, so its daemon refuses files.
     internal static bool AcceptsAttachments(AgentRow row, IReadOnlyList<DaemonInfo> daemons, string? viewer) =>
-        !row.IsAttached && viewer is { Length: > 0 } && row.OwnerUserId is { Length: > 0 } owner && row.MachineBadge is { } name
+        !row.IsAttached && viewer is { Length: > 0 } && row is { OwnerUserId: { Length: > 0 } owner, MachineBadge: { } name }
         && daemons.FirstOrDefault(d => d.Name == name && d.OwnerUserId == owner) is { } daemon
         && LaunchAttachments.IsCapable(daemon.Version);
 
@@ -763,6 +758,11 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     }
 
     void CloseSubagent() => ReplaceSubagent(null);
+
+    void ShowTopic() {
+        CloseSubagent();
+        ActiveTab = RemoteTab.Chat;
+    }
 
     void ReplaceSubagent(SubagentPaneViewModel? next) {
         var previous = Subagent;

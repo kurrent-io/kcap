@@ -14,38 +14,18 @@ using Microsoft.Extensions.Logging;
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>
-/// <see cref="IHostedAgentRuntime"/> that drives an ACP (Agent Client Protocol) session over
-/// <see cref="AcpConnection"/> for any ACP-speaking vendor (Cursor today, more via
-/// <c>AcpVendorDescriptor</c>). Owns the <c>initialize</c> →
-/// <c>session/new</c> → <c>session/prompt</c> handshake and reduces inbound <c>session/update</c>
-/// notifications to <see cref="AcpSessionUpdate"/> DTOs, surfaced via <see cref="Updates"/> for
-/// the mapper to turn into canonical events. Scope stops there — no canonical events, no
-/// permission bridge (<c>OnServerRequest</c> stays unset, so the connection's default-decline
-/// posture answers any inbound server request with a method-not-found error; a follow-up wires
-/// the real bridge). Local-attach (raw byte input) and terminal output are PTY-only surfaces the
-/// ACP runtime does not support until a follow-up adds a terminal capability.
+/// <see cref="IHostedAgentRuntime"/> driving an ACP session over <see cref="AcpConnection"/> for any
+/// vendor in <c>AcpVendorDescriptor</c>: the <c>initialize</c> → <c>session/new</c> →
+/// <c>session/prompt</c> handshake, and <c>session/update</c> reduced to <see cref="Updates"/>.
 ///
-/// Also owns a serialized, single-flight prompt-turn worker (<see cref="RunTurnWorkerAsync"/>/
-/// <see cref="ProcessAdmittedTurnAsync"/>) and a chunk aggregator (<see cref="AggregateUpdate"/>) that
-/// together turn the raw <c>session/update</c> stream into an ORDERED, per-turn-aggregated
-/// <see cref="AcpEventEnvelope"/> transcript, exposed via <see cref="IAcpTranscriptSource"/> for the
-/// orchestrator to bind and forward. Prompt turns (the initial launch prompt, and every
-/// <see cref="SendUserInputAsync"/>) are enqueued onto a FIFO
-/// queue rather than fired as independent background work, so exactly one turn's chunks are ever
-/// aggregating at a time — a `stopReason` always flushes the buffer belonging to ITS OWN turn, never
-/// a concurrently-fired one. See <see cref="_aggregationLock"/>'s remarks for the thread-safety
-/// mechanism between the worker's turn-end flush and the connection read-loop's kind-transition
-/// flush.
+/// Prompt turns go through one FIFO worker (<see cref="RunTurnWorkerAsync"/>), so only one turn's
+/// chunks aggregate at a time and a <c>stopReason</c> always flushes its own turn. See
+/// <see cref="_aggregationLock"/> for how the turn-end flush and the read loop's flush interleave.
 ///
-/// For an eligible launch (constructed with an <see cref="AcpReconnectSupport"/>) the runtime also
-/// owns crash reconnect/resume: a child-process death is absorbed rather than finalized — the
-/// corpse is retired, a fresh child is spawned through the factory's pure spawn closure,
-/// <c>session/load</c> restores the same session with its entire replay suppressed (the daemon-side
-/// transcript is authoritative — skip-whole-replay), and the send gate reopens after a transcript
-/// <c>system_note</c>. The full protocol — incarnation identity, the two-transition send-admission
-/// section, corpse retirement, the activation latch, incident chaining, and the interaction
-/// router — is the design spec at
-/// <c>docs/superpowers/specs/2026-08-04-ai1325-acp-reconnect-resume-design.md</c>.
+/// A launch constructed with <see cref="AcpReconnectSupport"/> absorbs a child death: it retires the
+/// corpse, spawns a fresh child, restores the session with <c>session/load</c> with the whole replay
+/// suppressed (the daemon's transcript is authoritative), and reopens the send gate after a
+/// <c>system_note</c>.
 /// </summary>
 internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpTranscriptSource, ITerminationVerdictSource {
     static readonly AcpMcpServerSpec[] NoMcpServers = [];

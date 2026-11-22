@@ -55,7 +55,7 @@ internal static class KiroLiveUsage {
                 if (state.KiroUsageEmittedAnchors.Contains(anchor)) { offset++; continue; }
 
                 // Tokens stay upstream-blocked, so a turn with only zero token counts has nothing to backfill.
-                if (usage.Credits == 0 && usage.ContextPct is null) { offset++; continue; }
+                if (usage is { Credits: 0, ContextPct: null }) { offset++; continue; }
 
                 newLines.Add(BuildKiroUsageBackfillLine(anchor, usage.Credits, usage.ContextPct));
                 newLineNumbers.Add((int)(KiroUsageLineBase + offset));

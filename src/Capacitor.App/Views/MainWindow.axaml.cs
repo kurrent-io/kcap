@@ -102,7 +102,6 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     WindowNotificationManager? _notifications;
     IDisposable? _notifierSubscription;
-    IAppNotifier? _notifier;
 
     PullRequestContextViewModel? _foregroundPullRequests;
 
@@ -110,9 +109,9 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     /// AgentActionService pushes into, so the toast overlay and stderr mirroring are always in
     /// sync. Left null on a plainly-constructed window (tests that don't exercise toasts).
     public IAppNotifier? Notifier {
-        get => _notifier;
+        get => field;
         set {
-            _notifier = value;
+            field = value;
             _notifierSubscription?.Dispose();
             _notifierSubscription = value?.Messages
                 .ObserveOn(RxSchedulers.MainThreadScheduler)
@@ -521,7 +520,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     // entirely), is invisible to the user — stderr (AppNotifier's own mirroring) is the only
     // channel that survives either case.
     void ShowToast(string message) =>
-        _notifications?.Show(new Notification("kcap", message, NotificationType.Warning, ToastDuration(message)));
+        _notifications?.Show(new Notification(null, message, NotificationType.Warning, ToastDuration(message)));
 
     // About fifteen characters a second to read it, never under four seconds or past twenty.
     internal static TimeSpan ToastDuration(string message) => TimeSpan.FromSeconds(Math.Clamp(message.Length / 15.0, 4, 20));

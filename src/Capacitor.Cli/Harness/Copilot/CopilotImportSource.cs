@@ -397,8 +397,7 @@ internal sealed class CopilotImportSource : IImportSource {
         var history = before;
 
         // Through a rewrite's numbering, a resume with no sent number is a copy of a line the server already holds.
-        var numbering = classification.SourceMeta?.GetValueOrDefault(NumberingKey) as Func<int, int?>;
-        if ((numbering is null ? history.ResumeLine : numbering(history.ResumeLine)) is { } sentAs
+        if ((classification.SourceMeta?.GetValueOrDefault(NumberingKey) is Func<int, int?> numbering ? numbering(history.ResumeLine) : history.ResumeLine) is { } sentAs
          && (await ServerLastLineAsync(ctx, sessionId, ct) is not { } held || held < sentAs)) return false;
 
         var batch = new TranscriptBatch {

@@ -25,7 +25,7 @@ public class ServerConnectionParkProxyTests {
         NullLoggerFactory.Instance,
         NullLogger<ServerConnection>.Instance
     , TimeProvider.System) {
-        public bool Ready { get; set; } = true;
+        public bool Ready { get; init; } = true;
 
         internal override bool IsReady => Ready;
 
@@ -34,9 +34,9 @@ public class ServerConnectionParkProxyTests {
         /// <summary>When set, the raw invoke returns this outcome. When <see cref="ThrowOnInvoke"/>
         /// is also set, the exception takes precedence (a definite outcome and a thrown exception
         /// can never both happen on the same call).</summary>
-        public ParkParticipantOutcome Outcome { get; set; } = ParkParticipantOutcome.Parked;
+        public ParkParticipantOutcome Outcome { get; init; } = ParkParticipantOutcome.Parked;
 
-        public Exception? ThrowOnInvoke { get; set; }
+        public Exception? ThrowOnInvoke { get; init; }
 
         internal override Task<ParkParticipantOutcome> InvokeReportParticipantParkedRawAsync(
                 string agentId, string canonicalSessionId, string reason, CancellationToken ct

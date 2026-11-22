@@ -13,7 +13,7 @@ namespace Capacitor.Cli.Daemon.Services;
 internal static class CatalogContentDigest {
     static readonly FrozenSet<string> Volatile = FrozenSet.Create(StringComparer.Ordinal,
         // Codex: models_cache.json, auth.json
-        "fetched_at", "etag", "access_token", "refresh_token", "last_refresh",
+        "fetched_at", "etag", "identity", "access_token", "refresh_token", "last_refresh",
         // Pi: auth.json, per provider
         "access", "refresh", "expires",
         // ID token claims a refresh reissues

@@ -16,7 +16,7 @@ public class CodexServerDeltaTests {
     static ProjectionResult P(string line, TranscriptContext ctx) => Projection.Project(line, 1, Received, ctx);
 
     static string Env(string type, string payload) =>
-        $$$"""{"timestamp":"2026-09-04T09:00:00Z","type":"{{{type}}}","payload":{{{payload}}}}""";
+        $$"""{"timestamp":"2026-09-04T09:00:00Z","type":"{{type}}","payload":{{payload}}}""";
 
     static UsageApplied Applied(string lastTokenUsage) {
         var ctx = Projection.CreateContext("sess", null);
@@ -60,7 +60,7 @@ public class CodexServerDeltaTests {
     static string? KindOf(string name, string arguments) {
         var ctx  = Projection.CreateContext("sess", null);
         var args = JsonSerializer.Serialize(arguments);
-        var call = P(Env("response_item", $$$"""{"type":"function_call","name":"{{{name}}}","call_id":"c1","arguments":{{{args}}}}"""), ctx);
+        var call = P(Env("response_item", $$"""{"type":"function_call","name":"{{name}}","call_id":"c1","arguments":{{args}}}"""), ctx);
         return ((AssistantToolCallsGenerated)call.Events.Single().Payload).ToolCalls[0].ToolKind;
     }
 
@@ -86,7 +86,7 @@ public class CodexServerDeltaTests {
         await Assert.That(KindOf(name, arguments)).IsEqualTo(AcpToolKind.Execute);
 
     static UserMessageReceived User(string passthrough) {
-        var payload = $$$"""{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context> is what I mean by context"}]{{{passthrough}}}}""";
+        var payload = $$"""{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context> is what I mean by context"}]{{passthrough}}}""";
         return (UserMessageReceived)P(Env("response_item", payload), Projection.CreateContext("sess", null)).Events.Single().Payload;
     }
 

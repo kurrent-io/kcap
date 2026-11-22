@@ -152,7 +152,7 @@ public class CopilotImportSourceImportTests : IDisposable {
         var storage   = Path.Combine(_tempDir, "workspaceStorage");
         var workspace = Path.Combine(storage, "ws1");
         Directory.CreateDirectory(Path.Combine(workspace, "chatSessions"));
-        await File.WriteAllTextAsync(Path.Combine(workspace, "workspace.json"), $$$"""{"folder":"{{{new Uri(cwd).AbsoluteUri}}}"}""");
+        await File.WriteAllTextAsync(Path.Combine(workspace, "workspace.json"), $$"""{"folder":"{{new Uri(cwd).AbsoluteUri}}"}""");
         await File.WriteAllTextAsync(Path.Combine(workspace, "chatSessions", localId + ".jsonl"),
             $$$"""{"kind":0,"v":{"version":3,"sessionId":"{{{localId}}}","requests":[{"requestId":"request_1","timestamp":1795024287408,"message":{"text":"Add multiply."}}]}}""" + "\n");
 

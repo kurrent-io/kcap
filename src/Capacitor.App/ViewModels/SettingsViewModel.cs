@@ -29,24 +29,18 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     readonly IDesktopNotificationAccess? _notificationAccess;
     readonly CancellationTokenSource _lifetime;
     readonly CompositeDisposable _subscriptions = new();
+    readonly BackgroundIntelligenceSettingsViewModel? _intelligence;
     AttachStatus _status = new(AttachState.Connecting, null, null);
     DaemonStatusDto? _snapshot;
     int _savedCapacity;
     string _name;
     decimal? _capacity;
-    bool _isBusy;
-    bool _windowsServiceVisible;
-    bool _windowsServiceOffered;
-    string? _windowsServiceMessage;
     bool _needsAppRestart;
     bool _notifyOnPermissions = true;
     bool _notifyOnQuestions = true;
     bool _notifyOnIdle = true;
     bool _autoResume;
     readonly SemaphoreSlim _autoResumeSaves = new(1, 1);
-    string? _autoResumeMessage;
-    string? _message;
-    string? _notificationMessage;
     DesktopNotificationAccess _access;
     int _accessReads;
     int _accessShown;
@@ -96,7 +90,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         RenameCommand = ReactiveCommand.CreateFromTask(RenameAsync, this.WhenAnyValue(x => x.CanRename)).DisposeWith(_subscriptions);
         NotificationAccessCommand = ReactiveCommand.CreateFromTask(ResolveNotificationAccessAsync).DisposeWith(_subscriptions);
         WindowsServiceCommand = ReactiveCommand.CreateFromTask(InstallWindowsServiceAsync,
-            this.WhenAnyValue(x => x.IsBusy, x => x.WindowsServiceOffered, (busy, offered) => !busy && offered)).DisposeWith(_subscriptions);
+            this.WhenAnyValue(x => x.CanMoveToWindowsService)).DisposeWith(_subscriptions);
         if (serviceStatus is not null && moveToWindowsService is not null && OperatingSystem.IsWindows())
             _ = LoadWindowsServiceOfferAsync(serviceStatus);
         service.Status.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(status => {
@@ -141,8 +135,8 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     }
 
     public string? AutoResumeMessage {
-        get => _autoResumeMessage;
-        private set => this.RaiseAndSetIfChanged(ref _autoResumeMessage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     // Saves run one at a time and each writes the selection current when it starts, so the last one
@@ -164,18 +158,18 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     }
 
     public bool IsBusy {
-        get => _isBusy;
-        private set { this.RaiseAndSetIfChanged(ref _isBusy, value); Refresh(); }
+        get;
+        private set { this.RaiseAndSetIfChanged(ref field, value); Refresh(); }
     }
 
     public string? Message {
-        get => _message;
-        private set => this.RaiseAndSetIfChanged(ref _message, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? NotificationMessage {
-        get => _notificationMessage;
-        private set => this.RaiseAndSetIfChanged(ref _notificationMessage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool CanManageNotifications => _notificationSettings is not null;
@@ -188,13 +182,25 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     public string ServerLabel => Uri.TryCreate(_settings.ServerUrl, UriKind.Absolute, out var url) ? url.Authority : _settings.ServerUrl;
     public CaptureSettingsViewModel Capture { get; }
     public HarnessesSettingsViewModel? Harnesses { get; }
-    public bool HasActiveOperation => IsBusy || Capture.Busy || Harnesses?.Busy == true;
+    public bool HasActiveOperation => IsBusy || Capture.Busy || Harnesses?.Busy == true || Intelligence?.Busy == true;
 
     public AccountsSettingsViewModel? Accounts { get; init; }
     public AppearanceSettingsViewModel? Appearance { get; init; }
     public PrivacySettingsViewModel? Privacy { get; init; }
     /// <summary>The local server's search, when this app runs one. The app owns it, so closing Settings leaves it running.</summary>
     public LocalSearchViewModel? Search { get; init; }
+
+    /// Null unless the profile's server is this computer's local installation; owned by this window.
+    public BackgroundIntelligenceSettingsViewModel? Intelligence {
+        get => _intelligence;
+        init {
+            _intelligence = value;
+            if (value is not null) {
+                value.SettingsBusy = IsBusy;
+                value.WhenAnyValue(x => x.Busy).Subscribe(_ => Refresh()).DisposeWith(_subscriptions);
+            }
+        }
+    }
     public ExperimentalSettingsViewModel? Experimental { get; init; }
     public AboutSettingsViewModel? About { get; init; }
 
@@ -242,7 +248,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    public bool CanEdit => !IsBusy && !Capture.Busy && Harnesses?.Busy != true && !_needsAppRestart;
+    public bool CanEdit => !IsBusy && !Capture.Busy && Harnesses?.Busy != true && Intelligence?.Busy != true && !_needsAppRestart;
     public bool CanSave => CanEdit && CapacityError is null && Capacity != _savedCapacity;
     public bool CanRename => CanEdit && _canRenameOnPlatform && !_nameOverridden && _startupSettled.IsCompletedSuccessfully &&
         NameError is null && Name != DaemonStore.Sanitize(_runningName) && Idle;
@@ -297,20 +303,26 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
 
     /// The card shows once the service was found installable and stays for the outcome line.
     public bool WindowsServiceVisible {
-        get => _windowsServiceVisible;
-        private set => this.RaiseAndSetIfChanged(ref _windowsServiceVisible, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// A Scheduled Task supervises the daemon and this install carries the Windows service. The app never
     /// interrupts a launch to offer the move, so this is where it is offered.
     public bool WindowsServiceOffered {
-        get => _windowsServiceOffered;
-        private set => this.RaiseAndSetIfChanged(ref _windowsServiceOffered, value);
+        get;
+        private set {
+            this.RaiseAndSetIfChanged(ref field, value);
+            this.RaisePropertyChanged(nameof(CanMoveToWindowsService));
+        }
     }
 
+    /// The move stops the Scheduled Task's daemon first, so it waits for every other operation of this window.
+    public bool CanMoveToWindowsService => WindowsServiceOffered && !HasActiveOperation;
+
     public string? WindowsServiceMessage {
-        get => _windowsServiceMessage;
-        private set => this.RaiseAndSetIfChanged(ref _windowsServiceMessage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     async Task LoadWindowsServiceOfferAsync(Func<CancellationToken, Task<ServiceSnapshot?>> serviceStatus) {
@@ -495,7 +507,9 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     }
 
     void Refresh() {
+        if (_intelligence is not null) _intelligence.SettingsBusy = IsBusy;
         this.RaisePropertyChanged(nameof(HasActiveOperation));
+        this.RaisePropertyChanged(nameof(CanMoveToWindowsService));
         this.RaisePropertyChanged(nameof(CanEdit));
         this.RaisePropertyChanged(nameof(CanSave));
         this.RaisePropertyChanged(nameof(CanRename));
@@ -520,6 +534,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         Accounts?.Dispose();
         Appearance?.Dispose();
         Privacy?.Dispose();
+        Intelligence?.Dispose();
         Experimental?.Dispose();
         About?.Dispose();
         _lifetime.Dispose();

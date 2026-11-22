@@ -314,7 +314,7 @@ class SkillsCommand(
     internal static bool AutoThrottled(SkillsLedger? ledger, DateTimeOffset now) =>
         // A future stamp (clock correction, tampered file) must read as stale, not as an
         // unbounded suppression of every revocation refresh until that future arrives.
-        ledger?.SyncedAt is { } syncedAt && now - syncedAt is { } age
+        ledger?.SyncedAt is { } syncedAt && now - syncedAt is var age
             && age >= TimeSpan.Zero && age < AutoSyncInterval;
 
     /// <summary>Work the refresh throttle must not suppress: an unresolved operation, a reservation,

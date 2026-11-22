@@ -122,7 +122,7 @@ public sealed class PageBridge : IAsyncDisposable {
 
     Task HandleAsync(JsonElement data, CancellationToken ct) => data.Str("type") switch {
         "ready"   => ReadyAsync(ct),
-        "submit"  => SubmitAsync(data.Prop("payload") is { } payload && !payload.IsNull ? payload : EmptyObject, ct),
+        "submit"  => SubmitAsync(data.Prop("payload") is { IsNull: false } payload ? payload : EmptyObject, ct),
         "refresh" => CanReadResults ? PushResultsAsync(ct) : Task.CompletedTask,
         _         => Task.CompletedTask,
     };
@@ -199,7 +199,7 @@ public sealed class PageBridge : IAsyncDisposable {
             StopPolling();
             return;
         }
-        if (reply.Status is < 200 or >= 300 || reply.Body is not { } body || !body.IsObject) return;
+        if (reply.Status is < 200 or >= 300 || reply.Body is not { IsObject: true } body) return;
 
         var etag = body.Prop("etag")?.GetRawText();
         // No etag says nothing about whether the results moved, so every such answer is delivered.

@@ -56,9 +56,8 @@ Options:
                       streams each session. User-wide only — --project has no
                       effect with --opencode. Needs OpenCode 1.18.29 or newer
                       (an older one is told to upgrade). On OpenCode v2 it
-                      records the session start and end, titles, the memory
-                      index and session ids on kcap tool calls, but not yet
-                      the transcript. A v2 session its background service
+                      records each message once it settles, from the plugin's
+                      start on. A v2 session its background service
                       runs ends after 60 idle minutes
                       (KCAP_OPENCODE_IDLE_MINUTES) and resumes on its next
                       event.

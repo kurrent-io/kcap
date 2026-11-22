@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Auth;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Auth;
@@ -10,9 +11,8 @@ public class ProvisioningWireTests {
             new ProvisionRequest { OrgName = "Acme Inc", Slug = "acme", Tier = "free" },
             CapacitorJsonContext.Default.ProvisionRequest);
 
-        await Assert.That(json).Contains(@"""orgName""");
-        await Assert.That(json).Contains(@"""slug""");
-        await Assert.That(json).Contains(@"""tier""");
+        JsonObject expected = new() { ["orgName"] = "Acme Inc", ["slug"] = "acme", ["tier"] = "free" };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
         await Assert.That(json).DoesNotContain("org_name");
     }
 
@@ -44,7 +44,8 @@ public class ProvisioningWireTests {
             new ProvisionRequest { OrgName = "Acme Inc", Slug = "acme", JoinId = "abc123" },
             CapacitorJsonContext.Default.ProvisionRequest);
 
-        await Assert.That(json).Contains(@"""joinId"":""abc123""");
+        JsonObject expected = new() { ["joinId"] = "abc123" };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
         await Assert.That(json).DoesNotContain("join_id");
     }
 
@@ -66,13 +67,15 @@ public class ProvisioningWireTests {
             new ProvisionRequest { OrgName = "Acme", Slug = "acme", Code = "ABCD" },
             CapacitorJsonContext.Default.ProvisionRequest);
 
-        await Assert.That(with).Contains(@"""code"":""ABCD""");
+        JsonObject withExpected = new() { ["code"] = "ABCD" };
+        await Assert.That(WireJson.Pick(with, withExpected)).IsEqualTo(withExpected.ToJsonString());
 
         var without = JsonSerializer.Serialize(
             new ProvisionRequest { OrgName = "Acme", Slug = "acme" },
             CapacitorJsonContext.Default.ProvisionRequest);
 
-        await Assert.That(without).DoesNotContain(@"""code""");
+        JsonObject withoutExpected = new() { ["code"] = WireJson.Missing };
+        await Assert.That(WireJson.Pick(without, withoutExpected)).IsEqualTo(withoutExpected.ToJsonString());
     }
 
     [Test]

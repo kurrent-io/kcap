@@ -29,7 +29,7 @@ public class LocalSearchViewModelTests {
         public LocalEmbeddingModelManifest? Offered;
         public int OfferLookups;
         /// Set before construction to hold the lookup open.
-        public TaskCompletionSource<LocalEmbeddingModelManifest?>? Lookup;
+        readonly TaskCompletionSource<LocalEmbeddingModelManifest?>? Lookup;
 
         public int SettingsOpened;
         public readonly BehaviorSubject<Action?> OpenSettings = new(null);

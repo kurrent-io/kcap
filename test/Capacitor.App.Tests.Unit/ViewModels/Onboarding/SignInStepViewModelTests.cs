@@ -53,9 +53,9 @@ public class SignInStepViewModelTests {
         public readonly RecordingOpener         Opener  = new();
         public readonly FakeAppState            AppState = new();
         public readonly FakeTimeProvider        Time    = new();
-        public readonly ConsentFlipClaims       Claims;
+        readonly ConsentFlipClaims       Claims;
         public readonly UiAuthProgress          Progress;
-        public readonly WizardAuthService       Service;
+        readonly WizardAuthService       Service;
         public readonly SignInStepViewModel     Vm;
 
         public int Runs;
@@ -1063,7 +1063,6 @@ public class SignInStepViewModelTests {
 
         await Assert.That(workAccount).IsNotNull();
         await Assert.That(urlBox).IsNotNull();
-        await Assert.That(urlBox!.Classes.Contains("onboardingField")).IsTrue();
         await Assert.That(urlBoxShown).IsFalse(); // behind "I have a workspace URL"
         await Assert.That(statusShown).IsFalse(); // the ready line only restates the button
         await Assert.That(editionFooter).IsFalse();

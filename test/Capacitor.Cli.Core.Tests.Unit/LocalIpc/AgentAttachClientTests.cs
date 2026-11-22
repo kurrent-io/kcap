@@ -31,7 +31,7 @@ public class AgentAttachClientTests {
     sealed class RecordingSink {
         public readonly List<(string Context, Exception Ex)> Entries = [];
         readonly object _gate = new();
-        public int MaxConcurrent; int _current;
+        int MaxConcurrent; int _current;
         public Action<string, Exception> Callback => (c, e) => {
             var now = Interlocked.Increment(ref _current);
             MaxConcurrent = Math.Max(MaxConcurrent, now);

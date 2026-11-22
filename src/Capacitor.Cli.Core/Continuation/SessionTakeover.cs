@@ -311,7 +311,7 @@ public sealed class SessionTakeover(ISessionLivenessSource local, TimeProvider t
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             writes.Interruption = TakeoverResult.Interrupted.Cancelled;
             return Unknown();
-        } catch (Exception ex) when (ex is HttpRequestException || ex is OperationCanceledException) {
+        } catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) {
             result["error"] = JsonString("Claim adoption could not be confirmed. Inspect the ledger before retrying.");
         }
         writes.Failed++;
@@ -362,7 +362,7 @@ public sealed class SessionTakeover(ISessionLivenessSource local, TimeProvider t
             entry["attached"] = null;
             writes.Interruption = TakeoverResult.Interrupted.Cancelled;
             return false;
-        } catch (Exception ex) when (ex is HttpRequestException || ex is OperationCanceledException) {
+        } catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) {
             entry["error"] = ex.Message;
         }
 

@@ -15,7 +15,7 @@ public static class GitHubCliMapping {
     /// <summary>Maps each signed-in host to its active account's login (first entry's when none is marked active).</summary>
     public static Dictionary<string, string>? SignedInHosts(string json) {
         using var document = Parse(json);
-        if (document is null || !document.RootElement.IsObject || document.RootElement.Prop("hosts") is not { } hosts || !hosts.IsObject) return null;
+        if (document is null || !document.RootElement.IsObject || document.RootElement.Prop("hosts") is not { IsObject: true } hosts) return null;
         var signedIn = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var host in hosts.EnumerateObject()) {
             if (!host.Value.IsArray || !GitHubCliRunner.ValidHost(host.Name)) continue;
@@ -34,7 +34,7 @@ public static class GitHubCliMapping {
         if (document is null || !document.RootElement.IsArray) return [];
         var links = new List<PullRequestLinkDto>();
         foreach (var row in document.RootElement.EnumerateArray()) {
-            if (!row.IsObject || row.Prop("number") is not { } number || !number.IsNumber || !number.TryGetInt32(out var value) || value <= 0) continue;
+            if (!row.IsObject || row.Prop("number") is not { IsNumber: true } number || !number.TryGetInt32(out var value) || value <= 0) continue;
             var lifecycle = Lifecycle(Text(row, "state"), row.Bool("isDraft"));
             links.Add(new() { Provider = "github", Host = repository.Host, RepoHash = repository.RepoHash, Owner = repository.Owner, RepoName = repository.RepoName,
                 Number = value, Url = PullRequestWire.SafeLink(Text(row, "url")), Title = Text(row, "title"), HeadRef = Text(row, "headRefName"),
@@ -44,8 +44,8 @@ public static class GitHubCliMapping {
         return links;
     }
 
-    public static string? Text(JsonElement element, string name) => element.Prop(name) is { } value && value.IsString ? value.GetString() : null;
-    public static DateTime? Time(JsonElement element, string name) => element.Prop(name) is { } value && value.IsString
+    public static string? Text(JsonElement element, string name) => element.Prop(name) is { IsString: true } value ? value.GetString() : null;
+    public static DateTime? Time(JsonElement element, string name) => element.Prop(name) is { IsString: true } value
         && DateTimeOffset.TryParse(value.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var at) ? at.UtcDateTime : null;
 
     public const int BodyLimit = 262_144;
@@ -60,7 +60,7 @@ public static class GitHubCliMapping {
         var root = document.RootElement;
         var headSha = Text(root, "headRefOid");
         var rollup = root.Prop("statusCheckRollup");
-        var checksCapped = rollup is { } rollupArray && rollupArray.IsArray && rollupArray.GetArrayLength() >= ToolListLimit;
+        var checksCapped = rollup is { IsArray: true } rollupArray && rollupArray.GetArrayLength() >= ToolListLimit;
         var checks = Checks(rollup, headSha);
         var reviewers = Reviewers(root.Prop("reviewRequests"), root.Prop("latestReviews"));
         var reviews = Reviews(root.Prop("reviews"), out var reviewsCapped);
@@ -69,8 +69,8 @@ public static class GitHubCliMapping {
         var availability = new PullRequestAvailabilityDto { Status = "ready", FetchedAt = fetchedAt };
         var counts = checks.GroupBy(check => check.Outcome ?? "unknown", StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => new PullRequestCountDto { Kind = checksCapped ? "lower_bound" : "exact", Value = group.Count() }, StringComparer.Ordinal);
-        var latest = root.Prop("latestReviews") is { } latestReviews && latestReviews.IsArray ? latestReviews.EnumerateArray().ToArray() : [];
-        var requests = root.Prop("reviewRequests") is { } reviewRequests && reviewRequests.IsArray ? reviewRequests.EnumerateArray().ToArray() : [];
+        var latest = root.Prop("latestReviews") is { IsArray: true } latestReviews ? latestReviews.EnumerateArray().ToArray() : [];
+        var requests = root.Prop("reviewRequests") is { IsArray: true } reviewRequests ? reviewRequests.EnumerateArray().ToArray() : [];
         var overview = new PullRequestOverviewDto {
             Title = Text(root, "title"), Url = PullRequestWire.SafeLink(Text(root, "url")), Lifecycle = Lifecycle(Text(root, "state"), root.Bool("isDraft")),
             IsDraft = root.Bool("isDraft"), HeadRef = Text(root, "headRefName"),
@@ -108,7 +108,7 @@ public static class GitHubCliMapping {
     }
 
     static PullRequestCheckDto[] Checks(JsonElement? rollup, string? headSha) {
-        if (rollup is not { } array || !array.IsArray) return [];
+        if (rollup is not { IsArray: true } array) return [];
         var checks = new List<PullRequestCheckDto>();
         foreach (var entry in array.EnumerateArray()) {
             if (!entry.IsObject) continue;
@@ -135,7 +135,7 @@ public static class GitHubCliMapping {
     static PullRequestReviewerDto[] Reviewers(JsonElement? requests, JsonElement? latest) {
         var reviewers = new List<PullRequestReviewerDto>();
         var index = new Dictionary<string, int>(StringComparer.Ordinal);
-        if (requests is { } requested && requested.IsArray)
+        if (requests is { IsArray: true } requested)
             foreach (var request in requested.EnumerateArray()) {
                 if (!request.IsObject) continue;
                 var team = Text(request, "__typename") == "Team";
@@ -146,7 +146,7 @@ public static class GitHubCliMapping {
                 reviewers.Add(new() { Id = reviewerId, Availability = "available", Requested = true,
                     Actor = new() { Id = id, Kind = team ? "team" : "user", Login = team ? null : id, Name = team ? Text(request, "name") ?? id : null } });
             }
-        if (latest is { } reviews && reviews.IsArray)
+        if (latest is { IsArray: true } reviews)
             foreach (var review in reviews.EnumerateArray()) {
                 if (!review.IsObject || review.Prop("author") is not { } author || Text(author, "login") is not { } login) continue;
                 var reviewerId = "reviewer:user:" + login;
@@ -160,7 +160,7 @@ public static class GitHubCliMapping {
 
     static PullRequestReviewDto[] Reviews(JsonElement? element, out bool capped) {
         capped = false;
-        if (element is not { } array || !array.IsArray) return [];
+        if (element is not { IsArray: true } array) return [];
         capped = array.GetArrayLength() >= ToolListLimit;
         var reviews = new List<PullRequestReviewDto>();
         foreach (var review in array.EnumerateArray()) {
@@ -176,7 +176,7 @@ public static class GitHubCliMapping {
 
     static PullRequestCommentDto[] Comments(JsonElement? element, out bool capped) {
         capped = false;
-        if (element is not { } array || !array.IsArray) return [];
+        if (element is not { IsArray: true } array) return [];
         capped = array.GetArrayLength() >= ToolListLimit;
         var comments = new List<PullRequestCommentDto>();
         foreach (var comment in array.EnumerateArray()) {
@@ -198,15 +198,15 @@ public static class GitHubCliMapping {
 
     public static GitHubCliThreadsPage? Threads(string json) {
         using var document = Parse(json);
-        if (document is null || !document.RootElement.IsObject || document.RootElement.Prop("data") is not { } data || !data.IsObject) return null;
-        var pull = data.Prop("repository") is { } repository && repository.IsObject ? repository.Prop("pullRequest") : null;
+        if (document is null || !document.RootElement.IsObject || document.RootElement.Prop("data") is not { IsObject: true } data) return null;
+        var pull = data.Prop("repository") is { IsObject: true } repository ? repository.Prop("pullRequest") : null;
         if (pull is null || pull.Value.IsNull) return new(false, null, 0, false, null, []);
-        if (!pull.Value.IsObject || pull.Value.Prop("reviewThreads") is not { } connection || !connection.IsObject
-            || connection.Prop("nodes") is not { } nodes || !nodes.IsArray) return null;
+        if (!pull.Value.IsObject || pull.Value.Prop("reviewThreads") is not { IsObject: true } connection
+            || connection.Prop("nodes") is not { IsArray: true } nodes) return null;
         var threads = new List<PullRequestThreadDto>();
         foreach (var node in nodes.EnumerateArray()) {
             if (!node.IsObject || Text(node, "id") is not { Length: > 0 } id || !GitHubCliRunner.ValidNodeId(id)) continue;
-            var first = node.Prop("comments") is { } comments && comments.IsObject && comments.Prop("nodes") is { } list && list.IsArray
+            var first = node.Prop("comments") is { IsObject: true } comments && comments.Prop("nodes") is { IsArray: true } list
                 ? list.EnumerateArray().FirstOrDefault(comment => comment.IsObject) : default;
             var root = first.IsObject && Text(first, "id") is { Length: > 0 } commentId ? Comment(first, commentId, null) : null;
             var (hunk, hunkTruncated) = Truncate(first.IsObject ? Text(first, "diffHunk") : null);
@@ -214,30 +214,30 @@ public static class GitHubCliMapping {
                 Path = Text(node, "path"), DiffSide = Text(node, "diffSide")?.ToLowerInvariant(), StartDiffSide = Text(node, "startDiffSide")?.ToLowerInvariant(),
                 Line = Number(node, "line"), StartLine = Number(node, "startLine"), OriginalLine = Number(node, "originalLine"), OriginalStartLine = Number(node, "originalStartLine"),
                 SubjectType = Text(node, "subjectType")?.ToLowerInvariant(), DiffHunk = hunk, HunkTruncated = hunkTruncated, RootComment = root,
-                Comments = node.Prop("comments") is { } count && count.IsObject && Number(count, "totalCount") is { } total ? new() { Kind = "exact", Value = total } : null });
+                Comments = node.Prop("comments") is { IsObject: true } count && Number(count, "totalCount") is { } total ? new() { Kind = "exact", Value = total } : null });
         }
         return new(true, Text(pull.Value, "headRefOid"), Number(connection, "totalCount") ?? threads.Count, HasNext(connection), EndCursor(connection), [.. threads]);
     }
 
     public static GitHubCliCommentsPage? ThreadComments(string json) {
         using var document = Parse(json);
-        if (document is null || !document.RootElement.IsObject || document.RootElement.Prop("data") is not { } data || !data.IsObject) return null;
+        if (document is null || !document.RootElement.IsObject || document.RootElement.Prop("data") is not { IsObject: true } data) return null;
         var node = data.Prop("node");
         if (node is null || node.Value.IsNull) return new(false, 0, false, null, []);
-        if (!node.Value.IsObject || node.Value.Prop("comments") is not { } connection || !connection.IsObject
-            || connection.Prop("nodes") is not { } nodes || !nodes.IsArray) return null;
+        if (!node.Value.IsObject || node.Value.Prop("comments") is not { IsObject: true } connection
+            || connection.Prop("nodes") is not { IsArray: true } nodes) return null;
         var comments = new List<PullRequestCommentDto>();
         foreach (var comment in nodes.EnumerateArray()) {
             if (!comment.IsObject || Text(comment, "id") is not { Length: > 0 } id) continue;
-            var replyTo = comment.Prop("replyTo") is { } parent && parent.IsObject ? Text(parent, "id") : null;
+            var replyTo = comment.Prop("replyTo") is { IsObject: true } parent ? Text(parent, "id") : null;
             comments.Add(Comment(comment, id, replyTo));
         }
         return new(true, Number(connection, "totalCount") ?? comments.Count, HasNext(connection), EndCursor(connection), [.. comments]);
     }
 
-    static int? Number(JsonElement element, string name) => element.Prop(name) is { } value && value.IsNumber && value.TryGetInt32(out var number) ? number : null;
-    static bool HasNext(JsonElement connection) => connection.Prop("pageInfo") is { } info && info.IsObject && info.Bool("hasNextPage") == true;
-    static string? EndCursor(JsonElement connection) => connection.Prop("pageInfo") is { } info && info.IsObject && Text(info, "endCursor") is { } cursor
+    static int? Number(JsonElement element, string name) => element.Prop(name) is { IsNumber: true } value && value.TryGetInt32(out var number) ? number : null;
+    static bool HasNext(JsonElement connection) => connection.Prop("pageInfo") is { IsObject: true } info && info.Bool("hasNextPage") == true;
+    static string? EndCursor(JsonElement connection) => connection.Prop("pageInfo") is { IsObject: true } info && Text(info, "endCursor") is { } cursor
         && GitHubCliRunner.ValidCursor(cursor) ? cursor : null;
 
     public static PullRequestRead<T> Failure<T>(GitHubCliResult result, PullRequestSubjectDto subject, DateTime now) where T : class {

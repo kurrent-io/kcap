@@ -159,7 +159,7 @@ public static partial class ProcessTree {
         for (var hop = 0; hop < MaxWalk; hop++) {
             var parent = LinuxParentOf(current);
             if (parent == ancestor) return true;
-            if (parent is not { } next || next <= 1) return false;
+            if (parent is not (> 1 and var next)) return false;
             current = next;
         }
 

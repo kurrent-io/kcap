@@ -21,7 +21,8 @@ public class SettingsWindowsServiceTests {
     static ServiceSnapshot Snapshot(string supervisor, bool installable) =>
         new("daemon-a", true, "running", null, null, 7, 7, false, false, Supervisor: supervisor, WindowsServiceInstallable: installable);
 
-    SettingsViewModel MakeViewModel(ServiceSnapshot? snapshot, MutationOutcome outcome, bool confirm = true, int activeAgents = 0) {
+    SettingsViewModel MakeViewModel(ServiceSnapshot? snapshot, MutationOutcome outcome, bool confirm = true, int activeAgents = 0,
+            BackgroundIntelligenceSettingsViewModel? intelligence = null) {
         ConfigMutator.Mutate(Config.Root, c => c with { Profiles = new() {
             ["work"] = new Profile { ServerUrl = "https://work.example", Daemon = new DaemonSettings { Name = "daemon-a" } }
         } });
@@ -37,7 +38,7 @@ public class SettingsWindowsServiceTests {
                 _moves++;
                 return Task.FromResult<MutationOutcome?>(outcome);
             },
-            serviceStatus: _ => Task.FromResult(snapshot));
+            serviceStatus: _ => Task.FromResult(snapshot)) { Intelligence = intelligence };
     }
 
     static async Task SettleAsync(Func<bool> ready) {
@@ -116,5 +117,32 @@ public class SettingsWindowsServiceTests {
 
         await Assert.That(vm.WindowsServiceVisible).IsFalse();
         await Assert.That(vm.WindowsServiceOffered).IsFalse();
+    });
+
+    /// <summary>The move stops the Scheduled Task's daemon, which would interrupt a Background intelligence save, so
+    /// it cannot run while one does.</summary>
+    [Test]
+    public Task The_move_waits_for_a_background_intelligence_save() => AvaloniaSession.RunOnUiAsync(async () => {
+        var cli = new Capacitor.App.Tests.Unit.Services.FakeKcapCli();
+        var server = new Cli.Core.Setup.Intelligence.IntelligenceSettings("none", null, null, null, true, false, 300, false, []);
+        cli.IntelligenceStatusBehavior = () => Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>(
+            new Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome.Read(server));
+        var applied = new TaskCompletionSource<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome>();
+        cli.IntelligenceBehavior = _ => applied.Task;
+        var tab = new BackgroundIntelligenceSettingsViewModel(cli, _ => Task.FromResult<string[]>(["claude"]),
+            new Capacitor.App.Services.LocalSetup.LocalUpgradeController(() => cli, action => action()),
+            new Capacitor.App.Services.LocalSetup.LocalSearchController(() => cli, action => action()));
+        using var vm = MakeViewModel(Snapshot("windows_scheduled_task", installable: true), new MutationOutcome.Succeeded(), intelligence: tab);
+        await SettleAsync(() => vm.WindowsServiceOffered);
+        await tab.ShownAsync();
+        await Assert.That(await vm.WindowsServiceCommand.CanExecute.FirstAsync()).IsTrue();
+
+        tab.Options.Single(o => o.Token == "claude").IsSelected = true;
+        var saving = tab.SaveModeAsync();
+        await Assert.That(await vm.WindowsServiceCommand.CanExecute.FirstAsync()).IsFalse();
+
+        applied.SetResult(new Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Applied(new("local_agent", "claude", null, true, 300, [])));
+        await saving;
+        await Assert.That(await vm.WindowsServiceCommand.CanExecute.FirstAsync()).IsTrue();
     });
 }

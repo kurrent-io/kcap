@@ -201,7 +201,7 @@ public sealed class DaemonCommands(
             return 1;
         }
 
-        if (DetachedDigestGate(daemonPath, Environment.GetEnvironmentVariable, console.Error) is int gateExit) return gateExit;
+        if (DetachedDigestGate(daemonPath, Environment.GetEnvironmentVariable, console.Error) is { } gateExit) return gateExit;
 
         // Redirect ALL three standard streams so the detached daemon does not
         // inherit our stdout/stderr. Left un-redirected, the daemon

@@ -99,7 +99,7 @@ sealed class MarkdownLinkKeys {
     }
 
     static IReadOnlyList<Rect> Rects(Stop stop) =>
-        stop.Span is { } span && stop.Host is TextBlock block ? LinkRects(block, span) : [new Rect(stop.Host.Bounds.Size)];
+        stop is { Span: { } span, Host: TextBlock block } ? LinkRects(block, span) : [new Rect(stop.Host.Bounds.Size)];
 
     /// In tree order: the hyperlinks of each text block, and each image that links somewhere. A link with
     /// no text has nowhere to draw its mark, so the keyboard passes over it.

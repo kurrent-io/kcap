@@ -1,7 +1,6 @@
 using Capacitor.App.Tests.Unit.Services;
 using System.Reactive.Subjects;
 using System.Reactive.Threading.Tasks;
-using Avalonia.Media;
 using Capacitor.App.Services;
 using Capacitor.App.Services.Update;
 using Capacitor.App.ViewModels;
@@ -265,7 +264,7 @@ public class MainWindowViewModelTests {
                     _ => throw new InvalidOperationException(),
                 };
                 before.SetForeground(true);
-                await WorkspaceFixtures.WaitUntilAsync(() => before.CanReveal && !before.IsReading, what: "chosen PR");
+                await WorkspaceFixtures.WaitUntilAsync(() => before is { CanReveal: true, IsReading: false }, what: "chosen PR");
                 await Assert.That(before.Selected!.Subject.Number).IsEqualTo(1);
                 if (startRemote) {
                     host.Directory.ProvenTwins.Add("a1");
@@ -283,7 +282,7 @@ public class MainWindowViewModelTests {
                     _ => throw new InvalidOperationException("Handoff did not preserve the PR tab"),
                 };
                 after.SetForeground(true);
-                await WorkspaceFixtures.WaitUntilAsync(() => after.CanReveal && !after.IsReading, what: "PR after handoff");
+                await WorkspaceFixtures.WaitUntilAsync(() => after is { CanReveal: true, IsReading: false }, what: "PR after handoff");
                 await Assert.That(after.Selected!.Subject.Number).IsEqualTo(1);
             } finally {
                 var current = vm.CurrentWorkspace;
@@ -710,19 +709,19 @@ public class MainWindowViewModelTests {
     [Arguments(AttachState.Connected, null, "reconnecting", false, StatusColors.Pending)]
     [Arguments(AttachState.Connected, null, "disconnected", false, StatusColors.InProgress)]
     public async Task AlertFor_matches_the_launcher_card_tone(
-            AttachState state, string? reason, string daemonConnection, bool failed, string expectedHex) {
+            AttachState state, string? reason, string daemonConnection, bool failed, string expectedTone) {
         var alert = MainWindowViewModel.AlertFor(new AttachStatus(state, reason, null), daemonConnection, failed: failed);
-        await Assert.That(alert!.Tone).IsEqualTo(expectedHex);
+        await Assert.That(alert!.Tone).IsEqualTo(expectedTone);
     }
 
     /// An expired sign-in needs the user; only a local server that refused the app, which the card reports as a failure, is red.
     [Test]
     [Arguments(false, StatusColors.InProgress)]
     [Arguments(true, StatusColors.Disrupted)]
-    public async Task AlertFor_signed_out_follows_the_card(bool failed, string expectedHex) {
+    public async Task AlertFor_signed_out_follows_the_card(bool failed, string expectedTone) {
         var status = new AttachStatus(AttachState.Connected, null, null);
         var alert = MainWindowViewModel.AlertFor(status, "reconnecting", signedOut: true, failed: failed);
-        await Assert.That(alert!.Tone).IsEqualTo(expectedHex);
+        await Assert.That(alert!.Tone).IsEqualTo(expectedTone);
     }
 
     [Test]
@@ -755,7 +754,7 @@ public class MainWindowViewModelTests {
     [Arguments(true)]
     [NotInParallel("AvaloniaSession")]
     public async Task A_local_daemon_failure_stays_red_when_a_healthy_remote_machine_is_selected(bool remoteFirst) {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+        await AvaloniaSession.RunOnUiAsync(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var service = new FakeDaemonClientService();
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, "daemon_unreachable", null));
@@ -775,24 +774,24 @@ public class MainWindowViewModelTests {
             const string failed = "The daemon didn't start. Press Start daemon to try again.";
             if (!remoteFirst) {
                 report.OnNext(failed);
-                await Assert.That(((ISolidColorBrush)vm.StatusBrush).Color).IsEqualTo(Color.Parse("#FF7272"));
+                await Assert.That(vm.Alert!.Tone).IsEqualTo(StatusColors.Disrupted);
             }
             await home.SelectMachineAsync("home-pc", isLocal: false);
             if (remoteFirst) report.OnNext(failed);
 
             await Assert.That(home.BannerFailed).IsFalse();
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.DaemonStoppedText);
-            await Assert.That(((ISolidColorBrush)vm.StatusBrush).Color).IsEqualTo(Color.Parse("#FF7272"));
+            await Assert.That(vm.Alert!.Tone).IsEqualTo(StatusColors.Disrupted);
 
             report.OnNext(null);
-            await Assert.That(((ISolidColorBrush)vm.StatusBrush).Color).IsEqualTo(Color.Parse("#F4B860"));
+            await Assert.That(vm.Alert!.Tone).IsEqualTo(StatusColors.InProgress);
         });
     }
 
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Sign_in_required_wins_over_daemon_reconnecting() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+        await AvaloniaSession.RunOnUiAsync(async () => {
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
             var service = new FakeDaemonClientService();
             var lane = new FakeServerLane();
@@ -807,13 +806,13 @@ public class MainWindowViewModelTests {
             service.SnapshotsSubject.OnNext(Snap(connection: "reconnecting"));
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.ReconnectingText);
+            await Assert.That(vm.Alert!.Tone).IsEqualTo(StatusColors.Pending);
 
             lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut));
             await Assert.That(home.ConnectionNotice).IsEqualTo(HomeViewModel.SignInExpiredNotice);
             await Assert.That(vm.Alert!.Text).IsEqualTo(MainWindowViewModel.SignInRequiredText);
             // An expired sign-in needs the user, which is how the launcher's card shows it too.
-            var brush = (ISolidColorBrush)vm.StatusBrush;
-            await Assert.That(brush.Color).IsEqualTo(Color.Parse(StatusColors.InProgress));
+            await Assert.That(vm.Alert!.Tone).IsEqualTo(StatusColors.InProgress);
         });
     }
 

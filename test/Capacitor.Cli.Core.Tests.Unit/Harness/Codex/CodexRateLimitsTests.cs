@@ -100,8 +100,8 @@ public class CodexRateLimitsTests {
 
     [Test]
     public async Task Limit_reached_with_a_window_at_100_constrains_that_window() {
-        var observation = CodexRateLimits.FromRollout(Json($$$"""
-            {"limit_id":"codex","primary":{"used_percent":100,"window_minutes":300,"resets_at":{{{Unix(At(60))}}}},"secondary":{"used_percent":30,"window_minutes":10080,"resets_at":{{{Unix(At(6000))}}}},"rate_limit_reached_type":"rate_limit_reached"}
+        var observation = CodexRateLimits.FromRollout(Json($$"""
+            {"limit_id":"codex","primary":{"used_percent":100,"window_minutes":300,"resets_at":{{Unix(At(60))}}},"secondary":{"used_percent":30,"window_minutes":10080,"resets_at":{{Unix(At(6000))}}},"rate_limit_reached_type":"rate_limit_reached"}
             """), At(0))!;
 
         await Assert.That(observation.LimitReachedReported).IsTrue();
@@ -124,8 +124,8 @@ public class CodexRateLimitsTests {
 
     [Test]
     public async Task Reached_type_with_cached_percentages_below_100_constrains_the_limits_only_window() {
-        var observation = CodexRateLimits.FromRollout(Json($$$"""
-            {"limit_id":"codex","primary":{"used_percent":80,"window_minutes":300,"resets_at":{{{Unix(At(60))}}}},"rate_limit_reached_type":"rate_limit_reached"}
+        var observation = CodexRateLimits.FromRollout(Json($$"""
+            {"limit_id":"codex","primary":{"used_percent":80,"window_minutes":300,"resets_at":{{Unix(At(60))}}},"rate_limit_reached_type":"rate_limit_reached"}
             """), At(0))!;
 
         var reading = Apply(observation);
@@ -136,8 +136,8 @@ public class CodexRateLimitsTests {
 
     [Test]
     public async Task Reached_type_with_two_windows_at_different_resets_constrains_the_one_at_100() {
-        var observation = CodexRateLimits.FromAppServer(Json($$$"""
-            {"limitId":"codex","primary":{"usedPercent":60,"windowDurationMins":300,"resetsAt":{{{Unix(At(60))}}}},"secondary":{"usedPercent":100,"windowDurationMins":10080,"resetsAt":{{{Unix(At(6000))}}}},"rateLimitReachedType":"rate_limit_reached"}
+        var observation = CodexRateLimits.FromAppServer(Json($$"""
+            {"limitId":"codex","primary":{"usedPercent":60,"windowDurationMins":300,"resetsAt":{{Unix(At(60))}}},"secondary":{"usedPercent":100,"windowDurationMins":10080,"resetsAt":{{Unix(At(6000))}}},"rateLimitReachedType":"rate_limit_reached"}
             """), At(0))!;
 
         var reading = Apply(observation);
@@ -153,8 +153,8 @@ public class CodexRateLimitsTests {
     [Arguments("workspace_member_usage_limit_reached")]
     [Arguments("a_reason_this_build_does_not_know")]
     public async Task Credits_depleted_and_spend_cap_signals_are_unbounded(string reason) {
-        var observation = CodexRateLimits.FromRollout(Json($$$"""
-            {"limit_id":"codex","primary":{"used_percent":100,"window_minutes":300,"resets_at":{{{Unix(At(60))}}}},"rate_limit_reached_type":"{{{reason}}}"}
+        var observation = CodexRateLimits.FromRollout(Json($$"""
+            {"limit_id":"codex","primary":{"used_percent":100,"window_minutes":300,"resets_at":{{Unix(At(60))}}},"rate_limit_reached_type":"{{reason}}"}
             """), At(0))!;
 
         await Assert.That(observation.Limits.Single()).IsEqualTo(new LimitSignal("codex", null, Unbounded: true));
@@ -174,8 +174,8 @@ public class CodexRateLimitsTests {
 
     [Test]
     public async Task App_server_shape_reads_camel_case() {
-        var observation = CodexRateLimits.FromAppServer(Json($$$"""
-            {"limitId":"codex","limitName":null,"primary":{"usedPercent":7,"windowDurationMins":300,"resetsAt":{{{Unix(At(60))}}}},"secondary":null,"credits":{"hasCredits":true,"unlimited":true,"balance":null},"planType":"team","rateLimitReachedType":null,"spendControlReached":false}
+        var observation = CodexRateLimits.FromAppServer(Json($$"""
+            {"limitId":"codex","limitName":null,"primary":{"usedPercent":7,"windowDurationMins":300,"resetsAt":{{Unix(At(60))}}},"secondary":null,"credits":{"hasCredits":true,"unlimited":true,"balance":null},"planType":"team","rateLimitReachedType":null,"spendControlReached":false}
             """), At(0))!;
 
         await Assert.That(observation.Windows.Single()).IsEqualTo(new UsageWindowDto("codex", 300, 7, Seconds(At(60)), null));
@@ -258,8 +258,8 @@ public class CodexRateLimitsTests {
     [Test]
     public async Task Ordinary_usage_false_with_rate_limit_reached_unblocks_at_its_reset() {
         var store = Registered();
-        var limits = CodexRateLimits.FromRateLimitsRead(Json($$$"""
-            {"rateLimits":{"limitId":"codex","primary":{"usedPercent":100,"windowDurationMins":300,"resetsAt":{{{Unix(At(60))}}}},"secondary":{"usedPercent":40,"windowDurationMins":10080,"resetsAt":{{{Unix(At(6000))}}}},"rateLimitReachedType":"rate_limit_reached"},
+        var limits = CodexRateLimits.FromRateLimitsRead(Json($$"""
+            {"rateLimits":{"limitId":"codex","primary":{"usedPercent":100,"windowDurationMins":300,"resetsAt":{{Unix(At(60))}}},"secondary":{"usedPercent":40,"windowDurationMins":10080,"resetsAt":{{Unix(At(6000))}}},"rateLimitReachedType":"rate_limit_reached"},
              "ordinaryUsageAllowed":false,"accountId":"acct-1"}
             """), At(0))!;
 
@@ -274,8 +274,8 @@ public class CodexRateLimitsTests {
     [Test]
     public async Task Ordinary_usage_false_with_credits_depleted_survives_the_reset() {
         var store = Registered();
-        var limits = CodexRateLimits.FromRateLimitsRead(Json($$$"""
-            {"rateLimits":{"limitId":"codex","primary":{"usedPercent":100,"windowDurationMins":300,"resetsAt":{{{Unix(At(60))}}}},"rateLimitReachedType":"workspace_member_credits_depleted"},
+        var limits = CodexRateLimits.FromRateLimitsRead(Json($$"""
+            {"rateLimits":{"limitId":"codex","primary":{"usedPercent":100,"windowDurationMins":300,"resetsAt":{{Unix(At(60))}}},"rateLimitReachedType":"workspace_member_credits_depleted"},
              "ordinaryUsageAllowed":false}
             """), At(0))!;
 

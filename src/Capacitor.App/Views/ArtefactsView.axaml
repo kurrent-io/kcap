@@ -18,7 +18,8 @@
         <Style Selector="Button.artefactRow /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="Transparent" />
         </Style>
-        <Style Selector="Button.artefactRow:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Style Selector="Button.artefactRow:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.artefactRow:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
         </Style>
         <!-- Selection is info blue, as the rail row and the segment are. -->

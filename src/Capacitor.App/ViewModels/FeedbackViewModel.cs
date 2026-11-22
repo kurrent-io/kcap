@@ -32,13 +32,6 @@ public sealed class FeedbackViewModel : ReactiveObject, IDisposable {
     Guid _id = Guid.NewGuid();
     FeedbackCategory _category;
     string _message = "";
-    bool _isBusy;
-    bool _isSent;
-    string? _reporterEmail;
-    string? _sentMessage;
-    string? _fullReport;
-    string? _outcome;
-    bool _signInOffered;
     bool _disposed;
 
     public FeedbackViewModel(IFeedbackApi api, FeedbackCategory initial, IObservable<string> trailer,
@@ -99,30 +92,30 @@ public sealed class FeedbackViewModel : ReactiveObject, IDisposable {
         FeedbackMessageComposer.Remaining(_message, EffectiveTrailer) >= 0;
 
     public bool IsBusy {
-        get => _isBusy;
+        get;
         private set {
-            if (_isBusy == value) return;
-            this.RaiseAndSetIfChanged(ref _isBusy, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(CanSend));
         }
     }
 
     public bool IsSent {
-        get => _isSent;
+        get;
         private set {
-            if (_isSent == value) return;
-            this.RaiseAndSetIfChanged(ref _isSent, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(CanSend));
         }
     }
 
-    public string? ReporterEmail { get => _reporterEmail; private set => this.RaiseAndSetIfChanged(ref _reporterEmail, value); }
-    public string? SentMessage { get => _sentMessage; private set => this.RaiseAndSetIfChanged(ref _sentMessage, value); }
+    public string? ReporterEmail { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? SentMessage { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// <summary>The whole report as mailed, trailer included, shown to copy by hand when nothing else holds it.</summary>
-    public string? FullReport { get => _fullReport; private set => this.RaiseAndSetIfChanged(ref _fullReport, value); }
-    public string? Outcome { get => _outcome; private set => this.RaiseAndSetIfChanged(ref _outcome, value); }
-    public bool SignInOffered { get => _signInOffered; private set => this.RaiseAndSetIfChanged(ref _signInOffered, value); }
+    public string? FullReport { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? Outcome { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool SignInOffered { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public ReactiveCommand<Unit, Unit> SendCommand { get; }
     public ReactiveCommand<Unit, Unit> SendAnotherCommand { get; }
     public ReactiveCommand<Unit, Unit> SignInCommand { get; }

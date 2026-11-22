@@ -79,7 +79,7 @@ public partial class SessionSearchView : UserControl {
     }
 
     void ScrollToHighlight() {
-        if (Search is { } search && search.HighlightIndex >= 0 && search.HighlightIndex < search.Hits.Count)
+        if (Search is { HighlightIndex: >= 0 } search && search.HighlightIndex < search.Hits.Count)
             SearchHits.ScrollIntoView(search.HighlightIndex);
     }
 

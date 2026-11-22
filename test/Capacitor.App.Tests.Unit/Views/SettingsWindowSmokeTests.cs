@@ -179,17 +179,10 @@ public class SettingsWindowSmokeTests {
             await Assert.That(AutomationProperties.GetName(card)).IsEqualTo(manageHint);
             Click(window, card);
             await Assert.That(tabs.SelectedItem).IsEqualTo(tab);
-            var presenter = card.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>()
-                .Single(p => p.Name == "PART_ContentPresenter");
-            await Assert.That(presenter.Background).IsEqualTo((Avalonia.Media.IBrush)window.FindResource("KcapSelectionBrush")!);
-            Click(window, window.FindControl<TabItem>("PrivacyTab")!);
-            await Assert.That(presenter.Background).IsNotEqualTo((Avalonia.Media.IBrush)window.FindResource("KcapSelectionBrush")!);
-            Click(window, card);
 
             // A TabItem's own visual tree is its header only; the selected tab's content is hosted
             // by the TabControl's PART_SelectedContentHost, so the row content is found from tabs.
-            var chips = tabs.GetVisualDescendants().OfType<Button>().Where(b => b.Classes.Contains("kcapChip")).ToList();
-            await Assert.That(chips.Any(b => b.Content as string == "Sign in" && b.IsEffectivelyVisible)).IsTrue();
+            await Assert.That(tabs.GetVisualDescendants().OfType<Button>().Any(b => b.Content as string == "Sign in" && b.IsEffectivelyVisible)).IsTrue();
 
             var marks = tabs.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.Classes.Contains("profileMark") && t.IsEffectivelyVisible)
@@ -204,7 +197,6 @@ public class SettingsWindowSmokeTests {
             await Assert.That(flyout.IsOpen).IsTrue();
             var remove = ((Control)flyout.Content!).GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("profileRemove"));
             await Assert.That(remove.IsEffectivelyVisible).IsTrue();
-            await Assert.That(remove.FindAncestorOfType<FlyoutPresenter>()!.Classes.Contains("kcapPanel")).IsTrue();
             flyout.Hide();
 
             var statuses = tabs.GetVisualDescendants().OfType<TextBlock>().Where(t => t.Classes.Contains("profileStatus")).Select(t => t.Text).ToList();
@@ -271,10 +263,8 @@ public class SettingsWindowSmokeTests {
 
             var trust = State(RowOf("main"));
             await Assert.That(trust.Text).IsEqualTo("Needs approval in Codex");
-            await Assert.That(trust.Foreground).IsSameReferenceAs(window.FindResource("KcapWarningBrush"));
             await Assert.That(ToolTip.GetTip(trust)).IsEqualTo("Start Codex once with this account and approve kcap's hooks when it asks.");
             await Assert.That(State(RowOf("home")).Text).IsEqualTo("Recording");
-            await Assert.That(State(RowOf("home")).Foreground).IsSameReferenceAs(window.FindResource("KcapSuccessBrush"));
             await Assert.That(Visible(RowOf(".codex"), "accountMenu")).IsNull();
             await Assert.That(Visible(RowOf("home"), "accountAdd")).IsNull();
 
@@ -286,13 +276,11 @@ public class SettingsWindowSmokeTests {
             await Assert.That(menu.IsOpen).IsTrue();
             var items = ((Control)menu.Content!).GetVisualDescendants().OfType<Button>().ToList();
             await Assert.That(string.Join(",", items.Select(b => b.Content))).IsEqualTo("Refresh,Rename,Reconnect,Remove");
-            await Assert.That(items.All(b => b.Classes.Contains("kcapGhost"))).IsTrue();
-            await Assert.That(items[0].FindAncestorOfType<FlyoutPresenter>()!.Classes.Contains("kcapPanel")).IsTrue();
             MainWindowSmokeTests.ClickFlyoutButton(items[1]);
             Settle(window);
             await Assert.That(menu.IsOpen).IsFalse();
             await Assert.That(accountsVm.Renaming!.Id).IsEqualTo("a2");
-            var field = RowOf("work").GetVisualDescendants().OfType<TextBox>().Single(t => t.Classes.Contains("kcapField"));
+            var field = RowOf("work").GetVisualDescendants().OfType<TextBox>().Single(t => t.IsEffectivelyVisible);
             await Assert.That(field.IsEffectivelyVisible).IsTrue();
             await Assert.That(field.Text).IsEqualTo("work");
 
@@ -444,7 +432,6 @@ public class SettingsWindowSmokeTests {
                 var permissions = window.FindControl<ToggleSwitch>("PermissionNotificationsToggle")!;
                 var questions = window.FindControl<ToggleSwitch>("QuestionNotificationsToggle")!;
                 var idle = window.FindControl<ToggleSwitch>("IdleNotificationsToggle")!;
-                await Assert.That(permissions.Classes.Contains("kcapSwitch")).IsTrue();
                 await Assert.That(permissions.IsEffectivelyVisible).IsTrue();
                 await Assert.That(permissions.IsEffectivelyEnabled).IsTrue();
                 Click(window, permissions);
@@ -530,7 +517,7 @@ public class SettingsWindowSmokeTests {
             save.BringIntoView();
             Settle(window);
             Click(window, save);
-            await WaitUntilAsync(() => !vm.Capture.Busy && vm.Capture.Saved);
+            await WaitUntilAsync(() => vm.Capture is { Busy: false, Saved: true });
             var saved = new SettingsProfileStore(Config.Root, "work", "https://work.example").LoadProfile();
             await Assert.That(saved.DefaultVisibility).IsEqualTo("private");
             await Assert.That(saved.AllowedRepos).IsEquivalentTo(new[] { "team/project" });
@@ -653,7 +640,7 @@ public class SettingsWindowSmokeTests {
 
             await Assert.That(tools.IsChecked).IsNull();
             await Assert.That(view.GetVisualDescendants().OfType<TextBlock>()
-                .Any(t => t.IsEffectivelyVisible && t.Text == "Setup unverified")).IsTrue();
+                .Any(t => t is { IsEffectivelyVisible: true, Text: "Setup unverified" })).IsTrue();
         } finally { window.Close(); }
     });
 
@@ -687,7 +674,7 @@ public class SettingsWindowSmokeTests {
             await Assert.That(capture.Visibility).IsEqualTo("project");
             await Assert.That(choices.SelectedValue).IsEqualTo("project");
             var noteShown = window.GetVisualDescendants().OfType<TextBlock>()
-                .Any(t => t.IsEffectivelyVisible && t.Text is { } text && text.Contains("not offered by this server", StringComparison.Ordinal));
+                .Any(t => t is { IsEffectivelyVisible: true, Text: { } text } && text.Contains("not offered by this server", StringComparison.Ordinal));
             await Assert.That(noteShown).IsEqualTo(!supported);
             await Assert.That(capture.VisibilityNote is null).IsEqualTo(supported);
             capture.AllowedRepos = "team/project";

@@ -461,7 +461,7 @@ public class ActivityClockTurnAndEnvelopeWiringTests {
     static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(5);
 
     sealed class FakeAcpProcess : IAcpProcess {
-        public int  Pid       { get; init; } = 4242;
+        public int  Pid       { get; } = 4242;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
 
@@ -479,8 +479,8 @@ public class ActivityClockTurnAndEnvelopeWiringTests {
 
     sealed class Harness : IAsyncDisposable {
         public FakeAcpAgent          Fake    { get; }
-        public AcpConnection         Conn    { get; }
-        public FakeAcpProcess        Process { get; }
+        AcpConnection         Conn    { get; }
+        FakeAcpProcess        Process { get; }
         public AcpHostedAgentRuntime Runtime { get; }
         public CancellationTokenSource Cts   { get; } = new();
 

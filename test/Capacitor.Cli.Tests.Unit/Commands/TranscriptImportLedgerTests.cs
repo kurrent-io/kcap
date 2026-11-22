@@ -36,6 +36,26 @@ public class TranscriptImportLedgerTests {
         await Assert.That(saved.ResumeFrom(Server, Stalled, 3)).IsNull();
     }
 
+    /// <summary>A transcript whose every line produced no event leaves the session holding none; the mark is what
+    /// keeps the next import from sending it again.</summary>
+    [Test]
+    public async Task A_session_holding_no_line_is_marked_at_no_watermark() {
+        using var http = new HttpClient(new NoContentHandler());
+        var ledger = TranscriptImportLedger.ForRecording(Config.Root);
+
+        await ledger.RecordAsync(http, Server, Late, 6, CancellationToken.None);
+        ledger.Save();
+
+        var saved = TranscriptImportLedger.Load(Config.Root);
+        await Assert.That(saved.ResumeFrom(Server, Late, TranscriptImportLedger.NoLines)).IsEqualTo(6);
+        await Assert.That(saved.ResumeFrom(Server, Late, 3)).IsNull();
+    }
+
+    sealed class NoContentHandler : HttpMessageHandler {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+    }
+
     /// <summary>The budget cancels a probe still reading its answer, so time may only move once the mark is taken.</summary>
     async Task WaitUntilSavedAsync(TranscriptImportLedger ledger, string sessionId) {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));

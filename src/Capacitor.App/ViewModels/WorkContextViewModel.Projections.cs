@@ -44,16 +44,14 @@ public sealed partial class WorkContextViewModel {
     public IAvaloniaReadOnlyList<WorkContextLinkViewModel> Issues => _issues;
     public IAvaloniaReadOnlyList<WorkContextPersonViewModel> Contributors => _contributors;
 
-    string? _key;
     public string? Key {
-        get => _key;
-        private set { this.RaiseAndSetIfChanged(ref _key, value); NotifyIdentity(); }
+        get;
+        private set { this.RaiseAndSetIfChanged(ref field, value); NotifyIdentity(); }
     }
-    string _title = "";
     public string Title {
-        get => _title;
-        private set { this.RaiseAndSetIfChanged(ref _title, value); NotifyIdentity(); }
-    }
+        get;
+        private set { this.RaiseAndSetIfChanged(ref field, value); NotifyIdentity(); }
+    } = "";
     /// A short key carries no repository, so only this names the primary issue. GitHub numbers issues
     /// and pull requests in one sequence, so a seed spelled `!N` can be the issue `#N` of its
     /// repository; other providers number them apart.
@@ -103,23 +101,17 @@ public sealed partial class WorkContextViewModel {
     }
     string? _overview;
     public string? Overview { get => _overview; private set => this.RaiseAndSetIfChanged(ref _overview, value); }
-    string? _stateLabel;
-    public string? StateLabel { get => _stateLabel; private set => this.RaiseAndSetIfChanged(ref _stateLabel, value); }
-    bool _isShipped;
-    public bool IsShipped { get => _isShipped; private set => this.RaiseAndSetIfChanged(ref _isShipped, value); }
-    bool _isClosed;
-    public bool IsClosed { get => _isClosed; private set => this.RaiseAndSetIfChanged(ref _isClosed, value); }
-    string? _partOfTitle;
-    public string? PartOfTitle { get => _partOfTitle; private set => this.RaiseAndSetIfChanged(ref _partOfTitle, value); }
-    string? _cycleNote;
-    public string? CycleNote { get => _cycleNote; private set => this.RaiseAndSetIfChanged(ref _cycleNote, value); }
+    public string? StateLabel { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool IsShipped { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool IsClosed { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? PartOfTitle { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? CycleNote { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    WorkContextLinkViewModel? _issue;
     public WorkContextLinkViewModel? Issue {
-        get => _issue;
+        get;
         private set {
-            if (ReferenceEquals(_issue, value)) return;
-            this.RaiseAndSetIfChanged(ref _issue, value);
+            if (ReferenceEquals(field, value)) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             NotifyIdentity();
         }
     }
@@ -172,12 +164,9 @@ public sealed partial class WorkContextViewModel {
         var n => $"{n} sessions",
     };
 
-    string _requester = "You";
-    public string Requester { get => _requester; private set => this.RaiseAndSetIfChanged(ref _requester, value); }
-    string _requesterRole = "";
-    public string RequesterRole { get => _requesterRole; private set => this.RaiseAndSetIfChanged(ref _requesterRole, value); }
-    string _requesterInitial = "Y";
-    public string RequesterInitial { get => _requesterInitial; private set => this.RaiseAndSetIfChanged(ref _requesterInitial, value); }
+    public string Requester { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "You";
+    public string RequesterRole { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public string RequesterInitial { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "Y";
     string? _requesterId;
     ViewerIdentityDto? _viewer;
     public ViewerIdentityDto? ViewerIdentity {
@@ -187,14 +176,12 @@ public sealed partial class WorkContextViewModel {
             RefreshContributors();
         }
     }
-    string? _requesterAvatarUrl;
-    public string? RequesterAvatarUrl { get => _requesterAvatarUrl; private set => this.RaiseAndSetIfChanged(ref _requesterAvatarUrl, value); }
+    public string? RequesterAvatarUrl { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    bool _partsExpanded;
     public bool PartsExpanded {
-        get => _partsExpanded;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _partsExpanded, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(PartsAccessibleName));
         }
     }
@@ -202,18 +189,16 @@ public sealed partial class WorkContextViewModel {
     public string PartsAccessibleName => PartsExpanded || _partCounts.Count == 0
         ? $"Parts, {PartsHeader}"
         : $"Parts, {string.Join(", ", _partCounts.Select(c => c.Label))}";
-    bool _peopleExpanded;
-    public bool PeopleExpanded { get => _peopleExpanded; private set => this.RaiseAndSetIfChanged(ref _peopleExpanded, value); }
-    bool _issuesExpanded;
+    public bool PeopleExpanded { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public bool IssuesExpanded {
-        get => _issuesExpanded;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _issuesExpanded, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(VisibleSeparateIssues));
         }
     }
     readonly WorkContextLayout _layout;
-    // Usage, checkout and session folds are shared by every session's pane, so switching sessions
+    // Usage, checkout, session, topics and bookmarks folds are shared by every session's pane, so switching sessions
     // keeps what the reader opened.
     public bool UsageExpanded {
         get => _layout.UsageExpanded;
@@ -227,10 +212,22 @@ public sealed partial class WorkContextViewModel {
         get => _layout.SessionExpanded;
         private set => _layout.SessionExpanded = value;
     }
+    public bool OutlineExpanded {
+        get => _layout.OutlineExpanded;
+        private set => _layout.OutlineExpanded = value;
+    }
+
+    /// The chat's topics, listed with its bookmarks under the session's facts.
+    public ChatTopics? Topics { get; set => this.RaiseAndSetIfChanged(ref field, value); }
+
+    /// The chat's bookmarks, which also lay out the topics and bookmarks section.
+    public ChatBookmarks? Bookmarks { get; set => this.RaiseAndSetIfChanged(ref field, value); }
+
     /// A header button has no expand state of its own to announce, so its name carries it.
     public string UsageToggleName => FoldName("Usage", UsageExpanded);
     public string CheckoutToggleName => FoldName("Checkout", CheckoutExpanded);
     public string SessionToggleName => FoldName("Session", SessionExpanded);
+    public string OutlineToggleName => FoldName("Topics and bookmarks", OutlineExpanded);
     static string FoldName(string section, bool expanded) => $"{section}, {(expanded ? "expanded" : "collapsed")}";
 
     void OnLayoutChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) {
@@ -247,11 +244,14 @@ public sealed partial class WorkContextViewModel {
                 this.RaisePropertyChanged(nameof(SessionExpanded));
                 this.RaisePropertyChanged(nameof(SessionToggleName));
                 break;
+            case nameof(WorkContextLayout.OutlineExpanded):
+                this.RaisePropertyChanged(nameof(OutlineExpanded));
+                this.RaisePropertyChanged(nameof(OutlineToggleName));
+                break;
         }
     }
 
-    bool _subagentsExpanded;
-    public bool SubagentsExpanded { get => _subagentsExpanded; private set => this.RaiseAndSetIfChanged(ref _subagentsExpanded, value); }
+    public bool SubagentsExpanded { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     public ReactiveCommand<Unit, Unit> TogglePartsCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> TogglePeopleCommand { get; private set; } = null!;
@@ -259,6 +259,7 @@ public sealed partial class WorkContextViewModel {
     public ReactiveCommand<Unit, Unit> ToggleUsageCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleCheckoutCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleSessionCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> ToggleOutlineCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleSubagentsCommand { get; private set; } = null!;
 
     void InitializeProjections() {
@@ -272,6 +273,7 @@ public sealed partial class WorkContextViewModel {
         ToggleUsageCommand    = Toggle(() => UsageExpanded = !UsageExpanded);
         ToggleCheckoutCommand = Toggle(() => CheckoutExpanded = !CheckoutExpanded);
         ToggleSessionCommand  = Toggle(() => SessionExpanded = !SessionExpanded);
+        ToggleOutlineCommand  = Toggle(() => OutlineExpanded = !OutlineExpanded);
         _layout.PropertyChanged += OnLayoutChanged;
         _disposables.Add(System.Reactive.Disposables.Disposable.Create(() => _layout.PropertyChanged -= OnLayoutChanged));
         ToggleSubagentsCommand = Toggle(() => SubagentsExpanded = !SubagentsExpanded);
@@ -407,7 +409,7 @@ public sealed partial class WorkContextViewModel {
             Title = read.Primary.Label;
         }
 
-        if (!read.TopologyFailed && read.Topology is { } topology) ApplyTopology(topology);
+        if (read is { TopologyFailed: false, Topology: { } topology }) ApplyTopology(topology);
         else if (!samePrimary) ClearTopology();
 
         ApplyLinks(read);
@@ -459,7 +461,7 @@ public sealed partial class WorkContextViewModel {
             .ToList();
         Replace(_parts, parts, p => (p.Title, p.Mark));
 
-        ApplyIssues(item.Links.Where(l => l.Kind == "issue" && l.LinkClass == "link"));
+        ApplyIssues(item.Links.Where(l => l is { Kind: "issue", LinkClass: "link" }));
 
         _contributorRows = item.Contributors;
         RefreshContributors();
@@ -559,7 +561,7 @@ public sealed partial class WorkContextViewModel {
     }
 
     void ApplyLinks(WorkContextRead read) {
-        if (!read.SummaryFailed && read.Summary is { } summary) {
+        if (read is { SummaryFailed: false, Summary: { } summary }) {
             var primaryRepositories = summary.Repositories.Where(repository => repository.IsPrimary).ToArray();
             if (primaryRepositories.Length == 1) {
                 var repo = primaryRepositories[0];

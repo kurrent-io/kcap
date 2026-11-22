@@ -15,7 +15,7 @@ public class SessionTitleEditorViewModelTests {
         public readonly BehaviorSubject<bool> CanRename = new(true);
         public readonly RecordingNotifier Notifier = new();
         public readonly List<string> Calls = [];
-        public TaskCompletionSource<SessionRenameResult> Reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly TaskCompletionSource<SessionRenameResult> Reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public readonly SessionTitleEditorViewModel Vm;
 
         public Harness() {

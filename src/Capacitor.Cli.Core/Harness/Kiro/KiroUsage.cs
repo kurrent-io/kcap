@@ -38,10 +38,8 @@ public static class KiroUsage {
         if (string.IsNullOrWhiteSpace(metadataJson)) return map;
 
         try {
-            var root  = JsonNode.Parse(metadataJson);
-            var turns = root
-                ?["session_state"]?["conversation_metadata"]?["user_turn_metadatas"] as JsonArray;
-            if (turns is null) return map;
+            var root = JsonNode.Parse(metadataJson);
+            if (root?["session_state"]?["conversation_metadata"]?["user_turn_metadatas"] is not JsonArray turns) return map;
 
             // Session-level model id (e.g. "minimax-m2.5", "auto"). Rides alongside the
             // token counts so the server can stamp a canonical $usage with a model —

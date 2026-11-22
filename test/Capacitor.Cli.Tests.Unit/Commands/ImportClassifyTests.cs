@@ -68,33 +68,58 @@ public class ImportClassifyTests : IDisposable {
         await Assert.That(result[0].TotalLines).IsEqualTo(0);
     }
 
+    /// <summary>A session the server holds no line of, such as one whose watcher stopped before its first batch, is
+    /// imported from its first line, not skipped as loaded.</summary>
     [Test]
-    public async Task ClassifyAsync_maps_204_to_AlreadyLoaded() {
+    public async Task ClassifyAsync_resumes_a_session_holding_no_line_from_line_zero() {
         _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(204));
 
-        var path = await WriteTranscript(_tempDir, "sessionDone", lines: 50);
+        var path = await WriteTranscript(_tempDir, "sessionEmpty", lines: 50);
 
-        var transcripts = new List<(string SessionId, string FilePath, string EncodedCwd)> {
-            ("sessionDone", path, "-tmp-proj")
-        };
+        var result = await ClassifyOneAsync("sessionEmpty", path);
 
+        await Assert.That(result.Status).IsEqualTo(ImportCommand.ClassificationStatus.Partial);
+        await Assert.That(result.ResumeFromLine).IsEqualTo(0);
+    }
+
+    /// <summary>Lines that produce no event never give the server a watermark, so without the ledger's mark such a
+    /// transcript would be sent again on every import.</summary>
+    [Test]
+    public async Task ClassifyAsync_reads_a_session_holding_no_line_as_loaded_once_the_ledger_marks_every_line_sent() {
+        _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(204));
+
+        var path   = await WriteTranscript(_tempDir, "sessionIgnored", lines: 50);
+        var ledger = TranscriptImportLedger.ForRecording(Config.Root);
+        ledger.Record(_server.Url!, "sessionIgnored", new TranscriptImportMark(50, TranscriptImportLedger.NoLines, null));
+        ledger.Save();
+
+        var result = await ClassifyOneAsync("sessionIgnored", path);
+
+        await Assert.That(result.Status).IsEqualTo(ImportCommand.ClassificationStatus.AlreadyLoaded);
+    }
+
+    [Test]
+    public async Task ClassifyAsync_reads_a_session_holding_no_line_with_an_empty_transcript_as_loaded() {
+        _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(204));
+
+        var path = await WriteTranscript(_tempDir, "sessionBlank", lines: 0);
+
+        var result = await ClassifyOneAsync("sessionBlank", path, minLines: 0);
+
+        await Assert.That(result.Status).IsEqualTo(ImportCommand.ClassificationStatus.AlreadyLoaded);
+    }
+
+    async Task<ImportCommand.SessionClassification> ClassifyOneAsync(string sessionId, string path, int minLines = 15) {
         using var client = new HttpClient();
 
         var result = await TranscriptFileClassification.ClassifyAsync(
-            new GitProviderRouter(),
-            Config.Root,
-            Home,
-            client,
-            TimeProvider.System,
-            _server.Url!,
-            transcripts,
-            15,
-            CancellationToken.None
-        );
+            new GitProviderRouter(), Config.Root, Home, client, TimeProvider.System, _server.Url!,
+            [(sessionId, path, "-tmp-proj")], minLines, CancellationToken.None);
 
-        await Assert.That(result.Count).IsEqualTo(1);
-        await Assert.That(result[0].Status).IsEqualTo(ImportCommand.ClassificationStatus.AlreadyLoaded);
+        return result.Single();
     }
 
     [Test]

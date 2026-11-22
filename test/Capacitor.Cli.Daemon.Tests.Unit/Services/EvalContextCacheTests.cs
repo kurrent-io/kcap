@@ -32,9 +32,7 @@ public class EvalContextCacheTests : IDisposable {
 
     string RunRoot => Tmp.PathTo("runs");
 
-    AdmissionFence? _fence;
-
-    AdmissionFence Fence => _fence ??= new AdmissionFence(Tmp.PathTo("retiring.json"), null, _time, NullLogger<AdmissionFence>.Instance);
+    AdmissionFence Fence => field ??= new AdmissionFence(Tmp.PathTo("retiring.json"), null, _time, NullLogger<AdmissionFence>.Instance);
 
     int RunDirectories() => Directory.Exists(RunRoot) ? Directory.GetDirectories(RunRoot, EvidenceRunContext.DirectoryPrefix + "*").Length : 0;
 

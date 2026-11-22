@@ -8,9 +8,9 @@ using static Capacitor.Models.Transcripts.TranscriptText;
 namespace Capacitor.Models.Transcripts.Harness.OpenCode;
 
 /// <summary>
-/// Projects OpenCode's transcript into canonical events. The kcap plugin writes one line per message, in
+/// Projects OpenCode's transcript into canonical events. On v1 the kcap plugin writes one line per message, in
 /// the <c>{info, parts}</c> shape <c>opencode export</c> returns, beside its own <c>session_title</c>
-/// records, which carry no conversation.
+/// records, which carry no conversation. A line without <c>info</c> is a v2 message (<see cref="OpenCodeV2Message"/>).
 /// <list type="bullet">
 ///   <item>A user message is one <see cref="UserMessageReceived"/> from its visible <c>text</c> parts.</item>
 ///   <item>An assistant message is one event per visible <c>reasoning</c> or <c>text</c> part and two per
@@ -39,14 +39,9 @@ public sealed class OpenCodeTranscriptEvents : ITranscriptProjection {
         using (doc) {
             var root = doc.RootElement;
             if (!root.IsObject) return ProjectionResult.Reject("not a JSON object");
-            if (root.Str("type") == "session_title" || root.Obj("info") is not { } info || info.Str("role") is not { } role)
-                return ProjectionResult.Empty;
-
-            var created = info.Obj("time")?.Num("created");
-            if (created is < MinUnixMs or > MaxUnixMs) return ProjectionResult.Reject("time.created is out of range");
-
-            var at       = created is { } ms ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : receivedAt;
-            var recordTs = created is null ? null : at.ToString("O");
+            if (root.Obj("info") is not { } info) return OpenCodeV2Message.Project(root, receivedAt);
+            if (info.Str("role") is not { } role) return ProjectionResult.Empty;
+            if (!TryCreated(info, receivedAt, out var at, out var recordTs)) return ProjectionResult.Reject("time.created is out of range");
 
             return role switch {
                 "user"      => User(info, root, at, recordTs),
@@ -54,6 +49,16 @@ public sealed class OpenCodeTranscriptEvents : ITranscriptProjection {
                 _           => ProjectionResult.Empty,
             };
         }
+    }
+
+    /// When a message was created, or the time it arrived when it does not say; false for a time out of range.
+    internal static bool TryCreated(JsonElement message, DateTimeOffset receivedAt, out DateTimeOffset at, out string? recordTs) {
+        var created = message.Obj("time")?.Num("created");
+        (at, recordTs) = (receivedAt, null);
+        if (created is < MinUnixMs or > MaxUnixMs) return false;
+
+        if (created is { } ms) (at, recordTs) = (DateTimeOffset.FromUnixTimeMilliseconds(ms), DateTimeOffset.FromUnixTimeMilliseconds(ms).ToString("O"));
+        return true;
     }
 
     static ProjectionResult User(JsonElement info, JsonElement root, DateTimeOffset at, string? recordTs) {
@@ -88,7 +93,7 @@ public sealed class OpenCodeTranscriptEvents : ITranscriptProjection {
         }
 
         if (events.Count == 0) return ProjectionResult.Empty;
-        if (Usage(info) is { } usage) events[0] = events[0] with { Usage = usage.Usage, CacheCreationTokens = usage.CacheWrite };
+        if (Usage(info.Str("modelID"), info.Obj("tokens")) is { } usage) events[0] = events[0] with { Usage = usage.Usage, CacheCreationTokens = usage.CacheWrite };
         return ProjectionResult.Of(events);
     }
 
@@ -115,9 +120,7 @@ public sealed class OpenCodeTranscriptEvents : ITranscriptProjection {
 
     /// The message's counts as the server writes them: the four additive counts summed into the total,
     /// the model id verbatim, and nothing when the message reports neither input, output nor a model.
-    static (TokenUsage Usage, long? CacheWrite)? Usage(JsonElement info) {
-        var model     = info.Str("modelID");
-        var tokens    = info.Obj("tokens");
+    internal static (TokenUsage Usage, long? CacheWrite)? Usage(string? model, JsonElement? tokens) {
         var input     = tokens?.Num("input");
         var output    = tokens?.Num("output");
         var reasoning = tokens?.Num("reasoning");
@@ -148,6 +151,6 @@ public sealed class OpenCodeTranscriptEvents : ITranscriptProjection {
     /// OpenCode flags the text it injects or elides as `synthetic` or `ignored`.
     static bool IsHidden(JsonElement part) => part.Bool("synthetic") == true || part.Bool("ignored") == true;
 
-    static CanonicalEvent Event(IMessage payload, Guid id, DateTimeOffset at, string? recordTs) =>
+    internal static CanonicalEvent Event(IMessage payload, Guid id, DateTimeOffset at, string? recordTs) =>
         new(CanonicalEventTypes.Of(payload), payload, id, at, recordTs);
 }

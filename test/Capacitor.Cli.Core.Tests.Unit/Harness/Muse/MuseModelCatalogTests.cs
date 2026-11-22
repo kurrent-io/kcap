@@ -79,8 +79,8 @@ public class MuseModelCatalogTests {
     [Arguments("""{"schema_version":2,"provider_id":"other","rows":[{"model_id":"x","visibility":"visible"}]}""")]
     [Arguments("""{"schema_version":2,"provider_id":"meta","rows":[{"model_id":"x","visibility":"hidden"},{"visibility":"visible"},"junk"]}""")]
     [Arguments("""{"schema_version":2,"provider_id":"meta","rows":"nope"}""")]
-    [Arguments("""[1,2]""")]
-    [Arguments("""not json""")]
+    [Arguments("[1,2]")]
+    [Arguments("not json")]
     public async Task A_document_that_is_not_a_usable_catalog_yields_null(string json) {
         Write("a.json", json);
 

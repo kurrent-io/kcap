@@ -17,7 +17,7 @@ public sealed class ConPtyProcess : IPtyProcess {
     bool                             _disposed;
     int                              _pcClosed;
 
-    public int  Pid       { get; private set; }
+    public int  Pid       { get; private init; }
     public bool HasExited { get; private set; }
     public int? ExitCode  { get; private set; }
 

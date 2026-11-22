@@ -18,14 +18,13 @@ public sealed class HeldMessagesViewModel : ReactiveObject, IDisposable {
     AgentViewerAccess _viewer = AgentViewerAccess.Unrestricted;
     int _generation;
     bool _disposed;
-    string? _errorText;
 
     public IAvaloniaReadOnlyList<HeldMessageItemViewModel> Items => _items;
     public bool HasItems => _items.Count > 0;
 
     public string? ErrorText {
-        get => _errorText;
-        private set => this.RaiseAndSetIfChanged(ref _errorText, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public HeldMessagesViewModel(string agentId, IHeldMessagesApi api, IObservable<string> changed, IObservable<AgentViewerAccess> viewer) {

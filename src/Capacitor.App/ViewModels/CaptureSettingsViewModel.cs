@@ -16,7 +16,6 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
     // What the page last selected on its own; a selection differing from it is the user's unsaved choice.
     string? _shownVisibility;
     string? _visibility;
-    string? _visibilityNote;
     string _allowedRepos;
     string _excludedRepos;
     string _allowedPaths;
@@ -27,12 +26,6 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
     (string?, string, string, string, string) _typedAtSave;
     // The page is changing the selection itself, which is no edit of the user's.
     bool _pageSelects;
-    string? _message;
-    bool _hasChanges;
-    bool _busy;
-    bool _saved;
-    bool _loading;
-    bool _visibilityEditable = true;
 
     public CaptureSettingsViewModel(SettingsProfileStore store, CancellationToken appLifetime = default,
             bool isLocal = false, Func<CancellationToken, Task<VisibilityOptionsRead?>>? visibilityOptions = null) {
@@ -60,28 +53,28 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
     public IReadOnlyList<VisibilityOption> VisibilityOptions { get; private set; } = HarnessesStepViewModel.AllVisibilityOptions;
     public string? Visibility { get => _visibility; set => this.RaiseAndSetIfChanged(ref _visibility, value); }
     /// Why the selection is not the saved audience as written: this server does not offer it.
-    public string? VisibilityNote { get => _visibilityNote; private set => this.RaiseAndSetIfChanged(ref _visibilityNote, value); }
+    public string? VisibilityNote { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string AllowedRepos { get => _allowedRepos; set => this.RaiseAndSetIfChanged(ref _allowedRepos, value); }
     public string ExcludedRepos { get => _excludedRepos; set => this.RaiseAndSetIfChanged(ref _excludedRepos, value); }
     public string AllowedPaths { get => _allowedPaths; set => this.RaiseAndSetIfChanged(ref _allowedPaths, value); }
     public string ExcludedPaths { get => _excludedPaths; set => this.RaiseAndSetIfChanged(ref _excludedPaths, value); }
     public string? Message {
-        get => _message;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _message, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             Saved = false;
         }
     }
     /// The page holds something a save would write that the profile does not.
-    public bool HasChanges { get => _hasChanges; private set => this.RaiseAndSetIfChanged(ref _hasChanges, value); }
+    public bool HasChanges { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// The save went through; the message then adds what it did not change.
-    public bool Saved { get => _saved; private set => this.RaiseAndSetIfChanged(ref _saved, value); }
+    public bool Saved { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// A save in progress: the one Capture operation closing Settings must wait for.
-    public bool Busy { get => _busy; private set => this.RaiseAndSetIfChanged(ref _busy, value); }
+    public bool Busy { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// Reading the server's sharing options: read-only, so closing may abandon it.
-    public bool Loading { get => _loading; private set => this.RaiseAndSetIfChanged(ref _loading, value); }
+    public bool Loading { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// False when the server's options could not be read; the stored choice is then kept as it is.
-    public bool VisibilityEditable { get => _visibilityEditable; private set => this.RaiseAndSetIfChanged(ref _visibilityEditable, value); }
+    public bool VisibilityEditable { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = true;
     public ReactiveCommand<Unit, Unit> SaveCommand { get; }
 
     public async Task RefreshVisibilityOptionsAsync() {

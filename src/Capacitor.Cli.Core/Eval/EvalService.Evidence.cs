@@ -84,7 +84,7 @@ public static partial class EvalService {
             }
 
             var state = scope.State!;
-            if (!state.Sources.Any(s => s.Kind == "root" && s.IsAvailable) || !state.Sources.Any(s => s.IsAvailable && s.RevisionCutoff >= s.FirstRevision)) {
+            if (!state.Sources.Any(s => s is { Kind: "root", IsAvailable: true }) || !state.Sources.Any(s => s.IsAvailable && s.RevisionCutoff >= s.FirstRevision)) {
                 observer.OnFailed(NoSessionMessagesReason);
                 return null;
             }

@@ -1195,6 +1195,8 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(EvalRetrospectiveCompleted))]
 [JsonSerializable(typeof(EvalRetrospectiveFailed))]
 [JsonSerializable(typeof(DaemonConnect))]
+[JsonSerializable(typeof(DaemonCapabilitiesUpdate))]
+[JsonSerializable(typeof(DaemonCapabilitiesUpdateResponse))]
 [JsonSerializable(typeof(UnattendedVendorCapability))]
 [JsonSerializable(typeof(IReadOnlyList<UnattendedVendorCapability>))]
 [JsonSerializable(typeof(LiveAgentInfo))]
@@ -1358,6 +1360,8 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(Setup.Intelligence.IntelligenceSetupRequest))]
 [JsonSerializable(typeof(Setup.Intelligence.IntelligenceSetupResponse))]
 [JsonSerializable(typeof(Setup.Intelligence.IntelligenceSetupError))]
+[JsonSerializable(typeof(Setup.Intelligence.IntelligenceSettings))]
+[JsonSerializable(typeof(Setup.Intelligence.IntelligencePreferencesRequest))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     UseStringEnumConverter = true

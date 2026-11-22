@@ -80,7 +80,7 @@ public static partial class CodexConfigToml {
         var ledgerPath = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(configPath))!, "mcp-ownership-v1.json");
         if (!File.Exists(ledgerPath)) return false;
         CanonicalConfigPath(configPath);
-        return ReadOwnershipLedger(ledgerPath)?["entries"] is JsonObject entries && entries.Count > 0;
+        return ReadOwnershipLedger(ledgerPath)?["entries"] is JsonObject { Count: > 0 };
     }
 
     /// <summary>

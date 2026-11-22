@@ -13,47 +13,19 @@ internal enum GeminiReviewerDecision {
 }
 
 /// <summary>
-/// Whether THIS daemon may run Gemini as an unattended review-flow reviewer. Two conditions, both
-/// fail-closed, and the type is pure so both are testable without a vendor or a process.
-///
-/// <para><b>The risk, which is real and unchanged.</b> An unattended reviewer runs in a daemon-owned
-/// worktree with the daemon's own HOME, so prompt-injected repository content that reaches the model's tool
-/// use gets code execution with the daemon user's full authority — durable credential compromise included.
-/// That lands on the DAEMON OPERATOR, who is not necessarily the person requesting the review.</para>
-///
-/// <para><b>Why that is nevertheless no longer an opt-in.</b> The reviewer vendor is caller-chosen, and
-/// Claude, Codex, Cursor and Copilot have never been gated — each with the same full authority. Wherever
-/// one of those is also ADVERTISED, a caller blocked from <c>vendor: "gemini"</c> simply asked for one of
-/// them, so the gate cost the operator a service-unit edit without narrowing the capability class reachable
-/// — though not literally nothing, since a Gemini reviewer burns the operator's own Gemini credentials.
-/// Where only gated vendors are advertised, the opt-out default does widen what a non-operator can cause to
-/// run. The switch is an opt-OUT (<c>KCAP_GEMINI_UNATTENDED_REVIEWER=0</c>); the decision that actually scopes
-/// this is whether to permit unattended reviews on the daemon at all, which is <c>kcap daemon consent</c> —
-/// note that DEFAULTS TO ALLOW, so it scopes nothing until configured.</para>
-///
-/// <para><b>Why the build is gated, and why by affirmation.</b> The security mechanism is the vendor's MCP
-/// allowlist behaving as an exclusive exact-match gate that the repository's own settings cannot widen. That
-/// was established by reading <c>gemini-cli</c> 0.53.0's own matcher, and the binary the daemon launches is
-/// whatever <c>GeminiPath</c> resolves — an upgrade can change matching, config precedence, or empty-list
-/// semantics, so a capability flag alone must not carry consent to any build.</para>
-///
-/// <para>It follows Kiro's model — fail closed when no minimum is recorded, or the installed build is below
-/// it or cannot be identified or ordered against it, cleared by the operator who is already the consenting
-/// party, via <c>kcap daemon reviewer affirm --vendor gemini</c>. A
-/// maintainer-curated set of certified versions takes the reviewer offline on every Gemini patch until a
-/// kcap release catches up. An affirmation is the weaker claim (the operator accepted this build, not a
-/// maintainer read its matcher), made by the party who carries the risk.</para>
-///
-/// <para><b>The recorded value is a MINIMUM, not an exact match</b>: a build at or above it keeps its
-/// consent across an upgrade. The cost: a floor assumes the
-/// allowlist's semantics can only improve, and it silently admits a future build that changed matching to
-/// prefix, flipped empty-list semantics, or let repository settings win. Exact-match would make the
-/// operator re-take the same acceptance on every patch. If a Gemini release is ever found to have
-/// weakened the allowlist, the affirm verb raises the floor past it.</para>
-///
-/// <para>Deliberately stricter than the interactive hosting path, which runs any installed Gemini.
-/// Broken hosting degrades to a broken agent; a broken MCP gate degrades to repository-controlled process
-/// execution.</para>
+/// Whether this daemon may run Gemini as an unattended review-flow reviewer. Pure, and both conditions
+/// fail closed.
+/// <para>A reviewer runs with the daemon's own HOME, so prompt-injected repository content can execute
+/// with the daemon user's authority; that risk lands on the operator. The switch is an opt-out
+/// (<c>KCAP_GEMINI_UNATTENDED_REVIEWER=0</c>) because the caller chooses the vendor and the ungated
+/// vendors carry the same authority.</para>
+/// <para>The boundary is Gemini's MCP allowlist acting as an exclusive exact-match gate the repository
+/// cannot widen, which is a property of the build. So the operator affirms a minimum build
+/// (<c>kcap daemon reviewer affirm --vendor gemini</c>), and an unrecorded minimum or an older or
+/// unidentifiable build fails closed. A minimum keeps consent across upgrades and assumes the
+/// allowlist only improves; if a release weakens it, raise the floor past it.</para>
+/// <para>Stricter than interactive hosting on purpose: a broken MCP gate means repository-controlled
+/// process execution.</para>
 /// </summary>
 internal static class GeminiReviewerCapability {
     static readonly ConsentAndMinimumGate<GeminiReviewerDecision> Gate = new(

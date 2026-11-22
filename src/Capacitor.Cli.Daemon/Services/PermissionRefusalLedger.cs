@@ -84,7 +84,7 @@ internal sealed class PermissionRefusalLedger {
 
             var entries = session.Entries.ToArray();
             Array.Reverse(entries);
-            return new(session.BridgedSinceStart && !session.Incomplete && !_lostRequest, PolicyJudgeRefusalsV1.SourceBridge, entries);
+            return new(session is { BridgedSinceStart: true, Incomplete: false } && !_lostRequest, PolicyJudgeRefusalsV1.SourceBridge, entries);
         }
     }
 

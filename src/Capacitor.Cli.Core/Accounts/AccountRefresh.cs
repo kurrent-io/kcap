@@ -84,7 +84,7 @@ public static class AccountRefresh {
             LimitsError       = current.Vendor is HarnessId.Codex ? result.LimitsError : null,
         };
 
-        if (next.Generation > 0 && next.GenerationStartedAt is null) next = next with { GenerationStartedAt = probeStartedAt };
+        if (next is { Generation: > 0, GenerationStartedAt: null }) next = next with { GenerationStartedAt = probeStartedAt };
 
         if (result.HookTrust is { } trust)
             next = next with { HookTrust = trust.Trust, HookTrustFingerprint = trust.Fingerprint };

@@ -48,7 +48,9 @@ public class WindowsScheduledTaskRepointTests {
         var wrapper = File.ReadAllText(Wrapper);
         await Assert.That(WindowsTaskUnit.BinaryFromWrapper(wrapper)).IsEqualTo(Moved);
         await Assert.That(WindowsTaskUnit.EnvFromWrapper(wrapper)["KCAP_PROFILE"]).IsEqualTo("work");
-        await Assert.That(wrapper).Contains(@"""--max-agents"" ""4""");
+        await Assert.That(wrapper).Contains("""
+            "--max-agents" "4"
+            """);
     }
 
     [Test]

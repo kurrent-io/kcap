@@ -80,8 +80,7 @@ public partial class App : Application {
     readonly AuthEndpoints    _endpoints  = AuthEndpoints.FromEnvironment();
     readonly UserHome   _userHome = UserHome.FromEnvironment();
 
-    LifecycleLog? _lifecycleLogInstance;
-    LifecycleLog LifecycleLog => _lifecycleLogInstance ??= new LifecycleLog(_config, _time, _userHome.Path,
+    LifecycleLog LifecycleLog => field ??= new LifecycleLog(_config, _time, _userHome.Path,
         closed: () => _uninstalling || _uninstallMode is not null);
     StartupMarks StartupMarks => field ??= new StartupMarks(LifecycleLog, _time, StartupMarks.CurrentProcessStart());
     TimeSpan? _windowBuild;
@@ -116,6 +115,7 @@ public partial class App : Application {
     readonly AppStateStore _appState;
 
     readonly UiScaleSetting _uiScale;
+    ChatMarksFiles? _chatMarksFiles;
     readonly ProgressiveDisclosurePreferences? _progressiveDisclosure;
     readonly BetaUpdatesSetting _betaUpdates;
     // The constructor's read of app-state.json, handed to the first main window and then dropped:
@@ -273,6 +273,8 @@ public partial class App : Application {
     LocalUpgradeController? _localUpgrade;
     LocalSearchController? _localSearch;
     LocalStackViewModel? _localStack;
+    // The open Settings window's Background intelligence tab, which the upgrade and a search change wait for.
+    BackgroundIntelligenceSettingsViewModel? _intelligenceSettings;
     // The server-side clients that outlive a window rebuild (MainWindowCoordinator can build a
     // second window over the same launch client) and own live transports. Torn down through one
     // holder on both teardown paths, after _home — never before, or a launch still in flight would
@@ -351,6 +353,7 @@ public partial class App : Application {
         ProgressiveDisclosureViewModel.Shared.Restore(_progressiveDisclosure, _appState);
         LineSelection.Install();
         ToolTipFocusGate.Install();
+        CaretBlink.Install();
         // Here, not later: Avalonia exports the app menu right after Initialize, substituting its own
         // "About Avalonia" when there is none.
         NativeMenu.SetMenu(this, _appMenu.Menu);
@@ -1287,14 +1290,17 @@ public partial class App : Application {
             OpenSignInDialog(profiles.Name, serverUrl, refreshAppState: true);
         });
         // The bundled CLI's own coordinator, never a hook: the stack follows the CLI this app ships.
-        // The upgrade and a search change both take the installation, so each holds the other off; both start on the UI thread.
+        // The upgrade, a search change and the Background intelligence tab all reach the server, which the first two restart,
+        // so each holds the others off; all start on the UI thread.
         LocalSearchController? localSearch = null;
         var localUpgrade = isLocalServer
-            ? new LocalUpgradeController(() => lifecycleCli, action => Dispatcher.UIThread.Post(action), held: () => localSearch?.Running == true)
+            ? new LocalUpgradeController(() => lifecycleCli, action => Dispatcher.UIThread.Post(action),
+                held: () => localSearch?.Running == true || _intelligenceSettings?.Busy == true)
             : null;
         _localUpgrade = localUpgrade;
         localSearch = localUpgrade is null ? null
-            : new LocalSearchController(() => lifecycleCli, action => Dispatcher.UIThread.Post(action), held: () => localUpgrade.Running);
+            : new LocalSearchController(() => lifecycleCli, action => Dispatcher.UIThread.Post(action),
+                held: () => localUpgrade.Running || _intelligenceSettings?.Busy == true);
         _localSearch = localSearch;
         Func<CancellationToken, Task<EmbeddingHealthAnswer?>>? localEmbeddingHealth = profiles?.Resolution.ServerUrl is { Length: > 0 } localUrl
             ? ct => EmbeddingHealthAnswer.ReadAsync(localUrl, ct)
@@ -1354,6 +1360,11 @@ public partial class App : Application {
         var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
         var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
         var drafts = new ComposerDrafts();
+        var chatMarksOn = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.ChatMarks);
+        _chatMarksFiles = new ChatMarksFiles(_config.Path("chat-marks"));
+        var chatMarks = new ChatMarks(_chatMarksFiles);
+        // Off, a chat shows no topic or bookmark controls and its saved marks stay on disk unread.
+        ChatMarks? ChatMarksIfOn() => chatMarksOn.IsOn ? chatMarks : null;
         var finds = new ChatFindMemory();
         var workContextLayout = new WorkContextLayout();
         var transcripts = new LocalTranscripts();
@@ -1377,7 +1388,7 @@ public partial class App : Application {
             appSubject: appSubject, notifier: notifier, serverLane: serverLane.Status, workContextLayout: workContextLayout,
             handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
             pickers: pickers,
-            inAppPages: () => inAppPages.IsOn);
+            inAppPages: () => inAppPages.IsOn, chatMarks: ChatMarksIfOn());
         // The origin lookup below and this call are two reads of a cache the directory's own
         // background recompute mutates, so the row can be gone by the time this runs: no row, no
         // host, and the click opens nothing.
@@ -1392,7 +1403,7 @@ public partial class App : Application {
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
                     heldMessages: heldMessages, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
                     inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer,
-                    uploader: uploader)
+                    uploader: uploader, chatMarks: ChatMarksIfOn())
                 : null;
         // One for the app's life: a failed hand-off's draft outlives the composer that sent it.
         var handoffDrafts = new HandoffDrafts(serverLane.LaunchFailures, directory, _time);
@@ -1429,7 +1440,8 @@ public partial class App : Application {
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
                     handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
-                    inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer)
+                    inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer,
+                    chatMarks: ChatMarksIfOn())
                 : null;
 
         // Windows hides the main window to the notification area on close, where nothing else says kcap is still there.
@@ -1710,6 +1722,20 @@ public partial class App : Application {
         return (cli, probe, runner);
     }
 
+    BackgroundIntelligenceSettingsViewModel NewIntelligenceSettings(
+            SettingsProfileStore settings, string daemonName, LocalUpgradeController upgrade, LocalSearchController search) {
+        var (cli, probe, _) = SettingsCli(settings, daemonName);
+        return new BackgroundIntelligenceSettingsViewModel(cli, ct => ReadHeadlessHarnessesAsync(probe, daemonName, ct), upgrade, search);
+    }
+
+    /// The agents a daemon of this name advertises for headless prompts, else what this machine can run.
+    async Task<string[]> ReadHeadlessHarnessesAsync(ILoginShellProbe probe, string daemonName, CancellationToken ct) {
+        var binaries = BinaryProbe.Searching(await probe.TerminalPathAsync(ct));
+
+        return await HeadlessHarnessSource.ReadAsync(_daemonStore, daemonName, _time,
+            () => HeadlessHarnessProbe.Detect(HarnessRegistry.FromEnvironment(_userHome, binaries), binaries), ct);
+    }
+
     HarnessesSettingsViewModel CreateHarnessesSettings(SettingsProfileStore settings, string daemonName) {
         var (cli, probe, _) = SettingsCli(settings, daemonName);
         var harnesses = HarnessRegistry.FromEnvironment(_userHome);
@@ -1821,6 +1847,9 @@ public partial class App : Application {
                 Appearance = new AppearanceSettingsViewModel(_uiScale),
                 Privacy    = new PrivacySettingsViewModel(_telemetry, _config, _usageNotice),
                 Search     = _localStack?.Search,
+                Intelligence = _localUpgrade is { } upgrade && _localSearch is { } search
+                    ? NewIntelligenceSettings(settings, service.DaemonName, upgrade, search)
+                    : null,
                 Experimental = new ExperimentalSettingsViewModel(new ExperimentalSettingsStore(_config), settings.ProfileName, service,
                     saved: () => _experimentalSaved.OnNext(Unit.Default)),
                 About = new AboutSettingsViewModel(service, SettingsCli(settings, service.DaemonName).Cli.VersionAsync, _localStack,
@@ -1835,7 +1864,12 @@ public partial class App : Application {
         var window = new SettingsWindow { DataContext = vm, ContentScale = _uiScale };
         _settingsWindow = window;
         window.Closing += (_, e) => { if (vm.HasActiveOperation && !_shutdownStarted) e.Cancel = true; };
-        window.Closed += (_, _) => { _settingsWindow = null; vm.Dispose(); };
+        _intelligenceSettings = vm.Intelligence;
+        window.Closed += (_, _) => {
+            _settingsWindow = null;
+            if (_intelligenceSettings == vm.Intelligence) _intelligenceSettings = null;
+            vm.Dispose();
+        };
         // Profiles and the saved audience are re-read whenever the window regains focus, so a `kcap use`,
         // `kcap profile add` or `kcap config set` made in a terminal shows up on return without a file watcher.
         window.Activated += (_, _) => {
@@ -2051,12 +2085,7 @@ public partial class App : Application {
                 SystemBrowser.Instance, Clipboard.TryCopy),
             ResumeWebSignUp: WizardComposition.ResumesWebSignUp(await _appState.LoadAsync(), _time.GetUtcNow()),
             Prefetch: _localPrefetch,
-            HeadlessHarnesses: async (name, ct) => {
-                var binaries = BinaryProbe.Searching(await probe.TerminalPathAsync(ct));
-
-                return await HeadlessHarnessSource.ReadAsync(_daemonStore, name, _time,
-                    () => HeadlessHarnessProbe.Detect(HarnessRegistry.FromEnvironment(_userHome, binaries), binaries), ct);
-            },
+            HeadlessHarnesses: (name, ct) => ReadHeadlessHarnessesAsync(probe, name, ct),
             OffersWindowsService: OperatingSystem.IsWindows());
         _localInstall ??= WizardComposition.NewInstallController(options);
         var graph = WizardComposition.BuildGraph(options with { Install = _localInstall });
@@ -2654,7 +2683,7 @@ public partial class App : Application {
 
     // A hidden window shows no toast, and its toast overlay exists only once it has loaded.
     MainWindow TrackNoticeWindow(IAppNotifier notifier, MainWindow window) {
-        void Publish() => _noticeWindow.OnNext(window.IsVisible && window.IsLoaded ? notifier : null);
+        void Publish() => _noticeWindow.OnNext(window is { IsVisible: true, IsLoaded: true } ? notifier : null);
         var visible = window.GetObservable(Visual.IsVisibleProperty).Subscribe(_ => Publish());
         window.Loaded += (_, _) => Publish();
         window.Closed += (_, _) => {
@@ -3308,6 +3337,10 @@ public partial class App : Application {
         // Keep the UI context for the dialog closes below. Later quiesce awaits may resume on a
         // worker thread; the final UI disposal explicitly returns to the dispatcher.
         await _workspaceTeardown.DrainAsync();
+        // Mark saves run in the background, and a background write does not hold the process open.
+        if (_chatMarksFiles is { } marks) {
+            try { await marks.FlushAsync().WaitAsync(TimeSpan.FromSeconds(2), _time); } catch (TimeoutException) { }
+        }
 
         // Still on the UI thread (required by Close), and before the quiesce below: the dialog's
         // own close path cancels a live re-auth attempt — or lets a commit already past the

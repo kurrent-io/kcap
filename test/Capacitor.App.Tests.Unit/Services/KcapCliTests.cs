@@ -993,4 +993,40 @@ public class KcapCliTests {
             .IsTypeOf<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Failed>();
         await Assert.That(refused.SeenArgs!).DoesNotContain("--model");
     }
+
+    /// <summary>The settings travel as the command writes them, through the same serializer, into the outcome the tab
+    /// reads; an applied answer's line still reads as applied.</summary>
+    [Test]
+    public async Task Local_intelligence_status_reads_the_settings_the_command_writes() {
+        var settings = new Cli.Core.Setup.Intelligence.IntelligenceSettings(
+            "provider", null, "openai", "gpt-5-mini", false, true, 500, false, ["titles"]);
+        var line = System.Text.Json.JsonSerializer.Serialize(Cli.Core.Setup.Intelligence.IntelligenceCliLine.From(settings),
+            Cli.Core.Setup.Intelligence.IntelligenceCliJsonContext.Default.IntelligenceCliLine);
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, line + "\n", "", false)) };
+
+        var outcome = await MakeCli(runner).LocalIntelligenceStatusAsync(CancellationToken.None);
+
+        await Assert.That(runner.SeenArgs!).IsEquivalentTo(
+            ["local", "intelligence", "status", "--json", "--no-update-check"], CollectionOrdering.Matching);
+        var read = ((Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome.Read)outcome).Settings;
+        await Assert.That(read with { Resolving = settings.Resolving }).IsEqualTo(settings);
+        await Assert.That(read.Resolving).IsEquivalentTo(["titles"]);
+
+        var applied = Cli.Core.Setup.Intelligence.IntelligenceCliLine.From(new Cli.Core.Setup.Intelligence.IntelligenceSetupResponse(
+            "none", null, null, true, 300, []));
+        await Assert.That(applied.ReadSettings).IsNull();
+        await Assert.That(applied.Applied).IsNotNull();
+    }
+
+    [Test]
+    public async Task Local_intelligence_preferences_pass_only_what_was_given_and_read_a_refusal() {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(2, """{"ok":false,"error":"needs_update"}""", "", false)) };
+
+        var outcome = await MakeCli(runner).LocalIntelligencePreferencesAsync(null, 750, CancellationToken.None);
+
+        await Assert.That(runner.SeenArgs!).IsEquivalentTo(
+            ["local", "intelligence", "--daily-limit", "750", "--json", "--no-update-check"], CollectionOrdering.Matching);
+        await Assert.That(outcome).IsEqualTo<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>(
+            new Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome.Refused("needs_update"));
+    }
 }

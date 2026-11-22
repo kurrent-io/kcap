@@ -55,7 +55,7 @@ internal static class EnsureClassifier {
         // it reads Installed or Running — is an installation that cannot survive a relaunch: orphaned,
         // never "already enabled". A stale marker means a prior transaction never reached a terminal
         // state: ambiguous, never success.
-        if ((state == ServiceState.Installed || state == ServiceState.Running) && !unitPresent)
+        if ((state is ServiceState.Installed or ServiceState.Running) && !unitPresent)
             return new EnsureDecision(EnsureAction.Attention, "orphan_label");
 
         if (txnMarker)

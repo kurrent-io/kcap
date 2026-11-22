@@ -12,8 +12,8 @@ public class WorkContextReaderTests {
         public WorkContextOutcome<SessionSummaryDto> Summary = new(200, new SessionSummaryDto { SessionId = "s1" }, null);
         public WorkContextOutcome<ViewerIdentityDto> Viewer = new(200, new ViewerIdentityDto { UserId = "user_a", AvatarUrl = "https://example.test/a.png" }, null);
         public readonly List<string> Calls = [];
-        public TaskCompletionSource SummaryGate = new();
-        public TaskCompletionSource ItemGate = new();
+        public readonly TaskCompletionSource SummaryGate = new();
+        public readonly TaskCompletionSource ItemGate = new();
         public bool GateSummary;
         public bool GateItem;
 

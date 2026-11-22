@@ -15,7 +15,6 @@ public sealed class PrivacySettingsViewModel : ReactiveObject, IDisposable {
     readonly ConfigRoot      _config;
     readonly UsageDataNotice _notice;
     bool    _send;
-    string? _hint;
 
     public PrivacySettingsViewModel(CliTelemetry telemetry, ConfigRoot config, UsageDataNotice notice) {
         _telemetry = telemetry;
@@ -39,8 +38,8 @@ public sealed class PrivacySettingsViewModel : ReactiveObject, IDisposable {
     public bool CanChange => Overridden is null;
 
     public string? Hint {
-        get => _hint;
-        private set => this.RaiseAndSetIfChanged(ref _hint, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool SendUsageData {

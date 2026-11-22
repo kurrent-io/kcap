@@ -137,8 +137,7 @@ internal sealed partial class SteeringEndpoint(
 
             try {
                 connection = await listener.AcceptAsync(ct);
-            } catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException
-                                             || ex is SocketException { SocketErrorCode: SocketError.OperationAborted or SocketError.Interrupted }) {
+            } catch (Exception ex) when (ex is OperationCanceledException or ObjectDisposedException or SocketException { SocketErrorCode: SocketError.OperationAborted or SocketError.Interrupted }) {
                 return;
             } catch (SocketException ex) {
                 LogAcceptFailed(ex);

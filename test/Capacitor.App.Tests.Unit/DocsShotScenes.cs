@@ -209,7 +209,7 @@ static partial class DocsShotScenes {
     public static async Task<DocsShotScene> WorkContextAsync() {
         var scene = await MainWindowAsync(workContext: PaymentsWorkContextInFull(), plan: PaymentsPlan(), arrange: async vm => {
             var context = ((WorkspaceViewModel)vm.CurrentWorkspace!).WorkContext;
-            await WorkspaceFixtures.WaitUntilAsync(() => context.IsReady && context.HasParts && context.Plan.HasTasks, what: "the work context");
+            await WorkspaceFixtures.WaitUntilAsync(() => context is { IsReady: true, HasParts: true, Plan.HasTasks: true }, what: "the work context");
             await context.TogglePeopleCommand.Execute();
             await context.Plan.ToggleCommand.Execute();
         });

@@ -24,7 +24,7 @@ public class SetupDaemonServiceTests {
     sealed class Channel(FirstRunFlowResponse? view, params int[] reportCodes) : IFirstRunFlowChannel {
         public List<ReportFirstRunMachineActionRequest> Reports { get; } = [];
 
-        public int Polls { get; private set; }
+        int Polls { get; set; }
 
         public Task<FirstRunPollOutcome> PollAsync(string serverUrl, string flowId, CancellationToken ct) {
             Polls++;

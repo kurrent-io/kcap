@@ -762,8 +762,7 @@ internal sealed partial class AcpHostedAgentRuntimeFactory(
     /// produce — aliasing is what makes that comparison close to an identity check rather than a
     /// string match.</para></summary>
     internal static bool AliasesResultChannel(AcpVendorDescriptor descriptor) =>
-        descriptor.Harness is HarnessId.Gemini
-     || descriptor.Harness is HarnessId.Kiro;
+        descriptor.Harness is HarnessId.Gemini or HarnessId.Kiro;
 
     /// <summary>Vendors whose ARGV carries an exact-name MCP allowlist a review launch must widen to
     /// exactly its injected set — Gemini alone.

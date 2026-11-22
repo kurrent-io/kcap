@@ -22,13 +22,6 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
     readonly Action<Action> _post;
     readonly Func<bool>? _grokBotFound;
     readonly CancellationTokenSource _lifetime;
-    IReadOnlyList<HarnessSettingsRow> _rows = [];
-    bool _busy;
-    bool _scanning;
-    string? _message;
-    bool _grokBotShown;
-    bool _grokBotRecording;
-    string? _grokBotMessage;
 
     public HarnessesSettingsViewModel(SettingsProfileStore store, IKcapCli cli,
             Func<CancellationToken, Task<IReadOnlyDictionary<HarnessId, DetectedAgent>>> detect,
@@ -60,23 +53,23 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
 
     /// The Grok Bot desktop app was found on this computer. It is no coding tool and installs nothing, so it
     /// has a switch of its own: the attached profile's setting, which the daemon acts on.
-    public bool GrokBotShown { get => _grokBotShown; private set => this.RaiseAndSetIfChanged(ref _grokBotShown, value); }
-    public bool GrokBotRecording { get => _grokBotRecording; private set => this.RaiseAndSetIfChanged(ref _grokBotRecording, value); }
-    public string? GrokBotMessage { get => _grokBotMessage; private set => this.RaiseAndSetIfChanged(ref _grokBotMessage, value); }
+    public bool GrokBotShown { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool GrokBotRecording { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? GrokBotMessage { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public ReactiveCommand<Unit, Unit> ToggleGrokBotCommand { get; }
 
     public IReadOnlyList<HarnessSettingsRow> Rows {
-        get => _rows;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _rows, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(RescanPrompt));
         }
-    }
+    } = [];
     /// Connecting or disconnecting a tool: the harness operation closing Settings must wait for.
-    public bool Busy { get => _busy; private set => this.RaiseAndSetIfChanged(ref _busy, value); }
+    public bool Busy { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// Looking for installed tools: read-only, so closing may abandon it.
-    public bool Scanning { get => _scanning; private set => this.RaiseAndSetIfChanged(ref _scanning, value); }
-    public string? Message { get => _message; private set => this.RaiseAndSetIfChanged(ref _message, value); }
+    public bool Scanning { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? Message { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     public string RescanPrompt => Rows.Count == 0
         ? "No coding tools found. Install one, then rescan."
@@ -208,7 +201,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
                 removed = result.Stderr.Trim();
             } else {
                 // Install only ever adds, so anything the new answer drops comes out first.
-                var drops = !repair && ((row.IsConfigured && !record) || (row.OffersTools && row.Tools && !tools));
+                var drops = !repair && ((row.IsConfigured && !record) || (row is { OffersTools: true, Tools: true } && !tools));
                 result = drops ? await _cli.PluginRemoveAsync(flag, _lifetime.Token) : new ProcessResult(0, "", "", false);
                 if (result is { ExitCode: 0, TimedOut: false }) {
                     removed = result.Stderr.Trim();

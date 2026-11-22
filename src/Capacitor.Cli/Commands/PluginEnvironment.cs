@@ -59,10 +59,9 @@ public sealed record PluginEnvironment(
     /// <summary>The installed OpenCode's own version, or null when unknown. A seam so a test never runs
     /// whatever <c>opencode</c> this machine has.</summary>
     public Func<string?> OpenCodeVersion {
-        get => _openCodeVersion ?? (() => new VendorVersionResolver(Binaries).Resolve("opencode"));
-        init => _openCodeVersion = value;
+        get => field ?? (() => new VendorVersionResolver(Binaries).Resolve("opencode"));
+        init => field = value;
     }
-    readonly Func<string?>? _openCodeVersion;
 
     /// <summary>The cross-vendor <c>~/.agents</c> tree. Derived from <see cref="Home"/> rather than
     /// supplied: it honours no override, so a second value could only disagree with this one — and

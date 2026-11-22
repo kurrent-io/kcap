@@ -20,7 +20,7 @@ public static class RepoPathPattern {
         if (root.Length == 0) root = "/";
         // `C:\*` leaves `C:`, meant as the drive's root. An exact `C:` stays what it is, the drive's working
         // directory, which is not fully qualified and so matches nothing.
-        if (glob && OperatingSystem.IsWindows() && root.Length == 2 && root[1] == ':') root += '\\';
+        if (glob && OperatingSystem.IsWindows() && root is [_, ':']) root += '\\';
         if (OperatingSystem.IsWindows()) {
             root     = WindowsPathSpelling.Fold(root);
             repoPath = WindowsPathSpelling.Fold(repoPath);

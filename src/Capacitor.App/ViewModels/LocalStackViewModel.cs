@@ -24,7 +24,7 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
     static readonly string[] Derived = [
         nameof(Version), nameof(StateText), nameof(Attention), nameof(Upgrading), nameof(BannerVisible), nameof(Headline),
         nameof(Detail), nameof(Guidance), nameof(DownloadFraction), nameof(ProgressIndeterminate), nameof(TryAgainVisible),
-        nameof(DismissVisible), nameof(IsNote), nameof(StartVisible), nameof(ReinstallVisible), nameof(ActionsVisible), nameof(SuppressesServerStart),
+        nameof(DismissVisible), nameof(TryAgainIsPrimary), nameof(DismissIsPrimary), nameof(IsNote), nameof(StartVisible), nameof(ReinstallVisible), nameof(ActionsVisible), nameof(SuppressesServerStart),
     ];
 
     readonly LocalUpgradeController _upgrade;
@@ -40,7 +40,6 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
     ServerLaneState? _lane;
     LocalUpgradeOutcome? _shown;
     string? _searchWarning;
-    string? _startMessage;
     int _starting;
     readonly ObservableAsPropertyHelper<bool> _isStarting;
 
@@ -225,6 +224,10 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
     public bool ReinstallVisible =>
         !Upgrading && Reinstall is not null && _shown is LocalUpgradeOutcome.Failed { Code: var code } && code == LocalInstallFailureCode.ServerMissing.Wire();
 
+    /// Try again leads unless Start or Reinstall is the fix; Dismiss leads only when it is the sole action.
+    public bool TryAgainIsPrimary => TryAgainVisible && !StartVisible && !ReinstallVisible;
+    public bool DismissIsPrimary => DismissVisible && !StartVisible && !TryAgainVisible && !ReinstallVisible;
+
     /// The action cluster. False while an upgrade is running, so that row is not left blank.
     public bool ActionsVisible => StartVisible || TryAgainVisible || ReinstallVisible || DismissVisible;
 
@@ -236,8 +239,8 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
 
     /// Why the last Start failed, without its terminal advice; null once a start succeeds or a new one begins.
     public string? StartMessage {
-        get => _startMessage;
-        private set => this.RaiseAndSetIfChanged(ref _startMessage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public ReactiveCommand<Unit, Unit> StartCommand { get; }

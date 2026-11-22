@@ -66,11 +66,11 @@ public sealed record CopilotWorkspaceYaml(
     /// double-quotes inside double-quoted scalars.
     /// </summary>
     internal static string Unquote(string value) {
-        if (value.Length >= 2 && value[0] == '\'' && value[^1] == '\'') {
+        if (value is ['\'', .., '\'']) {
             return value[1..^1].Replace("''", "'");
         }
 
-        if (value.Length >= 2 && value[0] == '"' && value[^1] == '"') {
+        if (value is ['"', .., '"']) {
             return value[1..^1].Replace("\\\"", "\"");
         }
 

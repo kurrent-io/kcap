@@ -145,7 +145,7 @@ public class ReviewerVendorPreferenceTests : IDisposable {
     // /v4 — in the order the server received them.
     IReadOnlyList<string> StartBodies() =>
         _server.LogEntries
-               .Where(e => e.RequestMessage.Path == StartV2 || e.RequestMessage.Path == StartV4)
+               .Where(e => e.RequestMessage.Path is StartV2 or StartV4)
                .Select(e => e.RequestMessage.Body ?? "")
                .ToList();
 

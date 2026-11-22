@@ -103,13 +103,13 @@ public class CursorLiveSubagentIntegrationTests {
         readonly TempHome _home = new();
 
         public string TranscriptsRoot { get; }
-        public string SpoolDir        { get; }
+        string SpoolDir        { get; }
         public List<string> Sent       { get; } = [];
         public List<string> RouteOrder { get; } = [];
-        public HookSpool    Spool      { get; }
-        public ConfigRoot   Config     { get; }
-        public HttpClient   Client     { get; }
-        public HttpStatusCode PostStatus { get; set; } = HttpStatusCode.OK;
+        HookSpool    Spool      { get; }
+        ConfigRoot   Config     { get; }
+        HttpClient   Client     { get; }
+        HttpStatusCode PostStatus { get; } = HttpStatusCode.OK;
 
         readonly List<string> _markersToClean = [];
 

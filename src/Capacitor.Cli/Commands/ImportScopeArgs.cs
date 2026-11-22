@@ -100,7 +100,7 @@ public static class ImportScopeArgs {
     static (string Owner, string Name)? OwnerName(string value) {
         var parts = value.Split('/');
 
-        return parts.Length == 2 && parts[0].Length > 0 && parts[1].Length > 0 ? (parts[0], parts[1]) : null;
+        return parts is [{ Length: > 0 }, { Length: > 0 }] ? (parts[0], parts[1]) : null;
     }
 
     public static ResolveResult Resolve(ResolveInput input) {
@@ -138,7 +138,7 @@ public static class ImportScopeArgs {
         }
 
         // A scope flag is set: enforce --yes for non-interactive runs.
-        if (!input.IsInteractive && !f.Yes && !f.Session) {
+        if (!input.IsInteractive && f is { Yes: false, Session: false }) {
             return new(
                 null,
                 f.Yes,

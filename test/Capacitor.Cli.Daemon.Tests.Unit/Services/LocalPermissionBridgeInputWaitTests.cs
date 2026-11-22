@@ -11,8 +11,8 @@ public class LocalPermissionBridgeInputWaitTests {
     const string Session = "6ba7b8109dad11d180b400c04fd430c8";
 
     sealed class Harness : IAsyncDisposable {
-        public LocalPermissionBridge Bridge { get; }
-        public HttpClient Client { get; } = new() { Timeout = TimeSpan.FromSeconds(30) };
+        LocalPermissionBridge Bridge { get; }
+        HttpClient Client { get; } = new() { Timeout = TimeSpan.FromSeconds(30) };
         public List<(string AgentId, bool Waiting)> Seen { get; } = [];
 
         public Harness(string? attributeTo = "agent-1") {

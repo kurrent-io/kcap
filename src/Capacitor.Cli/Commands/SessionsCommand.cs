@@ -163,7 +163,7 @@ partial class SessionsCommand(
         } else {
             var rows = page.Items.Select(string?[] (row) => [
                     SessionIds.Display(row.SessionId),
-                    row.Status == "active" && row.Stale ? "stale" : row.Status,
+                    row is { Status: "active", Stale: true } ? "stale" : row.Status,
                     row.AccessLevel,
                     row.Owner?.Username ?? row.Owner?.UserId ?? "",
                     row.Vendor ?? "",

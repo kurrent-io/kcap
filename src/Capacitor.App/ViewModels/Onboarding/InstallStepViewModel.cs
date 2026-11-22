@@ -57,18 +57,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     readonly Func<bool>?            _bundleUnpublished;
     bool                            _titleNotPublished;
     readonly List<string>           _startFailures = [];
-    bool                            _serviceOffered;
-    bool                            _runAsService;
-    bool                            _autoRetrying;
     CancellationTokenSource?        _retryGap;
-    string?                         _supportNote;
     CancellationToken               _lifetime;
-    string?                         _refusal;
-    string?                         _clientProblem;
-    bool                            _repairing;
     bool                            _installPressed;
-    bool                            _choosing;
-    IReadOnlyList<InstallStepRow>   _rows = [];
     LocalSetupProgress?             _watched;
 
     /// <param name="builtinOffer">The built-in model set the stack setup will run offers, or null; asked before the choice shows.</param>
@@ -149,9 +140,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     /// The page asks about search by meaning before the run starts.
     public bool ChoiceVisible {
-        get => _choosing;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _choosing, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Title));
             this.RaisePropertyChanged(nameof(ProgressVisible));
             this.RaisePropertyChanged(nameof(OwnsPrimaryAction));
@@ -163,9 +154,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     /// The choice offers the Windows service; the install asks for it only while this is on.
     public bool WindowsServiceOffered {
-        get => _serviceOffered;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _serviceOffered, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(WindowsServiceVisible));
         }
     }
@@ -173,8 +164,8 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     public bool WindowsServiceVisible => ChoiceVisible && WindowsServiceOffered;
 
     public bool RunAsWindowsService {
-        get => _runAsService;
-        set => this.RaiseAndSetIfChanged(ref _runAsService, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Why kcap runs only while the user is signed in, once the run went ahead without the service.
@@ -186,9 +177,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     public bool WindowsServiceNoteVisible => WindowsServiceNote is not null;
 
     public IReadOnlyList<InstallStepRow> Rows {
-        get => _rows;
-        private set => this.RaiseAndSetIfChanged(ref _rows, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = [];
 
     public bool Running => _controller.Running;
 
@@ -234,9 +225,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     /// Between a failed start and the next attempt; the page shows progress, not the failure.
     public bool AutoRetrying {
-        get => _autoRetrying;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _autoRetrying, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(RetryStatus));
             RestateOutcome();
         }
@@ -246,8 +237,8 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     /// What became of the support email: where it went, and where the full report is if the draft was cut.
     public string? SupportNote {
-        get => _supportNote;
-        private set => this.RaiseAndSetIfChanged(ref _supportNote, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
     public bool CancelVisible   => Running || AutoRetrying;
     public bool BackVisible     => !Running && !AutoRetrying && !Repairing && Failure is not { LockedToLocal: true };
@@ -256,9 +247,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     /// Another kcap is being brought up to date; nothing has been asked or installed yet.
     public bool Repairing {
-        get => _repairing;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _repairing, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ProgressVisible));
             this.RaisePropertyChanged(nameof(BackVisible));
         }
@@ -266,9 +257,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     /// Why another kcap could not be brought up to date; the page offers to try again.
     public string? ClientProblem {
-        get => _clientProblem;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _clientProblem, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ClientProblemVisible));
             this.RaisePropertyChanged(nameof(ProgressVisible));
         }
@@ -277,9 +268,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     public bool ClientProblemVisible => ClientProblem is not null;
 
     public string? RefusalMessage {
-        get => _refusal;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _refusal, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(RefusalVisible));
             this.RaisePropertyChanged(nameof(ProgressVisible));
             this.RaisePropertyChanged(nameof(FailureVisible));

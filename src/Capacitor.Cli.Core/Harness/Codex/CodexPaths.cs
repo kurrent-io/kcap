@@ -6,13 +6,15 @@ public sealed class CodexPaths {
         Home = !string.IsNullOrWhiteSpace(codexHome) ? codexHome : Path.Combine(home.Path, ".codex");
 
 
+    public const string ModelsCacheFileName = "models_cache.json";
+
     public string Home { get; }
 
     public string Sessions      => Path.Combine(Home, "sessions");
     public string UserHooksJson => Path.Combine(Home, "hooks.json");
     public string ConfigToml    => Path.Combine(Home, "config.toml");
     public string SkillsDir     => Path.Combine(Home, "skills");
-    public string ModelsCache   => Path.Combine(Home, "models_cache.json");
+    public string ModelsCache   => Path.Combine(Home, ModelsCacheFileName);
     public string AuthJson      => Path.Combine(Home, "auth.json");
 
     /// <summary>

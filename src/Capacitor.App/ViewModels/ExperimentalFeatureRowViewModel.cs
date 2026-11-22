@@ -15,8 +15,6 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
     bool _daemonRunning;
     bool _hasStatus;
     DaemonStatusDto? _status;
-    string _statusText = "";
-    bool _statusIsWarning;
     bool _canChange;
     bool _changedHere;
 
@@ -58,14 +56,14 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
     }
 
     public string StatusText {
-        get => _statusText;
-        private set => this.RaiseAndSetIfChanged(ref _statusText, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     /// Only a switch that is on and not working, or a daemon that cannot report, is attention.
     public bool StatusIsWarning {
-        get => _statusIsWarning;
-        private set => this.RaiseAndSetIfChanged(ref _statusIsWarning, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// <param name="hasStatus">False while the daemon's state is still being learned, which shows nothing.</param>

@@ -37,10 +37,10 @@ public class WorkContextViewModelTests {
         public List<string> OpenedWorkItems { get; } = [];
         public SessionRuns Runs { get; }
         public FakePlanSource Plans { get; } = new();
-        public PlanActivity PlanActivity { get; } = new();
+        PlanActivity PlanActivity { get; } = new();
         public BehaviorSubject<ServerLaneStatus> Lane { get; } = new(new(ServerLaneState.Connected));
         public bool CanSend { get; set; } = true;
-        public bool SendResult { get; set; } = true;
+        public bool SendResult { get; init; } = true;
         public List<string> Sent { get; } = [];
         public WorkContextViewModel Vm { get; }
 
@@ -1675,7 +1675,7 @@ public class WorkContextViewModelTests {
             }));
             try {
                 await h.PushAsync(Dto());
-                await WaitUntilAsync(() => source.Lists == 1 && pullRequests.HasListed && !pullRequests.IsReading, what: "empty session PR list");
+                await WaitUntilAsync(() => source.Lists == 1 && pullRequests is { HasListed: true, IsReading: false }, what: "empty session PR list");
                 await Assert.That(pullRequests.HasPullRequest).IsFalse();
                 await Assert.That(pullRequests.HasChoice).IsFalse();
                 await Assert.That(pullRequests.Notice).IsEqualTo("No pull requests yet.");
@@ -1705,7 +1705,7 @@ public class WorkContextViewModelTests {
             h.Source.Enqueue(ReadyWith(Row("w1", "t"), Item()));
             try {
                 await h.PushAsync(Dto());
-                await WaitUntilAsync(() => pullRequests.HasListed && pullRequests.HasChoice, what: "legacy list applied");
+                await WaitUntilAsync(() => pullRequests is { HasListed: true, HasChoice: true }, what: "legacy list applied");
                 await Assert.That(pullRequests.IsLegacy).IsTrue();
                 await Assert.That(pullRequests.CanOpenReader).IsFalse();
                 await Assert.That(h.Vm.ShowsPullRequestCard).IsTrue();

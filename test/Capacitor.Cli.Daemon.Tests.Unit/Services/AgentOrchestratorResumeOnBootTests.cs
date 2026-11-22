@@ -962,6 +962,43 @@ public class AgentOrchestratorResumeOnBootTests {
             .IsEquivalentTo(new[] { true, true, true }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
     }
 
+    /// <summary>A resume refused for its connection keeps its agent when the registration after the connection's
+    /// recovery takes it within the readiness window. The server read nothing the refused one carried, so the
+    /// recovery's announcement is still flagged as the first.</summary>
+    [Test]
+    public async Task A_resume_refused_for_its_connection_keeps_its_agent_once_a_registration_takes_it() {
+        var f = Build(new ResumableFactory { PtyStyle = true }, c => c.ResumeReadinessWindow = TimeSpan.FromSeconds(1));
+        await using var _ = f.Orch;
+        Entry(f, "resume-launch-displaced");
+        var refused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls   = 0;
+        f.Server.RegistrationResponse = _ => {
+            if (Interlocked.Increment(ref calls) != 1) return null;
+
+            refused.TrySetResult();
+
+            return new AgentRegisteredResponse(false, "not_a_daemon");
+        };
+        var continued = 0;
+        f.Orch.ContinueEntry = (_, _, _) => {
+            Interlocked.Increment(ref continued);
+            return Task.FromResult(ResumeOutcome.Interrupted);
+        };
+
+        f.Orch.LoadResumeLedger();
+        var lane = f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await refused.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        await f.Orch.ReRegisterAgentsAsync();
+        await lane;
+        await f.Orch.ReRegisterAgentsAsync();
+
+        await Assert.That(continued).IsEqualTo(0);
+        await Assert.That(f.Orch.GetAgentForTest("resume-launch-displaced")).IsNotNull();
+        await Assert.That(f.Orch.ResumeLedger!.TryRead("resume-launch-displaced")!.LastError).IsNull();
+        await Assert.That(f.Server.AgentRegisteredResumes.Where(r => r.AgentId == "resume-launch-displaced").Select(r => r.FirstAnnounce))
+            .IsEquivalentTo(new[] { true, true, false }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
     /// <summary>A registration a server without the acked method took answered nothing, so the next one, after a
     /// reconnect to a server that may now read the resume, is still flagged as the first.</summary>
     [Test]

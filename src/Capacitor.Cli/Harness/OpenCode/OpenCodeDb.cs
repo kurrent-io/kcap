@@ -1,6 +1,6 @@
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
+using Capacitor.Models.Transcripts.Harness.OpenCode;
 using Microsoft.Data.Sqlite;
 
 namespace Capacitor.Cli.Harness.OpenCode;
@@ -23,10 +23,13 @@ internal sealed record OpenCodeSessionRow(
 /// Lives in the CLI project (not Core) so the Microsoft.Data.Sqlite native bundle
 /// never reaches the AOT-published daemon. Opened read-only, WAL-tolerant.
 ///
-/// <para>Reconstructs the live plugin's <c>{info,parts}</c> JSONL per message by merging
-/// each row's key columns back onto its <c>data</c> JSON — info gets {id, sessionID};
-/// each part gets {id, messageID, sessionID} — so the server's <c>opencode</c> normalizer
-/// consumes import output identically to the live stream.</para>
+/// <para>Reconstructs the live plugin's lines from both schemas one db can hold. A v1 message
+/// (<c>session</c>, <c>message</c>, <c>part</c>) is its <c>{info,parts}</c> line, with each row's key
+/// columns merged back onto its <c>data</c> JSON. A v2 message (<c>session_v2</c>,
+/// <c>session_message</c>, <c>session_part</c>) is the <c>{id, type, ...}</c> message v2's context
+/// returns. v2 copies every v1 session into its own tables and leaves the v1 rows in place, and the
+/// copy's parts lose the ids v1 events are keyed by, so a message the v1 tables hold is read from them
+/// and only the others from v2.</para>
 /// </summary>
 internal sealed class OpenCodeDb : IDisposable {
     readonly SqliteConnection _conn;
@@ -36,6 +39,10 @@ internal sealed class OpenCodeDb : IDisposable {
     // before the instance ctor body references SqliteConnection below.
     static OpenCodeDb() => SqliteNativeResolver.Register();
 
+    readonly bool _v1;
+    readonly bool _v2;
+    readonly bool _v2Parts;
+
     public OpenCodeDb(string dbPath) {
         _conn = new SqliteConnection(new SqliteConnectionStringBuilder {
             DataSource = dbPath,
@@ -43,18 +50,32 @@ internal sealed class OpenCodeDb : IDisposable {
             Cache      = SqliteCacheMode.Private,
         }.ToString());
         _conn.Open();
+
+        var tables = Tables();
+        _v1      = tables.Contains("session") && tables.Contains("message") && tables.Contains("part");
+        _v2      = tables.Contains("session_v2") && tables.Contains("session_message");
+        _v2Parts = _v2 && tables.Contains("session_part");
     }
 
-    /// <summary>True for an OpenCode v2 database: its sessions live in <c>session_v2</c>, with no v1
-    /// <c>session</c> table for this reader to query.</summary>
-    public bool IsV2Only() {
+    HashSet<string> Tables() {
         using var cmd = _conn.CreateCommand();
-        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('session', 'session_v2')";
+        cmd.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table'";
         using var reader = cmd.ExecuteReader();
         var names = new HashSet<string>(StringComparer.Ordinal);
         while (reader.Read()) names.Add(reader.GetString(0));
-        return names.Contains("session_v2") && !names.Contains("session");
+        return names;
     }
+
+    const string SessionColumns = "id, parent_id, directory, title, time_created, time_updated";
+
+    /// <summary>Where sessions are read from: a session v2 holds is its v2 row, which a copied v1 session keeps
+    /// current; a db with neither schema reads the v1 table, so it fails as a schema-drifted db does.</summary>
+    string SessionSource => (_v1, _v2) switch {
+        (true, true) => $"(SELECT {SessionColumns} FROM session_v2 UNION ALL " +
+                        $"SELECT {SessionColumns} FROM session WHERE id NOT IN (SELECT id FROM session_v2))",
+        (false, true) => "session_v2",
+        _             => "session",
+    };
 
     public IReadOnlyList<OpenCodeSessionRow> QueryRoots() =>
         QuerySessions("(parent_id IS NULL OR parent_id = '')", parent: null).Rows;
@@ -161,47 +182,16 @@ internal sealed class OpenCodeDb : IDisposable {
         bool                         CountTruncated);
 
     /// <summary>
-    /// Recursively walks <c>parent_id</c> edges from <paramref name="rootId"/> — per-level
-    /// <see cref="QueryChildren"/>, a visited-id set to guard a reachable cycle (traversal
-    /// simply stops re-descending, terminating the walk), IMPORT depth capped at
-    /// <see cref="MaxDescendantDepth"/>. In-cap discovery (depth &lt;=
-    /// <see cref="MaxDescendantDepth"/>) is ALWAYS complete — never bounded by
-    /// <see cref="MaxCountingNodes"/>. A descendant beyond the cap is never imported, but the
-    /// walk still recurses into it (same visited-set guard) purely to COUNT the whole omitted
-    /// subtree accurately and surface its identities — this below-cap-only counting/signature
-    /// walk is what <see cref="MaxCountingNodes"/> bounds; if it's hit,
-    /// <see cref="DescendantDiscoveryResult.CountTruncated"/> is set and the omitted count/ids
-    /// become a lower bound instead of silently under-reporting as complete.
-    ///
-    /// <para>The in-cap and below-cap walks run over two INDEPENDENT frontiers. A below-cap
-    /// descendant's own descendants are always below-cap too (depth only grows), so the split is
-    /// safe and lets the below-cap walk be abandoned the instant it truncates, without disturbing
-    /// the in-cap walk's completeness guarantee: once truncation is established, the below-cap
-    /// frontier is dropped rather than drained node-by-node.</para>
-    ///
-    /// <para>Because <see cref="MaxDescendantDepth"/> gates the in-cap frontier's own enqueue
-    /// (a child is only ever added to <c>inCapFrontier</c> when its depth is &lt;=
-    /// <see cref="MaxDescendantDepth"/>), every node dequeued from it has depth in
-    /// <c>0..MaxDescendantDepth</c> — so a node at exactly <see cref="MaxDescendantDepth"/> has
-    /// children that are ALL necessarily below the cap. That single call — where an unbounded
-    /// <see cref="QueryChildren"/> could still force reading and allocating an entire
-    /// (potentially enormous) child row set before truncation was even detectable — goes through
-    /// <see cref="QueryChildrenBounded"/> instead, capped to (remaining counting capacity + 1
-    /// sentinel row). An in-cap parent (depth &lt; <see cref="MaxDescendantDepth"/>) keeps the
-    /// unbounded <see cref="QueryChildren"/> — its children are always in-cap.</para>
-    ///
-    /// <para>A bounded fetch's <c>limit</c> caps RAW rows, but <see cref="QuerySessions"/>
-    /// filters malformed rows and this walk dedups already-visited ids AFTER the fetch — so a
-    /// malformed or duplicate row landing inside the bounded window could consume the sole
-    /// sentinel row without itself being counted as an omitted descendant, letting a
-    /// genuinely-omitted valid descendant just past it go undetected and the walk falsely
-    /// conclude <see cref="DescendantDiscoveryResult.CountTruncated"/> is <c>false</c>.
-    /// <see cref="QueryChildrenBounded"/> reports whether the RAW <c>LIMIT</c> was actually
-    /// exhausted (<c>HitLimit</c>); if so, truncation is asserted regardless of how many rows in
-    /// the batch turned out valid — the only case that can't prove otherwise is a raw count
-    /// strictly below the limit (definite EOF). This can over-report truncation in the rare case
-    /// where the directory holds exactly <c>limit</c> raw rows and no more (safe: the omitted
-    /// count/ids were already documented as a lower bound once truncated).</para>
+    /// Walks <c>parent_id</c> edges from <paramref name="rootId"/>, guarding cycles with a visited set.
+    /// Descendants within <see cref="MaxDescendantDepth"/> are always found completely. Those below it are
+    /// never imported but are still walked to count and identify the omitted subtree; that walk alone is
+    /// bounded by <see cref="MaxCountingNodes"/>, and hitting it sets
+    /// <see cref="DescendantDiscoveryResult.CountTruncated"/>, making the omitted figures a lower bound.
+    /// <para>The two walks use separate frontiers, so the below-cap one can be dropped the moment it
+    /// truncates. A node at exactly the cap has only below-cap children, so it is the one call that goes
+    /// through <see cref="QueryChildrenBounded"/>.</para>
+    /// <para>Malformed and duplicate rows are dropped after the fetch and could use up the sentinel row, so
+    /// a raw <c>LIMIT</c> hit (<c>HitLimit</c>) asserts truncation regardless of how many rows were valid.</para>
     /// </summary>
     public DescendantDiscoveryResult QueryDescendants(string rootId) {
         var result         = new List<DescendantRow>();
@@ -297,8 +287,8 @@ internal sealed class OpenCodeDb : IDisposable {
     (IReadOnlyList<OpenCodeSessionRow> Rows, int RawCount) QuerySessions(string whereClause, string? parent, int? limit = null) {
         using var cmd = _conn.CreateCommand();
         cmd.CommandText =
-            $"SELECT id, parent_id, directory, title, time_created, time_updated " +
-            $"FROM session WHERE {whereClause} ORDER BY time_created, id" +
+            $"SELECT {SessionColumns} " +
+            $"FROM {SessionSource} WHERE {whereClause} ORDER BY time_created, id" +
             (limit is not null ? " LIMIT $limit" : "");
         if (parent is not null) cmd.Parameters.AddWithValue("$parent", parent);
         if (limit is not null) cmd.Parameters.AddWithValue("$limit", limit.Value);
@@ -330,12 +320,21 @@ internal sealed class OpenCodeDb : IDisposable {
     static long? NonZero(long v) => v == 0 ? null : v;
 
     /// <summary>
-    /// Streams one reconstructed <c>{info,parts}</c> JSONL line per message, in
-    /// message chronological order, parts in (time_created,id) order. A LEFT JOIN keeps
-    /// messages that have no parts. Bounded memory: holds only the current message's
-    /// parts at a time.
+    /// Streams one reconstructed line per message: the session's v1 messages, then the v2 messages the v1 tables do
+    /// not hold. Bounded memory: holds only the current message's parts at a time.
     /// </summary>
     public IEnumerable<string> SynthesizeLines(string sessionId) {
+        if (_v1)
+            foreach (var line in V1Lines(sessionId)) yield return line;
+        if (_v2)
+            foreach (var line in V2Lines(sessionId)) yield return line;
+    }
+
+    /// <summary>
+    /// One <c>{info,parts}</c> line per v1 message, in message chronological order, parts in (time_created,id) order.
+    /// A LEFT JOIN keeps messages that have no parts.
+    /// </summary>
+    IEnumerable<string> V1Lines(string sessionId) {
         using var cmd = _conn.CreateCommand();
         cmd.CommandText =
             "SELECT m.id, m.data, p.id, p.message_id, p.session_id, p.data " +
@@ -365,11 +364,60 @@ internal sealed class OpenCodeDb : IDisposable {
                 partNode["messageID"] = r.GetString(3);
                 partNode["sessionID"] = r.GetString(4);
                 // Cast to JsonNode so the non-generic Add(JsonNode?) overload is chosen —
-                // the generic Add<T>(T) trips IL2026/IL3050 under AOT (see CLAUDE.md).
+                // the generic Add<T>(T) trips IL2026/IL3050 under AOT (see AGENTS.md).
                 parts!.Add((JsonNode)partNode);
             }
         }
         if (curMsgId is not null) yield return BuildLine(curMsgId, sessionId, curMsgData, parts!);
+    }
+
+    /// <summary>
+    /// One line per v2 user, assistant or shell message, in sequence order: its <c>data</c> with its id and type, and an
+    /// assistant's content as v2 reads it back, its <c>session_part</c> rows in ordinal order and then any content the
+    /// row still holds inline. The other message types carry no conversation.
+    /// </summary>
+    IEnumerable<string> V2Lines(string sessionId) {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText =
+            "SELECT m.id, m.type, m.data, " + (_v2Parts ? "p.data " : "NULL ") +
+            "FROM session_message m " +
+            (_v2Parts ? "LEFT JOIN session_part p ON p.message_id = m.id " : "") +
+            "WHERE m.session_id = $s AND m.type IN ('user', 'assistant', 'shell') " +
+            (_v1 ? "AND m.id NOT IN (SELECT id FROM message) " : "") +
+            "ORDER BY m.seq" + (_v2Parts ? ", p.ordinal" : "");
+        cmd.Parameters.AddWithValue("$s", sessionId);
+
+        using var r = cmd.ExecuteReader();
+
+        string?    curId   = null;
+        string     curType = "";
+        string     curData = "{}";
+        JsonArray? parts   = null;
+
+        while (r.Read()) {
+            var id = r.GetString(0);
+            if (id != curId) {
+                if (curId is not null) yield return BuildV2Line(curId, curType, curData, parts!);
+                (curId, curType, curData, parts) = (id, r.GetString(1), r.GetString(2), new JsonArray());
+            }
+            if (!r.IsDBNull(3)) parts!.Add((JsonNode?)JsonNode.Parse(r.GetString(3)));
+        }
+        if (curId is not null) yield return BuildV2Line(curId, curType, curData, parts!);
+    }
+
+    /// <summary>A line <see cref="SynthesizeLines"/> rebuilt from v2's tables, which only the canonical route reads.</summary>
+    public static bool IsV2Line(string line) => !line.StartsWith("{\"info\":", StringComparison.Ordinal);
+
+    static string BuildV2Line(string id, string type, string data, JsonArray parts) {
+        var message = JsonNode.Parse(data)!.AsObject();
+        message["id"]   = id;
+        message["type"] = type;
+        if (type == "assistant" && parts.Count > 0) {
+            if (message["content"] is JsonArray inline)
+                foreach (var part in inline) parts.Add(part?.DeepClone());
+            message["content"] = parts;
+        }
+        return message.ToJsonString();
     }
 
     // Merge the row's key columns back onto the message's data JSON to reproduce the
@@ -381,67 +429,12 @@ internal sealed class OpenCodeDb : IDisposable {
         return new JsonObject { ["info"] = info, ["parts"] = parts }.ToJsonString();
     }
 
-    /// <summary>
-    /// True when a reconstructed line maps to at least one canonical server event
-    /// under the <c>opencode</c> normalizer. ROLE-AWARE and HIDDEN-AWARE, mirroring
-    /// <c>Capacitor.Server/Sessions/Canonical/OpenCodeTranscriptNormalizer.cs</c>:
-    /// <list type="bullet">
-    ///   <item>user → a non-hidden <c>text</c> part with non-empty text;</item>
-    ///   <item>assistant → a non-hidden <c>reasoning</c>/<c>text</c> part with <c>id</c> and non-empty text;</item>
-    ///   <item>assistant → a <c>tool</c> part with <c>id</c>, <c>callID</c>, <c>tool</c>, and terminal <c>state.status</c>.</item>
-    /// </list>
-    /// A part is hidden when <c>synthetic:true</c> or <c>ignored:true</c>. Gates
-    /// <c>TooShort</c>, so it must not over-count; keep in sync with the normalizer.
-    /// </summary>
+    /// <summary>True when a reconstructed line projects to at least one canonical event: these lines gate
+    /// <c>TooShort</c>, so a line that maps to nothing must not count.</summary>
     public static bool IsImportRelevantLine(string line) {
-        try {
-            using var doc = JsonDocument.Parse(line);
-            var root = doc.RootElement;
-            var role = root.TryGetProperty("info", out var info) && info.TryGetProperty("role", out var rl)
-                ? rl.GetString() : null;
-            if (root.TryGetProperty("parts", out var parts) && parts.ValueKind == JsonValueKind.Array) {
-                foreach (var p in parts.EnumerateArray()) {
-                    if (IsHidden(p)) continue;
-                    var type = p.TryGetProperty("type", out var t) ? t.GetString() : null;
-                    switch (role, type) {
-                        // user text: non-empty (server uses Length > 0, so whitespace counts).
-                        case ("user", "text"):
-                            if (HasText(p)) return true;
-                            break;
-                        // assistant text/reasoning: server skips when id is null, then requires Length > 0.
-                        case ("assistant", "text"):
-                        case ("assistant", "reasoning"):
-                            if (HasField(p, "id") && HasText(p)) return true;
-                            break;
-                        // assistant tool: id + callID + tool present (null-checked) + terminal state.
-                        case ("assistant", "tool"):
-                            var status = p.TryGetProperty("state", out var st) && st.TryGetProperty("status", out var ss)
-                                ? ss.GetString() : null;
-                            if (status is "completed" or "error"
-                             && HasField(p, "id") && HasField(p, "callID") && HasField(p, "tool"))
-                                return true;
-                            break;
-                    }
-                }
-            }
-            return false;
-        } catch {
-            return false;
-        }
+        var projection = OpenCodeTranscriptEvents.Instance;
+        return projection.Project(line, 0, DateTimeOffset.UnixEpoch, projection.CreateContext("", null)).Events.Count > 0;
     }
-
-    static bool IsHidden(JsonElement p) =>
-        (p.TryGetProperty("synthetic", out var s) && s.ValueKind == JsonValueKind.True) ||
-        (p.TryGetProperty("ignored",   out var i) && i.ValueKind == JsonValueKind.True);
-
-    // Present as a JSON string — mirrors the server's `part.Str(name)`, which treats only
-    // string values as present. Empty string counts, for parity with the server's null-check.
-    static bool HasField(JsonElement p, string name) =>
-        p.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String;
-
-    // text present, string, length > 0 (matches server's Length > 0 — NOT IsNullOrWhiteSpace).
-    static bool HasText(JsonElement p) =>
-        p.TryGetProperty("text", out var tx) && tx.ValueKind == JsonValueKind.String && tx.GetString()!.Length > 0;
 
     public void Dispose() => _conn.Dispose();
 }

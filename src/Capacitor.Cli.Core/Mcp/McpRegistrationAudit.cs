@@ -138,7 +138,7 @@ public static class McpRegistrationAudit {
                     if (StringValue(value) is null) return false;
                     break;
                 case "env":
-                    if (value is not JsonObject env || env.Count != 0) return false;
+                    if (value is not JsonObject { Count: 0 }) return false;
                     break;
                 default:
                     return false; // custom field → not canonical
@@ -167,7 +167,7 @@ public static class McpRegistrationAudit {
                 if (FindDescriptor(name) is null || entry is not JsonObject obj) continue;
 
                 var command = StringValue(obj["command"])
-                    ?? (obj["command"] is JsonArray argv && argv.Count > 0 ? StringValue(argv[0]) : null);
+                    ?? (obj["command"] is JsonArray { Count: > 0 } argv ? StringValue(argv[0]) : null);
 
                 if (command is not null && IsAbsoluteKcapBinaryPath(command))
                     results.Add((name, command));

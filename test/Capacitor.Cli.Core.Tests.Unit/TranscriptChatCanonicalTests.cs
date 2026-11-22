@@ -39,6 +39,15 @@ public class TranscriptChatCanonicalTests {
     public async Task A_vendor_without_the_rule_reads_a_resumed_session_start_as_nothing() =>
         await Assert.That(TranscriptChat.Project(SessionStart("Resume"), rules: null).Runs).IsEmpty();
 
+    /// The summary record after the boundary is the compaction's row, so the stored boundary shows none
+    /// for Claude; a vendor without rules still shows it.
+    [Test]
+    public async Task A_stored_compaction_boundary_shows_no_row_for_claude() {
+        var evt = Event(CanonicalEventTypes.ContextCompacted, new ContextCompactedEvent());
+        await Assert.That(TranscriptChat.Project(evt, ClaudeChatRules.Instance).Envelopes).IsEmpty();
+        await Assert.That(TranscriptChat.Project(evt, rules: null).Envelopes.Single().Text).IsEqualTo(TranscriptEnvelopes.CompactedNote);
+    }
+
     const string OrphanReport = "<task-notification>\n<task-id>b7k2</task-id>\n<task-id>__orphan_summary__:shell</task-id>\n<status>stopped</status>\n<summary>1 background shell command tasks didn't finish before the previous session ended.</summary>\n<note>No completion record was found for them in the previous session.</note>\n</task-notification>";
 
     static CanonicalEvent StoredReport(string? promptSource) {
@@ -233,9 +242,9 @@ public class TranscriptChatCanonicalTests {
     }
 
     /// <summary>A cancelled prompt keeps its row and acknowledges its send; the sibling that cancelled it shows a note
-    /// ahead of its own row, and a compaction boundary shows the compaction note.</summary>
+    /// ahead of its own row, and a compaction boundary shows no row, its summary record being the compaction's row.</summary>
     [Test]
-    public async Task A_claude_cancelled_prompt_and_a_compaction_boundary_read_as_notes() {
+    public async Task A_claude_cancelled_prompt_reads_as_a_note_and_a_compaction_boundary_as_nothing() {
         var chat = TranscriptChat.For("claude")!;
         var ctx  = chat.CreateContext("s", null);
         ChatProjectionResult Line(string line, int n) => chat.ProjectWithInputs(line, n, DateTimeOffset.UnixEpoch, ctx);
@@ -251,7 +260,7 @@ public class TranscriptChatCanonicalTests {
             $"{AcpEventKind.SystemNote}: {TranscriptEnvelopes.RetractedNote}", $"{AcpEventKind.UserMessage}: second try",
         ], CollectionOrdering.Matching);
         await Assert.That(resubmit.SubmittedInputs).IsEquivalentTo(["second try"]);
-        await Assert.That(boundary.Envelopes.Select(e => $"{e.Kind}: {e.Text}")).IsEquivalentTo([$"{AcpEventKind.SystemNote}: {TranscriptEnvelopes.CompactedNote}"]);
+        await Assert.That(boundary.Envelopes).IsEmpty();
     }
 
     [Test]

@@ -143,7 +143,7 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
         };
 
     public bool CanApply =>
-        _loaded && !Running && !_upgrade.Running && Choice.Valid && !Choice.AwaitingOffer
+        _loaded && !Running && !_upgrade.Running && Choice is { Valid: true, AwaitingOffer: false }
      && (Differs(Choice.Choice) || _current is { Pending: true } || BuiltinNeedsRetry && Choice.UseBuiltin);
 
     public string ApplyLabel => !Running && BuiltinNeedsRetry && Choice.UseBuiltin ? "Try again" : "Save";

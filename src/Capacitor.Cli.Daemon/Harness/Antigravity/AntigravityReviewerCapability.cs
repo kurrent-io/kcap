@@ -14,54 +14,18 @@ internal enum AntigravityReviewerDecision {
 }
 
 /// <summary>
-/// Whether THIS daemon may run Antigravity's CLI (<c>agy</c>) as an unattended review-flow reviewer.
-/// Pure, so every arm is testable without a vendor or a process.
-///
-/// <para><b>ENABLED by default; the switch is an opt-OUT.</b> An unattended reviewer runs in a
-/// daemon-owned worktree under a per-launch, owner-only <c>HOME</c>, and its findings text is returned
-/// to whoever requested the review — a cross-principal risk that lands on the daemon OPERATOR. It used
-/// to be an opt-in on that basis. It is not any more, because the reviewer vendor is caller-chosen and
-/// Claude, Codex, Cursor and Copilot have never been gated, each with the same authority: on a daemon
-/// that also ADVERTISES one of those, the gate did not widen the capability class a requester could
-/// reach, and cost the operator a service-unit edit. On a daemon advertising only gated vendors it did
-/// separate the hosted role from the unattended reviewer role, and the flip genuinely widens what a
-/// non-operator can cause to run with no human in the loop. Deliberately still NOT Kiro's
-/// whole-filesystem-read paragraph — that claim is about a trusted <c>fs_read</c> primitive this vendor
-/// does not expose, and a borrowed risk statement would be false in either direction.</para>
-///
-/// <para><b>The disabled arm is the ONE that is reviewer-only</b> (see
-/// <c>AntigravityHostedAgentRuntimeFactory.LaunchRefusal</c>'s parameter doc). The paragraph above is
-/// exactly why: the risk it describes is cross-principal, and a HOSTED launch has no counterpart —
-/// the server resolves a launch's daemon with the caller's own user id, so the launcher is the
-/// daemon's owner. Hosted Antigravity has always shipped on; every other arm below gates both.</para>
-///
-/// <para><b>Why a version MINIMUM.</b> Containment here is source suppression — an empty per-launch
-/// <see cref="AntigravityReviewerHome"/> in place of the operator's own <c>~/.gemini</c>, whose kcap
-/// capture plugin would otherwise fire against the conversation this runtime is already recording.
-/// That is a HOSTED concern as much as a reviewer one, which is why this arm is not parameterised.
-/// That the build honours <c>HOME</c> and reads no other global config source is a behaviour of the
-/// BUILD, not of this repository. The recorded value is the OLDEST build this daemon will run: an
-/// upgrade needs no action — which matters more here than for any sibling, since <c>agy</c> was
-/// observed auto-updating itself mid-session (1.1.8 → 1.1.10) — a downgrade below it is refused, and
-/// a build later found to be bad is excluded by raising the floor past it.</para>
-///
-/// <para><b>Why that record is state and not configuration.</b> A floor read from an environment
-/// variable such as <c>KCAP_ANTIGRAVITY_MIN_CLI_VERSION</c> could be set from a shell profile, and
-/// would then be re-affirmed by the operator's dotfiles rather than by them — the same "consent that isn't
-/// consent" failure the enable flag exists to avoid. Kiro and Gemini use the same model; the shared
-/// comparison lives in <see cref="Core.ReviewerVersionAffirmations"/> and the record in
-/// <see cref="Core.ReviewerVersionStore"/>.</para>
-///
-/// <para><b>This is the whole ladder</b> (consent → build), and
-/// <c>AntigravityHostedAgentRuntimeFactory.LaunchRefusal</c> is its only production caller: it adds
-/// the one arm this decision cannot express — a binary that does not resolve at all — and takes every
-/// other verdict, and every text, from here. Both the advertisement seam and the launch boundary read
-/// that one method, so the minimum cannot be enforced at only one of them, and the hosted/review
-/// difference is a PARAMETER of that method rather than a second ladder that must agree with it.</para>
-///
-/// <para><b>The denial texts below are read by both launch shapes</b> (consent excepted, which only a
-/// review can reach), so they describe the containment rather than the reviewer — a hosted operator
-/// must never be sent to the reviewer consent flag by a version arm.</para>
+/// Whether this daemon may run Antigravity's CLI (<c>agy</c>) as an unattended review-flow reviewer:
+/// consent, then build minimum. Pure, so every arm is testable without a process.
+/// <para>Enabled by default; the switch is an opt-out. Only the disabled arm is reviewer-only: the risk
+/// is cross-principal, and a hosted launch is always the daemon owner's.</para>
+/// <para>Containment is an empty per-launch <see cref="AntigravityReviewerHome"/>, which works only if
+/// the build honours <c>HOME</c> and reads no other global config. That is a property of the build, so
+/// the recorded minimum is the oldest build this daemon runs; <c>agy</c> auto-updates mid-session, and
+/// an upgrade needs no action. The floor is state in <see cref="Core.ReviewerVersionStore"/>, not an
+/// environment variable a shell profile could re-affirm.</para>
+/// <para><c>AntigravityHostedAgentRuntimeFactory.LaunchRefusal</c> is the only caller, for both
+/// advertisement and launch. The denial texts reach hosted launches too, so they describe the
+/// containment, not the reviewer.</para>
 /// </summary>
 internal static class AntigravityReviewerCapability {
     static readonly ConsentAndMinimumGate<AntigravityReviewerDecision> Gate = new(

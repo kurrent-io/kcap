@@ -92,6 +92,13 @@ public sealed class LateBoundKcapCli(Func<IKcapCli> bind, string? cliPath) : IKc
             Cli.Core.Setup.Intelligence.IntelligenceAnswer answer, string? model, string? apiKey, bool? importOutcomes, CancellationToken ct) =>
         bind().LocalIntelligenceAsync(answer, model, apiKey, importOutcomes, ct);
 
+    public Task<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome> LocalIntelligenceStatusAsync(CancellationToken ct) =>
+        bind().LocalIntelligenceStatusAsync(ct);
+
+    public Task<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome> LocalIntelligencePreferencesAsync(
+            bool? importOutcomes, int? dailyLimit, CancellationToken ct) =>
+        bind().LocalIntelligencePreferencesAsync(importOutcomes, dailyLimit, ct);
+
     public Task<ProcessResult> PluginInstallAsync(string? vendorFlag, CancellationToken ct, IReadOnlyList<string>? options = null) =>
         bind().PluginInstallAsync(vendorFlag, ct, options);
 

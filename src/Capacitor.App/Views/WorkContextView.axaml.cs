@@ -1,8 +1,11 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
 
@@ -13,6 +16,73 @@ namespace Capacitor.App.Views;
 public partial class WorkContextView : UserControl {
     public WorkContextView() {
         InitializeComponent();
+    }
+
+    ChatBookmark? _colouring;
+
+    // Both rows draft a request in the session's composer, so they are offered only while it shows.
+    void OnBookmarkMenuOpening(object? sender, EventArgs e) {
+        _bookmarkMenu = sender as Flyout;
+        if (_bookmarkMenu?.Content is not Panel rows) return;
+        var can = DataContext is WorkContextViewModel { CanAskAgent: true };
+        foreach (var row in rows.Children) {
+            row.IsEnabled = can;
+            if (row is Button { Tag: ChatBookmarkAsk ask } button) AgentRow(button, ask.Label());
+        }
+    }
+
+    // A row that sends the agent a message leads with the agent's own mark.
+    void AgentRow(Button row, string label) {
+        Control mark = (DataContext as WorkContextViewModel)?.AgentVendor is { Length: > 0 } vendor
+            ? LaunchChipsView.BuildGlyph(vendor, 14)
+            : new AppIcon { Kind = ToolCategoryIcons.AgentIcon, Size = 14, VerticalAlignment = VerticalAlignment.Center };
+        row.Content = new StackPanel {
+            Orientation = Orientation.Horizontal, Spacing = 8,
+            Children = { mark, new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center } },
+        };
+        AutomationProperties.SetName(row, label);
+    }
+
+    Flyout? _bookmarkMenu;
+
+    void OnBookmarkAskClick(object? sender, RoutedEventArgs e) {
+        var bookmark = _bookmarkMenu?.Target?.DataContext as ChatBookmark;
+        _bookmarkMenu?.Hide();
+        if (sender is Button { Tag: ChatBookmarkAsk ask } && bookmark is not null && DataContext is WorkContextViewModel pane)
+            pane.AskAbout(bookmark, ask);
+    }
+
+    void OnTopicMenuOpening(object? sender, EventArgs e) {
+        _topicMenu = sender as Flyout;
+        if (_topicMenu?.Content is not Panel rows) return;
+        var section = _topicMenu.Target?.DataContext as ChatBookmarkGroup;
+        var can = DataContext is WorkContextViewModel { CanAskAgent: true } && section is { Bookmarks.Count: > 0 };
+        foreach (var row in rows.Children) {
+            row.IsEnabled = can;
+            if (row is Button { Classes: var classes } ask && classes.Contains("topicAsk") && section is not null) AgentRow(ask, section.LooseEndsLabel);
+        }
+    }
+
+    Flyout? _topicMenu;
+
+    void OnTopicLooseEndsClick(object? sender, RoutedEventArgs e) {
+        var section = _topicMenu?.Target?.DataContext as ChatBookmarkGroup;
+        _topicMenu?.Hide();
+        if (section is not null && DataContext is WorkContextViewModel pane)
+            pane.FileLooseEnds(section);
+    }
+
+    void OnBookmarkColorsOpening(object? sender, EventArgs e) {
+        _colours = sender as FlyoutBase;
+        _colouring = _colours?.Target?.DataContext as ChatBookmark;
+    }
+
+    FlyoutBase? _colours;
+
+    void OnBookmarkColorClick(object? sender, RoutedEventArgs e) {
+        if (sender is Button { Tag: ChatBookmarkColor color } && _colouring is { } bookmark) bookmark.Color = color;
+        _colouring = null;
+        _colours?.Hide();
     }
 
     /// Shown only where something can bring the pane back, so set by <see cref="ContextPaneSizing"/>.

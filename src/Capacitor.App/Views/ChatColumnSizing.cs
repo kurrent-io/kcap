@@ -14,6 +14,9 @@ public sealed class ChatColumnSizing {
     // Room for a handle beside the scrollbar once the pointer expands it.
     const double HandleReserve = 20;
     const double HandleWidth = 8;
+    // A topic header reaches this far left of the column to centre its chevron on the rail; the
+    // left handle stands clear of it, or it takes clicks meant for the chevron.
+    const double HeaderOverhang = 6;
     // The lane handle crosses the user's messages; over one, the pointer selects text instead.
     static readonly string[] UserBubbleClasses = ["userTurn", "shellCommand"];
 
@@ -166,7 +169,7 @@ public sealed class ChatColumnSizing {
 
         foreach (var handle in _handles) handle.IsVisible = column > 0;
         var left = (available - column) / 2;
-        _leftHandle.Margin = new Thickness(left - HandleWidth, 0, 0, 0);
+        _leftHandle.Margin = new Thickness(Math.Max(0, left - HeaderOverhang - HandleWidth), 0, 0, 0);
         _rightHandle.Margin = new Thickness(left + column, 0, 0, 0);
         // A full-width lane's edge is the column's: its handle steps inside, clear of the column's.
         _laneHandle.Margin = new Thickness(left + Math.Min(lane, column - HandleWidth), 0, 0, 0);

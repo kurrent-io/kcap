@@ -14,8 +14,7 @@ public class AccountRefreshTests {
 
     readonly FakeTimeProvider _time = new(T0);
 
-    AccountStore? _store;
-    AccountStore Store => _store ??= new(Tmp.PathTo("accounts"));
+    AccountStore Store => field ??= new(Tmp.PathTo("accounts"));
 
     static VendorAccount Codex(string? email = null, string? id = null, long generation = 0, string label = ".codex-a", bool? userLabel = null) =>
         new("a", HarnessId.Codex, "/h/.codex-a", label, DateTimeOffset.UnixEpoch,

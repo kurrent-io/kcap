@@ -25,7 +25,7 @@ public class DetachedBacklogImportTests {
         await Assert.That(psi.ArgumentList).IsEquivalentTo(
             ["import", "--pi", "--session", Session, "--min-lines", "0", "--skip-title", "--no-update-check"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
         await Assert.That(psi.Environment[ConfigRoot.ConfigDirEnvVar]).IsEqualTo(Config.Root.Directory);
-        await Assert.That(psi.RedirectStandardInput && psi.RedirectStandardOutput && psi.RedirectStandardError).IsTrue();
+        await Assert.That(psi is { RedirectStandardInput: true, RedirectStandardOutput: true, RedirectStandardError: true }).IsTrue();
         await Assert.That(File.Exists(psi.Environment[DetachedImportLog.EnvVar])).IsTrue();
     }
 

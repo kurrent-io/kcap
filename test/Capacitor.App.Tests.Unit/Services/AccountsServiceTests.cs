@@ -34,7 +34,7 @@ public class AccountsServiceTests {
     }
 
     sealed class Harness : IDisposable {
-        public readonly FakeDaemonClientService Daemon = new();
+        readonly FakeDaemonClientService Daemon = new();
         public readonly FakeAccountsStream Stream = new();
         public readonly FakeTimeProvider Clock = new();
         public readonly TimerCountingTimeProvider Time;

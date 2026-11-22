@@ -71,7 +71,7 @@ public partial class SessionRailView : UserControl {
                 high = mid - 1;
             } else low = mid + 1;
         }
-        return first >= 0 && Row(first) is { } candidate && candidate.Height > 0 && candidate.Intersects(viewport);
+        return first >= 0 && Row(first) is { Height: > 0 } candidate && candidate.Intersects(viewport);
     }
 
     // A pointer-opened flyout leaves focus on its button, outside the popup, where Escape never reaches it.
@@ -79,7 +79,7 @@ public partial class SessionRailView : UserControl {
         if (anchor.Flyout is not Flyout { Content: Control content } flyout) return;
 
         flyout.Opened += (_, _) => content.GetLogicalDescendants().OfType<Button>()
-            .FirstOrDefault(b => b.IsEffectivelyVisible && b.IsEffectivelyEnabled)?.Focus(NavigationMethod.Tab);
+            .FirstOrDefault(b => b is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true })?.Focus(NavigationMethod.Tab);
         content.AddHandler(KeyDownEvent, (_, e) => {
             if (e.Key != Key.Escape || e.Handled) return;
             e.Handled = true;
@@ -128,8 +128,8 @@ public partial class SessionRailView : UserControl {
     }
 
     void OnPullRequestClick(object? sender, RoutedEventArgs e) {
-        if (sender is not Button { DataContext: RailSessionViewModel vm } anchor
-            || !vm.HasMultiplePullRequests || vm.PullRequest is not { } summary) return;
+        if (sender is not Button { DataContext: RailSessionViewModel { HasMultiplePullRequests: true, PullRequest: { } summary } vm } anchor)
+            return;
 
         var rows = new StackPanel { Spacing = 2, Margin = new Thickness(6) };
         var flyout = new Flyout {

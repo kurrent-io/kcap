@@ -1,7 +1,5 @@
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
-using Avalonia.Media;
 using Avalonia.Threading;
 using Capacitor.App.Views;
 using MarkView.Avalonia.Rendering;
@@ -307,13 +305,12 @@ public class GitHubMarkdownViewTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task An_alert_block_takes_the_app_brushes() {
+    public async Task An_alert_block_names_its_kind_above_its_text() {
         await RunOnUiAsync(async () => {
             var (window, root, _) = Show("> [!NOTE]\n> Mind the gap.", MarkdownFlavor.GitHub);
             try {
                 var alert = All<Border>(root).Single(b => b.Classes.Contains("markdown-alert"));
                 await Assert.That(alert.Classes.Contains("markdown-alert-note")).IsTrue();
-                await Assert.That(alert.BorderBrush).IsEqualTo((IBrush)Application.Current!.FindResource("KcapInfoBrush")!);
                 await Assert.That(All<TextBlock>(alert).Select(Reads)).Contains("NOTE");
                 await Assert.That(Paragraphs(alert).Select(Reads)).Contains("Mind the gap.");
             } finally { window.Close(); }

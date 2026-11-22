@@ -4,49 +4,16 @@ using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Harness.Cursor;
 
 /// <summary>
-/// Live-flow wrapper over <see cref="CursorSubagentCorrelator"/>.
-///
-/// A live Cursor <c>Task</c>/<c>Agent</c> subagent is ingested as its own top-level session
-/// instead of nesting under its parent. This type was built to correlate that link inline in
-/// the per-hook dispatcher (Cursor is NOT watcher-backed — <see cref="CursorHookCommand"/>
-/// backfills each session's transcript over HTTP as hooks arrive), on the assumption that the
-/// child's own <c>sessionStart</c> could carry out the decision.
-///
-/// <para>
-/// THAT ASSUMPTION IS FALSE, and the nesting is done elsewhere. Measurement shows a Cursor
-/// subagent child never fires <c>sessionStart</c> at all, and a <c>sessionStart</c> payload
-/// never carries a <c>transcript_path</c> — so this type's marker-writing arm has no producer
-/// (see the NO PRODUCER note below). Subagent nesting is delivered by
-/// <c>kcap import --cursor</c> plus the server-side adoption sweep, which run over COMPLETE
-/// transcripts — the only conditions under which prompt-hash correlation can succeed at all.
-/// </para>
-///
-/// This type is a thin wrapper: <see cref="ResolveParent"/> reuses the exact same
-/// <see cref="CursorSubagentCorrelator.Correlate"/> prompt-hash matching the import path
-/// uses, and <see cref="CursorHookCommand"/> feeds it the same dashless session ids
-/// (<c>agentId = child session id</c>, mirroring <c>CursorImportSource.cs:468</c>) — so a
-/// live-then-import of the same session converges on the same deterministic
-/// <c>AgentSubsession-{parent}-{child}</c> stream instead of duplicating the subagent's
-/// lifecycle/content (ties to A1).
-///
-/// <para>
-/// NO PRODUCER TODAY. The only caller that writes a marker sits behind a guard requiring
-/// BOTH <c>eventName == "sessionStart"</c> AND a non-empty <c>transcript_path</c>, and on the
-/// measured cursor-agent contract neither holds: a sessionStart payload always carries a null
-/// transcript_path, and a subagent child never fires sessionStart at all. So
-/// <see cref="SaveLink"/> never runs there. <see cref="TryLoadLink"/> DOES still run on every
-/// event, so a marker persisted by another surface or an older build is still consumed.
-/// </para>
-/// <para>
-/// Retained rather than deleted because Cursor already implements a native
-/// <c>subagentStart</c> hook carrying an explicit parent id; if its dispatch is enabled, the
-/// marker store and the marker-driven gate are reusable. The lifecycle builders below are NOT:
-/// they key off the CHILD's sessionStart/sessionEnd, which a child never fires, so a native
-/// revival must trigger from the PARENT's subagentStart/subagentStop — and must also add the
-/// event to CursorHooksParser.CursorHookEvents and CursorHookEventMap, neither of which lists
-/// it today. See
-/// docs/superpowers/specs/2026-07-30-ai1505-cursor-subagent-classification-design.md
-/// </para>
+/// Live-flow wrapper over <see cref="CursorSubagentCorrelator"/>, using the same prompt-hash matching
+/// and session ids as import so a live-then-import session converges on one
+/// <c>AgentSubsession-{parent}-{child}</c> stream.
+/// <para>Nothing writes a marker: the writer requires a <c>sessionStart</c> with a
+/// <c>transcript_path</c>, and Cursor sends neither for a subagent. <see cref="TryLoadLink"/> still runs
+/// on every event, so a marker persisted elsewhere is consumed. Subagent nesting is done by
+/// <c>kcap import --cursor</c> and the server's adoption sweep over complete transcripts.</para>
+/// <para>Kept for Cursor's native <c>subagentStart</c> hook, which carries a parent id. Wiring it means
+/// triggering from the parent's subagentStart/subagentStop, not the child's lifecycle, and adding the
+/// event to CursorHooksParser.CursorHookEvents and CursorHookEventMap.</para>
 /// </summary>
 public static class CursorLiveSubagentLinker {
     // Bounds the sibling-transcript scan so a workspace with a very long history can't blow

@@ -57,7 +57,7 @@ public class CanonicalEventJsonTests {
     [Test]
     public async Task UnknownTypesAndMalformedPayloadsReadAsNull() {
         await Assert.That(CanonicalEventJson.TryParse("NotAType", """{"request_id":"r1"}""")).IsNull();
-        await Assert.That(CanonicalEventJson.TryParse(CanonicalEventTypes.UsageApplied, """{}""")).IsNull();
+        await Assert.That(CanonicalEventJson.TryParse(CanonicalEventTypes.UsageApplied, "{}")).IsNull();
         await Assert.That(CanonicalEventJson.TryParse(CanonicalEventTypes.UserMessageReceived, "not json")).IsNull();
         await Assert.That(CanonicalEventJson.TryParse(CanonicalEventTypes.UserMessageReceived, """{"content":42}""")).IsNull();
     }

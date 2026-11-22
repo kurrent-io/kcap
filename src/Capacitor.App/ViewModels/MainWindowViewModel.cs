@@ -38,22 +38,15 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         "Couldn't reconnect. If the daemon isn't running, press Start daemon.";
 
     internal static bool IsInFlightReconnectMessage(string? message) =>
-        message == ReconnectingMessage
-        || message == DaemonLifecycleController.AlreadyRunningReconnectStatus;
+        message is ReconnectingMessage or DaemonLifecycleController.AlreadyRunningReconnectStatus;
 
-    static readonly IBrush ConnectedBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.Connected));
-    static readonly IBrush InProgressBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.InProgress));
-    static readonly IBrush PendingBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.Pending));
-    static readonly IBrush DisruptedBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.Disrupted));
-    static readonly IBrush UnavailableBrush = new Avalonia.Media.Immutable.ImmutableSolidColorBrush(Color.Parse(StatusColors.Unavailable));
-
-    static IBrush Paint(string hex) => hex switch {
-        StatusColors.Connected => ConnectedBrush,
-        StatusColors.InProgress => InProgressBrush,
-        StatusColors.Pending => PendingBrush,
-        StatusColors.Disrupted => DisruptedBrush,
-        _ => UnavailableBrush,
-    };
+    static IBrush Paint(string tone) => AppPalette.Brush(tone switch {
+        StatusColors.Connected => AppStatusPalette.Connected,
+        StatusColors.InProgress => AppStatusPalette.Attention,
+        StatusColors.Pending => AppStatusPalette.Pending,
+        StatusColors.Disrupted => AppStatusPalette.Disrupted,
+        _ => AppStatusPalette.Unavailable,
+    });
 
     readonly IDaemonClientService _service;
 
@@ -180,13 +173,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     bool _localOnAppServer = true;
     readonly SerialDisposable _rebind = new();
 
-    ISessionWorkspace? _currentWorkspace;
     /// null = the launcher pane shows; non-null = that session's workspace,
     /// local or remote. Exactly one at a time, and this VM owns it: every swap starts the outgoing
     /// one's tracked teardown.
     public ISessionWorkspace? CurrentWorkspace {
-        get => _currentWorkspace;
-        private set => this.RaiseAndSetIfChanged(ref _currentWorkspace, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The session id of the open workspace, null while none is open or its session is unknown.
@@ -306,12 +298,11 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public bool SearchShowsSignIn => SearchSignedOut || Search?.ListState == SearchListState.SignInRequired;
     bool _searchSignedOut;
 
-    string? _startMessage;
     // Cleared on every new start attempt and on Connected; set when a start attempt fails.
     public string? StartMessage {
-        get => _startMessage;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _startMessage, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             _startMessageChanges.OnNext(value);
         }
     }
@@ -321,70 +312,20 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
 
     public TimeProvider Time { get; }
 
-    /// <param name="shutdownToken">
-    /// Abandons StartDaemonAsync's WAIT (never the spawned daemon) on app shutdown. Must be linked
-    /// to the app lifetime — never CancellationToken.None (an unbounded wait would survive exit).
-    /// </param>
-    /// <param name="startAction">
-    /// Service-aware Start (DaemonLifecycleController.StartActionAsync). Null falls back to plain
-    /// StartDaemonAsync — for callers without a live controller (most unit tests).
-    /// </param>
-    /// <param name="lifecycleStatus">
-    /// ILifecycleSurface.Status one-liners ride the same StartMessage lane as start failures.
-    /// Null means this lane never receives anything.
-    /// </param>
-    /// <param name="lifecycleAttention">
-    /// ILifecycleSurface.Attention lines on the same StartMessage lane — otherwise a mutation-lane
-    /// Start failure only updates the tray and the banner stays mute.
-    /// </param>
-    /// <param name="navigation">
-    /// The composition root's app-lifetime NavigationGate. Null builds a private one, so
-    /// a caller with no navigation of its own still gets a working VM — but
-    /// only a SHARED gate makes the shutdown latch reach a window built after shutdown began.
-    /// </param>
-    /// <param name="trackWorkspaceTeardown">
-    /// WorkspaceTeardownTracker.Track, as a delegate: this VM only ever registers a teardown, never
-    /// drains, and the delegate keeps the drain (a composition-root concern) off its surface. Null
-    /// falls back to running the teardown untracked — never to skipping it, or a swap would strand
-    /// a live attach.
-    /// </param>
-    /// <param name="workspaceFactory">
-    /// Builds the workspace for an agent id (the production one wires the daemon socket's attach
-    /// client and the xterm surface). Null means this window cannot navigate to a workspace at all
-    /// — such a caller stays on the Home surface.
-    /// </param>
-    /// <param name="rail">
-    /// The Sessions rail. Null means this window has no rail to keep in sync.
-    /// </param>
-    /// <param name="laneStatus">
-    /// The app's own server lane (IServerLane.Status): its sign-in state and its connection reach the
-    /// footer alert. Null means neither shows.
-    /// </param>
-    /// <param name="restartPending">
-    /// DaemonRestartPendingWatcher.Wait. Null means the alert for it never shows.
-    /// </param>
-    /// <param name="daemonOnOtherInstall">
-    /// StaleDaemonNudge.OtherInstall. Null means the alert for it never shows.
-    /// </param>
-    /// <param name="originOf">
-    /// Which lane an agent id belongs to, for routing a click at the right workspace. Null reads
-    /// every id as local — the only answer a caller with no merged directory can give. A null
-    /// ANSWER means neither lane holds the id, which opens nothing.
-    /// </param>
-    /// <param name="remoteWorkspaceFactory">
-    /// Builds the card host for a remote row, or returns null when the row is gone by the time it
-    /// runs. A null factory means a remote id has no host to open, so it falls back to the local
-    /// factory.
-    /// </param>
-    /// <param name="directory">
-    /// The merged rows, watched so an open local workspace can follow its agent to the server lane.
-    /// Null means a dropped local row is only ever an ended session — the only reading a caller with
-    /// no directory can give it.
-    /// </param>
-    /// <param name="requestSignIn">
-    /// Opens the re-auth sign-in surface (App owns the window). Null hides Sign in in the help
-    /// flyout — a window with no dialog to open.
-    /// </param>
+    /// <param name="shutdownToken">Abandons StartDaemonAsync's wait (never the daemon) on shutdown. Link it
+    /// to the app lifetime, never CancellationToken.None, or the wait survives exit.</param>
+    /// <param name="lifecycleAttention">Shown on the StartMessage lane; without it a mutation-lane Start
+    /// failure updates only the tray.</param>
+    /// <param name="navigation">Only a shared gate lets the shutdown latch reach a window built after
+    /// shutdown began; null builds a private one.</param>
+    /// <param name="trackWorkspaceTeardown">Null runs the teardown untracked, never skips it: skipping
+    /// would strand a live attach on a swap.</param>
+    /// <param name="originOf">Null reads every id as local. A null answer means neither lane holds the
+    /// id, which opens nothing.</param>
+    /// <param name="remoteWorkspaceFactory">Returns null when the row is gone by the time it runs. Without
+    /// it a remote id opens nothing; the local factory is never used for one.</param>
+    /// <param name="directory">Watched so an open local workspace can follow its agent to the server
+    /// lane; null reads a dropped local row as an ended session.</param>
     public MainWindowViewModel(
             IDaemonClientService service,
             CancellationToken shutdownToken, ActivityViewModel activity, TimeProvider time,
@@ -474,13 +415,12 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         // in that gap reads as a failure the user must fix.
         var canStart = service.Status
             .CombineLatest(movingToWindowsService ?? Observable.Return(false),
-                (s, moving) => s.State == AttachState.Unreachable && s.Reason == UnreachableReason && !moving)
+                (s, moving) => s is { State: AttachState.Unreachable, Reason: UnreachableReason } && !moving)
             .ObserveOn(RxSchedulers.MainThreadScheduler);
         var canRetry = service.Status
             .Select(s =>
                 s.State == AttachState.Connecting
-                || (s.State == AttachState.Unreachable
-                    && s.Reason is not (UnreachableReason or ExpectedDaemonRestart.Reason or ExpectedDaemonRestart.StartingReason)))
+                || (s is { State: AttachState.Unreachable, Reason: not (UnreachableReason or ExpectedDaemonRestart.Reason or ExpectedDaemonRestart.StartingReason) }))
             .ObserveOn(RxSchedulers.MainThreadScheduler);
 
         var start = startAction ?? RunStartAsync;

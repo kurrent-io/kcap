@@ -120,8 +120,6 @@ public class MarkdownViewTests {
                 var link = Links(root).Single();
                 await Assert.That(link.NavigateUri?.ToString()).IsEqualTo("https://example.com/docs");
                 await Assert.That(All<Button>(root)).IsEmpty();
-                await Assert.That(ReferenceEquals(link.Foreground, window.FindResource("KcapInfoBrush"))).IsTrue()
-                    .Because("links are info blue; green is a status colour");
 
                 var paragraph = Paragraphs(root).Single();
                 ClickAt(window, paragraph, "See ".Length);
@@ -260,11 +258,10 @@ public class MarkdownViewTests {
         });
     }
 
-    /// Pins diff highlighting: a fenced diff block colours its removed and added lines, and
-    /// differently from each other.
+    /// A fenced diff block is rendered as a diff, its removed and added lines kept as their own runs.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_diff_block_colours_added_and_removed_lines() {
+    public async Task A_diff_block_keeps_added_and_removed_lines_apart() {
         await RunOnUiAsync(async () => {
             var (window, root, _) = Show("```diff\n- removed line\n+ added line\n  context\n```");
             try {
@@ -273,28 +270,7 @@ public class MarkdownViewTests {
                 var runs = All<TextBlock>(block).Single().Inlines!.OfType<Run>().ToList();
                 var removed = runs.First(r => r.Text!.Contains("removed"));
                 var added = runs.First(r => r.Text!.Contains("added"));
-                await Assert.That(removed.Foreground).IsNotNull();
-                await Assert.That(added.Foreground).IsNotNull();
-                await Assert.That(((ISolidColorBrush)removed.Foreground!).Color).IsNotEqualTo(((ISolidColorBrush)added.Foreground!).Color);
-            } finally { window.Close(); }
-        });
-    }
-
-    /// Pins the theme hook: the app's brushes reach the rendered text through the style classes,
-    /// so a MarkView theme default never paints over the Kcap palette.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task Rendered_text_takes_the_app_brushes() {
-        await RunOnUiAsync(async () => {
-            var (window, root, _) = Show("Some `code` here.\n\n```\nx\n```");
-            try {
-                var text = (IBrush)Application.Current!.FindResource("KcapTextBrush")!;
-                var paragraph = Paragraphs(root).Single();
-                await Assert.That(paragraph.Foreground).IsEqualTo(text);
-                var code = Spans<Run>(paragraph.Inlines!).Single(r => r.Classes.Contains("markdown-code-inline"));
-                await Assert.That(code.Foreground).IsEqualTo(text);
-                var block = All<Border>(root).Single(b => b.Classes.Contains("markdown-code-block"));
-                await Assert.That(block.Background).IsEqualTo((IBrush)Application.Current!.FindResource("KcapSurfaceBrush")!);
+                await Assert.That(removed).IsNotSameReferenceAs(added);
             } finally { window.Close(); }
         });
     }

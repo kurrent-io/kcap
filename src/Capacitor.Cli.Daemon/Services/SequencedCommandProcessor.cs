@@ -759,7 +759,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
             }
 
             // An execution-time terminal rejection (daemon_capacity / semantic).
-            if (outcome.Kind == CommandOutcomeKind.LaunchRejected && outcome.RejectReason is { } r)
+            if (outcome is { Kind: CommandOutcomeKind.LaunchRejected, RejectReason: { } r })
                 rejection = r;
 
             lock (_lock) {

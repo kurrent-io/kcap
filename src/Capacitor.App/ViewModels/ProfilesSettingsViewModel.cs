@@ -34,8 +34,6 @@ public sealed class ProfilesSettingsViewModel : ReactiveObject, IDisposable {
     readonly Func<string, CancellationToken, Task<bool>> _confirmRemove;
     readonly CancellationToken _lifetime;
     IReadOnlyList<ProfileRow> _rows = [];
-    string? _message;
-    bool _isBusy;
     int _refreshGeneration;
 
     /// <param name="appLane">This app's own server connection, on the profile it was bound to at startup.</param>
@@ -115,13 +113,13 @@ public sealed class ProfilesSettingsViewModel : ReactiveObject, IDisposable {
     public IReadOnlyList<ProfileRow> ListedRows => [.. _rows.Where(r => !r.IsPlaceholder)];
 
     public string? Message {
-        get => _message;
-        private set => this.RaiseAndSetIfChanged(ref _message, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool IsBusy {
-        get => _isBusy;
-        private set => this.RaiseAndSetIfChanged(ref _isBusy, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public ReactiveCommand<ProfileRow, Unit> SignInCommand { get; }

@@ -12,8 +12,6 @@ public sealed class MachineNameViewModel : ReactiveObject {
     readonly Func<string?>? _resolveProfileName;
 
     string  _daemonName;
-    bool    _satisfied;
-    string? _message;
 
     /// <param name="resolveProfileName">Re-invoked per persist rather than captured; null or unresolved falls back to <c>c.ActiveProfile</c>.</param>
     public MachineNameViewModel(
@@ -31,8 +29,8 @@ public sealed class MachineNameViewModel : ReactiveObject {
 
     /// Saved at least once.
     public bool Saved {
-        get => _satisfied;
-        private set => this.RaiseAndSetIfChanged(ref _satisfied, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string DaemonName {
@@ -45,8 +43,8 @@ public sealed class MachineNameViewModel : ReactiveObject {
 
     /// Set when a save fails, so the refusal is visible, not just logged.
     public string? Message {
-        get => _message;
-        private set => this.RaiseAndSetIfChanged(ref _message, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// False, with <see cref="Message"/> set, when the profile could not be written.

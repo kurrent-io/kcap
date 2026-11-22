@@ -1,11 +1,12 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Text;
-using System.Text.Json;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Harness.Titles;
 using Capacitor.Models.Transcripts.Harness.OpenCode;
 
@@ -61,11 +62,6 @@ internal sealed class OpenCodeImportSource : IImportSource {
             // A corrupt / schema-drifted opencode.db must NOT crash the whole `kcap import`
             // (other vendors share the run). On open/query failure, warn and skip OpenCode.
             using var db = new OpenCodeDb(_dbPath);
-            if (db.IsV2Only()) {
-                (filters.Stderr ?? Console.Error).WriteLine(
-                    $"[kcap] OpenCode v2 history import is not supported yet; skipping {_dbPath}.");
-                return Task.FromResult<IReadOnlyList<DiscoveredSession>>([]);
-            }
             foreach (var row in db.QueryRoots()) {
                 ct.ThrowIfCancellationRequested();
                 if (filters.FilterSession is { } fs && !string.Equals(row.Id, fs, StringComparison.Ordinal)) continue;
@@ -214,16 +210,23 @@ internal sealed class OpenCodeImportSource : IImportSource {
 
         // 2. parent transcript (synthesize to a temp file; SendTranscriptBatches needs a path).
         int sent;
+        var unread  = false;
         var tmpFile = Path.Combine(Path.GetTempPath(), $"kcap-oc-{c.SessionId}-{Guid.NewGuid():N}.jsonl");
         try {
             using var db = new OpenCodeDb(_dbPath);
+            var v2 = false;
             await using (var w = new StreamWriter(tmpFile)) {
-                foreach (var line in db.SynthesizeLines(c.SessionId)) await w.WriteLineAsync(line);
+                foreach (var line in db.SynthesizeLines(c.SessionId)) {
+                    v2 |= OpenCodeDb.IsV2Line(line);
+                    await w.WriteLineAsync(line);
+                }
             }
+            var canonical = new StrongBox<bool>();
             sent = await SessionImporter.SendTranscriptBatches(
                 httpClient: ctx.HttpClient, baseUrl: ctx.BaseUrl, sessionId: c.SessionId,
                 filePath: tmpFile, agentId: null, startLine: 0, time: _time, vendor: Vendor,
-                lineNumberOffset: lineOffset, failOnError: true, progress: ctx.Progress);
+                lineNumberOffset: lineOffset, failOnError: true, progress: ctx.Progress, canonical: ctx.Canonical, sentCanonical: canonical);
+            unread = v2 && !canonical.Value;
         } catch (OperationCanceledException) {
             throw; // cancellation is not an import failure — let it propagate
         } catch {
@@ -251,7 +254,7 @@ internal sealed class OpenCodeImportSource : IImportSource {
         var descendantsOk           = true;
         OperationCanceledException? cancellation = null;
         try {
-            await ImportDescendantsAsync(ctx.HttpClient, ctx.BaseUrl, c.SessionId, ctx.Progress, ctx.Stderr ?? Console.Error, ct);
+            unread |= await ImportDescendantsAsync(ctx.HttpClient, ctx.BaseUrl, c.SessionId, ctx.Progress, ctx.Stderr ?? Console.Error, ctx.Canonical, ct);
         } catch (OperationCanceledException oce) {
             cancellation = oce;
         } catch {
@@ -300,8 +303,9 @@ internal sealed class OpenCodeImportSource : IImportSource {
         if (!descendantsOk) return ImportOutcome.Failed;
 
         // 6. Record completeness in the ledger — ONLY now, after a fully successful import.
-        //    The fingerprint was computed at classify time and carried on SourceMeta.
-        if (c.SourceMeta!.TryGetValue("Fingerprint", out var fpObj) && fpObj is string fp) {
+        //    The fingerprint was computed at classify time and carried on SourceMeta. v2 lines sent raw are not
+        //    read, so a session with any is left unrecorded, for a run against a server that takes them.
+        if (!unread && c.SourceMeta!.TryGetValue("Fingerprint", out var fpObj) && fpObj is string fp) {
             lock (_ledgerLock) {
                 _ledger.MarkComplete(ctx.BaseUrl, c.SessionId, fp);
                 _ledger.Save();
@@ -319,7 +323,12 @@ internal sealed class OpenCodeImportSource : IImportSource {
     /// silent) via a stderr diagnostic. Throws on the first descendant whose lifecycle can't be
     /// posted (caller wraps this in a finally-style re-close).
     /// </summary>
-    async Task ImportDescendantsAsync(HttpClient client, string baseUrl, string rootId, IProgress<ImportProgress>? progress, TextWriter stderr, CancellationToken ct) {
+    /// <returns>Whether a descendant's v2 lines went raw, where the server does not read them.</returns>
+    async Task<bool> ImportDescendantsAsync(
+            HttpClient client, string baseUrl, string rootId, IProgress<ImportProgress>? progress, TextWriter stderr, IngestCapability? canonical,
+            CancellationToken ct
+        ) {
+        var unread = false;
         using var db = new OpenCodeDb(_dbPath);
         var (descendants, omitted, _, countTruncated) = db.QueryDescendants(rootId); // BFS, per-level ordered like QueryChildren
 
@@ -347,8 +356,12 @@ internal sealed class OpenCodeImportSource : IImportSource {
 
             var tmp = Path.Combine(Path.GetTempPath(), $"kcap-oc-{child.Id}-{Guid.NewGuid():N}.jsonl");
             try {
+                var v2 = false;
                 await using (var w = new StreamWriter(tmp)) {
-                    foreach (var line in db.SynthesizeLines(child.Id)) await w.WriteLineAsync(line);
+                    foreach (var line in db.SynthesizeLines(child.Id)) {
+                        v2 |= OpenCodeDb.IsV2Line(line);
+                        await w.WriteLineAsync(line);
+                    }
                 }
 
                 // fail-closed: no content unless the subagent registered first.
@@ -356,10 +369,12 @@ internal sealed class OpenCodeImportSource : IImportSource {
                     SubagentHookPayloads.Start(rootId, agentId, agentType, tmp), ct);
                 if (!startOk) throw new HttpRequestException($"subagent-start failed for {child.Id}");
 
+                var sentCanonical = new StrongBox<bool>();
                 await SessionImporter.SendTranscriptBatches(
                     httpClient: client, baseUrl: baseUrl, sessionId: rootId,
                     filePath: tmp, agentId: agentId, startLine: 0, time: _time, vendor: Vendor,
-                    lineNumberOffset: childOffset, failOnError: true, progress: progress);
+                    lineNumberOffset: childOffset, failOnError: true, progress: progress, canonical: canonical, sentCanonical: sentCanonical);
+                unread |= v2 && !sentCanonical.Value;
 
                 if (!await Client(client, baseUrl).PostSyntheticHookAsync("subagent-stop",
                         SubagentHookPayloads.Stop(rootId, agentId, agentType, tmp), ct))
@@ -368,19 +383,12 @@ internal sealed class OpenCodeImportSource : IImportSource {
                 try { File.Delete(tmp); } catch { }
             }
         }
+
+        return unread;
     }
 
-    static string ResolveAgentType(OpenCodeDb db, string childId) {
-        foreach (var line in db.SynthesizeLines(childId)) {
-            try {
-                using var doc = JsonDocument.Parse(line);
-                if (doc.RootElement.TryGetProperty("info", out var info) &&
-                    info.TryGetProperty("agent", out var a) && a.GetString() is { Length: > 0 } agent)
-                    return agent;
-            } catch { }
-        }
-        return "subagent";
-    }
+    static string ResolveAgentType(OpenCodeDb db, string childId) =>
+        OpenCodeSubagentDiscovery.FirstAgent(db.SynthesizeLines(childId)) ?? "subagent";
 
     static SessionMetadata MetaFor(DiscoveredSession s) => new() {
         SessionId      = s.SessionId,

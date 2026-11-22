@@ -15,7 +15,7 @@ public class LocalControlAgentResumeTests {
     [TempHome] public required TempHome Home { get; init; }
 
     sealed class CountingLifetime : IHostApplicationLifetime {
-        public int StopCalls;
+        int StopCalls;
         public CancellationToken ApplicationStarted  => CancellationToken.None;
         public CancellationToken ApplicationStopping => CancellationToken.None;
         public CancellationToken ApplicationStopped  => CancellationToken.None;

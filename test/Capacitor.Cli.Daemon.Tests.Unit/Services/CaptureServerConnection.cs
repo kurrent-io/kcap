@@ -72,6 +72,21 @@ sealed class CaptureServerConnection : ServerConnection {
         return Task.CompletedTask;
     }
 
+    /// <summary>The server's answer to each capability update; unset, the server lacks the method, so every refresh
+    /// falls back to a full re-registration.</summary>
+    public Func<DaemonCapabilitiesUpdate, DaemonCapabilitiesUpdateResponse?>? CapabilityUpdate { get; set; }
+
+    public ConcurrentQueue<DaemonCapabilitiesUpdate> CapabilityUpdates { get; } = new();
+
+    internal override Task<DaemonCapabilitiesUpdateResponse?> InvokeUpdateCapabilitiesRawAsync(DaemonCapabilitiesUpdate update) {
+        CapabilityUpdates.Enqueue(update);
+
+        return CapabilityUpdate is { } answer
+            ? Task.FromResult(answer(update))
+            : Task.FromException<DaemonCapabilitiesUpdateResponse?>(new Microsoft.AspNetCore.SignalR.HubException(
+                $"Failed to invoke '{UpdateCapabilitiesMethod}' due to an error on the server. HubException: Method does not exist."));
+    }
+
     /// <summary>The server's answer to each takeover begin, which may throw as the hub would; unset, the server
     /// lacks the method.</summary>
     public Func<string, string, HandoffTakeoverAdmission?>? BeginHandoff { get; set; }
@@ -521,10 +536,18 @@ sealed class CaptureServerConnection : ServerConnection {
     /// <summary>Terminal output as text and sizes as <c>&lt;SIZE colsxrows&gt;</c>, in the order they arrived.</summary>
     public ConcurrentQueue<(string AgentId, string Entry)> TerminalStream { get; } = new();
 
-    public override Task SendTerminalDimensionsAsync(string agentId, int cols, int rows, CancellationToken ct = default) {
-        TerminalStream.Enqueue((agentId, $"<SIZE {cols}x{rows}>"));
+    /// <summary>Holds every terminal-size send while set, until its token is cancelled.</summary>
+    public TaskCompletionSource? DimensionsGate { get; set; }
 
-        return Task.CompletedTask;
+    int _dimensionsSends;
+    public int DimensionsSends => Volatile.Read(ref _dimensionsSends);
+
+    public override async Task SendTerminalDimensionsAsync(string agentId, int cols, int rows, CancellationToken ct = default) {
+        Interlocked.Increment(ref _dimensionsSends);
+
+        if (DimensionsGate is { } gate) await gate.Task.WaitAsync(ct).ConfigureAwait(false);
+
+        TerminalStream.Enqueue((agentId, $"<SIZE {cols}x{rows}>"));
     }
 
     /// <summary>Every (agentId, event) pair passed to AppendAgentRunEventAsync, in call order.</summary>

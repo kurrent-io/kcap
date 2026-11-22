@@ -247,6 +247,8 @@ public class LocalStackViewModelTests {
             await Assert.That(h.Vm.Headline).IsEqualTo("kcap local could not be updated to 1.3.0");
             await Assert.That(h.Vm.Detail).IsEqualTo("The download was interrupted. kcap local 1.2.0 was left as it was.");
             await Assert.That(h.Vm.TryAgainVisible).IsTrue();
+            await Assert.That(h.Vm.TryAgainIsPrimary).IsTrue();
+            await Assert.That(h.Vm.DismissIsPrimary).IsFalse().Because("Try again is the fix; Dismiss beside it is tertiary");
             await Assert.That(h.Vm.StateText).IsEqualTo("update failed");
             await Assert.That(h.Vm.Version).IsEqualTo("1.2.0");
             foreach (var text in ShownText(h.Vm)) await Assert.That(text ?? "").DoesNotContain("kcap local upgrade");
@@ -565,6 +567,7 @@ public class LocalStackViewModelTests {
             await Assert.That(h.Vm.TryAgainVisible).IsFalse();
             await Assert.That(h.Vm.StartVisible).IsTrue();
             await Assert.That(h.Vm.DismissVisible).IsTrue();
+            await Assert.That(h.Vm.DismissIsPrimary).IsFalse().Because("Start is the fix");
 
             var upgrades = 0;
             var upgraded = UpgradeScript.Prints(0, UpgradeScript.Planned("1.2.0", "1.3.0"), UpgradeScript.Upgraded("1.2.0", "1.3.0"));

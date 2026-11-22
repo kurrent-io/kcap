@@ -119,12 +119,12 @@ public class ImportExclusionSourcesTests {
         switch (vendor) {
             case "claude":
                 Tmp.CreateFile($"claude/projects/-excluded-project/{Id}.jsonl",
-                    $$$$"""{"type":"user","timestamp":"{{{{Timestamp}}}}","cwd":{{{{cwdJson}}}},"message":{"content":"hello"}}""" + "\n");
+                    $$$"""{"type":"user","timestamp":"{{{Timestamp}}}","cwd":{{{cwdJson}}},"message":{"content":"hello"}}""" + "\n");
                 return new ClaudeImportSource(Config.Root, Tmp.PathTo("claude", "projects"), router, time);
             case "codex":
                 Tmp.CreateFile($"codex/sessions/2026/10/13/rollout-2026-10-13T10-00-00-{Id}.jsonl", [
-                    $$$$"""{"type":"session_meta","timestamp":"{{{{Timestamp}}}}","payload":{"id":"{{{{Id}}}}","cwd":{{{{cwdJson}}}}}}""",
-                    $$$$"""{"type":"response_item","timestamp":"{{{{Timestamp}}}}","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}""",
+                    $$$"""{"type":"session_meta","timestamp":"{{{Timestamp}}}","payload":{"id":"{{{Id}}}","cwd":{{{cwdJson}}}}}""",
+                    $$$"""{"type":"response_item","timestamp":"{{{Timestamp}}}","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}""",
                 ]);
                 return new CodexImportSource(Config.Root, Tmp.PathTo("codex", "sessions"), router, time);
             case "cursor":
@@ -135,24 +135,24 @@ public class ImportExclusionSourcesTests {
             case "copilot":
                 var copilot = new CopilotPaths(Home, null, Tmp.PathTo("copilot"));
                 WriteUnder(copilot.SessionStateDir, $"{Id}/workspace.yaml", $"id: {Id}\ncwd: '{cwd.Replace("'", "''")}'\ncreated_at: {Timestamp}\n");
-                WriteUnder(copilot.SessionStateDir, $"{Id}/events.jsonl", $$$$"""{"type":"user.message","timestamp":"{{{{Timestamp}}}}","data":{"content":"hello"}}""" + "\n");
+                WriteUnder(copilot.SessionStateDir, $"{Id}/events.jsonl", $$$"""{"type":"user.message","timestamp":"{{{Timestamp}}}","data":{"content":"hello"}}""" + "\n");
                 return new CopilotImportSource(Config.Root, copilot, [], router, time);
             case "gemini":
                 var bootstrap = JsonSerializer.Serialize($"<session_context>\nThis is the Gemini CLI.\n- **Workspace Directories:**\n  - {cwd}\n- **Directory Structure:**\n</session_context>",
                     BootstrapJson);
                 Tmp.CreateFile("gemini/tmp/project/chats/session-test.jsonl", [
-                    $$$$"""{"sessionId":"{{{{Id}}}}","startTime":"{{{{Timestamp}}}}","kind":"main"}""",
-                    $$$$"""{"type":"user","timestamp":"{{{{Timestamp}}}}","content":[{"text":{{{{bootstrap}}}}}]}""",
+                    $$"""{"sessionId":"{{Id}}","startTime":"{{Timestamp}}","kind":"main"}""",
+                    $$"""{"type":"user","timestamp":"{{Timestamp}}","content":[{"text":{{bootstrap}}}]}""",
                 ]);
                 return new GeminiImportSource(Tmp.PathTo("gemini", "tmp"), time);
             case "kiro":
-                Tmp.CreateFile($"kiro/{Id}.json", $$$$"""{"cwd":{{{{cwdJson}}}},"created_at":"{{{{Timestamp}}}}"}""");
+                Tmp.CreateFile($"kiro/{Id}.json", $$"""{"cwd":{{cwdJson}},"created_at":"{{Timestamp}}"}""");
                 Tmp.CreateFile($"kiro/{Id}.jsonl", "{\"version\":\"v1\",\"kind\":\"Prompt\",\"data\":{\"message_id\":\"m1\",\"content\":[{\"kind\":\"text\",\"data\":\"hello\"}]}}\n");
                 return new KiroImportSource(Config.Root, Tmp.PathTo("kiro"), new KiroCrewPaths(Tmp.PathTo("kiro"), null), router, time);
             case "pi":
                 Tmp.CreateFile($"pi/{Id}.jsonl", [
-                    $$$$"""{"type":"session","version":3,"id":"{{{{Id}}}}","timestamp":"{{{{Timestamp}}}}","cwd":{{{{cwdJson}}}}}""",
-                    $$$$"""{"type":"message","id":"a1","timestamp":"{{{{Timestamp}}}}","message":{"role":"user","content":"hello"}}""",
+                    $$"""{"type":"session","version":3,"id":"{{Id}}","timestamp":"{{Timestamp}}","cwd":{{cwdJson}}}""",
+                    $$$"""{"type":"message","id":"a1","timestamp":"{{{Timestamp}}}","message":{"role":"user","content":"hello"}}""",
                 ]);
                 return new PiImportSource(Config.Root, Tmp.PathTo("pi"), router, time);
             case "opencode":
@@ -161,10 +161,10 @@ public class ImportExclusionSourcesTests {
                 return new OpenCodeImportSource(db.DbPath, db.LedgerPath, time);
             case "antigravity":
                 Tmp.CreateFile($".gemini/antigravity/brain/{Id}/.system_generated/logs/transcript_full.jsonl",
-                    $$$$"""{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"{{{{Timestamp}}}}","content":"<USER_REQUEST>hello</USER_REQUEST>"}""" + "\n");
+                    $$"""{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"{{Timestamp}}","content":"<USER_REQUEST>hello</USER_REQUEST>"}""" + "\n");
                 return new AntigravityImportSource(new AntigravityPaths(new UserHome(Tmp.Path), ""), time);
             case "mistral-vibe":
-                Tmp.CreateFile($"vibe/logs/session/unified/{Id}/meta.json", $$$$"""{"origin_directory":{{{{cwdJson}}}}}""");
+                Tmp.CreateFile($"vibe/logs/session/unified/{Id}/meta.json", $$"""{"origin_directory":{{cwdJson}}}""");
                 Tmp.CreateFile($"vibe/logs/session/unified/{Id}/CURRENT", "{\"generation\":\"1\"}");
                 Tmp.CreateFile($"vibe/logs/session/unified/{Id}/generations/1/manifest.json", "{\"projection_state\":{\"path\":\"projection.json\"}}");
                 Tmp.CreateFile($"vibe/logs/session/unified/{Id}/generations/1/projection.json",
@@ -173,7 +173,7 @@ public class ImportExclusionSourcesTests {
             case "grok":
                 var grok = new GrokPaths(Home, Tmp.PathTo("grok"));
                 var dir = Path.Combine(Uri.EscapeDataString(cwd), Id);
-                WriteUnder(grok.SessionsDir, Path.Combine(dir, "summary.json"), $$$$"""{"info":{"id":"{{{{Id}}}}","cwd":{{{{cwdJson}}}}},"created_at":"{{{{Timestamp}}}}"}""");
+                WriteUnder(grok.SessionsDir, Path.Combine(dir, "summary.json"), $$"""{"info":{"id":"{{Id}}","cwd":{{cwdJson}}},"created_at":"{{Timestamp}}"}""");
                 WriteUnder(grok.SessionsDir, Path.Combine(dir, "updates.jsonl"), "{\"timestamp\":1,\"method\":\"session/update\",\"params\":{\"sessionId\":\"x\",\"update\":{\"sessionUpdate\":\"user_message_chunk\",\"content\":{\"type\":\"text\",\"text\":\"hello\"}},\"_meta\":{\"eventId\":\"x-1\",\"agentTimestampMs\":1791885600000}}}\n");
                 return new GrokImportSource(grok, _ => Task.FromResult<RepositoryPayload?>(null), time);
             case "muse":

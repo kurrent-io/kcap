@@ -305,6 +305,56 @@ public class AgentOrchestratorContinueTests : IDisposable {
         await Assert.That(f.Orch.ResumeLedger!.TryRead(successor)!.State).IsEqualTo(ResumeState.Running);
     }
 
+    /// <summary>A resume refused for its connection that no registration takes within the readiness window is refused
+    /// like any other: it goes on under a new agent id, and nothing that waited for the registration is sent.</summary>
+    [Test]
+    [Arguments("not_a_daemon")]
+    [Arguments("connection_vanished")]
+    public async Task A_native_resume_refused_for_its_connection_and_never_registered_continues_under_a_new_agent_id(string refusal) {
+        var f = Build(resumeSupported: true);
+        await using var _ = f.Orch;
+        f.Server.RegistrationResponse = id => id == OldAgent ? new AgentRegisteredResponse(false, refusal) : null;
+        Entry(f, vendorSession: "vendor-session-1");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        var starts = f.Factory.Starts.Select(s => s.Ctx).ToList();
+        await Assert.That(starts.Count).IsEqualTo(2);
+        await Assert.That(starts[1].Prompt).Contains("(registration_refused)");
+        await Assert.That(f.Orch.GetAgentForTest(OldAgent)).IsNull();
+        await Assert.That(f.Server.RunEvents.Any(e => e.AgentId == OldAgent)).IsFalse();
+        await Assert.That(f.Server.AcpSessionStartedCalls.Any(c => c.AgentId == OldAgent)).IsFalse();
+    }
+
+    /// <summary>A refusal about the agent from the registration that follows a connection refusal is the one the
+    /// resume acts on: a run the server saw end starts no successor.</summary>
+    [Test]
+    public async Task A_native_resume_refused_for_its_connection_and_then_as_ended_starts_no_successor() {
+        var f = Build(resumeSupported: true, readinessWindow: TimeSpan.FromSeconds(30));
+        await using var _ = f.Orch;
+        var refused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        f.Server.RegistrationResponse = id => {
+            if (id != OldAgent) return null;
+
+            refused.TrySetResult();
+
+            return new AgentRegisteredResponse(false, "not_a_daemon");
+        };
+        Entry(f, vendorSession: "vendor-session-1");
+
+        f.Orch.LoadResumeLedger();
+        var lane = f.Orch.ResumeOnBootAsync(CancellationToken.None);
+        await refused.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        f.Server.RegistrationResponse = id => id == OldAgent ? new AgentRegisteredResponse(false, "run_ended") : null;
+        await f.Orch.ReRegisterAgentsAsync();
+        await lane.WaitAsync(TimeSpan.FromSeconds(20));
+
+        await Assert.That(f.Factory.Starts.Select(s => s.Ctx.AgentId)).IsEquivalentTo([OldAgent]);
+        await Assert.That(f.Orch.GetAgentForTest(OldAgent)).IsNull();
+        await Assert.That(f.Orch.ResumeLedger!.TryRead(OldAgent)!.LastError).IsEqualTo("run_ended");
+    }
+
     /// <summary>A refusal saying the server saw this run end stops the resumed process and starts no successor: the
     /// run is over, and a new agent id would revive it. The entry is left interrupted and its worktree kept.</summary>
     [Test]

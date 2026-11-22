@@ -77,7 +77,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     bool _lost;
     /// The cache's stamp when the loaded lines were read.
     (int Generation, int Refusals) _stamp;
-    /// A snapshot whose catch-up read failed, with the stamp it was handed out under, for the retry.
+    /// A snapshot taken from the cache, with the stamp it was handed out under, until a resume publishes or rejects
+    /// it: a retry resumes it again, and a close before then puts it back.
     (RemoteTranscriptSnapshot Snapshot, (int Generation, int Refusals) Stamp)? _resume;
     /// Tail projections between reading the prompt state and committing their event: a snapshot taken
     /// then would pair prompts that already saw the event with a position that has not.
@@ -226,20 +227,29 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         lock (_lock) if (_position is not null) return true;
         var stamp = _cache?.Stamp(_sessionId) ?? default;
         (RemoteTranscriptSnapshot Snapshot, (int Generation, int Refusals) Stamp)? kept;
-        lock (_lock) {
-            kept = _resume;
-            _resume = null;
-        }
-        if (kept is null && _cache?.Take(_sessionId) is { } taken) kept = (taken, stamp);
-        if (kept is { } resume) {
-            bool? resumed;
-            try {
-                resumed = await ResumeAsync(attempt, resume.Stamp, resume.Snapshot, ct).ConfigureAwait(false);
-            } catch {
-                lock (_lock) _resume ??= resume;
-                throw;
+        lock (_lock) kept = _resume;
+        if (kept is null && _cache?.Take(_sessionId) is { } taken) {
+            // The cache is keyed by session alone: lines a windowed feed kept would show part of the session as all of it.
+            if (_window is null && taken.Earliest > 0) _cache.Put(_sessionId, taken, stamp);
+            else {
+                kept = (taken, stamp);
+                bool closed;
+                lock (_lock) {
+                    closed = _disposed;
+                    if (!closed) _resume = kept;
+                }
+                // Outside the lock: the cache publishes under its own lock and then takes this one.
+                if (closed) {
+                    _cache.Put(_sessionId, taken, stamp);
+                    return false;
+                }
             }
+        }
+        if (kept is { } resume) {
+            var resumed = await ResumeAsync(attempt, resume.Stamp, resume.Snapshot, ct).ConfigureAwait(false);
             if (resumed is { } done) return done;
+            // An earlier attempt's answer leaves the snapshot to the current one.
+            lock (_lock) if (_attempt == attempt) _resume = null;
             stamp = _cache!.Stamp(_sessionId);
         }
         var lines = new List<ProjectedLine>();
@@ -268,6 +278,8 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             _position = page.LastEventNumber;
             _earliest = from;
             _oldest = oldest;
+            // A read from 0 starts at the oldest event held. Left null on an empty stream, the first live event sets both.
+            if (_window is null) _base = oldest;
             _older.Clear();
             _loaded?.Clear();
             _loaded?.AddRange(lines);
@@ -293,7 +305,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         // A copy, so an attempt that fails part way leaves the snapshot as it was for the retry.
         var scheduled = snapshot.Scheduled.Copy();
         ProjectInto(page, lines, scheduled, above: snapshot.Position);
-        if (page.NextFrom is { } next && page.Events is [.., var tail]) {
+        if (page is { NextFrom: { } next, Events: [.., var tail] }) {
             (fetch, _) = await ReadForwardAsync(next - 1, lines, scheduled, ct, after: tail.EventNumber).ConfigureAwait(false);
             if (!Admit(attempt, fetch, out page)) return false;
         }
@@ -309,6 +321,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             List<ProjectedLine> lines, ScheduledPrompts scheduled) {
         lock (_lock) {
             if (_attempt != attempt) return false;
+            _resume = null;
             _verdict = null;
             _stamp = stamp;
             _scheduled = scheduled;
@@ -621,14 +634,19 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     }
 
     void Forget() {
-        lock (_lock) _lost = true;
+        lock (_lock) {
+            _lost = true;
+            _resume = null;
+        }
         _cache?.Drop(_sessionId);
     }
 
     /// The newest lines up to the cache's limit; the stream events before the oldest kept one count as unloaded.
     /// A transcript whose turned-down prompt checks outgrow that limit is not kept: they hold message text.
+    /// Nor is a whole-session feed that outgrows it, which would reopen showing part of the session as all of it.
     RemoteTranscriptSnapshot? SnapshotLocked() {
         if (_lost || _projecting > 0 || _loaded is null || _position is not { } position || _base is not { } origin || _earliest is not { } earliest) return null;
+        if (_window is null && _loaded.Count > RemoteTranscriptCache.MaxLines) return null;
         // A copy: an older page still projecting merges into the live state after the feed has closed.
         ScheduledPrompts scheduled;
         lock (_scheduled) {

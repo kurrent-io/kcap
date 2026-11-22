@@ -181,7 +181,7 @@ sealed class McpAnalyticsServer(ConfigRoot config, ProfileContext profiles, Toke
         // scope is optional (defaults to repo), but a present-yet-wrong-typed value is a mistake
         // the agent should hear about precisely rather than as an opaque failure.
         var scope = "repo";
-        if (args?["scope"] is JsonNode scopeNode) {
+        if (args?["scope"] is { } scopeNode) {
             if (scopeNode is not JsonValue sv || !sv.TryGetValue<string>(out var scopeStr))
                 throw new ArgumentException("scope must be a string — 'repo' (default) or 'global'.");
             scope = scopeStr;

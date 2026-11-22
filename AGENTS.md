@@ -189,6 +189,7 @@ dotnet build src/Capacitor.Cli/Capacitor.Cli.csproj
 - Capture console output with `ConsoleOutput.StartCapture()` / `StartErrorCapture()`, never a hand-rolled `Console.SetOut`/`SetError` save-restore — TUnit0055 is an error. Console is process-global, so every caller needs bare `[NotInParallel]`; a group key is not enough.
 - Never assert that an environment variable is *absent* from a built `ProcessStartInfo`: its environment is seeded from the current process, and the repo's own `.envrc` exports several. Assert what the code under test contributed, by comparing against the inherited value.
 - Do not write tests for test-only fakes/mocks, dedicated test files for one-line wrappers/constants already exercised by their callers, or headless XAML smoke tests that only assert `x:Name` lookups, static typography/margin values, or Avalonia layout math. Keep `*SmokeTests` to real view interactions (focus, keyboard/pointer routing, flyouts, accessibility peers) and keep data-projection permutations in ViewModel unit tests.
+- Test behaviour, not appearance. Never assert which style class, variant, brush or colour a control carries ("Save is `kcapPrimary`", "the label is muted"): that pins a design choice, not a behaviour, and breaks on every restyle. A variant is tested once, where it is defined, in `Views/ControlVariantTests` (its rest, hover, pressed, disabled and focus states), so every control carrying it looks the same by construction. Assert what a user or caller observes instead: the action that runs, the state that changes, what is enabled, visible, focused or announced, and the order of controls.
 
 A test that reads source as text beyond what its own project references — a guard over all of `src/` or `test/` — goes in `test/Capacitor.SourceGuards.Tests.Unit/`, which references no production project and holds nothing else. CI selects suites from project references plus each `.csproj`'s `<TestSelectionDirectory Include="../../src" />` items (project-relative directories, not globs), and that project declares both trees. Left in a product suite, such a test is not selected for the changes that can break it; declaring the directory there instead pulls the whole suite into every PR.
 
@@ -327,6 +328,16 @@ Description: **before writing it, open [.github/PULL_REQUEST_TEMPLATE.md](.githu
   `kcapField` inputs. Fluent `MenuItem` chrome, default `Button` / `ToggleButton` presenters, and
   Fluent accent on a menu or toolbar are out — Fluent paints `PART_ContentPresenter` unless the
   kcap class restyles it.
+- Action ranks, per component (a dialog, banner, card, composer — not the whole window): a sole
+  action is `kcapPrimary`; the main one of several is `kcapPrimary` and sits last (rightmost);
+  actions of equal weight are `kcapChip`; Cancel, Close, Back, Dismiss, Skip and Not now are
+  `kcapGhost` unless they are the only action. A Close or Done that finishes a flow is its main
+  action. The action that commits to a destructive change is danger-styled (`kcapDanger`,
+  `kcapDangerFill` when it is the main action) even when alone; retrying or continuing one the user
+  already confirmed takes its normal rank, kept off Enter. When the set of visible actions
+  changes with state, bind the rank (`Classes.kcapPrimary`) so it follows. Menu rows, chips,
+  pickers and choice lists are not actions and keep their own classes. Onboarding maps these to
+  `onboardingPrimary`, `onboardingSecondary` and `onboardingQuiet` / `onboardingLink`.
 - Hierarchy and chrome: chat tool rows and inline `ToolCard`s lead with a human verb in
   `KcapTextBrush` and trailing target/path/detail in `KcapMutedBrush` (only rows with their own prose
   description or question text omit the verb label). Inline cards inside `Border.toolGroup` sit flush

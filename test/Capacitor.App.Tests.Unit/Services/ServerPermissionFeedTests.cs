@@ -13,9 +13,9 @@ public class ServerPermissionFeedTests {
         int _fetches;
 
         public readonly FakeServerLane Lane = new();
-        public readonly FakeTimeProvider Time = new();
+        readonly FakeTimeProvider Time = new();
         public readonly SessionAccessService Access;
-        public readonly PermissionService Permissions;
+        readonly PermissionService Permissions;
         public readonly IObservableCache<PendingPermissionRequest, string> View;
         public readonly ServerPermissionFeed Feed;
         public Func<string, Task<SessionDetailFetch>> Detail = _ => Task.FromResult(new SessionDetailFetch(null, NotFound: true));

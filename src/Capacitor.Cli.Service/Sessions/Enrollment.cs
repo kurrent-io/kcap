@@ -27,7 +27,7 @@ public sealed record Enrollment(string Name, string DaemonPath, string? Profile,
             refusal = "the environment file is not an absolute local path";
             return null;
         }
-        int? agents = maxAgents is int n && n >= 0 ? n : null;
+        int? agents = maxAgents is int n and >= 0 ? n : null;
         return new Enrollment(name, daemonPath, string.IsNullOrWhiteSpace(profile) ? null : profile, agents,
             string.IsNullOrWhiteSpace(environmentFile) ? null : environmentFile);
     }

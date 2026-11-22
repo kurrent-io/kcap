@@ -127,7 +127,7 @@ public class AgentOrchestratorPiVerdictTests {
 
         await Assert.That(server.AgentRegisteredCalls.Any(c => c.AgentId == "pi-prereg-1")).IsTrue();
         await Assert.That(server.StatusChangedCalls.Any(
-            c => c.AgentId == "pi-prereg-1" && c.Status == "Running")).IsFalse();
+            c => c is { AgentId: "pi-prereg-1", Status: "Running" })).IsFalse();
 
         var agent = orch.GetAgentForTest("pi-prereg-1");
         await Assert.That(agent).IsNotNull();
@@ -151,7 +151,7 @@ public class AgentOrchestratorPiVerdictTests {
         await orch.HandleStopAgentForTest("pi-stop-1");
 
         await Assert.That(server.StatusChangedCalls.Any(
-            c => c.AgentId == "pi-stop-1" && c.Status == "Completed")).IsFalse();
+            c => c is { AgentId: "pi-stop-1", Status: "Completed" })).IsFalse();
     }
 
     /// <summary>A published Pi verdict excludes the agent from reconnect re-registration entirely —

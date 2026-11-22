@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Acp;
 
 namespace Capacitor.Cli.Core.Tests.Unit;
@@ -25,12 +26,14 @@ public class AcpInteractionMessagesTests {
 
         var json = JsonSerializer.Serialize(src, CapacitorJsonContext.Default.SessionRequestPermissionParams);
 
-        await Assert.That(json).Contains(@"""sessionId""");
-        await Assert.That(json).Contains(@"""toolCall""");
-        await Assert.That(json).Contains(@"""options""");
-        await Assert.That(json).Contains(@"""optionId""");
-        await Assert.That(json).Contains(@"""name""");
-        await Assert.That(json).Contains(@"""kind""");
+        JsonObject expected = new() {
+            ["sessionId"] = "sess-1",
+            ["toolCall"]  = new JsonObject { ["name"] = "bash" },
+            ["options"]   = new JsonArray(
+                new JsonObject { ["optionId"] = "opt-allow", ["name"] = "Allow", ["kind"] = "allow_once" },
+                new JsonObject { ["optionId"] = "opt-deny",  ["name"] = "Deny",  ["kind"] = "reject_once" })
+        };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
 
         var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.SessionRequestPermissionParams)!;
         await Assert.That(back.SessionId).IsEqualTo("sess-1");
@@ -43,15 +46,15 @@ public class AcpInteractionMessagesTests {
     public async Task PermissionOutcomeDto_selected_serializes_optionId_and_omits_it_when_cancelled() {
         var selected = new PermissionOutcomeDto("selected", "opt-allow");
         var selectedJson = JsonSerializer.Serialize(selected, CapacitorJsonContext.Default.PermissionOutcomeDto);
-        await Assert.That(selectedJson).Contains(@"""outcome"":""selected""");
-        await Assert.That(selectedJson).Contains(@"""optionId"":""opt-allow""");
+        JsonObject selectedExpected = new() { ["outcome"] = "selected", ["optionId"] = "opt-allow" };
+        await Assert.That(WireJson.Pick(selectedJson, selectedExpected)).IsEqualTo(selectedExpected.ToJsonString());
 
         // Fail-safe cancellation vocabulary: the ACP wire spelling is "cancelled" (double-L),
         // distinct from the server's internal InterruptOutcomes.Cancel = "cancel".
         var cancelled = new PermissionOutcomeDto("cancelled");
         var cancelledJson = JsonSerializer.Serialize(cancelled, CapacitorJsonContext.Default.PermissionOutcomeDto);
-        await Assert.That(cancelledJson).Contains(@"""outcome"":""cancelled""");
-        await Assert.That(cancelledJson).DoesNotContain(@"""optionId""");
+        JsonObject cancelledExpected = new() { ["outcome"] = "cancelled", ["optionId"] = WireJson.Missing };
+        await Assert.That(WireJson.Pick(cancelledJson, cancelledExpected)).IsEqualTo(cancelledExpected.ToJsonString());
 
         var back = JsonSerializer.Deserialize(cancelledJson, CapacitorJsonContext.Default.PermissionOutcomeDto)!;
         await Assert.That(back.Outcome).IsEqualTo("cancelled");
@@ -111,7 +114,7 @@ public class AcpInteractionMessagesTests {
         await Assert.That(multiJson).IsEqualTo("""{"action":"accept","content":{"areas":["a","b"]}}""");
 
         var single = new ElicitationResponse("accept", new Dictionary<string, JsonElement> {
-            ["choice"] = JsonDocument.Parse(@"""a""").RootElement.Clone()
+            ["choice"] = JsonDocument.Parse("\"a\"").RootElement.Clone()
         });
         var singleJson = JsonSerializer.Serialize(single, CapacitorJsonContext.Default.ElicitationResponse);
         await Assert.That(singleJson).IsEqualTo("""{"action":"accept","content":{"choice":"a"}}""");
@@ -128,8 +131,11 @@ public class AcpInteractionMessagesTests {
             "answered", "a", "Alpha", null, null, null,
             SelectedOptionIds: ["a", "b"], SelectedOptionLabels: ["Alpha", "Beta"]);
         var json = JsonSerializer.Serialize(withLists, CapacitorJsonContext.Default.AcpInteractionDecision);
-        await Assert.That(json).Contains(@"""selected_option_ids"":[""a"",""b""]");
-        await Assert.That(json).Contains(@"""selected_option_labels"":[""Alpha"",""Beta""]");
+        JsonObject expected = new() {
+            ["selected_option_ids"]    = new JsonArray("a", "b"),
+            ["selected_option_labels"] = new JsonArray("Alpha", "Beta")
+        };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
 
         var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.AcpInteractionDecision);
         await Assert.That(back.SelectedOptionIds!).IsEquivalentTo(new[] { "a", "b" });
@@ -153,8 +159,8 @@ public class AcpInteractionMessagesTests {
             MinSelections: 1, MaxSelections: 2);
 
         var json = JsonSerializer.Serialize(src, CapacitorJsonContext.Default.AcpInteractionRequest);
-        await Assert.That(json).Contains(@"""min_selections"":1");
-        await Assert.That(json).Contains(@"""max_selections"":2");
+        JsonObject expected = new() { ["min_selections"] = 1, ["max_selections"] = 2 };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
 
         var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.AcpInteractionRequest);
         await Assert.That(back.MinSelections).IsEqualTo(1);
@@ -188,14 +194,17 @@ public class AcpInteractionMessagesTests {
         // Server-contract mirror types use the context's default snake_case naming policy
         // (matching HostedPermissionRequest/PermissionResolution precedent), NOT the explicit
         // camelCase JsonPropertyName vocabulary used by the spec-derived Acp.* wire DTOs above.
-        await Assert.That(json).Contains(@"""agent_id""");
-        await Assert.That(json).Contains(@"""acp_session_id""");
-        await Assert.That(json).Contains(@"""tool_name""");
-        await Assert.That(json).Contains(@"""tool_input""");
-        await Assert.That(json).Contains(@"""tool_call_id""");
-        await Assert.That(json).Contains(@"""is_multi_select""");
-        await Assert.That(json).Contains(@"""requested_schema""");
-        await Assert.That(json).Contains(@"""option_id""");
+        JsonObject expected = new() {
+            ["agent_id"]         = "agent-1",
+            ["acp_session_id"]   = "acp-sess-1",
+            ["tool_name"]        = "bash",
+            ["tool_input"]       = new JsonObject { ["command"] = "ls" },
+            ["tool_call_id"]     = "call-1",
+            ["options"]          = new JsonArray(new JsonObject { ["option_id"] = "opt-1" }),
+            ["is_multi_select"]  = false,
+            ["requested_schema"] = new JsonObject { ["type"] = "object" }
+        };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
 
         var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.AcpInteractionRequest);
         await Assert.That(back.AgentId).IsEqualTo("agent-1");
@@ -217,10 +226,15 @@ public class AcpInteractionMessagesTests {
         var resolution = new AcpInteractionResolution("req-1", decision);
 
         var json = JsonSerializer.Serialize(resolution, CapacitorJsonContext.Default.AcpInteractionResolution);
-        await Assert.That(json).Contains(@"""request_id""");
-        await Assert.That(json).Contains(@"""selected_option_id""");
-        await Assert.That(json).Contains(@"""selected_option_label""");
-        await Assert.That(json).Contains(@"""updated_tool_input""");
+        JsonObject expected = new() {
+            ["request_id"] = "req-1",
+            ["decision"]   = new JsonObject {
+                ["selected_option_id"]    = "opt-1",
+                ["selected_option_label"] = "Allow",
+                ["updated_tool_input"]    = new JsonObject { ["command"] = "ls -la" }
+            }
+        };
+        await Assert.That(WireJson.Pick(json, expected)).IsEqualTo(expected.ToJsonString());
 
         var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.AcpInteractionResolution);
         await Assert.That(back.RequestId).IsEqualTo("req-1");

@@ -28,7 +28,7 @@ public class CopilotMoveMarkerTests {
 
     string[] Transcript(string producer = CopilotMovedChat.Producer, string promptAt = "2026-11-18T17:51:27.408Z") => [
         $$$"""{"type":"session.start","data":{"sessionId":"{{{MovedId}}}","producer":"{{{producer}}}","startTime":"2026-11-18T17:51:27.399Z","context":{"cwd":{{{System.Text.Json.JsonSerializer.Serialize(Cwd)}}}}},"id":"00000000-0000-4000-8000-000000000001","timestamp":"2026-11-18T17:51:27.398Z"}""",
-        $$$"""{"type":"user.message","data":{"content":"{{{Prompt}}}","source":"user"},"id":"00000000-0000-4000-8000-000000000002","timestamp":"{{{promptAt}}}"}""",
+        $$"""{"type":"user.message","data":{"content":"{{Prompt}}","source":"user"},"id":"00000000-0000-4000-8000-000000000002","timestamp":"{{promptAt}}"}""",
         """{"type":"assistant.message","data":{"content":"Added multiply."},"id":"00000000-0000-4000-8000-000000000003","timestamp":"2026-11-18T17:51:27.409Z"}""",
         """{"type":"session.resume","data":{"resumeTime":"2026-11-18T17:53:40.845Z","context":{}},"id":"00000000-0000-4000-8000-000000000004","timestamp":"2026-11-18T17:53:40.853Z"}""",
         """{"type":"user.message","data":{"content":"Add divide."},"id":"00000000-0000-4000-8000-000000000005","timestamp":"2026-11-18T17:53:46.468Z","parentId":"00000000-0000-4000-8000-000000000004"}""",
@@ -175,7 +175,7 @@ public class CopilotMoveMarkerTests {
     public async Task A_history_whose_first_prompt_has_no_time_is_never_matched_and_given_up_on() {
         var storage = Workspace("a", Cwd, LocalId);
         var lines   = Transcript(promptAt: "not a time").ToList();
-        lines.Insert(2, $$$"""{"type":"user.message","data":{"content":"{{{Prompt}}}"},"id":"00000000-0000-4000-8000-000000000009","timestamp":"2026-11-18T17:51:27.408Z"}""");
+        lines.Insert(2, $$"""{"type":"user.message","data":{"content":"{{Prompt}}"},"id":"00000000-0000-4000-8000-000000000009","timestamp":"2026-11-18T17:51:27.408Z"}""");
         var path    = Tmp.CreateFile("events.jsonl", [.. lines]);
         var state   = new WatchState();
 

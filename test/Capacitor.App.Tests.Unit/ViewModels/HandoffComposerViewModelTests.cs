@@ -43,7 +43,7 @@ public class HandoffComposerViewModelTests {
         public FakeTimeProvider Time { get; } = new();
         public Dictionary<string, string> Origins { get; } = new() { [Checkout] = "https://github.com/acme/widgets.git" };
         public HandoffDrafts Drafts { get; }
-        public int Generation = 7;
+        int Generation = 7;
         public List<(string Id, AgentOrigin Origin, int Generation)> Opened { get; } = [];
         public List<string> Closed { get; } = [];
         public List<string> Reopened { get; } = [];
@@ -60,7 +60,7 @@ public class HandoffComposerViewModelTests {
         public List<int> Parked { get; } = [];
         /// The local daemon's accounts; null until a test offers them.
         public BehaviorSubject<AccountsSnapshotDto?> Accounts { get; } = new(null);
-        public bool OffersAccounts;
+        bool OffersAccounts;
         public AppStateStore? Memory;
 
         void Park(int epoch) {
@@ -90,7 +90,7 @@ public class HandoffComposerViewModelTests {
         }
 
         /// What the window shows, as MainWindowViewModel tracks it.
-        public string? Current;
+        string? Current;
 
         /// MainWindowViewModel.CloseFailedLaunch: closes only the failed launch's own workspace, and
         /// the close is a navigation.

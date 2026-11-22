@@ -3,6 +3,7 @@ using System.Web;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.OpenCode;
+using Capacitor.Cli.Core.Transcripts;
 using Capacitor.Cli.Harness.OpenCode;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -69,26 +70,24 @@ public class OpenCodeImportSourceTests {
         await Assert.That(stderr.ToString()).Contains("OpenCode discovery skipped");
     }
 
-    /// <summary>OpenCode v2 keeps its sessions in <c>session_v2</c>, which import cannot read yet: the run
-    /// says so plainly rather than reporting a missing table.</summary>
+    /// <summary>A db only OpenCode v2 has written is discovered like a v1 one: its root sessions, with their directory,
+    /// title and creation time.</summary>
     [Test]
-    public async Task a_v2_database_is_reported_as_not_supported_yet() {
-        using var tmp = new TempDir();
-        var       db  = tmp.PathTo("opencode.db");
-        using (var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db};Pooling=False")) {
-            c.Open();
-            using var cmd = c.CreateCommand();
-            cmd.CommandText = "CREATE TABLE session_v2 (id TEXT PRIMARY KEY); CREATE TABLE session_message (id TEXT PRIMARY KEY);";
-            cmd.ExecuteNonQuery();
-        }
-        var source = new OpenCodeImportSource(db, tmp.PathTo("ledger.json"), TimeProvider.System);
+    public async Task a_v2_database_is_discovered() {
+        using var tmp = new OpenCodeDbFixture(v1: false, v2: true);
+        tmp.AddV2Session("ses_root", null, "/work/a", "Root", 1795148344953);
+        tmp.AddV2Session("ses_child", "ses_root", "/work/a", null, 1795148344999);
         var stderr = new StringWriter();
 
+        var source   = new OpenCodeImportSource(tmp.DbPath, tmp.LedgerPath, TimeProvider.System);
         var sessions = await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0) { Stderr = stderr }, CancellationToken.None);
 
-        await Assert.That(sessions).IsEmpty();
-        await Assert.That(stderr.ToString()).Contains("OpenCode v2 history import is not supported yet");
-        await Assert.That(stderr.ToString()).DoesNotContain("no such table");
+        var root = sessions.Single();
+        await Assert.That(root.SessionId).IsEqualTo("ses_root");
+        await Assert.That(root.Cwd).IsEqualTo("/work/a");
+        await Assert.That(root.FirstTimestamp).IsEqualTo(DateTimeOffset.FromUnixTimeMilliseconds(1795148344953));
+        await Assert.That(root.SourceMeta["Title"]).IsEqualTo("Root");
+        await Assert.That(stderr.ToString()).IsEmpty();
     }
 
     [Test]
@@ -169,6 +168,83 @@ public class OpenCodeImportSourceTests {
         var s2 = new OpenCodeImportSource(fix.DbPath, fix.LedgerPath, TimeProvider.System);
         var c2 = await s2.ClassifyAsync(await s2.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None), ctx, CancellationToken.None);
         await Assert.That(c2[0].Status).IsEqualTo(ImportCommand.ClassificationStatus.AlreadyLoaded);
+    }
+
+    /// <summary>A server that takes canonical batches gets an imported session's transcript, a v2 subagent's included,
+    /// on the canonical route, where its v2 messages are read; none of it goes raw.</summary>
+    [Test]
+    public async Task import_sends_the_transcript_canonical_when_the_server_takes_it() {
+        using var fix = new OpenCodeDbFixture(v1: false, v2: true);
+        fix.AddV2Session("ses_p", null, "/w", "Parent", 100);
+        fix.AddV2Message("ses_p", "msg_1", "user", 1, 101, new JsonObject { ["time"] = new JsonObject { ["created"] = 101 }, ["text"] = "hello" });
+        fix.AddV2Session("ses_k", "ses_p", "/w", null, 102);
+        fix.AddV2Message("ses_k", "msg_2", "user", 1, 103, new JsonObject { ["time"] = new JsonObject { ["created"] = 103 }, ["text"] = "count" });
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(404));
+        server.Given(Request.Create().WithPath("/api/ingest/capabilities").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"canonical_format":1}"""));
+        server.Given(Request.Create().WithPath("/hooks/transcript/canonical").UsingPost())
+              .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"next_line_number":1}"""));
+        foreach (var path in new[] { "/hooks/session-start/opencode", "/hooks/transcript", "/hooks/subagent-start", "/hooks/subagent-stop",
+                                     "/hooks/set-title", "/hooks/session-end/opencode" })
+            server.Given(Request.Create().WithPath(path).UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client = new HttpClient();
+
+        var source     = new OpenCodeImportSource(fix.DbPath, fix.LedgerPath, TimeProvider.System);
+        var classified = await source.ClassifyAsync(await source.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None),
+            new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home), CancellationToken.None);
+        var outcome = await source.ImportSessionAsync(classified.Single(),
+            new ImportContext(client, server.Url!, false) { Canonical = new IngestCapability(client, server.Url!, TimeProvider.System) }, CancellationToken.None);
+
+        var canonical = server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript/canonical").Select(e => e.RequestMessage.Body!).ToList();
+        await Assert.That(outcome.Outcome).IsEqualTo(ImportOutcome.Loaded);
+        await Assert.That(canonical.Count).IsEqualTo(2);
+        await Assert.That(canonical[0]).Contains("hello");
+        await Assert.That(canonical[1]).Contains("count");
+        await Assert.That(server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript")).IsEmpty();
+    }
+
+    /// <summary>A server that does not take canonical batches cannot read v2 lines sent raw, so a session holding any is
+    /// imported but not recorded complete: the next run, against a server that takes them, imports it again. A v1-only
+    /// session sent raw is recorded, as <c>classify_already_loaded_after_a_full_import_records_the_ledger</c> shows.</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task a_v2_session_sent_raw_is_not_recorded_complete(bool v2InChild) {
+        using var fix = new OpenCodeDbFixture(v1: true, v2: true);
+        fix.AddSession("ses_p", null, "/w", "Parent", 100);
+        fix.AddMessageWithText("ses_p", "m1", "from v1", 101);
+        if (v2InChild) {
+            fix.AddV2Session("ses_k", "ses_p", "/w", null, 102);
+            fix.AddV2Message("ses_k", "msg_2", "user", 1, 103, new JsonObject { ["time"] = new JsonObject { ["created"] = 103 }, ["text"] = "count" });
+        } else {
+            fix.AddV2Session("ses_p", null, "/w", "Parent", 100);
+            fix.AddV2Message("ses_p", "msg_2", "user", 2, 104, new JsonObject { ["time"] = new JsonObject { ["created"] = 104 }, ["text"] = "from v2" });
+        }
+
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(404));
+        server.Given(Request.Create().WithPath("/api/ingest/capabilities").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(404));
+        foreach (var path in new[] { "/hooks/session-start/opencode", "/hooks/transcript", "/hooks/subagent-start", "/hooks/subagent-stop",
+                                     "/hooks/set-title", "/hooks/session-end/opencode" })
+            server.Given(Request.Create().WithPath(path).UsingPost()).RespondWith(Response.Create().WithStatusCode(200));
+        using var client = new HttpClient();
+        var ctx    = new ClassifyContext(client, server.Url!, MinLines: 1, Home: Home);
+        var import = new ImportContext(client, server.Url!, false) { Canonical = new IngestCapability(client, server.Url!, TimeProvider.System) };
+
+        var first   = new OpenCodeImportSource(fix.DbPath, fix.LedgerPath, TimeProvider.System);
+        var outcome = await first.ImportSessionAsync(
+            (await first.ClassifyAsync(await first.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None), ctx, CancellationToken.None)).Single(),
+            import, CancellationToken.None);
+
+        var again = new OpenCodeImportSource(fix.DbPath, fix.LedgerPath, TimeProvider.System);
+        var next  = await again.ClassifyAsync(await again.DiscoverAsync(new DiscoveryFilters(null, null, null, 0), CancellationToken.None), ctx, CancellationToken.None);
+        await Assert.That(outcome.Outcome).IsEqualTo(ImportOutcome.Loaded);
+        await Assert.That(next.Single().Status).IsEqualTo(ImportCommand.ClassificationStatus.New);
     }
 
     [Test]

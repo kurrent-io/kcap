@@ -115,6 +115,46 @@ public class ChatPromptReceiptTests {
         await Assert.That(h.Chat.HasQueuedMessages).IsFalse();
     });
 
+    /// A retry and a later topic send of the same text, echoed in one read: the topic starts at the
+    /// later send's echo, not the retry's.
+    [Test]
+    public Task A_topic_send_after_a_retry_of_the_same_text_starts_at_its_own_echo() => RunOnUiAsync(async () => {
+        await using var h = new ChatPromptHarness("claude");
+        await h.ReadyAsync();
+        h.SetIdle();
+        await h.SendAsync("Point 1");
+        await h.Chat.SendQueuedCommand.Execute(h.Chat.QueuedMessages.Single());
+        h.Chat.SendMode = ChatSendMode.NewTopic;
+        await h.SendAsync("Point 1");
+        await Assert.That(h.Input.Sends).IsEqualTo(3);
+        h.Feed.Enqueue(Project("claude", "plain", "Point 1"));
+        h.Feed.Enqueue(Project("claude", "plain", "Point 1"));
+        await h.TickAsync();
+        await Assert.That(h.Chat.HasQueuedMessages).IsFalse();
+        var echoes = h.Chat.Items.OfType<UserTurnItem>().ToList();
+        await Assert.That(echoes).Count().IsEqualTo(2);
+        await Assert.That(h.Chat.Items.TakeWhile(row => !ReferenceEquals(row, echoes[1])).Last()).IsTypeOf<ChatTopicItem>();
+        await Assert.That(echoes[0].Topic).IsNull();
+    });
+
+    /// A topic send retried from the queue starts its topic at the one echo the retry gets.
+    [Test]
+    public Task A_retried_topic_send_starts_its_topic_at_the_retrys_echo() => RunOnUiAsync(async () => {
+        await using var h = new ChatPromptHarness("claude");
+        await h.ReadyAsync();
+        h.SetIdle();
+        h.Chat.SendMode = ChatSendMode.NewTopic;
+        await h.SendAsync("Point 1");
+        var old = h.Chat.QueuedMessages.Single();
+        await h.Chat.SendQueuedCommand.Execute(old);
+        await Assert.That(h.Input.Sends).IsEqualTo(2);
+        await h.DeliverAsync(Project("claude", "plain", "Point 1"));
+        await Assert.That(h.Chat.HasQueuedMessages).IsFalse();
+        var echo = h.Chat.Items.OfType<UserTurnItem>().Single();
+        await Assert.That(h.Chat.Items.TakeWhile(row => !ReferenceEquals(row, echo)).Last()).IsTypeOf<ChatTopicItem>();
+        await Assert.That(h.Chat.Items.OfType<AssistantTextItem>().Single().Topic).IsNotNull();
+    });
+
     [Test]
     [Arguments("claude", "plain", "Explain <system-reminder>literal</system-reminder>\nKeep it.")]
     [Arguments("claude", "paste-crlf", "line one\n/tmp/demo\necho hello")]

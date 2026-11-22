@@ -109,10 +109,10 @@
                                                             </StackPanel.IsVisible>
                                                             <TextBox Classes="kcapField" Width="200" AutomationProperties.Name="Account label"
                                                                      Text="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).RenameDraft, Mode=TwoWay}" />
-                                                            <Button Classes="kcapChip settingsCompact" Content="Save" VerticalAlignment="Center"
-                                                                    Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).CommitRenameCommand}" />
                                                             <Button Classes="kcapGhost settingsCompact" Content="Cancel" VerticalAlignment="Center"
                                                                     Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).CancelRenameCommand}" />
+                                                            <Button Classes="kcapPrimary settingsCompact" Content="Save" VerticalAlignment="Center"
+                                                                    Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).CommitRenameCommand}" />
                                                         </StackPanel>
                                                         <SelectableTextBlock Text="{Binding Directory}" TextWrapping="Wrap"
                                                                              FontFamily="{StaticResource OnboardingMonoFont}" FontSize="12"
@@ -197,7 +197,7 @@
                                                                                 Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).RewireCommand}"
                                                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                                                                 Padding="10,8" FontSize="13.5" />
-                                                                        <Button Classes="kcapGhost" Content="Remove" Click="OnMenuItemClick" CommandParameter="{Binding}"
+                                                                        <Button Classes="kcapDanger" Content="Remove" Click="OnMenuItemClick" CommandParameter="{Binding}"
                                                                                 Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).RemoveCommand}"
                                                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                                                                                 Padding="10,8" FontSize="13.5" />

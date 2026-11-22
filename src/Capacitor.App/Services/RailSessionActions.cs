@@ -26,8 +26,11 @@ public sealed class RailSessionActions(
 
     /// A running agent a daemon hosts for the signed-in user; a terminal session no daemon hosts has nothing to stop.
     public static bool CanTerminate(AgentRow row) =>
-        row is { Origin: AgentOrigin.Local or AgentOrigin.Remote or AgentOrigin.Pending, IsPlaceholder: false }
-        && row.Status is not ("Completed" or "Failed" or AgentRow.DaemonDownStatus)
+        row is {
+            Origin: AgentOrigin.Local or AgentOrigin.Remote or AgentOrigin.Pending,
+            IsPlaceholder: false,
+            Status: not ("Completed" or "Failed" or AgentRow.DaemonDownStatus)
+        }
         && (row.Origin != AgentOrigin.Remote || row.OwnerIsViewer == true);
 
     public void Rename(AgentRow row) {

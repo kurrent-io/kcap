@@ -152,7 +152,7 @@ class EvalCommand(ProfileContext profiles, HarnessRegistry harnesses, ICapacitor
                     output.WriteLine($"        evidence: {q.Evidence}");
                 }
 
-                if (q.EvidenceCoverage is { } coverage && !coverage.IsComplete) {
+                if (q.EvidenceCoverage is { IsComplete: false } coverage) {
                     var parts = new List<string>();
                     if (coverage.StopReason is not null) parts.Add(coverage.StopReason);
                     parts.AddRange(coverage.Omissions.Select(o => $"{o.Kind}×{o.Count}"));

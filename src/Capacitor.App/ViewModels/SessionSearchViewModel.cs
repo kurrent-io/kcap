@@ -32,8 +32,6 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
     SearchMode _tab = SearchMode.Sidebar;
     int _highlightIndex;
     SearchListState _listState = SearchListState.Empty;
-    string? _listMessage;
-    bool _isLoading;
     SessionIdentity? _identity;
     CancellationTokenSource? _inFlight;
     CancellationTokenSource? _intent;
@@ -115,8 +113,8 @@ public sealed class SessionSearchViewModel : ReactiveObject, IDisposable {
     }
 
     public SearchListState ListState { get => _listState; private set => this.RaiseAndSetIfChanged(ref _listState, value); }
-    public string? ListMessage { get => _listMessage; private set => this.RaiseAndSetIfChanged(ref _listMessage, value); }
-    public bool IsLoading { get => _isLoading; private set => this.RaiseAndSetIfChanged(ref _isLoading, value); }
+    public string? ListMessage { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool IsLoading { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     string Trimmed => _query.Trim();
 

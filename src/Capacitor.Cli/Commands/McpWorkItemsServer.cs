@@ -324,7 +324,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
                     if (!arm.IsObject) continue;
 
                     var state = arm.Str("state");
-                    if (state is null || state == "current") continue;
+                    if (state is null or "current") continue;
 
                     arms.Add((arm.Str("arm"), state, arm.Str("error_code")));
                 }
@@ -917,7 +917,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
             if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException($"'{key}' must not contain blank entries.");
 
             // Cast to JsonNode so the non-generic Add(JsonNode?) overload is chosen —
-            // the generic Add<T>(T) trips IL2026/IL3050 under AOT (see CLAUDE.md).
+            // the generic Add<T>(T) trips IL2026/IL3050 under AOT (see AGENTS.md).
             result.Add((JsonNode?)JsonValue.Create(value));
         }
 

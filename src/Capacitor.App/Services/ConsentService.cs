@@ -7,40 +7,23 @@ using DynamicData;
 
 namespace Capacitor.App.Services;
 
-/// Sole owner of the pending-consent cache: it subscribes to the daemon's consent
-/// stream, holds the pending queue, and is the only place entries are inserted or removed —
-/// ViewModels read and pin, never mutate.
+/// Sole owner of the pending-consent cache: subscribes to the daemon's consent stream, and is the only
+/// place entries are inserted or removed. ViewModels read and pin, never mutate.
 ///
-/// Four guards:
+/// * EntryAdded means the first surfacing of a PromptId, not a new cache key: keyed on the cache key, a
+///   relaunch's successor under the same RequestId would never raise, and a resubscribe's replay would
+///   re-raise a window the user deferred. `_surfaced` keeps PromptIds for the service lifetime; they are
+///   never-reused GUIDs, so it cannot suppress a future request.
+/// * Tombstones also live for the service lifetime. The broker snapshots its pending set without
+///   synchronizing against a resolve, so a ghost frame for a concluded request can arrive before or after
+///   its ack, and any retirement boundary reopens that window. A tombstone drops the frame; `_surfaced`
+///   only keeps it quiet.
+/// * The cache clears at the <c>Subscribed</c> boundary, never before the dial, so a failed dial does not
+///   erase an actionable queue.
+/// * The prune skips the in-flight resolve target, and a transport failure refreshes it, so an entry
+///   being clicked does not vanish mid-call.
 ///
-/// * <b>EntryAdded is the FIRST SURFACING of a PromptId, never a new cache key</b> — the signal
-///   is the raise trigger, so it has to mean "a request the user has not been offered yet".
-///   Keyed on the cache key it would be wrong in both directions: a successor B under A's
-///   RequestId (a relaunch — the likeliest second prompt there is) would replace the slot in
-///   silence and never raise, while a resubscribe's clear+replay would make every replayed entry
-///   look new and re-raise a window the user had explicitly deferred. `_surfaced` is therefore a
-///   service-lifetime PromptId set with the tombstone argument behind it — never-reused GUIDs, so
-///   it can never suppress a future request, at ~50 bytes per request ever seen. Tombstones are a
-///   subset of it (a concluded request was surfaced first) and stay separate because they do a
-///   different job: a tombstone DROPS the frame, `_surfaced` only keeps it quiet.
-/// * <b>Tombstones live for the service lifetime</b> — no TTL, no per-connection retirement, no
-///   size cap. The broker snapshots its pending set without synchronizing against a concurrent
-///   resolve, and a snapshotted frame can sit in the per-subscriber channel arbitrarily long, so a
-///   ghost for an already-concluded request can arrive before OR after its own ack. Any retirement
-///   boundary reopens that window — in particular a client-local <c>Subscribed</c> is not ordered
-///   against a concurrent ack. Nothing is traded away: a PromptId is a never-reused GUID, so a
-///   lifetime tombstone can never suppress a future request, at ~50 bytes per human decision.
-/// * <b>The cache clear sits at the <c>Subscribed</c> boundary, never before the dial</b> — a
-///   failed dial while the status socket still reports Connected must not erase a still-actionable
-///   queue; retained entries keep the tray attention and their countdowns alive through the
-///   transient. After the boundary the daemon's replay is authoritative.
-/// * <b>The prune skips the in-flight resolve target and a transport failure refreshes it</b> — a
-///   user clicking just before the prune boundary must not have the entry vanish mid-call (the
-///   lane's settlement disposes of it instead), and the promised entry-stays-interactive state
-///   after an unreachable daemon has to actually exist for a beat.
-///
-/// Nothing here marshals to the UI thread: cache mutations land on the loop's thread-pool
-/// continuations, and consumers ObserveOn(RxSchedulers.MainThreadScheduler).
+/// Nothing here marshals to the UI thread; consumers ObserveOn(RxSchedulers.MainThreadScheduler).
 public sealed class ConsentService : IConsentService {
     const string ConsentV2Capability = "consent/2";
 

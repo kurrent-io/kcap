@@ -361,7 +361,7 @@ public class AppStartupTests {
             cts.Cancel(); // simulates DisposeAsync cancelling _lifetime while the dialog is open
             Dispatcher.UIThread.RunJobs(); // flush the posted Close()
 
-            return (tcs.Task.IsCompletedSuccessfully && !tcs.Task.Result, dialog.IsVisible);
+            return (tcs.Task is { IsCompletedSuccessfully: true, Result: false }, dialog.IsVisible);
         }).WaitAsync(TimeSpan.FromSeconds(10));
 
         await Assert.That(resolvedFalse).IsTrue();

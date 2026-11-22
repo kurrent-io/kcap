@@ -330,7 +330,7 @@ for line in sys.stdin:
                 while (updates.TryRead(out var update)) {
                     collected.Add(update);
 
-                    if (update.Kind == AcpUpdateKind.AgentMessageChunk && update.Text is { Length: > 0 } text) {
+                    if (update is { Kind: AcpUpdateKind.AgentMessageChunk, Text: { Length: > 0 } text }) {
                         textBuffer.Append(text);
 
                         if (textBuffer.ToString().Contains("HELLO", StringComparison.OrdinalIgnoreCase))

@@ -33,10 +33,8 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
     readonly bool _canStart;
     LocalServerReading? _reading;
     bool _disposed;
-    bool _isStarting;
     int _running;
     int _connectedVersion;
-    string? _message;
 
     /// <param name="readCondition">What the local root's files and the server's port say, read off the UI thread each
     /// time the lane retries, after each start, and again on a fixed interval until the lane connects; a newer read
@@ -195,14 +193,14 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
     public bool ServerDown => _serverDown.Value;
 
     public bool IsStarting {
-        get => _isStarting;
-        private set => this.RaiseAndSetIfChanged(ref _isStarting, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The last start or reconnect failure; cleared when a new start begins or the server connects.
     public string? Message {
-        get => _message;
-        private set => this.RaiseAndSetIfChanged(ref _message, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// A start that failed, or an installation missing its server's files, which only a reinstall lets run.

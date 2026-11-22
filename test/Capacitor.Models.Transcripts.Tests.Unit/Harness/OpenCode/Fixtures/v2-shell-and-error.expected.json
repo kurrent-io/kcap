@@ -1,0 +1,268 @@
+[
+  {
+    "line": 0,
+    "rejected": null,
+    "events": [],
+    "amendments": 0
+  },
+  {
+    "line": 1,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "464541c8-7e68-a965-d673-586170128a7c",
+        "timestamp": "2026-11-20T04:17:35.6570000\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:17:35.6570000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "Reply with the single word ok.",
+          "timestamp": "2026-11-20T04:17:35.657Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 2,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "5a8d72f6-a7e3-103a-78be-3731a1968483",
+        "timestamp": "2026-11-20T04:17:35.6800000\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:17:35.6800000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "ok",
+          "timestamp": "2026-11-20T04:17:35.680Z"
+        },
+        "usage": {
+          "inputTokens": "5847",
+          "outputTokens": "5",
+          "totalTokens": "5852",
+          "cachedInputTokens": "0",
+          "reasoningTokens": "21",
+          "model": "gemini-4-neon"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 3,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "344b2d6f-f0b8-9368-e5f6-c567ee110f1c",
+        "timestamp": "2026-11-20T04:17:55.8000000\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:17:55.8000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "sh_1f72ce010001uEu4XHSElL6oyO",
+              "toolName": "shell",
+              "arguments": {
+                "command": "echo hello from shell"
+              },
+              "toolKind": "execute"
+            }
+          ],
+          "timestamp": "2026-11-20T04:17:55.800Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "c24f16a2-caca-af98-42f4-cac9f9abbd8c",
+        "timestamp": "2026-11-20T04:17:55.8000001\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:17:55.8000000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "sh_1f72ce010001uEu4XHSElL6oyO",
+          "result": "hello from shell\n",
+          "timestamp": "2026-11-20T04:17:55.800000100Z",
+          "extensions": {
+            "opencode": {
+              "success": true,
+              "status": "completed",
+              "title": null
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 4,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "dd47d13c-08c1-1c81-2732-b7cedac611d8",
+        "timestamp": "2026-11-20T04:17:58.9040000\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:17:58.9040000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "sh_1f72cec75001C6mMh2aPkDvt12",
+              "toolName": "shell",
+              "arguments": {
+                "command": "exit 3"
+              },
+              "toolKind": "execute"
+            }
+          ],
+          "timestamp": "2026-11-20T04:17:58.904Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "3d2144bc-af3b-f121-279f-19a8becfd57b",
+        "timestamp": "2026-11-20T04:17:58.9040001\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:17:58.9040000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "sh_1f72cec75001C6mMh2aPkDvt12",
+          "timestamp": "2026-11-20T04:17:58.904000100Z",
+          "extensions": {
+            "opencode": {
+              "success": false,
+              "status": "error",
+              "title": null
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 5,
+    "rejected": null,
+    "events": [
+      {
+        "type": "UserMessageReceived",
+        "id": "172007c3-3201-fb9d-5c86-1206ca53e958",
+        "timestamp": "2026-11-20T04:18:01.9990000\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:18:01.9990000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "Read the file missing-file.txt with the read tool, then tell me in one sentence what happened.",
+          "timestamp": "2026-11-20T04:18:01.999Z"
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 6,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantToolCallsGenerated",
+        "id": "0dfa9bf3-80fa-b80c-983d-528376aa7d10",
+        "timestamp": "2026-11-20T04:18:02.0040000\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:18:02.0040000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "toolCalls": [
+            {
+              "callId": "call_4121534558202143797",
+              "toolName": "read",
+              "arguments": {
+                "path": "missing-file.txt"
+              },
+              "toolKind": "read"
+            }
+          ],
+          "timestamp": "2026-11-20T04:18:02.004Z"
+        },
+        "usage": {
+          "inputTokens": "2234",
+          "outputTokens": "24",
+          "totalTokens": "6051",
+          "cachedInputTokens": "3793",
+          "reasoningTokens": "45",
+          "model": "gemini-4-neon"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      },
+      {
+        "type": "ToolResultReceived",
+        "id": "9f9ef3a7-ebb2-747e-72ea-e3a36d445192",
+        "timestamp": "2026-11-20T04:18:02.0040001\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:18:02.0040000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "callId": "call_4121534558202143797",
+          "result": "File not found: missing-file.txt",
+          "timestamp": "2026-11-20T04:18:02.004000100Z",
+          "extensions": {
+            "opencode": {
+              "success": false,
+              "status": "error",
+              "title": null
+            }
+          }
+        },
+        "usage": null,
+        "usageIsEcho": false,
+        "cacheCreationTokens": null
+      }
+    ],
+    "amendments": 0
+  },
+  {
+    "line": 7,
+    "rejected": null,
+    "events": [
+      {
+        "type": "AssistantTextGenerated",
+        "id": "bbae0b65-9b2a-bb44-5774-93972b21530e",
+        "timestamp": "2026-11-20T04:18:05.2060000\u002B00:00",
+        "recordTimestamp": "2026-11-20T04:18:05.2060000\u002B00:00",
+        "causedBy": null,
+        "payload": {
+          "content": "Reading \u0060missing-file.txt\u0060 failed because the file was not found.",
+          "timestamp": "2026-11-20T04:18:05.206Z"
+        },
+        "usage": {
+          "inputTokens": "2163",
+          "outputTokens": "20",
+          "totalTokens": "6161",
+          "cachedInputTokens": "3978",
+          "reasoningTokens": "8",
+          "model": "gemini-4-neon"
+        },
+        "usageIsEcho": false,
+        "cacheCreationTokens": 0
+      }
+    ],
+    "amendments": 0
+  }
+]

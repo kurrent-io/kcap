@@ -20,7 +20,7 @@ public class CodexChatRulesTests {
     }
 
     static string Item(string payload, string ts = "2026-08-25T00:00:00Z") =>
-        $$$"""{"timestamp":"{{{ts}}}","ordinal":1,"type":"response_item","payload":{{{payload}}}}""";
+        $$"""{"timestamp":"{{ts}}","ordinal":1,"type":"response_item","payload":{{payload}}}""";
 
     [Test]
     public async Task User_and_assistant_messages_join_their_text_blocks() {
@@ -164,7 +164,7 @@ public class CodexChatRulesTests {
         await Assert.That(e[0].ToolCallId).IsNotNull();
 
         foreach (var action in new[] { """{"type":"openPage","url":"https://x/y"}""", """{"type":"find_in_page","url":"https://x/y","pattern":"acp"}""" }) {
-            await Assert.That(P(Item($$$"""{"type":"web_search_call","status":"completed","action":{{{action}}}}"""))[0].ToolKind)
+            await Assert.That(P(Item($$"""{"type":"web_search_call","status":"completed","action":{{action}}}"""))[0].ToolKind)
                 .IsEqualTo(AcpToolKind.Fetch).Because(action);
         }
     }

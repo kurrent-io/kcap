@@ -103,7 +103,9 @@ public class UnitWriterExpansionTests {
     public async Task Windows_wrapper_doubles_percent_in_the_log_path() {
         var spec = Spec() with { LogPath = @"C:\Users\u\50%off\daemon.log" };
 
-        await Assert.That(WindowsTaskUnit.Wrapper(spec)).Contains(@"--log-file ""C:\Users\u\50%%off\daemon.log""");
+        await Assert.That(WindowsTaskUnit.Wrapper(spec)).Contains("""
+            --log-file "C:\Users\u\50%%off\daemon.log"
+            """);
     }
 
     [Test]
@@ -119,7 +121,9 @@ public class UnitWriterExpansionTests {
             Environment = new Dictionary<string, string> { ["PATH"] = @"C:\50%off" },
         };
 
-        await Assert.That(WindowsTaskUnit.Wrapper(spec)).Contains(@"set ""PATH=C:\50%%off""");
+        await Assert.That(WindowsTaskUnit.Wrapper(spec)).Contains("""
+            set "PATH=C:\50%%off"
+            """);
     }
 
     /// <summary>
@@ -378,7 +382,9 @@ public class UnitWriterExpansionTests {
 
         // The outer quote pair is literal text in the element (only < and & need escaping in XML content),
         // so cmd receives a command that both starts and ends with a quote — the /s precondition.
-        await Assert.That(xml).Contains(@"/c """"C:\Users\a&amp;b\daemon-service-laptop.cmd""""");
+        await Assert.That(xml).Contains("""
+            /c ""C:\Users\a&amp;b\daemon-service-laptop.cmd""
+            """);
     }
 
     [Test]

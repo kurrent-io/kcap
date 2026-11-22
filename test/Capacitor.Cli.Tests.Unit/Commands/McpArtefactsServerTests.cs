@@ -133,7 +133,7 @@ public class McpArtefactsServerTests {
 
     [Test]
     public async Task Publish_body_requires_a_title() {
-        await Assert.That(() => McpArtefactsServer.BuildPublishBody(Args("""{}"""), "<p>x</p>"))
+        await Assert.That(() => McpArtefactsServer.BuildPublishBody(Args("{}"), "<p>x</p>"))
                     .Throws<ArgumentException>();
     }
 
@@ -335,7 +335,7 @@ public class McpArtefactsServerTests {
 
     [Test]
     public async Task Closing_needs_the_version_it_is_closing() =>
-        await Assert.That(() => McpArtefactsServer.BuildCloseBody(Args("""{}"""))).Throws<ArgumentException>();
+        await Assert.That(() => McpArtefactsServer.BuildCloseBody(Args("{}"))).Throws<ArgumentException>();
 
     [Test]
     public async Task A_declared_schema_is_forwarded_whole_rather_than_reshaped() {

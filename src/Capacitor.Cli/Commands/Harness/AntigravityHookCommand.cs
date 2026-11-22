@@ -382,7 +382,7 @@ sealed class AntigravityHookCommand(
     /// </summary>
     internal static string? AgentWorkspaceCwd() {
         try {
-            if (ProcessHelpers.GetParentPid() is not { } parentPid || parentPid <= 1) return null;
+            if (ProcessHelpers.GetParentPid() is not (> 1 and var parentPid)) return null;
 
             if (ProcessHelpers.ResolveCodingAgentPid(parentPid, "agy", ProcessHelpers.GetProcessInfo)
                     is not { } agentPid) {

@@ -19,13 +19,10 @@ public sealed record ProfileOverrides(string? Url, string? Profile) {
     /// this for null cannot disagree with <see cref="ProfileResolver"/>, which skips an empty value
     /// and lets the next input win. A value of blanks was set by someone and still counts as one.
     /// </summary>
-    public string? Url { get => _url; init => _url = Named(value); }
+    public string? Url { get; init => field = Named(value); } = Named(Url);
 
     /// <inheritdoc cref="Url"/>
-    public string? Profile { get => _profile; init => _profile = Named(value); }
-
-    readonly string? _url     = Named(Url);
-    readonly string? _profile = Named(Profile);
+    public string? Profile { get; init => field = Named(value); } = Named(Profile);
 
     static string? Named(string? value) => value is { Length: > 0 } ? value : null;
 
