@@ -47,6 +47,16 @@ public class GrokBotGatewayTests {
         await Assert.That(b.Fingerprint).IsEqualTo(a.Fingerprint);
     }
 
+    /// <summary>An empty list here would end the cycle as a success, with nothing logged and nothing sent.</summary>
+    [Test]
+    public async Task A_listing_with_no_agents_list_is_an_error_not_an_empty_one() {
+        var descriptor = Tmp.CreateFile("gateway.json", """{"scheme":"http","host":"127.0.0.1","port":1340,"token":"t"}""");
+        using var http = new HttpClient(new Canned("""{"chats":[]}"""));
+
+        await Assert.That(async () => await new GrokBotGateway(descriptor, http).ListAgentsAsync(CancellationToken.None))
+            .Throws<InvalidDataException>();
+    }
+
     /// <summary>Serves a chat of <paramref name="count"/> entries, seq 1 upward, in tail pages.</summary>
     /// <param name="stuckAt">A cursor the gateway hands out and then answers with an empty page.</param>
     /// <param name="unusable">Entries the gateway serves without a time, which the reader rejects.</param>

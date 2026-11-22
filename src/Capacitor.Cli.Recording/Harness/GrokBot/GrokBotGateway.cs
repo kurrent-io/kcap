@@ -27,7 +27,10 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) : IGr
     public async Task<IReadOnlyList<GrokBotAgent>> ListAgentsAsync(CancellationToken ct) {
         using var doc = await CallAsync("listAgents", new JsonObject(), ct);
 
-        if ((doc.RootElement.IsArray ? doc.RootElement : doc.RootElement.Arr("agents")) is not { } list) return [];
+        // An answer with no list is no listing at all: read as no chats, it would pass for a healthy cycle
+        // while nothing records.
+        if ((doc.RootElement.IsArray ? doc.RootElement : doc.RootElement.Arr("agents")) is not { } list)
+            throw new InvalidDataException("gateway listAgents answered with no agents list");
 
         var result = new List<GrokBotAgent>();
         foreach (var a in list.EnumerateArray()) {
