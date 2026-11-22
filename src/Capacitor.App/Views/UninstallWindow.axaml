@@ -86,7 +86,7 @@
 
             <Grid Grid.Row="2" Margin="0,22,0,0" ColumnDefinitions="*,Auto">
                 <Button x:Name="DetailsButton" Grid.Column="0" Classes="kcapChip" HorizontalAlignment="Left"
-                        Command="{Binding ToggleDetailsCommand}">
+                        Command="{Binding ToggleDetailsCommand}" AutomationProperties.Name="{Binding DetailsLabel}">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="{Binding DetailsLabel}" />
                         <views:AppIcon Kind="ChevronDown" Size="12" VerticalAlignment="Center" IsVisible="{Binding !DetailsExpanded}" />

@@ -37,6 +37,9 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             OnboardingPane.DataContext = value;
             OnboardingPane.IsVisible   = value is not null;
             SessionsSurface.IsVisible  = value is null;
+            // The pane is drawn over these too, and a control that is only covered is still read out and still
+            // answers to its name: the pane has a Back button of its own.
+            WindowControls.IsVisible   = value is null;
             ApplyMinimumSize();
         }
     }
