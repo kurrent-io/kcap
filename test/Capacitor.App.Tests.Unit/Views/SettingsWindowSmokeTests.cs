@@ -552,7 +552,7 @@ public class SettingsWindowSmokeTests {
             Click(window, window.FindControl<TabItem>("HarnessesTab")!);
             var view = window.GetVisualDescendants().OfType<HarnessesSettingsView>().Single();
             Click(window, view.FindControl<Button>("RescanHarnessesButton")!);
-            await WaitUntilAsync(() => harnesses.Rows.Count == 1);
+            await WaitUntilAsync(() => harnesses.Rows.Count == 1 && !harnesses.Scanning);
             Settle(window);
             var connect = view.GetVisualDescendants().OfType<CheckBox>().Single(c => c.IsEffectivelyVisible);
             Click(window, connect);
