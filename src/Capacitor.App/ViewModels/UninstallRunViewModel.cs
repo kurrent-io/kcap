@@ -128,8 +128,12 @@ public sealed class UninstallRunViewModel : ReactiveObject {
         var streamed = 0;
         var purged = 0;
         // What was there, read before anything goes and kept across a retry, whose first attempt may have removed it.
-        _hadSettings ??= Observed(_hasSettings);
-        _hadCommand  ??= Observed(() => _removal.CommandInstalled);
+        // The readings touch the disk, so they stay off the thread that draws the progress window.
+        if (_hadSettings is null || _hadCommand is null) {
+            var (settings, command) = await Task.Run(() => (Observed(_hasSettings), Observed(() => _removal.CommandInstalled)));
+            _hadSettings ??= settings;
+            _hadCommand  ??= command;
+        }
         try {
             result = await _cli.UninstallAsync(_purgeLocal, _keepConfig, line => {
                 Interlocked.Increment(ref streamed);
