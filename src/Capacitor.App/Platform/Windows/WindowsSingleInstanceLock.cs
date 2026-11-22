@@ -13,27 +13,15 @@ public sealed partial class WindowsSingleInstanceLock : SingleInstanceLock {
     readonly RegisteredWaitHandle _registration;
     readonly RegisteredWaitHandle _uninstallRegistration;
 
-    readonly Lock _uninstallGate = new();
-    Action? _uninstallRequested;
-    bool _uninstallPending;
+    readonly HeldRequest _uninstall = new();
 
     public override event Action? ShowRequested;
 
-    /// The lock is held before the app can subscribe, and the launch that asked has exited by then: a request
-    /// that arrives in between is kept for the first subscriber, which is raised on its own thread.
+    /// The lock is held before the app can subscribe, and the launch that asked has exited by then, so a request
+    /// that arrives in between is held for the first subscriber.
     public override event Action? UninstallRequested {
-        add {
-            bool pending;
-            lock (_uninstallGate) {
-                _uninstallRequested += value;
-                pending = _uninstallPending;
-                _uninstallPending = false;
-            }
-            if (pending) value?.Invoke();
-        }
-        remove {
-            lock (_uninstallGate) _uninstallRequested -= value;
-        }
+        add => _uninstall.Listen(value);
+        remove => _uninstall.Ignore(value);
     }
 
     WindowsSingleInstanceLock(Mutex mutex, EventWaitHandle showRequest, EventWaitHandle uninstallRequest) {
@@ -43,16 +31,7 @@ public sealed partial class WindowsSingleInstanceLock : SingleInstanceLock {
         _registration = ThreadPool.RegisterWaitForSingleObject(
             _showRequest, (_, _) => ShowRequested?.Invoke(), null, Timeout.Infinite, executeOnlyOnce: false);
         _uninstallRegistration = ThreadPool.RegisterWaitForSingleObject(
-            _uninstallRequest, (_, _) => RaiseUninstallRequested(), null, Timeout.Infinite, executeOnlyOnce: false);
-    }
-
-    void RaiseUninstallRequested() {
-        Action? handlers;
-        lock (_uninstallGate) {
-            handlers = _uninstallRequested;
-            _uninstallPending = handlers is null;
-        }
-        handlers?.Invoke();
+            _uninstallRequest, (_, _) => _uninstall.Raise(), null, Timeout.Infinite, executeOnlyOnce: false);
     }
 
     // The path is hashed because a kernel object name cannot contain a backslash.
