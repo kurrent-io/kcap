@@ -1779,12 +1779,16 @@ public partial class App : Application {
         if (Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is not { } install) return;
         _uninstalling = true;
         var handedOver = false;
+        // A start that failed has cancelled the shared token and torn the app down, and its error window is all that
+        // is left. Removing the app is the likely next step from there, so the question is asked without that token.
+        var startupFailed = _shutdown.IsCancellationRequested;
+        var lifetime      = startupFailed ? CancellationToken.None : _shutdown.Token;
         try {
             var owner = DialogOwner() ?? desktop.Windows.FirstOrDefault(w => w.IsVisible);
             owner?.Activate();
             var facts = UninstallFactsWithoutApp(install.Root);
-            var request = UninstallConfirmation.Build(await facts.GatherAsync(_shutdown.Token));
-            var (accepted, removeSettings) = await ShowLifecycleChoiceDialogAsync(owner is { IsVisible: true } ? owner : null, request.Prompt, _shutdown.Token);
+            var request = UninstallConfirmation.Build(await facts.GatherAsync(lifetime));
+            var (accepted, removeSettings) = await ShowLifecycleChoiceDialogAsync(owner is { IsVisible: true } ? owner : null, request.Prompt, lifetime);
             if (!accepted) return;
             var start = Program.Host.NewCopy(request.Mode(removeSettings).Args());
             desktop.Exit += (_, _) => {
@@ -1792,7 +1796,11 @@ public partial class App : Application {
                 catch (Exception ex) { Console.Error.WriteLine($"kcap: could not start the uninstall: {ex.Message}"); }
             };
             handedOver = true;
-            desktop.TryShutdown();
+            // Nothing is left for the two-pass quit to tear down after a failed start: the error window's close is
+            // that state's exit.
+            if (startupFailed && desktop.MainWindow is { } errorWindow) errorWindow.Close();
+            else if (startupFailed) desktop.Shutdown(1);
+            else desktop.TryShutdown();
         } catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: could not start the uninstall: {ex.Message}");
