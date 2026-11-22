@@ -36,27 +36,27 @@ internal sealed record UninstallMode(bool PurgeLocal, bool KeepConfig = false, b
     /// root that is merely computed from a path must never reach it.
     public UninstallRunViewModel? BuildRun(
             string? processPath, Func<string, IAppRemoval> removalFor, IKcapCli cli, Action quit, Action<Action>? post = null,
-            Func<Task>? prepare = null) {
+            Func<Task>? prepare = null, Func<bool>? hasSettings = null) {
         if (InstallLocation.BundleRoot(processPath) is not { } root
          || !File.Exists(Path.Combine(root, "Contents", "Info.plist"))) return null;
-        return new UninstallRunViewModel(cli, removalFor(root), PurgeLocal, quit, post, prepare, KeepConfig);
+        return new UninstallRunViewModel(cli, removalFor(root), PurgeLocal, quit, post, prepare, KeepConfig, hasSettings);
     }
 
     /// Null unless the process runs from an AppImage that is still on disk: the removal trashes the image, so
     /// only the file the running app came from may reach it.
     public UninstallRunViewModel? BuildAppImageRun(
             AppImageInstall? install, Func<AppImageInstall, IAppRemoval> removalFor, IKcapCli cli, Action quit, Action<Action>? post = null,
-            Func<Task>? prepare = null) =>
+            Func<Task>? prepare = null, Func<bool>? hasSettings = null) =>
         install is not null && File.Exists(install.Image)
-            ? new UninstallRunViewModel(cli, removalFor(install), PurgeLocal, quit, post, prepare, KeepConfig)
+            ? new UninstallRunViewModel(cli, removalFor(install), PurgeLocal, quit, post, prepare, KeepConfig, hasSettings)
             : null;
 
     /// Null unless the process runs from a per-user Velopack install whose updater is still there: the removal hands
     /// that install to its uninstaller, so a portable or development run must never reach it.
     public UninstallRunViewModel? BuildVelopackRun(
             VelopackInstall? install, Func<VelopackInstall, IAppRemoval> removalFor, IKcapCli cli, Action quit, Action<Action>? post = null,
-            Func<Task>? prepare = null) =>
+            Func<Task>? prepare = null, Func<bool>? hasSettings = null) =>
         install is not null && File.Exists(install.UpdateExe)
-            ? new UninstallRunViewModel(cli, removalFor(install), PurgeLocal, quit, post, prepare, KeepConfig)
+            ? new UninstallRunViewModel(cli, removalFor(install), PurgeLocal, quit, post, prepare, KeepConfig, hasSettings)
             : null;
 }

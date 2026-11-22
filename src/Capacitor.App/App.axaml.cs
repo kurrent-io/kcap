@@ -832,13 +832,16 @@ public partial class App : Application {
             desktop.Shutdown(exitCode);
         }
         Func<Task>? prepare = prepareApp ? () => PrepareAppForUninstallAsync(previous) : null;
+        bool HasSettings() => File.Exists(AppConfig.GetConfigPath(_config));
         var run = OperatingSystem.IsMacOS()
-            ? uninstall.BuildRun(Environment.ProcessPath, root => new MacAppRemoval(runner, _userHome, _config, root), cli, () => Quit(0), prepare: prepare)
+            ? uninstall.BuildRun(Environment.ProcessPath, root => new MacAppRemoval(runner, _userHome, _config, root), cli, () => Quit(0), prepare: prepare,
+                hasSettings: HasSettings)
             : OperatingSystem.IsLinux()
                 ? uninstall.BuildAppImageRun(AppImageInstall.Detect(Environment.GetEnvironmentVariable),
-                    install => new LinuxAppRemoval(runner, _userHome, _config, install, Environment.GetEnvironmentVariable, _time), cli, () => Quit(0), prepare: prepare)
+                    install => new LinuxAppRemoval(runner, _userHome, _config, install, Environment.GetEnvironmentVariable, _time), cli, () => Quit(0), prepare: prepare,
+                    hasSettings: HasSettings)
                 : OperatingSystem.IsWindows()
-                    ? BuildWindowsUninstallRun(desktop, uninstall, cli, () => Quit(0), prepare)
+                    ? BuildWindowsUninstallRun(desktop, uninstall, cli, () => Quit(0), prepare, HasSettings)
                     : null;
         if (run is null) {
             Console.Error.WriteLine(OperatingSystem.IsWindows()
@@ -859,12 +862,12 @@ public partial class App : Application {
     // Update.exe ends every process running from the install, this one included, so the removal hands
     // the install to it only from the exit, after the user has read the result.
     static UninstallRunViewModel? BuildWindowsUninstallRun(IClassicDesktopStyleApplicationLifetime desktop, UninstallMode uninstall,
-            IKcapCli cli, Action quit, Func<Task>? prepare) {
+            IKcapCli cli, Action quit, Func<Task>? prepare, Func<bool> hasSettings) {
         if (!OperatingSystem.IsWindows()) return null;
         if (Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is not { } install) return null;
         var removal = new Platform.Windows.WindowsAppRemoval(install,
             new WindowsUserPathInstaller(new WindowsUserPathStore(), new WindowsPathProbe()));
-        var run = uninstall.BuildVelopackRun(install, _ => removal, cli, quit, prepare: prepare);
+        var run = uninstall.BuildVelopackRun(install, _ => removal, cli, quit, prepare: prepare, hasSettings: hasSettings);
         if (run is not null) desktop.Exit += (_, _) => removal.StartUninstallerIfSet();
         return run;
     }

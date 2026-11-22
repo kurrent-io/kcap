@@ -30,4 +30,8 @@ public interface IAppRemoval {
 
     /// True when the app goes only after it exits, so a finished run cannot claim it is already gone.
     bool RemovedOnExit => false;
+
+    /// False when the app has no `kcap` command on this machine to remove. Read before the CLI's uninstall, which
+    /// takes the links away itself.
+    bool CommandInstalled => true;
 }
