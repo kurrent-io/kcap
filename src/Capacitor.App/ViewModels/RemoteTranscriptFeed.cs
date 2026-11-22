@@ -221,8 +221,9 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     /// True once a seed is in place. Both refusals stop the run and say so: a hidden session is
     /// Missing, an unauthorized read Failed — otherwise the pane shows an empty transcript with
-    /// nothing to explain it. A one-event probe finds where the stream ends: `from` counts from the
-    /// oldest event the stream still holds, and no other route reports where it ends.
+    /// nothing to explain it. A windowed seed asks for the stream's tail; a server that does not know
+    /// the parameter answers from the oldest event instead, and that page stands in for a probe of
+    /// where the stream ends, since `from` counts from the oldest event the stream still holds.
     async Task<bool> EnsureSeededAsync(int attempt, CancellationToken ct) {
         lock (_lock) if (_position is not null) return true;
         var stamp = _cache?.Stamp(_sessionId) ?? default;
@@ -258,14 +259,23 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         long? oldest;
         StreamEventsFetch fetch;
         if (_window is { } window) {
-            fetch = await _readEvents(_sessionId, 0, 1, ct).ConfigureAwait(false);
+            fetch = await _readEvents(_sessionId, 0, null, window, ct).ConfigureAwait(false);
             if (!Admit(attempt, fetch, out var probe)) return false;
-            if (probe.Events is [var first, ..]) {
-                lock (_lock) _base = first.EventNumber;
-                if (probe.NextFrom is not null) from = Math.Max(0, probe.LastEventNumber - first.EventNumber + 1 - window);
+            if (probe.FirstFrom is { } firstFrom) {
+                from = firstFrom;
+                oldest = ProjectInto(probe, lines, scheduled);
+                // A page that starts past the oldest event starts exactly window events before the end, which
+                // places the oldest event even when the page's own first event is withheld from this reader.
+                long? origin = firstFrom > 0 ? probe.LastEventNumber - window + 1 - firstFrom : probe.Events is [var head, ..] ? head.EventNumber : null;
+                if (origin is not null) lock (_lock) _base = origin;
+            } else {
+                if (probe.Events is [var first, ..]) {
+                    lock (_lock) _base = first.EventNumber;
+                    if (probe.NextFrom is not null) from = Math.Max(0, probe.LastEventNumber - first.EventNumber + 1 - window);
+                }
+                if (from == 0 && probe.NextFrom is null) oldest = ProjectInto(probe, lines, scheduled);
+                else (fetch, oldest) = await ReadForwardAsync(from, lines, scheduled, ct).ConfigureAwait(false);
             }
-            if (from == 0 && probe.NextFrom is null) oldest = ProjectInto(probe, lines, scheduled);
-            else (fetch, oldest) = await ReadForwardAsync(from, lines, scheduled, ct).ConfigureAwait(false);
         } else {
             (fetch, oldest) = await ReadForwardAsync(0, lines, scheduled, ct).ConfigureAwait(false);
         }
@@ -298,7 +308,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     /// recorded while the transcript was closed. The read starts at the last kept event, which has to come
     /// back first; anything else means the stream's oldest events aged out, and a fresh seed is read.
     async Task<bool?> ResumeAsync(int attempt, (int Generation, int Refusals) stamp, RemoteTranscriptSnapshot snapshot, CancellationToken ct) {
-        var fetch = await _readEvents(_sessionId, snapshot.Position - snapshot.Base, MaxPage, ct).ConfigureAwait(false);
+        var fetch = await _readEvents(_sessionId, snapshot.Position - snapshot.Base, MaxPage, null, ct).ConfigureAwait(false);
         if (!Admit(attempt, fetch, out var page)) return false;
         if (page.Events is not [var first, ..] || first.EventNumber != snapshot.Position) return null;
         var lines = new List<ProjectedLine>(snapshot.Lines);
@@ -361,7 +371,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         long? last = after;
         var realigned = 0;
         while (true) {
-            var fetch = await _readEvents(_sessionId, from, MaxPage, ct).ConfigureAwait(false);
+            var fetch = await _readEvents(_sessionId, from, MaxPage, null, ct).ConfigureAwait(false);
             if (fetch.Page is not { } page) return (fetch, first);
             // Events can age out again while a corrected page is asked for, so the check runs on every retry.
             if (last is { } seen && realigned < MaxRealignments && from > 0) {
@@ -372,7 +382,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
                 }
                 // So many events aged out that the count ran past the end: only the oldest event held can place it.
                 if (page.Events is null or [] && page.LastEventNumber > seen) {
-                    var probe = await _readEvents(_sessionId, 0, 1, ct).ConfigureAwait(false);
+                    var probe = await _readEvents(_sessionId, 0, 1, null, ct).ConfigureAwait(false);
                     if (probe.Page is not { Events: [var held, ..] }) return (probe, first);
                     from = Math.Max(0, seen - held.EventNumber);
                     realigned++;
@@ -444,7 +454,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         var window = _window ?? MaxPage;
         for (var tries = 0; ; tries++) {
             var from = Math.Max(0, count - window);
-            var fetch = await _readEvents(_sessionId, from, (int)(count - from), ct).ConfigureAwait(false);
+            var fetch = await _readEvents(_sessionId, from, (int)(count - from), null, ct).ConfigureAwait(false);
             if (fetch.Page is not { } page) return Refused(attempt, fetch);
             if (tries == 0 && oldest is { } known && page.Events is [var first, ..] && page.Events.Any(e => e.EventNumber >= known)) {
                 count = Math.Max(0, known - (first.EventNumber - from));

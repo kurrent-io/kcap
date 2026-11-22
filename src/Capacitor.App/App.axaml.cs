@@ -1212,6 +1212,7 @@ public partial class App : Application {
         // session, and only that map turns it into the agent whose card it belongs on.
         var readSubagent = ServerSessionHttp.SubagentEventsReader(sessionHttp, profiles);
         var readEvents = ServerSessionHttp.SessionEventsReader(sessionHttp, profiles);
+        var readPending = ServerSessionHttp.PendingInterruptsReader(sessionHttp, profiles);
         var readSummary = ServerSearchHttp.Summary(sessionHttp, profiles);
         bool? listedEnded(string sessionId) {
             var rows = directory.Rows.Items.Where(r => r.SessionId == sessionId).ToList();
@@ -1229,10 +1230,10 @@ public partial class App : Application {
         lane.AccountsRevisionReached = (revision, ct) => accounts.ReachedAsync(revision, TimeSpan.FromSeconds(10), ct);
         var sessionAccess = new SessionAccessService(serverLane, _time);
         var permissionFeed = new ServerPermissionFeed(
-            serverLane, sessionAccess, permissions, new SessionInterruptLog(readEvents, serverLane, readSummary, listedEnded),
+            serverLane, sessionAccess, permissions, new SessionInterruptLog(readEvents, serverLane, readSummary, listedEnded, readPending),
             directory.VendorOfSession, _time);
         // A pending ping is evidence the listing and summary can trail, so neither answers for it.
-        var attention = new SessionAttentionTracker(serverLane, new SessionInterruptLog(readEvents, serverLane), _time);
+        var attention = new SessionAttentionTracker(serverLane, new SessionInterruptLog(readEvents, serverLane, readPending: readPending), _time);
         _sessionAccess = sessionAccess;
         var remoteTranscripts = new RemoteTranscriptCache(SignedInSubject.From(serverLane.Status), sessionAccess.Transitions);
         _remoteTranscripts = remoteTranscripts;

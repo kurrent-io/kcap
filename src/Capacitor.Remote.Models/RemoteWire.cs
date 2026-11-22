@@ -75,6 +75,11 @@ public static class ApiRoutes {
     /// The server caps limit at 1000.
     public static string SessionEvents(string sessionId, long from, int limit) =>
         $"{SessionEvents(sessionId, from)}&limit={limit}";
+    /// The last tail events, never before from; the server caps tail at 1000.
+    public static string SessionEventsTail(string sessionId, long from, int tail) =>
+        $"{SessionEvents(sessionId, from)}&tail={tail}";
+    public static string SessionPendingInterrupts(string sessionId) =>
+        $"api/sessions/{Uri.EscapeDataString(sessionId)}/interrupts/pending";
     public static string PermissionResponse(string sessionId, string requestId) =>
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/permission-response/{Uri.EscapeDataString(requestId)}";
     public static string HeldMessages(string agentId) =>
