@@ -148,7 +148,11 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
             GrokBotMessage = $"Could not change Grok Bot recording: {ex.Message}";
-        } finally { Busy = false; }
+        } finally {
+            // The click has already flipped the checkbox, and its one-way binding follows a notification only.
+            this.RaisePropertyChanged(nameof(GrokBotRecording));
+            Busy = false;
+        }
     }
 
     internal const string PartlyInstalled = "Setup completed, but some parts were not installed. Check the details, then try again.";
