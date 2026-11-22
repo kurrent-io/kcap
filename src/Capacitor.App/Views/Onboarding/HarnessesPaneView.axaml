@@ -6,6 +6,13 @@
              x:Class="Capacitor.App.Views.Onboarding.HarnessesPaneView"
              x:DataType="vm:HarnessesStepViewModel">
     <StackPanel Spacing="14">
+        <Border x:Name="KeptConnectionCard" Classes="onboardingCard"
+                IsVisible="{Binding KeptConnection, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <StackPanel Spacing="8">
+                <TextBlock Classes="onboardingMicro" Text="ALREADY CONNECTED" />
+                <TextBlock x:Name="KeptConnectionText" Classes="onboardingDetail" Text="{Binding KeptConnection}" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
         <Border x:Name="PrivacyCard" Classes="onboardingCard" IsVisible="{Binding VisibilityVisible}">
             <StackPanel Spacing="8">
                 <TextBlock Classes="onboardingMicro" Text="WHO CAN READ NEW SESSIONS" />

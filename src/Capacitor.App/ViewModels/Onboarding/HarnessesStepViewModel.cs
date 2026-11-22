@@ -37,6 +37,7 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
     readonly CancellationToken _shutdownToken;
     readonly Func<bool>? _onLocalPath;
     readonly Func<CancellationToken, Task<VisibilityOptionsResponse?>>? _visibilityOptions;
+    readonly bool _signedInAtStart;
 
     bool _detected;
     bool _installed;
@@ -53,9 +54,11 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
             string machineName,
             Func<string?>? resolveProfileName = null, CancellationToken shutdownToken = default,
             Func<bool>? onLocalPath = null,
-            Func<CancellationToken, Task<VisibilityOptionsResponse?>>? visibilityOptions = null) {
+            Func<CancellationToken, Task<VisibilityOptionsResponse?>>? visibilityOptions = null,
+            bool signedInAtStart = false) {
         _onLocalPath = onLocalPath;
         _visibilityOptions = visibilityOptions;
+        _signedInAtStart = signedInAtStart;
         _cli = cli;
         _detect = detect;
         _declined = declined;
@@ -141,6 +144,13 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
             this.RaisePropertyChanged(nameof(CanSkip));
             if (HasVisibilityChoice && Message == PrivacyRequiredMessage) Message = null;
         }
+    }
+
+    /// The server a profile was signed in to before setup opened, which setup keeps; null on a first sign-in. No
+    /// other page shows it, because that sign-in is not asked for again.
+    public string? KeptConnection {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     bool Local => _onLocalPath?.Invoke() == true;
@@ -236,17 +246,28 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
                 return;
             }
 
+            string? keptVisibility = null;
             try {
                 var config = await AppConfig.LoadProfileConfig(_config, ct).ConfigureAwait(true);
                 var profileName = _resolveProfileName?.Invoke() ?? config.ActiveProfile;
-                if (config.Profiles.GetValueOrDefault(profileName ?? ProfileConfig.DefaultName) is { } profile)
+                if (config.Profiles.GetValueOrDefault(profileName ?? ProfileConfig.DefaultName) is { } profile) {
                     UseProviderApiKey = profile.UseProviderApiKey;
+                    // A profile's privacy setting has a default, so only one that was signed in before setup
+                    // opened holds an answer somebody gave.
+                    if (_signedInAtStart) {
+                        keptVisibility = profile.DefaultVisibility;
+                        KeptConnection = profile.ServerUrl is { Length: > 0 } server
+                            ? $"This machine is connected to {server}. Setup keeps that connection, its sign-in and the settings saved with it, for you to confirm or change here."
+                            : null;
+                    }
+                }
             } catch (Exception ex) {
                 Message = $"Could not read your settings: {ex.Message}. Go back and try again.";
                 return;
             }
 
             if (offered is not null) await OfferAsync(offered).ConfigureAwait(true);
+            if (Visibility is null && VisibilityOptions.Any(o => o.Value == keptVisibility)) Visibility = keptVisibility;
 
             var declined = _declined();
             var idle = this.WhenAnyValue(x => x.Busy, busy => !busy);
