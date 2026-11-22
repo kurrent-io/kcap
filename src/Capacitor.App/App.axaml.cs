@@ -425,7 +425,7 @@ public partial class App : Application {
 
             // The lane is constructed first — every daemon mutation routes through this one instance, and its dependencies need neither a resolved profile nor a live service.
             var laneRunner = new ProcessRunner(_time);
-            var laneProbe  = TerminalPathProbe.Create(laneRunner, Environment.GetEnvironmentVariable);
+            var laneProbe  = NewTerminalProbe(laneRunner);
             var channel    = new OutcomeChannel();
             var lane = new DaemonMutationLane(
                 _daemonStore, laneProbe, channel, ResolvePinnedCli,
@@ -771,7 +771,7 @@ public partial class App : Application {
     bool StartUninstall(IClassicDesktopStyleApplicationLifetime desktop, UninstallMode uninstall, bool prepareApp) {
         var previous = prepareApp ? desktop.Windows.ToArray() : [];
         var runner = new ProcessRunner(_time);
-        var probe = TerminalPathProbe.Create(runner, Environment.GetEnvironmentVariable);
+        var probe = NewTerminalProbe(runner);
         var cli = NewWizardCli(_config, _serverEnv, _localRoot, runner, ResolvePinnedCli().Path, probe);
         var quitting = false;
         void Quit(int exitCode) {
@@ -1714,7 +1714,7 @@ public partial class App : Application {
 
     (KcapCli Cli, ILoginShellProbe Probe, ProcessRunner Runner) SettingsCli(SettingsProfileStore settings, string daemonName) {
         var runner = new ProcessRunner(_time);
-        var probe = TerminalPathProbe.Create(runner, Environment.GetEnvironmentVariable);
+        var probe = NewTerminalProbe(runner);
         var cli = new KcapCli(runner,
             CliResolver.ResolvePath(Environment.GetEnvironmentVariable, File.Exists, Program.Host.CliDirectory),
             daemonName, settings.ProfileName, probe.TerminalPathAsync,
@@ -2640,7 +2640,8 @@ public partial class App : Application {
         // autoOfferSuppressed: Start() always runs — Offerable/manual install must keep working in Incomplete mode; only the once-ever auto-offer dialog is skipped.
         var shimOffer = new ShimOfferCoordinator(
             Task.WhenAll(lifecycle.PhaseClosed, _updateHandedOver.Task, _adoption?.FirstLook ?? Task.CompletedTask), probe, CliPathInstallers.Create(probe, _userHome), _appState, surface, shimTarget,
-            _shutdown.Token, autoActionsPermanentlyClosed, _wizardPathLink, () => _adoption?.FoundInstall == true);
+            _shutdown.Token, autoActionsPermanentlyClosed, _wizardPathLink, () => _adoption?.FoundInstall == true,
+            restoreClaimed: OperatingSystem.IsWindows());
 
         // The delegate below and the claims store must share one root: TryConsume takes the config
         // lock this delegate then reads under.
@@ -2880,6 +2881,12 @@ public partial class App : Application {
             return (new GateResult.Incomplete(GateReason.EvaluationFailed), null);
         }
     }
+
+    // The bundled plugin's Claude hooks start kcap.exe themselves, so on Windows an npm kcap.cmd on PATH
+    // leaves them failing while a terminal still resolves kcap.
+    static ILoginShellProbe NewTerminalProbe(IProcessRunner runner) =>
+        TerminalPathProbe.Create(runner, Environment.GetEnvironmentVariable,
+            directStart: File.Exists(Path.Combine(Program.Host.CliDirectory, CliResolver.BundledCliFileName)));
 
     static CliPin ResolvePinnedCli() =>
         ResolvePinnedCliCore(Environment.GetEnvironmentVariable("KCAP_APP_CLI_PATH"), Program.Host.CliDirectory, File.Exists, Path.GetFullPath);

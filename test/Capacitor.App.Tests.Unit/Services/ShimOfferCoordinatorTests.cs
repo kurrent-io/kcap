@@ -350,6 +350,60 @@ public class ShimOfferCoordinatorTests {
         await Assert.That(h.Surface.Prompts).IsEmpty();
     }
 
+    // ---- a claimed install that is gone ----
+
+    const string OtherPathEntry = @"C:\other";
+
+    sealed class MemoryUserPath : IUserPathStore {
+        public string? Value = OtherPathEntry;
+        public string? Read() => Value;
+        public void Append(string directory) => Value = $"{Value};{directory}";
+        public void Replace(string path) => Value = path;
+    }
+
+    /// The coordinator as the Windows app builds it, over a user PATH held in memory: the probe finds kcap
+    /// only while the CLI's folder is on that PATH.
+    static (ShimOfferCoordinator Coordinator, MemoryUserPath Path, FakeLifecycleSurface Surface, List<bool> Offerable) Reinstalled(
+            string cli, AppState state) {
+        var path    = new MemoryUserPath();
+        var folder  = Path.GetDirectoryName(cli)!;
+        var probe   = new FakeLoginShellProbe { KcapOnPathBehavior = _ => Task.FromResult<bool?>(path.Value!.Contains(folder)) };
+        var surface = new FakeLifecycleSurface();
+        var coordinator = new ShimOfferCoordinator(
+            Task.CompletedTask, probe, new WindowsUserPathInstaller(path, probe), new FakeAppStateStore { State = state }, surface, cli,
+            CancellationToken.None, restoreClaimed: true);
+        var offerable = new List<bool>();
+        coordinator.Offerable.Subscribe(offerable.Add);
+        return (coordinator, path, surface, offerable);
+    }
+
+    /// A reinstall after the Windows uninstaller: the claim survived, the PATH entry it records did not.
+    [Test]
+    public async Task A_claimed_install_that_is_gone_is_restored_without_asking() {
+        using var tmp = new TempDir();
+        var cli = tmp.PathTo("bin", "kcap.exe");
+        var (coordinator, path, surface, offerable) = Reinstalled(cli, new AppState { ShimOffered = true });
+        coordinator.Start();
+
+        await WaitUntilAsync(() => offerable.Count >= 3, what: "the restored install");
+        await Assert.That(path.Value).IsEqualTo($"{OtherPathEntry};{Path.GetDirectoryName(cli)}");
+        await Assert.That(offerable.Last()).IsFalse();
+        await Assert.That(surface.Prompts).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_declined_install_is_never_restored() {
+        using var tmp = new TempDir();
+        var (coordinator, path, surface, offerable) = Reinstalled(
+            tmp.PathTo("bin", "kcap.exe"), new AppState { ShimOffered = true, ShimDenied = true });
+        coordinator.Start();
+
+        await WaitUntilAsync(() => offerable.Contains(true), what: "the item to become visible");
+        await Task.Delay(100); // give a wrongly-running install every chance to finish
+        await Assert.That(path.Value).IsEqualTo(OtherPathEntry);
+        await Assert.That(surface.Prompts).IsEmpty();
+    }
+
     // ---- preflight ----
 
     [Test]
