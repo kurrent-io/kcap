@@ -721,6 +721,38 @@ public class WorkContextViewModelTests {
         });
     }
 
+    /// The poll's re-read runs behind the note already shown; the first read and a refresh someone asked for
+    /// show progress.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Only_a_read_someone_waits_on_shows_progress() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            var first = h.Source.Gate();
+            h.Push(Dto());
+            await Assert.That(h.Vm.ShowsReadProgress).IsTrue();
+            first.SetResult(Ready());
+            await h.Vm.PendingReadForTesting!;
+            await Assert.That(h.Vm.Phase).IsEqualTo(WorkContextPhase.NoWorkItem);
+            await Assert.That(h.Vm.ShowsReadProgress).IsFalse();
+
+            var polled = h.Source.Gate();
+            h.Time.Advance(WorkContextViewModel.PollInterval);
+            await Assert.That(h.Vm.IsReading).IsTrue();
+            await Assert.That(h.Vm.ShowsReadProgress).IsFalse();
+            polled.SetResult(Ready());
+            await h.Vm.PendingReadForTesting!;
+
+            var asked = h.Source.Gate();
+            await h.Vm.RefreshCommand.Execute();
+            await Assert.That(h.Vm.ShowsReadProgress).IsTrue();
+            asked.SetResult(Ready());
+            await h.Vm.PendingReadForTesting!;
+            await Assert.That(h.Vm.ShowsReadProgress).IsFalse();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_refresh_while_a_read_is_in_flight_queues_one_follow_up() {

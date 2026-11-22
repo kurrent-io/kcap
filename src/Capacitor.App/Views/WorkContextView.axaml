@@ -523,7 +523,7 @@
 
                         <!-- Every other phase: the note and, where it applies, one action. -->
                         <StackPanel IsVisible="{Binding !IsReady}" Spacing="10" Margin="0,10,0,0">
-                            <ProgressBar views:BusyIndicator.IsBusy="True" Height="2" IsVisible="{Binding IsReading}"
+                            <ProgressBar views:BusyIndicator.IsBusy="True" Height="2" IsVisible="{Binding ShowsReadProgress}"
                                          AutomationProperties.Name="Loading work context" />
                             <TextBlock x:Name="PhaseNoteText" Text="{Binding PhaseNote}" FontSize="13" LineHeight="19"
                                        Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" />
