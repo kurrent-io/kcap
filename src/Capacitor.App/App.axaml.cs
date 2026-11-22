@@ -798,8 +798,6 @@ public partial class App : Application {
         }
     }
 
-    // No copy of the app was running, so this process is only the uninstaller: there is no attached daemon or
-    // profile to name, and the confirmation says what it can read without them.
     async Task ConfirmThenUninstallAsync(IClassicDesktopStyleApplicationLifetime desktop) {
         try {
             if (Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is not { } install) {
@@ -807,7 +805,7 @@ public partial class App : Application {
                 desktop.Shutdown(1);
                 return;
             }
-            var facts = UninstallFactsFor(install.Root, "", null, null, NewTerminalProbe(new ProcessRunner(_time)));
+            var facts = UninstallFactsWithoutApp(install.Root);
             var request = UninstallConfirmation.Build(await facts.GatherAsync(_shutdown.Token));
             var (accepted, removeSettings) = await ShowLifecycleChoiceDialogAsync(null, request.Prompt, _shutdown.Token);
             if (!accepted) {
@@ -1745,6 +1743,11 @@ public partial class App : Application {
             : null,
         FindOtherInstalls: OperatingSystem.IsWindows() ? path => Platform.Windows.WindowsOtherKcapInstalls.Find(path, bundleRoot) : null);
 
+    // Before the app is built nothing is attached to a daemon, so every live one is named as another's and none is
+    // asked what it is doing. The profile on disk still says which server holds the sessions already sent.
+    UninstallFactsSource UninstallFactsWithoutApp(string bundleRoot) => UninstallFactsFor(
+        bundleRoot, "", ResolveWizardIdentity(_config, _serverEnv, _localRoot)?.Server, null, NewTerminalProbe(new ProcessRunner(_time)));
+
     // The same window owns preparation, removal, and the final acknowledgement.
     async Task UninstallFromAppAsync(IClassicDesktopStyleApplicationLifetime desktop, UninstallFactsSource source) {
         if (_uninstalling || _setupRestarting || _shutdownStarted) return;
@@ -1776,7 +1779,7 @@ public partial class App : Application {
         try {
             var owner = DialogOwner() ?? desktop.Windows.FirstOrDefault(w => w.IsVisible);
             owner?.Activate();
-            var facts = UninstallFactsFor(install.Root, "", null, null, NewTerminalProbe(new ProcessRunner(_time)));
+            var facts = UninstallFactsWithoutApp(install.Root);
             var request = UninstallConfirmation.Build(await facts.GatherAsync(_shutdown.Token));
             var (accepted, removeSettings) = await ShowLifecycleChoiceDialogAsync(owner is { IsVisible: true } ? owner : null, request.Prompt, _shutdown.Token);
             if (!accepted) return;
