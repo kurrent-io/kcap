@@ -440,7 +440,7 @@ public partial class App : Application {
             var gateStarted = _time.GetTimestamp();
             var (gate, profiles) = await ResolveAndEvaluateGateAsync(_config, _foreignHttp.GetRequiredService<TokenStore>(), _serverEnv, _localRoot, _time, _shutdown.Token);
             var gateTook = _time.GetElapsedTime(gateStarted);
-            var showWizard = ShouldShowWizard(gate, desktop.Args);
+            var showWizard = ShouldShowWizard(gate, desktop.Args, Program.FirstRunAfterInstall);
             TimeSpan? graphTook = null;
             await RunWizardThenBuildGraphAsync(
                 gate, profiles, showWizard,
@@ -1032,8 +1032,10 @@ public partial class App : Application {
     internal static bool LocalSetupCannotRetry(LocalInstallController? install) =>
         install?.Outcome is LocalInstallOutcome.Failed { Affordance: LocalInstallAffordance.Permanent or LocalInstallAffordance.Busy };
 
-    internal static bool ShouldShowWizard(GateResult gate, string[]? args) =>
-        gate is GateResult.Incomplete || args?.Contains("--setup", StringComparer.Ordinal) == true;
+    /// <param name="firstRunAfterInstall">A fresh install reopens setup over a profile that is already complete:
+    /// what it finds there was left by an earlier install, and setup is where it is confirmed or changed.</param>
+    internal static bool ShouldShowWizard(GateResult gate, string[]? args, bool firstRunAfterInstall = false) =>
+        gate is GateResult.Incomplete || firstRunAfterInstall || args?.Contains("--setup", StringComparer.Ordinal) == true;
 
     // The steady-state graph, over the resolution the gate was evaluated on (never a second resolve).
     void BuildDaemonGraph(

@@ -35,6 +35,7 @@ public class OnboardingGateTests {
         await Assert.That(App.ShouldShowWizard(gate, [])).IsFalse();
         await Assert.That(App.AutoActionsPermanentlyClosed(gate, laneQuiesced: true)).IsFalse();
         await Assert.That(App.ShouldShowWizard(gate, ["--setup"])).IsTrue();
+        await Assert.That(App.ShouldShowWizard(gate, [], firstRunAfterInstall: true)).IsTrue();
     }
 
     [Test]

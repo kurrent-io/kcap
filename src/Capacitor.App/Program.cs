@@ -19,6 +19,9 @@ internal static class Program
     /// Read before the app is constructed, which is where its first config-root write would happen.
     internal static UninstallMode? Uninstall { get; private set; }
 
+    /// The Windows installer just put this copy here, possibly over settings an uninstall kept.
+    internal static bool FirstRunAfterInstall { get; private set; }
+
     static AppCrashLog? _crashLog;
 
     internal static void StopCrashLoggingForUninstall() => _crashLog = null;
@@ -35,9 +38,11 @@ internal static class Program
                 .SetAutoApplyOnStartup(false)
                 .OnRestarted(_ => updateRelaunch = true);
             if (OperatingSystem.IsWindows())
-                velopack = velopack.OnBeforeUninstallFastCallback(_ => {
-                    if (OperatingSystem.IsWindows()) WindowsUninstallCleanup.Run(AppContext.BaseDirectory, UserHome.FromEnvironment());
-                });
+                velopack = velopack
+                    .OnFirstRun(_ => FirstRunAfterInstall = true)
+                    .OnBeforeUninstallFastCallback(_ => {
+                        if (OperatingSystem.IsWindows()) WindowsUninstallCleanup.Run(AppContext.BaseDirectory, UserHome.FromEnvironment());
+                    });
             velopack.Run();
         }
         Uninstall = UninstallMode.Parse(args);
