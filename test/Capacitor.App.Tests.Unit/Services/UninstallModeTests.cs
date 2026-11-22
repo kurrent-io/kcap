@@ -39,23 +39,35 @@ public class UninstallModeTests {
     }
 
     [Test]
-    [Arguments(null, false, false, false)]
-    [Arguments(new string[0], false, false, false)]
-    [Arguments(new[] { "--setup", "--relaunch" }, false, false, false)]
-    [Arguments(new[] { "--purge-local" }, false, false, false)]
-    [Arguments(new[] { "--confirm" }, false, false, false)]
-    [Arguments(new[] { "--uninstall", "--relaunch" }, true, false, false)]
-    [Arguments(new[] { "--uninstall", "--purge-local", "--relaunch" }, true, true, false)]
-    [Arguments(new[] { "--uninstall", "--confirm" }, true, false, true)]
-    public async Task Parse_reads_the_flags(string[]? args, bool uninstall, bool purgeLocal, bool confirm) {
+    [Arguments(null, false, false, false, false)]
+    [Arguments(new string[0], false, false, false, false)]
+    [Arguments(new[] { "--setup", "--relaunch" }, false, false, false, false)]
+    [Arguments(new[] { "--purge-local" }, false, false, false, false)]
+    [Arguments(new[] { "--confirm" }, false, false, false, false)]
+    [Arguments(new[] { "--keep-config" }, false, false, false, false)]
+    [Arguments(new[] { "--uninstall", "--relaunch" }, true, false, false, false)]
+    [Arguments(new[] { "--uninstall", "--purge-local", "--relaunch" }, true, true, false, false)]
+    [Arguments(new[] { "--uninstall", "--keep-config", "--relaunch" }, true, false, true, false)]
+    [Arguments(new[] { "--uninstall", "--confirm" }, true, false, false, true)]
+    public async Task Parse_reads_the_flags(string[]? args, bool uninstall, bool purgeLocal, bool keepConfig, bool confirm) {
         var mode = UninstallMode.Parse(args);
 
         await Assert.That(mode is not null).IsEqualTo(uninstall);
         if (mode is null) return;
         await Assert.That(mode.PurgeLocal).IsEqualTo(purgeLocal);
+        await Assert.That(mode.KeepConfig).IsEqualTo(keepConfig);
         await Assert.That(mode.Confirm).IsEqualTo(confirm);
-        // No command line keeps the settings: only the answer to the confirmation does.
-        await Assert.That(mode.KeepConfig).IsFalse();
+    }
+
+    /// A copy started with these asks nothing: the answer was taken by the copy that started it.
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    public async Task An_answered_uninstall_survives_its_command_line(bool purgeLocal, bool keepConfig) {
+        var answered = new UninstallMode(purgeLocal, keepConfig);
+
+        await Assert.That(UninstallMode.Parse(answered.Args())).IsEqualTo(answered);
     }
 
     [Test]

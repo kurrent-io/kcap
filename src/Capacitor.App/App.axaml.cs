@@ -373,12 +373,11 @@ public partial class App : Application {
             desktop.Exit += (_, _) => { windowLifecycle.Dispose(); Program.Host.Dispose(); };
             Program.Host.SingleInstance.UninstallRequested += () => Dispatcher.UIThread.Post(() => {
                 if (_shutdownStarted || _uninstalling || _uninstallRun is not null) return;
-                // Setup and the startup screens have no uninstall to offer yet; their own window is all there is to show.
                 if (_requestUninstall is { } request) {
                     MainWindowAction(_coordinator)?.Invoke();
                     request();
                 } else {
-                    desktop.Windows.FirstOrDefault(w => w.IsVisible)?.Activate();
+                    _ = UninstallBeforeMainAppAsync(desktop);
                 }
             });
             Program.Host.SingleInstance.ShowRequested += () => Dispatcher.UIThread.Post(() => {
@@ -450,6 +449,11 @@ public partial class App : Application {
             _lane = lane;
             _adoption = BuildCliAdoption(lane, laneRunner, laneProbe);
 
+            // Before setup can open: an uninstall asked for from Installed apps while it is up should still ask.
+            if (OperatingSystem.IsWindows()
+             && Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is { } installed)
+                PointInstalledAppsAtThisUninstall(installed);
+
             var gateStarted = _time.GetTimestamp();
             var (gate, profiles) = await ResolveAndEvaluateGateAsync(_config, _foreignHttp.GetRequiredService<TokenStore>(), _serverEnv, _localRoot, _time, _shutdown.Token);
             var gateTook = _time.GetElapsedTime(gateStarted);
@@ -489,7 +493,6 @@ public partial class App : Application {
             }
             if (OperatingSystem.IsWindows() && !_shutdown.IsCancellationRequested
              && Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is { } install) {
-                PointInstalledAppsAtThisUninstall(install);
                 await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
                 var warning = await RefreshIntegrationsAfterUpdateAsync(install);
                 if (warning is not null) _coordinator?.Window?.Notifier?.Notify(warning);
@@ -1760,6 +1763,35 @@ public partial class App : Application {
             _coordinator?.Window?.Notifier?.Notify("Could not start the uninstall. Please try again.");
         } finally {
             if (!started) _uninstalling = false;
+        }
+    }
+
+    // Setup and the startup screens run before the app whose teardown the menu's uninstall drives. The question is
+    // asked over whatever window is up, and the removal goes to a fresh copy that starts once this one has quit.
+    async Task UninstallBeforeMainAppAsync(IClassicDesktopStyleApplicationLifetime desktop) {
+        if (_uninstalling || _setupRestarting || _shutdownStarted) return;
+        if (Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is not { } install) return;
+        _uninstalling = true;
+        var handedOver = false;
+        try {
+            var owner = DialogOwner() ?? desktop.Windows.FirstOrDefault(w => w.IsVisible);
+            owner?.Activate();
+            var facts = UninstallFactsFor(install.Root, "", null, null, NewTerminalProbe(new ProcessRunner(_time)));
+            var request = UninstallConfirmation.Build(await facts.GatherAsync(_shutdown.Token));
+            var (accepted, removeSettings) = await ShowLifecycleChoiceDialogAsync(owner is { IsVisible: true } ? owner : null, request.Prompt, _shutdown.Token);
+            if (!accepted) return;
+            var start = Program.Host.NewCopy(request.Mode(removeSettings).Args());
+            desktop.Exit += (_, _) => {
+                try { Process.Start(start)?.Dispose(); }
+                catch (Exception ex) { Console.Error.WriteLine($"kcap: could not start the uninstall: {ex.Message}"); }
+            };
+            handedOver = true;
+            desktop.TryShutdown();
+        } catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: could not start the uninstall: {ex.Message}");
+        } finally {
+            if (!handedOver) _uninstalling = false;
         }
     }
 

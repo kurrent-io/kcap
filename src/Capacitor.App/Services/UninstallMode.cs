@@ -13,12 +13,24 @@ namespace Capacitor.App.Services;
 internal sealed record UninstallMode(bool PurgeLocal, bool KeepConfig = false, bool Confirm = false) {
     public const string Arg = "--uninstall";
     public const string PurgeLocalArg = "--purge-local";
+    public const string KeepConfigArg = "--keep-config";
     public const string ConfirmArg = "--confirm";
 
     public static UninstallMode? Parse(string[]? args) =>
         args?.Contains(Arg, StringComparer.Ordinal) == true
-            ? new UninstallMode(args.Contains(PurgeLocalArg, StringComparer.Ordinal), Confirm: args.Contains(ConfirmArg, StringComparer.Ordinal))
+            ? new UninstallMode(
+                args.Contains(PurgeLocalArg, StringComparer.Ordinal),
+                args.Contains(KeepConfigArg, StringComparer.Ordinal),
+                args.Contains(ConfirmArg, StringComparer.Ordinal))
             : null;
+
+    /// The command line that carries an answered confirmation to a fresh copy of the app, which then asks nothing.
+    public string[] Args() {
+        List<string> args = [Arg];
+        if (KeepConfig) args.Add(KeepConfigArg);
+        if (PurgeLocal) args.Add(PurgeLocalArg);
+        return [.. args];
+    }
 
     /// Null unless the process runs from a real bundle: the removal trashes the bundle root, so a
     /// root that is merely computed from a path must never reach it.
