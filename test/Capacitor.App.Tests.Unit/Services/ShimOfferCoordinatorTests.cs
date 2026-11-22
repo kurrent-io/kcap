@@ -386,7 +386,7 @@ public class ShimOfferCoordinatorTests {
         coordinator.Start();
 
         await WaitUntilAsync(() => offerable.Count >= 3, what: "the restored install");
-        await Assert.That(path.Value).IsEqualTo($"{OtherPathEntry};{Path.GetDirectoryName(cli)}");
+        await Assert.That(path.Value).IsEqualTo($"{Path.GetDirectoryName(cli)};{OtherPathEntry}");
         await Assert.That(offerable.Last()).IsFalse();
         await Assert.That(surface.Prompts).IsEmpty();
     }
