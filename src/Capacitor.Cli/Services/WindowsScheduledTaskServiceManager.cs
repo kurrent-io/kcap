@@ -109,8 +109,11 @@ sealed class WindowsScheduledTaskServiceManager(
         return new ServiceStatus(WindowsTaskUnit.StatusFromQuery(code, stdout), bin);
     }
 
+    /// <summary>A failed query reads as unknown unless a listing confirms the task is gone: a transaction must not
+    /// read Task Scheduler failing to answer as a free name.</summary>
     public ServiceQuery Query(string serviceId) {
-        var (code, stdout, _) = ServiceProcess.Run("schtasks", WindowsTaskUnit.QueryArgs(serviceId));
+        var (code, stdout, _) = _schtasks(WindowsTaskUnit.QueryArgs(serviceId));
+        if (code != 0 && !ConfirmedAbsent(serviceId)) return new ServiceQuery(LabelProbe.Unknown, false, ServiceState.NotInstalled, null, null);
         var wrapper = WrapperOf(serviceId, taskExists: code == 0);
         var bin = File.Exists(wrapper) ? WindowsTaskUnit.BinaryFromWrapper(File.ReadAllText(wrapper)) : null;
         var state = WindowsTaskUnit.StatusFromQuery(code, stdout);
