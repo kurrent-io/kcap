@@ -747,6 +747,8 @@
         <Style Selector="ScrollBar">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="ContextFlyout" Value="{x:Null}" />
+            <Setter Property="HideDelay" Value="0:0:0" />
+            <Setter Property="ShowDelay" Value="0:0:0" />
         </Style>
         <Style Selector="ScrollBar:vertical">
             <Setter Property="Width" Value="12" />
@@ -773,11 +775,12 @@
             <Setter Property="RadiusY" Value="6" />
             <Setter Property="Margin" Value="1,2" />
             <Setter Property="Opacity" Value="0" />
-            <Setter Property="Transitions">
-                <Transitions>
-                    <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
-                </Transitions>
-            </Setter>
+        </Style>
+        <!-- Fluent's template sets TrackRect's fade at Template priority, which only a dynamic selector
+             outranks; AllowAutoHide is always one of the two values, so this always applies. -->
+        <Style Selector="ScrollBar[AllowAutoHide=True] /template/ Rectangle#TrackRect,
+                         ScrollBar[AllowAutoHide=False] /template/ Rectangle#TrackRect">
+            <Setter Property="Transitions" Value="{x:Null}" />
         </Style>
         <Style Selector="ScrollBar:expanded /template/ Rectangle#TrackRect">
             <Setter Property="Fill" Value="{StaticResource KcapInfoDimBrush}" />
@@ -808,14 +811,7 @@
                             Opacity="0.45"
                             CornerRadius="99"
                             RenderTransformOrigin="50%,50%"
-                            RenderTransform="scale(1, 1)">
-                        <Border.Transitions>
-                            <Transitions>
-                                <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
-                                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12" Easing="CubicEaseOut" />
-                            </Transitions>
-                        </Border.Transitions>
-                    </Border>
+                            RenderTransform="scale(1, 1)" />
                 </ControlTemplate>
             </Setter>
         </Style>
