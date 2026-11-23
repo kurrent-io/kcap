@@ -38,6 +38,8 @@ internal sealed class DaemonCommandsServiceInstallTests {
         using (EnvScope.Exclusive(ExpectedServer.Var, null)) {
             await Assert.That(DaemonServiceCommands.ActivationRefusal(["--replace", "--verify", "--activate"])!).Contains("expect_server_required");
         }
+        await Assert.That(DaemonServiceCommands.ActivationRefusal(["--replace", "--verify", "--retire-profile", "p"])!)
+            .IsEquivalentTo(["--retire-profile requires --retire."]);
     }
 
     /// <summary>The app names the server it expects; without it an activation could select a profile

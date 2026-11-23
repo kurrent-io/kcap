@@ -796,8 +796,15 @@ sealed class DaemonServiceCommands(
         return await activation.PrepareAsync() is { } unprepared ? ProfileActivation.Refusal(unprepared) : null;
     }
 
-    /// <summary>Why <c>--activate</c> cannot run with these arguments, as the lines to print, or null.</summary>
+    /// <summary>Why <c>--retire-profile</c> or <c>--activate</c> cannot run with these arguments, as the lines to print,
+    /// or null.</summary>
     internal static string[]? ActivationRefusal(string[] args) {
+        try {
+            if (DaemonCommands.ExtractFlagValue(args, "--retire-profile") is not null && ParseRetire(args).Id is null)
+                return ["--retire-profile requires --retire."];
+        } catch (ArgumentException ex) {
+            return [ex.Message];
+        }
         if (!args.Contains("--activate")) return null;
         if (!(args.Contains("--replace") && args.Contains("--verify"))) return ["install --activate requires --replace --verify."];
         return string.IsNullOrEmpty(Environment.GetEnvironmentVariable(ExpectedServer.Var))
