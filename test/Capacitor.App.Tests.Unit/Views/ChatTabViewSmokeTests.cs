@@ -6,6 +6,7 @@ using System.Reactive.Subjects;
 using System.Text;
 using Avalonia;
 using Avalonia.Automation;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
 using Avalonia.Controls.Presenters;
@@ -3290,6 +3291,115 @@ public class ChatTabViewSmokeTests {
         .Single(b => b.Classes.Contains("option") && b.DataContext is QuestionOptionViewModel { Label: var l } && l == label);
     static List<Button> Steps(Host host) => host.View.GetVisualDescendants().OfType<Button>().Where(b => b.Classes.Contains("step")).ToList();
     static bool Shows(Host host, string text) => host.View.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == text && t.IsEffectivelyVisible);
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Tab_reaches_the_composer_in_the_same_presses_however_many_messages_show() {
+        await RunOnUiAsync(async () => {
+            async Task<(int Presses, bool ArrowMoved)> FromTranscriptAsync(int messages) {
+                var host = new Host();
+                try {
+                    await host.LoadAsync(Tmp.CreateFile($"links-{messages}.jsonl", [.. Enumerable.Repeat(AssistantLinkLine, messages)]));
+                    host.Settle();
+                    var items = host.View.GetVisualDescendants().OfType<ItemsControl>().Single(c => c.Name == "ChatItems");
+                    var first = items.GetVisualDescendants().OfType<Control>().First(c => c.Focusable && c.IsEffectivelyVisible);
+                    first.Focus(NavigationMethod.Tab);
+                    host.Press(PhysicalKey.ArrowDown);
+                    var moved = host.Window.FocusManager?.GetFocusedElement() is Control now && !ReferenceEquals(now, first)
+                        && now.GetVisualAncestors().Contains(items);
+                    var presses = 0;
+                    while (!host.Composer.IsFocused && presses < 40) {
+                        host.Press(PhysicalKey.Tab);
+                        presses++;
+                    }
+                    return (presses, moved);
+                } finally { await host.CloseAsync(); }
+            }
+
+            var few = await FromTranscriptAsync(3);
+            var many = await FromTranscriptAsync(12);
+            await Assert.That(few.Presses).IsLessThan(40);
+            await Assert.That(many.Presses).IsEqualTo(few.Presses);
+            await Assert.That(few.ArrowMoved).IsTrue().Because("Down moves to the next message");
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Delivery_status_changes_reach_the_live_peer_without_moving_focus() => RunOnUiAsync(async () => {
+        var host = new Host();
+        try {
+            var notice = new QueuedChatMessage("Try this", 0, 0, null, []);
+            notice.SetDelivery("unconfirmed", null);
+            var notices = host.View.FindControl<ItemsControl>("DeliveryNotices")!;
+            notices.ItemsSource = new[] { notice };
+            host.View.GetVisualDescendants().OfType<ScrollViewer>()
+                .Single(scroll => ReferenceEquals(scroll.Content, notices)).IsVisible = true;
+            host.Settle();
+            host.Composer.Focus();
+
+            var status = notices.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == AttachedAgentCopy.DeliveryUnknown);
+            var peer = ControlAutomationPeer.CreatePeerForElement(status);
+            var changes = new List<string?>();
+            peer.PropertyChanged += (_, e) => {
+                if (e.Property == AutomationElementIdentifiers.NameProperty && peer.GetLiveSetting() == AutomationLiveSetting.Assertive)
+                    changes.Add(e.NewValue as string);
+            };
+
+            notice.SetDelivery("delivered", null);
+            host.Settle();
+            await Assert.That(changes).IsEquivalentTo(new string?[] { AttachedAgentCopy.Delivered });
+            await Assert.That(host.Composer.IsFocused).IsTrue();
+        } finally { await host.CloseAsync(); }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Transcript_arrows_scroll_only_when_a_message_takes_focus() => RunOnUiAsync(async () => {
+        var start = new Button { Content = "First message" };
+        var target = new Button { Content = "Next focusable message" };
+        var rows = new Avalonia.Collections.AvaloniaList<Control> { start };
+        for (var i = 0; i < 60; i++) rows.Add(new Border { Height = 80 });
+
+        var scroll = new ScrollViewer { BringIntoViewOnFocusChange = false };
+        var items = new ItemsControl {
+            ItemsSource = rows,
+            ItemsPanel = new FuncTemplate<Panel?>(() => new ChatVirtualizingPanel()),
+            Template = new FuncControlTemplate<ItemsControl>((owner, names) => {
+                var presenter = new ItemsPresenter { Name = "PART_ItemsPresenter", ItemsPanel = owner.ItemsPanel };
+                names.Register(presenter.Name, presenter);
+                scroll.Content = presenter;
+                return scroll;
+            }),
+        };
+        ChatTranscriptKeyboard.Attach(items);
+        var window = new Window { Content = items, Width = 400, Height = 300 };
+        void Settle() {
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+        }
+        try {
+            window.Show();
+            Settle();
+            start.Focus(NavigationMethod.Tab);
+            Settle();
+            var initial = scroll.Offset;
+
+            window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            Settle();
+            await Assert.That(start.IsFocused).IsTrue();
+            await Assert.That(scroll.Offset).IsEqualTo(initial);
+
+            rows[25] = target;
+            Settle();
+            await Assert.That(items.ContainerFromIndex(25)).IsNull();
+            window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+            Settle();
+            await Assert.That(target.IsFocused).IsTrue();
+            await Assert.That(scroll.Offset.Y).IsGreaterThan(initial.Y);
+        } finally { window.Close(); }
+    });
 
     [Test]
     [NotInParallel("AvaloniaSession")]

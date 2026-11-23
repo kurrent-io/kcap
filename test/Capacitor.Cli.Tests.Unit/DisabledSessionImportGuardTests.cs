@@ -13,7 +13,7 @@ public class DisabledSessionImportGuardTests {
     public async Task A_disable_landing_mid_import_stops_it_once() {
         var time  = new FakeTimeProvider();
         var stops = 0;
-        using var guard = DisabledSessionImportGuard.Start(Session, Config.Root, time, () => Interlocked.Increment(ref stops));
+        await using var guard = DisabledSessionImportGuard.Start(Session, Config.Root, time, () => Interlocked.Increment(ref stops));
 
         time.Advance(DisabledSessionImportGuard.PollInterval * 3);
         await Assert.That(stops).IsEqualTo(0);
@@ -30,7 +30,7 @@ public class DisabledSessionImportGuardTests {
         DisabledSessions.Mark(SessionIds.Canonical(Session)!, Config.Root);
         var stops = 0;
 
-        using var guard = DisabledSessionImportGuard.Start(Session, Config.Root, new FakeTimeProvider(), () => Interlocked.Increment(ref stops));
+        await using var guard = DisabledSessionImportGuard.Start(Session, Config.Root, new FakeTimeProvider(), () => Interlocked.Increment(ref stops));
 
         await Assert.That(stops).IsEqualTo(1);
     }

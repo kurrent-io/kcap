@@ -12,7 +12,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.OpenCode;
 /// </summary>
 public class OpenCodeHostedLaunchTests {
     static RuntimeStartContext Ctx(bool isReviewFlow = false, string? model = null) =>
-        new RuntimeStartContext(
+        new(
             AgentId: "agent-1", Vendor: "opencode", SourceRepoPath: "/repo",
             Worktree: new WorktreeInfo(Path: "/abs/wt", Branch: "b", SourceRepo: "/repo"), Prompt: "",
             Model: model, Effort: null, Tools: null,

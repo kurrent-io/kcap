@@ -156,7 +156,7 @@ public class CursorSubagentCorrelatorTests {
         }
 
         public void Dispose() {
-            try { Directory.Delete(Root, recursive: true); } catch { }
+            try { Directory.Delete(Root, recursive: true); } catch { /* ignored */ }
         }
     }
 }

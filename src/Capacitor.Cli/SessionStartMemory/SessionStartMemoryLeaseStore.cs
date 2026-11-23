@@ -34,7 +34,7 @@ internal sealed partial class SessionStartMemoryLeaseStore {
         var started = _time.GetTimestamp();
         TimeSpan Remaining() => RemainingBudget(budget, started);
         try {
-            using var gate = await AcquireAsync(Remaining(), ct);
+            await using var gate = await AcquireAsync(Remaining(), ct);
             if (gate is null) return null;
             EnsureSafeRoot();
             var sweepBudget = Min(Remaining(), TimeSpan.FromMilliseconds(25));
@@ -87,7 +87,7 @@ internal sealed partial class SessionStartMemoryLeaseStore {
         if (budget <= TimeSpan.Zero) return false;
         var started = _time.GetTimestamp();
         try {
-            using var gate = await AcquireAsync(RemainingBudget(budget, started), ct);
+            await using var gate = await AcquireAsync(RemainingBudget(budget, started), ct);
             if (gate is null) return false;
             EnsureSafeRoot();
             var path = RecordPath(handle.Key);
@@ -132,7 +132,7 @@ internal sealed partial class SessionStartMemoryLeaseStore {
         if (budget <= TimeSpan.Zero || maxEntries <= 0) return;
         var started = _time.GetTimestamp();
         try {
-            using var gate = await AcquireAsync(RemainingBudget(budget, started), ct);
+            await using var gate = await AcquireAsync(RemainingBudget(budget, started), ct);
             if (gate is null) return;
             EnsureSafeRoot();
             SweepUnderLock(RemainingBudget(budget, started), maxEntries, force: true);
@@ -344,7 +344,7 @@ internal sealed partial class SessionStartMemoryLeaseStore {
 
     static void SetOwnerOnly(string path) {
         if (OperatingSystem.IsWindows()) return;
-        try { File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
+        try { File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { /* ignored */ }
     }
 
     static bool IsOperational(Exception ex) => ex is IOException or UnauthorizedAccessException or

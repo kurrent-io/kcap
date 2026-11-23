@@ -21,6 +21,8 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     /// The repository key in a form worth showing a user, for the header tooltip; the label elsewhere.
     public string RootDisplay => Kind == RailGrouping.Repository ? _rootDisplay : Label;
     string _label;
+    /// The label before another group with the same name made the rail qualify it.
+    internal string BaseLabel { get; private set; }
     public string Label { get => _label; private set => this.RaiseAndSetIfChanged(ref _label, value); }
     public bool ShowsHeader => Kind != RailGrouping.None;
     public bool IsNoRepository { get; }
@@ -73,6 +75,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         Key = group.Key;
         Kind = kind;
         _label = label;
+        BaseLabel = label;
         IsNoRepository = kind == RailGrouping.Repository && label == "No repository";
         _rootDisplay = kind == RailGrouping.Repository ? DisplayFor(Key, label) : label;
         _isExpanded = isExpanded;
@@ -137,7 +140,8 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     }
 
     /// A day group's name moves with the calendar; the key does not.
-    internal void Relabel(string label) {
+    internal void Relabel(string label, bool qualified = false) {
+        if (!qualified) BaseLabel = label;
         if (Label == label) return;
         Label = label;
         this.RaisePropertyChanged(nameof(RootDisplay));

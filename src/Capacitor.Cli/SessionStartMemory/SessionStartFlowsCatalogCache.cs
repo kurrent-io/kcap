@@ -47,7 +47,7 @@ internal sealed class SessionStartFlowsCatalogCache(string root) {
             temp = Path.Combine(dir, $"{Guid.NewGuid():N}.tmp");
             using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
                 if (!OperatingSystem.IsWindows())
-                    try { File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
+                    try { File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { /* ignored */ }
                 stream.Write(bytes);
             }
             File.Move(temp, PathFor(baseUrl), overwrite: true);
@@ -55,7 +55,7 @@ internal sealed class SessionStartFlowsCatalogCache(string root) {
             // The listing superseded the entry even though it could not be stored.
             Delete(baseUrl);
         } finally {
-            try { if (temp is not null && File.Exists(temp)) File.Delete(temp); } catch { }
+            try { if (temp is not null && File.Exists(temp)) File.Delete(temp); } catch { /* ignored */ }
         }
     }
 

@@ -6,7 +6,7 @@
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0,0,0,2" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeLarge}" />
             <Setter Property="Padding" Value="3,12" />
             <Setter Property="Margin" Value="0,0,14,0" />
             <Setter Property="Template">
@@ -25,13 +25,13 @@
             </Style>
             <Style Selector="^:pointerover"><Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" /></Style>
             <Style Selector="^:focus-visible /template/ Border#FocusBorder"><Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" /></Style>
-            <Style Selector="^:disabled"><Setter Property="Opacity" Value="0.55" /></Style>
+            <Style Selector="^:disabled"><Setter Property="Opacity" Value="{StaticResource KcapDisabledOpacity}" /></Style>
         </ControlTheme>
         <!-- Second level reads as a segmented control, not another underline, so it never competes with the section tabs. -->
         <ControlTheme x:Key="PullRequestReviewTabTheme" TargetType="TabStripItem">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
             <Setter Property="Padding" Value="10,5" />
             <Setter Property="Margin" Value="0,0,4,0" />
             <Setter Property="CornerRadius" Value="6" />
@@ -53,7 +53,7 @@
                 <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
             </Style>
             <Style Selector="^:focus-visible /template/ Border#FocusBorder"><Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" /></Style>
-            <Style Selector="^:disabled"><Setter Property="Opacity" Value="0.55" /></Style>
+            <Style Selector="^:disabled"><Setter Property="Opacity" Value="{StaticResource KcapDisabledOpacity}" /></Style>
         </ControlTheme>
     </Styles.Resources>
     <Style Selector="Button.prStatusRow">
@@ -88,7 +88,7 @@
     </Style>
     <Style Selector="Button.prStatusRow:disabled /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Opacity" Value="0.45" />
+        <Setter Property="Opacity" Value="{StaticResource KcapDisabledOpacity}" />
     </Style>
     <!-- Outcome dot on a section tab: hidden while the status is neutral, so only a verdict draws the eye. -->
     <Style Selector="Ellipse.prTabDot">
@@ -103,11 +103,11 @@
     <Style Selector="Ellipse.prTabDot.pending"><Setter Property="IsVisible" Value="True" /></Style>
     <Style Selector="TextBlock.prMuted">
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
     </Style>
     <Style Selector="TextBlock.prNote">
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <!-- Every section's first text sits 12 below the content edge: rows and comments share

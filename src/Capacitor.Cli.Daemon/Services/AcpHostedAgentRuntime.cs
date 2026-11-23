@@ -49,12 +49,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     enum RuntimePhase { Running, Reconnecting, Terminal }
 
     /// <summary>The in-flight registration: the one turn past pre-gate admission, its
-    /// write-state advanced by the write path (`not-started` → `entered` → `written`).</summary>
-    sealed class InFlightTurn(PendingTurn turn, long incarnationId) {
-        public const int NotStarted = 0, Entered = 1, Written = 2;
+    /// write-state advanced by the write path (0, not started → `entered` → `written`).</summary>
+    sealed class InFlightTurn(PendingTurn turn) {
+        public const int Entered = 1, Written = 2;
 
-        public PendingTurn Turn          { get; } = turn;
-        public long        IncarnationId { get; } = incarnationId;
+        public PendingTurn Turn { get; } = turn;
         public int         WriteState;
     }
 
@@ -66,8 +65,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     // CA1001: disposing Cts on removal severs the sweep's tail (see RouteServerRequestAsync's
     // finally); disposing in the sweep races that method's read of Cts.Token.
 #pragma warning disable CA1001
-    sealed class PendingInteraction(long incarnationId) {
-        public long IncarnationId { get; } = incarnationId;
+    sealed class PendingInteraction {
         public bool Cancelled; // mutated under the reconnect lock only
         public readonly CancellationTokenSource    Cts             = new();
         public readonly TaskCompletionSource       CancelledSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -158,7 +156,6 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     readonly TimeProvider  _timeProvider;
     readonly string        _agentId;
     readonly bool          _debugFrames;
-    readonly string        _vendor;
     readonly IAcpModelSelector _modelSelector;
     readonly AcpInteractionBridge? _interactionBridge;
     readonly CancellationTokenSource _cts = new();
@@ -265,7 +262,6 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     Task    _turnWorkerTask    = Task.CompletedTask;
     string? _sessionId;
     string? _cwd;
-    string? _resolvedModel;
     string? _requestedModel;
     AcpMcpServerSpec[] _mcpServersForResume = NoMcpServers;
     int     _disposed;
@@ -332,11 +328,6 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// <summary>Whether this launch's transcript is review output rather than a conversation someone
     /// is watching. Decides who a silent turn is worth telling.</summary>
     readonly bool _isReviewFlow;
-
-    /// <summary>The <c>@server/tool</c> identities this launch injected — the set
-    /// <see cref="AcpUnattendedInteractionPolicy.AllowlistedAutoApprove"/> approves. Null for every
-    /// other policy.</summary>
-    readonly IReadOnlySet<string>? _admittedToolIds;
 
     /// <summary>The approval policy this launch is judged against. Held beyond the interaction
     /// bridge because a degraded one owes the user a transcript note: the daemon log that records
@@ -512,8 +503,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         _questionProtocol = questionProtocol;
         _announcedToolCalls = completesPermissionToolCall ? new AcpAnnouncedToolCalls() : null;
         _journal = journal;
-        _admittedToolIds = admittedToolIds;
-        _policySnapshot  = policySnapshot;
+        _policySnapshot = policySnapshot;
         _firstOutputDeadline = firstOutputDeadline;
         _isReviewFlow        = isReviewFlow;
         _mcpSurfaceMonitor = mcpSurfaceMonitor;
@@ -524,7 +514,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         _timeProvider  = time;
         _agentId       = agentId;
         _debugFrames   = debugFrames;
-        _vendor        = vendor;
+        Vendor        = vendor;
         // Null here means ConfigOptionModelSelector.Instance, NOT NoOpModelSelector — a call site
         // that constructs this runtime directly (without a descriptor) gets Cursor's
         // model-selection behavior. The generalized path (AcpHostedAgentRuntimeFactory.StartAsync)
@@ -654,7 +644,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         }
     }
 
-    public string Vendor              => _vendor;
+    public string Vendor { get; }
 
     /// <summary>The CURRENT (installed) child's pid — changes at a reconnect commit, so consumers
     /// reading it live (registry displays, spawn logs) track the serving incarnation. The durable
@@ -669,10 +659,10 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     // command that does not exist on a correct install — the least helpful possible text on exactly the
     // launch-failure path this diagnostic exists to serve.
     string DiagnosticBinary =>
-        _vendor == AcpVendorDescriptors.Cursor.Vendor ? "cursor-agent"
-            : _vendor == AcpVendorDescriptors.Kiro.Vendor ? "kiro-cli"
-            : _vendor == AcpVendorDescriptors.MistralVibe.Vendor ? "vibe-acp"
-            : _vendor;
+        Vendor == AcpVendorDescriptors.Cursor.Vendor ? "cursor-agent"
+            : Vendor == AcpVendorDescriptors.Kiro.Vendor ? "kiro-cli"
+            : Vendor == AcpVendorDescriptors.MistralVibe.Vendor ? "vibe-acp"
+            : Vendor;
 
     // Kiro deliberately gets a hint that names NO command. Cursor and Copilot name a verified login
     // subcommand; for Kiro no auth requirement, auth method, or login command was ever observed
@@ -681,17 +671,17 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     // same reason DiagnosticBinary needed a branch: it interpolates the vendor KEY and would tell an
     // operator to authenticate `kiro`, a command absent from a correct install.
     string DiagnosticAuthHint =>
-        _vendor == AcpVendorDescriptors.Cursor.Vendor
+        Vendor == AcpVendorDescriptors.Cursor.Vendor
             ? "run `cursor-agent login` and verify a Team-tier subscription"
-            : _vendor == AcpVendorDescriptors.Copilot.Vendor
+            : Vendor == AcpVendorDescriptors.Copilot.Vendor
                 ? "run `copilot login` and verify GitHub Copilot access for your enterprise"
-                : _vendor == AcpVendorDescriptors.Kiro.Vendor
+                : Vendor == AcpVendorDescriptors.Kiro.Vendor
                     ? "verify Kiro CLI is signed in and your subscription/entitlement is active"
-                    : _vendor == AcpVendorDescriptors.Gemini.Vendor
+                    : Vendor == AcpVendorDescriptors.Gemini.Vendor
                         ? GeminiAuthHint
-                        : _vendor == AcpVendorDescriptors.MistralVibe.Vendor
+                        : Vendor == AcpVendorDescriptors.MistralVibe.Vendor
                             ? "run `vibe-acp --setup` to store a Mistral API key"
-                            : $"authenticate `{_vendor}` and verify your subscription/entitlement";
+                            : $"authenticate `{Vendor}` and verify your subscription/entitlement";
 
     /// <summary>
     /// Gemini's hint, worded as a POSSIBILITY rather than a diagnosis — and that is a requirement, not
@@ -759,7 +749,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     public string Cwd => _cwd!;
 
     /// <inheritdoc cref="IAcpTranscriptSource.ResolvedModel"/>
-    public string? ResolvedModel => _resolvedModel;
+    public string? ResolvedModel { get; private set; }
 
     readonly HostedAgentCommandsRelay _commandsRelay = new();
 
@@ -912,7 +902,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
                 // Before the session id, which is what admits user input: no turn may slip past the hold.
                 Volatile.Write(ref _turnsHeld, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
-                _reopened = true;
+                Reopened = true;
                 // Set before the load so its updates are recognised as this session's.
                 _sessionId = resumeSessionId;
 
@@ -970,7 +960,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         // above — a selector with no model to apply returns near-instantly (TrySelectAsync's
         // no-request-or-no-match paths never touch the wire), so this stage only ever actually
         // WAITS when a model was requested and the vendor's selector RPC hangs.
-        _resolvedModel = await RunHandshakeStageAsync(
+        ResolvedModel = await RunHandshakeStageAsync(
                 "model_set",
                 stageCt => _modelSelector.TrySelectAsync(connection, _sessionId!, sessionNewResult, requestedModel, _logger, stageCt),
                 ct)
@@ -980,8 +970,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         // from the handshake — the same "show the running model" the desktop rail gets from Pi. Only
         // when nothing was requested, so a requested-but-unmatched model still reports null (the
         // signal EmitModelFallbackNote and registration rely on).
-        if (_resolvedModel is null && string.IsNullOrWhiteSpace(requestedModel))
-            _resolvedModel = AcpSessionModelList.ExtractCurrentModel(sessionNewResult);
+        if (ResolvedModel is null && string.IsNullOrWhiteSpace(requestedModel))
+            ResolvedModel = AcpSessionModelList.ExtractCurrentModel(sessionNewResult);
 
         // Some vendors carry availableCommands on the session/new result; a later
         // available_commands_update supersedes it. Only publish a non-empty handshake snapshot — a
@@ -994,13 +984,13 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         // one consolidated Info log carrying the negotiated protocol version, loadSession, and the
         // resolved model (the applied selection, the handshake's current model for a no-request
         // launch, or null when a requested model did not match or no current marker was published).
-        LogHandshakeOk(_agentId, _negotiatedProtocolVersion, _negotiatedCapabilities.LoadSession, _resolvedModel);
+        LogHandshakeOk(_agentId, _negotiatedProtocolVersion, _negotiatedCapabilities.LoadSession, ResolvedModel);
 
         // A dropped model is only knowable after session/new publishes the vendor's list, so nothing
         // upstream can refuse the launch over it: the agent runs, answering as a model the user did
         // not pick. Names the model the LAUNCH asked for, which is not always the one that reached
         // the selector. Emitted before the initial turn is enqueued, so it precedes that turn's output.
-        if (modelOwedAnExplanation is { Length: > 0 } owed && _resolvedModel is null)
+        if (modelOwedAnExplanation is { Length: > 0 } owed && ResolvedModel is null)
             EmitModelFallbackNote(owed);
 
         // The session is established (initialize + session/new both completed) — the caller
@@ -1008,7 +998,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         // awaiting it: a real ACP turn can run arbitrarily long, and blocking StartAsync on it would
         // delay agent registration/stoppability for the whole turn. Completion is
         // observed via the Updates/Envelopes channels, not this method's return.
-        if (_reopened) {
+        if (Reopened) {
             // The note is the event whose acceptance proves the server records this session. Every turn,
             // the nudge first, queues behind the hold, so a session nothing would record never acts.
             EmitEnvelope(new AcpEventEnvelope(
@@ -1076,11 +1066,10 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         return result;
     }
 
-    bool                  _reopened;
     TaskCompletionSource? _turnsHeld;
 
     /// <inheritdoc cref="IAcpTranscriptSource.Reopened"/>
-    public bool Reopened => _reopened;
+    public bool Reopened { get; private set; }
 
     /// <inheritdoc cref="IAcpTranscriptSource.ReleaseFirstTurn"/>
     public void ReleaseFirstTurn() {
@@ -1246,7 +1235,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                         _heldTurn = turn;
                         reopen    = _gateOpen.Task;
                     } else {
-                        _inFlight = new InFlightTurn(turn, _installed.Id);
+                        _inFlight = new InFlightTurn(turn);
                     }
                 }
 
@@ -1329,7 +1318,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             // indistinguishable in the logs from a delivered prompt the agent never acted on. One
             // line per turn, here at the same bracket point as TurnInFlight above (never per envelope
             // or chunk).
-            LogTurnStarted(_agentId, _vendor);
+            LogTurnStarted(_agentId, Vendor);
 
             using var silenceNotice = ArmTurnSilenceNotice(turn);
 
@@ -1387,7 +1376,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
                 // Same bracket as LogTurnStarted above — logged unconditionally so a turn that began
                 // and never finished is visible as a started-with-no-matching-ended line.
-                LogTurnEnded(_agentId, _vendor);
+                LogTurnEnded(_agentId, Vendor);
 
                 lock (_reconnectLock) {
                     if (_inFlight is { } f && ReferenceEquals(f.Turn, turn))
@@ -1519,7 +1508,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
         // A vendor with its own reader reports the turn there; reading the response too would count it twice.
         if (_turnUsageReader is null)
-            EmitTurnUsage(AcpPromptUsage.Read(result, _resolvedModel));
+            EmitTurnUsage(AcpPromptUsage.Read(result, ResolvedModel));
     }
 
     sealed record PendingTurn(string Text, TaskCompletionSource? Written);
@@ -1894,7 +1883,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     // metadata, so their relative seq is immaterial.
                     var metaEnvelope = AcpEventTranslator.Translate(
                         update, seq: 0, NowIso(), logger: _logger, debugFrames: _debugFrames,
-                        resolvedModel: _resolvedModel);
+                        resolvedModel: ResolvedModel);
                     if (metaEnvelope is { } m)
                         EmitEnvelope(m);
                     break;
@@ -2380,7 +2369,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         }
 
         if (scheduleOwner)
-            LogReconnectStarted(_agentId, _vendor, incarnationId);
+            LogReconnectStarted(_agentId, Vendor, incarnationId);
     }
 
     /// <summary>
@@ -2643,9 +2632,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     /// exactly like launch. A no-op for `NoOpModelSelector` vendors or when no model was
     /// requested.</summary>
     async Task ReapplyModelAsync(Incarnation candidate, CancellationToken ct) =>
-        _resolvedModel = await _modelSelector
+        ResolvedModel = await _modelSelector
             .TrySelectAsync(candidate.Connection, _sessionId!, _lastLoadResult, _requestedModel, _logger, ct)
-            .ConfigureAwait(false) ?? _resolvedModel;
+            .ConfigureAwait(false) ?? ResolvedModel;
 
     /// <summary>
     /// Commit, under the reconnect lock: stop re-check, candidate liveness via the
@@ -2742,14 +2731,14 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         var diagnostics = _installed.Process.Diagnostics;
 
         if (_debugFrames && diagnostics is { Length: > 0 })
-            LogTurnSilentWithStderr(_agentId, _vendor, TurnSilenceWindow.TotalMinutes, AcpDebugFrameLog.Cap(diagnostics));
+            LogTurnSilentWithStderr(_agentId, Vendor, TurnSilenceWindow.TotalMinutes, AcpDebugFrameLog.Cap(diagnostics));
         else
-            LogTurnSilent(_agentId, _vendor, TurnSilenceWindow.TotalMinutes, diagnostics?.Length ?? 0);
+            LogTurnSilent(_agentId, Vendor, TurnSilenceWindow.TotalMinutes, diagnostics?.Length ?? 0);
 
         EmitEnvelope(new AcpEventEnvelope(
             Seq: 0,
             Kind: AcpEventKind.SystemNote,
-            Text: $"No output from {_vendor} for {TurnSilenceWindow.TotalMinutes:0} minutes. The agent is still "
+            Text: $"No output from {Vendor} for {TurnSilenceWindow.TotalMinutes:0} minutes. The agent is still "
                 + "running — vendors go quiet like this while retrying a rate-limited or unauthenticated model "
                 + "call. The daemon log carries whatever the child reported.",
             TimestampIso: NowIso()));
@@ -2768,7 +2757,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         EmitEnvelope(new AcpEventEnvelope(
             Seq: 0,
             Kind: AcpEventKind.SystemNote,
-            Text: $"{_vendor} could not apply the model '{requestedModel}'; this session is running {_vendor}'s default model instead.",
+            Text: $"{Vendor} could not apply the model '{requestedModel}'; this session is running {Vendor}'s default model instead.",
             TimestampIso: NowIso()));
 
     /// <summary>Discloses a weakened approval policy where the session is actually watched. Worded
@@ -2789,7 +2778,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         EmitEnvelope(new AcpEventEnvelope(
             Seq: 0,
             Kind: AcpEventKind.SystemNote,
-            Text: $"{_vendor} could not finish the turn: {(message.Length > 500 ? message[..500] + "…" : message)}",
+            Text: $"{Vendor} could not finish the turn: {(message.Length > 500 ? message[..500] + "…" : message)}",
             TimestampIso: NowIso()));
 
     void EmitSilentPermissionRefusalNote() =>
@@ -2986,7 +2975,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             if (_intentionalStop || Phase != RuntimePhase.Running || incarnationId != _installed.Id)
                 return DeclineFor(request);
 
-            entry = new PendingInteraction(incarnationId);
+            entry = new PendingInteraction();
             _pendingInteractions.Add(entry);
         }
 

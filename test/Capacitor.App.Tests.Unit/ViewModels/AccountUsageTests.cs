@@ -193,7 +193,6 @@ public class AccountUsageTests {
             W("sonnet", 300, 10, Now.AddMinutes(5)),
             W("claude", 60, 10, Now.AddMinutes(-5))
         ]));
-        await Assert.That(AccountUsage.NextReset(account, Now)).IsEqualTo(Now.AddHours(1));
         await Assert.That(AccountUsage.Project(account, Now, Utc).NextResetText).IsEqualTo("Week resets in 1h 00m");
     }
 
@@ -255,16 +254,6 @@ public class AccountUsageTests {
 
         await Assert.That(AccountUsage.IsBlocked(account, Now)).IsTrue();
         await Assert.That(AccountUsage.Project(account, Now, Utc).BlockedText).IsNotNull();
-    }
-
-    [Test]
-    public async Task Needs_fix_reasons() {
-        var reading = Reading([W("claude", 300, 10)]);
-        await Assert.That(AccountUsage.NeedsFix(Account(reading, signIn: SignInStates.SignedOut))).IsEqualTo("Needs sign-in");
-        await Assert.That(AccountUsage.NeedsFix(Account(reading, "codex", "installed"))).IsEqualTo("Needs approval in Codex");
-        await Assert.That(AccountUsage.NeedsFix(Account(reading, state: "broken"))).IsEqualTo("Needs repair");
-        await Assert.That(AccountUsage.NeedsFix(Account(reading, state: "not_wired"))).IsEqualTo("Not set up");
-        await Assert.That(AccountUsage.NeedsFix(Account(reading))).IsNull();
     }
 
     [Test]

@@ -89,7 +89,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     public ArtefactsTabViewModel Artefacts { get; }
     public ReactiveCommand<Unit, Unit> ShowArtefactsCommand { get; }
     public bool ShowsArtefactsTab {
-        get => field;
+        get;
         private set {
             this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsSurfaceSwitch));
@@ -117,14 +117,14 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         if (card.Url is { } url) Artefacts.OpenLink(url);
     }
 
-    public string Title { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public string Title { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
     public SessionTitleEditorViewModel TitleEditor { get; }
 
-    public string RepoLabelText { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public string RepoLabelText { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
     public RemoteTab ActiveTab {
-        get => field;
+        get;
         private set {
             this.RaiseAndSetIfChanged(ref field, value);
             if (value == RemoteTab.Chat) _held?.Refresh();
@@ -144,7 +144,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     readonly BehaviorSubject<bool> _sessionEndedChanges = new(false);
 
     public bool SessionEnded {
-        get => field;
+        get;
         private set {
             if (field == value) return;
             this.RaiseAndSetIfChanged(ref field, value);
@@ -162,7 +162,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     public string StopLabel => _row.IsAttached ? AttachedAgentCopy.DisconnectSteering : "Stop";
 
     /// Why the viewer may not stop this agent, when their rights are the reason.
-    public string? StopRefusal { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? StopRefusal { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     readonly ReplaySubject<Unit> _ended = new(1);
     public IObservable<Unit> Ended => _ended.Take(1);
@@ -185,7 +185,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     /// The local daemon has proven this row is its twin: the remote row is gone but the agent is
     /// not, so the window replaces this host with the local workspace for the same id.
     public bool OriginChangedToLocal {
-        get => field;
+        get;
         private set {
             if (field == value) return;
             this.RaiseAndSetIfChanged(ref field, value);
@@ -216,7 +216,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     };
 
     public RemoteSessionAccess Access {
-        get => field;
+        get;
         private set {
             this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(AccessNote));
@@ -250,7 +250,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
 
     /// A subagent's own transcript, shown in place of the chat until the user goes back.
     public SubagentPaneViewModel? Subagent {
-        get => field;
+        get;
         private set {
             this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsChatPane));

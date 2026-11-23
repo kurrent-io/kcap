@@ -288,7 +288,7 @@ public class BackgroundIntelligenceSettingsViewModelTests {
     [Test]
     public Task A_failed_read_after_a_saved_mode_shows_the_saved_mode_with_the_error() => Run(async rig => {
         await rig.Vm.ShownAsync();
-        rig.Cli.IntelligenceBehavior = answer => {
+        rig.Cli.IntelligenceBehavior = _ => {
             rig.Cli.IntelligenceStatusBehavior = () => Task.FromResult<IntelligenceSettingsOutcome>(new IntelligenceSettingsOutcome.Failed("gone"));
             return Task.FromResult<IntelligenceSetupOutcome>(new IntelligenceSetupOutcome.Applied(new("none", null, null, true, 300, [])));
         };

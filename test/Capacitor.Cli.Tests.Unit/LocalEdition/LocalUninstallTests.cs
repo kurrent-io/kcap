@@ -610,7 +610,7 @@ public class LocalUninstallTests {
         var serverLock = Tmp.CreateFile($"home/.config/kcap/local/run/{LocalStackProbe.ServerLockName}");
 
         LocalUninstallOutcome outcome;
-        using (new FileStream(serverLock, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        await using (new FileStream(serverLock, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             outcome = await QuickUninstallAsync();
 
         await Assert.That(outcome).IsEqualTo(LocalUninstallOutcome.Unloaded);

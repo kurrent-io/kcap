@@ -127,7 +127,7 @@ static class ClaudeSessionEndHandoff {
             var sessionId = JsonNode.Parse(body)?["session_id"]?.GetValue<string>()?.Replace("-", "");
 
             if (sessionId is { Length: > 0 } && sessionId.All(char.IsAsciiLetterOrDigit)) return sessionId;
-        } catch { }
+        } catch { /* ignored */ }
 
         return "claude-session-end";
     }

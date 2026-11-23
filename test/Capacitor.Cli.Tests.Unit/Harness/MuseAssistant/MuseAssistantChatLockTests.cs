@@ -12,12 +12,12 @@ public class MuseAssistantChatLockTests {
     public async Task A_held_lock_refuses_a_second_holder_until_released() {
         var path = Tmp.PathTo("scope", "chat.lock");
 
-        using (var held = MuseAssistantChatLock.TryAcquire(path)) {
+        await using (var held = MuseAssistantChatLock.TryAcquire(path)) {
             await Assert.That(held).IsNotNull();
             await Assert.That(MuseAssistantChatLock.TryAcquire(path)).IsNull();
         }
 
-        using var again = MuseAssistantChatLock.TryAcquire(path);
+        await using var again = MuseAssistantChatLock.TryAcquire(path);
         await Assert.That(again).IsNotNull();
     }
 
@@ -26,7 +26,7 @@ public class MuseAssistantChatLockTests {
         var path = Tmp.PathTo("chat.lock");
         var time = new FakeTimeProvider();
 
-        using var held = MuseAssistantChatLock.TryAcquire(path);
+        await using var held = MuseAssistantChatLock.TryAcquire(path);
         var waiting = MuseAssistantChatLock.AcquireAsync(path, TimeSpan.FromSeconds(1), time, default);
         for (var i = 0; !waiting.IsCompleted && i++ < 100;) { time.Advance(TimeSpan.FromMilliseconds(250)); await Task.Delay(1); }
 
@@ -43,7 +43,7 @@ public class MuseAssistantChatLockTests {
         held!.Dispose();
         for (var i = 0; !waiting.IsCompleted && i++ < 100;) { time.Advance(TimeSpan.FromMilliseconds(250)); await Task.Delay(1); }
 
-        using var acquired = await waiting;
+        await using var acquired = await waiting;
         await Assert.That(acquired).IsNotNull();
     }
 }

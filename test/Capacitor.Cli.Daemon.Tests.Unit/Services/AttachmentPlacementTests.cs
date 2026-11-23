@@ -88,7 +88,7 @@ public class AttachmentPlacementTests {
         var readBuf = new MemoryStream();
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
         readBuf.Position = 0;
-        using var client = new DuplexTestStream(readBuf, new MemoryStream());
+        await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
         var spawn = FrameCodec.Spawn(vendor, WorkLocation.BorrowedCwd, isPrivate: true, cwd, [], 80, 24);
         await orch.HandleLocalSpawnAsync(spawn, client, default);

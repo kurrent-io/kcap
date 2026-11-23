@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Capacitor.Cli.Core;
 using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Services;
@@ -236,7 +237,7 @@ internal sealed partial class CloudTerminalSink : ITerminalSink, IAsyncDisposabl
         if (!_pump.IsCompleted) {
             LogDrainCutShort(_agentId, Interlocked.Read(ref _queuedBytes));
             await _pumpCts.CancelAsync();
-            await Task.WhenAny(_pump, Task.Delay(_options.CancellationGrace, _time));
+            await _pump.FinishedWithinAsync(_options.CancellationGrace, _time);
         }
 
         if (_pump.IsCompleted) {

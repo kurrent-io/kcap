@@ -682,6 +682,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         try {
             owners = await _fetchOwners(CancellationToken.None).ConfigureAwait(false);
         } catch (Exception) {
+            // ignored
         }
         bool stale;
         lock (_lock) {

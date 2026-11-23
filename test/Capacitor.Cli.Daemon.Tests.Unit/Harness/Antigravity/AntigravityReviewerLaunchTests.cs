@@ -98,7 +98,7 @@ public class AntigravityReviewerLaunchTests {
     static ProcessStartInfo BuildPsi(
             DaemonConfig config, string? conversationId = null, bool isReviewFlow = true, bool windowsHost = false) =>
         AntigravityHostedAgentRuntimeFactory.BuildTurnPsi(
-            config, Ctx(isReviewFlow: isReviewFlow), prompt: "<PROMPT>",
+            config, Ctx(isReviewFlow: isReviewFlow),
             conversationId: conversationId, home: windowsHost ? WindowsHomePath : HomePath,
             windowsHost: windowsHost);
 
@@ -111,7 +111,8 @@ public class AntigravityReviewerLaunchTests {
         var psi = BuildPsi(EnabledConfig(model: "gemini-3.5-flash"));
 
         await Assert.That(string.Join(" ", psi.ArgumentList)).IsEqualTo(string.Join(" ", [
-            "-p", "<PROMPT>",
+            "-p", "",
+            "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--disable-slash-commands",
             "--print-timeout", "600s",
@@ -152,7 +153,8 @@ public class AntigravityReviewerLaunchTests {
         var reviewer = BuildPsi(config, isReviewFlow: true);
 
         await Assert.That(string.Join(" ", hosted.ArgumentList)).IsEqualTo(string.Join(" ", [
-            "-p", "<PROMPT>",
+            "-p", "",
+            "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--disable-slash-commands",
             "--dangerously-skip-permissions",
@@ -160,7 +162,8 @@ public class AntigravityReviewerLaunchTests {
         ]));
 
         await Assert.That(string.Join(" ", reviewer.ArgumentList)).IsEqualTo(string.Join(" ", [
-            "-p", "<PROMPT>",
+            "-p", "",
+            "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--disable-slash-commands",
             "--print-timeout", "600s"
@@ -347,7 +350,7 @@ public class AntigravityReviewerLaunchTests {
     /// runner, so on Windows these tests exercise its ACL.</param>
     static AntigravityHostedAgentRuntimeFactory Factory(
             DaemonConfig config,
-            Func<ProcessStartInfo, CancellationToken, Task<IAgyTurnProcess>>? turnSource = null,
+            Func<AgyTurnSpawn, CancellationToken, Task<IAgyTurnProcess>>? turnSource = null,
             bool binaryExists = true,
             string? version = "1.1.10",
             bool windowsHost = false) =>
@@ -537,16 +540,18 @@ public class AntigravityReviewerLaunchTests {
 
     // ── StartAsync ────────────────────────────────────────────────────────────────────────────────
 
-    /// <summary>Records every spawned turn's <see cref="ProcessStartInfo"/> so a test can assert on
-    /// what the SECOND turn's argv carried without a real process.</summary>
+    /// <summary>Records every spawned turn's <see cref="ProcessStartInfo"/> and the prompt handed over
+    /// beside it, so a test can assert on what the SECOND turn's argv carried without a real process.</summary>
     sealed class SpyTurnSource {
         readonly FakeTurn _turn;
-        public List<ProcessStartInfo> Spawns { get; } = [];
+        public List<ProcessStartInfo> Spawns  { get; } = [];
+        public List<string>           Prompts { get; } = [];
 
         public SpyTurnSource(FakeTurn turn = FakeTurn.Normal) => _turn = turn;
 
-        public Task<IAgyTurnProcess> SpawnAsync(ProcessStartInfo psi, CancellationToken ct) {
-            Spawns.Add(psi);
+        public Task<IAgyTurnProcess> SpawnAsync(AgyTurnSpawn spawn, CancellationToken ct) {
+            Prompts.Add(spawn.Prompt);
+            Spawns.Add(spawn.Psi);
             return Task.FromResult<IAgyTurnProcess>(new FakeAgyTurnProcess(_turn, FixedConversationId));
         }
     }
@@ -587,6 +592,28 @@ public class AntigravityReviewerLaunchTests {
 
         // >1 is only reachable if a stamp ran against THIS clock instance during the launch.
         await Assert.That(clock.ActivitySeq).IsGreaterThan(1UL);
+    }
+
+    /// <summary>Any local user can read a process's command line and environment, so neither may carry
+    /// the prompt on any turn. Each prompt reaches the turn beside its command, which is what
+    /// <see cref="AgyTurnProcess"/> writes to the child's stdin.</summary>
+    [Test]
+    public async Task No_turn_puts_its_prompt_in_the_command_or_the_environment() {
+        var spy   = new SpyTurnSource();
+        var start = await Factory(EnabledConfig(), spy.SpawnAsync)
+            .StartAsync(Ctx(), CancellationToken.None).WaitAsync(HangGuard);
+
+        await using var runtime = start.Runtime;
+
+        await runtime.SendUserInputAsync("round 2").WaitAsync(HangGuard);
+        await SpawnedAtLeast(spy, 2);
+
+        await Assert.That(spy.Prompts).IsEquivalentTo(["review this", "round 2"]);
+
+        foreach (var (psi, prompt) in spy.Spawns.Zip(spy.Prompts)) {
+            await Assert.That(psi.ArgumentList.Where(a => a.Contains(prompt))).IsEmpty();
+            await Assert.That(psi.Environment.Values.Where(v => v?.Contains(prompt) == true)).IsEmpty();
+        }
     }
 
     /// <summary>Turn 2 must resume turn 1's conversation, or every round lands as its own kcap
@@ -1184,6 +1211,20 @@ public class AntigravityReviewerLaunchTests {
         await Assert.That(ex!.Message).StartsWith("antigravity_reviewer_launch_failed");
     }
 
+    /// <summary>An agy without <c>--input-format</c> cannot be handed a prompt at all, and its usage dump
+    /// is not a reason anyone can act on. The second line is why the arm runs ahead of the auth one.</summary>
+    [Test]
+    public async Task A_first_turn_that_rejects_the_input_flag_is_reported_as_an_agy_too_old() {
+        var factory = Factory(EnabledConfig(), (_, _) => Task.FromResult<IAgyTurnProcess>(
+            new DyingTurnProcess("flags provided but not defined: -input-format\n  --login  log in with OAuth")));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            factory.StartAsync(Ctx(), CancellationToken.None).WaitAsync(HangGuard));
+
+        await Assert.That(ex!.Message).StartsWith("antigravity_reviewer_agy_too_old");
+        await Assert.That(ex.Message).Contains("agy update");
+    }
+
     /// <summary>And a child that says nothing at all is likewise not an auth failure — the arm the
     /// pattern match, rather than the classifier, is responsible for.</summary>
     [Test]
@@ -1282,8 +1323,8 @@ public class AntigravityReviewerLaunchTests {
     [Test]
     public async Task A_failed_launch_removes_the_reviewer_home_it_created() {
         string? home    = null;
-        var     factory = Factory(EnabledConfig(), (psi, _) => {
-            home = psi.Environment["HOME"];
+        var     factory = Factory(EnabledConfig(), (spawn, _) => {
+            home = spawn.Psi.Environment["HOME"];
             return Task.FromResult<IAgyTurnProcess>(new DyingTurnProcess(null));
         });
 

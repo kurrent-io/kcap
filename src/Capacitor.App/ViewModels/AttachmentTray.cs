@@ -15,7 +15,6 @@ public sealed class AttachmentTray : ReactiveObject {
     public static readonly string SizeReason = $"is over {InputWire.MaxAttachmentBytes / (1024 * 1024)} MB";
 
     readonly ObservableCollection<StagedAttachment> _items = new();
-    int _generation;
 
     public AttachmentTray() => Items = new ReadOnlyObservableCollection<StagedAttachment>(_items);
 
@@ -23,7 +22,7 @@ public sealed class AttachmentTray : ReactiveObject {
     public int Count => _items.Count;
     public int FreeSlots => Math.Max(0, InputWire.MaxAttachmentsPerPrompt - _items.Count);
     public bool HasAttachments => _items.Count > 0;
-    public int Generation => _generation;
+    public int Generation { get; private set; }
 
     public IReadOnlyList<IntakeRefusal> AddAll(IReadOnlyList<StagedAttachment> files) {
         var refused = new List<IntakeRefusal>();
@@ -69,7 +68,7 @@ public sealed class AttachmentTray : ReactiveObject {
     }
 
     void Bump() {
-        _generation++;
+        Generation++;
         this.RaisePropertyChanged(nameof(Count));
         this.RaisePropertyChanged(nameof(HasAttachments));
         this.RaisePropertyChanged(nameof(Generation));

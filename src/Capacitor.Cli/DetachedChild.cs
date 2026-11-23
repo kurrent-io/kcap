@@ -13,20 +13,19 @@ namespace Capacitor.Cli;
 /// the point of spawning detached; <see cref="Terminate"/> is the deliberate kill.</para>
 /// </summary>
 public sealed class DetachedChild : IDisposable {
-    readonly Stream             _standardInput;
     readonly Process?           _process; // Unix: the wrapper owns the handle
     readonly SafeProcessHandle? _handle;  // Windows: the handle CreateProcess returned
     int                         _disposed;
 
     DetachedChild(int pid, Stream standardInput, Process? process, SafeProcessHandle? handle) {
         Pid            = pid;
-        _standardInput = standardInput;
+        StandardInput = standardInput;
         _process       = process;
         _handle        = handle;
     }
 
     public int    Pid           { get; }
-    public Stream StandardInput => _standardInput;
+    public Stream StandardInput { get; }
 
     public static DetachedChild ForProcess(Process process, Stream standardInput) =>
         new(process.Id, standardInput, process, handle: null);
@@ -45,7 +44,7 @@ public sealed class DetachedChild : IDisposable {
             } else if (_handle is { IsInvalid: false }) {
                 ProcessHelpers.TerminateByHandle(_handle);
             }
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     // Closing the pipe first is what delivers EOF to the child; the handle is released from a
@@ -57,7 +56,7 @@ public sealed class DetachedChild : IDisposable {
         }
 
         try {
-            _standardInput.Dispose();
+            StandardInput.Dispose();
         } finally {
             _process?.Dispose();
             _handle?.Dispose();

@@ -80,6 +80,8 @@ public class UninstallWindowTests {
                 await Assert.That(progress.FindControl<Control>("ReceiptList")!.IsVisible).IsTrue();
                 await Assert.That(progress.FindControl<Control>("LinesScroll")!.IsVisible).IsFalse();
                 await Assert.That(run.DetailsLabel).IsEqualTo("Hide what was removed");
+                // Its content is a panel, which a screen reader would otherwise announce by type name.
+                await Assert.That(Avalonia.Automation.AutomationProperties.GetName(details)).IsEqualTo("Hide what was removed");
                 await SavePreviewAsync(progress, "-details");
 
                 var done = progress.FindControl<Button>("CloseButton")!;

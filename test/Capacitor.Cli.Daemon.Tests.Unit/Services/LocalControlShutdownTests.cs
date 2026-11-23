@@ -103,7 +103,7 @@ public class LocalControlShutdownTests {
 
     [Test]
     public async Task Shutdown_relaunch_while_an_eval_is_in_flight_acks_queued() =>
-        await RunAsync("sd-queued", () => true, async (orch, spy, lifetime, send) => {
+        await RunAsync("sd-queued", () => true, async (_, spy, _, send) => {
             var reply = await send(LocalFrame.Shutdown(new ShutdownRequestDto("keep", "relaunch")));
 
             await Assert.That(reply!.Type).IsEqualTo(FrameType.ShutdownAck);
@@ -129,7 +129,7 @@ public class LocalControlShutdownTests {
 
     [Test]
     public async Task Shutdown_final_without_when_idle_stops_even_while_busy() =>
-        await RunAsync("sd-busy-now", () => true, async (orch, spy, lifetime, send) => {
+        await RunAsync("sd-busy-now", () => true, async (_, _, lifetime, send) => {
             var reply = await send(LocalFrame.Shutdown(new ShutdownRequestDto("keep", "final")));
 
             await Assert.That(reply!.Type).IsEqualTo(FrameType.ShutdownAck);
@@ -269,7 +269,7 @@ public class LocalControlShutdownTests {
 
     [Test]
     public async Task Malformed_shutdown_answers_an_error() =>
-        await RunAsync("sd-bad", null, async (orch, spy, lifetime, send) => {
+        await RunAsync("sd-bad", null, async (_, spy, lifetime, send) => {
             var reply = await send(new LocalFrame(FrameType.Shutdown) { Text = """{"agents":"maybe","exit":"final"}""" });
 
             await Assert.That(reply!.Type).IsEqualTo(FrameType.Error);

@@ -1,41 +1,75 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Harness.Antigravity;
 
 /// <summary>
-/// <see cref="IAgyTurnProcess"/> over a real <see cref="Process"/>: ONE <c>agy -p</c> turn. Stderr text
-/// is never logged: it can carry prompt fragments, paths and, on the auth path, a URL bearing a login
-/// code.
+/// <see cref="IAgyTurnProcess"/> over a real <see cref="Process"/>: ONE <c>agy -p</c> turn, handed its
+/// prompt on stdin. Stderr text is never logged: it can carry prompt fragments, paths and, on the auth
+/// path, a URL bearing a login code.
 /// </summary>
 internal sealed partial class AgyTurnProcess : IAgyTurnProcess, IAgyTurnDiagnostics {
     /// <summary>Enough to carry an auth error and the URL under it, and small enough that a chatty
     /// child cannot grow the daemon's heap one turn at a time.</summary>
     const int DiagnosticsCap = 4096;
 
+    static readonly TimeSpan InputCloseWait = TimeSpan.FromSeconds(5);
+
     readonly ILogger             _logger;
     readonly StderrHead          _diagnostics = new(DiagnosticsCap);
     readonly ManagedChildProcess _child;
 
-    internal AgyTurnProcess(ProcessStartInfo psi, ILogger logger, TimeProvider time)
+    internal AgyTurnProcess(ProcessStartInfo psi, string prompt, ILogger logger, TimeProvider time)
         : this(Process.Start(psi) ?? throw new InvalidOperationException(
                    $"antigravity_turn_spawn_failed: '{psi.FileName}' did not start (Process.Start returned null)."),
-               logger, time) { }
+               prompt, logger, time) { }
 
-    internal AgyTurnProcess(Process process, ILogger logger, TimeProvider time) {
+    internal AgyTurnProcess(Process process, string prompt, ILogger logger, TimeProvider time) {
         _logger = logger;
+        _child  = new ManagedChildProcess(process, time, OnStderrLine);
 
-        // A containment decision: an unauthenticated agy prints an OAuth URL and waits for a pasted
-        // code, and a child with no readable stdin cannot be handed one. The launch deadline bounds it.
-        try {
-            process.StandardInput.Close();
-        } catch (Exception ex) {
-            _logger.LogDebug(ex, "Antigravity: could not close a turn child's stdin.");
+        // Off the caller's thread: a pipe write blocks until the child reads, and a prompt can be larger
+        // than the pipe's buffer.
+        _ = Task.Run(() => DeliverPromptAsync(prompt));
+    }
+
+    /// <summary>
+    /// The one stdin line a turn child reads: agy's stream-json user message. Every non-ASCII character
+    /// is escaped, so the line is the same bytes in whatever code page the child's stdin was opened with.
+    /// </summary>
+    internal static string InputLine(string prompt) {
+        using var buffer = new MemoryStream();
+
+        using (var json = new Utf8JsonWriter(buffer)) {
+            json.WriteStartObject();
+            json.WriteString("event", "user");
+            json.WriteStartObject("message");
+            json.WriteString("role", "user");
+            json.WriteString("content", prompt);
+            json.WriteEndObject();
+            json.WriteEndObject();
         }
 
-        _child = new ManagedChildProcess(process, time, OnStderrLine);
+        return Encoding.ASCII.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
+    }
+
+    /// <summary>
+    /// Writes the prompt and closes stdin. The close is what ends the turn's input, so agy runs this
+    /// one message and exits, and it leaves nothing open for an unauthenticated agy to wait on. A child
+    /// that exits or is killed before reading breaks the pipe; its exit is what reports that failure.
+    /// </summary>
+    async Task DeliverPromptAsync(string prompt) {
+        try {
+            await _child.WriteLineAsync(InputLine(prompt), CancellationToken.None).ConfigureAwait(false);
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "Antigravity: a turn child did not take its prompt.");
+        }
+
+        await _child.CloseInputAsync(InputCloseWait).ConfigureAwait(false);
     }
 
     public int  Pid       => _child.Pid;

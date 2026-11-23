@@ -137,7 +137,7 @@ public sealed class TokenStore(
     /// config as it is at that moment; a null guard always writes.
     public async Task<GuardedWriteOutcome> SaveGuardedAsync(
             string profile, StoredTokens tokens, Func<ProfileConfig, bool>? guard, CancellationToken ct = default) {
-        using var lockStream = await AcquireProfileLockAsync(profile, ct);
+        await using var lockStream = await AcquireProfileLockAsync(profile, ct);
         var outcome = Evaluate(guard);
         if (outcome == GuardedWriteOutcome.Written) await SaveLockedAsync(profile, tokens, ct);
         return outcome;
@@ -258,7 +258,7 @@ public sealed class TokenStore(
     /// or a delete that fails throws, so a caller can report the file it could not remove.
     public async Task<GuardedWriteOutcome> DeleteGuardedAsync(
             string profile, Func<ProfileConfig, bool>? guard, CancellationToken ct = default) {
-        using var lockStream = await AcquireProfileLockAsync(profile, ct);
+        await using var lockStream = await AcquireProfileLockAsync(profile, ct);
         var outcome = Evaluate(guard);
         if (outcome == GuardedWriteOutcome.Written) DeleteLocked(profile);
         return outcome;
@@ -352,7 +352,7 @@ public sealed class TokenStore(
         }
 
         try {
-            using var lockStream = await AcquireProfileLockAsync(cfg.ActiveName, ct);
+            await using var lockStream = await AcquireProfileLockAsync(cfg.ActiveName, ct);
             DeleteLocked(cfg.ActiveName);
             if (File.Exists(LegacyTokenPath)) File.Delete(LegacyTokenPath);
         } catch (ArgumentException) {
@@ -384,7 +384,7 @@ public sealed class TokenStore(
     /// of leaving the file for the next profile to claim.
     public async Task MigrateLegacyAsync(string owner, CancellationToken ct = default) {
         if (!File.Exists(LegacyTokenPath)) return;
-        using var lockStream = await AcquireProfileLockAsync(owner, ct);
+        await using var lockStream = await AcquireProfileLockAsync(owner, ct);
         if (!File.Exists(LegacyTokenPath)) return;
 
         var target = ProfileTokenPath(owner);

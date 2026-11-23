@@ -9,19 +9,6 @@
          externally (MainWindow binds Home). Notices stack at the top; the composer stays centred
          until they would reach it, then moves down rather than being covered. -->
     <UserControl.Styles>
-        <Style Selector="Border.notice">
-            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="12" />
-            <Setter Property="Padding" Value="14,12" />
-        </Style>
-        <!-- Size stays on each icon, and each icon sits in a top-aligned Panel: AppIcon sets its own
-             size and alignment, which outrank a style. -->
-        <Style Selector="views|AppIcon.noticeIcon">
-            <Setter Property="Margin" Value="0,2,0,0" />
-            <Setter Property="VerticalAlignment" Value="Top" />
-        </Style>
         <Style Selector="views|AppIcon.importStatusIcon">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
@@ -31,42 +18,12 @@
         <Style Selector="views|AppIcon.importStatusIcon.attention">
             <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
         </Style>
-        <Style Selector="TextBlock.noticeTitle">
-            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="FontWeight" Value="Medium" />
-            <Setter Property="LineHeight" Value="20" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-        </Style>
-        <Style Selector="SelectableTextBlock.noticeBody, TextBlock.noticeBody">
-            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-            <Setter Property="FontSize" Value="12.5" />
-            <Setter Property="LineHeight" Value="18" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-        </Style>
         <Style Selector="ProgressBar.noticeProgress">
             <Setter Property="Height" Value="2" />
             <Setter Property="MinHeight" Value="2" />
             <Setter Property="Margin" Value="0,4,0,2" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
             <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
-        </Style>
-        <Style Selector="StackPanel.noticeActions, WrapPanel.noticeActions">
-            <Setter Property="HorizontalAlignment" Value="Left" />
-            <Setter Property="Margin" Value="0,10,0,0" />
-        </Style>
-        <Style Selector="StackPanel.noticeActions">
-            <Setter Property="Orientation" Value="Horizontal" />
-            <Setter Property="Spacing" Value="8" />
-        </Style>
-        <Style Selector="WrapPanel.noticeActions">
-            <Setter Property="Orientation" Value="Horizontal" />
-            <Setter Property="ItemSpacing" Value="8" />
-            <Setter Property="LineSpacing" Value="4" />
-        </Style>
-        <Style Selector="StackPanel.noticeActions > Button, WrapPanel.noticeActions Button">
-            <Setter Property="Padding" Value="12,5" />
-            <Setter Property="FontSize" Value="12.5" />
         </Style>
         <Style Selector="Button.importDismiss.kcapGhost">
             <Setter Property="Padding" Value="0,5" />
@@ -293,7 +250,7 @@
                             <Button x:Name="RetryServerButton" Classes.kcapPrimary="{Binding !SignInVisible}" Classes.kcapChip="{Binding SignInVisible}" Content="Retry"
                                     AutomationProperties.Name="Retry the server connection"
                                     Command="{Binding RetryServerCommand}" IsVisible="{Binding ServerRetryVisible}" />
-                            <Button x:Name="OpenHarnessesSettingsButton" Classes="kcapPrimary" Content="Open Harnesses settings"
+                            <Button x:Name="OpenHarnessesSettingsButton" Classes="kcapPrimary" Content="Open Settings"
                                     Command="{Binding OpenHarnessesSettingsCommand}" IsVisible="{Binding HarnessesSettingsVisible}"
                                     ToolTip.Tip="{x:Static vm:HomeViewModel.HarnessesSettingsTip}" />
                         </StackPanel>
@@ -309,12 +266,12 @@
                      the 26px sentence or fights the chip row. -->
                 <StackPanel Spacing="6" HorizontalAlignment="Center">
                     <TextBlock x:Name="LauncherHeadline" Text="What should we build?"
-                               FontSize="26" FontWeight="SemiBold" LineHeight="32" LetterSpacing="-0.3"
+                               FontSize="{StaticResource KcapFontSizeDisplay}" FontWeight="SemiBold" LineHeight="32" LetterSpacing="-0.3"
                                Foreground="{StaticResource KcapTextBrush}"
                                HorizontalAlignment="Center" TextAlignment="Center" />
                     <TextBlock x:Name="LauncherRepoSubtitle"
                                Text="{Binding SelectedRepoPath, Converter={x:Static views:LauncherRepoSubtitleConverter.Instance}}"
-                               FontSize="15" FontWeight="Medium" LineHeight="22" LetterSpacing="0.2"
+                               FontSize="{StaticResource KcapFontSizeLarge}" FontWeight="Medium" LineHeight="22" LetterSpacing="0.2"
                                Foreground="{StaticResource KcapMutedBrush}"
                                HorizontalAlignment="Center" TextAlignment="Center"
                                TextTrimming="CharacterEllipsis" MaxWidth="640"
@@ -322,7 +279,7 @@
                                IsVisible="{Binding SelectedRepoPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                     <TextBlock x:Name="LauncherWorktreeHint"
                                Text="Runs in its own worktree, so your checkout stays as it is"
-                               FontSize="12" LineHeight="17" Foreground="{StaticResource KcapFaintBrush}"
+                               FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="17" Foreground="{StaticResource KcapFaintBrush}"
                                HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="640"
                                ToolTip.Tip="kcap works in a worktree under .capacitor/worktrees inside this repository, starting from your current commit with no branch of its own. The agent creates a branch for its work, and the session's Worktree panel shows where to find it."
                                IsVisible="{Binding SelectedRepoPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -342,10 +299,10 @@
                                     IsVisible="{Binding NextWorkSource, Converter={x:Static ObjectConverters.IsNotNull}}">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <views:AppIcon Kind="Lightbulb" Size="12" Foreground="{StaticResource KcapMutedBrush}" />
-                                    <TextBlock Text="Picked up" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
-                                    <TextBlock Text="{Binding NextWorkSource.Label, FallbackValue={x:Null}}" FontSize="12" Foreground="{StaticResource KcapTextBrush}"
+                                    <TextBlock Text="Picked up" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding NextWorkSource.Label, FallbackValue={x:Null}}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapTextBrush}"
                                                MaxWidth="360" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                                    <Button x:Name="ClearNextWorkSourceButton" Classes="kcapGhost" Width="20" Height="20" Padding="0"
+                                    <Button x:Name="ClearNextWorkSourceButton" Classes="kcapGhost" Width="{StaticResource KcapMinTargetSize}" Height="{StaticResource KcapMinTargetSize}" Padding="0"
                                             HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                                             Click="OnClearNextWorkSource" ToolTip.Tip="Unpick this task" AutomationProperties.Name="Unpick the task">
                                         <views:AppIcon Kind="X" Size="12" Foreground="{StaticResource KcapMutedBrush}" />
@@ -413,7 +370,7 @@
                                             <Button x:Name="AttachButton" Classes="kcapGhost kcapIcon"
                                                     IsEnabled="{Binding CanAttach}" ToolTip.Tip="{Binding AttachHint}"
                                                     ToolTip.ShowOnDisabled="True" AutomationProperties.Name="Attach files"
-                                                    Width="26" Height="26" Padding="0" FontSize="15" Cursor="Hand"
+                                                    Width="26" Height="26" Padding="0" FontSize="{StaticResource KcapFontSizeLarge}" Cursor="Hand"
                                                     HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
                                                 <views:AppIcon Kind="Paperclip" Size="16" />
                                             </Button>
@@ -449,7 +406,7 @@
                                                    Foreground="{StaticResource KcapFaintBrush}"
                                                    IsVisible="{Binding StartErrorIsNotice}" />
                                     <SelectableTextBlock Grid.Column="1" x:Name="StartErrorText" Text="{Binding StartError}"
-                                               FontSize="13" LineHeight="18" TextWrapping="Wrap" VerticalAlignment="Center"
+                                               FontSize="{StaticResource KcapFontSizeBody}" LineHeight="18" TextWrapping="Wrap" VerticalAlignment="Center"
                                                IsVisible="{Binding StartError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                     <Button Grid.Row="1" Grid.Column="1" x:Name="RequestRepositoryAccessButton" Classes="kcapChip"
                                             Content="Allow folder access" Click="OnRequestRepositoryAccessClick"
@@ -475,14 +432,14 @@
                                    Foreground="{StaticResource KcapFaintBrush}" />
                     <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock x:Name="UsageNoticeText" Text="{Binding UsageNotice.Message, FallbackValue={x:Null}}"
-                                   FontSize="12" LineHeight="18" TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
+                                   FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="18" TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
                         <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,6,0,0">
                             <Button x:Name="UsageNoticeTurnOffButton" Classes="kcapChip" Content="Turn off"
-                                    Padding="10,4" FontSize="12"
+                                    Padding="10,4" FontSize="{StaticResource KcapFontSizeSmall}"
                                     Command="{Binding UsageNotice.TurnOffCommand, FallbackValue={x:Null}}"
                                     IsVisible="{Binding UsageNotice.CanTurnOff, FallbackValue=False}" />
                             <Button x:Name="UsageNoticeOkButton" Classes.kcapPrimary="{Binding !UsageNotice.CanTurnOff, FallbackValue=True}" Classes.kcapGhost="{Binding UsageNotice.CanTurnOff, FallbackValue=False}" Content="Dismiss"
-                                    Padding="10,4" FontSize="12"
+                                    Padding="10,4" FontSize="{StaticResource KcapFontSizeSmall}"
                                     Command="{Binding UsageNotice.AcknowledgeCommand, FallbackValue={x:Null}}" />
                         </StackPanel>
                     </StackPanel>

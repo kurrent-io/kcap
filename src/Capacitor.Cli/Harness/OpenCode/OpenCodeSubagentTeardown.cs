@@ -1,4 +1,5 @@
 using Capacitor.Cli.Commands;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.OpenCode;
 using Capacitor.Cli.Harness.Gemini;
@@ -89,7 +90,7 @@ sealed class OpenCodeSubagentTeardown(ProfileContext profiles, ICapacitorHttpCli
         Task task;
         try { task = op(); } catch { return; }
 
-        if (await Task.WhenAny(task, Task.Delay(cap, time)) != task) {
+        if (!await task.FinishedWithinAsync(cap, time)) {
             _ = task.ContinueWith(t => _ = t.Exception, CancellationToken.None,
                 TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
             return;

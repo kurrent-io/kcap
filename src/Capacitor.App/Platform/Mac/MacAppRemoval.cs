@@ -42,6 +42,8 @@ public sealed partial class MacAppRemoval : IAppRemoval {
         _updaterFiles = updaterFiles;
     }
 
+    public bool CommandInstalled => _links.Find().Count > 0 || ShellProfile.Removable(_home, []).Count > 0;
+
     public async Task<IReadOnlyList<string>> RemoveLinksAsync(CancellationToken ct) {
         await RemoveAsAdminAsync(_links.Remove(), ct).ConfigureAwait(false);
         return [.. _links.Find(), .. RemoveProfileLines()];

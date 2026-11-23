@@ -3,7 +3,7 @@
              xmlns:views="clr-namespace:Capacitor.App.Views"
              x:Class="Capacitor.App.Views.MessageCopyButton"
              VerticalAlignment="Center">
-    <Button x:Name="CopyButton" Classes="kcapGhost kcapIcon messageCopy" Padding="4" MinHeight="0"
+    <Button x:Name="CopyButton" Classes="kcapGhost kcapIcon" Padding="4" MinHeight="0"
             Click="OnCopyClick" ToolTip.Tip="Copy message" AutomationProperties.Name="Copy message">
         <Panel>
             <views:AppIcon x:Name="CopyIcon" Kind="Copy" Size="12" />

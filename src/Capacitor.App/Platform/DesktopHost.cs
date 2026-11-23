@@ -4,6 +4,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Capacitor.App.Platform.Linux;
 using Capacitor.App.Platform.Mac;
 using Capacitor.App.Platform.Windows;
+using Capacitor.App.Services;
 using Capacitor.App.Services.Notifications;
 using Capacitor.App.Services.Update;
 using Capacitor.Cli.Core;
@@ -32,7 +33,8 @@ public abstract class DesktopHost : IDisposable {
     /// this process must exit.
     public static DesktopHost? Start(string[] args, bool updateRelaunch) {
         var relaunch = updateRelaunch || args.Contains(RelaunchArg, StringComparer.Ordinal);
-        if (SingleInstanceLock.Acquire(relaunch ? RelaunchWait : TimeSpan.Zero) is not { } singleInstance) return null;
+        var uninstall = UninstallMode.Parse(args) is { Confirm: true };
+        if (SingleInstanceLock.Acquire(relaunch ? RelaunchWait : TimeSpan.Zero, uninstall) is not { } singleInstance) return null;
 
         var appDirectory = AppContext.BaseDirectory;
         if (OperatingSystem.IsMacOS()) return new MacDesktopHost(BundleLayout.CliDirectory(appDirectory), updateRelaunch, singleInstance);

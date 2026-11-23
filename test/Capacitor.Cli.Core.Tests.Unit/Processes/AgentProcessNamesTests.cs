@@ -50,6 +50,15 @@ public class AgentProcessNamesTests {
     public async Task The_shared_runtime_is_not_the_copilot_vendors_process(string name) =>
         await Assert.That(AgentProcessNames.Matches(name, "copilot")).IsFalse();
 
+    /// <summary>The watcher follows a session's agent by its vendor, and Antigravity's CLI never shows
+    /// that name: without <c>agy</c> the walk finds nothing and the session outlives its agent.</summary>
+    [Test]
+    [Arguments("agy")]
+    [Arguments("agy.exe")]
+    [Arguments(@"C:\Users\me\AppData\Local\agy\bin\agy.exe")]
+    public async Task Antigravity_is_found_by_its_cli_name(string name) =>
+        await Assert.That(AgentProcessNames.Matches(name, "antigravity")).IsTrue();
+
     [Test]
     [Arguments(null)]
     [Arguments("")]

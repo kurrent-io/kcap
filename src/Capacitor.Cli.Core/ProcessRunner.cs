@@ -237,7 +237,7 @@ public sealed class ProcessRunner(TimeProvider time, Func<int, bool>? interrupt 
         using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts?.Token ?? CancellationToken.None, graceExpired.Token);
 
         var grace = options.InterruptGrace > TimeSpan.Zero ? options.InterruptGrace : DefaultInterruptGrace;
-        using var interruptRegistration = options.Interrupt.Register(() => {
+        await using var interruptRegistration = options.Interrupt.Register(() => {
             try {
                 if (process.HasExited) return;
                 // Undelivered (always so on Windows), there is no cleanup to wait for.

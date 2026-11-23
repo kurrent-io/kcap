@@ -16,7 +16,7 @@ public class DetachedImportLogTests {
             [DetachedImportLog.VisibilityEnvVar] = "private",
         };
 
-        var contract = DetachedImportLog.FromEnvironment(k => env.GetValueOrDefault(k));
+        var contract = DetachedImportLog.FromEnvironment(env.GetValueOrDefault);
 
         await Assert.That(contract!.LogPath).IsEqualTo("/tmp/x.log");
         await Assert.That(contract.DefaultVisibility).IsEqualTo("private");

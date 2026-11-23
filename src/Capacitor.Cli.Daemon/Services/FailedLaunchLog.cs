@@ -20,11 +20,10 @@ namespace Capacitor.Cli.Daemon.Services;
 /// <see cref="AgentPidRecordStore"/>). Plain file I/O — NativeAOT-safe.
 /// </summary>
 internal sealed class FailedLaunchLog(string stateDir, TimeProvider time, int maxBytes = 64 * 1024) {
-    readonly string _dir = Path.Combine(stateDir, "agents", "failed");
 
     /// <summary>The retained failed-launch directory ({state}/agents/failed). Exposed for tests to
     /// assert a capture landed.</summary>
-    public string Dir => _dir;
+    public string Dir { get; } = Path.Combine(stateDir, "agents", "failed");
 
     /// <summary>
     /// Writes (overwriting any prior entry for this agent) a header line plus the last
@@ -33,14 +32,14 @@ internal sealed class FailedLaunchLog(string stateDir, TimeProvider time, int ma
     /// </summary>
     public string? Persist(string agentId, byte[] terminalOutput, string reason) {
         try {
-            Directory.CreateDirectory(_dir);
+            Directory.CreateDirectory(Dir);
 
             // Owner-only directory: 0700 stops other local users traversing in to the 0600 files.
             if (!OperatingSystem.IsWindows()) {
-                try { File.SetUnixFileMode(_dir, DirMode); } catch { /* best-effort */ }
+                try { File.SetUnixFileMode(Dir, DirMode); } catch { /* best-effort */ }
             }
 
-            var path = Path.Combine(_dir, SafeName(agentId) + ".log");
+            var path = Path.Combine(Dir, SafeName(agentId) + ".log");
             var tail = terminalOutput.Length > maxBytes
                 ? terminalOutput[^maxBytes..]
                 : terminalOutput;

@@ -2,12 +2,14 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Capacitor.App.Services;
 
 namespace Capacitor.App.Views;
 
 /// One phase for every "checks running" marker. A style animation starts when its control
 /// appears, so the sidebar, reader and rail would each fade on their own offset; these read the
-/// same clock instead and stay in step wherever they are shown.
+/// same clock instead and stay in step wherever they are shown. With the OS set to reduce motion
+/// every marker holds at full opacity and the clock does not tick.
 public static class PulseClock {
     const double PeriodSeconds = 2.4;
     const double MinOpacity = 0.4;
@@ -40,6 +42,7 @@ public static class PulseClock {
         Visual.IsVisibleProperty.Changed.AddClassHandler<Visual>((changed, _) => SyncUnder(changed));
         // A minimized window leaves its content effectively visible.
         Window.WindowStateProperty.Changed.AddClassHandler<Window>((window, _) => SyncUnder(window));
+        ReducedMotion.Changed += Tick;
     }
 
     public static bool GetIsActive(Visual visual) => visual.GetValue(IsActiveProperty);
@@ -81,14 +84,15 @@ public static class PulseClock {
     // A hidden marker stays registered but is not painted, and the timer runs only while one shows,
     // so a collapsed section or a minimized window costs no render passes and no wakeups.
     internal static void Tick() {
-        var opacity = Opacity;
+        var still = ReducedMotion.IsOn;
+        var opacity = still ? 1 : Opacity;
         var showing = false;
         foreach (var visual in Active) {
             if (!IsShowing(visual)) continue;
             visual.Opacity = opacity;
             showing = true;
         }
-        if (showing) {
+        if (showing && !still) {
             _timer ??= new DispatcherTimer(TickInterval, DispatcherPriority.Render, (_, _) => Tick());
             _timer.Start();
         } else {

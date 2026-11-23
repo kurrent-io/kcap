@@ -19,14 +19,13 @@ public sealed class MainWindowCoordinator(
         Func<MainWindow> windowFactory, Action<MainWindow>? releaseWorkspace = null,
         Action<MainWindow>? parkWorkspace = null, Action<MainWindow>? restoreWorkspace = null,
         Action? onHidden = null, Action? onShown = null) {
-    MainWindow? _window;
     WindowRestore _placement = new();
 
     /// Prevents reopening and lets window teardown complete during deferred shutdown.
     public bool QuitInProgress { get; set; }
 
     /// The retained window, whether visible or hidden; null after a real close.
-    public MainWindow? Window => _window;
+    public MainWindow? Window { get; private set; }
 
     /// While set, every request to show the main window, the Dock, tray, menu and notifications included,
     /// raises this instead: a launch finishing an update keeps its progress in front until that settles.
@@ -40,13 +39,13 @@ public sealed class MainWindowCoordinator(
         if (QuitInProgress) return;
         if (ShowInstead is { } instead) {
             instead();
-            if (_window is not null) navigate?.Invoke(_window);
+            if (Window is not null) navigate?.Invoke(Window);
             return;
         }
 
         Prepare();
 
-        var window = _window!;
+        var window = Window!;
         navigate?.Invoke(window);
         if (!window.IsVisible) restoreWorkspace?.Invoke(window);
         _placement.BeforeShow(window);
@@ -59,15 +58,15 @@ public sealed class MainWindowCoordinator(
     public void Prepare() {
         if (QuitInProgress) return;
 
-        if (_window is null) {
+        if (Window is null) {
             var window = windowFactory();
             window.CloseInterceptor = OnWindowClosing;
             window.Closed += (_, _) => {
                 // A late close must release its own workspace without discarding a newer window.
                 releaseWorkspace?.Invoke(window);
-                if (ReferenceEquals(_window, window)) _window = null;
+                if (ReferenceEquals(Window, window)) Window = null;
             };
-            _window = window;
+            Window = window;
             _placement = new WindowRestore();
             _placement.Track(window);
         }
@@ -77,9 +76,9 @@ public sealed class MainWindowCoordinator(
     public bool OnWindowClosing() {
         if (QuitInProgress) return false;
 
-        if (_window is not null) {
-            (parkWorkspace ?? releaseWorkspace)?.Invoke(_window);
-            _placement.Hide(_window);
+        if (Window is not null) {
+            (parkWorkspace ?? releaseWorkspace)?.Invoke(Window);
+            _placement.Hide(Window);
             onHidden?.Invoke();
         }
         return true;

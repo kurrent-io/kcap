@@ -484,7 +484,7 @@ public class LoopbackBrowserTests {
         await invoke;
 
         for (var i = 0; i < 3; i++) {
-            try { _ = await http.GetAsync($"http://127.0.0.1:{port}/joined?j=junk{i}"); } catch { }
+            try { _ = await http.GetAsync($"http://127.0.0.1:{port}/joined?j=junk{i}"); } catch { /* ignored */ }
         }
 
         await Assert.That(await EventuallyFree(port)).IsTrue();

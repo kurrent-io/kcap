@@ -59,13 +59,13 @@ public static class AppMenuFlyout {
         body.Children.Add(new TextBlock { Text = item.Header, VerticalAlignment = VerticalAlignment.Center });
         var gesture = item.Gesture?.ToString("p", null);
         if (gesture is not null) {
-            var shortcut = new TextBlock { Text = gesture, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            var shortcut = new TextBlock { Text = gesture, FontSize = TypeScale.Small, VerticalAlignment = VerticalAlignment.Center };
             shortcut.Bind(TextBlock.ForegroundProperty, shortcut.GetResourceObservable("KcapMutedBrush"));
             Grid.SetColumn(shortcut, 1);
             body.Children.Add(shortcut);
         }
         var row = new Button {
-            Content = body, Padding = new Thickness(10, 8), FontSize = 13.5,
+            Content = body, Padding = new Thickness(10, 8), FontSize = TypeScale.Body,
             HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
         row.Classes.Add("kcapGhost");

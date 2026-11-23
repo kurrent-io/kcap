@@ -20,8 +20,8 @@ public class ServerAttachmentUploaderTests {
     const string IdC = "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3";
 
     static IReadOnlyList<StagedAttachment> TwoFiles() => [
-        new StagedAttachment("a.png", "image/png", new byte[] { 1, 2, 3 }),
-        new StagedAttachment("b.txt", "text/plain", new byte[] { 4, 5 }),
+        new("a.png", "image/png", new byte[] { 1, 2, 3 }),
+        new("b.txt", "text/plain", new byte[] { 4, 5 }),
     ];
 
     [Test]

@@ -276,6 +276,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     public bool CanOpenSetup { get; }
     HistoryImportBannerViewModel? _historyImportBanner;
     readonly Action? _requestSetup;
+    readonly Action? _requestSignIn;
     public HistoryImportBannerViewModel? HistoryImportBanner {
         get => _historyImportBanner;
         private set => this.RaiseAndSetIfChanged(ref _historyImportBanner, value);
@@ -395,6 +396,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         CanOpenSetup = requestSetup is not null;
         SetupCommand = ReactiveCommand.Create(() => requestSetup?.Invoke());
         _requestSetup = requestSetup;
+        _requestSignIn = requestSignIn;
         _historyImportBanner = historyImport is null ? null : new HistoryImportBannerViewModel(historyImport, requestSetup);
         var offersSignIn    = requestSignIn is not null;
 
@@ -437,7 +439,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
 
         var reloadAction = reloadDaemon ?? (_ => Task.CompletedTask);
         ReloadDaemonCommand = ReactiveCommand.CreateFromTask(
-            ct => reloadAction(ct),
+            reloadAction,
             service.Status
                 .CombineLatest(isReloading ?? Observable.Return(false), (st, reloading) => st.State == AttachState.Connected && !reloading)
                 .DistinctUntilChanged()
@@ -742,6 +744,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     }
 
     async Task OpenRailAlertAsync() {
+        if (Alert?.Text == SignInRequiredText && SignInVisible && _requestSignIn is { } signIn) {
+            signIn();
+            return;
+        }
         var localRecovery = _localDaemonRecoveryAvailable
             && Alert?.Text is DaemonStoppedText or DaemonMismatchText or DaemonUnreachableText;
         var daemonSignIn = _daemonSignInRecoveryAvailable && Alert?.Text == SignInRequiredText;

@@ -31,7 +31,7 @@ public class HarnessesStepViewModelTests {
         public Harness(ConfigRoot config, IReadOnlyDictionary<HarnessId, DetectedAgent>? detected = null,
                 IReadOnlySet<HarnessId>? declined = null, PathFixViewModel? pathFix = null, bool local = false,
                 Func<CancellationToken, Task<VisibilityOptionsResponse?>>? visibilityOptions = null,
-                Func<int, IReadOnlyDictionary<HarnessId, DetectedAgent>>? detectOnCall = null) {
+                Func<int, IReadOnlyDictionary<HarnessId, DetectedAgent>>? detectOnCall = null, bool signedInAtStart = false) {
             detected ??= new Dictionary<HarnessId, DetectedAgent> {
                 [HarnessId.Claude] = new(true, true),
                 [HarnessId.Cursor] = new(false, true),
@@ -46,7 +46,7 @@ public class HarnessesStepViewModelTests {
                 _ => Task.FromResult<IReadOnlySet<string>?>(ProviderKeys),
                 "test-mac",
                 onLocalPath: local ? () => true : null,
-                visibilityOptions: visibilityOptions);
+                visibilityOptions: visibilityOptions, signedInAtStart: signedInAtStart);
         }
 
         public HarnessRowViewModel Row(string label) => Vm.Rows.First(r => r.Label == label);
@@ -464,6 +464,43 @@ public class HarnessesStepViewModelTests {
         });
 
         await Assert.That(asked).IsEqualTo(0);
+    }
+
+    Task WriteSignedInProfileAsync(string visibility) => File.WriteAllTextAsync(ConfigPath, JsonSerializer.Serialize(
+        new ProfileConfig {
+            ActiveProfile = "acme",
+            Profiles      = new() { ["acme"] = new Profile { ServerUrl = "https://acme.example", DefaultVisibility = visibility } },
+        }, ProfileConfigJsonContext.Default.ProfileConfig));
+
+    /// The same profile with no sign-in before setup is asked afresh, which the test below this one pins.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_profile_signed_in_before_setup_shows_its_server_and_its_privacy_setting() {
+        await WriteSignedInProfileAsync("project");
+
+        await AvaloniaSession.DispatchAsync(async () => {
+            var h = new Harness(Config.Root, signedInAtStart: true);
+            await h.Vm.OnEnterAsync(CancellationToken.None);
+
+            await Assert.That(h.Vm.Visibility).IsEqualTo("project");
+            await Assert.That(h.Vm.CanContinue).IsTrue();
+            await Assert.That(h.Vm.KeptConnection!).Contains("https://acme.example");
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_kept_privacy_setting_the_server_stopped_offering_is_asked_again() {
+        await WriteSignedInProfileAsync("org_public");
+
+        await AvaloniaSession.DispatchAsync(async () => {
+            var h = new Harness(Config.Root, signedInAtStart: true,
+                visibilityOptions: _ => Task.FromResult<VisibilityOptionsResponse?>(Offer("private", "private", "project")));
+            await h.Vm.OnEnterAsync(CancellationToken.None);
+
+            await Assert.That(h.Vm.Visibility).IsNull();
+            await Assert.That(h.Vm.CanContinue).IsFalse();
+        });
     }
 
     [Test]

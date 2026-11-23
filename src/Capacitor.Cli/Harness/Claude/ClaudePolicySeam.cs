@@ -208,7 +208,7 @@ internal sealed class ClaudePolicySeam(ConfigRoot config, TimeProvider time, Hoo
         JsonElement? toolInput;
         try {
             toolInput = body["tool_input"] is { } ti
-                ? JsonDocument.Parse(ti.ToJsonString()).RootElement.Clone()
+                ? JsonElement.Parse(ti.ToJsonString())
                 : null;
         } catch { toolInput = null; }
 

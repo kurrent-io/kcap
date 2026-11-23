@@ -570,7 +570,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
         var value = @params is { } p && p.TryGetProperty("value", out var valueEl) ? valueEl.GetString() ?? "" : "";
 
         using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream)) {
+        await using (var writer = new Utf8JsonWriter(stream)) {
             writer.WriteStartObject();
             writer.WriteStartArray("configOptions");
             writer.WriteStartObject();
@@ -907,7 +907,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
 
     async Task WriteResponseAsync(JsonElement id, JsonElement result, CancellationToken ct) {
         using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream)) {
+        await using (var writer = new Utf8JsonWriter(stream)) {
             writer.WriteStartObject();
             writer.WriteString("jsonrpc", "2.0");
             writer.WritePropertyName("id");
@@ -922,7 +922,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
 
     async Task WriteErrorResponseAsync(JsonElement id, int code, string message, CancellationToken ct) {
         using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream)) {
+        await using (var writer = new Utf8JsonWriter(stream)) {
             writer.WriteStartObject();
             writer.WriteString("jsonrpc", "2.0");
             writer.WritePropertyName("id");

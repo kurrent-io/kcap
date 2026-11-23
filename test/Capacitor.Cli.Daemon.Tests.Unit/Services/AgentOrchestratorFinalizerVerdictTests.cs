@@ -719,7 +719,7 @@ public class AgentOrchestratorFinalizerVerdictTests {
         var (runtime, process, fake) = BuildVerdictRuntime("stop-toctou-1");
         await using var _ = fake;
 
-        var agent = AgentOrchestratorHarness.SeedAcpAgent(orch, "stop-toctou-1", runtime, status: "Running");
+        AgentOrchestratorHarness.SeedAcpAgent(orch, "stop-toctou-1", runtime, status: "Running");
         process.SignalExited(0);
 
         // No verdict yet — the stop gate's snapshot reads "no suppression". The hook then publishes an
@@ -753,7 +753,7 @@ public class AgentOrchestratorFinalizerVerdictTests {
         var (runtime, process, fake) = BuildVerdictRuntime("stop-atomic-1");
         await using var _ = fake;
 
-        var agent = AgentOrchestratorHarness.SeedAcpAgent(orch, "stop-atomic-1", runtime, status: "Running");
+        AgentOrchestratorHarness.SeedAcpAgent(orch, "stop-atomic-1", runtime, status: "Running");
         process.SignalExited(0);
         server.VerdictCaptureRuntime = runtime;
 
@@ -790,10 +790,10 @@ public class AgentOrchestratorFinalizerVerdictTests {
         await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
             server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
 
-        var (runtime, process, fake) = BuildVerdictRuntime("rereg-await-1");
+        var (runtime, _, fake) = BuildVerdictRuntime("rereg-await-1");
         await using var _ = fake;
 
-        var agent = AgentOrchestratorHarness.SeedAcpAgent(orch, "rereg-await-1", runtime, status: "Running");
+        AgentOrchestratorHarness.SeedAcpAgent(orch, "rereg-await-1", runtime, status: "Running");
         server.VerdictCaptureRuntime = runtime;
 
         var rereg = orch.ReRegisterAgentsForTestAsync();

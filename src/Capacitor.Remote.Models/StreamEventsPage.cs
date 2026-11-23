@@ -9,4 +9,7 @@ public sealed record StreamEventsPage {
     [JsonPropertyName("last_event_number")] public long LastEventNumber { get; init; } = -1;
     [JsonPropertyName("events")]            public SessionEventDto[]? Events { get; init; }
     [JsonPropertyName("next_from")]         public int? NextFrom { get; init; }
+    /// The `from` count of the page's first event. A server that does not know `tail` omits it and answers
+    /// a tail request with a page from `from` instead.
+    [JsonPropertyName("first_from")]        public int? FirstFrom { get; init; }
 }

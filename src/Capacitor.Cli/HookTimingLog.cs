@@ -26,7 +26,7 @@ public sealed class HookTimingLog(TimeProvider time, DateTimeOffset? processStar
 
             _path = path;
 
-            try { Directory.CreateDirectory(Path.GetDirectoryName(path)!); } catch { }
+            try { Directory.CreateDirectory(Path.GetDirectoryName(path)!); } catch { /* ignored */ }
 
             foreach (var line in _pending) Append(path, line);
             _pending.Clear();

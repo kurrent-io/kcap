@@ -49,7 +49,7 @@ public sealed partial class NotificationSettingsService : IDisposable {
                 return false;
             } finally {
                 if (tmp is not null) {
-                    try { File.Delete(tmp); } catch { }
+                    try { File.Delete(tmp); } catch { /* ignored */ }
                 }
             }
         } finally {

@@ -302,7 +302,7 @@ public class MuseAssistantIngestTests {
         var ingest = await IngestAsync(poster);
         var dir    = TwoSessionWalk();
 
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(Store().ScopeDir, "chat-main"))) {
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(Store().ScopeDir, "chat-main"))) {
             await Assert.That(await ingest.RunAsync(dir, default)).IsEqualTo(0);
             await Assert.That(poster.Accepted).IsEmpty();
         }
@@ -318,7 +318,7 @@ public class MuseAssistantIngestTests {
         var poster = new RecordingPoster();
         var dir    = new WalkBuilder(Walks) { ChatId = "chat-two" }.AddPage(null, null, false, User(1, T0)).Write();
 
-        using var held = MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(Store().ScopeDir, "chat-main"));
+        await using var held = MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(Store().ScopeDir, "chat-main"));
         await Assert.That(held).IsNotNull();
         await Assert.That(await (await IngestAsync(poster)).RunAsync(dir, default)).IsEqualTo(0);
         await Assert.That(poster.Seqs).IsEquivalentTo([1]);

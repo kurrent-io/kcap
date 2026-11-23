@@ -235,7 +235,7 @@ internal sealed class OpenCodeImportSource : IImportSource {
             // the session is NOT recorded, and a re-run classifies it Partial and repairs.
             return ImportOutcome.Failed;
         } finally {
-            try { File.Delete(tmpFile); } catch { }
+            try { File.Delete(tmpFile); } catch { /* ignored */ }
         }
 
         // 3. descendants as subagents — BEFORE session-end so SubagentCompleted precedes
@@ -380,7 +380,7 @@ internal sealed class OpenCodeImportSource : IImportSource {
                         SubagentHookPayloads.Stop(rootId, agentId, agentType, tmp), ct))
                     throw new HttpRequestException($"subagent-stop failed for {child.Id}");
             } finally {
-                try { File.Delete(tmp); } catch { }
+                try { File.Delete(tmp); } catch { /* ignored */ }
             }
         }
 

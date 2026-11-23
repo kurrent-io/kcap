@@ -8,7 +8,7 @@
     <UserControl.Styles>
         <Style Selector="Button.searchTab">
             <Setter Property="Padding" Value="10,4" />
-            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
             <Setter Property="CornerRadius" Value="7" />
             <Setter Property="Focusable" Value="False" />
         </Style>
@@ -34,7 +34,7 @@
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
         </Style>
         <Style Selector="TextBlock.searchMeta">
-            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         </Style>
@@ -53,7 +53,7 @@
                                  IsReadOnly="{Binding SearchSignedOut}"
                                  AutomationProperties.Name="Search sessions" />
                         <Button x:Name="SearchEscapeChip" Grid.Column="2" Classes="kcapChip" Content="esc"
-                                Padding="6,2" FontSize="11" CornerRadius="5" Focusable="False" VerticalAlignment="Center"
+                                Padding="6,2" FontSize="{StaticResource KcapFontSizeCaption}" CornerRadius="5" Focusable="False" VerticalAlignment="Center"
                                 Command="{Binding DismissSearchCommand}" AutomationProperties.Name="Close search" />
                     </Grid>
                     <ProgressBar x:Name="SearchProgress" Height="2" MinHeight="2" views:BusyIndicator.IsBusy="True"
@@ -99,12 +99,12 @@
             </Border>
 
             <TextBlock DockPanel.Dock="Bottom" x:Name="SearchFooter" Text="↑↓ move · ↵ open · tab switch · esc close"
-                       FontSize="11" Foreground="{StaticResource KcapFaintBrush}" HorizontalAlignment="Center" Margin="0,12,0,0" />
+                       FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}" HorizontalAlignment="Center" Margin="0,12,0,0" />
 
             <Panel Margin="0,10,0,0">
                 <StackPanel x:Name="SearchSignInPrompt" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Top"
                             Margin="0,24,0,0" IsVisible="{Binding SearchShowsSignIn}">
-                    <TextBlock Text="Sign in to search sessions" FontSize="13" Foreground="{StaticResource KcapMutedBrush}"
+                    <TextBlock Text="Sign in to search sessions" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapMutedBrush}"
                                HorizontalAlignment="Center" />
                     <Button x:Name="SearchSignInButton" Classes="kcapPrimary" Content="Sign in" HorizontalAlignment="Center"
                             Command="{Binding SignInCommand}" AutomationProperties.Name="Sign in" />
@@ -112,7 +112,7 @@
 
                 <DockPanel x:Name="SearchResults" IsVisible="{Binding !SearchShowsSignIn}">
                     <TextBlock DockPanel.Dock="Top" x:Name="SearchListMessage" Text="{Binding Search.ListMessage, FallbackValue={x:Null}}"
-                               FontSize="13" Foreground="{StaticResource KcapMutedBrush}" Margin="10,6" TextWrapping="Wrap"
+                               FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapMutedBrush}" Margin="10,6" TextWrapping="Wrap"
                                IsVisible="{Binding Search.ListMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}" />
                     <!-- The list owns its ScrollViewer so the panel can virtualize: only the rows on screen are built. -->
                     <ItemsControl x:Name="SearchHits" ItemsSource="{Binding Search.Hits, FallbackValue={x:Null}}">
@@ -134,12 +134,21 @@
                                         Click="OnHitClick" PointerMoved="OnHitPointerMoved"
                                         AutomationProperties.Name="{Binding TitleText}">
                                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                        <!-- A hit that knows its coding tool leads with the vendor mark, as the rail row does. -->
+                                        <Border Width="22" Height="22" VerticalAlignment="Top" Background="Transparent"
+                                                IsVisible="{Binding Vendor, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                AutomationProperties.Name="{Binding Vendor, Converter={x:Static views:VendorLabelConverter.Instance}}"
+                                                AutomationProperties.AccessibilityView="Content">
+                                            <ContentControl HorizontalAlignment="Center" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw"
+                                                            Content="{Binding Vendor, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=16}" />
+                                        </Border>
                                         <!-- The avatar is read as its owner's name; the initials stay out, or a bare letter is announced. -->
-                                        <Border Width="22" Height="22" CornerRadius="11" VerticalAlignment="Top" ClipToBounds="True"
+                                        <Border Grid.Column="0" Width="22" Height="22" CornerRadius="11" VerticalAlignment="Top" ClipToBounds="True"
+                                                IsVisible="{Binding Vendor, Converter={x:Static StringConverters.IsNullOrEmpty}}"
                                                 Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
                                                 AutomationProperties.Name="{Binding OwnerName}" AutomationProperties.AccessibilityView="{Binding OwnerAvatarView}">
                                             <Panel>
-                                                <TextBlock Text="{Binding OwnerInitials}" FontSize="9" FontWeight="SemiBold"
+                                                <TextBlock Text="{Binding OwnerInitials}" FontSize="{StaticResource KcapFontSizeCaption}" FontWeight="SemiBold"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center"
                                                            Foreground="{StaticResource KcapMutedBrush}" AutomationProperties.AccessibilityView="Raw" />
                                                 <views:RemoteAvatar Url="{Binding OwnerAvatarUrl}" AutomationProperties.AccessibilityView="Raw" />
@@ -149,21 +158,21 @@
                                             <!-- Left-aligned so the star column shrinks to a short title and the chip follows it. -->
                                             <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6" HorizontalAlignment="Left">
                                                 <TextBlock x:Name="SearchHitTitle" views:SearchSnippetText.Runs="{Binding Title}"
-                                                           FontSize="13.5" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                                           FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
                                                 <Border x:Name="SearchHitPrChip" Grid.Column="1" CornerRadius="5" Padding="5,0" VerticalAlignment="Center"
                                                         Background="{StaticResource KcapSurfaceRaisedBrush}"
                                                         IsVisible="{Binding PrNumber, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                                    <TextBlock Text="{Binding PrNumber, StringFormat='#{0}'}" FontSize="11"
+                                                    <TextBlock Text="{Binding PrNumber, StringFormat='#{0}'}" FontSize="{StaticResource KcapFontSizeCaption}"
                                                                Foreground="{StaticResource KcapMutedBrush}" />
                                                 </Border>
                                                 <TextBlock Grid.Column="2" Text="{Binding Speaker}" Classes="searchMeta" VerticalAlignment="Center"
                                                            IsVisible="{Binding Speaker, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                             </Grid>
                                             <TextBlock x:Name="SearchHitSnippet" views:SearchSnippetText.Runs="{Binding Snippet}"
-                                                       FontSize="12.5" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" MaxLines="2"
+                                                       FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" MaxLines="2"
                                                        TextTrimming="CharacterEllipsis"
                                                        IsVisible="{Binding Snippet.Count, Converter={x:Static views:CountIsNotZeroConverter.Instance}}" />
-                                            <TextBlock Text="{Binding Caption}" Classes="searchMeta" FontSize="11.5"
+                                            <TextBlock Text="{Binding Caption}" Classes="searchMeta" FontSize="{StaticResource KcapFontSizeSmall}"
                                                        IsVisible="{Binding Caption, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                         </StackPanel>
                                         <Panel Grid.Column="2" VerticalAlignment="Top">

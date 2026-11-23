@@ -20,7 +20,7 @@ public sealed class AgentSessionNotes(ConfigRoot config) {
                  && string.Equals(SessionId.Parse(named)?.Value, session.Value, StringComparison.OrdinalIgnoreCase)
                  && !holderIsGone(pid, token))
                     return new ProcessIncarnation(pid, token);
-            } catch { }
+            } catch { /* ignored */ }
         }
 
         return null;

@@ -32,7 +32,7 @@ public sealed class AdoptedLinkInventory(ConfigRoot config) {
 
     List<string> Read() {
         try {
-            return [.. File.ReadAllLines(config.Path(FileName)).Where(l => Path.IsPathRooted(l))];
+            return [.. File.ReadAllLines(config.Path(FileName)).Where(Path.IsPathRooted)];
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             return [];
         }

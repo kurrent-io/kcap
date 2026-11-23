@@ -38,7 +38,7 @@ public class GeminiSessionContextTests {
     public async Task The_first_of_several_workspace_directories_wins() {
         const string bootstrap = "<session_context>\\n- **Workspace Directories:**\\n  - /work/demo\\n  - /work/shared\\n"
                       + "- **Directory Structure:**\\n</session_context>";
-        var line      = $$"""{"id":"d0","type":"user","content":[{"text":"{{bootstrap}}"}]}""";
+        const string line = $$"""{"id":"d0","type":"user","content":[{"text":"{{bootstrap}}"}]}""";
 
         await Assert.That(GeminiSessionContext.TryReadWorkspace(line)).IsEqualTo("/work/demo");
     }
@@ -79,7 +79,7 @@ public class GeminiSessionContextTests {
     [Test]
     public async Task An_empty_workspace_list_resolves_to_nothing_not_the_next_heading() {
         const string bootstrap = "<session_context>\\n- **Workspace Directories:**\\n- **Directory Structure:**\\n  - /work/demo\\n</session_context>";
-        var line               = $$"""{"id":"d0","type":"user","content":[{"text":"{{bootstrap}}"}]}""";
+        const string line = $$"""{"id":"d0","type":"user","content":[{"text":"{{bootstrap}}"}]}""";
 
         await Assert.That(GeminiSessionContext.TryReadWorkspace(line)).IsNull();
     }

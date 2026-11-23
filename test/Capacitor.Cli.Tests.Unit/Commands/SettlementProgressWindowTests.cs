@@ -58,7 +58,7 @@ public class SettlementProgressWindowTests {
         using var client = new HttpClient(handler) { BaseAddress = new Uri("http://settlement.test") };
 
         var result = await McpFlowsServer.SendWithSettlementRetryAsync(
-            client, "https://flows.example.test", (c, ct) => c.PostAsync("/start", null, ct), clock, SettlementBackoff.Seeded(7));
+            client, (c, ct) => c.PostAsync("/start", null, ct), clock, SettlementBackoff.Seeded(7));
 
         var exhausted = result as McpFlowsServer.SettlementSendResult.DeadlineExhausted;
         await Assert.That(exhausted).IsNotNull();

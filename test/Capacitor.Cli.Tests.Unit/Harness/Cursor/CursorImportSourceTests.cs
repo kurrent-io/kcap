@@ -434,7 +434,7 @@ public class CursorImportSourceTests {
             await Assert.That(childClass.Status).IsEqualTo(ImportCommand.ClassificationStatus.ProbeError);
             await Assert.That(childClass.ProbeErrorReason).Contains("quarantined");
         } finally {
-            try { File.Delete(Markers.QuarantinePath(parentId)); } catch { }
+            try { File.Delete(Markers.QuarantinePath(parentId)); } catch { /* ignored */ }
         }
     }
 
@@ -1508,7 +1508,7 @@ public class CursorImportSourceTests {
         await Assert.That(childClass.SourceMeta!.ContainsKey("IsSubagentChild")).IsTrue();
 
         var posted = new List<string>();
-        using var postHandler = new StubHandler(postCapture: (req, body) => { posted.Add(req.RequestUri!.AbsolutePath); return new HttpResponseMessage(HttpStatusCode.OK); });
+        using var postHandler = new StubHandler(postCapture: (req, _) => { posted.Add(req.RequestUri!.AbsolutePath); return new HttpResponseMessage(HttpStatusCode.OK); });
         using var postClient = new HttpClient(postHandler);
 
         var outcome = await src.ImportSessionAsync(childClass, new ImportContext(postClient, "http://localhost", ForcePrivate: false), CancellationToken.None);
@@ -1560,7 +1560,7 @@ public class CursorImportSourceTests {
 
             await Assert.That(outcome).IsEqualTo(ImportOutcome.Skipped);
             await Assert.That(posted.Count).IsEqualTo(0);
-        } finally { try { File.Delete(Markers.QuarantinePath(sessionId)); } catch { } }
+        } finally { try { File.Delete(Markers.QuarantinePath(sessionId)); } catch { /* ignored */ } }
     }
 
     // A non-quarantined session must import normally even WITH a QuarantineIdentity stamped —
@@ -1645,7 +1645,7 @@ public class CursorImportSourceTests {
             await Assert.That(posted).Contains("/hooks/session-start/cursor");
             await Assert.That(posted).DoesNotContain("/hooks/transcript");
             await Assert.That(posted).Contains("/hooks/session-end/cursor");
-        } finally { try { File.Delete(Markers.QuarantinePath(sessionId)); } catch { } }
+        } finally { try { File.Delete(Markers.QuarantinePath(sessionId)); } catch { /* ignored */ } }
     }
 
     // A quarantine check only BEFORE SendTranscriptBatches is not enough: that method streams the
@@ -1704,7 +1704,7 @@ public class CursorImportSourceTests {
             // Best-effort closed rather than left hanging "active" forever (same contract as the
             // two boundary checks — pre-flight and post-sessionStart — above).
             await Assert.That(posted).Contains("/hooks/session-end/cursor");
-        } finally { try { File.Delete(Markers.QuarantinePath(sessionId)); } catch { } }
+        } finally { try { File.Delete(Markers.QuarantinePath(sessionId)); } catch { /* ignored */ } }
     }
 
     /// <summary>
@@ -1817,7 +1817,7 @@ public class CursorImportSourceTests {
             await Assert.That(posted).Contains("/hooks/session-start/cursor");
             // Best-effort closed rather than left hanging "active" forever.
             await Assert.That(posted).Contains("/hooks/session-end/cursor");
-        } finally { try { File.Delete(Markers.QuarantinePath(sessionId)); } catch { } }
+        } finally { try { File.Delete(Markers.QuarantinePath(sessionId)); } catch { /* ignored */ } }
     }
 
     // a quarantine trip during a CHILD's own transcript
@@ -1886,7 +1886,7 @@ public class CursorImportSourceTests {
             // The parent must still be best-effort closed instead of left hanging Active forever
             // (a bare `false` return here would skip it).
             await Assert.That(posted).Contains("/hooks/session-end/cursor");
-        } finally { try { File.Delete(Markers.QuarantinePath(parentId)); } catch { } }
+        } finally { try { File.Delete(Markers.QuarantinePath(parentId)); } catch { /* ignored */ } }
     }
 
     // never START a NEW child once the family is found
@@ -1962,7 +1962,7 @@ public class CursorImportSourceTests {
             // nothing about child B's OWN delivery caused the trip.
             await Assert.That(subagentStartAgentIds).DoesNotContain(childBId);
             await Assert.That(bodies.Any(b => b.Path == "/hooks/session-end/cursor")).IsTrue();
-        } finally { try { File.Delete(Markers.QuarantinePath(parentId)); } catch { } }
+        } finally { try { File.Delete(Markers.QuarantinePath(parentId)); } catch { /* ignored */ } }
     }
 
     // subagentLinks is only ever computed from the sessions THIS batch
@@ -1998,7 +1998,7 @@ public class CursorImportSourceTests {
             await Assert.That(classified[0].Status).IsEqualTo(ImportCommand.ClassificationStatus.ProbeError);
             await Assert.That(classified[0].ProbeErrorReason).Contains("quarantined");
         } finally {
-            try { File.Delete(Markers.QuarantinePath(parentId)); } catch { }
+            try { File.Delete(Markers.QuarantinePath(parentId)); } catch { /* ignored */ }
         }
     }
 

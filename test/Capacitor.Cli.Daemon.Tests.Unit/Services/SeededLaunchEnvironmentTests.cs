@@ -28,7 +28,7 @@ public class SeededLaunchEnvironmentTests {
         "pi"          => PiRpcHostedAgentRuntimeFactory.BuildPsi(new DaemonConfig(), Ctx("pi")).Environment,
         "muse"        => MuseHostedAgentRuntimeFactory.BuildPsi(new DaemonConfig(), Ctx("muse"), reviewer: false).Environment,
         "antigravity" => AntigravityHostedAgentRuntimeFactory.BuildTurnPsi(
-                             new DaemonConfig(), Ctx("antigravity"), "prompt", conversationId: null, home: "/tmp/kcap-antigravity-home").Environment,
+                             new DaemonConfig(), Ctx("antigravity"), conversationId: null, home: "/tmp/kcap-antigravity-home").Environment,
         "codex"       => CodexChildEnvironment(),
         _             => throw new ArgumentOutOfRangeException(nameof(runtime), runtime, null),
     };

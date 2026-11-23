@@ -118,6 +118,7 @@ public partial class WorkContextView : UserControl {
         _copyRestoreText = text;
         ToolTip.SetTip(control, "Copied");
         ToolTip.SetIsOpen(control, true);
+        LiveAnnouncer.Polite(control, "Copied");
         _copyTarget = control;
         _copyRestore = (_, _) => ClearCopyFlash();
         control.PointerExited += _copyRestore;

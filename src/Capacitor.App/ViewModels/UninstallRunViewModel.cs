@@ -14,18 +14,24 @@ public sealed class UninstallRunViewModel : ReactiveObject {
     readonly IKcapCli      _cli;
     readonly IAppRemoval   _removal;
     readonly bool          _purgeLocal;
+    readonly bool          _keepConfig;
     readonly Action<Action> _post;
     readonly Func<Task>?    _prepare;
+    readonly Func<bool>     _hasSettings;
     bool                   _prepared;
+    bool?                  _hadSettings;
+    bool?                  _hadCommand;
     UninstallRunState      _state = UninstallRunState.Running;
 
     public UninstallRunViewModel(IKcapCli cli, IAppRemoval removal, bool purgeLocal, Action quit, Action<Action>? post = null,
-            Func<Task>? prepare = null) {
+            Func<Task>? prepare = null, bool keepConfig = false, Func<bool>? hasSettings = null) {
         _cli        = cli;
         _removal    = removal;
         _purgeLocal = purgeLocal;
+        _keepConfig = keepConfig;
         _post       = post ?? (action => Dispatcher.UIThread.Post(action));
         _prepare    = prepare;
+        _hasSettings = hasSettings ?? (static () => true);
         _prepared   = prepare is null;
         _state      = _prepared ? UninstallRunState.Running : UninstallRunState.Preparing;
 
@@ -74,7 +80,7 @@ public sealed class UninstallRunViewModel : ReactiveObject {
 
     public string Description => State switch {
         UninstallRunState.Preparing => "Closing kcap before removing its background services and app.",
-        UninstallRunState.Finished => $"kcap’s background services and coding-agent integrations have been removed. {_removal.RemovedSummary}",
+        UninstallRunState.Finished => $"kcap is out of your coding agents, and none of its background services is left. {_removal.RemovedSummary}",
         UninstallRunState.Failed => "Uninstall could not finish. See the details below.",
         UninstallRunState.TrashFailed => $"{_removal.NotRemoved}. See the details below to finish.",
         _ => "Removing background services, coding-agent integrations, and the app.",
@@ -121,8 +127,15 @@ public sealed class UninstallRunViewModel : ReactiveObject {
         StreamingResult result;
         var streamed = 0;
         var purged = 0;
+        // What was there, read before anything goes and kept across a retry, whose first attempt may have removed it.
+        // The readings touch the disk, so they stay off the thread that draws the progress window.
+        if (_hadSettings is null || _hadCommand is null) {
+            var (settings, command) = await Task.Run(() => (Observed(_hasSettings), Observed(() => _removal.CommandInstalled)));
+            _hadSettings ??= settings;
+            _hadCommand  ??= command;
+        }
         try {
-            result = await _cli.UninstallAsync(_purgeLocal, line => {
+            result = await _cli.UninstallAsync(_purgeLocal, _keepConfig, line => {
                 Interlocked.Increment(ref streamed);
                 // The CLI's own outcome line: a purge that was asked for may have found no server to purge.
                 if (line.Text.StartsWith("Purged the local server", StringComparison.Ordinal)) Interlocked.Exchange(ref purged, 1);
@@ -186,16 +199,28 @@ public sealed class UninstallRunViewModel : ReactiveObject {
         State = UninstallRunState.Finished;
     }
 
-    /// Claims only what a zero exit from `kcap uninstall` and the steps after it guarantee.
+    /// Claims only what a zero exit from `kcap uninstall` and the steps after it guarantee. That exit says nothing is
+    /// left, not that something was there, so a line says "removed" or "kept" only for what was seen beforehand.
     void FillReceipt(bool purgedLocal, bool supportFilesLeft) {
-        Receipt.Add(new("Removed kcap from your coding agents’ user settings"));
-        Receipt.Add(new("Removed kcap’s background services"));
+        Receipt.Add(new("kcap is out of your coding agents’ user settings"));
+        Receipt.Add(new("No kcap background service is left"));
         if (purgedLocal) Receipt.Add(new("Deleted the local server and every session it recorded"));
-        Receipt.Add(new("Removed your kcap settings and sign-in"));
-        Receipt.Add(new("Removed the kcap command the app installed"));
+        if (_hadSettings == true)
+            Receipt.Add(new(_keepConfig ? "Kept your kcap settings and sign-in for a reinstall" : "Removed your kcap settings and sign-in"));
+        if (_hadCommand == true) Receipt.Add(new("Removed the kcap command the app installed"));
         Receipt.Add(new(_removal.Trashed, Done: !_removal.RemovedOnExit));
         if (supportFilesLeft)
             Receipt.Add(new("A few of the app’s own files couldn’t be removed. They don’t keep kcap running.", Done: false));
+    }
+
+    /// A reading that fails counts as seen: the removal then ran against it, and its own failure would have stopped the run.
+    static bool Observed(Func<bool> read) {
+        try {
+            return read();
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: could not read what the uninstall removes: {ex.Message}");
+            return true;
+        }
     }
 
     void Fail(string message) {

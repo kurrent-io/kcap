@@ -759,7 +759,7 @@ public class CodexLauncherTests {
             ReadInheritedMcpServers = static () => []
         };
 
-    static LauncherContext NewFlowCtx(string[]? allowlist) => new LauncherContext(
+    static LauncherContext NewFlowCtx(string[]? allowlist) => new(
         AgentId: "agent-xyz",
         SourceRepoPath: "/tmp/repo",
         Worktree: new WorktreeInfo(Path: "/tmp/wt", Branch: "wt-branch", SourceRepo: "/tmp/repo"),

@@ -44,6 +44,7 @@ public partial class MessageCopyButton : UserControl {
         // Writes can finish out of order; only the latest click shows a receipt or clears one.
         if (_copies != mine) return;
         Show(receipt);
+        LiveAnnouncer.Polite(this, receipt);
         DispatcherTimer.RunOnce(() => { if (_copies == mine) Show("Copy message"); }, CopiedFor);
     }
 

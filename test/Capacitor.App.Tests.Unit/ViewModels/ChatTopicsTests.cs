@@ -337,13 +337,13 @@ public class ChatTopicsTests {
             var reply = new AssistantTextItem("Still on the last point");
             items.Insert(items.IndexOf(card), reply);
             topics.Restore();
-            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { items[0], reply, first, second, card }, CollectionOrdering.Matching);
+            await Assert.That(items).IsEquivalentTo(new[] { items[0], reply, first, second, card }, CollectionOrdering.Matching);
 
             var one = new UserTurnItem("Point 1");
             var two = new UserTurnItem("Point 2");
             items.InsertRange(items.IndexOf(card), [one, two]);
             topics.Restore();
-            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { items[0], reply, first, one, second, two, card }, CollectionOrdering.Matching);
+            await Assert.That(items).IsEquivalentTo(new[] { items[0], reply, first, one, second, two, card }, CollectionOrdering.Matching);
             await Assert.That(reply.Topic).IsNull();
             await Assert.That((first.Label, second.Label)).IsEqualTo(("Point 1", "Point 2"));
         });
@@ -360,7 +360,7 @@ public class ChatTopicsTests {
             var accepted = topics.Start();
             var failed = topics.Start();
             topics.Discard(failed);
-            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { items[0], accepted }, CollectionOrdering.Matching);
+            await Assert.That(items).IsEquivalentTo(new[] { items[0], accepted }, CollectionOrdering.Matching);
 
             var landed = new UserTurnItem("Point 1");
             items.Add(landed);
@@ -404,14 +404,14 @@ public class ChatTopicsTests {
             var earlier = new UserTurnItem("Point 1");
             items.Add(earlier);
             topics.Restore();
-            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { items[0], earlier, topic }, CollectionOrdering.Matching);
+            await Assert.That(items).IsEquivalentTo(new[] { items[0], earlier, topic }, CollectionOrdering.Matching);
 
             var failed = topics.Start(static turn => turn.Text == "Never sent");
             topics.Discard(failed);
             var mine = new UserTurnItem("Point 2");
             items.Add(mine);
             topics.Restore();
-            await Assert.That(items).IsEquivalentTo(new ChatItemViewModel[] { items[0], earlier, topic, mine }, CollectionOrdering.Matching);
+            await Assert.That(items).IsEquivalentTo(new[] { items[0], earlier, topic, mine }, CollectionOrdering.Matching);
             await Assert.That(earlier.Topic).IsNull();
         });
     }

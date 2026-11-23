@@ -19,7 +19,7 @@ internal sealed class PermissionIpc(PermissionPromptBroker broker, ILogger<Permi
             // broadcasting into a channel nobody drains.
             _ = Task.Run(async () => {
                 try { while (await FrameCodec.ReadAsync(stream, cts.Token) is not null) { } }
-                catch { }
+                catch { /* ignored */ }
                 try { cts.Cancel(); } catch (ObjectDisposedException) { }
             }, cts.Token);
 

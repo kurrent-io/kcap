@@ -2,6 +2,7 @@ using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Avalonia;
 using Avalonia.Automation;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
@@ -95,7 +96,7 @@ public class WorkspaceViewSmokeTests {
                 Dispatcher.UIThread.RunJobs();
                 window.UpdateLayout();
                 await Assert.That(window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "The daemon isn’t running")).IsTrue();
-                var start = window.GetVisualDescendants().OfType<Button>().Single(b => b is { IsEffectivelyVisible: true, Content: "Start daemon" });
+                _ = window.GetVisualDescendants().OfType<Button>().Single(b => b is { IsEffectivelyVisible: true, Content: "Start daemon" });
                 await vm.StartDaemonCommand.Execute();
                 await Assert.That(daemon.StartDaemonCallCount).IsEqualTo(1);
                 daemon.StartBehavior = _ => Task.FromResult(new StartDaemonResult(false, "kcap CLI not found"));
@@ -608,9 +609,14 @@ public class WorkspaceViewSmokeTests {
                 await Assert.That(working.IsEffectivelyVisible).IsTrue();
                 var workingWord = working.FindControl<TextBlock>("StatusWord")!;
                 await Assert.That(workingWord.Text).IsEqualTo("Working");
+                var peer = ControlAutomationPeer.CreatePeerForElement(workingWord);
+                var changes = new List<string?>();
+                peer.PropertyChanged += (_, e) => {
+                    if (e.Property == AutomationElementIdentifiers.NameProperty && peer.GetLiveSetting() == AutomationLiveSetting.Polite)
+                        changes.Add(e.NewValue as string);
+                };
                 var workingLines = TipLines(working);
                 await Assert.That(workingLines[0]).StartsWith("Working for ");
-                await Assert.That(workingLines[1]).IsEqualTo("Status");
                 await Assert.That(AutomationProperties.GetName(working)).IsEqualTo(workingLines[0]);
                 await Assert.That(Visible(window, "ChatActivityNote")).IsFalse();
 
@@ -625,6 +631,7 @@ public class WorkspaceViewSmokeTests {
                 Dispatcher.UIThread.RunJobs();
                 window.UpdateLayout();
                 await AssertStatus(window, "Needs you", "Needs you");
+                await Assert.That(changes).IsEquivalentTo(new string?[] { "Idle", "Needs you" });
                 var needsYou = string.Join('\n', TipLines(StatusMark(window)));
                 await Assert.That(needsYou).Contains("Weekly limit reached");
                 await Assert.That(needsYou).Contains("Usage limit");

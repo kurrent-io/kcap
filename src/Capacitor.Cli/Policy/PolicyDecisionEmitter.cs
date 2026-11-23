@@ -21,7 +21,7 @@ internal sealed class PolicyDecisionEmitter(ConfigRoot config, HookSpool spool) 
             var body = JsonSerializer.Serialize(evt, CapacitorJsonContext.Default.PolicyDecisionEventV1);
             spool.Append(evt.SessionId, "policy-decision", body);
         }
-        catch { }
+        catch { /* ignored */ }
 
         return Task.CompletedTask;
     }
