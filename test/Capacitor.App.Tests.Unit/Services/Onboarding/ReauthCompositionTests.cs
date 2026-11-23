@@ -142,12 +142,14 @@ public class ReauthCompositionTests {
         });
     }
 
-    /// The dialog renders the SAME sign-in view the wizard shows, and entering it announces the
-    /// pinned server — the user must see where they are signing in to.
+    /// The dialog renders the SAME sign-in view the wizard shows, and opening it starts the attempt:
+    /// the Sign in click that opened it is the only one the user makes.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_dialog_hosts_the_wizard_sign_in_view_announcing_the_server() {
-        var (buttonFound, status) = await AvaloniaSession.DispatchAsync(() => {
+    public async Task The_dialog_hosts_the_wizard_sign_in_view_and_starts_signing_in_on_open() {
+        var (buttonFound, status, runs) = await AvaloniaSession.DispatchAsync(() => {
+            var runs = 0;
+            var browser = new TaskCompletionSource<AuthResult>();
             using var config = new TempConfigRoot();
             var graph = ReauthComposition.Build(
                 config.Root, AuthFixtures.NewTokenStore(config.Root), new PlainHttpClientFactory(),
@@ -158,7 +160,7 @@ public class ReauthCompositionTests {
                 new AppStateStore(config.PathTo("app-state.json")),
                 new RecordingOpener(),
                 TimeProvider.System,
-                _ => (_, _) => Task.FromResult<AuthResult>(Committed()),
+                _ => (_, _) => { runs++; return browser.Task; },
                 refreshAppState: true);
 
             var window = new SignInWindow { DataContext = graph.SignIn };
@@ -169,12 +171,14 @@ public class ReauthCompositionTests {
             var text = window.GetVisualDescendants().OfType<TextBlock>()
                 .FirstOrDefault(t => t.Name == "SignInStatusText")?.Text;
 
+            browser.SetResult(new AuthResult.Cancelled());
             window.Close();
             Dispatcher.UIThread.RunJobs();
-            return (button is not null, text);
+            return (button is not null, text, runs);
         });
 
         await Assert.That(buttonFound).IsTrue();
-        await Assert.That(status).IsEqualTo(ServerUrl);
+        await Assert.That(runs).IsEqualTo(1);
+        await Assert.That(status).IsEqualTo("Waiting for your browser…");
     }
 }

@@ -1979,11 +1979,35 @@ public class MainWindowSmokeTests {
             ClickFlyoutButton(window.FindDescendantOfType<SessionRailView>()!.FindControl<Button>("RailAlertLink")!);
             await vm.OpenRailAlertCommand.IsExecuting.Where(executing => !executing).FirstAsync();
             Dispatcher.UIThread.RunJobs();
-            await Assert.That(home.RemoteMachineSelected).IsEqualTo(remoteSelected && !offered);
-            var action = window.FindDescendantOfType<LauncherPaneView>()!.FindControl<Button>("HomeSignInButton")!;
-            await Assert.That(action.IsEffectivelyVisible).IsEqualTo(offered);
-            if (offered) ClickFlyoutButton(action);
+            // An offered sign-in opens straight from the alert, without a stop at the launcher.
             await Assert.That(signIns).IsEqualTo(offered ? 1 : 0);
+            await Assert.That(home.RemoteMachineSelected).IsEqualTo(remoteSelected);
+        } finally { window.Close(); }
+        return true;
+    });
+
+    /// The app's own expired sign-in: the alert opens sign-in itself instead of the launcher,
+    /// whose Sign in would be one more click on the way to the same dialog.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Rail_alert_opens_sign_in_directly_when_the_app_is_signed_out() => AvaloniaSession.DispatchAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap(daemon: "nortonandreev", version: "1.1.0", connection: "connected", active: 2, max: 5));
+        service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        var lane = new FakeServerLane();
+        lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut));
+        var signIns = 0;
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+            tenantName: "kurrent", laneStatus: lane.Status, requestSignIn: () => signIns++);
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(vm.Alert?.Text).IsEqualTo(MainWindowViewModel.SignInRequiredText);
+            ClickFlyoutButton(window.FindDescendantOfType<SessionRailView>()!.FindControl<Button>("RailAlertLink")!);
+            await vm.OpenRailAlertCommand.IsExecuting.Where(executing => !executing).FirstAsync();
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(signIns).IsEqualTo(1);
         } finally { window.Close(); }
         return true;
     });
