@@ -283,10 +283,10 @@ public class AcpHostedAgentRuntimeReconnectTests {
         await Assert.That(Array.IndexOf(events, "kill:6001")).IsLessThan(Array.IndexOf(events, "spawn:5002"));
     }
 
-    /// <summary>A failed candidate whose agent survives its kill keeps its PID record and ends the incident:
-    /// no further candidate may load the session beside it</summary>
+    /// <summary>A failed candidate whose agent survives its kill ends the incident: no further candidate may
+    /// load the session beside it</summary>
     [Test]
-    public async Task Failed_candidate_with_a_surviving_agent_keeps_its_record_and_finalizes() {
+    public async Task Failed_candidate_with_a_surviving_agent_finalizes_without_another_spawn() {
         await using var h = new Harness();
         h.Tree.DescendantsOf[5001] = [(6001, "start:6001")];
         h.Tree.Unkillable.Add(6001);
@@ -304,8 +304,6 @@ public class AcpHostedAgentRuntimeReconnectTests {
 
         await terminal.WaitAsync(HangGuard);
         await Assert.That(h.CandidateSpawns).IsEqualTo(1);
-        await Assert.That(h.RecordedPids).Contains(5001);
-        await Assert.That(h.ClearRecordCalls).IsEqualTo(0);
     }
 
     /// <summary>A descendant still alive after the retirement wait is an unconfirmed retirement: no candidate

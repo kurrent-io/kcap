@@ -2450,7 +2450,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     if (!TryCommit(candidate)) {
                         var retired = await DisposeCandidateAsync(candidate, recordedWith).ConfigureAwait(false);
                         candidate = null;
-                        if (!retired) throw CandidateRetirementUnconfirmed(ref recordedWith);
+                        if (!retired) throw CandidateRetirementUnconfirmed();
                         continue; // attempt failed (candidate died pre-install)
                     }
 
@@ -2501,7 +2501,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     if (candidate is not null) {
                         var retired = await DisposeCandidateAsync(candidate, recordedWith).ConfigureAwait(false);
                         candidate = null;
-                        if (!retired) throw CandidateRetirementUnconfirmed(ref recordedWith);
+                        if (!retired) throw CandidateRetirementUnconfirmed();
                     }
                 }
             }
@@ -2904,15 +2904,12 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         return true;
     }
 
-    /// <summary>Drops the candidate's record bundle so the terminal path cannot clear the record of a tree
-    /// that may still be alive</summary>
-    static AcpReconnectTerminalException CandidateRetirementUnconfirmed(ref AcpPidRecordCallbacks? recordedWith) {
-        recordedWith = null;
-        return new("retirement_unconfirmed", "a failed reconnect candidate's process tree could not be confirmed exited");
-    }
+    static AcpReconnectTerminalException CandidateRetirementUnconfirmed() =>
+        new("retirement_unconfirmed", "a failed reconnect candidate's process tree could not be confirmed exited");
 
-    /// <summary>False when the candidate or a listed descendant may still be alive: its PID record is then
-    /// kept, and no further candidate may load the session beside it</summary>
+    /// <summary>False when the candidate or a listed descendant outlived its SIGKILL, which ends the incident so
+    /// no further candidate loads the session beside it. Nothing more is held for such a survivor: only a process
+    /// stuck in uninterruptible sleep outlives SIGKILL, and one that comes unstuck has lost its pipes and exits</summary>
     async Task<bool> DisposeCandidateAsync(Incarnation candidate, AcpPidRecordCallbacks? recordedWith) {
         try { candidate.LoopCts.Cancel(); } catch (ObjectDisposedException) { }
 
@@ -2941,10 +2938,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             _logger.LogDebug(ex, "ACP reconnect: candidate process disposal failed (best-effort).");
         }
 
-        if (!confirmed) {
-            _logger.LogWarning("ACP reconnect: a failed candidate's process tree could not be confirmed exited; its PID record is kept.");
-            return false;
-        }
+        if (!confirmed)
+            _logger.LogWarning("ACP reconnect: a failed candidate's process tree could not be confirmed exited.");
 
         // Clear only through the generation that recorded: a null recordedWith means the Record threw or
         // never ran, and the original agent's record must survive.
@@ -2954,7 +2949,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             _logger.LogDebug(ex, "ACP reconnect: clearing the candidate PID record failed (best-effort).");
         }
 
-        return true;
+        return confirmed;
     }
 
     /// <summary>
