@@ -15,6 +15,7 @@ namespace Capacitor.Remote.Models;
 [JsonSerializable(typeof(SessionDetailDto))]
 [JsonSerializable(typeof(SessionEventDto))]
 [JsonSerializable(typeof(StreamEventsPage))]
+[JsonSerializable(typeof(PendingInterruptsPage))]
 [JsonSerializable(typeof(QueuedInputItem[]))]
 [JsonSerializable(typeof(DiscardQueuedInputRequest))]
 [JsonSerializable(typeof(SendTerminalInputRequest))]

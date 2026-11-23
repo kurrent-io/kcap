@@ -27,7 +27,7 @@ public class SessionInterruptLogTests {
             return this;
         }
 
-        public async Task<StreamEventsFetch> Read(string sessionId, long from, int? limit, CancellationToken ct) {
+        public async Task<StreamEventsFetch> Read(string sessionId, long from, int? limit, int? tail, CancellationToken ct) {
             lock (Froms) Froms.Add(from);
             if (Hold is { } hold) await hold.Task.WaitAsync(ct);
             if (Missing) return new StreamEventsFetch(null, NotFound: true);
@@ -38,6 +38,23 @@ public class SessionInterruptLogTests {
             return new StreamEventsFetch(new StreamEventsPage { Events = page, NextFrom = next, LastEventNumber = _events.Count - 1 });
         }
 
+        public int PendingReads;
+        /// Answers the pending route as a server without it would.
+        public bool NoPendingRoute;
+
+        /// The server's own fold of the whole stream, with the count to continue from.
+        public Task<PendingInterruptsFetch> Pending(string sessionId, CancellationToken ct) {
+            PendingReads++;
+            if (Missing || NoPendingRoute) return Task.FromResult(new PendingInterruptsFetch(null, NotFound: true));
+            if (Failing) return Task.FromResult(new PendingInterruptsFetch(null, Failure: "down"));
+            var folded = InterruptReconciliation.Fold(null, _events);
+            var open = _events.Where(e => e.EventType == "InterruptIssued" && folded.Pending.Any(p => p.RequestId == e.Body?.GetProperty("request_id").GetString()));
+            return Task.FromResult(new PendingInterruptsFetch(new PendingInterruptsPage {
+                LastEventNumber = _events.Count - 1, NextFrom = _events.Count, Ended = folded.Ended,
+                Interrupts = [.. open.Select(e => new PendingInterruptDto { RequestId = e.Body?.GetProperty("request_id").GetString(), Event = e })],
+            }));
+        }
+
         public Task<SummaryFetch> Summary(string sessionId, CancellationToken ct) {
             Summaries++;
             return Task.FromResult(new SummaryFetch(ServerReadOutcome.Ok, new ActivitySessionDto {
@@ -46,6 +63,8 @@ public class SessionInterruptLogTests {
         }
 
         public SessionInterruptLog Log(IServerLane? lane = null, bool summary = true) => new(Read, lane, summary ? Summary : null);
+
+        public SessionInterruptLog SeededLog(IServerLane? lane = null) => new(Read, lane, readPending: Pending);
     }
 
     internal static string Issued(string id) =>
@@ -70,6 +89,63 @@ public class SessionInterruptLogTests {
         await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "old" });
         await Assert.That(stream.Froms).IsEquivalentTo(new long[] { 0, 2, 4 });
         await Assert.That(stream.Summaries).IsEqualTo(1);
+    }
+
+    /// The server's pending set stands in for the stream before it: an interrupt raised long before the
+    /// tail still counts, and the fold continues from the position the set holds for.
+    [Test]
+    public async Task A_first_read_starts_from_the_servers_pending_set() {
+        var stream = new Stream().Append(Issued("old"), Issued("done"), Line, Resolved("done"), Line, Line);
+        var log = stream.SeededLog();
+
+        await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "old" });
+        await Assert.That(stream.Froms).IsEquivalentTo(new long[] { 6 });
+
+        stream.Froms.Clear();
+        stream.Append(Resolved("old"), Issued("new"));
+        await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "new" });
+        await Assert.That(stream.Froms[0]).IsEqualTo(6);
+        await Assert.That(stream.PendingReads).IsEqualTo(1);
+    }
+
+    /// An ended session in the pending set reopens when the events after it resume it.
+    [Test]
+    public async Task A_pending_set_that_says_ended_is_continued_through_a_resume() {
+        var stream = new Stream().Append(Issued("r1"), Ended);
+        var log = stream.SeededLog();
+        await Assert.That((await log.ReadAsync("s1", CancellationToken.None)).Interrupts!.Ended).IsTrue();
+
+        stream.Append(Resumed, Issued("r2"));
+        await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "r2" });
+    }
+
+    /// A server without the route answers 404, as it would for a missing session: the stream is folded from
+    /// its first event, and that read answers for the session.
+    [Test]
+    public async Task Without_a_pending_route_the_stream_is_folded_from_its_first_event() {
+        var stream = new Stream { NoPendingRoute = true }.Append(Issued("old"), Line, Line);
+        var log = stream.SeededLog();
+
+        await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "old" });
+        await Assert.That(stream.Froms).IsEquivalentTo(new long[] { 0, 2 });
+    }
+
+    [Test]
+    public async Task A_missing_session_is_not_found_when_seeded() {
+        var stream = new Stream { Missing = true }.Append(Issued("r1"));
+        var log = stream.SeededLog();
+
+        await Assert.That((await log.ReadAsync("s1", CancellationToken.None)).NotFound).IsTrue();
+    }
+
+    /// A failed pending read falls back to the stream rather than failing the reconcile.
+    [Test]
+    public async Task A_failed_pending_read_folds_the_stream_instead() {
+        var stream = new Stream().Append(Issued("r1"), Line);
+        var log = new SessionInterruptLog(stream.Read, readPending: (_, _) => Task.FromResult(new PendingInterruptsFetch(null, Failure: "down")));
+
+        await Assert.That(await PendingIds(log)).IsEquivalentTo(new[] { "r1" });
+        await Assert.That(stream.Froms[0]).IsEqualTo(0);
     }
 
     [Test]

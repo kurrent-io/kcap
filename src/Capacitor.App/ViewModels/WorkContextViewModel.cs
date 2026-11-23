@@ -219,6 +219,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             this.RaisePropertyChanged(nameof(IsReady));
             this.RaisePropertyChanged(nameof(ShowsSignIn));
             this.RaisePropertyChanged(nameof(ShowsRetry));
+            this.RaisePropertyChanged(nameof(ShowsReadProgress));
             RaiseRelated();
         }
     } = WorkContextPhase.WaitingForSession;
@@ -298,13 +299,22 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             this.RaiseAndSetIfChanged(ref field, value);
             if (!value) IsRefreshing = false;
             this.RaisePropertyChanged(nameof(RefreshTip));
+            this.RaisePropertyChanged(nameof(ShowsReadProgress));
         }
     }
     /// A refresh someone asked for, still reading; the 30s poll runs without it.
     public bool IsRefreshing {
         get;
-        private set { if (field != value) { this.RaiseAndSetIfChanged(ref field, value); this.RaisePropertyChanged(nameof(RefreshTip)); } }
+        private set {
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
+            this.RaisePropertyChanged(nameof(RefreshTip));
+            this.RaisePropertyChanged(nameof(ShowsReadProgress));
+        }
     }
+    /// A read someone is waiting on: the first one, or a refresh they asked for. The poll re-reads behind the
+    /// note already shown; animating a bar for each one keeps an idle window rendering every 30 seconds.
+    public bool ShowsReadProgress => IsReading && (IsRefreshing || Phase is WorkContextPhase.Loading);
     // Subject, not WhenAnyValue — same RxAppBuilder init trap as SessionRailViewModel.SelectedSessionKey.
     readonly BehaviorSubject<bool> _hasSessionChanges = new(false);
     public bool HasSession {

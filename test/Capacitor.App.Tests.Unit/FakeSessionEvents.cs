@@ -18,10 +18,24 @@ sealed class FakeSessionEvents(params SessionEventDto[] events) {
     /// Each request waits for this before answering, when set.
     public Func<Task>? Gate { get; set; }
 
+    /// Answers a tail request as a server that predates the parameter would: a page from `from`, with no first_from.
+    public bool IgnoresTail { get; set; }
+    public List<int> Tails { get; } = [];
+
     /// A null limit reads as the server's cap.
-    public async Task<StreamEventsFetch> Read(string sessionId, long from, int? asked, CancellationToken ct) {
-        var limit = asked ?? 1000;
-        lock (_lock) Requests.Add((from, limit));
+    public async Task<StreamEventsFetch> Read(string sessionId, long from, int? asked, int? tail, CancellationToken ct) {
+        var limit = tail is not null && IgnoresTail ? 500 : asked ?? 1000;
+        lock (_lock) {
+            if (tail is { } t && !IgnoresTail) {
+                Tails.Add(t);
+                // Recorded in from/limit terms too, so a test counting requests sees the tail page.
+                var count = Math.Min(t, 1000);
+                var start = Math.Max(from, Events.Count - count);
+                Requests.Add((start, count));
+            } else {
+                Requests.Add((from, limit));
+            }
+        }
         if (Gate is { } gate) await gate();
         lock (_lock) {
             if (FailNext > 0) {
@@ -31,7 +45,13 @@ sealed class FakeSessionEvents(params SessionEventDto[] events) {
         }
         if (NotFound) return new(null, NotFound: true);
         if (Unauthorized) return new(null, Unauthorized: true);
-        lock (_lock) return new(Page(Events, Events.Count == 0 ? EmptyLastEventNumber : Events[^1].EventNumber, from, limit));
+        lock (_lock) {
+            var last = Events.Count == 0 ? EmptyLastEventNumber : Events[^1].EventNumber;
+            if (tail is not { } n || IgnoresTail) return new(Page(Events, last, from, limit));
+            var count = Math.Min(n, 1000);
+            var start = Math.Max(from, Math.Max(0, Events.Count - count));
+            return new(Page(Events, last, start, count) with { FirstFrom = (int)Math.Min(start, Events.Count) });
+        }
     }
 
     public static StreamEventsPage Page(IReadOnlyList<SessionEventDto> events, long lastEventNumber, long from, int limit) {
@@ -48,10 +68,13 @@ sealed class FakeSessionEvents(params SessionEventDto[] events) {
     public static SessionEventsReader Paged(Func<CancellationToken, Task<SessionDetailFetch>> read) => Paged((_, ct) => read(ct));
 
     /// The same, for a document that depends on which session is asked for.
-    public static SessionEventsReader Paged(Func<string, CancellationToken, Task<SessionDetailFetch>> read) => async (sessionId, from, limit, ct) => {
+    public static SessionEventsReader Paged(Func<string, CancellationToken, Task<SessionDetailFetch>> read) => async (sessionId, from, limit, tail, ct) => {
         var fetch = await read(sessionId, ct);
         if (fetch.Detail is not { } detail) return new(null, fetch.NotFound, fetch.Unauthorized);
-        return new(Page(detail.Events ?? [], detail.LastEventNumber, from, limit ?? 1000));
+        var events = detail.Events ?? [];
+        if (tail is not { } n) return new(Page(events, detail.LastEventNumber, from, limit ?? 1000));
+        var start = Math.Max(from, Math.Max(0, events.Length - Math.Min(n, 1000)));
+        return new(Page(events, detail.LastEventNumber, start, Math.Min(n, 1000)) with { FirstFrom = (int)Math.Min(start, events.Length) });
     };
 
     public SessionEventsReader Reader => Read;

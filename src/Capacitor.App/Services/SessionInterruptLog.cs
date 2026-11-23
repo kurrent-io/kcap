@@ -1,11 +1,13 @@
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using Capacitor.Remote.Models;
 
 namespace Capacitor.App.Services;
 
 /// Folds each session's interrupts from its event stream, reading only the events after the ones
-/// already folded. A session read for the first time is folded from its first event: an interrupt
-/// issued anywhere in the stream and never resolved is still pending, so no tail window is enough.
+/// already folded. A session read for the first time starts from the server's own pending set and
+/// the position it holds for; without one it is folded from its first event: an interrupt issued
+/// anywhere in the stream and never resolved is still pending, so no tail window is enough.
 /// Given a listing or a summary, a session either one shows ended is answered without reading the
 /// stream, and that answer is not kept: a session resumes under the same id. A caller with direct
 /// evidence of a pending interrupt passes neither, since both can trail a resume.
@@ -23,6 +25,7 @@ public sealed class SessionInterruptLog : ISessionInterruptSource {
     readonly SessionEventsReader _readEvents;
     readonly Func<string, CancellationToken, Task<SummaryFetch>>? _readSummary;
     readonly Func<string, bool?>? _listedEnded;
+    readonly PendingInterruptsReader? _readPending;
     /// Least recently used first; a session evicted past Capacity is folded again from its first event.
     readonly OrderedDictionary<string, Folded> _folded = new(StringComparer.Ordinal);
     readonly SessionGates _gates = new();
@@ -32,8 +35,10 @@ public sealed class SessionInterruptLog : ISessionInterruptSource {
 
     public SessionInterruptLog(
             SessionEventsReader readEvents, IServerLane? lane = null,
-            Func<string, CancellationToken, Task<SummaryFetch>>? readSummary = null, Func<string, bool?>? listedEnded = null) {
+            Func<string, CancellationToken, Task<SummaryFetch>>? readSummary = null, Func<string, bool?>? listedEnded = null,
+            PendingInterruptsReader? readPending = null) {
         _readEvents = readEvents;
+        _readPending = readPending;
         _readSummary = readSummary;
         _listedEnded = listedEnded;
         _subscriptions = lane is null ? Disposable.Empty : new CompositeDisposable(
@@ -55,9 +60,9 @@ public sealed class SessionInterruptLog : ISessionInterruptSource {
             || (listed is null && known is null && _readSummary is { } readSummary
                 && await readSummary(sessionId, ct).ConfigureAwait(false) is { Outcome: ServerReadOutcome.Ok, Session.EndedAt: not null }))
             return new(Ended);
-        var folded = known ?? new Folded(0, new([], false));
+        var folded = known ?? await SeedAsync(sessionId, ct).ConfigureAwait(false) ?? new Folded(0, new([], false));
         while (true) {
-            var page = await _readEvents(sessionId, folded.From, null, ct).ConfigureAwait(false);
+            var page = await _readEvents(sessionId, folded.From, null, null, ct).ConfigureAwait(false);
             if (page.NotFound) {
                 lock (_lock) if (generation == _generation) _folded.Remove(sessionId);
                 return new(null, NotFound: true);
@@ -76,6 +81,14 @@ public sealed class SessionInterruptLog : ISessionInterruptSource {
         }
         Commit(sessionId, folded, generation);
         return new(folded.Interrupts);
+    }
+
+    /// Null when the server gives no pending set, a server without the route included, so the
+    /// stream is folded from its first event and answers for the session itself.
+    async Task<Folded?> SeedAsync(string sessionId, CancellationToken ct) {
+        if (_readPending is null || await _readPending(sessionId, ct).ConfigureAwait(false) is not { Page: { } page }) return null;
+        var interrupts = page.Ended ? Ended : InterruptReconciliation.Fold(null, (page.Interrupts ?? []).Select(i => i.Event).OfType<SessionEventDto>());
+        return new(Math.Max(0, page.NextFrom), interrupts);
     }
 
     public void Forget() {

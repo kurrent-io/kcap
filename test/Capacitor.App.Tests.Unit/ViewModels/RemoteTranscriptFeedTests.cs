@@ -505,7 +505,7 @@ public class RemoteTranscriptFeedTests {
         return feed.ReadAppended();
     }
 
-    /// The seed reads the last window after a one-event probe, and older pages walk back to event zero.
+    /// The seed reads the last window in one request, and older pages walk back to event zero.
     [Test]
     public async Task Seeding_reads_a_window_and_older_pages_reach_event_zero() {
         var server = new FakeSessionEvents([.. Enumerable.Range(0, 700).Select(i => Text(i, $"m{i}"))]);
@@ -518,7 +518,8 @@ public class RemoteTranscriptFeedTests {
         var seed = feed.ReadAppended();
         await Assert.That(seed.Status).IsEqualTo(FeedStatus.Reset);
         await Assert.That(seed.Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(400, 300).Select(i => (long)i));
-        await Assert.That(server.Requests).IsEquivalentTo(new[] { (0L, 1), (400L, 1000) });
+        await Assert.That(server.Requests).IsEquivalentTo(new[] { (400L, 300) });
+        await Assert.That(server.Tails).IsEquivalentTo(new[] { RemoteTranscriptFeed.Window });
         await Assert.That(feed.HasOlder).IsTrue();
 
         var older = await OlderAsync(feed);
@@ -546,9 +547,61 @@ public class RemoteTranscriptFeedTests {
 
         var seed = feed.ReadAppended();
         await Assert.That(seed.Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(1100, 300).Select(i => (long)i));
-        await Assert.That(server.Requests[^1]).IsEqualTo((100L, 1000));
+        await Assert.That(server.Requests).IsEquivalentTo(new[] { (100L, 300) });
         var older = await OlderAsync(feed);
         await Assert.That(older.Older.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(1000, 100).Select(i => (long)i));
+    }
+
+    /// A server that does not know the tail parameter answers from the oldest event; that page places the
+    /// window, which is then read as before.
+    [Test]
+    public async Task A_server_without_tail_reads_the_window_after_the_page_it_answered() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(1000, 700).Select(i => Text(i, $"m{i}"))]) { IgnoresTail = true };
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = Open(server, lane, access);
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+
+        var seed = feed.ReadAppended();
+        await Assert.That(seed.Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(1400, 300).Select(i => (long)i));
+        await Assert.That(server.Requests).IsEquivalentTo(new[] { (0L, 500), (400L, 1000) }, CollectionOrdering.Matching);
+        var older = await OlderAsync(feed);
+        await Assert.That(older.Older.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(1100, 300).Select(i => (long)i));
+    }
+
+    /// A short stream on a server that does not know the tail parameter comes back whole in its first page.
+    [Test]
+    public async Task A_short_stream_on_a_server_without_tail_seeds_from_its_first_page() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(0, 40).Select(i => Text(i, $"m{i}"))]) { IgnoresTail = true };
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var feed = Open(server, lane, access);
+        await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the tail");
+
+        await Assert.That(feed.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(0, 40).Select(i => (long)i));
+        await Assert.That(server.RequestCount).IsEqualTo(1);
+        await Assert.That(feed.HasOlder).IsFalse();
+    }
+
+    /// The oldest event's number comes from the tail page's position, so a transcript kept on close over a
+    /// stream that does not start at event zero resumes from the right count.
+    [Test]
+    public async Task A_kept_transcript_seeded_from_a_tail_resumes_where_it_stopped() {
+        var server = new FakeSessionEvents([.. Enumerable.Range(1000, 700).Select(i => Text(i, $"m{i}"))]);
+        var lane = new FakeServerLane();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        using var cache = new RemoteTranscriptCache(new BehaviorSubject<string?>("u1"), new Subject<(string, SessionAccessState)>());
+        using (var first = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache, prefetch: 0)) {
+            await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the first tail");
+            first.ReadAppended();
+        }
+        server.Requests.Clear();
+
+        using var second = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache, prefetch: 0);
+        await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the second tail");
+
+        await Assert.That(server.Requests).IsEquivalentTo(new[] { (699L, 1000) });
+        await Assert.That(second.ReadAppended().Lines.Select(l => l.Offset)).IsEquivalentTo(Enumerable.Range(1400, 300).Select(i => (long)i));
     }
 
     /// A wake-up scheduled before the window makes a loaded line its prompt: the older page that holds the
@@ -874,7 +927,7 @@ public class RemoteTranscriptFeedTests {
         var answer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         server.Gate = () => answer.Task;
         await Assert.That(feed.RequestOlder()).IsTrue();
-        await WaitUntilAsync(() => server.RequestCount == 3, what: "the older request");
+        await WaitUntilAsync(() => server.RequestCount == 2, what: "the older request");
 
         access.OnNext(SessionAccessState.Denied);
         access.OnNext(SessionAccessState.Established);
@@ -1248,7 +1301,7 @@ public class RemoteTranscriptFeedTests {
         using var second = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache);
         await WaitUntilAsync(() => lane.Tails.Count == 2, what: "the second tail");
 
-        await Assert.That(server.Requests.Take(2)).IsEquivalentTo(new[] { (9L, 1000), (0L, 1) }, CollectionOrdering.Matching);
+        await Assert.That(server.Requests.Take(2)).IsEquivalentTo(new[] { (9L, 1000), (0L, 300) }, CollectionOrdering.Matching);
         var texts = second.ReadAppended().Lines.SelectMany(l => l.Projection.Envelopes).Select(e => e.Text).ToList();
         await Assert.That(texts).IsEquivalentTo(Enumerable.Range(0, 10).Select(i => (string?)$"u2-{i}"), CollectionOrdering.Matching);
     }

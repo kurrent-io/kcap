@@ -80,10 +80,44 @@ public class ServerSessionHttpTests {
         await using var _ = provider;
         var read = ServerSessionHttp.SessionEventsReader(http, profiles);
 
-        var page = (await read("s1", 3, null, CancellationToken.None)).Page!;
+        var page = (await read("s1", 3, null, null, CancellationToken.None)).Page!;
         await Assert.That(page.Events![0].EventNumber).IsEqualTo(3);
         await Assert.That(page.NextFrom).IsEqualTo(4);
         await Assert.That(page.LastEventNumber).IsEqualTo(9);
-        await Assert.That((await read("nope", 0, null, CancellationToken.None)).NotFound).IsTrue();
+        await Assert.That((await read("nope", 0, null, null, CancellationToken.None)).NotFound).IsTrue();
+    }
+
+    [Test]
+    public async Task Session_events_reader_asks_for_a_tail_and_reads_where_the_page_starts() {
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/s1/events").WithParam("from", "0").WithParam("tail", "300").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+                  .WithBody("""{"last_event_number":9,"events":[{"event_type":"AssistantMessage","event_number":9,"payload":{}}],"first_from":9}"""));
+        var (http, profiles, provider) = await WireMockLane.BuildAsync(server, Config.Root);
+        await using var _ = provider;
+
+        var page = (await ServerSessionHttp.SessionEventsReader(http, profiles)("s1", 0, null, 300, CancellationToken.None)).Page!;
+        await Assert.That(page.FirstFrom).IsEqualTo(9);
+        await Assert.That(page.Events![0].EventNumber).IsEqualTo(9);
+    }
+
+    [Test]
+    public async Task Pending_interrupts_reader_reads_the_set_and_distinguishes_not_found() {
+        using var server = WireMockServer.Start();
+        server.Given(Request.Create().WithPath("/api/sessions/s1/interrupts/pending").UsingGet())
+              .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+                  .WithBody("""
+                      {"last_event_number":41,"next_from":42,"ended":false,"interrupts":[{"request_id":"p1","kind":"permission","is_acp":false,
+                       "answerable_over_http":true,"event":{"event_type":"InterruptIssued","event_number":7,"payload":{"request_id":"p1","kind":"permission"}}}]}
+                      """));
+        server.Given(Request.Create().WithPath("/api/sessions/nope/interrupts/pending").UsingGet()).RespondWith(Response.Create().WithStatusCode(404));
+        var (http, profiles, provider) = await WireMockLane.BuildAsync(server, Config.Root);
+        await using var _ = provider;
+        var read = ServerSessionHttp.PendingInterruptsReader(http, profiles);
+
+        var page = (await read("s1", CancellationToken.None)).Page!;
+        await Assert.That(page.NextFrom).IsEqualTo(42);
+        await Assert.That(page.Interrupts!.Select(i => i.Event!.EventNumber)).IsEquivalentTo(new long[] { 7 });
+        await Assert.That((await read("nope", CancellationToken.None)).NotFound).IsTrue();
     }
 }
