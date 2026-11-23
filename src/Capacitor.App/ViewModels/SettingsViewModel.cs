@@ -85,6 +85,10 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
 
         Observable.FromAsync(startupSettled.WaitAsync).ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(_ => Refresh(), _ => Refresh()).DisposeWith(_subscriptions);
+        // A profile switch replaced the daemon this tab would rename.
+        if (profiles is not null)
+            profiles.WhenAnyValue(x => x.Switched).Where(switched => switched)
+                .Subscribe(_ => { _needsAppRestart = true; Refresh(); }).DisposeWith(_subscriptions);
 
         SaveCommand = ReactiveCommand.CreateFromTask(SaveAsync, this.WhenAnyValue(x => x.CanSave)).DisposeWith(_subscriptions);
         RenameCommand = ReactiveCommand.CreateFromTask(RenameAsync, this.WhenAnyValue(x => x.CanRename)).DisposeWith(_subscriptions);

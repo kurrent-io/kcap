@@ -6,6 +6,8 @@ using Capacitor.Cli.Core.Http;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
+using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 
 namespace Capacitor.App.Tests.Unit.ViewModels;
 
@@ -270,5 +272,258 @@ public class ProfilesSettingsViewModelTests {
         await Assert.That(open.StatusLabel).IsEqualTo("No sign-in needed");
         await Assert.That(open.StatusNeedsAttention).IsFalse();
         await Assert.That(open.NeedsSignIn).IsFalse();
+    });
+
+    // --- Switch ---
+
+    sealed class SwitchFake {
+        public readonly List<MutationRequest> Requests = [];
+        public readonly List<string> Prompts = [];
+        public Func<MutationRequest, MutationOutcome> Outcome = _ => new MutationOutcome.Succeeded { Activation = ActivationEvidence.Activated };
+        public HashSet<string> Replying = [];
+        public ServiceSnapshot? BoundService = new("daemon-a", true, "running", null, null, 111, 111, false, false);
+        public bool CanActivate = true;
+        public bool Confirms = true;
+        public bool RestartRequired;
+        public int Relaunches;
+        public TaskCompletionSource Settled = CompletedSource();
+
+        static TaskCompletionSource CompletedSource() {
+            var tcs = new TaskCompletionSource();
+            tcs.SetResult();
+            return tcs;
+        }
+
+        public ProfileSwitchServices Services(bool profileOverridden = false, bool platformSupported = true) => new(
+            "daemon-a",
+            (request, _) => { Requests.Add(request); return Task.FromResult(Outcome(request)); },
+            (text, _) => { Prompts.Add(text); return Task.FromResult(Confirms); },
+            _ => { Relaunches++; return Task.FromResult(true); },
+            Settled.Task,
+            (name, _) => Task.FromResult(Replying.Contains(name)),
+            (_, _) => Task.FromResult(BoundService),
+            (_, _) => Task.FromResult(CanActivate),
+            () => RestartRequired,
+            profileOverridden, platformSupported);
+    }
+
+    async Task<TokenStore> SeedSwitch() {
+        await ConfigMutator.MutateAsync(Config.Root, c => c with {
+            ActiveProfile = "work",
+            Profiles = new Dictionary<string, Profile> {
+                ["work"]   = new() { ServerUrl = "https://work.example", Daemon = new DaemonSettings { Name = "daemon-a" } },
+                ["target"] = new() { ServerUrl = "https://target.example", Daemon = new DaemonSettings { Name = "daemon-b" } },
+                ["same"]   = new() { ServerUrl = "https://same.example", Daemon = new DaemonSettings { Name = "daemon-a" } },
+                ["out"]    = new() { ServerUrl = "https://out.example", Daemon = new DaemonSettings { Name = "daemon-c" } },
+            }
+        });
+        var tokens = AuthFixtures.NewTokenStore(Config.Root);
+        foreach (var (name, server) in new[] { ("work", "https://work.example"), ("target", "https://target.example"), ("same", "https://same.example") })
+            await tokens.SaveAsync(name, Token(AuthProvider.GitHubApp, DateTimeOffset.UtcNow.AddHours(1), server));
+        return tokens;
+    }
+
+    ProfilesSettingsViewModel MakeSwitching(TokenStore tokens, ProfileSwitchServices services, FakeDaemonClientService? daemon = null) {
+        daemon ??= IdleDaemon();
+        return new(Config.Root, tokens, new OnboardingGate(Config.Root, tokens, ProfileOverrides.None, NoLocalInstallation.Root, TimeProvider.System),
+            "work", (_, _, _) => Task.CompletedTask, (_, _) => Task.FromResult(true), daemon: daemon, switching: services);
+    }
+
+    static FakeDaemonClientService IdleDaemon(int active = 0) {
+        var daemon = new FakeDaemonClientService();
+        daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        daemon.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(active: active, profile: "work"));
+        return daemon;
+    }
+
+    static async Task<ProfileRow> Row(ProfilesSettingsViewModel vm, string name) {
+        await vm.RefreshAsync();
+        Dispatcher.UIThread.RunJobs();
+        return vm.Rows.Single(r => r.Name == name);
+    }
+
+    string? ActiveProfile() => ConfigMutator.TryLoadPure(AppConfig.GetConfigPath(Config.Root), out var c) ? c.ActiveName : null;
+
+    [Test]
+    public Task Switch_is_offered_on_every_other_row_with_a_server_and_enabled_when_every_gate_holds() => AvaloniaSession.RunOnUiAsync(async () => {
+        var fake = new SwitchFake();
+        using var vm = MakeSwitching(await SeedSwitch(), fake.Services());
+
+        var target = await Row(vm, "target");
+        await Assert.That(target.CanSwitch).IsTrue();
+        await Assert.That(target.ShowsSwitchHint).IsFalse();
+        await Assert.That(vm.Rows.Single(r => r.Name == "work").OffersSwitch).IsFalse().Because("this app already runs on it");
+    });
+
+    [Test]
+    [Arguments("signed_out", "Sign in to out before switching to it.")]
+    [Arguments("profile_overridden", "KCAP_PROFILE is set")]
+    [Arguments("platform", "not available on this platform")]
+    [Arguments("restart", "Restart this app before switching again.")]
+    [Arguments("startup", "Waiting for daemon startup to finish")]
+    [Arguments("agents", "Wait for the 2 active agents to finish before switching.")]
+    [Arguments("count_unknown", "Waiting for the daemon’s current agent count")]
+    public Task Each_switch_gate_disables_the_row_and_says_why(string gate, string hint) => AvaloniaSession.RunOnUiAsync(async () => {
+        var fake = new SwitchFake { RestartRequired = gate == "restart" };
+        if (gate == "startup") fake.Settled = new TaskCompletionSource();
+        var daemon = gate switch {
+            "agents"        => IdleDaemon(active: 2),
+            "count_unknown" => new FakeDaemonClientService(),
+            _               => IdleDaemon(),
+        };
+        using var vm = MakeSwitching(await SeedSwitch(), fake.Services(gate == "profile_overridden", gate != "platform"), daemon);
+
+        var row = await Row(vm, gate == "signed_out" ? "out" : "target");
+
+        await Assert.That(row.CanSwitch).IsFalse();
+        await Assert.That(row.SwitchHint!).Contains(hint);
+        await vm.SwitchCommand.Execute(row).ToTask();
+        await Assert.That(fake.Requests).IsEmpty();
+    });
+
+    [Test]
+    public Task An_unreachable_daemon_counts_as_idle() => AvaloniaSession.RunOnUiAsync(async () => {
+        var daemon = new FakeDaemonClientService();
+        daemon.StatusSubject.OnNext(new AttachStatus(AttachState.Unreachable, null, null));
+        using var vm = MakeSwitching(await SeedSwitch(), new SwitchFake().Services(), daemon);
+
+        await Assert.That((await Row(vm, "target")).CanSwitch).IsTrue();
+    });
+
+    [Test]
+    public Task A_same_id_switch_sends_one_activating_replace_and_relaunches() => AvaloniaSession.RunOnUiAsync(async () => {
+        var fake = new SwitchFake();
+        using var vm = MakeSwitching(await SeedSwitch(), fake.Services());
+
+        await vm.SwitchCommand.Execute(await Row(vm, "same")).ToTask();
+
+        var request = fake.Requests.Single();
+        await Assert.That(request.Verb).IsEqualTo(MutationVerb.Replace);
+        await Assert.That(request.Profile).IsEqualTo("same");
+        await Assert.That(request.DaemonName).IsEqualTo("daemon-a");
+        await Assert.That(request.Activate).IsTrue();
+        await Assert.That(request.RetireServiceId).IsNull();
+        await Assert.That(request.RetireProfile).IsNull();
+        await Assert.That(fake.Prompts.Single()).Contains("Switch to profile same?");
+        await Assert.That(fake.Relaunches).IsEqualTo(1);
+        await Assert.That(vm.Switched).IsTrue();
+    });
+
+    [Test]
+    public Task A_cross_id_switch_retires_the_bound_daemon_pinned_to_the_bound_profile() => AvaloniaSession.RunOnUiAsync(async () => {
+        var fake = new SwitchFake();
+        using var vm = MakeSwitching(await SeedSwitch(), fake.Services());
+
+        await vm.SwitchCommand.Execute(await Row(vm, "target")).ToTask();
+
+        var request = fake.Requests.Single();
+        await Assert.That(request.DaemonName).IsEqualTo("daemon-b");
+        await Assert.That(request.RetireServiceId).IsEqualTo("daemon-a");
+        await Assert.That(request.RetireProfile).IsEqualTo("work");
+        await Assert.That(request.Activate).IsTrue();
+    });
+
+    /// The courtesy check before the prompt: a target name already answering is a collision, and an old daemon
+    /// with no unit cannot be retired; an installed unit, running or stopped, or an absent one that is silent, goes ahead.
+    [Test]
+    [Arguments("running_unit", true, "")]
+    [Arguments("stopped_unit", true, "")]
+    [Arguments("absent_silent", true, "")]
+    [Arguments("absent_replying", false, "Stop the daemon daemon-a first")]
+    [Arguments("unreadable", false, "Could not read the state of the daemon service daemon-a")]
+    [Arguments("target_replying", false, "A daemon named daemon-b is already running")]
+    public Task The_source_daemon_is_classified_before_a_cross_id_switch(string source, bool proceeds, string refusal) =>
+        AvaloniaSession.RunOnUiAsync(async () => {
+            var fake = new SwitchFake {
+                BoundService = source switch {
+                    "running_unit" or "target_replying" => new("daemon-a", true, "running", null, null, 111, 111, false, false),
+                    "stopped_unit"                      => new("daemon-a", true, "installed", null, null, null, null, false, false),
+                    "unreadable"                        => null,
+                    _                                   => new("daemon-a", false, "not_installed", null, null, null, null, false, false),
+                },
+                Replying = source switch {
+                    "absent_replying" => ["daemon-a"],
+                    "target_replying" => ["daemon-b"],
+                    _                 => [],
+                },
+            };
+            using var vm = MakeSwitching(await SeedSwitch(), fake.Services());
+
+            await vm.SwitchCommand.Execute(await Row(vm, "target")).ToTask();
+
+            await Assert.That(fake.Requests.Count).IsEqualTo(proceeds ? 1 : 0);
+            if (!proceeds) {
+                await Assert.That(vm.Message!).Contains(refusal);
+                await Assert.That(fake.Prompts).IsEmpty();
+            }
+        });
+
+    [Test]
+    public Task A_cli_without_activate_is_refused_with_an_update_hint() => AvaloniaSession.RunOnUiAsync(async () => {
+        var fake = new SwitchFake { CanActivate = false };
+        using var vm = MakeSwitching(await SeedSwitch(), fake.Services());
+
+        await vm.SwitchCommand.Execute(await Row(vm, "target")).ToTask();
+
+        await Assert.That(fake.Requests).IsEmpty();
+        await Assert.That(vm.Message!).Contains("Update kcap");
+        await Assert.That(vm.Switched).IsFalse();
+    });
+
+    [Test]
+    public Task A_declined_prompt_changes_nothing() => AvaloniaSession.RunOnUiAsync(async () => {
+        var fake = new SwitchFake { Confirms = false };
+        using var vm = MakeSwitching(await SeedSwitch(), fake.Services());
+
+        await vm.SwitchCommand.Execute(await Row(vm, "target")).ToTask();
+
+        await Assert.That(fake.Requests).IsEmpty();
+        await Assert.That(vm.Switched).IsFalse();
+    });
+
+    /// The report names the step that stopped the switch and what config.json names now, read fresh, and claims
+    /// the selection moved only on the CLI's own word.
+    [Test]
+    [Arguments(ActivationEvidence.Activated, "kcap made target the active profile")]
+    [Arguments(ActivationEvidence.Unknown, "")]
+    [Arguments(ActivationEvidence.NotActivated, "kcap was not run, so nothing changed.")]
+    public Task A_switch_that_does_not_succeed_reports_its_token_its_evidence_and_the_active_profile(
+            ActivationEvidence evidence, string claim) => AvaloniaSession.RunOnUiAsync(async () => {
+        var fake = new SwitchFake {
+            Outcome = _ => new MutationOutcome.Failed(VerifyExitCodes.ReadinessTimeout, null, RecoverySurface.Attention) { Activation = evidence },
+        };
+        using var vm = MakeSwitching(await SeedSwitch(), fake.Services());
+        if (evidence == ActivationEvidence.Activated) await ConfigMutator.MutateAsync(Config.Root, c => c with { ActiveProfile = "target" });
+
+        await vm.SwitchCommand.Execute(await Row(vm, "target")).ToTask();
+
+        await Assert.That(vm.Message!).StartsWith("The switch to target did not finish (verify_readiness_timeout).");
+        if (claim.Length > 0) await Assert.That(vm.Message!).Contains(claim);
+        else await Assert.That(vm.Message!).DoesNotContain("kcap made").And.DoesNotContain("nothing changed");
+        await Assert.That(vm.Message!).Contains($"The kcap command line now uses profile {ActiveProfile()}.");
+        await Assert.That(fake.Relaunches).IsEqualTo(0);
+        await Assert.That(vm.Switched).IsEqualTo(evidence != ActivationEvidence.NotActivated);
+    });
+
+    [Test]
+    public Task After_a_switch_every_row_waits_for_a_restart() => AvaloniaSession.RunOnUiAsync(async () => {
+        var fake = new SwitchFake { Outcome = _ => new MutationOutcome.UnconfirmedNoAttach { Activation = ActivationEvidence.Unknown } };
+        using var vm = MakeSwitching(await SeedSwitch(), fake.Services());
+
+        await vm.SwitchCommand.Execute(await Row(vm, "target")).ToTask();
+
+        await Assert.That((await Row(vm, "same")).SwitchHint).IsEqualTo("Restart this app before switching again.");
+    });
+
+    [Test]
+    public Task The_active_row_left_behind_by_kcap_use_offers_the_switch() => AvaloniaSession.RunOnUiAsync(async () => {
+        var tokens = await SeedSwitch();
+        await ConfigMutator.MutateAsync(Config.Root, c => c with { ActiveProfile = "target" });
+        using var vm = MakeSwitching(tokens, new SwitchFake().Services());
+
+        var target = await Row(vm, "target");
+
+        await Assert.That(target.UsageLabel).IsEqualTo("Command line");
+        await Assert.That(target.CanSwitch).IsTrue();
     });
 }
