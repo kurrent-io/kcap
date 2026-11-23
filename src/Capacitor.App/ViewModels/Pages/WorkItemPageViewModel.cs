@@ -101,6 +101,9 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     public PageViewerViewModel? PageViewer { get => _pageViewer; private set => this.RaiseAndSetIfChanged(ref _pageViewer, value); }
 
     public ReactiveCommand<Unit, Unit> OpenInWebCommand { get; }
+    public ReactiveCommand<Unit, Unit> StartSessionCommand { get; }
+    public ReactiveCommand<WorkItemPagePart, Unit> StartSliceSessionCommand { get; }
+    public bool CanStartSession { get; }
     public ReactiveCommand<WorkItemPageLink, Unit> OpenLinkCommand { get; }
     public ReactiveCommand<WorkItemPublishedPage, Unit> OpenPageCommand { get; }
     public ReactiveCommand<Unit, Unit> ClosePageCommand { get; }
@@ -131,7 +134,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     public WorkItemPageViewModel(string workItemId, IWorkItemPageApi api, IAgentDirectory directory, TimeProvider time,
             ISet<string> flipped, IObservable<IReadOnlySet<string>>? needsYou = null, IObservable<Unit>? changed = null,
             Action<string>? openSession = null, Action<string>? openUrl = null, Action? openInWeb = null,
-            Func<string, string, PageViewerViewModel?>? viewPage = null) {
+            Func<string, string, PageViewerViewModel?>? viewPage = null, Func<string, string, Task>? startSession = null) {
         WorkItemId = workItemId;
         _api = api;
         _directory = directory;
@@ -141,6 +144,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         _layout = flipped.Contains(GraphKey) ? WorkItemPageLayout.Graph : flipped.Contains(BoardKey) ? WorkItemPageLayout.Board : WorkItemPageLayout.List;
 
         OpenInWebCommand = ReactiveCommand.Create(() => openInWeb?.Invoke(), Observable.Return(openInWeb is not null)).DisposeWith(_disposables);
+        CanStartSession = startSession is not null;
+        StartSessionCommand = ReactiveCommand.CreateFromTask(() => startSession?.Invoke(WorkItemId, Title) ?? Task.CompletedTask,
+            Observable.Return(CanStartSession)).DisposeWith(_disposables);
+        StartSliceSessionCommand = ReactiveCommand.CreateFromTask<WorkItemPagePart>(part => startSession?.Invoke(part.Id, part.Title) ?? Task.CompletedTask,
+            Observable.Return(CanStartSession)).DisposeWith(_disposables);
         OpenLinkCommand = ReactiveCommand.Create<WorkItemPageLink>(link => { if (link.Url is { } url) openUrl?.Invoke(url); }).DisposeWith(_disposables);
         OpenPageCommand = ReactiveCommand.Create<WorkItemPublishedPage>(page => {
             if (PageViewer?.ArtefactId == page.ArtefactId) return;

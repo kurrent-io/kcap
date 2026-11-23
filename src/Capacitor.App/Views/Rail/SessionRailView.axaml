@@ -45,7 +45,13 @@
         <Style Selector="Button.railRow.lifted">
             <Setter Property="Opacity" Value="0.4" />
         </Style>
-        <Style Selector="Border.railGroup.workItem Button#RailWorkItemHeader">
+        <Style Selector="Button.railStartSession">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector="Panel:pointerover > Button.railStartSession, Button.railStartSession:focus-visible">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Border.railGroup.workItem Panel.railWorkItemHead">
             <Setter Property="Margin" Value="0" />
             <Setter Property="Transitions">
                 <Transitions>
@@ -53,7 +59,7 @@
                 </Transitions>
             </Setter>
         </Style>
-        <Style Selector="Border.railGroup.workItem.expanded Button#RailWorkItemHeader">
+        <Style Selector="Border.railGroup.workItem.expanded Panel.railWorkItemHead">
             <Setter Property="Margin" Value="0,0,0,4" />
         </Style>
         <Style Selector="Button#RailWorkItemHeader views|FoldChevron.headerCaret">
@@ -248,13 +254,13 @@
         <DataTemplate x:Key="RailGroupTemplate" x:DataType="vm:RailGroupViewModel">
             <Border Classes="railGroup" Classes.workItem="{Binding IsWorkItem}" Classes.expanded="{Binding IsExpanded}">
                 <StackPanel>
-                    <Panel IsVisible="{Binding IsWorkItem}">
+                    <Panel Classes="railWorkItemHead" IsVisible="{Binding IsWorkItem}">
                     <Button x:Name="RailWorkItemHeader" Classes="railRow" Classes.selected="{Binding IsSelected}"
                             Command="{Binding ToggleCommand}"
                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
                             Padding="0" ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding ToggleAccessibleName}">
                         <Grid ColumnDefinitions="30,*,Auto">
-                            <DockPanel Grid.Column="1" HorizontalAlignment="Left" Margin="0,0,10,0"
+                            <DockPanel Grid.Column="1" HorizontalAlignment="Left" Margin="0,0,30,0"
                                        Classes.renaming="{Binding TitleEditor, Converter={x:Static ObjectConverters.IsNotNull}}">
                                 <views:FoldChevron DockPanel.Dock="Right" Margin="5,0,0,0" VerticalAlignment="Center"
                                                    Classes="chevron headerCaret" IsOpen="{Binding IsExpanded}" />
@@ -269,6 +275,14 @@
                                            DataContext="{Binding TitleEditor}" Text="{Binding Draft}" IsReadOnly="{Binding IsSaving}"
                                            MaxLength="120" AutomationProperties.Name="{Binding InputName}"
                                            IsVisible="{Binding $self.DataContext, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    <Button x:Name="RailWorkItemStartSession" Classes="kcapGhost kcapIcon railStartSession"
+                            HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
+                            Command="{Binding $parent[rail:SessionRailView].((vm:MainWindowViewModel)DataContext).StartInWorkItemCommand}"
+                            CommandParameter="{Binding}"
+                            IsVisible="{Binding $parent[rail:SessionRailView].((vm:MainWindowViewModel)DataContext).Home.NextWork.ServesLaunches, FallbackValue=False}"
+                            ToolTip.Tip="New session in this work item" AutomationProperties.Name="New session in this work item">
+                        <views:AppIcon Kind="Plus" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                    </Button>
                     </Panel>
                     <Button Classes="sectionHeader expandable railRepoHeader" Command="{Binding ToggleCommand}" IsVisible="{Binding ShowsHeader}"
                             Margin="0" Padding="9,0" ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding ToggleAccessibleName}">

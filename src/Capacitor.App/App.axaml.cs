@@ -2509,7 +2509,8 @@ public partial class App : Application {
                 openInWeb: openUrl is null || string.IsNullOrEmpty(appServerUrl) ? null
                     : () => openUrl($"{appServerUrl.TrimEnd('/')}/work-items/{Uri.EscapeDataString(id)}"),
                 viewPage: pageContent is null || inAppPages is null ? null : (pageId, url) => inAppPages()
-                    ? new PageViewerViewModel(pageContent, pageId, url, new ShellUrlOpener(), time, webViewAvailable: true) : null),
+                    ? new PageViewerViewModel(pageContent, pageId, url, new ShellUrlOpener(), time, webViewAvailable: true) : null,
+                startSession: nextWorkBand is not { ServesLaunches: true } ? null : (itemId, title) => vm?.StartInWorkItemAsync(itemId, title) ?? Task.CompletedTask),
             PageKey.SessionsKey => new SessionsPageViewModel(
                 sessions, rail.WhenAnyValue(r => r.Scope, r => r.Project, (scope, project) => (scope, project)), time,
                 openSession: sessionId => _ = vm?.OpenPageSessionAsync(sessionId)),

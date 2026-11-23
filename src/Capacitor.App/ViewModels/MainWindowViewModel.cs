@@ -224,6 +224,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// and points the launcher at the repository of the session selected in the rail.
     /// Pressed over the launcher already showing, it nudges the launcher so the press visibly lands.
     public ReactiveCommand<Unit, Unit> NewSessionCommand { get; }
+    public ReactiveCommand<RailGroupViewModel, Unit> StartInWorkItemCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenRailAlertCommand { get; }
     bool _localDaemonRecoveryAvailable;
     bool _daemonSignInRecoveryAvailable;
@@ -461,6 +462,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         TenantName = ProfileLabelForRail(tenantName);
         CloseWorkspaceCommand = ReactiveCommand.Create(CloseWorkspace);
         NewSessionCommand = ReactiveCommand.CreateFromTask(NewSessionAsync);
+        StartInWorkItemCommand = ReactiveCommand.CreateFromTask<RailGroupViewModel>(group =>
+            group.WorkItemId is { } id ? StartInWorkItemAsync(id, group.Label) : Task.CompletedTask);
         OpenRailAlertCommand = ReactiveCommand.CreateFromTask(OpenRailAlertAsync);
         GoBackCommand = ReactiveCommand.CreateFromTask(() => StepAsync(back: true), History.WhenAnyValue(h => h.CanGoBack));
         GoForwardCommand = ReactiveCommand.CreateFromTask(() => StepAsync(back: false), History.WhenAnyValue(h => h.CanGoForward));
@@ -845,6 +848,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     // Closes even over the launcher: the swap bumps the navigation generation, which keeps an
     // in-flight launch from opening its workspace over the next draft.
     async Task NewSessionAsync() {
+        if (Page is WorkItemPageViewModel item && CanStartInWorkItem) {
+            await StartInWorkItemAsync(item.WorkItemId, item.Title);
+            return;
+        }
         var onLauncher = CurrentWorkspace is null && !IsSearchOpen;
         var selected = !onLauncher && Rail?.OpenSessionKey is { } key && _directory?.Rows.Lookup(key) is { HasValue: true } row
             ? row.Value : null;
@@ -854,6 +861,18 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         RecordLeaving(from);
         if (onLauncher) _launcherNudges.OnNext(Unit.Default);
         if (selected is not null && Home is { } home) await home.SelectRepositoryOfAsync(selected);
+    }
+
+    public bool CanStartInWorkItem => Home?.NextWork?.ServesLaunches == true;
+
+    /// Opens the launcher with the work item picked, so the session it starts is attached to it.
+    public async Task StartInWorkItemAsync(string workItemId, string title) {
+        if (Home?.NextWork is not { ServesLaunches: true } band) return;
+        var from = Here();
+        ClosePages();
+        CloseWorkspace();
+        RecordLeaving(from);
+        await band.PickWorkItemAsync(workItemId, title);
     }
 
     void OpenSearch() {

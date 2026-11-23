@@ -79,6 +79,11 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     /// its shape; only a server without next work, or no sign-in, hides it.</summary>
     public bool IsAvailable => _enabled() && !_unavailable;
 
+    bool? _serves;
+    /// <summary>The server answered a snapshot read, so it can prepare and start next-work launches. Read once even
+    /// with the band switched off, since starting from a work item does not depend on the band.</summary>
+    public bool ServesLaunches => _serves == true;
+
     /// <summary>True until the first snapshot arrives.</summary>
     public bool IsLoading => IsAvailable && !_loaded && !_failed;
 
@@ -145,13 +150,18 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
 
     /// <summary>Reads the snapshot. Overlapping calls collapse into the one already running.</summary>
     public async Task RefreshAsync() {
-        if (!_enabled()) {
+        if (!_enabled() && _serves is not null) {
             RaiseStatus();
             return;
         }
         if (Interlocked.Exchange(ref _refreshing, 1) == 1) return;
         try {
             var read = await _api.SnapshotAsync(CancellationToken.None);
+            if (read.Kind is NextWorkReadKind.Ready or NextWorkReadKind.Unavailable) _serves = read.Kind == NextWorkReadKind.Ready;
+            if (!_enabled()) {
+                RaiseStatus();
+                return;
+            }
             switch (read.Kind) {
                 case NextWorkReadKind.Ready when read.Value is { } dto:
                     _unavailable = false;
@@ -204,6 +214,7 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     }
 
     void RaiseStatus() {
+        this.RaisePropertyChanged(nameof(ServesLaunches));
         this.RaisePropertyChanged(nameof(IsAvailable));
         this.RaisePropertyChanged(nameof(IsLoading));
         this.RaisePropertyChanged(nameof(Note));
@@ -372,6 +383,32 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
             }
         } finally {
             card.Busy = false;
+        }
+    }
+
+    /// <summary>Picks a work item for the next launch with the server's prompt and attach. A work item belongs to no
+    /// one repository, so the launcher's own stays selected unless the viewer has a checkout of the one it began in.</summary>
+    public async Task PickWorkItemAsync(string workItemId, string title) {
+        if (_fill is null) return;
+        var key = NextWorkLaneLogic.WorkItemPrefix + workItemId;
+        try {
+            var read = await _api.PrepareLaunchAsync(key, CancellationToken.None);
+            if (read is not { Kind: NextWorkReadKind.Ready, Value: { } prep }) {
+                _notify?.Invoke(NextWorkLaunchText.Prepare(read.Kind == NextWorkReadKind.Unavailable ? "unavailable" : null));
+                return;
+            }
+            if (prep.Refusal is { } refusal and not ("no_matching_daemon" or "repo_unknown")) {
+                _notify?.Invoke(NextWorkLaunchText.Prepare(refusal));
+                return;
+            }
+            var checkout = prep.Refusal is null ? Preferred(prep.Checkouts) : null;
+            await _fill(new(key, title, title, checkout?.DaemonName,
+                checkout is null || string.Equals(checkout.DaemonName, _localDaemon, StringComparison.Ordinal), checkout?.RepoPath,
+                prep.Prompt is { Length: > 0 } prompt ? prompt : null));
+            MarkFilled(key);
+        } catch (Exception ex) when (ex is not OperationCanceledException) {
+            Console.Error.WriteLine($"kcap: picking work item {workItemId} failed: {ex}");
+            _notify?.Invoke($"Couldn't pick this work item: {ex.Message}");
         }
     }
 

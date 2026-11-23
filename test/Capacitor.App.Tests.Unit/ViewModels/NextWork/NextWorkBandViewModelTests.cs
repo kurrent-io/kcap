@@ -132,6 +132,59 @@ public class NextWorkBandViewModelTests {
     }
 
     [Test]
+    [Arguments(true, true)]
+    [Arguments(false, false)]
+    public async Task Whether_the_server_serves_launches_is_read_even_with_the_band_switched_off(bool serverHasNextWork, bool serves) {
+        var api = serverHasNextWork ? Api() : new FakeNextWorkApi();
+        var band = Band(api, enabled: () => false);
+
+        await band.RefreshAsync();
+
+        await Assert.That(band.ServesLaunches).IsEqualTo(serves);
+        await Assert.That(band.IsAvailable).IsFalse();
+    }
+
+    [Test]
+    public async Task Picking_a_work_item_by_id_fills_it_as_its_row_would() {
+        var api = new FakeNextWorkApi {
+            Preparation = new(NextWorkReadKind.Ready, Prep(new NextWorkLaunchCheckoutDto("mbp", "/Users/m/p", ["claude"], "u"))),
+        };
+        NextWorkFill? filled = null;
+        var band = Band(api, fill: f => { filled = f; return Task.CompletedTask; });
+
+        await band.PickWorkItemAsync("a", "A-1 Fix it");
+
+        await Assert.That(api.Calls).IsEquivalentTo(["prepare wi:a"]);
+        await Assert.That(filled).IsEqualTo(new NextWorkFill("wi:a", "A-1 Fix it", "A-1 Fix it", "mbp", true, "/Users/m/p", "Work on A-1"));
+    }
+
+    [Test]
+    [Arguments("repo_unknown")]
+    [Arguments("no_matching_daemon")]
+    public async Task Picking_a_work_item_without_a_checkout_of_its_repository_keeps_the_launchers_own(string refusal) {
+        var api = new FakeNextWorkApi { Preparation = new(NextWorkReadKind.Ready, new(refusal, null, [], [], "Work on A-1")) };
+        NextWorkFill? filled = null;
+        var band = Band(api, fill: f => { filled = f; return Task.CompletedTask; });
+
+        await band.PickWorkItemAsync("a", "A-1 Fix it");
+
+        await Assert.That(filled).IsEqualTo(new NextWorkFill("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, null, "Work on A-1"));
+    }
+
+    [Test]
+    public async Task Picking_a_work_item_the_server_refuses_says_why_and_fills_nothing() {
+        var api = new FakeNextWorkApi { Preparation = new(NextWorkReadKind.Ready, new("target_not_visible", null, [], [], null)) };
+        NextWorkFill? filled = null;
+        string? note = null;
+        var band = Band(api, fill: f => { filled = f; return Task.CompletedTask; }, notify: n => note = n);
+
+        await band.PickWorkItemAsync("a", "A-1 Fix it");
+
+        await Assert.That(filled).IsNull();
+        await Assert.That(note).IsEqualTo(NextWorkLaunchText.Prepare("target_not_visible"));
+    }
+
+    [Test]
     public async Task Pressing_a_review_fills_a_goal_naming_the_pull_request() {
         var api = new FakeNextWorkApi { Snapshot = new(NextWorkReadKind.Ready, new(Now, false, false, null,
             [new("pr:9", "pr", "9", "#9 Retry", "https://github.com/o/r/pull/9", "h1", "ReviewRequested", 1, 1, "Dana waits", new(1, null, false, 0, 0), [])])) };
