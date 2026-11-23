@@ -59,9 +59,6 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     /// Counts a work item's sessions past its most recent few that are neither live nor open; its page lists them all.
     public string? MoreText => _moreText.Value;
 
-    readonly ObservableAsPropertyHelper<int> _sessionCount;
-    public int SessionCount => _sessionCount.Value;
-
     readonly ObservableCollectionExtended<RailSessionViewModel> _sessionsSource = new();
     public ReadOnlyObservableCollection<RailSessionViewModel> Sessions { get; }
     public IObservable<bool> HasSessions { get; }
@@ -104,7 +101,6 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
 
         var group = rows.AsObservableCache().DisposeWith(_disposables);
         HasSessions = group.CountChanged.Select(count => count > 0).DistinctUntilChanged();
-        _sessionCount = group.CountChanged.ToProperty(this, x => x.SessionCount, initialValue: 0).DisposeWith(_disposables);
         var query = group.Connect().QueryWhenChanged().Replay(1).RefCount();
         var kept = query.CombineLatest(openSessionKey ?? selectedSessionKey, (rows, open) => (Keys: KeptOfWorkItem(rows.Items, open), rows.Count))
             .Replay(1).RefCount();

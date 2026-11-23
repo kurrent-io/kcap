@@ -62,14 +62,6 @@
         <Style Selector="Button#RailWorkItemHeader:pointerover views|FoldChevron.headerCaret">
             <Setter Property="Opacity" Value="1" />
         </Style>
-        <Style Selector="Button#RailWorkItemToggle">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-        <Style Selector="Button#RailWorkItemToggle:pointerover /template/ ContentPresenter#PART_ContentPresenter, Button#RailWorkItemToggle:pressed /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Background" Value="Transparent" />
-        </Style>
         <!-- A rename reads as the title itself turning editable: no box, no buttons. -->
         <Style Selector="TextBox.railRename">
             <Setter Property="Background" Value="Transparent" />
@@ -671,27 +663,17 @@
                                     <StackPanel>
                                         <Panel IsVisible="{Binding IsWorkItem}">
                                         <Button x:Name="RailWorkItemHeader" Classes="railRow" Classes.selected="{Binding IsSelected}"
-                                                Command="{Binding $parent[rail:SessionRailView].((vm:MainWindowViewModel)DataContext).OpenWorkItemCommand, FallbackValue={x:Null}}"
-                                                CommandParameter="{Binding WorkItemId}" Click="OnWorkItemHeaderClick"
+                                                Command="{Binding ToggleCommand}"
                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
-                                                Padding="0" ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding Label}">
+                                                Padding="0" ToolTip.Tip="{Binding Tooltip}" AutomationProperties.Name="{Binding ToggleAccessibleName}">
                                             <Grid ColumnDefinitions="30,*,Auto">
-                                                <!-- The toggle fills the row behind the title, so the chevron and the space after it
-                                                     toggle; the title's full-height strip takes its clicks for the header. -->
-                                                <Button x:Name="RailWorkItemToggle" Grid.Column="1" Grid.ColumnSpan="2" Command="{Binding ToggleCommand}"
-                                                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                                        AutomationProperties.Name="{Binding ToggleAccessibleName}" />
                                                 <DockPanel Grid.Column="1" HorizontalAlignment="Left" Margin="0,0,10,0"
                                                            Classes.renaming="{Binding TitleEditor, Converter={x:Static ObjectConverters.IsNotNull}}">
                                                     <views:FoldChevron DockPanel.Dock="Right" Margin="5,0,0,0" VerticalAlignment="Center"
                                                                        Classes="chevron headerCaret" IsOpen="{Binding IsExpanded}" />
-                                                    <Panel Background="Transparent">
-                                                        <TextBlock x:Name="RailWorkItemTitle" FontSize="14" Foreground="{StaticResource KcapMutedBrush}"
-                                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
-                                                            <Run Text="{Binding Label}" />
-                                                            <Run Text="{Binding SessionCount}" Foreground="{StaticResource KcapFaintBrush}" />
-                                                        </TextBlock>
-                                                    </Panel>
+                                                    <TextBlock x:Name="RailWorkItemTitle" FontSize="14" Foreground="{StaticResource KcapMutedBrush}"
+                                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                                               Text="{Binding Label}" />
                                                 </DockPanel>
                                                 <views:AppIcon Kind="Folder" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
                                             </Grid>

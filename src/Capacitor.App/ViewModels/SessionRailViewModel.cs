@@ -56,6 +56,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly Dictionary<string, string> _retitled = new(StringComparer.Ordinal);
     readonly Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? _renameSession;
     readonly Func<string, string, Task<bool>>? _renameWorkItem;
+    readonly Action<string>? _openWorkItem;
     readonly Func<string, string, Task<string?>>? _createWorkItem;
     SessionTitleEditorViewModel? _renaming;
     Action? _endRename;
@@ -396,11 +397,13 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? renameSession = null,
             Func<AgentRow, bool>? canRenameSession = null,
             Func<string, string, Task<bool>>? renameWorkItem = null,
-            Func<string, string, Task<string?>>? createWorkItem = null) {
+            Func<string, string, Task<string?>>? createWorkItem = null,
+            Action<string>? openWorkItem = null) {
         _directory = directory;
         _createWorkItem = createWorkItem;
         _renameSession = renameSession;
         _renameWorkItem = renameWorkItem;
+        _openWorkItem = openWorkItem;
         _fileSession = fileSession;
         _unfileSession = unfileSession;
         _notifier = notifier;
@@ -767,6 +770,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         ClearMarks();
         if (group.WorkItemId is not { } id) return [];
         var items = new List<RowMenuItem>();
+        if (_openWorkItem is { } open) items.Add(new(LucideIconKind.FolderOpen, "Open", () => open(id)));
         if (_renameWorkItem is { } rename) {
             var original = group.Label;
             // Relabels the header alone: regrouping the whole rail holds the frame that closes the field.

@@ -1089,7 +1089,8 @@ public class SessionRailViewModelTests {
             Func<string, string, Task<bool>>? fileSession = null, Func<string, string, Task<bool>>? unfileSession = null,
             Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? renameSession = null,
             Func<AgentRow, bool>? canRenameSession = null, Func<string, string, Task<bool>>? renameWorkItem = null,
-            IAppNotifier? notifier = null, Func<string, string, Task<string?>>? createWorkItem = null) {
+            IAppNotifier? notifier = null, Func<string, string, Task<string?>>? createWorkItem = null,
+            Action<string>? openWorkItem = null) {
         var directory = new FakeAgentDirectory();
         var sessions = new FakeServerSessionsService();
         var rail = new SessionRailViewModel(directory, _ => { }, _ => { },
@@ -1098,7 +1099,7 @@ public class SessionRailViewModelTests {
             preferences: RailPreferences.Default with { Grouping = RailGrouping.WorkItem, Project = new RailProject("p", "P", ["h"]) },
             readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, [])),
             fileSession: fileSession, unfileSession: unfileSession, renameSession: renameSession, canRenameSession: canRenameSession, renameWorkItem: renameWorkItem,
-            notifier: notifier, createWorkItem: createWorkItem);
+            notifier: notifier, createWorkItem: createWorkItem, openWorkItem: openWorkItem);
         return (directory, sessions, rail);
     }
 
@@ -1107,6 +1108,23 @@ public class SessionRailViewModelTests {
             (dto.Status == "active" ? sessions.LiveCache : sessions.EndedCache).AddOrUpdate(dto);
             directory.Rows.AddOrUpdate(AgentRow.FromServer(dto, hostedPresentation: false));
         }
+    }
+
+    /// A work item opens from its menu; a click on its header only folds it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_work_item_opens_from_its_menu() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var opened = new List<string>();
+            var (directory, sessions, rail) = BuildWithWorkItems(openWorkItem: opened.Add);
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1)));
+
+                rail.MenuFor(rail.Groups.Single(g => g.WorkItemId == "AI-1")).Single(item => item.Label == "Open").Run();
+
+                await Assert.That(opened).IsEquivalentTo(["AI-1"]);
+            }
+        });
     }
 
     /// A work item renamed from its header shows its new title at once and keeps it while a listing still carries the old one.
