@@ -261,7 +261,7 @@ public class SettingsWindowSmokeTests {
             await Assert.That(HasPill(RowOf("main"))).IsFalse();
             await Assert.That(HasPill(RowOf(".codex"))).IsTrue();
 
-            var trust = RowOf("main").GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("accountStateNotice"));
+            var trust = RowOf("main").GetVisualDescendants().OfType<Border>().Single(b => b.Name == "AccountStateNotice");
             await Assert.That(trust.IsEffectivelyVisible).IsTrue();
             await Assert.That(string.Join("|", trust.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text)))
                 .Contains("Needs approval in Codex|Start Codex once with this account and approve kcap's hooks when it asks.");

@@ -120,7 +120,7 @@
                                                                 </DataTemplate>
                                                             </ContentControl.ContentTemplate>
                                                         </ContentControl>
-                                                        <Border Classes="notice accountStateNotice" Margin="0,12,0,0"
+                                                        <Border Name="AccountStateNotice" Classes="notice" Margin="0,12,0,0"
                                                                 IsVisible="{Binding !ShowsStateBadge}"
                                                                 AutomationProperties.Name="{Binding StateLabel}" AutomationProperties.LandmarkType="Region">
                                                             <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
@@ -131,7 +131,7 @@
                                                                     <views:CommandChip Text="{Binding StateCommand}" HorizontalAlignment="Left" Margin="0,6,0,0"
                                                                                        IsVisible="{Binding StateCommand, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                                                     <StackPanel Classes="noticeActions" IsVisible="{Binding CanReconnect}">
-                                                                        <Button Classes="kcapPrimary accountReconnect" Content="Reconnect"
+                                                                        <Button Classes="kcapPrimary" Content="Reconnect"
                                                                                 AutomationProperties.Name="{Binding Label, StringFormat='Reconnect {0}'}"
                                                                                 Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).RewireCommand}"
                                                                                 CommandParameter="{Binding}" />
