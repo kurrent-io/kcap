@@ -1090,7 +1090,7 @@ public class SessionRailViewModelTests {
             Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? renameSession = null,
             Func<AgentRow, bool>? canRenameSession = null, Func<string, string, Task<bool>>? renameWorkItem = null,
             IAppNotifier? notifier = null, Func<string, string, Task<string?>>? createWorkItem = null,
-            Action<string>? openWorkItem = null) {
+            Action<string>? openWorkItem = null, Func<string, string, Task<string?>>? createProjectWorkItem = null) {
         var directory = new FakeAgentDirectory();
         var sessions = new FakeServerSessionsService();
         sessions.ViewerIdsSubject.OnNext(FrozenSet.Create(StringComparer.Ordinal, "me"));
@@ -1101,7 +1101,7 @@ public class SessionRailViewModelTests {
             readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, ServerWorkItems(sessions))),
             workItemsChanged: sessions.Snapshots.Select(_ => System.Reactive.Unit.Default),
             fileSession: fileSession, unfileSession: unfileSession, renameSession: renameSession, canRenameSession: canRenameSession, renameWorkItem: renameWorkItem,
-            notifier: notifier, createWorkItem: createWorkItem, openWorkItem: openWorkItem);
+            notifier: notifier, createWorkItem: createWorkItem, openWorkItem: openWorkItem, createProjectWorkItem: createProjectWorkItem);
         return (directory, sessions, rail);
     }
 
@@ -1265,6 +1265,35 @@ public class SessionRailViewModelTests {
                 await Assert.That(rail.MenuFor(Row("loose")).Select(item => item.Label)).DoesNotContain(convert);
                 await Assert.That(rail.MenuFor(Row("refused")).Select(item => item.Label)).Contains(convert);
                 await Assert.That(notifier.Notified).IsEquivalentTo(["Couldn't convert the session to a work item"]);
+            }
+        });
+    }
+
+    /// A new work item is created in the rail's project and opened; a refused one says so and gives the title back.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_new_work_item_is_created_in_the_rails_project_and_opened() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var calls = new List<string>();
+            var opened = new List<string>();
+            var notifier = new RecordingNotifier();
+            var (directory, sessions, rail) = BuildWithWorkItems(notifier: notifier, openWorkItem: opened.Add,
+                createProjectWorkItem: (project, title) => {
+                    calls.Add($"{project} {title}");
+                    return Task.FromResult<string?>(title == "Faster checkout" ? "AI-9" : null);
+                });
+            using (directory) using (sessions) using (rail) {
+                await Assert.That(rail.OffersCreateWorkItem).IsTrue();
+
+                rail.NewWorkItemTitle = "  Faster checkout ";
+                rail.CreateWorkItemCommand.Execute().Subscribe();
+                rail.NewWorkItemTitle = "Refused";
+                rail.CreateWorkItemCommand.Execute().Subscribe();
+
+                await Assert.That(calls).IsEquivalentTo(["p Faster checkout", "p Refused"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+                await Assert.That(opened).IsEquivalentTo(["AI-9"]);
+                await Assert.That(notifier.Notified).IsEquivalentTo(["Couldn't create the work item"]);
+                await Assert.That(rail.NewWorkItemTitle).IsEqualTo("Refused");
             }
         });
     }

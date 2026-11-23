@@ -58,6 +58,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly Func<string, string, Task<bool>>? _renameWorkItem;
     readonly Action<string>? _openWorkItem;
     readonly Func<string, string, Task<string?>>? _createWorkItem;
+    readonly Func<string, string, Task<string?>>? _createProjectWorkItem;
     SessionTitleEditorViewModel? _renaming;
     Action? _endRename;
     readonly IAppNotifier? _notifier;
@@ -211,6 +212,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     /// The work items section shows once a project is picked on a server with work items version 2.
     public bool OffersWorkItem => _shownProject is not null && _workItemsOffered;
     public bool ShowsWorkItems => OffersWorkItem && _workItems.Count > 0;
+    public bool OffersCreateWorkItem => OffersWorkItem && _createProjectWorkItem is not null;
+
+    string _newWorkItemTitle = "";
+    public string NewWorkItemTitle { get => _newWorkItemTitle; set => this.RaiseAndSetIfChanged(ref _newWorkItemTitle, value); }
 
     public string GroupingLabel => GroupingName(_grouping);
 
@@ -336,6 +341,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<RailGrouping, Unit> SetGroupingCommand { get; }
     public ReactiveCommand<RailSort, Unit> SetSortCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleDirectionCommand { get; }
+    public ReactiveCommand<Unit, Unit> CreateWorkItemCommand { get; }
     public ReactiveCommand<RailProject?, Unit> SetProjectCommand { get; }
     public ReactiveCommand<Unit, Unit> RestoreRemovedCommand { get; }
     /// Folds every group while any is open, else opens them all.
@@ -414,9 +420,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Func<AgentRow, bool>? canRenameSession = null,
             Func<string, string, Task<bool>>? renameWorkItem = null,
             Func<string, string, Task<string?>>? createWorkItem = null,
-            Action<string>? openWorkItem = null) {
+            Action<string>? openWorkItem = null,
+            Func<string, string, Task<string?>>? createProjectWorkItem = null) {
         _directory = directory;
         _createWorkItem = createWorkItem;
+        _createProjectWorkItem = createProjectWorkItem;
         _renameSession = renameSession;
         _renameWorkItem = renameWorkItem;
         _openWorkItem = openWorkItem;
@@ -471,6 +479,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         SetProjectCommand = ReactiveCommand.Create<RailProject?>(project => Project = project).DisposeWith(_disposables);
         RestoreRemovedCommand = ReactiveCommand.Create(() => SetRemoved([], persist: true)).DisposeWith(_disposables);
         ToggleAllExpandedCommand = ReactiveCommand.Create(ToggleAllExpanded).DisposeWith(_disposables);
+        CreateWorkItemCommand = ReactiveCommand.Create(() => { _ = CreateWorkItemAsync(); },
+            this.WhenAnyValue(x => x.NewWorkItemTitle, title => !string.IsNullOrWhiteSpace(title))).DisposeWith(_disposables);
         OpenPreviousSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(-1); }).DisposeWith(_disposables);
         OpenNextSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(1); }).DisposeWith(_disposables);
         _baseFilter = new BehaviorSubject<Func<AgentRow, bool>>(BaseFilter()).DisposeWith(_disposables);
@@ -898,6 +908,21 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         _openWorkItems.Add(WorkItemKey(created));
     }
 
+    // The field clears at once; a refused title comes back unless another is already being typed.
+    async Task CreateWorkItemAsync() {
+        if (_createProjectWorkItem is not { } create || _shownProject is not { } project) return;
+        var title = NewWorkItemTitle.Trim();
+        NewWorkItemTitle = "";
+        var created = await create(project.Id, title);
+        if (_disposables.IsDisposed) return;
+        if (created is null) {
+            _notifier?.Notify("Couldn't create the work item");
+            if (NewWorkItemTitle.Length == 0) NewWorkItemTitle = title;
+            return;
+        }
+        _openWorkItem?.Invoke(created);
+    }
+
     List<RailSessionViewModel> ShownRows() =>
         [.. Groups.Where(group => group.IsExpanded).SelectMany(group => group.Sessions)];
 
@@ -977,6 +1002,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             _workItemComparer.OnNext(WorkItemComparer(order));
         }
         this.RaisePropertyChanged(nameof(OffersWorkItem));
+        this.RaisePropertyChanged(nameof(OffersCreateWorkItem));
         this.RaisePropertyChanged(nameof(ShowsWorkItems));
     }
 

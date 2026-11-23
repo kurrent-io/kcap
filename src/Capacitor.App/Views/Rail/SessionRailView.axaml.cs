@@ -17,6 +17,7 @@ public partial class SessionRailView : UserControl, IRowDropSurface {
     public SessionRailView() {
         InitializeComponent();
         KeyboardDismissible(RailHelpButton);
+        KeyboardDismissible(RailNewWorkItemButton);
         foreach (var anchor in new[] { RailFilterButton, RailGroupButton, RailSortButton, RailScopeButton, RailStateButton })
             KeyboardDismissible(anchor, NavigationMethod.Pointer);
         RailGroups.AddHandler(PointerPressedEvent, OnRowsPointerPressed, RoutingStrategies.Tunnel);
@@ -183,6 +184,12 @@ public partial class SessionRailView : UserControl, IRowDropSurface {
     }
 
     void OnProjectPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailProjectButton, sender, e);
+
+    void OnCreateWorkItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailNewWorkItemButton, sender, e);
+
+    void OnNewWorkItemTitleKeyDown(object? sender, KeyEventArgs e) {
+        if (e.Key == Key.Enter) RunFlyoutItem(RailNewWorkItemButton, RailCreateWorkItemButton, e);
+    }
 
     static void RunFlyoutItem(Button anchor, object? sender, RoutedEventArgs e) {
         if (sender is not Button { Command: { } command, CommandParameter: var parameter }

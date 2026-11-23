@@ -616,11 +616,38 @@
                         </rail:RailNavRow>
                     </StackPanel>
                     <StackPanel x:Name="RailGroups">
-                    <TextBlock x:Name="RailWorkItemsHeading" Text="Work items" FontSize="13" FontWeight="Medium" Margin="11,4,5,6"
-                               Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding Rail.ShowsWorkItems, FallbackValue=False}" />
-                    <ItemsControl x:Name="RailWorkItemGroups" ItemsSource="{Binding Rail.WorkItemGroups, FallbackValue={x:Null}}"
-                                  ItemTemplate="{StaticResource RailGroupTemplate}" Margin="0,0,0,10"
-                                  IsVisible="{Binding Rail.ShowsWorkItems, FallbackValue=False}" />
+                    <StackPanel Margin="0,0,0,10">
+                        <StackPanel.IsVisible>
+                            <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                                <Binding Path="Rail.ShowsWorkItems" FallbackValue="False" />
+                                <Binding Path="Rail.OffersCreateWorkItem" FallbackValue="False" />
+                            </MultiBinding>
+                        </StackPanel.IsVisible>
+                        <Grid ColumnDefinitions="*,Auto" Margin="11,4,5,2">
+                            <TextBlock x:Name="RailWorkItemsHeading" Text="Work items" FontSize="13" FontWeight="Medium"
+                                       Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                            <Button x:Name="RailNewWorkItemButton" Grid.Column="1" Classes="kcapGhost kcapIcon"
+                                    DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
+                                    IsVisible="{Binding OffersCreateWorkItem, FallbackValue=False}"
+                                    ToolTip.Tip="New work item" AutomationProperties.Name="New work item">
+                                <views:AppIcon Kind="Plus" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                                <Button.Flyout>
+                                    <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
+                                        <StackPanel Spacing="8" Margin="8" Width="260">
+                                            <TextBox x:Name="RailNewWorkItemTitle" Classes="kcapField" Text="{Binding NewWorkItemTitle}"
+                                                     PlaceholderText="Work item title" AutomationProperties.Name="Work item title"
+                                                     KeyDown="OnNewWorkItemTitleKeyDown" />
+                                            <Button x:Name="RailCreateWorkItemButton" Classes="kcapChip" Content="Create" HorizontalAlignment="Right"
+                                                    Command="{Binding CreateWorkItemCommand}" Click="OnCreateWorkItemClick" />
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                        </Grid>
+                        <ItemsControl x:Name="RailWorkItemGroups" ItemsSource="{Binding Rail.WorkItemGroups, FallbackValue={x:Null}}"
+                                      ItemTemplate="{StaticResource RailGroupTemplate}"
+                                      IsVisible="{Binding Rail.ShowsWorkItems, FallbackValue=False}" />
+                    </StackPanel>
                     <Grid ColumnDefinitions="*,Auto,Auto" Margin="11,4,5,2">
                         <TextBlock x:Name="RailSessionsHeading" Text="Sessions" FontSize="13" FontWeight="Medium"
                                    Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />

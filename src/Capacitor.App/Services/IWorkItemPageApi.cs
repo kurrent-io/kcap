@@ -26,6 +26,8 @@ public interface IWorkItemPageApi {
     /// Makes the part wait on another part of its work item, or stop waiting on it. Refused when they would wait on each other in a loop.
     Task<bool> SetWaitAsync(string partId, string waitsOnId, bool waits, CancellationToken ct);
     Task<bool> AddLinkAsync(string workItemId, string reference, CancellationToken ct);
+    /// Creates a work item in the project with no session. Its id, or null when the server refused it.
+    Task<string?> CreateAsync(string projectId, string title, CancellationToken ct);
     /// Creates a work item titled <paramref name="title"/> holding the session. Its id, or null when the server refused it.
     Task<string?> CreateForSessionAsync(string sessionId, string title, CancellationToken ct);
     /// Files the session under the part or work item, moving it from where it sits in that work item, else from its own.
