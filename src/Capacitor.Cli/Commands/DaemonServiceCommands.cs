@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net.Sockets;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Install;
@@ -22,7 +23,7 @@ sealed class DaemonServiceCommands(
     /// <summary>Resolves the OS service manager and the service id once, then runs one verb.</summary>
     public static async Task<int> DispatchAsync(
             DaemonStore store, ConfigRoot root, ProfileContext profiles, UserHome home, TimeProvider time,
-            string[] args) {
+            TokenStore? tokens, string[] args) {
         if (args.Length == 0) return Usage();
 
         var action  = args[0];
@@ -63,7 +64,9 @@ sealed class DaemonServiceCommands(
             return 1;
         }
 
-        var verbs = new DaemonServiceCommands(store, root, profiles, manager, serviceId, home, time);
+        var verbs = new DaemonServiceCommands(store, root, profiles, manager, serviceId, home, time) {
+            MigrateLegacy = tokens is null ? null : owner => tokens.MigrateLegacyAsync(owner),
+        };
 
         // An update of the service binary: when the daemon is already enrolled as asked, the elevated step was the
         // whole job. A changed profile or agent cap goes through the install below, which re-enrolls.
@@ -377,6 +380,9 @@ sealed class DaemonServiceCommands(
     /// <summary>Whether the daemon of a service id hosts this process. Test seam; production asks <see cref="HostedCaller"/>.</summary>
     internal Func<string, bool>? HostsCaller { get; init; }
 
+    /// <summary>Moves a profile's legacy credential into its own file; <c>--activate</c> is refused without one.</summary>
+    internal Func<string, Task>? MigrateLegacy { get; init; }
+
     /// <summary>Replaces each verb's own bounded wait for a service lock held elsewhere; null keeps them.</summary>
     internal TimeSpan? LockWait { get; init; }
 
@@ -644,13 +650,46 @@ sealed class DaemonServiceCommands(
             return 1;
         }
 
+        string? retireProfile;
+        try {
+            retireProfile = DaemonCommands.ExtractFlagValue(args, "--retire-profile");
+        } catch (ArgumentException ex) {
+            await Console.Error.WriteLineAsync(ex.Message);
+            return 1;
+        }
+        if (retireProfile is not null && retireId is null) {
+            await Console.Error.WriteLineAsync("--retire-profile requires --retire.");
+            return 1;
+        }
+
+        var activate = args.Contains("--activate");
+        if (activate && !(replace && verify)) {
+            await Console.Error.WriteLineAsync("install --activate requires --replace --verify.");
+            return 1;
+        }
+        var expectedServer = Environment.GetEnvironmentVariable(ExpectedServer.Var);
+        if (activate && string.IsNullOrEmpty(expectedServer)) {
+            await Console.Error.WriteLineAsync($"install --activate requires {ExpectedServer.Var}.");
+            await Console.Error.WriteLineAsync("expect_server_required");
+            return 1;
+        }
+        if (activate && MigrateLegacy is null) {
+            await Console.Error.WriteLineAsync("install --activate cannot move saved sign-ins from here.");
+            return 1;
+        }
+
         if (await RefuseHostedCallerAsync(HostsCaller ?? HostsCallerOf(store), id, retireId, EnrolledServiceId(), args)) return 1;
 
         var daemonPath = UnitIdentity.ResolveDaemonBinary();
         if (daemonPath is null) { await Console.Error.WriteLineAsync(DaemonCommands.DaemonNotFoundMessage()); return 1; }
 
         var profileName = DaemonCommands.ExtractFlagValue(args, "--profile") ?? profiles.Resolution.ProfileName;
+        if (activate && string.IsNullOrEmpty(profileName)) {
+            await Console.Error.WriteLineAsync("install --activate needs a profile to activate; pass --profile.");
+            return 1;
+        }
         var env = CaptureUnitEnvironment(id, profileName);
+        var activation = activate ? new ProfileActivation(root, profileName!, expectedServer!, id, env, MigrateLegacy!) : null;
 
         List<string> extra;
         try {
@@ -673,9 +712,11 @@ sealed class DaemonServiceCommands(
                 ? await new ServiceVerify(store, root, launchd,
                         n => DaemonPidProbe.ValidatedPid(store, n), (n, t) => HelloProbe.RunAsync(store, n, time, t),
                         time, profileViable: () => profileUrlValid, gateEnv: Environment.GetEnvironmentVariable)
-                    .InstallVerifiedAsync(spec, replace: replace, CapacitorVersion.Current(), retireServiceId: retireId)
+                    .InstallVerifiedAsync(spec, replace: replace, CapacitorVersion.Current(), retireServiceId: retireId,
+                        activation: activation, retireProfile: retireProfile)
                 : await NewPollingVerify(() => profileUrlValid)
-                    .InstallVerifiedAsync(spec, replace: replace, CapacitorVersion.Current(), retireServiceId: retireId);
+                    .InstallVerifiedAsync(spec, replace: replace, CapacitorVersion.Current(), retireServiceId: retireId,
+                        activation: activation, retireProfile: retireProfile);
             if (exit != VerifyExit.Ok) return exit;
         } else {
             // Plain (non-verify) install serializes on the same per-label lock every other mutating
@@ -1618,10 +1659,12 @@ sealed class DaemonServiceCommands(
     static int Usage() {
         Console.Error.WriteLine("Usage: kcap daemon service <install|uninstall|start|stop|ensure|status|refresh|repoint> [--name N]");
         Console.Error.WriteLine();
-        Console.Error.WriteLine("  install [--name N] [--profile P] [--max-agents N] [--no-start] [--replace] [--verify] [--retire ID]");
+        Console.Error.WriteLine("  install [--name N] [--profile P] [--max-agents N] [--no-start] [--replace] [--verify] [--retire ID [--retire-profile P]] [--activate]");
         Console.Error.WriteLine("                          --verify polls readiness/version/ownership and rolls back on failure");
         Console.Error.WriteLine("                          --replace (requires --verify) takes over an existing label/unit/live owner");
         Console.Error.WriteLine("                          --retire ID (requires --replace --verify) also removes unit ID in the same transaction");
+        Console.Error.WriteLine("                          --retire-profile P (requires --retire) the profile unit ID must be pinned to");
+        Console.Error.WriteLine("                          --activate (requires --replace --verify and KCAP_EXPECT_SERVER_URL) makes the profile active");
         Console.Error.WriteLine("                          --no-start is incompatible with --verify");
         Console.Error.WriteLine("  install --system [...] Windows: install or update kcap-service (one administrator prompt), then hand the daemon to it");
         Console.Error.WriteLine("  uninstall [--name N]   Stop and remove the service unit");

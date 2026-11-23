@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Sockets;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
+using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
@@ -17,7 +18,8 @@ namespace Capacitor.Cli.Commands;
 
 public sealed class DaemonCommands(
         DaemonStore store, ConfigRoot config, ProfileContext profiles, UserHome home,
-        HarnessRegistry harnesses, BinaryProbe binaries, TimeProvider time, StandardStreams console) {
+        HarnessRegistry harnesses, BinaryProbe binaries, TimeProvider time, StandardStreams console,
+        TokenStore? tokens = null) {
     string LogPath { get; } = config.Path("daemon.log");
 
     /// <summary>The sibling capture for the daemon's raw stderr/stdout — where a detached start points
@@ -50,7 +52,7 @@ public sealed class DaemonCommands(
             "status"  => await Status(remaining),
             "logs"    => await Logs(),
             "doctor"  => await DoctorAsync(remaining),
-            "service" => await DaemonServiceCommands.DispatchAsync(store, config, profiles, home, time, remaining),
+            "service" => await DaemonServiceCommands.DispatchAsync(store, config, profiles, home, time, tokens, remaining),
             "shim"    => await DaemonShimCommands.DispatchAsync(remaining, time),
             "consent" => await DaemonConsentCommand.HandleAsync(store, profiles, remaining),
             "reviewer" => await DaemonReviewerCommand.HandleAsync(store, profiles, binaries, remaining),
