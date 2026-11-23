@@ -100,6 +100,13 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     public ReactiveCommand<Unit, Unit> AddLinkCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowListCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowBoardCommand { get; }
+
+    Action? _pendingDrop;
+    string? _dropPrompt;
+    /// The question a drop onto a group waits on; null when none does.
+    public string? DropPrompt { get => _dropPrompt; private set => this.RaiseAndSetIfChanged(ref _dropPrompt, value); }
+    public ReactiveCommand<Unit, Unit> ConfirmDropCommand { get; }
+    public ReactiveCommand<Unit, Unit> CancelDropCommand { get; }
     public SessionTitleEditorViewModel TitleEditor { get; }
     /// Edits the goal in place; a blank one clears it.
     public SessionTitleEditorViewModel GoalEditor { get; }
@@ -142,6 +149,12 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
 
         ShowListCommand = ReactiveCommand.Create(() => ShowBoard(false)).DisposeWith(_disposables);
         ShowBoardCommand = ReactiveCommand.Create(() => ShowBoard(true)).DisposeWith(_disposables);
+        ConfirmDropCommand = ReactiveCommand.Create(() => {
+            var drop = _pendingDrop;
+            EndDropPrompt();
+            drop?.Invoke();
+        }).DisposeWith(_disposables);
+        CancelDropCommand = ReactiveCommand.Create(EndDropPrompt).DisposeWith(_disposables);
 
         var notifier = new AppNotifier();
         notifier.Messages.Subscribe(message => Message = message).DisposeWith(_disposables);
@@ -192,20 +205,34 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     /// What dropping a dragged slice or session on <paramref name="target"/> does; null when it can't go there. A
     /// session goes into a slice or a group, a slice only onto a group: a slice dropped on a status takes that status,
     /// a session dropped on a status becomes a new slice there, and a slice dropped on the other sessions hands them
-    /// its sessions. Dropped where it already is, it stays, which <see cref="Stay"/> does.
+    /// its sessions. Dropped where it already is, it stays, which <see cref="Stay"/> does. A drop onto a group waits on
+    /// <see cref="DropPrompt"/>.
     public Action? DropOn(object dragged, object target) => (dragged, target) switch {
         (WorkItemPageSession session, WorkItemPagePart part) =>
             part.Sessions.Any(s => s.SessionId == session.SessionId) ? Stay : () => _ = MoveSessionAsync(session, part.Id),
         (WorkItemPageSession session, WorkItemPageGroupViewModel { Key: OnWorkItemKey } group) =>
-            group.Sessions.Any(s => s.SessionId == session.SessionId) ? Stay : () => _ = MoveSessionAsync(session, WorkItemId),
-        (WorkItemPageSession session, WorkItemPageGroupViewModel { Status: { } status }) => () => _ = SliceFromAsync(session, status),
-        (WorkItemPagePart part, WorkItemPageGroupViewModel { Key: OnWorkItemKey }) when part.HasSessions => () => _ = MoveSessionsOutAsync(part),
+            group.Sessions.Any(s => s.SessionId == session.SessionId) ? Stay
+                : Ask($"Move “{session.Title}” to {group.Label}?", () => _ = MoveSessionAsync(session, WorkItemId)),
+        (WorkItemPageSession session, WorkItemPageGroupViewModel { Status: { } status }) =>
+            Ask($"Make “{session.Title}” a new slice in {status.Label()}?", () => _ = SliceFromAsync(session, status)),
+        (WorkItemPagePart part, WorkItemPageGroupViewModel { Key: OnWorkItemKey } group) when part.HasSessions =>
+            Ask($"Move the sessions of “{part.Title}” to {group.Label}?", () => _ = MoveSessionsOutAsync(part)),
         (WorkItemPagePart part, WorkItemPageGroupViewModel { Status: { } status }) =>
-            status == part.Status ? Stay : () => part.SetStatusCommand.Execute(status.Wire()).Subscribe(),
+            status == part.Status ? Stay : Ask($"Move “{part.Title}” to {status.Label()}?", () => part.SetStatusCommand.Execute(status.Wire()).Subscribe()),
         _ => null,
     };
 
     public static readonly Action Stay = () => { };
+
+    Action Ask(string prompt, Action drop) => () => {
+        _pendingDrop = drop;
+        DropPrompt = prompt;
+    };
+
+    void EndDropPrompt() {
+        _pendingDrop = null;
+        DropPrompt = null;
+    }
 
     // Opens the slice it lands in, so the session is seen there.
     Task MoveSessionAsync(WorkItemPageSession session, string containerId) {

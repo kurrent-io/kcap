@@ -161,6 +161,7 @@ public class WorkItemPageViewModelTests {
         var session = page.Columns.SelectMany(column => column.Sessions).Single();
 
         page.DropOn(session, page.Columns.Single(column => column.Status == WorkStatus.Blocked))!();
+        await page.ConfirmDropCommand.Execute();
 
         await Assert.That(api.Calls).IsEquivalentTo(["add Session s9", "move s9 to p9", "status p9 blocked"],
             TUnit.Assertions.Enums.CollectionOrdering.Matching);
@@ -200,6 +201,7 @@ public class WorkItemPageViewModelTests {
         using var page = Page(api, directory);
 
         page.DropOn(page.Columns[1].Parts.Single(), page.Columns[0])!();
+        await page.ConfirmDropCommand.Execute();
 
         await Assert.That(api.Calls).IsEquivalentTo(["move s1 to w1", "move s2 to w1"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
     });
@@ -274,12 +276,12 @@ public class WorkItemPageViewModelTests {
         await Assert.That(page.Message).IsNull();
     });
 
-    /// What each drop sends: a slice onto another status's group takes that status, a session onto another slice moves
-    /// there, a drop where the thing already is stays, and a slice can't go onto a slice.
+    /// What each drop sends: a slice onto another status's group takes that status once confirmed, a session onto
+    /// another slice moves there at once, a drop where the thing already is stays, and a slice can't go onto a slice.
     [Test]
     [NotInParallel("AvaloniaSession")]
     [Arguments("slice onto another slice", "p1", "p3", "<none>")]
-    [Arguments("slice onto another status's group", "p1", "in_review", "status p1 in_review")]
+    [Arguments("slice onto another status's group", "p1", "in_review", "asked, status p1 in_review")]
     [Arguments("slice onto its own status's group", "p1", "open", "<stay>")]
     [Arguments("session onto another slice", "s1", "p3", "move s1 to p3")]
     [Arguments("session onto its own slice", "s1", "p1", "<stay>")]
@@ -295,7 +297,26 @@ public class WorkItemPageViewModelTests {
 
             var drop = page.DropOn(Find(dragged), Find(target));
             drop?.Invoke();
+            var asked = page.DropPrompt is not null;
+            if (asked) await page.ConfirmDropCommand.Execute();
 
-            await Assert.That(drop is null ? "<none>" : drop == WorkItemPageViewModel.Stay ? "<stay>" : string.Join(";", api.Calls)).IsEqualTo(calls);
+            await Assert.That(drop is null ? "<none>" : drop == WorkItemPageViewModel.Stay ? "<stay>" : (asked ? "asked, " : "") + string.Join(";", api.Calls))
+                .IsEqualTo(calls);
         });
+
+    /// A drop onto a group sends nothing until confirmed, and nothing at all when cancelled.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_cancelled_drop_onto_a_group_sends_nothing() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeApi { Parts = [FakeApi.Part("p1", "open")] };
+        using var directory = new FakeAgentDirectory();
+        using var page = Page(api, directory);
+
+        page.DropOn(page.Groups.Single().Parts.Single(), page.Columns.Single(column => column.Status == WorkStatus.Done))!();
+
+        await Assert.That(page.DropPrompt).IsNotNull();
+        await page.CancelDropCommand.Execute();
+        await Assert.That(page.DropPrompt).IsNull();
+        await Assert.That(api.Calls).IsEmpty();
+    });
 }

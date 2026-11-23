@@ -725,5 +725,19 @@
         <!-- Last child so it hit-tests above the column it overhangs. -->
         <GridSplitter x:Name="ContextSplitter" Grid.Column="1" HorizontalAlignment="Left" Width="6"
                       Margin="-3,0,0,0" Background="Transparent" ResizeDirection="Columns" />
+        <Border Grid.ColumnSpan="2" Background="#80000000"
+                IsVisible="{Binding DropPrompt, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <Border Width="400" Padding="20" CornerRadius="10" BorderThickness="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    BoxShadow="0 10 28 0 #80000000" Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderStrongBrush}">
+                <StackPanel Spacing="18">
+                    <TextBlock Text="{Binding DropPrompt}" TextWrapping="Wrap" FontSize="14" LineHeight="21"
+                               Foreground="{StaticResource KcapTextBrush}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                        <Button Classes="kcapChip" Content="Cancel" Command="{Binding CancelDropCommand}" IsCancel="True" />
+                        <Button Classes="kcapPrimary" Content="Move" Command="{Binding ConfirmDropCommand}" IsDefault="True" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
     </Grid>
 </UserControl>
