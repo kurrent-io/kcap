@@ -193,6 +193,45 @@
         <Style Selector="Button.addSlice">
             <Setter Property="Opacity" Value="0" />
         </Style>
+        <!-- Geometry mirrors Button.partRow so the status glyph and title line up with the slices above. -->
+        <Style Selector="Border.composerRow">
+            <Setter Property="Padding" Value="3,0,6,0" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        </Style>
+        <Style Selector="Border.composerRow:focus-within">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+        </Style>
+        <Style Selector="Border.column TextBlock.composerHint">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="Button.composerStatus">
+            <Setter Property="Width" Value="24" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="1,0,0,0" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBox.composer">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="Medium" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+            <Setter Property="CaretBrush" Value="{StaticResource KcapTextBrush}" />
+            <Setter Property="PlaceholderForeground" Value="{StaticResource KcapFaintBrush}" />
+        </Style>
+        <Style Selector="TextBox.composer /template/ Border#PART_BorderElement,
+                         TextBox.composer:focus /template/ Border#PART_BorderElement,
+                         TextBox.composer:pointerover /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
         <Style Selector="Panel.groupHeadRow:pointerover Button.addSlice, Panel.groupHeadRow:focus-within Button.addSlice,
                          Border.column:pointerover Button.addSlice, Border.column:focus-within Button.addSlice">
             <Setter Property="Opacity" Value="1" />
@@ -285,8 +324,9 @@
         </DataTemplate>
 
         <DataTemplate x:Key="Composer" x:DataType="pages:WorkItemPageGroupViewModel">
-            <Grid Classes="composerRow" ColumnDefinitions="Auto,*" ColumnSpacing="2" IsVisible="{Binding IsComposing}">
-                <Button Classes="kcapGhost kcapIcon" ToolTip.Tip="Change status"
+            <Border Classes="composerRow" IsVisible="{Binding IsComposing}">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="3" MinHeight="32">
+                <Button Classes="kcapGhost composerStatus" ToolTip.Tip="Change status"
                         AutomationProperties.Name="{Binding Label, StringFormat='Status: {0}'}">
                     <views:AppIcon Kind="{Binding Icon}" Size="14"
                                    Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
@@ -309,11 +349,14 @@
                         </Flyout>
                     </Button.Flyout>
                 </Button>
-                <TextBox Grid.Column="1" Classes="inlineEdit composer" HorizontalAlignment="Stretch" MaxLength="200"
-                         PlaceholderText="Slice title" AutomationProperties.Name="New slice title"
+                <TextBox Grid.Column="1" Classes="composer" MaxLength="200"
+                         PlaceholderText="New slice title" AutomationProperties.Name="New slice title"
                          Text="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).NewPartTitle}"
                          AttachedToVisualTree="OnComposerAttached" LostFocus="OnComposerLostFocus" />
+                <TextBlock Grid.Column="2" Classes="composerHint" Text="Enter to add · Esc to cancel" FontSize="11" Margin="6,0"
+                           Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
             </Grid>
+            </Border>
         </DataTemplate>
 
         <DataTemplate x:Key="AddSlice" x:DataType="pages:WorkItemPageGroupViewModel">
@@ -358,7 +401,7 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                         <ItemsControl ItemsSource="{Binding Sessions}" ItemTemplate="{StaticResource SessionRow}" />
-                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource Composer}" Margin="4,0,0,0" />
+                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource Composer}" />
                     </StackPanel>
                 </views:FoldPanel>
             </StackPanel>
