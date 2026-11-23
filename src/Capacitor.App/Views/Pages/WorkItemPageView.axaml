@@ -334,7 +334,6 @@
                             <views:AppIcon Kind="{Binding Icon}" Size="14"
                                            Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
                             <TextBlock Text="{Binding Label}" FontSize="14" FontWeight="Medium" VerticalAlignment="Center" />
-                            <TextBlock Text="{Binding Count}" FontSize="14" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
                         </StackPanel>
                     </Button>
                     <ContentControl Content="{Binding}" ContentTemplate="{StaticResource AddSlice}" HorizontalAlignment="Right"
@@ -447,7 +446,6 @@
                             <views:AppIcon Kind="{Binding Icon}" Size="14" VerticalAlignment="Center"
                                            Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
                             <TextBlock Text="{Binding Label}" FontSize="13" FontWeight="Medium" VerticalAlignment="Center" />
-                            <TextBlock Text="{Binding Count}" FontSize="13" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
                         </StackPanel>
                         <ContentControl Grid.Column="1" Content="{Binding}" ContentTemplate="{StaticResource AddSlice}" VerticalAlignment="Center"
                                         IsVisible="{Binding Status, Converter={x:Static ObjectConverters.IsNotNull}}" />
