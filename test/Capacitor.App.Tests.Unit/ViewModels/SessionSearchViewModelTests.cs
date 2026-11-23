@@ -13,7 +13,7 @@ public class SessionSearchViewModelTests {
 
     sealed class Harness : IDisposable {
         readonly List<Pending> _calls = [];
-        public HistoricalScheduler Scheduler { get; } = new();
+        HistoricalScheduler Scheduler { get; } = new();
         public Subject<SessionIdentity> Identity { get; } = new();
         public Subject<string> Access { get; } = new();
         public SessionSearchViewModel Vm { get; }

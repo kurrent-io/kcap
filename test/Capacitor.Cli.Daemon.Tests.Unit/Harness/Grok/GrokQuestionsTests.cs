@@ -174,7 +174,7 @@ public class GrokQuestionsTests {
 
     /// <summary>Choices that cannot be read are never turned into a typed question the user answers blind.</summary>
     [Test]
-    [Arguments("""{}""")]
+    [Arguments("{}")]
     [Arguments("""[{"description":"Warm"}]""")]
     [Arguments("""[{"label":""}]""")]
     [Arguments("""[{"label":5}]""")]

@@ -29,7 +29,7 @@ public class ClaudeHookSessionStartRelayTests {
     }
 
     static string Payload(string eventName) =>
-        $$$"""{"hook_event_name":"{{{eventName}}}","session_id":"{{{Sid}}}","cwd":"/tmp","source":"startup"}""";
+        $$"""{"hook_event_name":"{{eventName}}","session_id":"{{Sid}}","cwd":"/tmp","source":"startup"}""";
 
     ClaudeHookCommand Command(HostedAgent hosted) =>
         new(Config.Root, Resolutions.At("http://server.example", Config.Root), new HookClock(new FakeTimeProvider()), Home, TestHarnesses.Under(Home), hosted, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, Resolutions.At("http://server.example", Config.Root), new FixedCapacitorHttpClient()), SystemProcessStarter.Instance, router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None);

@@ -52,11 +52,10 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     /// to the list.
     public IReadOnlyList<PlanTaskCount> Counts => _counts;
 
-    bool _isExpanded;
     public bool IsExpanded {
-        get => _isExpanded;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _isExpanded, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsBody));
         }
     }

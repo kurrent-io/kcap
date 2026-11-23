@@ -9,8 +9,8 @@ namespace Capacitor.Cli.Core.Harness.OpenCode;
 /// (which POSTs lifecycle + spawns the transcript watcher), and on
 /// <c>session.idle</c> it fetches the session's full messages via the injected SDK
 /// <c>client</c> and appends them as native <c>{info,parts}</c> JSONL lines to the
-/// file the watcher tails. OpenCode v2 loads the default export's <c>setup</c> instead, which captures
-/// no transcript; the file needs OpenCode v1 1.18.29 or newer (<see cref="OpenCodeVersionFloor"/>).
+/// file the watcher tails. OpenCode v2 loads the default export's <c>setup</c> instead, which appends each
+/// session message as it settles; the file needs OpenCode v1 1.18.29 or newer (<see cref="OpenCodeVersionFloor"/>).
 ///
 /// <para><see cref="ExtensionContent"/> is the single source of truth for the
 /// installed file (embedding it as a const keeps NativeAOT happy — no manifest
@@ -46,9 +46,9 @@ public static class OpenCodeExtensionInstaller {
         //   - tool.execute.before → a kcap MCP call that names no session_id gets the calling session's.
         //
         // OpenCode v2 loads the default export's setup instead (see the v2 section at the end): it records
-        // the session lifecycle, titles, the memory index and the session_id stamp, but no transcript. Under a
-        // server shared across sessions it also keeps a heartbeat per session, which kcap ends on idle, and starts
-        // again a session kcap marked ended.
+        // the session lifecycle, titles, the memory index, the session_id stamp and each message as it settles.
+        // Under a server shared across sessions it also keeps a heartbeat per session, which kcap ends on idle, and
+        // starts again a session kcap marked ended.
         //
         // Dependency-free (only node: builtins) and fail-safe by default.
 
@@ -605,8 +605,9 @@ public static class OpenCodeExtensionInstaller {
 
         // ── OpenCode v2 ──────────────────────────────────────────────────────────────────────────────
         // v2 runs plugins in its server process, often the long-lived background service, and may set
-        // up one instance per location there, so session state is module-wide. Its transcripts are
-        // event-sourced and not captured here: the session's JSONL file only ever holds title lines.
+        // up one instance per location there, so session state is module-wide. A session's file gets its
+        // title lines and each user, assistant and shell message once it settles, as the session's context
+        // returns it; a subagent's goes beside its parent's, as on v1.
 
         const v2 = {
           started: new Map<string, true>(),
@@ -620,6 +621,32 @@ public static class OpenCodeExtensionInstaller {
           beatAt: new Map<string, number>(),
           restartAt: new Map<string, number>(),
           tools: new Map<string, Set<string>>(),
+          parentOf: new Map<string, string>(),
+          written: new Map<string, Set<string>>(),
+          capturing: new Map<string, Promise<void>>(),
+        }
+        const V2_RECORDED = new Set(["user", "assistant", "shell"])
+        const V2_CAPTURE_EVENTS = new Set([
+          "session.step.ended", "session.step.failed", "session.shell.ended",
+          "session.execution.succeeded", "session.execution.failed", "session.execution.interrupted",
+        ])
+
+        // When a message settled: a user message on arrival, an assistant or shell message once completed.
+        function v2SettledAt(m: any): number | undefined {
+          const at = m?.type === "user" ? m?.time?.created : m?.time?.completed
+          return typeof at === "number" ? at : undefined
+        }
+
+        // A message is appended again only once more of it has settled: another part, or a tool reaching a
+        // terminal state. kcap's event ids come from the message, so the repeat adds only what is new.
+        function v2Key(m: any): string {
+          const content: any[] = Array.isArray(m?.content) ? m.content : []
+          let settledTools = 0
+          for (const p of content) {
+            const st = p?.state?.status
+            if (p?.type === "tool" && (st === "completed" || st === "error")) settledTools++
+          }
+          return m.id + ":" + content.length + ":" + settledTools
         }
         const V2_MAX_SESSIONS = 64
         // Ids only, so a wider bound; an evicted session is classified, and at worst started, again.
@@ -672,6 +699,10 @@ public static class OpenCodeExtensionInstaller {
 
           const dir = join(homedir(), ".cache", "kcap", "opencode")
           const file = (sid: string) => join(dir, sid + ".jsonl")
+          const childFile = (parent: string, child: string) => join(dir, parent, child + ".jsonl")
+          // Messages that settled before this server loaded the plugin are history: kcap import reads them, and a
+          // session copied from v1 carries its v1 messages again under ids v1 never gave them.
+          const loadedAt = Date.now()
 
           // A server shared across sessions (the background service, `opencode serve`) outlives every one of them,
           // so its sessions have no end signal: the heartbeat beside the session's file says so, and kcap ends the
@@ -744,7 +775,11 @@ public static class OpenCodeExtensionInstaller {
               try { info = await ctx.session.get({ sessionID: sid }) } catch {}
               if (!info?.id) { v2Remember(v2.retryAt, sid, Date.now() + V2_RETRY_MS, V2_MAX_IDS); return false }
               v2.retryAt.delete(sid)
-              if (info.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return false }
+              if (info.parentID) {
+                v2Remember(v2.children, sid, true, V2_MAX_IDS)
+                v2Remember(v2.parentOf, sid, String(info.parentID), V2_MAX_IDS)
+                return false
+              }
               v2Remember(v2.started, sid, true, V2_MAX_IDS)
               try { mkdirSync(dir, { recursive: true }); appendFileSync(file(sid), "") } catch {}
               // Before kcap starts the watcher, which reads it to learn the session has no end signal. A standalone
@@ -776,6 +811,9 @@ public static class OpenCodeExtensionInstaller {
                 if (evicted) v2.started.delete(evicted)
               }
               flushTitle(sid)
+              // What settled while the start ran, the session's own and its subagents', whose events found it unstarted.
+              enqueueCapture(sid, file(sid))
+              for (const [child, parent] of v2.parentOf) if (parent === sid) captureChild(child)
               return true
             })()
 
@@ -783,6 +821,45 @@ public static class OpenCodeExtensionInstaller {
             const clear = () => { v2.pendingStart.delete(sid); v2.waitExpired.delete(sid) }
             gate.then(clear, clear)
             return gate
+          }
+
+          // Appends what settled since the last read. Reads of one file run in turn, so a message is never
+          // written twice by two events racing; one is marked written only once its append succeeded.
+          async function capture(sid: string, target: string) {
+            let res: any
+            try { res = await ctx.session.context({ sessionID: sid }) } catch { return }
+            const msgs: any[] = Array.isArray(res) ? res : (res?.data ?? [])
+            const seen = v2.written.get(target) ?? new Set<string>()
+            const pending: { key: string; line: string }[] = []
+            for (const m of msgs) {
+              if (!m?.id || !V2_RECORDED.has(m?.type)) continue
+              const at = v2SettledAt(m)
+              if (at === undefined || at < loadedAt) continue
+              const key = v2Key(m)
+              if (seen.has(key)) continue
+              pending.push({ key, line: JSON.stringify(m) })
+            }
+            if (pending.length === 0) return
+            try {
+              mkdirSync(dirname(target), { recursive: true })
+              appendFileSync(target, pending.map((p) => p.line).join("\n") + "\n")
+            } catch {
+              return
+            }
+            for (const p of pending) seen.add(p.key)
+            v2Remember(v2.written, target, seen)
+          }
+
+          function enqueueCapture(sid: string, target: string) {
+            const next = (v2.capturing.get(target) ?? Promise.resolve()).then(() => capture(sid, target)).catch(() => {})
+            v2Remember(v2.capturing, target, next)
+            next.then(() => { if (v2.capturing.get(target) === next) v2.capturing.delete(target) })
+          }
+
+          // A subagent of a recorded session goes beside its parent's file; a deeper one is not recorded, as on v1.
+          function captureChild(sid: string) {
+            const parent = v2.parentOf.get(sid)
+            if (parent && v2.started.has(parent)) enqueueCapture(sid, childFile(parent, sid))
           }
 
           async function onEvent(ev: any) {
@@ -799,11 +876,19 @@ public static class OpenCodeExtensionInstaller {
               v2.lastTitle.delete(sid)
               v2.beatAt.delete(sid)
               v2.restartAt.delete(sid)
+              v2.parentOf.delete(sid)
               trackTools(type, sid, undefined)
               return
             }
-            if (type === "session.created" && data?.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return }
-            if (v2.children.has(sid)) return
+            if (type === "session.created" && data?.parentID) {
+              v2Remember(v2.children, sid, true, V2_MAX_IDS)
+              v2Remember(v2.parentOf, sid, String(data.parentID), V2_MAX_IDS)
+              return
+            }
+            if (v2.children.has(sid)) {
+              if (V2_CAPTURE_EVENTS.has(type)) captureChild(sid)
+              return
+            }
             trackTools(type, sid, data?.id)
             beat(sid)
             if (type === "session.renamed" && typeof data?.title === "string") {
@@ -813,8 +898,13 @@ public static class OpenCodeExtensionInstaller {
             // Bounded like every other wait: a start still running leaves the title for a later event.
             const gate = ensureStarted(sid, ev?.location?.directory)
             await v2Wait(sid, gate)
+            if (v2.children.has(sid)) {
+              if (V2_CAPTURE_EVENTS.has(type)) captureChild(sid)
+              return
+            }
             if (!v2.started.has(sid) || v2.pendingStart.get(sid) === gate) return
             flushTitle(sid)
+            if (V2_CAPTURE_EVENTS.has(type)) enqueueCapture(sid, file(sid))
           }
 
           // Called by the event that brought the title and by the start that proves the session, so a

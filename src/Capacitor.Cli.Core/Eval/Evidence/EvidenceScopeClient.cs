@@ -147,7 +147,7 @@ public sealed class EvidenceScopeClient(HttpClient http, string baseUrl, string 
 
     static StringContent HoldCreateBody(string body) => new(body, Encoding.UTF8, "application/json");
 
-    static TimeSpan Lifetime(EvidenceScopeManifestDto page) => page.IssuedAt is { } issued && page.ExpiresAt is { } expires ? expires - issued : ArtifactLifetime;
+    static TimeSpan Lifetime(EvidenceScopeManifestDto page) => page is { IssuedAt: { } issued, ExpiresAt: { } expires } ? expires - issued : ArtifactLifetime;
 
     Task<(EvidenceScopeStatus, EvidenceScopeState?)> FetchAllPagesAsync(CancellationToken ct) => FetchAllPagesAsync(t => GetPageAsync(Url(SingleQuery), t), ct);
 

@@ -22,8 +22,7 @@ public static class LoopbackConnect {
     /// </summary>
     public static HttpMessageHandler ForHub(Uri hubUrl, HttpMessageHandler inner) {
         if (!Applies(hubUrl)
-         || inner is not HttpClientHandler h
-         || h.ClientCertificateOptions != ClientCertificateOption.Manual
+         || inner is not HttpClientHandler { ClientCertificateOptions: ClientCertificateOption.Manual } h
          || h.ClientCertificates.Count > 0
          || h.ServerCertificateCustomValidationCallback is not null) {
             return inner;

@@ -86,7 +86,7 @@ public class RemoteTerminalViewModelTests {
     public async Task Where_the_server_takes_typing_keystrokes_go_out_as_typed() {
         await RunOnUiAsync(async () => {
             var h = new Harness(typing: true);
-            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Live && h.Vm.AcceptsTyping, what: "live and typing");
+            await WaitUntilAsync(() => h.Vm is { Phase: RemoteTerminalPhase.Live, AcceptsTyping: true }, what: "live and typing");
             var surface = h.Surfaces.Single();
 
             surface.RaiseInput("l"u8.ToArray());
@@ -108,7 +108,7 @@ public class RemoteTerminalViewModelTests {
     public async Task Typing_and_keys_go_out_one_at_a_time_in_the_order_produced() {
         await RunOnUiAsync(async () => {
             var h = new Harness(typing: true);
-            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Live && h.Vm.AcceptsTyping, what: "live and typing");
+            await WaitUntilAsync(() => h.Vm is { Phase: RemoteTerminalPhase.Live, AcceptsTyping: true }, what: "live and typing");
             var surface = h.Surfaces.Single();
             var gate = new TaskCompletionSource<HubCallOutcome>();
             h.Lane.TerminalInputHandler = _ => gate.Task;
@@ -134,7 +134,7 @@ public class RemoteTerminalViewModelTests {
     public async Task A_paste_over_the_server_limit_goes_in_pieces_cut_between_characters() {
         await RunOnUiAsync(async () => {
             var h = new Harness(typing: true);
-            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Live && h.Vm.AcceptsTyping, what: "live and typing");
+            await WaitUntilAsync(() => h.Vm is { Phase: RemoteTerminalPhase.Live, AcceptsTyping: true }, what: "live and typing");
             var paste = Encoding.UTF8.GetBytes("a" + new string('é', 2500));
 
             h.Surfaces.Single().RaiseInput(paste);
@@ -153,7 +153,7 @@ public class RemoteTerminalViewModelTests {
         await RunOnUiAsync(async () => {
             var viewer = new BehaviorSubject<AgentViewerAccess>(AgentViewerAccess.Unrestricted with { Reaches = false });
             var h = new Harness(viewer: viewer, typing: true);
-            await WaitUntilAsync(() => h.Vm.Phase == RemoteTerminalPhase.Live && h.Vm.AcceptsTyping, what: "live");
+            await WaitUntilAsync(() => h.Vm is { Phase: RemoteTerminalPhase.Live, AcceptsTyping: true }, what: "live");
 
             h.Surfaces.Single().RaiseInput("x"u8.ToArray());
 

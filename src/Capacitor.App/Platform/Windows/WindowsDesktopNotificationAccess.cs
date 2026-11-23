@@ -37,7 +37,7 @@ public sealed class WindowsDesktopNotificationAccess(string appUserModelId, Func
         }
     }
 
-    static bool IsOff(object? value) => value is int number && number == 0;
+    static bool IsOff(object? value) => value is 0;
 
     static object? ReadCurrentUser(string keyPath, string valueName) {
         using var key = Registry.CurrentUser.OpenSubKey(keyPath);

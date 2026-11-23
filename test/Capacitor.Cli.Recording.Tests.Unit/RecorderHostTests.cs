@@ -576,7 +576,7 @@ public partial class RecorderHostTests {
 
         host.TryAdd(source);
         await Eventually(() => {
-            WatcherHeartbeat.Touch(heartbeat, _time.GetUtcNow());
+            TouchAsThePlugin(heartbeat, _time.GetUtcNow());
 
             return _time.GetUtcNow() >= until && Ticks(source.Key) > 10;
         }, "two hours of plugin events", TimeSpan.FromMinutes(5));
@@ -595,6 +595,15 @@ public partial class RecorderHostTests {
         await Eventually(() => _time.GetUtcNow() >= until && Ticks(source.Key) > 10, "two quiet hours", TimeSpan.FromMinutes(5));
 
         await Assert.That(host.ActiveKeys).Contains(source.Key);
+    }
+
+    // Windows can refuse a rename over the heartbeat while the host reads it; the plugin skips that write and writes on
+    // its next event.
+    static void TouchAsThePlugin(string heartbeat, DateTimeOffset now) {
+        try {
+            WatcherHeartbeat.Touch(heartbeat, now);
+        } catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+        }
     }
 
     RecordingSource OpenCodeSource(string sessionId) =>

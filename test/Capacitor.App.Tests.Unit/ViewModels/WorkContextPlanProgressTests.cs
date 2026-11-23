@@ -15,7 +15,7 @@ public class WorkContextPlanProgressTests {
     sealed class Harness : IAsyncDisposable {
         readonly Subject<AgentStatusDto?> _presence = new();
         readonly SessionRuns _runs;
-        public FakeTimeProvider Time { get; } = new();
+        FakeTimeProvider Time { get; } = new();
         public FakePlanSource Plans { get; } = new();
         public FakePullRequestSource PrSource { get; }
         public PullRequestContextViewModel Prs { get; }
@@ -44,7 +44,7 @@ public class WorkContextPlanProgressTests {
         }
 
         public async Task SettlePrAsync() {
-            await WaitUntilAsync(() => Prs.CanReveal && !Prs.IsReading, what: "PR overview");
+            await WaitUntilAsync(() => Prs is { CanReveal: true, IsReading: false }, what: "PR overview");
             Dispatcher.UIThread.RunJobs();
         }
 

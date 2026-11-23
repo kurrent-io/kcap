@@ -381,6 +381,77 @@ public class ModAttachmentsTests {
         await Assert.That(await IdleAsync(attachments, agentId)).IsEqualTo(SteeringNextReply.Handover(next, "next one"));
     }
 
+    /// <summary>A handover whose reply never reached the mod is reported dropped on the next idle poll that holds
+    /// nothing, without another message having to queue behind it, but not while that reply may still be on its way.</summary>
+    [Test]
+    public async Task An_idle_poll_holding_nothing_drops_a_handover_whose_reply_was_written() {
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        var agentId = await AttachAsync(attachments);
+        var lost    = Guid.NewGuid();
+        Push(attachments, agentId, lost);
+        await Assert.That(await IdleAsync(attachments, agentId)).IsEqualTo(SteeringNextReply.Handover(lost, "hello"));
+
+        await Assert.That(await IdleAsync(attachments, agentId)).IsNull();
+        await attachments.FlushReportsAsync();
+        await Assert.That(server.AttachedRejections).IsEmpty();
+
+        attachments.HandoverWritten(lost);
+        var next = Guid.NewGuid();
+        Push(attachments, agentId, next, "next one");
+        server.HandoverAnswer = _ => server.AttachedRejections.Count == 0
+            ? new ConfirmInputHandoverResponse(InputHandoverOutcome.Hold, lost)
+            : new ConfirmInputHandoverResponse(InputHandoverOutcome.HandedOver);
+
+        await Assert.That(await IdleAsync(attachments, agentId)).IsEqualTo(SteeringNextReply.Handover(next, "next one"));
+        await Assert.That(server.AttachedRejections).IsEquivalentTo([(lost, agentId, "not_held_by_mod")]);
+    }
+
+    /// <summary>A poll still reporting the dispatch it holds, a turn running, or a dispatch the mod reported on keeps the
+    /// handover: each shows the mod got it.</summary>
+    [Test]
+    public async Task A_handover_the_mod_holds_or_reported_on_is_not_dropped() {
+        var server = new CaptureServerConnection { AttachedReportThrow = new IOException("away") };
+        await using var attachments = Attachments(server);
+        var agentId  = await AttachAsync(attachments);
+        var reported = Guid.NewGuid();
+        Push(attachments, agentId, reported);
+        await IdleAsync(attachments, agentId);
+        attachments.HandoverWritten(reported);
+
+        await attachments.NextAsync(agentId, Key, idle: true, outstanding: reported);
+        await attachments.NextAsync(agentId, Key, idle: false, outstanding: null);
+        attachments.Link(agentId, Key, reported, Session, Guid.NewGuid());
+        await IdleAsync(attachments, agentId);
+
+        server.AttachedReportThrow = null;
+        await attachments.FlushReportsAsync();
+
+        await Assert.That(server.AttachedRejections).IsEmpty();
+        await Assert.That(server.LinkReports.Select(r => r.DispatchId)).IsEquivalentTo([reported]);
+    }
+
+    /// <summary>Only the process the dispatch was handed to can show it does not hold it.</summary>
+    [Test]
+    public async Task An_idle_poll_drops_only_its_own_process_handovers() {
+        var server = new CaptureServerConnection();
+        await using var attachments = Attachments(server);
+        var mine   = await AttachAsync(attachments);
+        var theirs = await AttachAsync(attachments, session: Later, key: OtherKey);
+        var lost   = Guid.NewGuid();
+        Push(attachments, theirs, lost);
+        await IdleAsync(attachments, theirs, OtherKey);
+        attachments.HandoverWritten(lost);
+
+        await IdleAsync(attachments, mine);
+        await attachments.FlushReportsAsync();
+        await Assert.That(server.AttachedRejections).IsEmpty();
+
+        await IdleAsync(attachments, theirs, OtherKey);
+        await attachments.FlushReportsAsync();
+        await Assert.That(server.AttachedRejections).IsEquivalentTo([(lost, theirs, "not_held_by_mod")]);
+    }
+
     /// <summary>With no record here of which agent the blocking dispatch went to, as after the record was lost, the agent
     /// polling and the one its process carried on from are tried until a stream takes the report.</summary>
     [Test]

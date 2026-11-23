@@ -168,13 +168,11 @@ public class PiHostedRuntimeLiveCertTests {
                 while (envelopes.TryRead(out var env)) {
                     collected.Add(env);
 
-                    if (env.Kind == AcpEventKind.AssistantText
-                            && env.Text is { Length: > 0 } text
+                    if (env is { Kind: AcpEventKind.AssistantText, Text: { Length: > 0 } text }
                             && text.Contains(nonce, StringComparison.Ordinal))
                         return (true, null, collected);
 
-                    if (env.Kind == AcpEventKind.SystemNote
-                            && env.Text is { } note
+                    if (env is { Kind: AcpEventKind.SystemNote, Text: { } note }
                             && note.StartsWith("Pi turn failed", StringComparison.Ordinal))
                         return (false, note, collected);
                 }

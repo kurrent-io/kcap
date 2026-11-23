@@ -41,6 +41,7 @@ public static class AgentsSkillsInstaller {
         "connect-kcap",
         "pages",
         "worktrees",
+        "progressive-disclosure",
     ];
 
     /// <summary>Skills this installer once shipped. Their <c>kcap-</c> folders are deleted on install and remove,
@@ -380,8 +381,6 @@ public static class AgentsSkillsInstaller {
 /// <see cref="AgentsSkillsInstaller"/>.
 /// </summary>
 public readonly record struct RemovalResult(bool RemovedAny, bool HadErrors) {
-    readonly IReadOnlyList<string>? _preserved;
-
     /// <summary>Owned folder names left in place because the user edited them.</summary>
-    public IReadOnlyList<string> Preserved { get => _preserved ?? []; init => _preserved = value; }
+    public IReadOnlyList<string> Preserved { get => field ?? []; init; }
 }

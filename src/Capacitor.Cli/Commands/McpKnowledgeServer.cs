@@ -128,7 +128,7 @@ sealed class McpKnowledgeServer(ConfigRoot config, ProfileContext profiles, Toke
     static string BuildListMergesUrl(string baseUrl, JsonObject? args) =>
         McpToolArguments.OptionalString(args, "repo") switch {
             { } repo                       => $"{baseUrl}/api/knowledge/merges?repo={Uri.EscapeDataString(repo)}",
-            null when args?["repo"] is { } => throw new ArgumentException("'repo' must be a repository hash; omit it to list every scope you curate."),
+            null when args?["repo"] is not null => throw new ArgumentException("'repo' must be a repository hash; omit it to list every scope you curate."),
             null                           => $"{baseUrl}/api/knowledge/merges"
         };
 

@@ -36,7 +36,7 @@ internal partial class AgentOrchestrator {
     /// <summary>A flow participant a successor can resume in place. A Codex app-server reviewer parks
     /// instead, and a private one has no flow to continue.</summary>
     bool IsResumableParticipant(AgentInstance a) =>
-        a.Kind == LaunchKind.ReviewFlow && !a.IsPrivate && !IsResumableReviewer(a)
+        a is { Kind: LaunchKind.ReviewFlow, IsPrivate: false } && !IsResumableReviewer(a)
      && _runtimeFactories.TryGetValue(a.Vendor, out var factory)
      && factory.SupportsReviewerRestartResume(a.RuntimeTransport, a.Work);
 

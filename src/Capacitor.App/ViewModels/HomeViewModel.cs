@@ -173,7 +173,6 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     readonly Action<string>? _launchFailed;
     readonly CompositeDisposable _disposables = new();
 
-    string _selectedRepoPath = ScratchRepoPath;
     // Every assignment counts, the same path included: a pick of no repository leaves the
     // selection reading as it did, and default discovery must still yield to it.
     int _repoPicks;
@@ -186,42 +185,39 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     public ComposerPicker? Picker { get; }
 
     public string SelectedRepoPath {
-        get => _selectedRepoPath;
+        get;
         set {
             Interlocked.Increment(ref _repoPicks);
             // Same rule as SameLaunchTarget and the picker, so a refusal clears exactly when they see a new folder.
-            var changed = !PathComparerFor(RemoteMachineSelected).Equals(_selectedRepoPath, value);
-            this.RaiseAndSetIfChanged(ref _selectedRepoPath, value);
+            var changed = !PathComparerFor(RemoteMachineSelected).Equals(field, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             _selectedRepoPathChanges.OnNext(value);
             // A launch refusal describes the folder that failed. A later pick is a different attempt.
             if (changed && StartError != _intakeNotice) StartError = null;
             if (changed) SelectedBaseRef = null;
         }
-    }
+    } = ScratchRepoPath;
 
-    string? _selectedBaseRef;
     /// The branch, tag or sha the next session's worktree starts from; null is the checkout's
     /// current HEAD. A ref belongs to one repository on one machine, so picking either clears it.
     public string? SelectedBaseRef {
-        get => _selectedBaseRef;
-        private set => this.RaiseAndSetIfChanged(ref _selectedBaseRef, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string _selectedVendor = DefaultVendor;
     // Follows the repository — only ChooseHarnessAsync/SelectRepositoryAsync set it, so a caller
     // can never desync it from the persisted-or-default rule those two methods implement.
     public string SelectedVendor {
-        get => _selectedVendor;
-        private set => this.RaiseAndSetIfChanged(ref _selectedVendor, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = DefaultVendor;
 
-    string _selectedModel = "";
     /// "" = vendor default (the wire convention). Session-scoped, not persisted; reset whenever
     /// the vendor changes — model ids are vendor-specific, so a stale one would misfire.
     public string SelectedModel {
-        get => _selectedModel;
-        set => this.RaiseAndSetIfChanged(ref _selectedModel, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     /// The selected machine's own model catalog merged over the server's (see MergeCatalogs), with
     /// the selected account's own list for its vendor where the machine has one; the agent chip
@@ -257,15 +253,13 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         return merged;
     }
 
-    string? _selectedEffort;
     /// null = vendor default. Survives vendor changes — the effort vocabulary is shared enough
     /// (low/medium/high/xhigh/max) that the choice usually still means what the user meant.
     public string? SelectedEffort {
-        get => _selectedEffort;
-        set => this.RaiseAndSetIfChanged(ref _selectedEffort, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string _selectedPermissionMode = DefaultPermissionMode;
     // Bumped by every user pick, so a repository restore that loaded before it leaves the pick alone.
     int _permissionModeChoices;
     // Same role as _permissionModeChoices, for the base ref.
@@ -273,36 +267,33 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// A ClaudePermissionModes token, remembered per repository like the harness and kept across
     /// vendor changes; PermissionModeFor decides whether it rides a given launch.
     public string SelectedPermissionMode {
-        get => _selectedPermissionMode;
-        set => this.RaiseAndSetIfChanged(ref _selectedPermissionMode, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = DefaultPermissionMode;
 
-    string _selectedCodexSandbox = HostedHarnessCatalog.DefaultCodexSandbox;
     /// Kept across vendor changes; CodexPostureFor decides whether it rides a given launch.
     public string SelectedCodexSandbox {
-        get => _selectedCodexSandbox;
-        set => this.RaiseAndSetIfChanged(ref _selectedCodexSandbox, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = HostedHarnessCatalog.DefaultCodexSandbox;
 
-    string _selectedCodexApproval = HostedHarnessCatalog.DefaultCodexApproval;
     public string SelectedCodexApproval {
-        get => _selectedCodexApproval;
-        set => this.RaiseAndSetIfChanged(ref _selectedCodexApproval, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = HostedHarnessCatalog.DefaultCodexApproval;
 
-    string _goal = "";
     int _goalEdits;
     /// Every real edit bumps _goalEdits: a launch clears only the goal it captured, and only while
     /// nothing has been typed into it since.
     public string Goal {
-        get => _goal;
+        get;
         set {
-            if (string.Equals(_goal, value, StringComparison.Ordinal)) return;
+            if (string.Equals(field, value, StringComparison.Ordinal)) return;
             _goalEdits++;
             ClearIntakeNotice();
-            this.RaiseAndSetIfChanged(ref _goal, value);
+            this.RaiseAndSetIfChanged(ref field, value);
         }
-    }
+    } = "";
 
     /// The chips staged for the next launch. Cleared only of what a launch actually sent.
     public AttachmentTray Tray { get; } = new();
@@ -311,13 +302,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     public IAttachmentSink Attachments => this;
 
     readonly BehaviorSubject<bool> _uploadingChanges = new(false);
-    bool _uploading;
     /// True while a launch's staged files are going up. Start is blocked, never queued.
     public bool Uploading {
-        get => _uploading;
+        get;
         private set {
-            if (_uploading == value) return;
-            this.RaiseAndSetIfChanged(ref _uploading, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             // A window closing mid-upload disposes this object while StartAsync is still inside its
             // try, and the finally that clears the flag would then publish onto a disposed subject.
             if (!_disposed) _uploadingChanges.OnNext(value);
@@ -393,7 +383,6 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     readonly BehaviorSubject<bool> _localServer = new(false);
     readonly BehaviorSubject<bool> _localServerDown = new(false);
     readonly BehaviorSubject<bool> _updateFinishing = new(false);
-    string? _updateDetail;
     readonly Action? _requestSignIn;
 
     readonly ObservableAsPropertyHelper<string?> _connectionNotice;
@@ -429,16 +418,15 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// The web Home's "What to do next" band under the composer; null without a server.
     public NextWork.NextWorkBandViewModel? NextWork { get; init; }
 
-    NextWork.NextWorkFill? _nextWorkSource;
     readonly Subject<Unit> _composerFills = new();
 
     /// The next-work task picked for the next launch, named on the chip above the goal; null once it is cleared or
     /// launched. While one is picked the composer is for anything to add to it, and may stay empty.
     public NextWork.NextWorkFill? NextWorkSource {
-        get => _nextWorkSource;
+        get;
         private set {
-            if (ReferenceEquals(_nextWorkSource, value)) return;
-            this.RaiseAndSetIfChanged(ref _nextWorkSource, value);
+            if (ReferenceEquals(field, value)) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(GoalPlaceholder));
             NextWork?.MarkFilled(value?.Key);
         }
@@ -557,13 +545,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
 
     readonly AccountChooser _accountChooser;
 
-    IReadOnlyDictionary<string, AccountUsageView> _accountUsageById = FrozenDictionary<string, AccountUsageView>.Empty;
     /// Keyed by registered account id, for the selected host's selected vendor; empty while the host's
     /// readings may not be drawn.
     public IReadOnlyDictionary<string, AccountUsageView> AccountUsageById {
-        get => _accountUsageById;
-        private set => this.RaiseAndSetIfChanged(ref _accountUsageById, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = FrozenDictionary<string, AccountUsageView>.Empty;
     readonly Func<Task>? _retryListing;
     (string RepoPath, string Vendor, string Machine, bool Remote)? _accountTarget;
     bool _applyingAccountInputs;
@@ -584,42 +571,36 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     readonly BehaviorSubject<(bool Resolved, string? Id)> _viewerIds = new((false, null));
     readonly BehaviorSubject<(string Vendor, string AccountId)?> _accountCatalogKey = new(null);
 
-    bool _accountSection;
     /// The Agent panel's Account section: the rows, or the pending line while the choice resolves.
     public bool AccountSection {
-        get => _accountSection;
-        private set => this.RaiseAndSetIfChanged(ref _accountSection, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    IReadOnlyList<AccountChoice> _accountRows = [];
     public IReadOnlyList<AccountChoice> AccountRows {
-        get => _accountRows;
-        private set => this.RaiseAndSetIfChanged(ref _accountRows, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = [];
 
-    string? _accountPendingText;
     public string? AccountPendingText {
-        get => _accountPendingText;
-        private set => this.RaiseAndSetIfChanged(ref _accountPendingText, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    bool _accountRetryVisible;
     public bool AccountRetryVisible {
-        get => _accountRetryVisible;
-        private set => this.RaiseAndSetIfChanged(ref _accountRetryVisible, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string? _selectedAccountLabel;
     /// The chip's account part; null while the default is chosen.
     public string? SelectedAccountLabel {
-        get => _selectedAccountLabel;
-        private set => this.RaiseAndSetIfChanged(ref _selectedAccountLabel, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    bool _startErrorOffersDefault;
     public bool StartErrorOffersDefault {
-        get => _startErrorOffersDefault;
-        private set => this.RaiseAndSetIfChanged(ref _startErrorOffersDefault, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public ReactiveCommand<Unit, Unit> RetryAccountsCommand { get; }
@@ -658,14 +639,13 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         }
     }
 
-    bool _remoteMachineSelected;
     /// False ⇒ the local repo/harness/launch behavior, which is all a HomeViewModel that never
     /// wires the machine picker ever sees.
     public bool RemoteMachineSelected {
-        get => _remoteMachineSelected;
+        get;
         private set {
-            if (_remoteMachineSelected != value) SelectedBaseRef = null;
-            this.RaiseAndSetIfChanged(ref _remoteMachineSelected, value);
+            if (field != value) SelectedBaseRef = null;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(CanRequestRepositoryAccess));
         }
     }
@@ -740,45 +720,20 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     readonly ObservableAsPropertyHelper<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>> _effectiveModelCatalog;
     IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>? _currentLocalCatalog;
 
-    /// knownRepos is RepoPathStore.GetSortedPathsAsync in production — the same persisted list
-    /// DaemonConnect.RepoPaths feeds the server's launch dialog. Required (no defaulted overload)
-    /// so a test can never silently read the developer's own ~/.config/kcap/repos.json.
-    /// <param name="navigationGeneration">
-    /// Read BEFORE the launch call, never after: the captured value is what makes a success that
-    /// lands after the user navigated away open nothing.
-    /// </param>
-    /// <param name="openSessionIfCurrent">
-    /// The launch auto-open (MainWindowViewModel.OpenSessionIfCurrent), carrying the lane and that
-    /// captured generation. Either lane's launch opens on its placeholder row at once.
-    /// </param>
-    /// <param name="requestSignIn">Opens the re-auth sign-in surface (App owns the window). Null
-    /// leaves the Sign in button inert — a HomeViewModel with no windows to open.</param>
-    /// <param name="daemons">The viewer's own-plus-others remote registry (IRemoteAgentsService.
-    /// Daemons). Null ⇒ the machine picker offers only the local daemon.</param>
-    /// <param name="viewerId">The signed-in user's own id (JwtClaims), read fresh per call. Null
-    /// ⇒ no remote daemon is ever offered — ownership is never guessed.</param>
-    /// <param name="laneStatus">The app's own server lane (IServerLane.Status) — what a remote
-    /// launch's availability gates on, independent of the local daemon's own connection word.</param>
-    /// <param name="localMachineId">This machine's id, for excluding the local daemon's own remote
-    /// registry twin from the picker's remote options.</param>
-    /// <param name="launchFailures">The app's own server lane (IServerLane.LaunchFailures). A
-    /// failure whose id is being tracked renders as StartError; an unknown id is another client's
-    /// launch and is ignored. Null ⇒ launch failures are never correlated.</param>
-    /// <param name="directory">The merged local+remote rows (IAgentDirectory.Rows). A row for a
-    /// tracked id is success confirmation and stops tracking it. Null ⇒ only a LaunchFailed or the
-    /// pending entry's own 10-minute timeout ever stops tracking.</param>
-    /// <param name="listing">The server's daemon listing (IRemoteAgentsService.Listing), which says
-    /// whether each daemon, this machine's included, honours an explicit account. Null ⇒ no account
-    /// is offered or sent.</param>
-    /// <param name="daemonAccounts">Every listed daemon's accounts (IRemoteAgentsService.DaemonAccounts).</param>
-    /// <param name="localAccounts">This machine's daemon's own snapshot (IAccountsService.Snapshot).</param>
-    /// <param name="retryListing">Fetches the listing and every daemon's accounts again
-    /// (IRemoteAgentsService.RefreshDaemonsAsync).</param>
-    /// <param name="readings">The drawable snapshots and clock behind <see cref="AccountUsageById"/>.
-    /// Null ⇒ no usage is shown.</param>
-    /// <param name="branches">Reads branch names for the "Branch from" picker. Null ⇒ none are listed.</param>
-    /// <param name="launchFailed">A tracked launch failed (MainWindowViewModel.CloseFailedLaunch):
-    /// its auto-opened workspace would otherwise cover the StartError this view just set.</param>
+    /// knownRepos is required, with no defaulted overload, so a test never reads the developer's own
+    /// ~/.config/kcap/repos.json.
+    /// <param name="navigationGeneration">Read before the launch call, never after: it is what makes a
+    /// success landing after the user navigated away open nothing.</param>
+    /// <param name="viewerId">Read fresh per call. Null offers no remote daemon; ownership is never
+    /// guessed.</param>
+    /// <param name="localMachineId">Excludes the local daemon's own registry twin from the remote
+    /// options.</param>
+    /// <param name="launchFailures">A failure for a tracked id renders as StartError; an unknown id is
+    /// another client's launch.</param>
+    /// <param name="directory">A row for a tracked id confirms success. Null leaves only a LaunchFailed or
+    /// the 10-minute timeout to stop tracking.</param>
+    /// <param name="launchFailed">Closes the auto-opened workspace, which would otherwise cover the
+    /// StartError.</param>
     public HomeViewModel(
             IDaemonClientService daemon, IAppStateStore state, ILaunchClient launch,
             Func<Task<string[]>> knownRepos, TimeProvider time, CancellationToken shutdown = default,
@@ -1309,8 +1264,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
 
     /// The update's remaining step, while one still runs after the main window opened early.
     public string? UpdateDetail {
-        get => _updateDetail;
-        private set => this.RaiseAndSetIfChanged(ref _updateDetail, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Follows an update the user went on from before it finished: with this machine selected, one card stands in
@@ -1459,7 +1414,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// start or setup that did not work.
     internal static bool BannerFailedFor((string? Message, string? Detail) content) =>
         content.Message is DaemonIncompatibleNotice or LocalServerRefusedNotice
-        || (content.Message == DaemonDownNotice && content.Detail is { } detail && !InFlight(detail));
+        || (content is { Message: DaemonDownNotice, Detail: { } detail } && !InFlight(detail));
 
     static bool BannerInFlight((string? Message, string? Detail) content) =>
         content.Detail is { } detail ? InFlight(detail)

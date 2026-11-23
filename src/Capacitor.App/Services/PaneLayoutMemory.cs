@@ -2,7 +2,7 @@ namespace Capacitor.App.Services;
 
 public static class PaneLayoutMemory {
     public static double Resolve(double? saved, double min) =>
-        saved is double value && double.IsFinite(value) ? Math.Max(min, value) : min;
+        saved is { } value && double.IsFinite(value) ? Math.Max(min, value) : min;
 
     public static void Apply(PaneLayout panes, AppState state) {
         panes.RailWidth = Resolve(state.RailWidth, PaneLayout.RailMinWidth);

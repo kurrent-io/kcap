@@ -120,6 +120,6 @@ public partial class JoinChainLiveTests {
         await Assert.That(printed).DoesNotContain(key!);
     }
 
-    [GeneratedRegex(@"location\.replace\(""([^""]+)""\)")]
+    [GeneratedRegex("""location\.replace\("([^"]+)"\)""")]
     private static partial Regex LocationReplace();
 }

@@ -21,7 +21,7 @@ public class PiModelCatalogProbeTests {
         await Assert.That(psi.ArgumentList).IsEquivalentTo(["--mode", "rpc", "--offline", "--no-extensions", "--no-session"], CollectionOrdering.Matching);
         await Assert.That(psi.WorkingDirectory).IsEqualTo("/state/pi-probe");
         await Assert.That(psi.Environment[PiLaunchEnvironment.PureVariable]).IsEqualTo("1");
-        await Assert.That(psi.RedirectStandardInput && psi.RedirectStandardOutput && psi.RedirectStandardError).IsTrue();
+        await Assert.That(psi is { RedirectStandardInput: true, RedirectStandardOutput: true, RedirectStandardError: true }).IsTrue();
     }
 
     [Test]

@@ -1,0 +1,163 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             xmlns:intel="clr-namespace:Capacitor.Cli.Core.Setup.Intelligence;assembly=Capacitor.Cli.Core"
+             x:Class="Capacitor.App.Views.BackgroundIntelligenceSettingsView"
+             x:DataType="vm:BackgroundIntelligenceSettingsViewModel">
+    <StackPanel Spacing="28">
+        <StackPanel Classes="settingsHeader">
+            <TextBlock Classes="kcapTitle" Text="Background intelligence" />
+            <TextBlock Classes="kcapSubtitle" TextWrapping="Wrap" Text="{x:Static vm:BackgroundIntelligenceSettingsViewModel.Subtitle}" />
+        </StackPanel>
+
+        <TextBlock x:Name="IntelligenceLoadingText" Classes="kcapHint" Text="Reading the local server's settings…"
+                   IsVisible="{Binding IsLoading}" />
+
+        <Border Classes="settingsError warning" IsVisible="{Binding NeedsUpdate}">
+            <TextBlock x:Name="IntelligenceNeedsUpdateText" Classes="settingsErrorTitle" FontWeight="Normal" TextWrapping="Wrap"
+                       Text="{Binding NeedsUpdateText}" />
+        </Border>
+
+        <Border Classes="settingsError warning" IsVisible="{Binding HeldText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <TextBlock Classes="settingsErrorTitle" FontWeight="Normal" TextWrapping="Wrap" Text="{Binding HeldText}" />
+        </Border>
+
+        <Border Classes="settingsError" IsVisible="{Binding ReadError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <SelectableTextBlock x:Name="IntelligenceReadError" Classes="settingsErrorDetail" TextWrapping="Wrap" VerticalAlignment="Center"
+                                     Text="{Binding ReadError}" />
+                <Button x:Name="IntelligenceRetryButton" Grid.Column="1" Classes="kcapChip settingsCompact" Content="Retry"
+                        Command="{Binding RetryCommand}" IsEnabled="{Binding CanRetry}" />
+            </Grid>
+        </Border>
+
+        <StackPanel Spacing="28" IsVisible="{Binding ShowsControls}">
+            <StackPanel Classes="settingsGroup">
+                <StackPanel Classes="settingsGroupHeader">
+                    <TextBlock Classes="settingsGroupTitle" Text="Who runs it" />
+                    <TextBlock Classes="kcapHint" TextWrapping="Wrap" Text="{Binding CustomText}"
+                               IsVisible="{Binding CustomText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                </StackPanel>
+                <Border Classes="settingsCard settingsCardBody">
+                    <StackPanel Spacing="14" IsEnabled="{Binding CanEditMode}">
+                        <ItemsControl x:Name="IntelligenceRunnerOptions" ItemsSource="{Binding Options}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Spacing="2" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:BackgroundIntelligenceOption">
+                                    <RadioButton Classes="onboardingOption" GroupName="BackgroundIntelligence"
+                                                 AutomationProperties.Name="{Binding Label}"
+                                                 IsEnabled="{Binding CanSelect}" IsChecked="{Binding IsSelected, Mode=TwoWay}">
+                                        <StackPanel Spacing="2">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Classes="kcapLabel" Text="{Binding Label}" />
+                                                <TextBlock Classes="kcapHint" Text="Not found" IsVisible="{Binding NotFound}" />
+                                            </StackPanel>
+                                            <TextBlock Classes="kcapHint" TextWrapping="Wrap" Text="{Binding Detail}"
+                                                       IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                        </StackPanel>
+                                    </RadioButton>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock x:Name="IntelligenceWaitingText" Classes="kcapHint" TextWrapping="Wrap" Text="{Binding WaitingText}"
+                                   IsVisible="{Binding WaitingText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="8"
+                              IsVisible="{Binding ProviderSelected}">
+                            <TextBlock Grid.Row="0" Classes="settingsFieldLabel" VerticalAlignment="Center" Text="Provider" />
+                            <ComboBox x:Name="IntelligenceVendorPicker" Grid.Row="0" Grid.Column="1" Classes="kcapField" HorizontalAlignment="Stretch"
+                                      ItemsSource="{Binding Vendors}" SelectedItem="{Binding SelectedVendor, Mode=TwoWay}"
+                                      AutomationProperties.Name="Provider">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="intel:IntelligenceVendor">
+                                        <TextBlock Text="{Binding Label}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock Grid.Row="1" Classes="settingsFieldLabel" VerticalAlignment="Center" Text="Model" />
+                            <TextBox x:Name="IntelligenceModelBox" Grid.Row="1" Grid.Column="1" Classes="kcapField"
+                                     Text="{Binding Model, Mode=TwoWay}" AutomationProperties.Name="Model" />
+                            <TextBlock Grid.Row="2" Classes="settingsFieldLabel" VerticalAlignment="Center" Text="API key" />
+                            <TextBox x:Name="IntelligenceKeyBox" Grid.Row="2" Grid.Column="1" Classes="kcapField" PasswordChar="•"
+                                     Text="{Binding ApiKey, Mode=TwoWay}" AutomationProperties.Name="API key" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Classes="kcapHint" TextWrapping="Wrap" Text="{Binding KeyHint}" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"
+                              IsVisible="{Binding ModeChangedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                            <TextBlock Classes="kcapHint" TextWrapping="Wrap" VerticalAlignment="Center" Text="{Binding ModeChangedText}" />
+                            <Button Grid.Column="1" Classes="kcapGhost settingsCompact" Content="Revert" Command="{Binding RevertModeCommand}" />
+                        </Grid>
+                        <TextBlock x:Name="IntelligenceModeNotice" Classes="kcapHint" TextWrapping="Wrap" Text="{Binding ModeNotice}"
+                                   Foreground="{StaticResource KcapWarningBrush}"
+                                   IsVisible="{Binding ModeNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <SelectableTextBlock x:Name="IntelligenceModeError" Text="{Binding ModeError}" FontSize="12.5" TextWrapping="Wrap"
+                                             Foreground="{StaticResource KcapDangerBrush}"
+                                             IsVisible="{Binding ModeError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+                </Border>
+                <Button x:Name="IntelligenceModeSaveButton" Classes="kcapPrimary" HorizontalAlignment="Left" Content="Save"
+                        Command="{Binding SaveModeCommand}" IsEnabled="{Binding CanSaveMode}" />
+            </StackPanel>
+
+            <StackPanel Classes="settingsGroup">
+                <StackPanel Classes="settingsGroupHeader">
+                    <TextBlock Classes="settingsGroupTitle" Text="Imported sessions" />
+                </StackPanel>
+                <Border Classes="settingsCard">
+                    <Grid Classes="settingsRow" ColumnDefinitions="*,Auto">
+                        <StackPanel Classes="settingsRowText">
+                            <TextBlock Classes="kcapLabel" Text="Summarise what each imported session achieved" />
+                            <TextBlock Classes="kcapHint" TextWrapping="Wrap" Text="{Binding OutcomesPinnedNote}"
+                                       IsVisible="{Binding OutcomesPinnedNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            <TextBlock x:Name="IntelligenceOutcomesError" Classes="kcapHint" TextWrapping="Wrap" Text="{Binding OutcomesError}"
+                                       Foreground="{StaticResource KcapDangerBrush}"
+                                       IsVisible="{Binding OutcomesError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="IntelligenceOutcomesToggle" Grid.Column="1" Classes="kcapSwitch" VerticalAlignment="Center"
+                                      AutomationProperties.Name="Summarise what each imported session achieved"
+                                      IsEnabled="{Binding CanToggleOutcomes}" IsChecked="{Binding ImportOutcomes, Mode=TwoWay}" />
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Classes="settingsGroup">
+                <StackPanel Classes="settingsGroupHeader">
+                    <TextBlock Classes="settingsGroupTitle" Text="Daily limit" />
+                    <TextBlock Classes="kcapHint" TextWrapping="Wrap" Text="{x:Static vm:BackgroundIntelligenceSettingsViewModel.LimitHelp}" />
+                </StackPanel>
+                <Border Classes="settingsCard settingsCardBody">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="settingsFieldLabel" Text="Older sessions worked on per day" />
+                        <Grid ColumnDefinitions="160,Auto" ColumnSpacing="12" HorizontalAlignment="Left">
+                            <TextBox x:Name="IntelligenceLimitBox" Classes="kcapField" Text="{Binding DailyLimitText, Mode=TwoWay}"
+                                     IsReadOnly="{Binding LimitReadOnly}" IsEnabled="{Binding CanEditPreferences}"
+                                     AutomationProperties.Name="Older sessions worked on per day" />
+                            <Button x:Name="IntelligenceLimitSaveButton" Grid.Column="1" Classes="kcapPrimary" Content="Save"
+                                    Command="{Binding SaveLimitCommand}" IsEnabled="{Binding CanSaveLimit}"
+                                    IsVisible="{Binding !LimitReadOnly}" />
+                        </Grid>
+                        <TextBlock Classes="kcapHint" TextWrapping="Wrap" Text="{Binding LimitHint}"
+                                   IsVisible="{Binding LimitHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <TextBlock Classes="kcapHint" TextWrapping="Wrap" Text="{Binding LimitPinnedNote}"
+                                   IsVisible="{Binding LimitPinnedNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12"
+                              IsVisible="{Binding LimitChangedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                            <TextBlock Classes="kcapHint" TextWrapping="Wrap" VerticalAlignment="Center" Text="{Binding LimitChangedText}" />
+                            <Button Grid.Column="1" Classes="kcapGhost settingsCompact" Content="Revert" Command="{Binding RevertLimitCommand}" />
+                        </Grid>
+                        <TextBlock x:Name="IntelligenceLimitError" Classes="kcapHint" TextWrapping="Wrap" Text="{Binding LimitError}"
+                                   Foreground="{StaticResource KcapDangerBrush}"
+                                   IsVisible="{Binding LimitError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

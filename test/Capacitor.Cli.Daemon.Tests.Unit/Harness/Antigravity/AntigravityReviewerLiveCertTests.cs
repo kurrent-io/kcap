@@ -247,8 +247,8 @@ public class AntigravityReviewerLiveCertTests {
             Config   = config;
         }
 
-        internal string       Worktree { get; }
-        internal DaemonConfig Config   { get; }
+        string       Worktree { get; }
+        DaemonConfig Config   { get; }
 
         internal List<SpawnedRound> Spawns { get; } = [];
 

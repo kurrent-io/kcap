@@ -1469,7 +1469,7 @@ public class WizardStartupTests {
             cts.Cancel(); // the wizard closing must never strand the dialog
             Dispatcher.UIThread.RunJobs();
 
-            var resolvedFalse = answer.IsCompletedSuccessfully && !answer.Result;
+            var resolvedFalse = answer is { IsCompletedSuccessfully: true, Result: false };
 
             window.Close();
             Dispatcher.UIThread.RunJobs();

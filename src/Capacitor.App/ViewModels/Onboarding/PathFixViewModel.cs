@@ -12,9 +12,6 @@ public sealed class PathFixViewModel : ReactiveObject {
 
     Task<bool>? _running;
     bool    _offerClaimed;
-    bool    _fixed;
-    string? _message;
-    IReadOnlyList<DisclosureSpan> _plan = [];
 
     public PathFixViewModel(ICliPathInstaller installer, IAppStateStore store, string? target, Func<bool>? onLocalPath = null) {
         _installer   = installer;
@@ -30,9 +27,9 @@ public sealed class PathFixViewModel : ReactiveObject {
 
     /// What installing will do on this machine; empty until the installer has looked.
     public IReadOnlyList<DisclosureSpan> Plan {
-        get => _plan;
-        private set => this.RaiseAndSetIfChanged(ref _plan, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = [];
 
     async Task DescribeAsync(string target) {
         try {
@@ -43,14 +40,14 @@ public sealed class PathFixViewModel : ReactiveObject {
     }
 
     public bool Fixed {
-        get => _fixed;
-        private set => this.RaiseAndSetIfChanged(ref _fixed, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Why the last install did not finish, or null.
     public string? Message {
-        get => _message;
-        private set => this.RaiseAndSetIfChanged(ref _message, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Settles with why the last link did not finish, or null when it did or none ran. The app's

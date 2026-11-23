@@ -28,7 +28,7 @@
                            IsVisible="{Binding StatusDetail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button x:Name="CancelSignInButton" Classes="kcapChip" Content="Cancel"
+                <Button x:Name="CancelSignInButton" Classes="kcapGhost" Content="Cancel"
                         Command="{Binding CancelCommand}" IsVisible="{Binding Busy}" />
                 <Button x:Name="SignInButton" Classes="kcapPrimary" Content="{Binding PrimaryActionLabel}"
                         Command="{Binding SignInCommand}" IsEnabled="{Binding Idle}"
@@ -117,7 +117,7 @@
                             </ListBox.ItemTemplate>
                         </ListBox>
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <Button x:Name="CancelTenantButton" Classes="kcapChip" Content="Back"
+                            <Button x:Name="CancelTenantButton" Classes="kcapGhost" Content="Back"
                                     Command="{Binding CancelTenantCommand}" />
                             <Button x:Name="ConfirmTenantButton" Classes="kcapPrimary"
                                     Content="Use this workspace"

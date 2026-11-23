@@ -61,27 +61,24 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
     bool _carriesOn;
     ITimer? _retry;
     int _failures;
-    bool _typing;
     /// Keys and typed bytes, in the order produced. The hub runs a client's calls concurrently, so one goes out only
     /// once the one before it has been answered; bytes typed meanwhile go out together.
     readonly Queue<(string? Key, byte[]? Bytes, TaskCompletionSource Sent)> _input = new();
     bool _pumping;
 
-    ITerminalSurface? _surface;
-    public ITerminalSurface? Surface { get => _surface; private set => this.RaiseAndSetIfChanged(ref _surface, value); }
+    public ITerminalSurface? Surface { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    RemoteTerminalPhase _phase = RemoteTerminalPhase.Waiting;
     public RemoteTerminalPhase Phase {
-        get => _phase;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _phase, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Notice));
             this.RaisePropertyChanged(nameof(IsLive));
             this.RaisePropertyChanged(nameof(HasOfflineSurface));
             this.RaisePropertyChanged(nameof(ShowsSurface));
             _phases.OnNext(value);
         }
-    }
+    } = RemoteTerminalPhase.Waiting;
 
     public bool IsLive => Phase == RemoteTerminalPhase.Live;
     // Replay can start before admission returns. Only an admitted surface may stay visible offline.
@@ -99,23 +96,21 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
     string _failureDetail = "";
     public ReactiveCommand<Unit, Unit> RetryCommand { get; }
 
-    string? _controlRefusal;
     /// Why the viewer may watch but not press keys or size the terminal; null while they may.
     public string? ControlRefusal {
-        get => _controlRefusal;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _controlRefusal, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsControlRefusal));
         }
     }
     public bool ShowsControlRefusal => ControlRefusal is not null;
 
-    string? _keyRefusal;
     /// The server's reason for refusing the last key, while it is one the viewer can act on.
     public string? KeyRefusal {
-        get => _keyRefusal;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _keyRefusal, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsKeyRefusal));
         }
     }
@@ -125,8 +120,8 @@ public sealed class RemoteTerminalViewModel : ReactiveObject {
     public IReadOnlyList<SpecialKeyChoice> Keys => SpecialKeyMapper.Choices;
     /// Whether keystrokes reach the agent as typed; otherwise only the named keys do.
     public bool AcceptsTyping {
-        get => _typing;
-        private set => this.RaiseAndSetIfChanged(ref _typing, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
     public ReactiveCommand<string, Unit> SendKeyCommand { get; }
 

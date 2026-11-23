@@ -61,7 +61,7 @@ static class WorktreePathResolver {
             var wtEnd   = NextSeparator(path, wtStart);
 
             if (wtEnd < 0) continue;                                // need a separator after "worktrees"
-            if (!path.AsSpan(wtStart, wtEnd - wtStart).SequenceEqual("worktrees")) continue;
+            if (path.AsSpan(wtStart, wtEnd - wtStart) is not "worktrees") continue;
 
             var slugStart = wtEnd + 1;
 

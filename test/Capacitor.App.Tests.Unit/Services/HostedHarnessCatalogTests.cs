@@ -143,9 +143,9 @@ public class HostedHarnessCatalogTests {
     public async Task Every_mapped_vendor_has_a_tile_and_unknown_tokens_get_an_initial() {
         // Same guard shape as the TransportFamilies pin: adding a vendor means one catalog file.
         foreach (var vendor in HostedHarnessCatalog.MappedVendors) {
-            var (glyph, color) = HostedHarnessCatalog.TileFor(vendor);
+            var (glyph, brushKey) = HostedHarnessCatalog.TileFor(vendor);
             await Assert.That(glyph).IsNotEmpty();
-            await Assert.That(color).StartsWith("#");
+            await Assert.That(brushKey).IsNotEmpty();
         }
         await Assert.That(HostedHarnessCatalog.TileFor("zed").Glyph).IsEqualTo("Z");
     }
@@ -154,8 +154,8 @@ public class HostedHarnessCatalogTests {
     /// neutral tint vendors without a brand colour share.</summary>
     [Test]
     public async Task Grok_has_its_own_tint() {
-        await Assert.That(HostedHarnessCatalog.TileFor("grok").Color).IsEqualTo("#F5F5F5");
-        await Assert.That(HostedHarnessCatalog.TileFor("grok").Color).IsNotEqualTo(HostedHarnessCatalog.TileFor("codex").Color);
+        await Assert.That(HostedHarnessCatalog.TileFor("grok").BrushKey).IsEqualTo("KcapGrokBrandBrush");
+        await Assert.That(HostedHarnessCatalog.TileFor("grok").BrushKey).IsNotEqualTo(HostedHarnessCatalog.TileFor("codex").BrushKey);
     }
 
     [Test]
@@ -230,7 +230,7 @@ public class HostedHarnessCatalogTests {
 
     [Test]
     public async Task Muse_assistant_has_the_muse_blue_monogram_but_is_never_offered_to_launch() {
-        await Assert.That(HostedHarnessCatalog.TileFor("muse-assistant")).IsEqualTo(("MA", "#2F6FE0"));
+        await Assert.That(HostedHarnessCatalog.TileFor("muse-assistant")).IsEqualTo(("MA", "KcapMuseAssistantBrandBrush"));
         await Assert.That(HostedHarnessCatalog.Build(null).Select(o => o.Vendor)).DoesNotContain("muse-assistant");
     }
 }

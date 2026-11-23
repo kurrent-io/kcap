@@ -70,10 +70,10 @@ public sealed record ClaudeMemoryFile(string FileName, string? Name, string? Des
     static int Indent(string line) => line.Length - line.TrimStart().Length;
 
     static string Unquote(string value) {
-        if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
+        if (value is ['"', .., '"'])
             return value[1..^1].Replace("\\\"", "\"").Replace("\\\\", "\\");
 
-        if (value.Length >= 2 && value[0] == '\'' && value[^1] == '\'')
+        if (value is ['\'', .., '\''])
             return value[1..^1].Replace("''", "'");
 
         return value;

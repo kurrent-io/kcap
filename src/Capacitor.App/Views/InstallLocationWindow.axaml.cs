@@ -29,7 +29,7 @@ public partial class InstallLocationWindow : Window {
             MoveButton.Content = _actionLabel;
             var detail = selected?.Detail ?? "Its command-line tool and background service need a permanent location.";
             Explanation.Text = selected is null ? $"{where} {detail}" : detail;
-            InstallBadge.IsVisible = selected is null || selected.Action == ApplicationsInstallAction.Install && !selected.Migrates;
+            InstallBadge.IsVisible = selected is null or { Action: ApplicationsInstallAction.Install, Migrates: false };
             UpdateBadge.IsVisible = selected?.Action == ApplicationsInstallAction.Update || selected?.Migrates == true;
             ReadyBadge.IsVisible = selected is { Action: ApplicationsInstallAction.OpenInstalled, Migrates: false };
             ConflictBadge.IsVisible = selected?.Action == ApplicationsInstallAction.Blocked;

@@ -1,8 +1,10 @@
 using System.Collections.Specialized;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
@@ -13,11 +15,17 @@ namespace Capacitor.App.Views;
 /// Chat rows have very different heights. Keep each measured height when its container is
 /// recycled, rather than estimating the whole history from the rows currently on screen.
 /// Unknown rows use a fixed estimate; discovering one never resizes other unknown rows.
+/// Rows inside a chat topic are indented by its rail, and clicking the rail folds the topic.
 /// </summary>
 public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     sealed record Row(object Item, Control Container, object? RecycleKey, bool OwnContainer);
     const double EstimatedHeight = 80;
     const double KeepAliveOverscan = 240;
+    internal const double RailWidth = 16;
+    // Centres the rail under a topic header's 14px icon.
+    const double RailInset = 7;
+    // From the middle of a topic header to just below its icon.
+    const double HeaderIconClearance = 9;
     readonly Dictionary<object, double> _measured = new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<int, Row> _realized = [];
     readonly Dictionary<object, Stack<Control>> _pool = [];
@@ -26,6 +34,16 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     double _lastWidth = double.NaN;
     int _first = -1;
     int _last = -1;
+    ChatTopicRailLayer? _rails;
+    /// After rows go in above the ones on screen: the row the reader was at, how far into it the viewport's
+    /// top was, the offset's distance from the viewport's top, and the offset when this was set. The offset
+    /// follows that row once layout has measured it, since rows measured around it move it from where the
+    /// estimates put it; a scroll the reader made before then is carried along rather than overwritten.
+    (object Item, double Within, double Inset, double Offset)? _insertAnchor;
+    bool _insertArranged;
+    /// How far the viewport moved for an insertion, until a viewport reflecting it arrives: one reported
+    /// from before would measure the inserted rows at the top and move every row below them.
+    double _shiftInFlight;
 
     internal bool MeasuredAtEstimatedEnd { get; private set; }
 
@@ -42,10 +60,23 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
 
     public ChatVirtualizingPanel() => EffectiveViewportChanged += OnViewportChanged;
 
+    // Added first so every row draws over it; it takes the pointer only in the rail gutters.
+    void EnsureRailLayer() {
+        if (_rails is not null && Children.Contains(_rails)) return;
+        _rails ??= new ChatTopicRailLayer(this);
+        AddInternalChild(_rails);
+        Children.Move(Children.IndexOf(_rails), 0);
+    }
+
     void OnViewportChanged(object? sender, EffectiveViewportChangedEventArgs e) {
+        if (_shiftInFlight != 0) {
+            if (Math.Abs(e.EffectiveViewport.Top + _shiftInFlight - _viewport.Top) < 1) return;
+            _shiftInFlight = 0;
+        }
         if (_viewport == e.EffectiveViewport) return;
         var old = _viewport;
         _viewport = e.EffectiveViewport;
+        ReportTop();
         if (old.Size != _viewport.Size || _first < 0 || _last >= Items.Count
             || Math.Max(0, _viewport.Top) < _starts[_first]
             || Math.Min(_starts[^1], _viewport.Bottom) > _starts[_last + 1]) InvalidateMeasure();
@@ -63,14 +94,22 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     }
 
     /// A user's turn spans the column to sit at its right edge; the agent's rows keep to the lane.
-    static bool SpansColumn(object item) => item is UserTurnItem or ShellCommandItem;
+    static bool SpansColumn(object item) => item is UserTurnItem or ShellCommandItem or ChatTopicItem or ChatTopicEndItem;
 
-    double RowWidth(object item, double width) => SpansColumn(item) ? width : Math.Min(width, LaneWidth);
+    // Every row keeps the rail's space, so marking a topic never shifts its messages sideways; a
+    // topic's header and end sit out over the rail.
+    static double Indent(object item) => item is ChatTopicItem or ChatTopicEndItem ? 0 : RailWidth;
+
+    double RowWidth(object item, double width) {
+        var inner = Math.Max(0, width - Indent(item));
+        return SpansColumn(item) ? inner : Math.Min(inner, Math.Max(0, LaneWidth - Indent(item)));
+    }
 
     protected override Size MeasureOverride(Size availableSize) {
         var scroll = this.FindAncestorOfType<ScrollViewer>();
         var view = this.FindAncestorOfType<ChatTabView>();
         MeasuredAtEstimatedEnd = scroll is not null && scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 2;
+        EnsureRailLayer();
         if (Items.Count == 0) { _first = _last = -1; return default; }
         if (_starts.Length != Items.Count + 1) RebuildStarts();
         var anchor = IndexAt(Math.Max(0, _viewport.Top));
@@ -150,13 +189,82 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         || focused is not null && (ReferenceEquals(focused, row.Container) || row.Container.IsVisualAncestorOf(focused));
 
     protected override Size ArrangeOverride(Size finalSize) {
+        if (_insertAnchor is not null && !_insertArranged && this.FindAncestorOfType<ScrollViewer>() is { } scroll) {
+            _insertArranged = true;
+            // Only input moves the offset between the insertion and here; the presenter's own anchoring runs later in this pass.
+            var moved = scroll.Offset.Y - _insertAnchor.Value.Offset;
+            // The presenter takes the grown extent only after this pass; an offset set now is clamped to the old one.
+            void Apply(object? sender, EventArgs e) {
+                scroll.LayoutUpdated -= Apply;
+                _insertArranged = false;
+                if (_insertAnchor is not var (item, within, inset, _)) return;
+                _insertAnchor = null;
+                var index = -1;
+                for (var i = 0; i < Items.Count && index < 0; i++)
+                    if (ReferenceEquals(Items[i], item)) index = i;
+                if (index < 0 || _starts.Length != Items.Count + 1) return;
+                scroll.Offset = new Vector(scroll.Offset.X, _starts[index] + within + inset + moved);
+            }
+            scroll.LayoutUpdated += Apply;
+        }
         var anchors = this.FindAncestorOfType<IScrollAnchorProvider>();
         foreach (var entry in _realized) {
             var container = entry.Value.Container;
-            container.Arrange(new Rect(0, _starts[entry.Key], RowWidth(entry.Value.Item, finalSize.Width), container.DesiredSize.Height));
+            container.Arrange(new Rect(Indent(entry.Value.Item), _starts[entry.Key], RowWidth(entry.Value.Item, finalSize.Width), container.DesiredSize.Height));
             if (container.IsVisible && container.Bounds.Intersects(_viewport)) anchors?.RegisterAnchorCandidate(container);
         }
+        _rails?.Arrange(new Rect(finalSize));
+        _rails?.InvalidateVisual();
+        ReportTop();
         return finalSize;
+    }
+
+    // A row whose top has just scrolled out of view is still the one being read.
+    const double TopRowDepth = 24;
+
+    void ReportTop() {
+        if (Items.Count == 0 || _starts.Length != Items.Count + 1) return;
+        this.FindAncestorOfType<ChatTabView>()?.ShowingAtTop(Items[IndexAt(Math.Max(0, _viewport.Top + TopRowDepth))] as ChatItemViewModel);
+    }
+
+    internal void DrawRails(DrawingContext context, ChatTopicItem? hovered) {
+        var info  = Brush("KcapTopicBrush");
+        var rest  = new Pen(new SolidColorBrush((info as ISolidColorBrush)?.Color ?? Colors.Gray, 0.55), 1.5);
+        var hover = new Pen(info, 2.5);
+        Pen PenFor(ChatTopicItem topic) => ReferenceEquals(topic, hovered) ? hover : rest;
+
+        foreach (var (index, row) in _realized) {
+            if (row.Item is not ChatItemViewModel item || !row.Container.IsVisible || index + 1 >= _starts.Length) continue;
+            var top = _starts[index];
+            var bottom = _starts[index + 1];
+            // Past the last row's own gap the rail would read as more chat below.
+            if (index == Items.Count - 1 && row.Container is ContentPresenter { Child: Layoutable { Margin.Bottom: > 0 } child })
+                bottom = Math.Max(top, bottom - child.Margin.Bottom);
+            if (item.Topic is { } topic)
+                context.DrawLine(PenFor(topic), new Point(RailInset, top), new Point(RailInset, bottom));
+            // A topic's own rail starts just under its header's icon.
+            else if (item is ChatTopicItem { IsExpanded: true } header)
+                context.DrawLine(PenFor(header), new Point(RailInset, (top + bottom) / 2 + HeaderIconClearance), new Point(RailInset, bottom));
+        }
+    }
+
+    IBrush Brush(string key) =>
+        this.TryFindResource(key, ActualThemeVariant, out var value) && value is IBrush brush ? brush : Brushes.Gray;
+
+    internal ChatTopicItem? RailAt(Point point) {
+        if (point.X < 0 || Items.Count == 0 || _starts.Length != Items.Count + 1) return null;
+        var index = IndexAt(point.Y);
+        if (point.Y < _starts[index] || point.Y >= _starts[index + 1]) return null;
+        return point.X < RailWidth && Items[index] is ChatItemViewModel item ? item.Topic : null;
+    }
+
+    internal void FoldFromRail(ChatTopicItem topic) {
+        topic.ToggleCommand.Execute().Subscribe();
+        // Folding from a rail far below the header would leave the reader past the fold.
+        Dispatcher.UIThread.Post(() => {
+            var index = ItemsControl?.Items.IndexOf(topic) ?? -1;
+            if (index >= 0 && index < _starts.Length - 1 && _starts[index] < _viewport.Top) ScrollIntoView(index);
+        }, DispatcherPriority.Background);
     }
 
     Row Realize(int index) {
@@ -193,6 +301,10 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     }
 
     protected override void OnItemsChanged(IReadOnlyList<object?> items, NotifyCollectionChangedEventArgs e) {
+        var inserted = e is { Action: NotifyCollectionChangedAction.Add, NewStartingIndex: 0, NewItems.Count: var count }
+            && count < items.Count && _realized.Count > 0 ? count : 0;
+        var reading = inserted > 0 ? IndexAt(Math.Max(0, _viewport.Top)) : 0;
+        var within = inserted > 0 ? _viewport.Top - _starts[reading] : 0;
         if (e.Action != NotifyCollectionChangedAction.Add || e.NewStartingIndex != _starts.Length - 1) {
             if (e.Action == NotifyCollectionChangedAction.Reset) {
                 foreach (var index in _realized.Keys.ToArray()) Unrealize(index);
@@ -216,17 +328,36 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
             _first = _last = -1;
         }
         RebuildStarts();
+        // Rows inserted above the ones on screen move the viewport with them, so the reader keeps
+        // reading the same row rather than whatever now sits at the old offset.
+        if (inserted > 0 && reading + inserted < items.Count && this.FindAncestorOfType<ScrollViewer>() is { } scroll
+            && items[reading + inserted] is { } readingItem) {
+            var inset = _insertAnchor?.Inset ?? scroll.Offset.Y - _viewport.Top;
+            var offset = _insertAnchor?.Offset ?? scroll.Offset.Y;
+            var top = _starts[reading + inserted] + within;
+            _shiftInFlight += top - _viewport.Top;
+            _viewport = new Rect(_viewport.X, top, _viewport.Width, _viewport.Height);
+            _insertAnchor = (readingItem, within, inset, offset);
+        }
         InvalidateMeasure();
     }
 
     protected override Control? ScrollIntoView(int index) {
         if (index < 0 || index >= Items.Count) return null;
+        // An explicit scroll outranks the correction a recent insertion still has pending. Until that
+        // correction lands the viewport has moved and the offset has not, so the offset is set outright.
+        var pending = _insertAnchor;
+        _insertAnchor = null;
+        _shiftInFlight = 0;
         if (_starts.Length != Items.Count + 1) RebuildStarts();
         var row = Realize(index);
         InvalidateMeasure();
         if (this.FindAncestorOfType<ScrollViewer>() is { } scroll) {
-            var delta = _starts[index] - _viewport.Top;
-            scroll.Offset = new Vector(scroll.Offset.X, scroll.Offset.Y + delta);
+            var inset = pending?.Inset ?? scroll.Offset.Y - _viewport.Top;
+            var target = _starts[index] + inset;
+            scroll.Offset = new Vector(scroll.Offset.X, target);
+            // Past the extent the presenter has laid out, the offset was clamped; arrange applies it once the extent grows.
+            if (scroll.Offset.Y < target - 0.5) _insertAnchor = (row.Item, 0, inset, scroll.Offset.Y);
         }
         return row.Container;
     }

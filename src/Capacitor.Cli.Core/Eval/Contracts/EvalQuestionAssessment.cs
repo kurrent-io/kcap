@@ -125,7 +125,7 @@ public record EvalQuestionAssessment {
         if (DecidedBy is null || PrescreenRulesVersion is null) return "decided_by and prescreen_rules_version must be set together";
         if (DecidedBy != DecidedByPrescreen)                    return $"decided_by '{DecidedBy}' is unknown";
         if (PrescreenRulesVersion < 1)                          return "prescreen_rules_version must be at least 1";
-        if (EvidenceCoverage is not { } ec || ec.PolicyVersion != EvalService.ExtractCoveragePolicyVersion) return "decided_by requires a coverage-v3 record";
+        if (EvidenceCoverage is not { PolicyVersion: EvalService.ExtractCoveragePolicyVersion } ec) return "decided_by requires a coverage-v3 record";
         if (TraceCoverage is not { PrescreenCandidates: 0 } tc) return "decided_by requires trace_coverage.prescreen_candidates = 0";
         if (tc.SliceCount is not null || tc.SlicesJudged is not null) return "decided_by cannot sit beside a sliced judgement";
         if (!ec.IsComplete)                                     return "decided_by requires complete evidence_coverage";

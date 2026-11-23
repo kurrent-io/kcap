@@ -14,8 +14,7 @@ public sealed class PageRow(string id, string title, string url, string updatedL
     /// The version the list named, which an open in-app viewer reloads past.
     public int LatestVersion { get; private init; }
 
-    bool _isSelected;
-    public bool IsSelected { get => _isSelected; internal set => this.RaiseAndSetIfChanged(ref _isSelected, value); }
+    public bool IsSelected { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// Null for an entry with no id or no web link, which is left out of the list.
     public static PageRow? From(ArtefactDto dto, DateTimeOffset now) {

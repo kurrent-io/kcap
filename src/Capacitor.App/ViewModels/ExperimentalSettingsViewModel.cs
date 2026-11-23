@@ -18,7 +18,6 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
     readonly CompositeDisposable _subscriptions = new();
     AttachStatus _attach = new(AttachState.Connecting, null, null);
     DaemonStatusDto? _snapshot;
-    string? _problem;
     string? _saveProblem;
     readonly HashSet<string> _saving = new(StringComparer.Ordinal);
     readonly Lock _fingerprintLock = new();
@@ -65,8 +64,8 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
 
     /// Why the switches cannot change anything, or why the last change was not kept.
     public string? Problem {
-        get => _problem;
-        private set => this.RaiseAndSetIfChanged(ref _problem, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The store as it is now, or null when its last-write time and length match the last read.

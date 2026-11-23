@@ -367,7 +367,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         }
     }
 
-    bool MayFinish(Tracked tracked) => Volatile.Read(ref _stopping) == 0 && tracked.Running && !tracked.Disabled;
+    bool MayFinish(Tracked tracked) => Volatile.Read(ref _stopping) == 0 && tracked is { Running: true, Disabled: false };
 
     /// <summary>Finishes every source of an exited agent, within <paramref name="budget"/>, once: a second call on the
     /// way through a teardown spends none of it on a drain already asked for. Never throws, and what the budget cuts off

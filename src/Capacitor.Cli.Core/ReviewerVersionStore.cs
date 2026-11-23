@@ -1,39 +1,17 @@
 namespace Capacitor.Cli.Core;
 
 /// <summary>
-/// The vendor build this daemon last ran an unattended reviewer under, per vendor.
-///
-/// <para><b>Why a version gate exists at all.</b> Each gated reviewer's containment rests on a
-/// behaviour of the INSTALLED build, not on anything this repository controls — that Kiro honours
-/// <c>KIRO_HOME</c> and reads no other global config source, that Gemini's
-/// <c>--allowed-mcp-server-names</c> is an exclusive exact-match gate a repository's own settings
-/// cannot widen. A vendor release can change either.</para>
-///
-/// <para><b>Why an operator-set MINIMUM and not a curated certified set.</b> A maintainer-curated set
-/// takes the reviewer offline on every vendor release until a re-certification PR ships — untenable
-/// against CLIs that move several versions a week, and it did exactly that: the Gemini reviewer was
-/// unreachable at a version one patch ahead of the certified one. Failing closed on a version CHANGE
-/// removed the kcap-release coupling but kept the treadmill, merely relocating it onto the operator,
-/// who then re-took the same acceptance on every patch. The recorded value is therefore the OLDEST
-/// build this daemon will run: an upgrade needs no action, a downgrade below it is refused, and a
-/// build later found to be bad is excluded by raising the floor past it.</para>
-///
-/// <para><b>Why this is state and not configuration.</b> A value the operator could set from a shell
-/// profile would be re-affirmed by their dotfiles rather than by them — the same "consent that isn't
-/// consent" failure the enable flag exists to avoid. The daemon writes it; only an explicit operator
-/// command changes it.</para>
-///
-/// <para><b>ONE per-vendor exception: antigravity's floor is seeded from the binary resolving, not
-/// from a consent event</b> — it also gates HOSTED <c>agy</c> launches, which take no consent, and a
-/// consent-less daemon with no floor refuses every one as <c>version_no_minimum</c>. Seeding is
-/// once-only, so a floor recorded before consent is not raised when the reviewer is later enabled:
-/// a downgrade to that pre-consent build is admitted where a consent-anchored floor would refuse it.
-/// Accepted — bounded to builds at or above that one, remedy is
-/// <c>kcap daemon reviewer affirm --vendor antigravity</c>. Consent must not re-seed.</para>
-///
-/// <para>Keyed by vendor, one file each, so affirming one vendor's build says nothing about another's.
-/// Kiro's filename is unchanged from when this type was Kiro-only — renaming it would have silently
-/// discarded every existing affirmation and taken shipped reviewers offline on upgrade.</para>
+/// The minimum vendor build this daemon runs an unattended reviewer under, per vendor.
+/// <para>Each gated reviewer's containment rests on a behaviour of the installed build (Kiro honouring
+/// <c>KIRO_HOME</c>, Gemini's exact-match MCP allowlist), which a release can change. The value is the
+/// oldest build allowed: vendors ship several builds a week, so an upgrade needs no action, a downgrade
+/// below it is refused, and a bad build is excluded by raising the floor.</para>
+/// <para>State, not configuration: a value a shell profile could set would be re-affirmed by dotfiles
+/// rather than by the operator. Only an explicit operator command changes it.</para>
+/// <para>Antigravity's floor is seeded once when the binary resolves, because it also gates hosted
+/// <c>agy</c> launches, which take no consent. Consent must not re-seed it; the remedy for a
+/// pre-consent floor is <c>kcap daemon reviewer affirm --vendor antigravity</c>.</para>
+/// <para>One file per vendor. The name must not change: existing affirmations are found by it.</para>
 /// </summary>
 public sealed class ReviewerVersionStore(string stateDir, string vendor) {
     public static string FileNameFor(string vendor) => $"{vendor}-reviewer-affirmed-version";

@@ -86,7 +86,7 @@ public class CodexHooksWriterTests {
     [Test]
     [Arguments("""["x"]""")]
     [Arguments("""[{"hooks":["x"]}]""")]
-    [Arguments("""[[1]]""")]
+    [Arguments("[[1]]")]
     [Arguments(""" "x" """)]
     public async Task Install_and_Remove_survive_odd_event_shapes(string stopJson) {
         var hooks = Tmp.CreateFile("hooks.json", """{"hooks":{"Stop":""" + stopJson + "}}");
@@ -107,7 +107,7 @@ public class CodexHooksWriterTests {
     [Test]
     [Arguments("""["x"]""")]
     [Arguments("""[{"hooks":["x"]}]""")]
-    [Arguments("""[[1]]""")]
+    [Arguments("[[1]]")]
     [Arguments(""" "x" """)]
     public async Task Remove_on_odd_event_shapes_does_not_throw(string stopJson) {
         var hooks = Tmp.CreateFile("hooks.json", """{"hooks":{"Stop":""" + stopJson + "}}");

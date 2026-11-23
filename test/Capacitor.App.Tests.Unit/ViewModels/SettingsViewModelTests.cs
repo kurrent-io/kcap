@@ -2,6 +2,7 @@ using System.Reactive.Linq;
 using System.Reactive.Threading.Tasks;
 using Capacitor.App.Services;
 using Capacitor.App.Services.Notifications;
+using Capacitor.App.Tests.Unit.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
@@ -32,12 +33,12 @@ public class SettingsViewModelTests {
             Task? startup = null, bool nameOverride = false, bool needsRestart = false,
             Func<MutationRequest, CancellationToken, Task<bool>>? canRetire = null,
             NotificationSettingsService? notificationSettings = null,
-            IDesktopNotificationAccess? notificationAccess = null) =>
+            IDesktopNotificationAccess? notificationAccess = null, BackgroundIntelligenceSettingsViewModel? intelligence = null) =>
         new(store, service, ops ?? new ScriptedLocalControlOps(), target ?? ((_, _) => Task.FromResult(false)),
             run ?? ((_, _) => Task.FromResult<MutationOutcome>(new MutationOutcome.Succeeded())),
             confirm ?? ((_, _) => Task.FromResult(true)), relaunch ?? (_ => Task.FromResult(false)), mac,
             startup ?? Task.CompletedTask, canRetire ?? ((_, _) => Task.FromResult(true)), nameOverride, needsRestart,
-            notificationSettings: notificationSettings, notificationAccess: notificationAccess);
+            notificationSettings: notificationSettings, notificationAccess: notificationAccess) { Intelligence = intelligence };
 
     static FakeDaemonClientService Connected(int active = 0, bool supportsSettings = true) {
         var service = new FakeDaemonClientService();
@@ -62,6 +63,70 @@ public class SettingsViewModelTests {
 
         using var reopened = Make(store, Connected());
         await Assert.That(reopened.AutoResume).IsFalse();
+    });
+
+    /// <summary>Closing disposes the tab and cancels the CLI child, which could leave the server's new mode
+    /// unrecorded, so the window's close guard counts a running mode save as an active operation.</summary>
+    [Test]
+    public Task Settings_cannot_close_or_edit_the_daemon_while_a_background_intelligence_save_runs() => AvaloniaSession.RunOnUiAsync(async () => {
+        var cli = new FakeKcapCli();
+        var server = new Cli.Core.Setup.Intelligence.IntelligenceSettings("none", null, null, null, true, false, 300, false, []);
+        cli.IntelligenceStatusBehavior = () => Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>(
+            new Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome.Read(server));
+        var applied = new TaskCompletionSource<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome>();
+        cli.IntelligenceBehavior = _ => applied.Task;
+        var upgrade = new Capacitor.App.Services.LocalSetup.LocalUpgradeController(() => cli, action => action());
+        var search  = new Capacitor.App.Services.LocalSetup.LocalSearchController(() => cli, action => action());
+        var tab     = new BackgroundIntelligenceSettingsViewModel(cli, _ => Task.FromResult<string[]>(["claude"]), upgrade, search);
+        using var vm = Make(Seed(), Connected(), intelligence: tab);
+        await tab.ShownAsync();
+        await Assert.That(vm.HasActiveOperation).IsFalse();
+        await Assert.That(vm.CanEdit).IsTrue();
+
+        tab.Options.Single(o => o.Token == "claude").IsSelected = true;
+        var saving = tab.SaveModeAsync();
+        await Assert.That(vm.HasActiveOperation).IsTrue();
+        await Assert.That(vm.CanEdit).IsFalse();
+
+        applied.SetResult(new Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Applied(new("local_agent", "claude", null, true, 300, [])));
+        await saving;
+        await Assert.That(vm.HasActiveOperation).IsFalse();
+        await Assert.That(vm.CanEdit).IsTrue();
+    });
+
+    /// <summary>A rename can relaunch the app and dispose the tab under a mode save, so while the window's own daemon
+    /// operation runs the tab starts nothing, and saves again once it has ended.</summary>
+    [Test]
+    public Task The_background_intelligence_tab_starts_nothing_while_a_daemon_operation_runs() => AvaloniaSession.RunOnUiAsync(async () => {
+        var cli = new FakeKcapCli();
+        var server = new Cli.Core.Setup.Intelligence.IntelligenceSettings("none", null, null, null, true, false, 300, false, []);
+        cli.IntelligenceStatusBehavior = () => Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>(
+            new Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome.Read(server));
+        var upgrade = new Capacitor.App.Services.LocalSetup.LocalUpgradeController(() => cli, action => action());
+        var search  = new Capacitor.App.Services.LocalSetup.LocalSearchController(() => cli, action => action());
+        var tab     = new BackgroundIntelligenceSettingsViewModel(cli, _ => Task.FromResult<string[]>(["claude"]), upgrade, search);
+        var ops = new ScriptedLocalControlOps();
+        var ack = ops.ArmPutSettings();
+        var putStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        ops.SettingsPutStarted = () => putStarted.TrySetResult();
+        using var vm = Make(Seed(), Connected(), ops, intelligence: tab);
+        await tab.ShownAsync();
+        tab.Options.Single(o => o.Token == "claude").IsSelected = true;
+        await Assert.That(tab.CanSaveMode).IsTrue();
+
+        vm.Capacity = 2;
+        var saving = vm.SaveCommand.Execute().ToTask();
+        await putStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.That(vm.IsBusy).IsTrue();
+        await Assert.That(tab.CanSaveMode).IsFalse();
+        await Assert.That(tab.HeldText).IsEqualTo(BackgroundIntelligenceSettingsViewModel.DaemonBusyText);
+        await tab.SaveModeAsync();
+        await Assert.That(cli.IntelligenceCalls).IsEmpty();
+
+        ack.SetResult(new DaemonSettingsAckDto(true, null, 2));
+        await saving;
+        await Assert.That(tab.HeldText).IsNull();
+        await Assert.That(tab.CanSaveMode).IsTrue();
     });
 
     [Test]

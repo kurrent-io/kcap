@@ -21,10 +21,10 @@ public class AcpHostedAgentRuntimePermissionTests {
 
     sealed class FakeAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int  Pid       { get; init; } = 4242;
+        public int  Pid       { get; } = 4242;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
-        public void SignalExited(int exitCode = 0) { HasExited = true; ExitCode = exitCode; _exited.TrySetResult(); }
+        void SignalExited(int exitCode = 0) { HasExited = true; ExitCode = exitCode; _exited.TrySetResult(); }
         public Task WaitForExitAsync(TimeSpan? timeout = null) => _exited.Task;
         public Task TerminateAsync(TimeSpan? timeout = null) { SignalExited(); return Task.CompletedTask; }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

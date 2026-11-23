@@ -15,40 +15,35 @@ public enum ConnectChoice { Discover, Paste }
 public sealed class ConnectChoiceViewModel : ReactiveObject {
     internal const string InvalidServerMessage = "Enter a workspace name (e.g. acme) or a full https:// server URL.";
 
-    ConnectChoice _choice = ConnectChoice.Discover;
-    bool          _useDeviceCode;
-    string        _serverInputText = "";
-    string?       _inputError;
-
     public ConnectChoice Choice {
-        get => _choice;
+        get;
         set {
-            this.RaiseAndSetIfChanged(ref _choice, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             Restate();
         }
-    }
+    } = ConnectChoice.Discover;
 
     /// Discovery through a device code rather than a browser on this machine.
     public bool UseDeviceCode {
-        get => _useDeviceCode;
+        get;
         set {
-            this.RaiseAndSetIfChanged(ref _useDeviceCode, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             Restate();
         }
     }
 
     public string ServerInputText {
-        get => _serverInputText;
+        get;
         set {
-            this.RaiseAndSetIfChanged(ref _serverInputText, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             InputError = null; // editing clears the stale complaint
             Restate();
         }
-    }
+    } = "";
 
     public string? InputError {
-        get => _inputError;
-        private set => this.RaiseAndSetIfChanged(ref _inputError, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// What the Sign-in step will run; null while the paste input is unusable.

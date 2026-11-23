@@ -487,7 +487,7 @@ public partial class ChatTabViewModelTests {
                 await h.Chat.TerminalMenuChoices[0].Choose.Execute().ToTask();
 
                 h.Permissions.Add(PermissionEntries.Entry("r1", "a1"));
-                await WaitUntilAsync(() => h.Chat.HasPendingCards && !h.Chat.ShowsTerminalMenu, what: "the dialog hidden");
+                await WaitUntilAsync(() => h.Chat is { HasPendingCards: true, ShowsTerminalMenu: false }, what: "the dialog hidden");
                 h.Permissions.Remove("r1");
                 await WaitUntilAsync(() => !h.Chat.HasPendingCards, what: "the card removed");
                 h.Time.Advance(ChatTabViewModel.CoveredDialogGrace);

@@ -20,7 +20,7 @@ public class SetupJoinTests {
 
         await Assert.That(key).IsNotNull();
         await Assert.That(key!.Length).IsEqualTo(32);
-        await Assert.That(key.All(c => char.IsAsciiDigit(c) || (c >= 'a' && c <= 'f'))).IsTrue();
+        await Assert.That(key.All(c => char.IsAsciiDigit(c) || (c is >= 'a' and <= 'f'))).IsTrue();
         await Assert.That(probe.Join.Current).IsEqualTo(key);
     }
 

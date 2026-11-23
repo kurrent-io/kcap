@@ -145,7 +145,7 @@
                                              TextWrapping="Wrap" FontSize="11" LineHeight="16"
                                              Foreground="{StaticResource OnboardingDimBrush}" />
                     </StackPanel>
-                    <Button x:Name="TryAgainButton" Classes="onboardingPrimary" Content="Try again" HorizontalAlignment="Left"
+                    <Button x:Name="TryAgainButton" Classes.onboardingPrimary="{Binding !OtherEditionVisible}" Classes.onboardingSecondary="{Binding OtherEditionVisible}" Content="Try again" HorizontalAlignment="Left"
                             Command="{Binding TryAgainCommand}" IsVisible="{Binding TryAgainVisible}" />
                     <Button x:Name="OtherEditionButton" Classes="onboardingPrimary" HorizontalAlignment="Left"
                             Content="{x:Static vm:InstallStepViewModel.OtherEditionLabel}"

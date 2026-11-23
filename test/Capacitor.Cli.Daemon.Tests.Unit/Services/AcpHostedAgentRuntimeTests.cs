@@ -28,10 +28,10 @@ public class AcpHostedAgentRuntimeTests {
     sealed class FakeAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public int  Pid            { get; init; } = 4242;
+        public int  Pid            { get; } = 4242;
         public bool HasExited      { get; private set; }
         public int? ExitCode       { get; private set; }
-        public int  TerminateCalls { get; private set; }
+        int  TerminateCalls { get; set; }
         public int  DisposeCalls   { get; private set; }
 
         /// <summary>Simulates the child process exiting on its own (no Terminate call).</summary>
@@ -65,7 +65,7 @@ public class AcpHostedAgentRuntimeTests {
 
     sealed class Harness : IAsyncDisposable {
         public FakeAcpAgent          Fake    { get; }
-        public AcpConnection         Conn    { get; }
+        AcpConnection         Conn    { get; }
         public FakeAcpProcess        Process { get; }
         public AcpHostedAgentRuntime Runtime { get; }
         public CancellationTokenSource Cts   { get; } = new();

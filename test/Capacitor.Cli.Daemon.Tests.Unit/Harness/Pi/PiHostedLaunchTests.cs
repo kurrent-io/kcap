@@ -332,7 +332,7 @@ public class PiHostedLaunchTests {
         public bool    HasExited   => false;
         public int?    ExitCode    => null;
         public bool    Disposed    { get; private set; }
-        public string? Diagnostics { get; set; }
+        public string? Diagnostics { get; init; }
 
         public IAsyncEnumerable<string> ReadLinesAsync(CancellationToken ct) =>
             System.Threading.Channels.Channel.CreateUnbounded<string>().Reader.ReadAllAsync(ct);

@@ -14,16 +14,15 @@ namespace Capacitor.App.Views;
 public partial class ConsentPromptWindow : ReactiveWindow<ConsentPromptViewModel> {
     WindowNotificationManager? _notifications;
     IDisposable? _notifierSubscription;
-    IAppNotifier? _notifier;
 
     /// Assigned by App's window factory: prompt warnings must surface on THIS window —
     /// the main window may be closed. Same shape as MainWindow.Notifier, with one difference that
     /// matters here: a prompt window is transient (a fresh instance per raise), so the
     /// app-lifetime notifier subscription is dropped on close instead of living forever.
     public IAppNotifier? Notifier {
-        get => _notifier;
+        get;
         set {
-            _notifier = value;
+            field = value;
             _notifierSubscription?.Dispose();
             _notifierSubscription = value?.Messages
                 .ObserveOn(RxSchedulers.MainThreadScheduler)
@@ -49,5 +48,5 @@ public partial class ConsentPromptWindow : ReactiveWindow<ConsentPromptViewModel
     }
 
     void ShowToast(string message) =>
-        _notifications?.Show(new Notification("kcap", message, NotificationType.Warning, TimeSpan.FromSeconds(4)));
+        _notifications?.Show(new Notification(null, message, NotificationType.Warning, TimeSpan.FromSeconds(4)));
 }

@@ -78,7 +78,7 @@ public class HomeAttachmentsTests {
         public BehaviorSubject<ServerLaneStatus> Lane { get; } = new(new ServerLaneStatus(ServerLaneState.Connected));
         public BehaviorSubject<IReadOnlyList<DaemonInfo>> Daemons { get; } = new([]);
         public FakeAgentDirectory Directory { get; } = new();
-        public string? ViewerId { get; set; } = "viewer-1";
+        string? ViewerId { get; } = "viewer-1";
         public BehaviorSubject<DaemonListing>? Listing { get; set; }
         public BehaviorSubject<AccountsSnapshotDto?> LocalAccounts { get; } = new(null);
         public CancellationTokenSource Shutdown { get; } = new();

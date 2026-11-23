@@ -38,12 +38,10 @@ public static class MuseHooksInstaller {
             var changed = false;
             if (root["schema_version"] is null) { root["schema_version"] = 1; changed = true; }
 
-            var hooks = root["hooks"] as JsonObject;
-            if (hooks is null) { hooks = new JsonObject(); root["hooks"] = hooks; changed = true; }
+            if (root["hooks"] is not JsonObject hooks) { hooks = new JsonObject(); root["hooks"] = hooks; changed = true; }
 
             foreach (var eventName in MuseHooksParser.MuseHookEvents) {
-                var groups = hooks[eventName] as JsonArray;
-                if (groups is null) { groups = new JsonArray(); hooks[eventName] = groups; changed = true; }
+                if (hooks[eventName] is not JsonArray groups) { groups = new JsonArray(); hooks[eventName] = groups; changed = true; }
                 if (groups.Any(MuseHooksParser.EntryReferencesCapacitorMuseHook)) continue;
                 groups.Add((JsonNode?)MuseHooksParser.BuildKcapGroup(eventName));
                 changed = true;

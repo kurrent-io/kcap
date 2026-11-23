@@ -84,7 +84,7 @@ public class LaunchCleanupTests {
         await Assert.That(orch.EffectiveCount).IsEqualTo(1);
 
         var snap = orch.QuarantineSnapshot();
-        await Assert.That(snap.Any(q => q.Id == "stuck" && q.FlowRunId == "flow-1")).IsTrue();
+        await Assert.That(snap.Any(q => q is { Id: "stuck", FlowRunId: "flow-1" })).IsTrue();
 
         // dummy is disposed by the using; also drop the quarantine's hold explicitly for hygiene.
         dummy.Kill();

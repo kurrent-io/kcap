@@ -50,7 +50,7 @@ public static class ClaudeElicitation {
         try { doc = JsonDocument.Parse(toolInputJson); } catch (JsonException) { return null; }
         using (doc) {
             var root = doc.RootElement;
-            if (!root.IsObject || root.Prop("questions") is not { } arr || !arr.IsArray) return null;
+            if (!root.IsObject || root.Prop("questions") is not { IsArray: true } arr) return null;
             var count = arr.GetArrayLength();
             if (count is 0 or > MaxQuestions) return null;
 

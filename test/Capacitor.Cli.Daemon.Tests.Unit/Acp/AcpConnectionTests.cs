@@ -454,7 +454,7 @@ public class AcpConnectionTests {
         var id          = JsonDocument.Parse(frame).RootElement.GetProperty("id").GetInt64();
 
         await harness.WriteFrameToConnectionAsync(
-            $$$"""{"jsonrpc":"2.0","id":{{{id}}},"error":"totally-not-an-object"}"""
+            $$"""{"jsonrpc":"2.0","id":{{id}},"error":"totally-not-an-object"}"""
         );
 
         var ex = await Assert.ThrowsAsync<AcpRpcException>(() => requestTask.WaitAsync(HangGuard));

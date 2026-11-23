@@ -45,4 +45,16 @@ public class OpenCodeSubagentDiscoveryTests {
         await Assert.That(OpenCodeSubagentDiscovery.ResolveAgentType(noAgent)).IsEqualTo("subagent");
     }
 
+    /// <summary>A v2 file names its agent on the assistant message itself; a line that is not JSON is passed over.</summary>
+    [Test]
+    public async Task ResolveAgentType_reads_a_v2_assistants_agent() {
+        using var tmp  = new TempDir();
+        var       file = tmp.CreateFile("c3.jsonl",
+            "not json\n" +
+            "{\"id\":\"msg_u\",\"type\":\"user\",\"time\":{\"created\":1},\"text\":\"count\"}\n" +
+            "{\"id\":\"msg_a\",\"type\":\"assistant\",\"agent\":\"explore\",\"time\":{\"created\":2},\"content\":[]}\n");
+
+        await Assert.That(OpenCodeSubagentDiscovery.ResolveAgentType(file)).IsEqualTo("explore");
+    }
+
 }

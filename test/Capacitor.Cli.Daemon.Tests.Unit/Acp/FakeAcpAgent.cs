@@ -756,7 +756,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// </summary>
     public static JsonElement BuildSessionInfoUpdate(string title) {
         var escaped = JsonEncodedText.Encode(title);
-        return JsonDocument.Parse($$$"""{"sessionUpdate":"session_info_update","title":"{{{escaped}}}"}""")
+        return JsonDocument.Parse($$"""{"sessionUpdate":"session_info_update","title":"{{escaped}}"}""")
             .RootElement.Clone();
     }
 

@@ -149,7 +149,7 @@ public class GeminiSubagentImportTests : IDisposable {
         var chats = Path.Combine(_tempDir, "proj", "chats");
         Directory.CreateDirectory(chats);
         File.WriteAllLines(Path.Combine(chats, "session-2026-06-22T14-31-0a900002.jsonl"), new[] {
-            $$$"""{"sessionId":"{{{DashedParent}}}","projectHash":"h","startTime":"2026-06-22T14:31:00.000Z","kind":"main"}""",
+            $$"""{"sessionId":"{{DashedParent}}","projectHash":"h","startTime":"2026-06-22T14:31:00.000Z","kind":"main"}""",
             $$$"""{"$set":{"messages":[{"id":"d0","timestamp":"2026-06-22T14:31:01.000Z","type":"user","content":[{"text":"{{{bootstrap}}}"}]}],"lastUpdated":"t"}}""",
             """{"id":"m1","timestamp":"2026-06-22T14:31:05.000Z","type":"gemini","content":"hello"}"""
         });

@@ -767,23 +767,35 @@ public sealed partial class WatcherManager(
 
             using var httpClient = await http.ForBackgroundAsync();
 
-            // Get server's last recorded position
+            // 204 and 404 mean the server holds no line of this transcript, which is exactly the state of a watcher stopped
+            // before its first batch: reading either as "holds everything" drops the whole transcript. Starting at 0 is
+            // safe because the server drops a line numbered at or below one it already took.
             int startLine;
 
             try {
-                var query = agentId is not null ? $"?agentId={Uri.EscapeDataString(agentId)}" : "";
-                var resp  = await httpClient.GetWithRetryAsync($"{Url}/api/sessions/{sessionId}/last-line{query}", time);
+                var       query = agentId is not null ? $"?agentId={Uri.EscapeDataString(agentId)}" : "";
+                using var resp  = await httpClient.GetWithRetryAsync($"{Url}/api/sessions/{sessionId}/last-line{query}", time);
 
-                if (resp.IsSuccessStatusCode && resp.StatusCode != System.Net.HttpStatusCode.NoContent) {
-                    var json = await resp.Content.ReadAsStringAsync();
-                    var doc  = JsonDocument.Parse(json);
-
-                    startLine = (int?)doc.RootElement.Num("last_line_number") + 1
-                     ?? WatchCommand.CountFileLines(transcriptPath);
-                } else {
-                    startLine = WatchCommand.CountFileLines(transcriptPath);
+                switch (resp.StatusCode) {
+                    case System.Net.HttpStatusCode.NoContent or System.Net.HttpStatusCode.NotFound:
+                        startLine = 0;
+                        break;
+                    case System.Net.HttpStatusCode.Gone:
+                        startLine = WatchCommand.CountFileLines(transcriptPath);
+                        break;
+                    case System.Net.HttpStatusCode.OK
+                        when JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement.Num("last_line_number") is { } last:
+                        startLine = (int)last + 1;
+                        break;
+                    default:
+                        await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: the server's position is unknown (HTTP {(int)resp.StatusCode})");
+                        PrintRecoveryHint(sessionId);
+                        startLine = WatchCommand.CountFileLines(transcriptPath);
+                        break;
                 }
-            } catch {
+            } catch (Exception ex) {
+                await Console.Error.WriteLineAsync($"Inline drain for {sessionId}: the server's position is unknown ({ex.Message})");
+                PrintRecoveryHint(sessionId);
                 startLine = WatchCommand.CountFileLines(transcriptPath);
             }
 

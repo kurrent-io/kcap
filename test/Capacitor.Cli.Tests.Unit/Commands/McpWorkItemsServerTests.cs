@@ -253,7 +253,7 @@ public class McpWorkItemsServerTests {
 
     [Test]
     public async Task A_non_object_body_passes_through_unchanged() {
-        const string arrayBody = """[1,2,3]""";
+        const string arrayBody = "[1,2,3]";
 
         await Assert.That(McpWorkItemsServer.FormatDeclareLooseEndResult(arrayBody)).IsEqualTo(arrayBody);
     }

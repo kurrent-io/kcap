@@ -5,16 +5,17 @@ using Markdig.Parsers.Inlines;
 using Markdig.Renderers;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
+using Capacitor.App.ProgressiveDisclosure;
 using MarkView.Avalonia;
 
 namespace Capacitor.App.GitHubHtml;
 
-/// Chat markdown is MarkView's supported set, with links hoisted out of emphasis. A bare builder
-/// is CommonMark and drops the tables and autolinks chat already renders. MarkView only activates
+/// Chat markdown is MarkView's supported set, with links hoisted out of emphasis and progressive-disclosure marks
+/// applied under the reader's basis. A bare builder is CommonMark and drops the tables and autolinks chat already renders. MarkView only activates
 /// a hyperlink that is a direct inline of its text block.
 public static class ChatPipeline {
     public static MarkdownPipeline Instance { get; } =
-        new MarkdownPipelineBuilder().UseSupportedExtensions().Use(new Hoist()).Build();
+        new MarkdownPipelineBuilder().UseSupportedExtensions().Use(new Hoist()).Use(new ProgressiveDisclosureMarks()).Build();
 
     /// What a person typed, shown as they typed it: emphasis, strikethrough, code, bullet lists,
     /// quotes and bare URLs render, and no other markdown rule applies. A backslash is never an escape —

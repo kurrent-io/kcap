@@ -19,10 +19,6 @@ public abstract class PendingCardViewModel : ReactiveObject, IDisposable {
     protected readonly BehaviorSubject<bool> Busy = new(false);
 #pragma warning restore CA1051
     readonly BehaviorSubject<bool> _answerable = new(true);
-    bool _isBusy;
-    string? _errorText;
-    bool _canAnswer = true;
-    string? _waitingOn;
 
     /// The cache key: lane-scoped, so two lanes' ids can never collide in a card list.
     public string Key { get; }
@@ -31,49 +27,48 @@ public abstract class PendingCardViewModel : ReactiveObject, IDisposable {
     protected bool IsDisposed { get; private set; }
 
     public bool IsBusy {
-        get => _isBusy;
+        get;
         protected set {
             if (IsDisposed) return;
-            this.RaiseAndSetIfChanged(ref _isBusy, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             Busy.OnNext(value);
         }
     }
 
     public string? ErrorText {
-        get => _errorText;
+        get;
         protected set {
             if (IsDisposed) return;
-            this.RaiseAndSetIfChanged(ref _errorText, value);
+            this.RaiseAndSetIfChanged(ref field, value);
         }
     }
 
     /// False for a viewer the server has not given the right to answer this kind of prompt: the card shows read-only.
     public bool CanAnswer {
-        get => _canAnswer;
+        get;
         private set {
             if (IsDisposed) return;
-            this.RaiseAndSetIfChanged(ref _canAnswer, value);
+            this.RaiseAndSetIfChanged(ref field, value);
         }
-    }
+    } = true;
 
     /// Who a read-only card is waiting for; null while the viewer can answer it.
     public string? WaitingOn {
-        get => _waitingOn;
+        get;
         private set {
             if (IsDisposed) return;
-            this.RaiseAndSetIfChanged(ref _waitingOn, value);
+            this.RaiseAndSetIfChanged(ref field, value);
         }
     }
 
-    bool _offersAnswers = true;
     /// False where nobody here can answer: the card says where it waits and shows no answer controls.
     public bool OffersAnswers {
-        get => _offersAnswers;
+        get;
         private set {
             if (IsDisposed) return;
-            this.RaiseAndSetIfChanged(ref _offersAnswers, value);
+            this.RaiseAndSetIfChanged(ref field, value);
         }
-    }
+    } = true;
 
     /// Every answering command's canExecute: not in flight, and the viewer may answer.
     protected IObservable<bool> Ready { get; }

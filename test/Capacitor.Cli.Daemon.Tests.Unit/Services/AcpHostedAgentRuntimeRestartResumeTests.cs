@@ -46,7 +46,7 @@ public class AcpHostedAgentRuntimeRestartResumeTests {
         Task _drain    = Task.CompletedTask;
 
         public FakeAcpAgent            Fake    { get; } = new();
-        public CancellationTokenSource Cts     { get; } = new();
+        CancellationTokenSource Cts     { get; } = new();
         public AcpHostedAgentRuntime   Runtime { get; }
 
         public Harness() =>

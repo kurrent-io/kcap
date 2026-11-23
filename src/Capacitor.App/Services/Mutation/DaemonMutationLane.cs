@@ -526,7 +526,7 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
     // Mirrors DaemonLifecycleController.Reconcile's two orphan-unit predicates plus the stale-marker
     // check — pure signals from ONE ServiceStatusAsync read, independent of any evidence.
     static string? OwnershipRepairLeg(ServiceSnapshot ownership) {
-        if (ownership.TxnMarker && !ownership.TxnActive) return "stale_txn_marker";
+        if (ownership is { TxnMarker: true, TxnActive: false }) return "stale_txn_marker";
 
         var state = ServiceStateClassifier.Parse(ownership.State);
         if (state == ServiceState.Running && ownership.DaemonPid is null) return "running_without_daemon_pid";

@@ -17,14 +17,13 @@ public sealed class HarnessPreflight : ReactiveObject {
         $"VS Code once first. You can also continue now and connect one later in {SetupLocation.HarnessesSettings}.";
 
     readonly Func<CancellationToken, Task<IReadOnlyDictionary<HarnessId, DetectedAgent>>> _detect;
-    HarnessPreflightState _state;
 
     public HarnessPreflight(Func<CancellationToken, Task<IReadOnlyDictionary<HarnessId, DetectedAgent>>> detect) =>
         _detect = detect;
 
     public HarnessPreflightState State {
-        get => _state;
-        private set => this.RaiseAndSetIfChanged(ref _state, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public void ContinueWithoutHarness() => State = HarnessPreflightState.Passed;

@@ -40,12 +40,6 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
     bool _detected;
     bool _installed;
-    bool _busy;
-    bool _satisfied;
-    string? _visibility;
-    bool _useProviderApiKey;
-    string? _providerKeyNotice;
-    string? _message;
     Task? _inFlight;
 
     public HarnessesStepViewModel(
@@ -140,9 +134,9 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
     public IReadOnlyList<VisibilityOption> VisibilityOptions { get; private set; } = AllVisibilityOptions;
 
     public string? Visibility {
-        get => _visibility;
+        get;
         set {
-            this.RaiseAndSetIfChanged(ref _visibility, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(CanContinue));
             this.RaisePropertyChanged(nameof(CanSkip));
             if (HasVisibilityChoice && Message == PrivacyRequiredMessage) Message = null;
@@ -171,19 +165,19 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
     /// Set when the terminal exports a provider key a recording harness would otherwise have kcap scrub.
     public string? ProviderKeyNotice {
-        get => _providerKeyNotice;
-        private set => this.RaiseAndSetIfChanged(ref _providerKeyNotice, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool UseProviderApiKey {
-        get => _useProviderApiKey;
-        set => this.RaiseAndSetIfChanged(ref _useProviderApiKey, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Busy {
-        get => _busy;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _busy, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Idle));
             this.RaisePropertyChanged(nameof(ChoicesEditable));
             this.RaisePropertyChanged(nameof(CanContinue));
@@ -199,19 +193,19 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
     public bool CanSkip => CanContinue;
 
     public bool Satisfied {
-        get => _satisfied;
-        private set => this.RaiseAndSetIfChanged(ref _satisfied, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Why the page did not move on: a missing CLI, or a profile that could not be saved.
     public string? Message {
-        get => _message;
-        private set => this.RaiseAndSetIfChanged(ref _message, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public int SelectedCount => Rows.Count(r => r.Selected);
 
-    public IReadOnlyList<HarnessId> Recording => [.. Rows.Where(r => r.Record && r.Succeeded).Select(r => r.Id)];
+    public IReadOnlyList<HarnessId> Recording => [.. Rows.Where(r => r is { Record: true, Succeeded: true }).Select(r => r.Id)];
 
     public string? NextLabel =>
         _installed ? "Continue"
@@ -266,7 +260,7 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
             var missing = AgentVendors.All.Where(v => !detected.ContainsKey(v.Id)).Select(v => v.Label).ToList();
             NotFoundLine = missing.Count == 0 ? null : "Not found: " + string.Join(", ", missing);
-            SettingsOnlyNote = SettingsOnlyNoteFor([.. Rows.Where(r => r.SettingsOnly && !r.Declined).Select(r => r.Label)]);
+            SettingsOnlyNote = SettingsOnlyNoteFor([.. Rows.Where(r => r is { SettingsOnly: true, Declined: false }).Select(r => r.Label)]);
             _detected = true;
 
             this.RaisePropertyChanged(nameof(Rows));
@@ -402,7 +396,7 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
         try {
             var result = await _cli.PluginInstallAsync(row.Flag, _shutdownToken, row.InstallOptions).ConfigureAwait(true);
-            if (result.ExitCode == 0 && !result.TimedOut) {
+            if (result is { ExitCode: 0, TimedOut: false }) {
                 row.Status = AgentInstallStatus.Succeeded;
             } else {
                 row.Status = AgentInstallStatus.Failed;

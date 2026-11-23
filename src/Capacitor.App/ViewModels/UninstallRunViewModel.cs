@@ -17,7 +17,6 @@ public sealed class UninstallRunViewModel : ReactiveObject {
     readonly Action<Action> _post;
     readonly Func<Task>?    _prepare;
     bool                   _prepared;
-    bool                   _detailsExpanded;
     UninstallRunState      _state = UninstallRunState.Running;
 
     public UninstallRunViewModel(IKcapCli cli, IAppRemoval removal, bool purgeLocal, Action quit, Action<Action>? post = null,
@@ -59,9 +58,9 @@ public sealed class UninstallRunViewModel : ReactiveObject {
     public string CloseButtonText => IsFinished ? "Done" : "Close";
 
     public bool DetailsExpanded {
-        get => _detailsExpanded;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _detailsExpanded, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(DetailsLabel));
         }
     }

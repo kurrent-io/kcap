@@ -14,7 +14,6 @@ public sealed class AcpQuestionCardViewModel : PendingCardViewModel {
     readonly IPermissionService _permissions;
     readonly CancellationTokenSource _lifetime = new();
     readonly BehaviorSubject<bool> _answered = new(false);
-    string _freeText = "";
 
     public string Prompt { get; }
     public IReadOnlyList<AcpOptionViewModel> Options { get; }
@@ -26,13 +25,13 @@ public sealed class AcpQuestionCardViewModel : PendingCardViewModel {
     public ReactiveCommand<Unit, Unit> SubmitCommand { get; }
 
     public string FreeText {
-        get => _freeText;
+        get;
         set {
             if (IsDisposed) return;
-            this.RaiseAndSetIfChanged(ref _freeText, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             Refresh();
         }
-    }
+    } = "";
 
     public bool IsAnswered {
         get {

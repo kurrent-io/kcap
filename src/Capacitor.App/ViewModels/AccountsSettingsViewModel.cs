@@ -25,22 +25,13 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
     AccountsSnapshotDto? _snapshot;
     bool _supported;
     bool _lacksCapability;
-    bool _canManage;
-    IReadOnlyList<AccountVendorGroup> _groups = [];
-    IReadOnlyList<AccountCandidate> _candidates = [];
     AccountsNotice? _notice;
     string? _noticeVendor;
-    bool _isBusy;
-    AccountSettingsRow? _renaming;
-    string _renameDraft = "";
     int _candidateReads;
     readonly Dictionary<string, AccountUsageSlot> _slots = new(StringComparer.Ordinal);
     readonly AccountUsageSlot _defaultSlot = new();
     readonly TimeZoneInfo _zone = TimeZoneInfo.Local;
     DateTimeOffset? _now;
-    AccountSummaryCard _readyCard = new("0 of 0", null, false);
-    AccountSummaryCard _nextResetCard = new("—", null, false);
-    AccountSummaryCard _needsFixCard = new("0", null, false);
 
     public AccountsSettingsViewModel(
             IAccountsService accounts, Func<MutationRequest, CancellationToken, Task<MutationOutcome>> runMutation,
@@ -91,31 +82,31 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
     }
 
     public IReadOnlyList<AccountVendorGroup> Groups {
-        get => _groups;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _groups, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(UnplacedNotice));
         }
-    }
+    } = [];
 
     public AccountSummaryCard ReadyCard {
-        get => _readyCard;
-        private set => this.RaiseAndSetIfChanged(ref _readyCard, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = new("0 of 0", null, false);
 
     public AccountSummaryCard NextResetCard {
-        get => _nextResetCard;
-        private set => this.RaiseAndSetIfChanged(ref _nextResetCard, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = new("—", null, false);
 
     public AccountSummaryCard NeedsFixCard {
-        get => _needsFixCard;
-        private set => this.RaiseAndSetIfChanged(ref _needsFixCard, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = new("0", null, false);
 
     public bool CanManage {
-        get => _canManage;
-        private set => this.RaiseAndSetIfChanged(ref _canManage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? ReadOnlyNotice =>
@@ -143,24 +134,24 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
         [.. groups.Select(g => g with { Notice = g.Vendor == _noticeVendor ? _notice : null })];
 
     public bool IsBusy {
-        get => _isBusy;
-        private set => this.RaiseAndSetIfChanged(ref _isBusy, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public IReadOnlyList<AccountCandidate> Candidates {
-        get => _candidates;
-        private set => this.RaiseAndSetIfChanged(ref _candidates, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = [];
 
     public AccountSettingsRow? Renaming {
-        get => _renaming;
-        private set => this.RaiseAndSetIfChanged(ref _renaming, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string RenameDraft {
-        get => _renameDraft;
-        set => this.RaiseAndSetIfChanged(ref _renameDraft, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     public ReactiveCommand<AccountCandidate, Unit> AddCandidateCommand { get; }
     public ReactiveCommand<string, Unit> AddFromPickerCommand { get; }

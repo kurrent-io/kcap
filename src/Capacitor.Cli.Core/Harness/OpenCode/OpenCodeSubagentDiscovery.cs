@@ -47,16 +47,26 @@ public static class OpenCodeSubagentDiscovery {
     /// </summary>
     public static string ResolveAgentType(string childFile) {
         try {
-            foreach (var line in File.ReadLines(childFile)) {
-                if (string.IsNullOrWhiteSpace(line)) continue;
+            return FirstAgent(File.ReadLines(childFile)) ?? "subagent";
+        } catch {
+            return "subagent";
+        }
+    }
 
-                using var doc = JsonDocument.Parse(line);
-                if (doc.RootElement.Obj("info") is { } info && info.Str("agent") is { Length: > 0 } agent)
-                    return agent;
-            }
-        } catch { /* best effort */ }
+    /// <summary>The agent the first message that names one ran as: a v1 message's <c>info.agent</c>, or a v2 message's
+    /// own <c>agent</c>. A line that is not JSON is passed over.</summary>
+    public static string? FirstAgent(IEnumerable<string> lines) {
+        foreach (var line in lines) {
+            if (string.IsNullOrWhiteSpace(line)) continue;
 
-        return "subagent";
+            try {
+                using var doc  = JsonDocument.Parse(line);
+                var       root = doc.RootElement;
+                if ((root.Obj("info") ?? root).Str("agent") is { Length: > 0 } agent) return agent;
+            } catch (JsonException) { }
+        }
+
+        return null;
     }
 
     /// <summary>

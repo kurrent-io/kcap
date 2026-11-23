@@ -1611,7 +1611,7 @@ sealed class SetupCommand(
             // No standard handle is a console; CONOUT$ may still be one.
         }
 
-        return OperatingSystem.IsWindows() && WindowsConsoleWidth.Measure() is int width and > 1 ? width : null;
+        return OperatingSystem.IsWindows() && WindowsConsoleWidth.Measure() is { } width and > 1 ? width : null;
     }
 
     /// <summary>The closing "Next steps" box: a question per item, its answer indented beneath.</summary>
@@ -1936,7 +1936,7 @@ sealed class SetupCommand(
 
         // Discovery only earns its scan when the decision below would otherwise prompt: a skip or an
         // unattended --no-prompt run has no use for figures nobody sees.
-        if (inputs.AuthSatisfied && !inputs.SkipImport && !inputs.NoPrompt) {
+        if (inputs is { AuthSatisfied: true, SkipImport: false, NoPrompt: false }) {
             var discovery = await imports.DiscoverAsync(inputs.Profiles);
 
             if (discovery.Fault is { } fault) {

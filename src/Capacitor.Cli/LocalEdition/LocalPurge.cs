@@ -83,7 +83,7 @@ static class LocalPurge {
         switch (lease.ReadRegistry()) {
             case StateRead<InstallRegistry>.Present(var registry) when registry.Active?.Id == details.InstallationId:
                 return registry.RetireActive();
-            case StateRead<InstallRegistry>.Present(var registry) when registry.Active is null && registry.Retired.Any(r => r.Id == details.InstallationId):
+            case StateRead<InstallRegistry>.Present({ Active: null } registry) when registry.Retired.Any(r => r.Id == details.InstallationId):
                 return registry;
             case StateRead<InstallRegistry>.Unreadable(var path, var reason):
                 throw new LocalLifecycleException($"The installation registry {path} cannot be read ({reason}). Nothing was removed; fix it, then run kcap local uninstall --purge again.");

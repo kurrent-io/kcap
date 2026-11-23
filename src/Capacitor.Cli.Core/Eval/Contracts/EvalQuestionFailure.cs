@@ -37,7 +37,7 @@ public record EvalQuestionFailure {
               : null,
             EvalFailureCodes.ChatError =>
                 MaxIterations is not null || TurnsFetched is not null || TurnsTotal is not null ? "chat_error must not carry iteration fields"
-              : HttpStatus is not null and (< 100 or > 599)                                     ? "http_status out of range"
+              : HttpStatus is < 100 or > 599                                     ? "http_status out of range"
               : null,
             EvalFailureCodes.JudgeTimeout or EvalFailureCodes.VerdictParseFailed or EvalFailureCodes.SpendBudget =>
                 MaxIterations is not null || TurnsFetched is not null || TurnsTotal is not null || HttpStatus is not null ? $"{Code} must not carry detail fields" : null,

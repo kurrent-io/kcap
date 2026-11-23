@@ -218,40 +218,15 @@ internal sealed class AgentHookPoster(
     static readonly TimeSpan DrainThrottle = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Bounded, best-effort drain of the cross-vendor lifecycle + transcript spools. Called from
-    /// <c>Program.cs</c>'s <c>case "hook":</c> (before dispatch, non-Codex) so it runs exactly once
-    /// per invocation and covers every vendor, including Claude/Cursor. Codex
-    /// still calls this itself, but from the BACKGROUND after its stdout contract. Also reused by
-    /// the daemon's own periodic sweep (<c>SpoolDrainLoop</c>) for the equivalent Core primitives —
-    /// the daemon can't reference this CLI-project method, so it composes
-    /// <see cref="LifecycleSpoolDrain.RunAsync(ConfigRoot,CursorMarkers,HttpClient,string,HookSpool,TranscriptSpool,string?,TimeSpan,TimeProvider,CancellationToken,Action{string,string}?,Func{string,string,DrainOutcome,bool}?,Func{string,string,bool}?,Capacitor.Cli.Core.Transcripts.LineCaptureDecider?,Action{string}?)"/>
-    /// directly instead.
-    ///
-    /// <para><b>Throttled.</b> Several vendors fire their lifecycle hook on
-    /// EVERY prompt (Kiro's <c>agentSpawn</c>, OpenCode's <c>session.idle</c>-driven re-fire), so an
-    /// un-throttled drain would attempt a ~1.5s network round-trip per prompt during a server outage.
-    /// A cross-vendor on-disk stamp (<c>{spoolDir}/.last-drain</c>) caps attempts to one per
-    /// <see cref="DrainThrottle"/>. An in-memory guard can't help — every hook is a fresh AOT process
-    /// — so the stamp must be on disk. The drain is global (one pass replays ALL sessions' backlog),
-    /// so a single shared stamp is the correct granularity; it also throttles the reap that piggybacks
-    /// on the same gate. This is the Kiro-side analogue of the event-type gate applied to Copilot,
-    /// whose per-turn <c>agentStop</c>/<c>notification</c> events skip this call entirely.</para>
-    ///
-    /// <para><b>Skips on auth lapse.</b> Every POST would 401 and stop the pass at its first entry,
-    /// so the budget is better left to the vendor's own hook; the backlog waits for the login.</para>
-    ///
-    /// <para><b>Fresh client (review #3 — documented deviation).</b> The brief's Step 3
-    /// suggested reusing the vendor's authenticated client, but the drain runs at the top of the
-    /// dispatcher BEFORE any lifecycle POST, and the vendors never hold a reusable client — each
-    /// <see cref="PostOrSpoolAsync(string,string,string,HookSpool,string,string)"/> builds and
-    /// disposes its own internally. Threading a client through purely for reuse would leak an
-    /// <see cref="HttpClient"/> into every code path (including those that never drain). A fresh,
-    /// budget-scoped client built and disposed here is the cleaner seam.</para>
-    ///
-    /// Never throws — a spool-drain hiccup must not disrupt the vendor's own hook.
+    /// Bounded drain of the lifecycle and transcript spools, run once per hook invocation before dispatch
+    /// (Codex calls it itself, after its stdout contract). The daemon's <c>SpoolDrainLoop</c> composes
+    /// <see cref="LifecycleSpoolDrain"/> directly. Never throws.
+    /// <para>Throttled to one attempt per <see cref="DrainThrottle"/> by an on-disk stamp
+    /// (<c>{spoolDir}/.last-drain</c>): some vendors fire their lifecycle hook on every prompt, each hook is
+    /// a fresh process, and the drain is global, so one shared stamp is the right granularity.</para>
+    /// <para>Skipped on an auth lapse, where every POST would 401.</para>
+    /// <para>Uses its own budget-scoped client, since the vendors hold no reusable one.</para>
     /// </summary>
-    /// <param name="sweepCopilotPendingEnds">False inside a Copilot hook: Copilot shares one shutdown budget across every
-    /// session it ends, and a pending end's transcript read cannot be bounded. Its detached finalizer sweeps instead.</param>
     public Task DrainSpoolsAsync(HookSpool lifecycle, TranscriptSpool transcript, string? sessionId, bool sweepCopilotPendingEnds = true)
         => DrainSpoolsCoreAsync(lifecycle, transcript, sessionId,
             http.ForHookAsync, sweepCopilotPendingEnds);

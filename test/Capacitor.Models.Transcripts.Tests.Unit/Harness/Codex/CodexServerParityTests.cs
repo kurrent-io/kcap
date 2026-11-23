@@ -18,7 +18,7 @@ public class CodexServerParityTests {
     static ProjectionResult P(string line) => P(line, Ctx());
 
     static string Env(string type, string payload, string ts = "2026-09-04T09:00:00Z") =>
-        $$$"""{"timestamp":"{{{ts}}}","type":"{{{type}}}","payload":{{{payload}}}}""";
+        $$"""{"timestamp":"{{ts}}","type":"{{type}}","payload":{{payload}}}""";
 
     static string Item(string payload, string ts = "2026-09-04T09:00:00Z") => Env("response_item", payload, ts);
 

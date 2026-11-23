@@ -88,7 +88,7 @@ public class AntigravityNdjsonTests {
             """{"event":"step_update","step_update":{"step_index":2,"state":"DONE","step_type":"agent_response","text_delta":"_OK"}}""")!);
         var done = acc.Flush(model: null);
 
-        await Assert.That(done.Any(e => e.Kind == AcpEventKind.AssistantText && e.Text == "PROBE_OK")).IsTrue();
+        await Assert.That(done.Any(e => e is { Kind: AcpEventKind.AssistantText, Text: "PROBE_OK" })).IsTrue();
     }
 
     [Test]
@@ -164,7 +164,7 @@ public class AntigravityNdjsonTests {
         acc.Add(AntigravityNdjson.TryParseLine(
             """{"event":"step_update","step_update":{"step_index":2,"state":"DONE","step_type":"agent_response","text_delta":"!"}}""")!);
         var later = acc.Flush(model: null);
-        await Assert.That(later.Any(e => e.Kind == AcpEventKind.AssistantText && e.Text == "still going!")).IsTrue();
+        await Assert.That(later.Any(e => e is { Kind: AcpEventKind.AssistantText, Text: "still going!" })).IsTrue();
     }
 
     // Verbatim fixtures captured live from agy 1.1.10: a "tool" step moves through ACTIVE (the
@@ -206,7 +206,7 @@ public class AntigravityNdjsonTests {
 
         var envelopes = acc.Flush(model: null);
 
-        await Assert.That(envelopes.Any(e => e.Kind == AcpEventKind.ToolCall && e.ToolName == "list_dir")).IsTrue();
+        await Assert.That(envelopes.Any(e => e is { Kind: AcpEventKind.ToolCall, ToolName: "list_dir" })).IsTrue();
 
         var result = envelopes.Single(e => e.Kind == AcpEventKind.ToolResult);
         await Assert.That(result.ToolCallId).IsEqualTo("6");

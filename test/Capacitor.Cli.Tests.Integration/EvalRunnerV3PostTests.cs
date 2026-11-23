@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Eval;
 using Capacitor.Cli.Core.Eval.Contracts;
@@ -55,9 +56,14 @@ public class EvalRunnerV3PostTests : IDisposable {
         await Assert.That(v2Hits.Count).IsEqualTo(0);
 
         var body = v3Hits[0].RequestMessage.Body!;
-        await Assert.That(body).Contains(@"""eval_run_id"":""run-1""");
-        await Assert.That(body).Contains(@"""prompt_version"":""1234""");
-        await Assert.That(body).Contains(@"""retrospective_prompt_version"":""1240""");
+        JsonObject expected = new() {
+            ["eval_run_id"]                  = "run-1",
+            ["retrospective_prompt_version"] = "1240",
+            ["categories"]                   = new JsonArray(new JsonObject {
+                ["questions"] = new JsonArray(new JsonObject { ["prompt_version"] = "1234" })
+            })
+        };
+        await Assert.That(WireJson.Pick(body, expected)).IsEqualTo(expected.ToJsonString());
     }
 
     sealed class RecordingObserver : IEvalObserver {

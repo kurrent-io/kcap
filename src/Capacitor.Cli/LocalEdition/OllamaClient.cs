@@ -88,7 +88,7 @@ sealed class OllamaClient(HttpClient http, Uri baseUrl, TimeProvider time) {
                 if (status?.Error is { Length: > 0 } error) throw new OllamaException(error);
                 if (status?.Status == "success") return;
 
-                if (status is { Digest: { Length: > 0 } digest, Total: long total and > 0 }) {
+                if (status is { Digest: { Length: > 0 } digest, Total: { } total and > 0 }) {
                     layers[digest] = (status.Completed ?? 0, total);
                     progress.Report((layers.Values.Sum(l => l.Received), layers.Values.Sum(l => l.Total)));
                 }

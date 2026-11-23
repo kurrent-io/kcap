@@ -72,7 +72,7 @@ public sealed class PullRequestClient(HttpClient http, string serverUrl, TimePro
             if (response.StatusCode == HttpStatusCode.NotFound) return new(PullRequestReadKind.SubjectUnavailable, AccessFailure: "invalid");
             if (!response.IsSuccessStatusCode) return new(PullRequestReadKind.Unavailable, AccessFailure: (int)response.StatusCode >= 500 ? "transient" : "invalid");
             using var document = await ReadDocumentAsync(response, linked.Token).ConfigureAwait(false);
-            if (!document.RootElement.IsObject || document.RootElement.Prop("pull_requests") is { } links && !links.IsArray)
+            if (!document.RootElement.IsObject || document.RootElement.Prop("pull_requests") is { IsArray: false })
                 return Invalid<PullRequestLinkListDto>();
             var summary = document.Deserialize(CapacitorJsonContext.Default.SessionSummaryDto);
             if (summary is null || summary.SessionId != sessionId || summary.PullRequests is null

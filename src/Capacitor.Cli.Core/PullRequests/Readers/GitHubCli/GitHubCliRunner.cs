@@ -59,7 +59,7 @@ public sealed class GitHubCliRunner(IProcessRunner runner, ILoginShellProbe? she
 
     public static bool ValidHost(string? host) => host is { Length: > 0 and <= 253 } && !host.Contains('/') && Uri.CheckHostName(host) == UriHostNameType.Dns;
     public static bool ValidOwner(string? owner) => owner is { Length: > 0 and <= 39 } && owner[0] != '-' && owner.All(c => char.IsAsciiLetterOrDigit(c) || c == '-');
-    public static bool ValidRepo(string? repo) => repo is { Length: > 0 and <= 100 } && repo is not ("." or "..")
+    public static bool ValidRepo(string? repo) => repo is { Length: > 0 and <= 100 } and not ("." or "..")
         && repo.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-');
     public static bool ValidNumber(int number) => number > 0;
     public static bool ValidBranch(string? branch) => branch is { Length: > 0 and <= 256 } && branch[0] is not ('-' or '/') && !branch.EndsWith('/')

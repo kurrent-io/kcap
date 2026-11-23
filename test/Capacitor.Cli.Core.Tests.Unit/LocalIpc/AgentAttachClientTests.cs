@@ -31,7 +31,7 @@ public class AgentAttachClientTests {
     sealed class RecordingSink {
         public readonly List<(string Context, Exception Ex)> Entries = [];
         readonly object _gate = new();
-        public int MaxConcurrent; int _current;
+        int MaxConcurrent; int _current;
         public Action<string, Exception> Callback => (c, e) => {
             var now = Interlocked.Increment(ref _current);
             MaxConcurrent = Math.Max(MaxConcurrent, now);
@@ -518,7 +518,8 @@ public class AgentAttachClientTests {
             var run = client.RunAsync(80, 24, CancellationToken.None);
             await server.AcceptAndPumpInboundAsync();
             await server.SendAttachedAsync(AgentId, []);
-            await Task.Delay(50);
+            // The client's own resize after Attached would otherwise land after the baseline and count as the rejected one.
+            await server.WaitForReceivedAsync(FrameType.Resize);
             var before = server.SnapshotReceived().Count(f => f.Type == FrameType.Resize);
 
             await client.ResizeAsync(cols, rows);

@@ -143,8 +143,11 @@ internal static class TranscriptFileClassification {
                     status = ImportCommand.ClassificationStatus.New;
 
                     break;
+                // The session exists but holds no transcript line: its watcher was stopped before its first batch, or
+                // every line it took produced no event. The ledger tells the second apart.
                 case HttpStatusCode.NoContent:
-                    status = ImportCommand.ClassificationStatus.AlreadyLoaded;
+                    resumeFromLine = ledger.ResumeFrom(baseUrl, sessionId, TranscriptImportLedger.NoLines) ?? 0;
+                    status         = ImportCommand.ClassificationStatus.Partial;
 
                     break;
                 case HttpStatusCode.Gone:

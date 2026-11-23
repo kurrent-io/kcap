@@ -82,7 +82,7 @@
             </ScrollViewer>
 
             <StackPanel Grid.Row="1" Margin="0,22,0,0" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                <Button Content="Not now" Classes="kcapChip" Command="{Binding DeclineCommand}" IsCancel="True"
+                <Button Content="Not now" Classes="kcapGhost" Command="{Binding DeclineCommand}" IsCancel="True"
                         IsVisible="{Binding ShowDeclineButton}" />
                 <Button x:Name="AcceptButton" Content="{Binding AcceptButtonText}" Command="{Binding AcceptCommand}"
                         Classes.kcapPrimary="{Binding !AcceptIsDestructive}" Classes.kcapDangerFill="{Binding AcceptIsDestructive}"

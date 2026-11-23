@@ -163,7 +163,7 @@ class WatchCommand(
             TimeSpan        noProgressElapsed,
             TimeSpan        ceiling
         ) =>
-        reResolvedPid is { } pid && pid > 1 && isAlive(pid) ? ParentDeadRecovery.ReArm
+        reResolvedPid is { } pid and > 1 && isAlive(pid) ? ParentDeadRecovery.ReArm
         : noProgressElapsed > ceiling                        ? ParentDeadRecovery.EndTerminal
         :                                                      ParentDeadRecovery.KeepWaiting;
 

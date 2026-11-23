@@ -23,7 +23,7 @@ public class DaemonClientServiceTests {
     /// before triggering the restart. PeakLiveEnumerations is updated INSIDE Run() itself (not
     /// via external polling), so a single-flight violation of any duration is caught for sure.
     sealed class Script {
-        public readonly Channel<LocalControlEvent> Events = Channel.CreateUnbounded<LocalControlEvent>();
+        readonly Channel<LocalControlEvent> Events = Channel.CreateUnbounded<LocalControlEvent>();
         public int LiveEnumerations;
         public int PeakLiveEnumerations;
         public int StartCount;

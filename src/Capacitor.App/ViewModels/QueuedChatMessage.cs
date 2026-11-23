@@ -35,12 +35,11 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     internal bool HasBaseline => _offset.HasValue;
     internal long? Baseline => _offset;
 
-    bool _isUnconfirmed;
     public bool IsUnconfirmed {
-        get => _isUnconfirmed;
+        get;
         private set {
-            if (_isUnconfirmed == value) return;
-            _isUnconfirmed = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(ShowsUnconfirmed));
             this.RaisePropertyChanged(nameof(IsAwaitingPickup));
@@ -49,22 +48,20 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     }
 
     bool? _agentIdle;
-    bool _canSendNow;
-    bool _canDiscard;
     public bool CanDiscard {
-        get => _canDiscard;
+        get;
         private set {
-            if (_canDiscard == value) return;
-            _canDiscard = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
         }
     }
     /// The agent is idle and the channel can take text, so this row can be delivered instead of waiting.
     public bool CanSendNow {
-        get => _canSendNow;
+        get;
         private set {
-            if (_canSendNow == value) return;
-            _canSendNow = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
         }
     }
@@ -110,13 +107,12 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     /// A turn cannot be tied to one send: this only withholds the pickup handling, never acknowledges.
     internal bool TurnSeen { get; set; }
 
-    bool _isNotPickedUp;
     /// The agent sat idle without echoing this row, even after a second Enter.
     public bool IsNotPickedUp {
-        get => _isNotPickedUp;
+        get;
         private set {
-            if (_isNotPickedUp == value) return;
-            _isNotPickedUp = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(PickupNote));
         }
@@ -189,6 +185,12 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
 
     internal bool MatchesText(string text) => Normalize(Text) == Normalize(text);
 
+    /// The feed line its echo landed on, once matched there.
+    internal long? EchoLine { get; set; }
+
+    /// The send that retried it, while that retry stands.
+    internal QueuedChatMessage? RetriedAs { get; set; }
+
     /// A new transcript may contain either replayed history or the lost echo. Neither is safe
     /// evidence. Retain the message, then allow only subsequent appends in this generation.
     internal void Rebase(int generation, long? offset) {
@@ -202,8 +204,14 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     /// bare text, which may be replayed history — is the only receipt an attachment send has. The
     /// trailer follows the prompt untrimmed, so whatever trailing whitespace Normalize took off the
     /// sent text still stands between the two in the echo.
-    internal bool Matches(string text, int generation, long offset) {
-        if (_generation != generation || _offset is not { } baseline || offset < baseline) return false;
+    internal bool Matches(string text, int generation, long offset) =>
+        _generation == generation && _offset is { } baseline && offset >= baseline && IsReceipt(text);
+
+    /// Whether a turn reads as this send's echo, in any form its receipt takes. Without a feed
+    /// position to check, this is only safe for a send already acknowledged.
+    internal bool MatchesEcho(string text) => MatchesText(text) || IsReceipt(text);
+
+    bool IsReceipt(string text) {
         var sent = Normalize(Text);
         var seen = Normalize(text);
         if (AttachmentIds.Count == 0) return SamePrompt(sent, seen);

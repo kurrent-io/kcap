@@ -37,24 +37,22 @@ public sealed class ActivityViewModel : ReactiveObject, IDisposable {
     readonly ObservableCollectionExtended<ActivityRow> _rowsSource = new();
     public ReadOnlyObservableCollection<ActivityRow> Rows { get; }
 
-    bool _isEmpty = true;
     public bool IsEmpty {
-        get => _isEmpty;
+        get;
         private set {
-            if (_isEmpty == value) return;
-            this.RaiseAndSetIfChanged(ref _isEmpty, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsEmpty));
             this.RaisePropertyChanged(nameof(ShowsRows));
         }
-    }
+    } = true;
 
-    bool _hasLoaded;
     /// False until the first log read applies — so the window does not flash the empty copy first.
     public bool HasLoaded {
-        get => _hasLoaded;
+        get;
         private set {
-            if (_hasLoaded == value) return;
-            this.RaiseAndSetIfChanged(ref _hasLoaded, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(IsLoading));
             this.RaisePropertyChanged(nameof(ShowsEmpty));
             this.RaisePropertyChanged(nameof(ShowsRows));

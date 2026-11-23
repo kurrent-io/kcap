@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -488,43 +487,14 @@ class ImportCommand(
     }
 
     /// <summary>
-    /// A routed-phase
-    /// <c>AlreadyLoaded</c> classification (Cursor) is included in `routed` solely so its
-    /// <c>ImportSessionAsync</c> call can re-assert lifecycle hooks and backfill the
-    /// <c>repository</c> node on an already-fully-ingested session (the C2 suppressed-repo-import
-    /// contract), or — for a correlated nested child — because its parent needs it present in
-    /// `routed` to import it inline; neither case is "new work" on its own. Because nothing past
-    /// the parent's own watermark exists, its own call still returns <see cref="ImportOutcome.Loaded"/>
-    /// or <see cref="ImportOutcome.Resumed"/> (no line 0 to distinguish "nothing sent" from "brand
-    /// new"), and a nested child's own call always short-circuits to <see cref="ImportOutcome.Skipped"/>
-    /// (its content is sent inline by the parent, not by its own call). Without this check either
-    /// success would double-count on top of the classify-time <c>AlreadyLoaded</c> bucket the same
-    /// session already contributes to (as both Loaded/Already-loaded, or as both Excluded/Already-
-    /// loaded), and a parent replay would wrongly join <c>importedSessionIds</c> so a later
-    /// <c>--private</c> pass re-privates a session this run never actually (re)imported.
-    ///
-    /// <para>
-    /// An <c>AlreadyLoaded</c> parent can still ship brand-new content by
-    /// attaching a previously-unloaded nested child — real work that must NOT be suppressed just
-    /// because the parent's OWN outcome looks like a no-op replay. <c>sentChildContent</c> is the
-    /// out-of-band signal (see <see cref="ImportSessionResult"/>) that lets this distinguish the
-    /// two: only a replay that sent no child content either is truly lifecycle-only.
-    /// </para>
-    ///
-    /// <para>
-    /// This gate is vendor-NEUTRAL: <c>sentChildContent</c> carries a real signal for Cursor,
-    /// Antigravity, and Gemini alike (Copilot/Kiro/Pi/OpenCode permanently default it
-    /// <c>false</c>, which is already correct for their no-op replay shape).
-    /// </para>
-    ///
-    /// <para>
-    /// This gate alone only decides whether a replay is suppressed — it does NOT decide which
-    /// bucket a non-suppressed call lands in for counting. See
-    /// <see cref="IsSkippedChildContentOverride"/> and <see cref="ResolveRoutedOutcomeForCounting"/>
-    /// for the central aggregation boundary that fixes the case this gate can't: a <c>Skipped</c>
-    /// <c>AlreadyLoaded</c> call (e.g. Antigravity's) that attached genuinely-new nested-child
-    /// content must count as Loaded, even though its own raw outcome is <c>Skipped</c>.
-    /// </para>
+    /// An <c>AlreadyLoaded</c> session is routed only to re-assert lifecycle hooks and backfill its
+    /// repository, or because a nested child's parent imports it inline. Its own call still reports
+    /// Loaded, Resumed or Skipped, so without this check it would be counted twice and join
+    /// <c>importedSessionIds</c>, letting a later <c>--private</c> pass re-private a session this run
+    /// never imported.
+    /// <para>A replay that attached a previously unloaded child (<c>sentChildContent</c>) did real work and
+    /// is not suppressed. Which bucket it counts in is decided by
+    /// <see cref="ResolveRoutedOutcomeForCounting"/>.</para>
     /// </summary>
     internal static bool IsLifecycleOnlyRoutedReplay(
             ClassificationStatus  status,
@@ -1982,7 +1952,10 @@ class ImportCommand(
                 Progress: new CallbackProgress(ev => {
                     if (ev is ImportWarning w) WarnSession(w.SessionId, w.Message);
                 })
-            ) { Stderr = console.Error, TranscriptLedger = routedLedger, StopAtLoss = filterSession is not null };
+            ) {
+                Stderr = console.Error, TranscriptLedger = routedLedger, StopAtLoss = filterSession is not null,
+                Canonical = new IngestCapability(httpClient, baseUrl, time),
+            };
 
             async Task<ImportSessionResult> ImportOne(SessionClassification c) {
                 if (!sourceBySession.TryGetValue((c.Vendor, c.SessionId), out var src)) {
@@ -2561,7 +2534,7 @@ class ImportCommand(
                         ? doc.RootElement.Obj("payload")?.Str("cwd")
                         : doc.RootElement.Str("cwd");
 
-                    if (cwd is { }) {
+                    if (cwd is not null) {
                         return cwd;
                     }
                 } catch (JsonException) { }
@@ -3153,11 +3126,11 @@ class ImportCommand(
                       || sessionCwds.TryGetValue(j.SessionId, out var effective) && !string.Equals(effective, j.Cwd, StringComparison.Ordinal)))
             .Select(j => j.Cwd!);
         var placedDetect = judged
-            .Where(j => judgesRepo && !j.Recorded && j.PlacedCwd is not null)
+            .Where(j => judgesRepo && j is { Recorded: false, PlacedCwd: not null })
             .Select(j => j.PlacedCwd!);
         // A recorded repository names where the session goes, but the import still excludes the checkout it ran in.
         var checkoutDetect = judged
-            .Where(j => excludesRepo && j.Recorded && j.EffectiveCwd is not null)
+            .Where(j => excludesRepo && j is { Recorded: true, EffectiveCwd: not null })
             .Select(j => j.EffectiveCwd!);
         var detect = rawDetect.Concat(placedDetect).Concat(checkoutDetect)
             .Where(Directory.Exists)
@@ -3624,27 +3597,35 @@ class ImportCommand(
             try {
                 // Fail-closed tail: a rejected/half-applied resume must NOT be finalized
                 // (posting session-end after a gap would mark the session ended with a hole).
-                var completeLines = new StrongBox<int>();
-                var linesSent = await SessionImporter.SendTranscriptBatches(
+                // Subagents first referenced past the watermark go too, or the next import
+                // reads the session as loaded and they never arrive.
+                var resumed = await SessionImporter.ImportSessionAsync(
                     httpClient,
                     baseUrl,
-                    session.SessionId,
                     session.FilePath,
-                    agentId: null,
-                    startLine: session.ResumeFromLine, time: time,
-                    progress: perSessionProgress,
-                    vendor: session.Vendor,
-                    failOnError: true,
-                    completeLines: completeLines,
-                    canonical: canonical
+                    session.SessionId,
+                    session.Meta,
+                    session.EncodedCwd,
+                    time,
+                    perSessionProgress,
+                    session.Vendor,
+                    canonical: canonical,
+                    stopAtLoss: stopAtLoss,
+                    startLine: session.ResumeFromLine,
+                    strict: true
                 );
+                var (_, _, linesSent, completeLines) = resumed;
+                if (resumed.TailDeferred || completeLines <= session.ResumeFromLine) {
+                    events.OnSessionErrored(slot, session.SessionId, "The transcript tail changed or is incomplete. Retry the import once it is stable.");
+                    return (SessionImportOutcome.Errored, linesSent);
+                }
 
                 var (_, resumeTitleCancelled) = await TryPostCodexHarnessTitleAsync(httpClient, baseUrl, session, perSessionProgress, ct);
 
                 // End-only reassertion: session-end has server-side idempotency guards,
                 // whereas the generic SessionStarted uses random ids — re-asserting start
                 // would duplicate it. So finalize a resumed session with end ONLY.
-                var resumeLastTs  = ExtractLastTimestamp(session.FilePath);
+                var resumeLastTs  = resumed.EndTimestamp;
                 var resumeEndHook = new JsonObject {
                     ["session_id"]      = session.SessionId,
                     ["transcript_path"] = session.FilePath,
@@ -3673,7 +3654,7 @@ class ImportCommand(
                     return (SessionImportOutcome.Errored, linesSent);
                 }
 
-                if (!transcriptDropped) await ledger.RecordAsync(httpClient, baseUrl, session.SessionId, completeLines.Value, ct);
+                if (!transcriptDropped) await ledger.RecordAsync(httpClient, baseUrl, session.SessionId, completeLines, ct);
 
                 return (SessionImportOutcome.Resumed, linesSent);
             } catch (HttpRequestException ex) {

@@ -26,11 +26,10 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     /// The attach's own word for no daemon answering on the socket, which Start daemon repairs.
     const string DaemonStoppedReason = "daemon_unreachable";
 
-    SessionConnectionPresentation? _connectionNotice;
     public SessionConnectionPresentation? ConnectionNotice {
-        get => _connectionNotice;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _connectionNotice, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(HasConnectionNotice));
             this.RaisePropertyChanged(nameof(ShowsStartingNotice));
             RaiseConnectionPresentation();
@@ -116,15 +115,18 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
 
     public IObservable<Unit> Ended { get; }
 
-    ChatTabViewModel? _chat;
     /// Built once, on the first dto; the reader comes from transcript_format and the input channel
     /// from has_terminal.
-    SubagentPaneViewModel? _subagent;
+    /// Whether the header offers the progressive disclosure toggle: the chat on screen, the session's
+    /// or an open subagent's, has a graded reply.
+    public bool ShowsProgressiveDisclosure => _showsProgressiveDisclosure.Value;
+    readonly ObservableAsPropertyHelper<bool> _showsProgressiveDisclosure;
+
     /// A subagent's own transcript, shown in place of the chat until the user goes back.
     public SubagentPaneViewModel? Subagent {
-        get => _subagent;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _subagent, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsChat));
             this.RaisePropertyChanged(nameof(ShowsSubagent));
             RaiseBannerNotice();
@@ -132,9 +134,9 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     }
 
     public ChatTabViewModel? Chat {
-        get => _chat;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _chat, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsChat));
             RaiseBannerNotice();
         }
@@ -145,29 +147,26 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     public WorkContextViewModel WorkContext { get; }
     public PullRequestContextViewModel? PullRequests { get; }
     public ArtefactsTabViewModel Artefacts { get; }
-    bool _showsArtefactsTab;
     public bool ShowsArtefactsTab {
-        get => _showsArtefactsTab;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _showsArtefactsTab, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsSurfaceSwitch));
         }
     }
-    bool _showsPullRequestTab;
     public bool ShowsPullRequestTab {
-        get => _showsPullRequestTab || IsPullRequestActive;
+        get => field || IsPullRequestActive;
         private set {
-            this.RaiseAndSetIfChanged(ref _showsPullRequestTab, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsSurfaceSwitch));
         }
     }
     public bool ShowsSurfaceSwitch => ShowsTerminalTab || ShowsPullRequestTab || ShowsArtefactsTab;
 
-    WorkspaceTab _activeTab = WorkspaceTab.Chat;
     public WorkspaceTab ActiveTab {
-        get => _activeTab;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _activeTab, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(IsChatActive));
             this.RaisePropertyChanged(nameof(ShowsChat));
             this.RaisePropertyChanged(nameof(ShowsSubagent));
@@ -182,7 +181,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             PullRequests?.SetReaderVisible(value == WorkspaceTab.PullRequest);
             Terminal.SurfaceShown = IsTerminalActive;
         }
-    }
+    } = WorkspaceTab.Chat;
     public bool IsChatActive => ActiveTab == WorkspaceTab.Chat;
     /// A chat surface with no view model behind it fails every visibility binding open, drawing
     /// its banners and composer as empty shells.
@@ -208,7 +207,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
 
     void PrefillComposer(string prompt) {
         if (Chat is not { } chat) return;
-        chat.ComposerText = PullRequestContextViewModel.WithFixPrompt(chat.ComposerText, prompt);
+        chat.Draft(prompt);
         // The prompt is in the session's own composer, which an open subagent pane would hide.
         CloseSubagent();
         ActiveTab = WorkspaceTab.Chat;
@@ -260,7 +259,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             HandoffOutcomeReader? handoffOutcomes = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
             ComposerPickers? pickers = null,
-            Func<bool>? inAppPages = null) {
+            Func<bool>? inAppPages = null, ChatMarks? chatMarks = null) {
         AgentId = agentId;
         _drafts = drafts;
         _opener = opener;
@@ -345,7 +344,13 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         WorkContext = new WorkContextViewModel(presence.Select(p => p.Dto), workContext, time, opener, runs, requestSignIn, signInCompleted,
             actions.OpenWorkItemInWeb, plans, planActivity, artefacts: Artefacts, serverLane: serverLane,
             canSendToAgent: () => Chat is { ShowsComposer: true, CanSendText: true },
-            sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false), layout: workContextLayout);
+            sendToAgent: text => Chat?.SendTextAsync(text) ?? Task.FromResult(false),
+            canDraftForAgent: () => Chat is { ShowsComposer: true }, draftForAgent: PrefillComposer, layout: workContextLayout);
+        _showsProgressiveDisclosure = Observable.Switch(this.WhenAnyValue(w => w.IsChatActive, w => w.Chat, w => w.Subagent,
+                (active, chat, subagent) => active ? subagent?.Chat ?? chat : null)
+            .Select(static chat => chat is null ? Observable.Return(false) : chat.WhenAnyValue(c => c.HasProgressiveDisclosureMarks)))
+            .ToProperty(this, w => w.ShowsProgressiveDisclosure)
+            .DisposeWith(_disposables);
         WorkContext.HasWorkspaceNotice = HasConnectionNotice;
         WorkContext.RunOpened += OpenSubagent;
         _disposables.Add(Disposable.Create(() => WorkContext.RunOpened -= OpenSubagent));
@@ -421,7 +426,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                 localDaemonOnAppServer ?? Observable.Return(false),
                 daemon.Snapshots.Select(s => s.Daemon.UserSubject).StartWith((string?)null),
                 subject,
-                presence.Select(p => !p.SessionEnded && p.Dto is { IsPrivate: false, SessionId.Length: > 0 }),
+                presence.Select(p => p is { SessionEnded: false, Dto: { IsPrivate: false, SessionId.Length: > 0 } }),
                 (capable, onAppServer, daemonSubject, viewer, agent) =>
                     capable && onAppServer && agent && viewer is not null && daemonSubject == viewer)
             .ObserveOn(RxSchedulers.MainThreadScheduler);
@@ -489,11 +494,12 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     senders, readings?.Local, readings?.Clock, signInCompleted,
                     handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(sessionIds
                         .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-                    openLink: Artefacts.OpenLink, findMemory: finds,
+                    openLink: Artefacts.OpenLink, findMemory: finds, chatMarks: chatMarks,
                     viewerAccess: presence.Select(p => AgentViewerAccess.Unrestricted with { AtTerminal = p.Dto?.Kind == AgentActionService.AttachedKind })
                         .DistinctUntilChanged()) {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
                     InputSending = inputSending,
+                    Reclaimer = HeapReclaimer.Shared,
                     WorkspaceNotice = ConnectionNotice,
                     Picker = pickers?.Create(presence.Select(p =>
                             p.Dto is { } dto && (CheckoutLabel.CheckoutPathFor(dto) ?? dto.RepoPath) is { Length: > 0 } checkout
@@ -503,6 +509,10 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                 };
                 Chat.Tasks.RunOpened += OpenSubagent;
                 _disposables.Add(Disposable.Create(() => Chat.Tasks.RunOpened -= OpenSubagent));
+                WorkContext.Topics = Chat.Topics;
+                WorkContext.Bookmarks = Chat.Bookmarks;
+                Chat.Topics.Revealing += ShowTopic;
+                _disposables.Add(Disposable.Create(() => Chat.Topics.Revealing -= ShowTopic));
                 if (PullRequests is { } fixHost)
                     Chat.WhenAnyValue(chat => chat.ShowsComposer).Subscribe(_ => fixHost.FixAvailabilityChanged()).DisposeWith(_disposables);
                 Chat.WhenAnyValue(chat => chat.ShowsComposer, chat => chat.CanSendText, (_, _) => Unit.Default)
@@ -545,7 +555,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
     /// the older-daemon fallbacks, for good. A resume publishes the agent with them. An interrupted row
     /// is not held back: it may stay interrupted for its whole retention, and a fallback chat beats none.
     static bool LacksRuntimeMetadata(AgentStatusDto dto) =>
-        dto.Status == "Resuming" && dto.HasTerminal is null && dto.TranscriptFormat is null;
+        dto is { Status: "Resuming", HasTerminal: null, TranscriptFormat: null };
 
     static AgentPresence Accumulate(AgentPresence state, IChangeSet<AgentStatusDto, string> changes) {
         var dto = state.Dto;
@@ -597,6 +607,11 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         dto is { Vendor: "claude", TranscriptPath: not null } && dto.TranscriptFormat != TranscriptFormats.Envelopes;
 
     void CloseSubagent() => ReplaceSubagent(null);
+
+    void ShowTopic() {
+        CloseSubagent();
+        ActiveTab = WorkspaceTab.Chat;
+    }
 
     void ReplaceSubagent(SubagentPaneViewModel? next) {
         var previous = Subagent;

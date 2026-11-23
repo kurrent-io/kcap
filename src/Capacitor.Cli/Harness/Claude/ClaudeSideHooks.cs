@@ -20,7 +20,7 @@ static class ClaudeSideHooks {
     static readonly string[] Flags = [PlanRead, TaskList, PlanEdit, ClaudeWorkspaceSpanEvent.Flag, ClaudePassNotices.Flag];
 
     /// <summary>Whether the side hook can write to stdout, which then has to be merged with the others'.</summary>
-    public static bool Writes(string flag) => flag is PlanRead or TaskList || flag == ClaudePassNotices.Flag;
+    public static bool Writes(string flag) => flag is PlanRead or TaskList or ClaudePassNotices.Flag;
 
     public static IReadOnlyList<string> Requested(IReadOnlyCollection<string> args) => [.. Flags.Where(args.Contains)];
 

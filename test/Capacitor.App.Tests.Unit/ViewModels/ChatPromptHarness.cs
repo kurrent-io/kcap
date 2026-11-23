@@ -21,6 +21,7 @@ sealed class ChatPromptHarness : IAsyncDisposable {
             new ChatPromptUploader(), _ => Feed, new RecordingOpener(), _time, new FakePermissionService(), Runs);
     }
     public async Task ReadyAsync() => await (Chat.PendingReadForTesting ?? Task.CompletedTask);
+    public void SwitchFeed(string key) => _session.OnNext(_session.Value with { FeedKey = key });
     public void SetIdle() => _session.OnNext(_session.Value with { AwaitingInput = true });
     public async Task SendAsync(string text) { Chat.ComposerText = text; await Chat.SendCommand.Execute(); }
     public async Task TickAsync() { _time.Advance(ChatTabViewModel.PollInterval); await ReadyAsync(); }

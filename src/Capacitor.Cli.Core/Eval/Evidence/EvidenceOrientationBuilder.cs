@@ -41,7 +41,7 @@ public sealed class EvidenceOrientationBuilder(EvidenceReadClient reader) {
 
         var outlined = 0;
         var unfinished = 0;
-        if (scope.Sources.FirstOrDefault(s => s.Kind == "root" && s.IsAvailable) is { } root) {
+        if (scope.Sources.FirstOrDefault(s => s is { Kind: "root", IsAvailable: true }) is { } root) {
             var outline = await reader.GetAsync("evidence-turns", [("token", scope.Token), ("source", root.SourceId), ("budget_bytes", budget)], ct);
             if (outline.Status is 404 or 409) return EvidenceOrientation.Failed(outline.Status);
             var args = "{\"source\":\"" + JsonEncodedText.Encode(root.SourceId) + "\"}";

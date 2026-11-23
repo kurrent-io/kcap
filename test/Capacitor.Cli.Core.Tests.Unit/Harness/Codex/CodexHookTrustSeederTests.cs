@@ -10,10 +10,8 @@ public class CodexHookTrustSeederTests {
     [TempHome] public required TempHome Home { get; init; }
     [TempDir]  public required TempDir  Tmp  { get; init; }
 
-    CodexPaths? _paths;
-
     // Resolved: the config writer refuses a symlinked component, and a Mac's temp root is one.
-    CodexPaths Paths => _paths ??= new CodexPaths(Home, Tmp.GetResolvedPath("codex"));
+    CodexPaths Paths => field ??= new CodexPaths(Home, Tmp.GetResolvedPath("codex"));
 
     string KcapKey    => $"{Paths.UserHooksJson}:stop:0:1";
     string ForeignKey => $"{Paths.UserHooksJson}:stop:0:0";

@@ -20,7 +20,6 @@ public partial class SettingsWindow : Window {
     /// The page header row's height in SettingsStyles, which the drag strip matches.
     internal const double UnscaledChromeHeight = 40;
 
-    UiScaleSetting? _contentScale;
     IDisposable? _contentScaleSubscription;
     double _scale = UiScale.Default;
 
@@ -56,9 +55,9 @@ public partial class SettingsWindow : Window {
 
     /// The text size the main window uses, followed live so the Appearance page previews its own change.
     public UiScaleSetting? ContentScale {
-        get => _contentScale;
+        get;
         set {
-            _contentScale = value;
+            field = value;
             _contentScaleSubscription?.Dispose();
             _contentScaleSubscription = value?.Changes
                 .ObserveOn(RxSchedulers.MainThreadScheduler)

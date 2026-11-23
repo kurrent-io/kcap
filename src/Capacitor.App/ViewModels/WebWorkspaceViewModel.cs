@@ -28,7 +28,7 @@ public sealed class WebWorkspaceViewModel : ReactiveObject, IDisposable {
         _disposables.Add(changes.Subscribe(_ => this.RaisePropertyChanged(nameof(Label))));
         OpenCommand = ReactiveCommand.CreateFromTask(OpenAsync,
             changes.Select(_ => _url is not null && !(_local?.IsStarting ?? false)
-                && !(_local is { ServerDown: true, StartOffered: false }))
+                && _local is not { ServerDown: true, StartOffered: false })
                 .ObserveOn(RxSchedulers.MainThreadScheduler));
         _disposables.Add(OpenCommand);
     }

@@ -46,8 +46,7 @@ public partial class RemoteSessionView : UserControl {
 
     void ArmTabFocus() {
         _tabFocus?.Dispose();
-        var model = DataContext as RemoteSessionViewModel;
-        _tabFocus = model is null ? null : model
+        _tabFocus = DataContext is not RemoteSessionViewModel model ? null : model
             .WhenAnyValue(vm => vm.ActiveTab, vm => vm.ShowsPanes)
             .Subscribe(pair => Dispatcher.UIThread.Post(() => {
                 if (!ReferenceEquals(model, DataContext) || !(pair.Property2 || model is { ShowsTerminalPane: true })) return;

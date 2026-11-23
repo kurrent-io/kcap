@@ -17,11 +17,6 @@ public sealed partial class HistoryImportRun : ReactiveObject {
     readonly CancellationTokenSource _cts = new();
     readonly Action<Action>          _post;
 
-    ImportRunState _state = ImportRunState.Running;
-    int            _imported;
-    int            _failed;
-    int            _passesDone;
-    int            _processed;
     int            _passImported;
     int            _passFailed;
     int            _passProcessed;
@@ -41,17 +36,16 @@ public sealed partial class HistoryImportRun : ReactiveObject {
     public string WindowCaption { get; }
 
     public ImportRunState State {
-        get => _state;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _state, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Running));
         }
-    }
+    } = ImportRunState.Running;
 
-    bool _bannerDismissed;
     public bool BannerDismissed {
-        get => _bannerDismissed;
-        private set => this.RaiseAndSetIfChanged(ref _bannerDismissed, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public void DismissBanner() => BannerDismissed = true;
@@ -59,28 +53,28 @@ public sealed partial class HistoryImportRun : ReactiveObject {
     public bool Running => State == ImportRunState.Running;
 
     public int Imported {
-        get => _imported;
-        private set => this.RaiseAndSetIfChanged(ref _imported, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public int Failed {
-        get => _failed;
-        private set => this.RaiseAndSetIfChanged(ref _failed, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public int PassesDone {
-        get => _passesDone;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _passesDone, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Progress));
         }
     }
 
     /// Sessions this run has settled so far, whatever their outcome.
     public int Processed {
-        get => _processed;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _processed, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ProcessedOfExpected));
             this.RaisePropertyChanged(nameof(Progress));
         }

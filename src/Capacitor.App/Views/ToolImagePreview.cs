@@ -25,13 +25,11 @@ public sealed class ToolImagePreview : Button {
     public static readonly DirectProperty<ToolImagePreview, bool> UnavailableProperty =
         AvaloniaProperty.RegisterDirect<ToolImagePreview, bool>(nameof(Unavailable), o => o.Unavailable);
 
-    bool _unavailable = true;
-
     /// True when there is no path, or its load produced no image; false while a load is pending.
     public bool Unavailable {
-        get => _unavailable;
-        private set => SetAndRaise(UnavailableProperty, ref _unavailable, value);
-    }
+        get;
+        private set => SetAndRaise(UnavailableProperty, ref field, value);
+    } = true;
 
     readonly Image _image = new() {
         MaxHeight = Thumb,

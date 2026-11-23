@@ -175,11 +175,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    bool _filtersOpen;
     /// Starts collapsed on every launch; never persisted.
     public bool FiltersOpen {
-        get => _filtersOpen;
-        private set => this.RaiseAndSetIfChanged(ref _filtersOpen, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public ReactiveCommand<Unit, Unit> ToggleFiltersCommand { get; }

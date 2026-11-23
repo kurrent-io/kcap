@@ -191,7 +191,7 @@ public partial class StatusIpcJsonTests {
 
         var json = JsonSerializer.Serialize(dto, StatusIpcJsonContext.Default.AgentStatusDto);
 
-        await Assert.That(json).EndsWith($$$""","branch":"main","awaiting_input":{{{value.ToString().ToLowerInvariant()}}},"transcript_format":null,"live_subagents":null,"usage_limit":null,"terminal_dialog":null,"interruption":null,"working_since":null,"account_directory":null,"account_id":null,"account_label":null,"turn_attested":null,"is_private":null,"launch_prompt_unconfirmed":null}""");
+        await Assert.That(json).EndsWith($$""","branch":"main","awaiting_input":{{value.ToString().ToLowerInvariant()}},"transcript_format":null,"live_subagents":null,"usage_limit":null,"terminal_dialog":null,"interruption":null,"working_since":null,"account_directory":null,"account_id":null,"account_label":null,"turn_attested":null,"is_private":null,"launch_prompt_unconfirmed":null}""");
     }
 
     [Test]

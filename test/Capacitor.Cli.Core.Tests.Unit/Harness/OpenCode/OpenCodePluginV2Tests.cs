@@ -45,11 +45,11 @@ public class OpenCodePluginV2Tests {
 
         await Assert.That(gate).Contains("try { info = await ctx.session.get({ sessionID: sid }) } catch {}");
         await Assert.That(gate).Contains("if (!info?.id) { v2Remember(v2.retryAt, sid, Date.now() + V2_RETRY_MS, V2_MAX_IDS); return false }");
-        await Assert.That(gate).Contains("if (info.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return false }");
+        await Assert.That(Between(gate, "if (info.parentID) {", "return false")).Contains("v2Remember(v2.children, sid, true, V2_MAX_IDS)");
         await Assert.That(gate).Contains("\"hook\", \"--opencode\", \"--event\", \"session-start\"");
         await Assert.That(gate).Contains("\"--memory-contract\", \"1\"");
         await Assert.That(gate).Contains("if (fragment.startsWith(MEMORY_MARKER) && !v2.memory.has(sid)) {");
-        await Assert.That(V2).Contains("if (type === \"session.created\" && data?.parentID) { v2Remember(v2.children, sid, true, V2_MAX_IDS); return }");
+        await Assert.That(Between(V2, "if (type === \"session.created\" && data?.parentID) {", "return")).Contains("v2Remember(v2.children, sid, true, V2_MAX_IDS)");
     }
 
     /// <summary>A session is marked started before its lifecycle post returns, so a caller must find the
@@ -102,17 +102,81 @@ public class OpenCodePluginV2Tests {
         await Assert.That(V2).Contains("if (evicted) v2.started.delete(evicted)");
     }
 
-    /// <summary>v2 transcripts are not captured yet: the session's file only ever gets title lines.</summary>
+    /// <summary>A session's title is held until the session is proven top-level, and written once it is, by the event
+    /// that brought it or by the start that proved it.</summary>
     [Test]
-    public async Task No_transcript_is_written_on_v2() {
-        await Assert.That(V2).DoesNotContain("session.messages");
-        await Assert.That(V2).DoesNotContain("writeMessages");
+    public async Task A_title_is_written_once_the_session_is_proven() {
         await Assert.That(V2).Contains("v2Remember(v2.pendingTitle, sid, { title: data.title, time: ev?.created })");
         await Assert.That(V2).Contains("await v2Wait(sid, gate)");
         await Assert.That(V2).Contains("if (!v2.started.has(sid) || v2.pendingStart.get(sid) === gate) return");
         await Assert.That(Between(V2, "async function onEvent(", "ctx.session.hook(")).DoesNotContain("await ensureStarted(");
         await Assert.That(Between(V2, "function ensureStarted(", "async function onEvent(")).Contains("flushTitle(sid)");
         await Assert.That(V2).Contains("{ type: \"session_title\", title }");
+    }
+
+    /// <summary>After each step and each turn a recorded session's context is read and every user, assistant and shell
+    /// message that settled since is appended as it was returned, the reads of one file in turn and a message marked
+    /// written only once its append succeeded.</summary>
+    [Test]
+    public async Task Each_settled_message_is_appended_after_a_step_or_a_turn() {
+        var capture = Between(V2, "async function capture(", "function enqueueCapture(");
+        var events  = Between(Content, "const V2_CAPTURE_EVENTS", "])");
+
+        await Assert.That(Content).Contains("const V2_RECORDED = new Set([\"user\", \"assistant\", \"shell\"])");
+        foreach (var type in new[] { "session.step.ended", "session.step.failed", "session.shell.ended", "session.execution.succeeded",
+                                     "session.execution.failed", "session.execution.interrupted" })
+            await Assert.That(events).Contains($"\"{type}\"");
+        await Assert.That(Between(Content, "function v2SettledAt(", "function v2Key(")).Contains(
+            "const at = m?.type === \"user\" ? m?.time?.created : m?.time?.completed");
+        await Assert.That(capture).Contains("res = await ctx.session.context({ sessionID: sid })");
+        await Assert.That(capture).Contains("pending.push({ key, line: JSON.stringify(m) })");
+        await Assert.That(capture.IndexOf("appendFileSync(target", StringComparison.Ordinal))
+            .IsLessThan(capture.IndexOf("for (const p of pending) seen.add(p.key)", StringComparison.Ordinal));
+        await Assert.That(V2).Contains("(v2.capturing.get(target) ?? Promise.resolve()).then(() => capture(sid, target))");
+        await Assert.That(V2).Contains("if (V2_CAPTURE_EVENTS.has(type)) enqueueCapture(sid, file(sid))");
+    }
+
+    /// <summary>A start that outlasts an event's wait leaves that event's capture undone, and a subagent's events find
+    /// its parent unstarted, so a successful start reads the session and its known subagents once more.</summary>
+    [Test]
+    public async Task A_successful_start_captures_what_settled_while_it_ran() {
+        var start = Between(Between(V2, "function ensureStarted(", "async function onEvent("), "flushTitle(sid)", "return true");
+
+        await Assert.That(start).Contains("enqueueCapture(sid, file(sid))");
+        await Assert.That(start).Contains("for (const [child, parent] of v2.parentOf) if (parent === sid) captureChild(child)");
+    }
+
+    /// <summary>A message that settled before the plugin loaded is history, which import reads: a resumed session, or
+    /// one copied from v1 with its v1 messages under new ids, never has its backlog appended.</summary>
+    [Test]
+    public async Task A_message_settled_before_the_plugin_loaded_is_not_appended() {
+        await Assert.That(V2).Contains("const loadedAt = Date.now()");
+        await Assert.That(Between(V2, "async function capture(", "function enqueueCapture(")).Contains(
+            "if (at === undefined || at < loadedAt) continue");
+    }
+
+    /// <summary>A message is appended again only when more of it has settled; the projection's ids come from the
+    /// message, so a repeat adds only the new parts.</summary>
+    [Test]
+    public async Task A_message_is_appended_again_only_when_more_of_it_settled() {
+        var key = Between(Content, "function v2Key(", "const V2_MAX_SESSIONS");
+
+        await Assert.That(key).Contains("if (p?.type === \"tool\" && (st === \"completed\" || st === \"error\")) settledTools++");
+        await Assert.That(key).Contains("return m.id + \":\" + content.length + \":\" + settledTools");
+    }
+
+    /// <summary>A subagent of a recorded session is appended beside its parent's file, where the watcher looks, and is
+    /// never started as a session of its own; a deeper one is not recorded, as on v1.</summary>
+    [Test]
+    public async Task A_subagents_messages_go_beside_its_parents_file() {
+        await Assert.That(V2).Contains("const childFile = (parent: string, child: string) => join(dir, parent, child + \".jsonl\")");
+        await Assert.That(Between(V2, "function captureChild(", "async function onEvent(")).Contains(
+            "if (parent && v2.started.has(parent)) enqueueCapture(sid, childFile(parent, sid))");
+        await Assert.That(V2).Contains("v2Remember(v2.parentOf, sid, String(data.parentID), V2_MAX_IDS)");
+        await Assert.That(Between(V2, "function ensureStarted(", "async function onEvent(")).Contains(
+            "v2Remember(v2.parentOf, sid, String(info.parentID), V2_MAX_IDS)");
+        await Assert.That(Between(V2, "async function onEvent(", "function flushTitle(")).Contains(
+            "if (V2_CAPTURE_EVENTS.has(type)) captureChild(sid)");
     }
 
     /// <summary>The context hook appends the index as one more system part, once per request, never for

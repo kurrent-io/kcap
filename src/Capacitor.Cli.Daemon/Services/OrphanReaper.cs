@@ -35,8 +35,6 @@ internal sealed class OrphanReaper(
     // atomic; the sweep is single-flight (only the reap thread ever writes), so the read-modify-write at
     // the enumeration-failure seam needs no wider critical section.
     readonly object _discoveryGate = new();
-    StartupDiscovery _currentDiscovery =
-        new(OperatingSystem.IsLinux() ? MarkerScanState.Pending : MarkerScanState.NotApplicable);
 
     /// <summary>The recordless-survivor env-marker-scan
     /// status, advertised on the daemon's startup-completeness signals. Seeded per-platform:
@@ -45,9 +43,9 @@ internal sealed class OrphanReaper(
     /// The Linux scan flips it to <c>Complete</c> after one clean enumeration pass or <c>Failed</c> on an
     /// enumeration error (retried next heartbeat); off Linux it stays <c>NotApplicable</c> forever.</summary>
     public StartupDiscovery CurrentDiscovery {
-        get { lock (_discoveryGate) { return _currentDiscovery; } }
-        private set { lock (_discoveryGate) { _currentDiscovery = value; } }
-    }
+        get { lock (_discoveryGate) { return field; } }
+        private set { lock (_discoveryGate) { field = value; } }
+    } = new(OperatingSystem.IsLinux() ? MarkerScanState.Pending : MarkerScanState.NotApplicable);
 
     /// <summary>The known-id prior-incarnation candidates
     /// that are BLOCKED — each keeps <c>StartupReapComplete</c> false until resolved. Three sources,

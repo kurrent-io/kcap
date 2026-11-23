@@ -226,7 +226,7 @@ internal partial class AgentOrchestrator {
         static (pid, identity) => ProcessIdentity.IsAlive(pid) && ProcessIdentity.MatchesTri(pid, identity) != false;
 
     ProcessEvidence? SurvivorOf(AgentInstance agent) =>
-        !agent.Runtime.HasExited && agent.Runtime.Pid is > 0 and var pid && agent.StartIdentity is { } identity
+        agent is { Runtime.HasExited: false, Runtime.Pid: > 0 and var pid, StartIdentity: { } identity }
      && ProcessStillOurs(pid, identity)
             ? new ProcessEvidence(pid, identity)
             : null;

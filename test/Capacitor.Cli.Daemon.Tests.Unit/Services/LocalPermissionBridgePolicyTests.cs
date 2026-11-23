@@ -33,10 +33,10 @@ public class LocalPermissionBridgePolicyTests {
     sealed class Harness : IAsyncDisposable {
         public PolicyServerConnection Server { get; } = new();
         public PermissionPromptBroker Broker { get; } = new();
-        public TempDir                Tmp    { get; } = new();
-        public HttpClient             Client { get; } = new() { Timeout = TimeSpan.FromSeconds(30) };
-        public PermissionDecisionLog  Log    { get; }
-        public LocalPermissionBridge  Bridge { get; }
+        TempDir                Tmp    { get; } = new();
+        HttpClient             Client { get; } = new() { Timeout = TimeSpan.FromSeconds(30) };
+        PermissionDecisionLog  Log    { get; }
+        LocalPermissionBridge  Bridge { get; }
 
         public Harness(
                 PolicySnapshot? snapshot, string? approvalsReviewer = null, TimeSpan? personDeadline = null, bool policyUnavailable = false) {

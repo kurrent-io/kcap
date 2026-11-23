@@ -19,7 +19,7 @@ public class GrokImportSourceTests {
     void Session(string id, string cwd, string? sessionKind = null) {
         var dir = Path.Combine(".grok", "sessions", Uri.EscapeDataString(cwd), id);
         Tmp.CreateFile(Path.Combine(dir, "updates.jsonl"), """{"timestamp":1,"method":"session/update","params":{"sessionId":"x","update":{"sessionUpdate":"user_message_chunk","content":{"type":"text","text":"hi"}},"_meta":{"eventId":"x-1","agentTimestampMs":1791900941391}}}""" + "\n");
-        var kind = sessionKind is null ? "" : $$""","session_kind":"{{sessionKind}}" """;
+        var kind = sessionKind is null ? "" : $""","session_kind":"{sessionKind}" """;
         Tmp.CreateFile(Path.Combine(dir, "summary.json"), $$"""{"info":{"id":"{{id}}","cwd":"{{cwd}}"},"created_at":"2026-10-13T14:15:41Z","updated_at":"2026-10-13T14:36:24Z"{{kind}}}""");
     }
 

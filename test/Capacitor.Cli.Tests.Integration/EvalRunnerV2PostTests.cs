@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Eval;
 using Capacitor.Cli.Core.Eval.Contracts;
@@ -77,12 +78,16 @@ public class EvalRunnerV2PostTests : IDisposable {
 
         // V2 wire shape: snake_case top-level fields, structured suggestions
         // with text + audience keys.
-        await Assert.That(body).Contains(@"""eval_run_id"":""run-1""");
-        await Assert.That(body).Contains(@"""judge_model"":""claude-sonnet-4-6""");
-        await Assert.That(body).Contains(@"""suggestions""");
-        await Assert.That(body).Contains(@"""audience""");
-        await Assert.That(body).Contains(@"""agent""");
-        await Assert.That(body).Contains(@"""human""");
+        JsonObject expected = new() {
+            ["eval_run_id"]   = "run-1",
+            ["judge_model"]   = "claude-sonnet-4-6",
+            ["retrospective"] = new JsonObject {
+                ["suggestions"] = new JsonArray(
+                    new JsonObject { ["text"] = "Run tests before commit",  ["audience"] = "agent" },
+                    new JsonObject { ["text"] = "Discuss design with team", ["audience"] = "human" })
+            }
+        };
+        await Assert.That(WireJson.Pick(body, expected)).IsEqualTo(expected.ToJsonString());
     }
 
     sealed class RecordingObserver : IEvalObserver {

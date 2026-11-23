@@ -173,6 +173,36 @@ public class AgentOrchestratorLocalAttachTests {
         await Assert.That(Directory.Exists(worktree)).IsFalse();
         // Scoped to the worktree: the cleanup owns what it was handed, not the tree above it.
         await Assert.That(Directory.Exists(tmp.Path)).IsTrue();
+        await Assert.That(server.AgentUnregisteredWorktreeRemoved["owned-1"]).IsTrue();
+    }
+
+    /// <summary>An owned worktree holding work the agent never saved stays, and the unregister says so, which is what
+    /// keeps its Resume offered.</summary>
+    [Test]
+    public async Task Owned_worktree_kept_for_its_work_is_reported_kept() {
+        using var repo = GitRepo.CreateWithCommit();
+        var path = Path.Combine(repo.Path, ".capacitor", "worktrees", "kept");
+        repo.Do("worktree", "add", "--detach", path, "HEAD");
+        File.WriteAllText(Path.Combine(path, "notes.md"), "unsaved");
+
+        var server = new CaptureServerConnection();
+        await using var orch = AgentOrchestratorHarness.BuildOrchestrator(server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
+
+        var agent = new AgentInstance(
+            "kept-1", null, "", null, path, "claude",
+            new PtyHostedAgentRuntime("claude", new StubPtyProcess(), TimeProvider.System), new WorktreeInfo(path, "", repo.Path) { OwnsBranch = false }, new CancellationTokenSource()
+        ) {
+            ActivityClock = new AgentActivityClock(TimeProvider.System),
+            CreatedAt     = DateTime.UtcNow,
+            LastOutputAt  = DateTime.UtcNow,
+            Work = WorkLocation.OwnedWorktree
+        };
+
+        orch.RegisterAgentForTest(agent);
+        await orch.CleanupAgentForTest("kept-1");
+
+        await Assert.That(Directory.Exists(path)).IsTrue();
+        await Assert.That(server.AgentUnregisteredWorktreeRemoved["kept-1"]).IsFalse();
     }
 
     [Test]
@@ -1174,7 +1204,7 @@ public class AgentOrchestratorLocalAttachTests {
         public ConcurrentBag<AgentStartTitle?> RegisteredTitles { get; } = [];
         public override Task<AgentRegisteredResponse> AgentRegisteredAsync(string agentId, string? prompt, string? model, string? effort, string? repoPath, string? sandboxPolicy = null, string? approvalPolicy = null, string? permissionPreset = null, string? runtimeTransport = null, string? vendor = null, AgentStartTitle? title = null, string? continuesAgentId = null, string? accountDirectory = null, string? accountId = null, string? accountLabel = null, string? resumedSessionId = null, bool resumeFirstAnnounce = false) { Calls.Add(nameof(AgentRegisteredAsync)); RegisteredTitles.Add(title); return Task.FromResult(AgentRegisteredResponse.Accepted); }
         public override Task AgentStatusChangedAsync(string agentId, string status, string? sessionId) { Calls.Add(nameof(AgentStatusChangedAsync)); return Task.CompletedTask; }
-        public override Task AgentUnregisteredAsync(string agentId, string? stopReason = null) { Calls.Add(nameof(AgentUnregisteredAsync)); return Task.CompletedTask; }
+        public override Task AgentUnregisteredAsync(string agentId, string? stopReason = null, bool? worktreeRemoved = null) { Calls.Add(nameof(AgentUnregisteredAsync)); return Task.CompletedTask; }
         public override Task UpdateRepoPathsAsync() { Calls.Add(nameof(UpdateRepoPathsAsync)); return Task.CompletedTask; }
         public override Task SendTerminalOutputAsync(string agentId, string base64Data, CancellationToken ct = default) { Calls.Add(nameof(SendTerminalOutputAsync)); return Task.CompletedTask; }
         public override Task AppendAgentRunEventAsync(string agentId, object evt) { Calls.Add(nameof(AppendAgentRunEventAsync)); RunEvents.Add(evt); return Task.CompletedTask; }
