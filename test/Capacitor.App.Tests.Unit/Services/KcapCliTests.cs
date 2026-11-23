@@ -207,6 +207,58 @@ public class KcapCliTests {
         await Assert.That(runner.SeenFileName).IsNull();
     }
 
+    const string SwitchHelp = "--retire ID [--retire-profile P]] [--activate]";
+
+    [Test]
+    public async Task A_same_id_switch_adds_activate_and_no_retire_flags_with_the_activation_budget() {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, SwitchHelp, "", false)) };
+
+        await MakeCli(runner).ServiceInstallVerifiedAsync(true, CancellationToken.None, activate: true);
+
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(
+            ["daemon", "service", "install", "--name", "daemon-a", "--profile", "work", "--verify", "--replace", "--activate"],
+            CollectionOrdering.Matching);
+        // The rename's own budget, plus the 30 s the CLI may wait on the outgoing profile's token lock first.
+        await Assert.That(runner.SeenOptions!.Timeout).IsEqualTo(TimeSpan.FromSeconds(180) + BootExtension);
+    }
+
+    [Test]
+    public async Task A_cross_id_switch_forwards_all_three_flags() {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, SwitchHelp, "", false)) };
+
+        await MakeCli(runner).ServiceInstallVerifiedAsync(true, CancellationToken.None, "old-name", "previous", activate: true);
+
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(
+            ["daemon", "service", "install", "--name", "daemon-a", "--profile", "work", "--verify", "--replace",
+             "--retire", "old-name", "--retire-profile", "previous", "--activate"],
+            CollectionOrdering.Matching);
+        await Assert.That(runner.SeenOptions!.Timeout).IsEqualTo(TimeSpan.FromSeconds(180) + BootExtension);
+    }
+
+    /// A CLI downgraded or repointed since the preflight is caught at dispatch: each flag the request
+    /// emits must be in that executable's own help, or nothing is installed.
+    [Test]
+    [Arguments("--retire ID [--retire-profile P]]", false)]
+    [Arguments("--retire ID [--activate]", true)]
+    public async Task A_cli_missing_a_switch_flag_at_dispatch_is_refused_without_installing(string help, bool crossId) {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, help, "", false)) };
+
+        var result = crossId
+            ? await MakeCli(runner).ServiceInstallVerifiedAsync(true, CancellationToken.None, "old-name", "previous", activate: true)
+            : await MakeCli(runner).ServiceInstallVerifiedAsync(true, CancellationToken.None, activate: true);
+
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(["daemon", "--help", "--no-update-check"], CollectionOrdering.Matching);
+        await Assert.That(result.ExitCode).IsEqualTo(VerifyExitCodes.RetireRefused);
+        await Assert.That(result.Stderr).IsEqualTo("retire_reason=cli_unsupported");
+    }
+
+    [Test]
+    public async Task Activate_without_replace_never_spawns() {
+        var runner = new FakeProcessRunner();
+        await Assert.ThrowsAsync<ArgumentException>(() => MakeCli(runner).ServiceInstallVerifiedAsync(false, CancellationToken.None, activate: true));
+        await Assert.That(runner.SeenFileName).IsNull();
+    }
+
     [Test]
     public async Task ServiceInstallVerifiedAsync_without_replace_omits_the_flag() {
         var runner = new FakeProcessRunner();

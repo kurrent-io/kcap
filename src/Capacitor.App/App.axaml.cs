@@ -1146,7 +1146,7 @@ public partial class App : Application {
                 lock (lifecycleStatus) if (ReferenceEquals(lifecycleStatus.Value, message)) lifecycleStatus.OnNext(null);
                 lock (lifecycleAttention) if (ReferenceEquals(lifecycleAttention.Value, message)) lifecycleAttention.OnNext(null);
             },
-            lane.RunAsync, profiles?.Resolution, () => lane.IsRetired(service.DaemonName), lane.CliVersionAsync, probe);
+            lane.RunAsync, profiles?.Resolution, () => lane.IsRetired(service.DaemonName) || lane.RestartRequired, lane.CliVersionAsync, probe);
         lifecycle.RestartExpected = () => expectedRestart.Expected;
         lifecycle.Start();
         _lifecycle = lifecycle;
@@ -1942,7 +1942,7 @@ public partial class App : Application {
                 lane.RunAsync, (prompt, ct) => ShowLifecyclePromptDialogAsync(_settingsWindow, prompt, ct),
                 ct => RelaunchForSettingsAsync(desktop, _time, ct), Program.Host.CanRelaunchNow, startupSettled, lane.CanRetireAsync,
                 nameOverridden: Environment.GetEnvironmentVariable("KCAP_DAEMON_NAME") is { Length: > 0 },
-                needsAppRestart: lane.IsRetired(service.DaemonName), appLifetime: _shutdown.Token,
+                needsAppRestart: lane.IsRetired(service.DaemonName) || lane.RestartRequired, appLifetime: _shutdown.Token,
                 notificationSettings: _notificationSettings, notificationAccess: _notificationAccess,
                 profiles: profilesVm, moveToWindowsService: moveToWindowsService, serviceStatus: serviceStatus,
                 harnesses: CreateHarnessesSettings(settings, service.DaemonName),

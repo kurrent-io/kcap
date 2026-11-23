@@ -39,8 +39,8 @@ internal static class AttachedIdentity {
             : (ServerIdentity.Canonicalize(first) ?? first, ServerIdentity.Canonicalize(second) ?? second);
     }
 
-    /// Only launchd and the Windows scheduler support the verified replace the app offers.
-    public static bool SupportsVerifiedReplace => OperatingSystem.IsMacOS() || OperatingSystem.IsWindows();
+    /// launchd, the Windows task and service, and systemd each support the verified replace the app offers.
+    public static bool SupportsVerifiedReplace => OperatingSystem.IsMacOS() || OperatingSystem.IsWindows() || OperatingSystem.IsLinux();
 
     public static string ManualRepair(string daemonName, string? profile) =>
         ManualRepair(daemonName, profile, OperatingSystem.IsWindows(), SupportsVerifiedReplace);

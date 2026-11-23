@@ -51,6 +51,7 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
     ActionSlot? _owned;
     readonly List<ActionSlot> _queue = [];
     readonly HashSet<string> _retiredServiceIds = new(StringComparer.Ordinal);
+    bool _restartRequired;
     TaskCompletionSource _quiescent = CompletedSignal();
     bool _disposed;
 
@@ -105,6 +106,13 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         lock (_gate) return _retiredServiceIds.Contains(DaemonStore.Sanitize(daemonName));
     }
 
+    /// Set once a profile switch reached the CLI, whatever came of it: what the selection and the daemon are now is
+    /// known only to a fresh start, so every later request is refused until the app restarts. A queued replace for
+    /// the previous profile would otherwise take over the unit the switch just installed.
+    public bool RestartRequired {
+        get { lock (_gate) return _restartRequired; }
+    }
+
     /// <summary>The version of the kcap the lane would run <paramref name="request"/> with now, or null when none
     /// resolves or it does not answer</summary>
     /// <remarks>A probe that throws reads as unknown: the replace prompts await this, and must still appear.</remarks>
@@ -122,8 +130,9 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         var path = await ResolvePathAsync(_pinnedCli(), ct).ConfigureAwait(false);
         if (path is null) return false;
         var cli = _executorFactory(request, path);
+        var flags = KcapCli.InstallFlags(request.RetireServiceId, request.RetireProfile, request.Activate);
         return KcapCliCompatibility.Satisfies(await cli.VersionAsync(ct).ConfigureAwait(false)) &&
-            await cli.SupportsServiceRetireAsync(ct).ConfigureAwait(false);
+            await cli.SupportsServiceInstallFlagsAsync(flags.Count > 0 ? flags : ["--retire"], ct).ConfigureAwait(false);
     }
 
     public async Task QuiescedAsync(CancellationToken ct) {
@@ -229,7 +238,7 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token, slot.WaiterToken);
                 outcome = await ExecuteBodyAsync(slot.Request, body, linked.Token).ConfigureAwait(false);
             } else {
-                outcome = await ExecuteActionAsync(slot.Request, _lifetime.Token).ConfigureAwait(false);
+                outcome = await ExecuteActionAsync(slot, _lifetime.Token).ConfigureAwait(false);
             }
         } catch (OperationCanceledException oce) {
             cancelled = oce;
@@ -240,6 +249,11 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         if (slot.Request.RetireServiceId is { } retired && outcome is not MutationOutcome.Failed { Reason: "cli_unsupported" }
             && !RenameRefusal.ChangedNothing(outcome)) {
             lock (_gate) _retiredServiceIds.Add(retired);
+        }
+
+        // The executor's synthetic cli_unsupported never spawned the CLI, so it leaves the selection as it was.
+        if (slot.Request.Activate && slot.Dispatched && slot.Activation != ActivationEvidence.NotActivated) {
+            lock (_gate) _restartRequired = true;
         }
 
         // Detach BEFORE resolving the outcome below: closes the window where a fresh RunAsync for
@@ -301,7 +315,8 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
     // An unexpected exception during a mutation attempt is actionable evidence, not a fabricated exception surfaced to waiters — the exception itself stays in the log line only.
     void DeliverFaulted(ActionSlot slot, Exception ex) {
         LogUnexpectedFault(slot.Request, ex);
-        var outcome = new MutationOutcome.Failed(UnexpectedExitCode, "internal_error", RecoverySurface.Attention);
+        MutationOutcome outcome = new MutationOutcome.Failed(UnexpectedExitCode, "internal_error", RecoverySurface.Attention);
+        if (slot.Request.Activate) outcome = outcome with { Activation = slot.Activation };
         if (ReachesChannel(slot)) _channel.Enqueue(new OutcomeEnvelope(slot.Request, outcome));
         slot.Completion.TrySetResult(outcome);
     }
@@ -311,13 +326,24 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
     async Task<MutationOutcome> ExecuteBodyAsync(
             MutationRequest request, Func<CancellationToken, Task<MutationOutcome>> body, CancellationToken ct) {
         ct.ThrowIfCancellationRequested();
+        if (RestartRequired) return ProfileSwitchedRefusal();
         if (IsRetired(request.DaemonName))
             return new MutationOutcome.Refused("daemon_renamed_restart_app", RecoverySurface.Attention);
         return await body(ct).ConfigureAwait(false);
     }
 
-    async Task<MutationOutcome> ExecuteActionAsync(MutationRequest request, CancellationToken ct) {
+    static MutationOutcome ProfileSwitchedRefusal() => new MutationOutcome.Refused("profile_switched_restart_app", RecoverySurface.Attention);
+
+    async Task<MutationOutcome> ExecuteActionAsync(ActionSlot slot, CancellationToken ct) {
+        var outcome = await ExecuteVerbAsync(slot, ct).ConfigureAwait(false);
+        return slot.Request.Activate ? outcome with { Activation = slot.Activation } : outcome;
+    }
+
+    async Task<MutationOutcome> ExecuteVerbAsync(ActionSlot slot, CancellationToken ct) {
+        var request = slot.Request;
         ct.ThrowIfCancellationRequested(); // a disposed lane's cancelled token must stop admission before any spawn
+
+        if (RestartRequired) return ProfileSwitchedRefusal();
 
         if (IsRetired(request.DaemonName) || request.RetireServiceId is { } retired && IsRetired(retired))
             return new MutationOutcome.Refused("daemon_renamed_restart_app", RecoverySurface.Attention);
@@ -353,7 +379,10 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         // The runner starts the child before consulting ct, and an already-exited child's own wait
         // can return normally under a cancelled token — this is the last gate before a real spawn.
         ct.ThrowIfCancellationRequested();
+        slot.Dispatched = true;
+        slot.Activation = ActivationEvidence.Unknown;
         var result = await Dispatch(executor, request, attemptId, ct).ConfigureAwait(false);
+        if (request.Activate) slot.Activation = ActivationEvidenceOf(request, result);
 
         return await Classify(request, result, executor, observation, attemptId, predecessor, ct).ConfigureAwait(false);
     }
@@ -368,7 +397,7 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
     static Task<ProcessResult> Dispatch(IKcapCli executor, MutationRequest request, string? attemptId, CancellationToken ct) =>
         request.Verb switch {
             MutationVerb.Install       => executor.ServiceInstallVerifiedAsync(replace: false, ct),
-            MutationVerb.Replace       => executor.ServiceInstallVerifiedAsync(replace: true, ct, request.RetireServiceId),
+            MutationVerb.Replace       => executor.ServiceInstallVerifiedAsync(replace: true, ct, request.RetireServiceId, request.RetireProfile, request.Activate),
             MutationVerb.StartVerified => executor.ServiceStartVerifiedAsync(ct),
             MutationVerb.DetachedStart => executor.DetachedStartAsync(attemptId!, ct),
             MutationVerb.Reload        => executor.ServiceReloadAsync(ct),
@@ -446,6 +475,9 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
 
         if (result.ExitCode == VerifyExitCodes.RetireRefused)
             return new MutationOutcome.Failed(result.ExitCode, ReasonLine.TrySingle(result.Stderr, "retire_reason="), RecoverySurface.Attention);
+
+        if (result.ExitCode == VerifyExitCodes.ActivationRefused)
+            return new MutationOutcome.Failed(result.ExitCode, ReasonLine.TrySingle(result.Stderr, "activation_reason="), RecoverySurface.Attention);
 
         if (result.ExitCode == VerifyExitCodes.StartGate) {
             var token = ReasonLine.TrySingle(result.Stderr, "start_gate_reason=");
@@ -651,6 +683,10 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         if (!ServerIdentity.Matches(evidence.ServerUrl, request.CanonicalServer) || evidence.DaemonName != request.DaemonName)
             return "server_or_name_mismatch";
 
+        // A daemon too old to report its profile is judged on server and name alone.
+        if (request.Activate && evidence.Profile is { Length: > 0 } profile && !string.Equals(profile, request.Profile, StringComparison.Ordinal))
+            return "profile_mismatch";
+
         if (evidence.Pid is null || evidence.InstanceId is null) return "pre_slice_evidence";
 
         if (!evidence.IdentityConsistent) return "identity_inconsistent";
@@ -702,8 +738,22 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
 
     static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    // The executor's synthetic refusal never spawned the CLI; any other result came from a CLI that may have written.
+    static ActivationEvidence ActivationEvidenceOf(MutationRequest request, ProcessResult result) {
+        if (!result.TimedOut && result.ExitCode == VerifyExitCodes.RetireRefused && result.Stdout.Length == 0
+            && result.Stderr.Trim() == KcapCli.CliUnsupportedLine)
+            return ActivationEvidence.NotActivated;
+        foreach (var line in result.Stdout.Split('\n')) {
+            if (line.TrimEnd('\r') == $"activated={request.Profile}") return ActivationEvidence.Activated;
+        }
+        return ActivationEvidence.Unknown;
+    }
+
     sealed class ActionSlot(MutationRequest request) {
         public MutationRequest Request { get; } = request;
+        /// The request reached the executor's spawn.
+        public bool Dispatched;
+        public ActivationEvidence Activation = ActivationEvidence.NotActivated;
         public TaskCompletionSource<MutationOutcome> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int WaiterCount;
         /// Set only by RunExclusiveAsync: the action to run in place of the CLI verb, cancelled by its one waiter.

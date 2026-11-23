@@ -104,4 +104,34 @@ public class MutationRequestFactoryTests {
                 .Throws<ArgumentOutOfRangeException>();
         }
     }
+
+    [Test]
+    public async Task A_switch_request_carries_its_retired_profile_and_activation() {
+        var refusal = MutationRequestFactory.TryBuild(MutationVerb.Replace, "target", "https://kcap.example.com", "daemon-b", out var request,
+            retireServiceId: "daemon-a", retireProfile: "previous", activate: true);
+
+        await Assert.That(refusal).IsNull();
+        await Assert.That(request!.RetireServiceId).IsEqualTo("daemon-a");
+        await Assert.That(request.RetireProfile).IsEqualTo("previous");
+        await Assert.That(request.Activate).IsTrue();
+    }
+
+    [Test]
+    public async Task A_retired_profile_without_a_retired_service_is_refused() {
+        var refusal = MutationRequestFactory.TryBuild(MutationVerb.Replace, "target", "https://kcap.example.com", "daemon-b", out var request,
+            retireProfile: "previous", activate: true);
+
+        await Assert.That(refusal).IsEqualTo(new MutationOutcome.Refused("invalid_retire_target", RecoverySurface.Attention));
+        await Assert.That(request).IsNull();
+    }
+
+    [Test]
+    public async Task Activation_is_refused_on_any_verb_but_replace() {
+        foreach (var verb in new[] { MutationVerb.Install, MutationVerb.StartVerified, MutationVerb.DetachedStart, MutationVerb.Reload }) {
+            var refusal = MutationRequestFactory.TryBuild(verb, "target", "https://kcap.example.com", "daemon-b", out var request, activate: true);
+
+            await Assert.That(refusal).IsEqualTo(new MutationOutcome.Refused("invalid_activation", RecoverySurface.Attention));
+            await Assert.That(request).IsNull();
+        }
+    }
 }

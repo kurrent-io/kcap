@@ -2477,6 +2477,10 @@ sealed class FakeKcapCli : IKcapCli {
     public bool SupportsRetire = true;
     public Task<bool> SupportsServiceRetireAsync(CancellationToken ct) => Task.FromResult(SupportsRetire);
 
+    public HashSet<string> SupportedInstallFlags = ["--retire", "--retire-profile", "--activate"];
+    public Task<bool> SupportsServiceInstallFlagsAsync(IReadOnlyList<string> flags, CancellationToken ct) =>
+        Task.FromResult(SupportsRetire && flags.All(SupportedInstallFlags.Contains));
+
     public int StartVerifiedCallCount;
     public Func<CancellationToken, Task<ProcessResult>> StartVerifiedBehavior = _ => Task.FromResult(new ProcessResult(0, "", "", false));
     public Task<ProcessResult> ServiceStartVerifiedAsync(CancellationToken ct) {
@@ -2501,12 +2505,17 @@ sealed class FakeKcapCli : IKcapCli {
     public int InstallVerifiedCallCount;
     public bool? LastInstallReplace;
     public string? LastRetireServiceId;
+    public string? LastRetireProfile;
+    public bool? LastActivate;
     public Func<bool, CancellationToken, Task<ProcessResult>> InstallVerifiedBehavior =
         (_, _) => Task.FromResult(new ProcessResult(0, "", "", false));
-    public Task<ProcessResult> ServiceInstallVerifiedAsync(bool replace, CancellationToken ct, string? retireServiceId = null) {
+    public Task<ProcessResult> ServiceInstallVerifiedAsync(
+            bool replace, CancellationToken ct, string? retireServiceId = null, string? retireProfile = null, bool activate = false) {
         InstallVerifiedCallCount++;
         LastInstallReplace = replace;
         LastRetireServiceId = retireServiceId;
+        LastRetireProfile = retireProfile;
+        LastActivate = activate;
         return InstallVerifiedBehavior(replace, ct);
     }
 

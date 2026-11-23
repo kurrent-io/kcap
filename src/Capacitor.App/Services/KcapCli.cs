@@ -69,6 +69,9 @@ public interface IKcapCli {
 
     Task<bool> SupportsServiceRetireAsync(CancellationToken ct);
 
+    /// Whether <c>daemon --help</c> names every one of <paramref name="flags"/>.
+    Task<bool> SupportsServiceInstallFlagsAsync(IReadOnlyList<string> flags, CancellationToken ct);
+
     Task<ProcessResult> ServiceStartVerifiedAsync(CancellationToken ct);
 
     /// <c>daemon service refresh --name &lt;name&gt; --force</c>: reloads this daemon's launchd job to Standard, ending
@@ -80,7 +83,10 @@ public interface IKcapCli {
     /// not stop in time, left on its old binary for a later run.
     Task<ProcessResult> RepointFromAsync(string dir, CancellationToken ct);
 
-    Task<ProcessResult> ServiceInstallVerifiedAsync(bool replace, CancellationToken ct, string? retireServiceId = null);
+    /// <paramref name="activate"/> also makes this instance's profile the active one; <paramref name="retireProfile"/>
+    /// names the profile the retired unit must be pinned to.
+    Task<ProcessResult> ServiceInstallVerifiedAsync(
+        bool replace, CancellationToken ct, string? retireServiceId = null, string? retireProfile = null, bool activate = false);
 
     /// `daemon service install --system --verify`: installs or updates the machine's Windows service behind the
     /// UAC prompt, then hands this daemon to it. Bounded by the time a person may take to answer the prompt.
@@ -183,6 +189,8 @@ public sealed class KcapCli : IKcapCli {
     // acquire, then a 3s commit or abort), the old daemon's 10s end-agents wait and the retire's own 20s
     // forward budget — about 128s in all, plus the boot extension.
     static readonly TimeSpan RenameTimeout = TimeSpan.FromSeconds(150) + BootExtension;
+    // An activation first settles the outgoing profile's legacy credential, waiting up to the token lock's 30 s.
+    static readonly TimeSpan ActivateTimeout = RenameTimeout + TimeSpan.FromSeconds(30);
     static readonly TimeSpan VersionTimeout = TimeSpan.FromSeconds(10);
     // Same tier as VersionTimeout — also a read-only query — so a hung `launchctl print` can
     // never block the per-mutation gate forever once the lifecycle controller polls this.
@@ -262,12 +270,23 @@ public sealed class KcapCli : IKcapCli {
     }
 
     // Older CLIs ignore unknown install flags, so their ordinary version floor is insufficient.
-    public async Task<bool> SupportsServiceRetireAsync(CancellationToken ct) {
+    public Task<bool> SupportsServiceRetireAsync(CancellationToken ct) => SupportsServiceInstallFlagsAsync(["--retire"], ct);
+
+    public async Task<bool> SupportsServiceInstallFlagsAsync(IReadOnlyList<string> flags, CancellationToken ct) {
         if (CliPath is not { } cliPath) return false;
         var help = await Run(cliPath, ["daemon", "--help", "--no-update-check"],
             new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false), Timeout: VersionTimeout), ct).ConfigureAwait(false);
         return help is { TimedOut: false, ExitCode: 0 } &&
-            (help.Stdout.Contains("--retire", StringComparison.Ordinal) || help.Stderr.Contains("--retire", StringComparison.Ordinal));
+            flags.All(flag => help.Stdout.Contains(flag, StringComparison.Ordinal) || help.Stderr.Contains(flag, StringComparison.Ordinal));
+    }
+
+    /// The install flags a request emits beyond the base install, each of which the CLI must name.
+    internal static IReadOnlyList<string> InstallFlags(string? retireServiceId, string? retireProfile, bool activate) {
+        List<string> flags = [];
+        if (retireServiceId is not null) flags.Add("--retire");
+        if (retireProfile is not null) flags.Add("--retire-profile");
+        if (activate) flags.Add("--activate");
+        return flags;
     }
 
     public async Task<ProcessResult> ServiceStartVerifiedAsync(CancellationToken ct) {
@@ -292,23 +311,33 @@ public sealed class KcapCli : IKcapCli {
     }
 
     // The profile flag and environment overlay must agree with the identity the lane verifies.
-    public async Task<ProcessResult> ServiceInstallVerifiedAsync(bool replace, CancellationToken ct, string? retireServiceId = null) {
-        if (retireServiceId is not null && !replace)
-            throw new ArgumentException("Retiring a service requires replacement.", nameof(retireServiceId));
+    public async Task<ProcessResult> ServiceInstallVerifiedAsync(
+            bool replace, CancellationToken ct, string? retireServiceId = null, string? retireProfile = null, bool activate = false) {
+        if ((retireServiceId is not null || activate) && !replace)
+            throw new ArgumentException("Retiring a service or activating a profile requires replacement.", nameof(replace));
+        if (retireProfile is not null && retireServiceId is null)
+            throw new ArgumentException("A retired profile requires a retired service.", nameof(retireProfile));
         var mutation = MutationEnv(); // throws before any spawn if the instance carries no server
         if (CliPath is not { } cliPath) return await NoCliResult().ConfigureAwait(false);
 
-        if (retireServiceId is not null && !await SupportsServiceRetireAsync(ct).ConfigureAwait(false))
-            return new ProcessResult(VerifyExitCodes.RetireRefused, "", "retire_reason=cli_unsupported", false);
+        // Rechecked on the executable about to run, which can differ from the one the caller probed.
+        var flags = InstallFlags(retireServiceId, retireProfile, activate);
+        if (flags.Count > 0 && !await SupportsServiceInstallFlagsAsync(flags, ct).ConfigureAwait(false))
+            return new ProcessResult(VerifyExitCodes.RetireRefused, "", CliUnsupportedLine, false);
 
         List<string> args = ["daemon", "service", "install", "--name", _daemonName, "--profile", _profileName, "--verify"];
         if (replace) args.Add("--replace");
         if (retireServiceId is not null) args.AddRange(["--retire", retireServiceId]);
+        if (retireProfile is not null) args.AddRange(["--retire-profile", retireProfile]);
+        if (activate) args.Add("--activate");
 
         var env = await EnvWithTerminalPathAsync(mutation, ct).ConfigureAwait(false);
         return await Run(cliPath, args.ToArray(), new RunOptions(EnvOverlay: env,
-            Timeout: retireServiceId is null ? ServiceVerifyTimeout : RenameTimeout), ct).ConfigureAwait(false);
+            Timeout: activate ? ActivateTimeout : retireServiceId is null ? ServiceVerifyTimeout : RenameTimeout), ct).ConfigureAwait(false);
     }
+
+    /// The executor's own refusal when the CLI lacks a flag; the CLI never prints this reason itself.
+    internal const string CliUnsupportedLine = "retire_reason=cli_unsupported";
 
     public async Task<ProcessResult> ServiceInstallWindowsServiceAsync(CancellationToken ct) {
         var mutation = MutationEnv();

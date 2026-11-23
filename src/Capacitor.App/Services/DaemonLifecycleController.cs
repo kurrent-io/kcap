@@ -22,6 +22,7 @@ internal static class VerifyExitCodes {
     public const int StartGate           = 28;
     public const int StartGateDrift      = 29;
     public const int RetireRefused       = 30;
+    public const int ActivationRefused   = 31;
     public const int ElevationDeclined   = 1223; // Win32 ERROR_CANCELLED: the UAC prompt for the Windows service was declined
     public const int DigestGate          = 43; // not a VerifyExit code (DaemonCommands' own digest gate) — mapped in Token() below like every other coded exit
 
@@ -38,6 +39,7 @@ internal static class VerifyExitCodes {
         StartGate           => "verify_start_gate",
         StartGateDrift      => "verify_start_gate_drift",
         RetireRefused       => "verify_retire_refused",
+        ActivationRefused   => "verify_activation_refused",
         DigestGate          => "daemon_start_gate",
         _                   => $"verify_unknown_{exitCode}",
     };

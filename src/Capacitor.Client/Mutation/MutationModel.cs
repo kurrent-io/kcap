@@ -19,12 +19,18 @@ public static class MutationVerbExtensions {
             or MutationVerb.AccountRefresh;
 }
 
+/// <param name="RetireProfile">The profile the retired unit must be pinned to; set only with <paramref name="RetireServiceId"/>.</param>
+/// <param name="Activate">A <see cref="MutationVerb.Replace"/> that also makes <paramref name="Profile"/> the active one.</param>
 public sealed record MutationRequest(
     MutationVerb Verb, string Profile, string CanonicalServer, string DaemonName, string? RetireServiceId = null,
-    AccountArgs? Account = null, string? RepointFrom = null, string? RequestId = null);
+    AccountArgs? Account = null, string? RepointFrom = null, string? RetireProfile = null, bool Activate = false,
+    string? RequestId = null);
 
 /// The mutation lane maps every raw outcome onto exactly one case.
 public abstract record MutationOutcome {
+    /// Set on every outcome of an activating request, and on no other.
+    public ActivationEvidence? Activation { get; init; }
+
     public sealed record Succeeded : MutationOutcome;
     public sealed record SucceededAfterTimeout : MutationOutcome;
     public sealed record AttentionSkew(string Detail) : MutationOutcome;
