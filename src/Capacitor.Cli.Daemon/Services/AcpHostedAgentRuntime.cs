@@ -2582,6 +2582,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         try {
             while (!incarnation.Process.HasExited) {
                 MergeDescendants(incarnation, support.ProcessTree);
+                // Accepted gap: a wrapper killed from outside within one poll of its fork leaves the child unseen, and that child exits within seconds once its pipes close
                 await Task.Delay(TimeSpan.FromMilliseconds(50), support.TimeProvider, ct).ConfigureAwait(false);
             }
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
