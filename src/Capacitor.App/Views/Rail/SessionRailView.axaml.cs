@@ -7,12 +7,13 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
+using Capacitor.App.ViewModels.Pages;
 
 namespace Capacitor.App.Views.Rail;
 
 /// The session rail. DataContext is the window's own MainWindowViewModel, inherited — this view
 /// never builds or assigns one.
-public partial class SessionRailView : UserControl {
+public partial class SessionRailView : UserControl, IRowDropSurface {
     public SessionRailView() {
         InitializeComponent();
         KeyboardDismissible(RailHelpButton);
@@ -25,7 +26,8 @@ public partial class SessionRailView : UserControl {
             _ => [],
         });
         _ = new RowDrag(this, RailGroups, RailDragGhost, RailDragGhostSnapshot, "railRow",
-            row => row is RailSessionViewModel session && RailModel is { ShowsWorkItems: true } rail ? rail.Picked(session) : null,
+            row => row is RailSessionViewModel session && RailModel is { } rail && (rail.ShowsWorkItems || OpenWorkItem is not null)
+                ? rail.Picked(session) : null,
             OutlinedTargetAt, OnDragStarted, OnDragEnded, () => RailModel?.ClearMarks(),
             keyOf: row => row is RailSessionViewModel session ? session.Key : row, compactGhostWidth: 320, glides: false);
         AddHandler(KeyDownEvent, OnRailKeyDown, RoutingStrategies.Bubble);
@@ -39,6 +41,10 @@ public partial class SessionRailView : UserControl {
     }
 
     SessionRailViewModel? RailModel => (DataContext as MainWindowViewModel)?.Rail;
+
+    string? OpenWorkItem => ((DataContext as MainWindowViewModel)?.Page as WorkItemPageViewModel)?.WorkItemId;
+
+    static IEnumerable<string> SessionIds(IEnumerable<RailSessionViewModel> rows) => rows.Select(row => row.Row.SessionId).OfType<string>();
 
     // A transition, not an animation: an animation's value drops back to the base value for a frame when it ends.
     readonly Transitions _groupsFadeIn = [new DoubleTransition { Property = OpacityProperty, Duration = Motion.Arrive.Duration, Easing = Motion.Arrive.Easing }];
@@ -92,7 +98,7 @@ public partial class SessionRailView : UserControl {
         if (carried is not IReadOnlyList<RailSessionViewModel> { Count: > 0 } rows || RailModel is not { } rail) return;
         RailDragGhostCount.IsVisible = rows.Count > 1;
         RailDragGhostCountText.Text = rows.Count.ToString(CultureInfo.InvariantCulture);
-        RailDropOut.IsVisible = rail.DropOn(rows, null) is not null && rail.SessionGroups.Count == 0;
+        RailDropOut.IsVisible = rail.DropOn(SessionIds(rows), null) is not null && rail.SessionGroups.Count == 0;
     }
 
     void OnDragEnded() {
@@ -122,13 +128,24 @@ public partial class SessionRailView : UserControl {
         RailDropOutline.IsVisible = true;
     }
 
+    RowDropTarget? IRowDropSurface.TargetAt(object carried, Point at) => OutlinedTargetAt(carried, at);
+
+    void IRowDropSurface.DragLeft() => Outline(null);
+
+    // A session dragged from a work item's page goes only onto a work item; onto its own, it stays in its slice.
     RowDropTarget? DropTargetAt(object carried, Point at) {
-        if (RailModel is not { } rail || carried is not IReadOnlyList<RailSessionViewModel> rows) return null;
+        if (RailModel is not { } rail) return null;
         foreach (var visual in (this.InputHitTest(at) as Visual)?.GetSelfAndVisualAncestors() ?? []) {
             if (visual == RailDropOut)
-                return rail.DropOn(rows, null) is { } drop ? new(RailDropOut, drop) : null;
+                return carried is IReadOnlyList<RailSessionViewModel> dragged && rail.DropOn(SessionIds(dragged), null) is { } drop
+                    ? new(RailDropOut, drop) : null;
             if (visual is Border { DataContext: RailGroupViewModel group } zone && zone.Classes.Contains("railGroup")) {
-                var drop = rail.DropOn(rows, group.WorkItemId) ?? (rows.All(group.Sessions.Contains) ? Stay : null);
+                var drop = carried switch {
+                    IReadOnlyList<RailSessionViewModel> rows => rail.DropOn(SessionIds(rows), group.WorkItemId) ?? (rows.All(group.Sessions.Contains) ? Stay : null),
+                    WorkItemPageSession session when group.WorkItemId is { } workItem =>
+                        workItem == OpenWorkItem ? Stay : rail.DropOn([session.SessionId], workItem),
+                    _ => null,
+                };
                 return drop is null ? null : new(zone, drop);
             }
         }

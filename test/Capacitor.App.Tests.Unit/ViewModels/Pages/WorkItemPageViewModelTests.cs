@@ -370,6 +370,8 @@ public class WorkItemPageViewModelTests {
 
     /// What each drop sends: a slice onto another status's group takes that status once confirmed, a session onto
     /// another slice moves there at once, a drop where the thing already is stays, and a slice can't go onto a slice.
+    /// Sessions from elsewhere, such as the rail, come as ids: one alone drops as a session on the page would, and
+    /// several onto a slice move at once.
     [Test]
     [NotInParallel("AvaloniaSession")]
     [Arguments("slice onto another slice", "p1", "p3", "<none>")]
@@ -377,6 +379,9 @@ public class WorkItemPageViewModelTests {
     [Arguments("slice onto its own status's group", "p1", "open", "<stay>")]
     [Arguments("session onto another slice", "s1", "p3", "move s1 to p3")]
     [Arguments("session onto its own slice", "s1", "p1", "<stay>")]
+    [Arguments("sessions from elsewhere onto a slice", "outside:x9,s1", "p3", "move x9 to p3;move s1 to p3")]
+    [Arguments("sessions from elsewhere onto the slice they are in", "outside:s1", "p1", "<stay>")]
+    [Arguments("a session from elsewhere onto a status's group", "outside:x9", "in_review", "asked, add Untitled session;move x9 to p9;status p9 in_review")]
     public Task Each_drop_sends_what_it_changes(string _, string dragged, string target, string calls) =>
         AvaloniaSession.WithImmediateRxScheduler(async () => {
             var api = new FakeApi { Parts = [FakeApi.Part("p1", "open", "s1"), FakeApi.Part("p2", "open"), FakeApi.Part("p3", "in_review")] };
@@ -387,7 +392,7 @@ public class WorkItemPageViewModelTests {
                 ?? page.Groups.SelectMany(g => g.Parts).FirstOrDefault(p => p.Id == key) as object
                 ?? page.Groups.SelectMany(g => g.Parts).SelectMany(p => p.Sessions).First(s => s.SessionId == key);
 
-            var drop = page.DropOn(Find(dragged), Find(target));
+            var drop = page.DropOn(dragged.StartsWith("outside:", StringComparison.Ordinal) ? dragged["outside:".Length..].Split(',') : Find(dragged), Find(target));
             drop?.Invoke();
             var asked = page.DropPrompt is not null;
             if (asked) await page.ConfirmDropCommand.Execute();

@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Data;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -14,8 +15,9 @@ namespace Capacitor.App.Views;
 /// pixels becomes a drag, and Escape cancels it. The host captures the pointer, so the row's button never reads the drop's
 /// release as a click. A press the owner already handled starts nothing. While dragging, the dragged rows carry `lifted`,
 /// and the target under the pointer shows as `dropOver` on its zone or as the insertion line at its edge. The ghost shows a
-/// snapshot of the grabbed row, held where it was grabbed; on release it glides onto the row where what it carried landed,
-/// or back to where it came from, and fades into it. Row tooltips stay shut while dragging.
+/// snapshot of the grabbed row, held where it was grabbed, over the rest of the window; on release it glides onto the row
+/// where what it carried landed, or back to where it came from, and fades into it. Row tooltips stay shut while dragging. Off the owner's own zones, an
+/// <see cref="IRowDropSurface"/> under the pointer elsewhere in the window can take the drop.
 public sealed class RowDrag {
     public const string LiftedClass = "lifted";
     public const string DropOverClass = "dropOver";
@@ -45,8 +47,10 @@ public sealed class RowDrag {
     IPointer? _pointer;
     List<Control> _lifted = [];
     RowDropTarget? _over;
+    IRowDropSurface? _across;
     CancellationTokenSource? _settling;
     List<Control> _landing = [];
+    List<IDisposable> _raised = [];
 
     /// <param name="host">Captures the pointer while dragging; the ghost's Canvas covers it.</param>
     /// <param name="ghost">Follows the pointer while dragging, sized to the grabbed row; it and <paramref name="line"/> sit at
@@ -110,7 +114,7 @@ public sealed class RowDrag {
         }
         _ghostAt.X = at.X - _grab.X;
         _ghostAt.Y = at.Y - _grab.Y;
-        Show(_targetAt(_dragged!, at));
+        Show(TargetAt(_dragged!, at));
         e.Handled = true;
     }
 
@@ -121,8 +125,27 @@ public sealed class RowDrag {
             _pressReleased?.Invoke();
             return;
         }
-        Finish(_targetAt(_dragged, e.GetPosition(_host))?.Drop);
+        Finish(TargetAt(_dragged, e.GetPosition(_host))?.Drop);
         e.Handled = true;
+    }
+
+    RowDropTarget? TargetAt(object carried, Point at) {
+        if (_targetAt(carried, at) is { } own) {
+            Across(null);
+            return own;
+        }
+        var surface = TopLevel.GetTopLevel(_host) is { } top && _host.TranslatePoint(at, top) is { } inTop
+            ? (top.InputHitTest(inTop) as Visual)?.GetSelfAndVisualAncestors().OfType<IRowDropSurface>().FirstOrDefault()
+            : null;
+        if (ReferenceEquals(surface, _host)) surface = null;
+        Across(surface);
+        return surface is Visual view && _host.TranslatePoint(at, view) is { } inView ? surface.TargetAt(carried, inView) : null;
+    }
+
+    void Across(IRowDropSurface? surface) {
+        if (surface == _across) return;
+        _across?.DragLeft();
+        _across = surface;
     }
 
     void OnKeyDown(object? sender, KeyEventArgs e) {
@@ -140,6 +163,7 @@ public sealed class RowDrag {
         ToolTip.SetServiceEnabled(_host, false);
         Snap(row);
         _started?.Invoke(carried);
+        Raise();
         _ghost.IsVisible = true;
         _ghost.Opacity = 1;
         _ = Motion.Standard.RunAsync(_ghost, CancellationToken.None, (Visual.OpacityProperty, 0d, 1d));
@@ -173,6 +197,7 @@ public sealed class RowDrag {
         _dragged = null;
         _lifted = [];
         Show(null);
+        Across(null);
         ToolTip.SetServiceEnabled(_host, true);
         _ended?.Invoke();
         _pointer?.Capture(null);
@@ -180,7 +205,7 @@ public sealed class RowDrag {
         drop?.Invoke();
         if (!_glides) {
             foreach (var row in lifted) row.Classes.Remove(LiftedClass);
-            _ghost.IsVisible = false;
+            Hide();
             return;
         }
         _settling = new CancellationTokenSource();
@@ -209,7 +234,20 @@ public sealed class RowDrag {
         _landing = [];
         _ghost.Opacity = 0;
         await Motion.Standard.RunAsync(_ghost, token, (Visual.OpacityProperty, 1d, 0d));
-        if (!token.IsCancellationRequested) _ghost.IsVisible = false;
+        if (!token.IsCancellationRequested) Hide();
+    }
+
+    // Each level from the host up is raised over its siblings, which a ZIndex set in markup must not outrank.
+    void Raise() {
+        if (_raised.Count > 0) return;
+        foreach (var level in _host.GetSelfAndVisualAncestors().TakeWhile(level => level is not TopLevel))
+            if (level.SetValue(Visual.ZIndexProperty, int.MaxValue, BindingPriority.Animation) is { } raised) _raised.Add(raised);
+    }
+
+    void Hide() {
+        _ghost.IsVisible = false;
+        foreach (var raised in _raised) raised.Dispose();
+        _raised = [];
     }
 
     void StopSettling() {

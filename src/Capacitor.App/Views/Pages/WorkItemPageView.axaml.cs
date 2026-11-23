@@ -11,12 +11,13 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
+using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Pages;
 
 namespace Capacitor.App.Views.Pages;
 
 /// A work item's page drawn over the main area. DataContext is its WorkItemPageViewModel.
-public partial class WorkItemPageView : UserControl {
+public partial class WorkItemPageView : UserControl, IRowDropSurface {
     WorkItemPageViewModel? _page;
     Control? _outlined;
 
@@ -157,6 +158,11 @@ public partial class WorkItemPageView : UserControl {
 
     void OnFlyoutItemClick(object? sender, RoutedEventArgs e) =>
         ((sender as Control)?.FindLogicalAncestorOfType<Popup>()?.PlacementTarget as Button)?.Flyout?.Hide();
+
+    RowDropTarget? IRowDropSurface.TargetAt(object carried, Point at) => OutlinedTargetAt(
+        carried is IReadOnlyList<RailSessionViewModel> rows ? (object)rows.Select(row => row.Row.SessionId).OfType<string>().ToList() : carried, at);
+
+    void IRowDropSurface.DragLeft() => Outline(null);
 
     // The board's columns and cards mark a drop themselves.
     RowDropTarget? OutlinedTargetAt(object carried, Point at) {

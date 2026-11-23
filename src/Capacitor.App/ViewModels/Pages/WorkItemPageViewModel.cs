@@ -38,8 +38,8 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     readonly Dictionary<(string Part, string On), bool> _setWaits = [];
     List<string> _order = [];
     // Sessions the viewer just moved, by id, shown where they went until a read reports them gone from where they were.
-    // A null destination hides one until the slice it is going to appears.
-    readonly Dictionary<string, (string From, string? To)> _sessionMoves = new(StringComparer.Ordinal);
+    // A null origin is outside this work item; a null destination hides one until the slice it is going to appears.
+    readonly Dictionary<string, (string? From, string? To)> _sessionMoves = new(StringComparer.Ordinal);
     readonly Dictionary<string, string> _containerOf = new(StringComparer.Ordinal);
     // Slices added through the composer, marked as arriving the first time they are built.
     readonly HashSet<string> _arrivals = new(StringComparer.Ordinal);
@@ -226,13 +226,17 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     /// session dropped on a status becomes a new slice there, and a slice dropped on the other sessions hands them its
     /// sessions. In the graph a slice dropped on another waits on it, unless that would make a loop. Dropped where it
     /// already is, it stays, which <see cref="Stay"/> does. A drop that changes more than one session's place waits
-    /// on <see cref="DropPrompt"/>.
+    /// on <see cref="DropPrompt"/>. Sessions dragged in from elsewhere come as their ids: one alone drops as a session on
+    /// this page would, and several go into a slice or among the other sessions at once.
     public Action? DropOn(object dragged, object target) => (dragged, target) switch {
+        (IReadOnlyList<string> and [var sessionId], _) => DropOn(Outside(sessionId), target),
+        (IReadOnlyList<string> sessionIds, WorkItemPagePart part) => FileOn(sessionIds, part.Id),
+        (IReadOnlyList<string> sessionIds, WorkItemPageGroupViewModel { Key: OnWorkItemKey }) => FileOn(sessionIds, WorkItemId),
         (WorkItemPageSession session, WorkItemPagePart part) =>
-            part.Sessions.Any(s => s.SessionId == session.SessionId) ? Stay : () => _ = MoveSessionAsync(session, part.Id),
+            part.Sessions.Any(s => s.SessionId == session.SessionId) ? Stay : () => _ = MoveSessionsAsync([session.SessionId], part.Id),
         (WorkItemPageSession session, WorkItemPageGroupViewModel { Key: OnWorkItemKey } group) =>
             group.Sessions.Any(s => s.SessionId == session.SessionId) ? Stay
-                : Ask($"Move “{session.Title}” to {group.Label}?", () => _ = MoveSessionAsync(session, WorkItemId)),
+                : Ask($"Move “{session.Title}” to {group.Label}?", () => _ = MoveSessionsAsync([session.SessionId], WorkItemId)),
         (WorkItemPageSession session, WorkItemPageGroupViewModel { Status: { } status }) =>
             Ask($"Make “{session.Title}” a new slice in {status.Label()}?", () => _ = SliceFromAsync(session, status)),
         (WorkItemPagePart part, WorkItemPagePart onto) when IsGraph && part.Id != onto.Id =>
@@ -240,7 +244,8 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
                 : _waits.Reaches(onto.Id, part.Id) ? null
                 : Ask($"Make “{part.Title}” wait on “{onto.Title}”?", () => _ = SetWaitAsync(part.Id, onto.Id, true)),
         (WorkItemPagePart part, WorkItemPageGroupViewModel { Key: OnWorkItemKey } group) when part.HasSessions =>
-            Ask($"Move the sessions of “{part.Title}” to {group.Label}?", () => _ = MoveSessionsOutAsync(part)),
+            Ask($"Move the sessions of “{part.Title}” to {group.Label}?",
+                () => _ = MoveSessionsAsync([.. part.Sessions.Select(session => session.SessionId)], WorkItemId)),
         (WorkItemPagePart part, WorkItemPageGroupViewModel { Status: { } status }) =>
             status == part.Status ? Stay : Ask($"Move “{part.Title}” to {status.Label()}?", () => part.SetStatusCommand.Execute(status.Wire()).Subscribe()),
         _ => null,
@@ -258,18 +263,22 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         DropPrompt = null;
     }
 
-    // Opens the slice it lands in, so the session is seen there.
-    Task MoveSessionAsync(WorkItemPageSession session, string containerId) {
-        if (containerId != WorkItemId && !_openedParts.Contains(containerId)) _opening.Add(containerId);
-        return ShiftAsync([session.SessionId], containerId, ct => _api.MoveSessionAsync(containerId, session.SessionId, ct), "Couldn't move that session");
+    Action FileOn(IReadOnlyList<string> sessionIds, string containerId) {
+        List<string> moving = [.. sessionIds.Where(id => _containerOf.GetValueOrDefault(id) != containerId)];
+        return moving.Count == 0 ? Stay : () => _ = MoveSessionsAsync(moving, containerId);
     }
 
-    Task MoveSessionsOutAsync(WorkItemPagePart part) {
-        return ShiftAsync([.. part.Sessions.Select(session => session.SessionId)], WorkItemId, async ct => {
-            foreach (var session in part.Sessions)
-                if (!await _api.MoveSessionAsync(WorkItemId, session.SessionId, ct)) return false;
+    WorkItemPageSession Outside(string sessionId) => new(sessionId,
+        _directory.Rows.Items.FirstOrDefault(row => row.SessionId == sessionId)?.Title is { Length: > 0 } title ? title : "Untitled session", null, null);
+
+    // Opens the slice they land in, so they are seen there.
+    Task MoveSessionsAsync(IReadOnlyList<string> sessionIds, string containerId) {
+        if (containerId != WorkItemId && !_openedParts.Contains(containerId)) _opening.Add(containerId);
+        return ShiftAsync(sessionIds, containerId, async ct => {
+            foreach (var id in sessionIds)
+                if (!await _api.MoveSessionAsync(containerId, id, ct)) return false;
             return true;
-        }, "Couldn't move those sessions");
+        }, sessionIds.Count == 1 ? "Couldn't move that session" : "Couldn't move those sessions");
     }
 
     async Task SliceFromAsync(WorkItemPageSession session, WorkStatus status) {
@@ -324,7 +333,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     // Shows the sessions where they go before the change is sent, so a drop lands where it was let go; a refusal puts them back.
     async Task<bool> ShiftAsync(IReadOnlyList<string> sessionIds, string? to, Func<CancellationToken, Task<bool>> change, string failure) {
         foreach (var id in sessionIds)
-            _sessionMoves[id] = (_sessionMoves.TryGetValue(id, out var earlier) ? earlier.From : _containerOf[id], to);
+            _sessionMoves[id] = (_sessionMoves.TryGetValue(id, out var earlier) ? earlier.From : _containerOf.GetValueOrDefault(id), to);
         Rebuild();
         if (await ChangeAsync(change, failure)) return true;
         if (_disposables.IsDisposed) return false;

@@ -51,8 +51,7 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <!-- Above the content pane, so the rail's drag ghost can follow the pointer out of it. -->
-                    <rail:SessionRailView x:Name="SessionRail" Grid.Column="0" ZIndex="1" />
+                    <rail:SessionRailView x:Name="SessionRail" Grid.Column="0" />
                     <Panel x:Name="ContentPane" Grid.Column="1">
                         <!-- Hidden, never removed, under a page cover: the workspace and its watches carry on. -->
                         <Grid x:Name="LauncherPane" RowDefinitions="Auto,*" Margin="24,20,24,24">
@@ -99,7 +98,8 @@
                             </ContentControl.DataTemplates>
                         </ContentControl>
 
-                        <ContentControl x:Name="PageHost" Content="{Binding Page}"
+                        <!-- Unclipped, like the rail, so a page's drag ghost can follow the pointer out of it. -->
+                        <ContentControl x:Name="PageHost" Content="{Binding Page}" ClipToBounds="False"
                                         IsVisible="{Binding Page, Converter={x:Static ObjectConverters.IsNotNull}}">
                             <ContentControl.DataTemplates>
                                 <DataTemplate x:DataType="pages:SessionsPageViewModel">
@@ -118,7 +118,7 @@
                             <views:StillImage x:Name="SwitchCoverStill" />
                         </Border>
                     </Panel>
-                    <!-- Last child at the rail's ZIndex, so it hit-tests above both the rail and the content pane it overhangs. -->
+                    <!-- Raised, so it hit-tests above both the rail and the content pane it overhangs. -->
                     <GridSplitter x:Name="RailSplitter" Grid.Column="0" ZIndex="1" HorizontalAlignment="Right" Width="6"
                                   Margin="0,0,-3,0" Background="Transparent" ResizeDirection="Columns"
                                   DragDelta="OnRailSplitterDragDelta" DragCompleted="OnRailSplitterDragCompleted" />

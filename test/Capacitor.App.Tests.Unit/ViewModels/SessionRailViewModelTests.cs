@@ -1281,14 +1281,12 @@ public class SessionRailViewModelTests {
             using (directory) using (sessions) using (rail) {
                 List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1)), Tracked("b", "AI-2", Noon.AddHours(-2)),
                     Tracked("loose", null, Noon.AddHours(-3)));
-                IReadOnlyList<RailSessionViewModel> Row(string id) => [rail.Groups.SelectMany(g => g.Sessions).Single(s => s.Row.SessionId == id)];
+                rail.DropOn(["a"], "AI-2")!();
+                rail.DropOn(["a"], null)!();
+                rail.DropOn(["loose"], "AI-1")!();
 
-                rail.DropOn(Row("a"), "AI-2")!();
-                rail.DropOn(Row("a"), null)!();
-                rail.DropOn(Row("loose"), "AI-1")!();
-
-                await Assert.That(rail.DropOn(Row("a"), "AI-1") is null).IsTrue();
-                await Assert.That(rail.DropOn(Row("loose"), null) is null).IsTrue();
+                await Assert.That(rail.DropOn(["a"], "AI-1") is null).IsTrue();
+                await Assert.That(rail.DropOn(["loose"], null) is null).IsTrue();
                 await Assert.That(calls).IsEquivalentTo(["file AI-2 a", "unfile AI-1 a", "file AI-1 loose"],
                     TUnit.Assertions.Enums.CollectionOrdering.Matching);
             }
@@ -1366,9 +1364,7 @@ public class SessionRailViewModelTests {
             var (directory, sessions, rail) = BuildWithWorkItems((_, _) => answer.Task);
             using (directory) using (sessions) using (rail) {
                 List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1)), Tracked("loose", null, Noon.AddHours(-3)));
-                var loose = rail.Groups.SelectMany(g => g.Sessions).Single(s => s.Row.SessionId == "loose");
-
-                rail.DropOn([loose], "AI-1")!();
+                rail.DropOn(["loose"], "AI-1")!();
                 var shown = Ids(rail.Groups.Single(g => g.WorkItemId == "AI-1")).ToList();
                 var expanded = rail.Groups.Single(g => g.WorkItemId == "AI-1").IsExpanded;
                 answer.SetResult(false);

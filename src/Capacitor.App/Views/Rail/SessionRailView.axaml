@@ -797,7 +797,7 @@
             </ScrollViewer>
         </DockPanel>
     </Border>
-    <!-- The ghost follows the pointer out of the rail: the view is unclipped and raised over the content pane. -->
+    <!-- The ghost follows the pointer out of the rail, so the view is unclipped. -->
     <Canvas x:Name="RailDragLayer" IsHitTestVisible="False">
         <Border x:Name="RailDropOutline" IsVisible="False" CornerRadius="6" BorderThickness="1" BorderBrush="{StaticResource KcapInfoBrush}" />
         <Border x:Name="RailDragGhost" IsVisible="False" CornerRadius="5" BorderThickness="1"

@@ -4,7 +4,7 @@
              xmlns:views="clr-namespace:Capacitor.App.Views"
              xmlns:pages="clr-namespace:Capacitor.App.ViewModels.Pages"
              xmlns:local="clr-namespace:Capacitor.App.Views.Pages"
-             x:Class="Capacitor.App.Views.Pages.WorkItemPageView"
+             x:Class="Capacitor.App.Views.Pages.WorkItemPageView" ClipToBounds="False"
              x:DataType="pages:WorkItemPageViewModel">
     <UserControl.Styles>
         <Style Selector="TextBlock.bar">
