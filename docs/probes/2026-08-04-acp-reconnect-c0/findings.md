@@ -73,6 +73,22 @@ Two runs, the same result; the second is archived as `gemini-0.64.0-summary.json
 Gemini stays ineligible until a release carries that fix and this probe shows
 `after_response_conversation: 0` on it; enabling then needs that release as a version floor.
 
+## Re-probe: gemini 0.70.0 (2026-11-23)
+
+Same method as 0.64.0, run against a scratch install with its own `HOME`. Two runs, the same result; the
+second is archived as `gemini-0.70.0-summary.json`
+
+- After a mid-turn SIGKILL of the whole group, a fresh process's `session/load` succeeds and replays the
+  history (6 user, 3 agent, 1 thought, 1 tool call), and the post-load prompt works
+- **The barrier holds:** `after_response_conversation` is 0, the only trailer an `available_commands_update`
+- The interrupted turn replays as its user message alone (`user_only`)
+
+The fix is google-gemini/gemini-cli#30112, which awaits `streamHistory` before answering `session/load`. It
+first shipped in 0.68.0; 0.67.0 still starts the replay without awaiting it
+
+`SupportsReconnectResume` is true for Gemini, with no version floor. Known limitation: gemini-cli 0.68.0 and
+later behave correctly, while 0.64 to 0.67 write the replay into the transcript a second time on reconnect
+
 ## Probe: mistral-vibe 3.0.1 (2026-11-04)
 
 Run on Windows, where the kill is `taskkill /T /F` on the spawned `vibe-acp`; archived as
@@ -94,9 +110,9 @@ Run on Windows, where the kill is `taskkill /T /F` on the spawned `vibe-acp`; ar
    C3(a)) remains impossible; Cursor's synthetic replay tool ids close it doubly.
 2. The `session/load` response is a reliable closed-world replay barrier for both capable vendors
    (spec MUST, measured to hold; only non-conversation trailers follow).
-3. Cursor + Copilot are resume-capable across a hard child death; Kiro and Gemini are not, despite
-   both advertising `loadSession` — capability gating must be probe-verified per vendor, never
-   inferred from the advertisement.
+3. Cursor + Copilot are resume-capable across a hard child death; Kiro is not, despite advertising
+   `loadSession` — capability gating must be probe-verified per vendor, never inferred from the
+   advertisement. Gemini became capable in 0.68.0 (see its 0.70.0 re-probe above)
 4. An interrupted turn's replay shape differs by vendor (Cursor drops it; Copilot persists it) —
    consistent with the spec's rule that the interrupted-turn disposition keys on local send facts
    only, never on replay content.
