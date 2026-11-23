@@ -869,15 +869,16 @@ switch (command) {
         // (before this potentially slow resolution) so a parent exit can't truncate it.
         if (detachedImport is not null) DetachedImportLog.SignalAccepted();
 
-        await using var disableGuard = detachedImport is not null && filterSession is not null
-            ? DisabledSessionImportGuard.Start(filterSession, config, time, () => {
-                Console.Error.WriteLine($"Session {filterSession} was disabled; stopping the import.");
-                Console.Error.Flush();
-                Environment.Exit(0);
-            })
-            : null;
-
         try {
+            // Disposed inside the try: its callback writes to the log the finally closes.
+            await using var disableGuard = detachedImport is not null && filterSession is not null
+                ? DisabledSessionImportGuard.Start(filterSession, config, time, () => {
+                    Console.Error.WriteLine($"Session {filterSession} was disabled; stopping the import.");
+                    Console.Error.Flush();
+                    Environment.Exit(0);
+                })
+                : null;
+
             ImportCommand.ImportRunOutcome? outcome = null;
 
             var exit = await Run<ImportCommand>().HandleImport(

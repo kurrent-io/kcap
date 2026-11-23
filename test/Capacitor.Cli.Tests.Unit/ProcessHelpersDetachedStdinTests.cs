@@ -94,13 +94,16 @@ public class ProcessHelpersDetachedStdinTests {
             using var child = ProcessHelpers.StartDetachedWindowsWithStdin(psi);
             var       pid   = child.Pid;
 
-            try {
-                CloseHandle(probeWrite);
-                probeClosed = true;
+            CloseHandle(probeWrite);
+            probeClosed = true;
 
-                await using var probe = new FileStream(new SafeFileHandle(probeRead, ownsHandle: true), FileAccess.Read);
-                var       buffer      = new byte[1];
-                var       read        = probe.ReadAsync(buffer).AsTask();
+            // Outlives the try, so the child is killed first: disposing waits on a read that a live
+            // child holding the write end never lets finish.
+            await using var probe = new FileStream(new SafeFileHandle(probeRead, ownsHandle: true), FileAccess.Read);
+
+            try {
+                var buffer = new byte[1];
+                var read   = probe.ReadAsync(buffer).AsTask();
 
                 // A read that never settles IS the failure: it means a child is still holding the
                 // write end, so the assertion is on completion first and EOF second.
