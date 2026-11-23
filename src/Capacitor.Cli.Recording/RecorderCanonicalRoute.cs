@@ -103,7 +103,9 @@ internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, Recor
     /// send it raw. A batch that cannot be projected, or one refused as unsupported, keeps the source raw until the next
     /// connect. A failed send throws and drops the route, which projected lines the server may not have; a second failure
     /// before <paramref name="cursor"/> moves keeps the source raw too.</summary>
-    public async Task<bool> TrySendAsync(TranscriptBatch chunk, int cursor, CancellationToken ct) {
+    /// <param name="stamps">The drain's, by line number. Only a canonical batch carries them: a chunk sent raw goes
+    /// unstamped</param>
+    public async Task<bool> TrySendAsync(TranscriptBatch chunk, IReadOnlyDictionary<int, LineStamp>? stamps, int cursor, CancellationToken ct) {
         CanonicalRoute? route;
 
         lock (_gate) route = _route;
@@ -113,12 +115,14 @@ internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, Recor
         CanonicalTranscriptBatch batch;
 
         try {
-            batch = route.Encode(chunk, time.GetUtcNow());
+            batch = route.Encode(chunk, stamps, time.GetUtcNow());
         } catch (CanonicalEncodingException ex) {
             GoRaw(route, $"Lines {chunk.LineNumbers![0]}-{chunk.LineNumbers[^1]} could not be projected: {ex.InnerException?.Message}");
 
             return false;
         }
+
+        if (stamps is not null) LogDropped(chunk, stamps, batch);
 
         CanonicalSendResult sent;
 
@@ -140,6 +144,18 @@ internal sealed class RecorderCanonicalRoute(IRecorderTransport transport, Recor
         route.Acknowledged();
 
         return true;
+    }
+
+    /// A line its capture replaced, or one that projected no user message, has nothing to carry its stamp
+    void LogDropped(TranscriptBatch chunk, IReadOnlyDictionary<int, LineStamp> stamps, CanonicalTranscriptBatch batch) {
+        HashSet<int>? stamped = null;
+
+        foreach (var number in chunk.LineNumbers!) {
+            if (!stamps.ContainsKey(number)) continue;
+
+            stamped ??= [.. batch.Events.Where(e => e.Stamp is not null).Select(e => e.Line)];
+            if (!stamped.Contains(number)) log($"Line {number}'s stamp went on no user message; dropped");
+        }
     }
 
     /// <param name="missing">Why the route lacks a line before the cursor, which keeps the source raw; null installs it.</param>

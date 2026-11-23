@@ -40,7 +40,9 @@ public sealed class CanonicalBatchAssembler(ITranscriptProjection projection, IL
         return true;
     }
 
-    public CanonicalTranscriptBatch Assemble(TranscriptBatch raw, DateTimeOffset receivedAt) {
+    /// <param name="stamps">By line number. A line's stamp goes on the first user message event the line produces, and
+    /// nowhere when it produces none</param>
+    public CanonicalTranscriptBatch Assemble(TranscriptBatch raw, IReadOnlyDictionary<int, LineStamp>? stamps, DateTimeOffset receivedAt) {
         if (raw.LineNumbers is not { } numbers || numbers.Length != raw.Lines.Length)
             throw new ArgumentException("A canonical batch needs a line number for every line", nameof(raw));
 
@@ -60,8 +62,10 @@ public sealed class CanonicalBatchAssembler(ITranscriptProjection projection, IL
                 continue;
             }
 
+            var first = batch.Events.Count;
             if (!Project(line, number, receivedAt, batch)) continue;
 
+            if (stamps is not null && stamps.TryGetValue(number, out var stamp)) Place(stamp, number, first, batch);
             if (read.Title is { } title) (titles ??= []).Add(new(title.Kind, title.Title, title.OwnTime, title.Legacy, number));
             if (read.EndsTurn) turnEnd = Math.Max(turnEnd ?? number, number);
         }
@@ -135,6 +139,14 @@ public sealed class CanonicalBatchAssembler(ITranscriptProjection projection, IL
         return true;
     }
 
+    /// By type, not position: a retraction comes ahead of the message on its line
+    static void Place(LineStamp stamp, int lineNumber, int from, Batch batch) {
+        if (CanonicalBatchStamp.Of(stamp) is not { } wire) return;
+
+        var index = batch.Events.FindIndex(from, e => e.Line == lineNumber && e.Event.EventType == CanonicalEventTypes.UserMessageReceived);
+        if (index >= 0) batch.Events[index] = batch.Events[index] with { Stamp = wire };
+    }
+
     /// Stamps the usage on every target in the batch. When any target was acknowledged earlier, every stamp is an echo
     /// and the usage is restated for the acknowledged targets in a backfill under the usage's own id.
     Pending? Apply(UsageApplied applied, CanonicalEvent usage, int lineNumber, Batch batch) {
@@ -201,6 +213,7 @@ public sealed class CanonicalBatchAssembler(ITranscriptProjection projection, IL
             Attachments = e.Attachments is { Count: > 0 } attachments
                 ? [.. attachments.Select(a => new CanonicalBatchAttachment(a.Id, a.MessageId, a.BlockIndex, a.FileName, a.ContentType, a.Data))]
                 : null,
+            Stamp = pending.Stamp,
         };
     }
 
@@ -236,5 +249,5 @@ public sealed class CanonicalBatchAssembler(ITranscriptProjection projection, IL
         public Dictionary<Guid, int> Latest { get; } = [];
     }
 
-    readonly record struct Pending(CanonicalEvent Event, int Line);
+    readonly record struct Pending(CanonicalEvent Event, int Line, CanonicalBatchStamp? Stamp = null);
 }

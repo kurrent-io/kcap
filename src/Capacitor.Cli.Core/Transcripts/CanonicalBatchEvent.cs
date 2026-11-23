@@ -54,8 +54,8 @@ public sealed record CanonicalBatchEvent {
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public CanonicalBatchAttachment[]? Attachments { get; init; }
 
-    /// Reserved for a dispatch stamp; a format 1 server ignores it.
+    /// On a user message event only. Format 1 reserves it, so a server that does not read stamps ignores it
     [JsonPropertyName("stamp")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public JsonElement? Stamp { get; init; }
+    public CanonicalBatchStamp? Stamp { get; init; }
 }

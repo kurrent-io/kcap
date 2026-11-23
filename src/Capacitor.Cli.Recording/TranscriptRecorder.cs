@@ -901,8 +901,16 @@ public sealed class TranscriptRecorder(
         }
     }
 
-    void StampLines(IReadOnlyList<string> rawLines, IReadOnlyList<int> lineNumbers) {
-        for (var i = 0; i < rawLines.Count; i++) stamper.StampFor(lineNumbers[i], rawLines[i]);
+    /// <summary>Asks about every line delivered, whichever way it goes, because the stamper keeps its place by position.
+    /// Null when no line has a stamp</summary>
+    Dictionary<int, LineStamp>? StampLines(IReadOnlyList<string> rawLines, IReadOnlyList<int> lineNumbers) {
+        Dictionary<int, LineStamp>? stamps = null;
+
+        for (var i = 0; i < rawLines.Count; i++) {
+            if (stamper.StampFor(lineNumbers[i], rawLines[i]) is { } stamp) (stamps ??= [])[lineNumbers[i]] = stamp;
+        }
+
+        return stamps;
     }
 
     /// <summary>
@@ -1374,7 +1382,7 @@ public sealed class TranscriptRecorder(
                     cursorGuardVerifiedRange = rangeBuffer;
                 }
 
-                StampLines(drainRead.Lines, drainRead.LineNumbers);
+                var stamps = StampLines(drainRead.Lines, drainRead.LineNumbers);
 
                 // After a connect or a failed send, a canonical route projects the lines before the cursor first.
                 if (newLines.Count > 0 && await _canonical.OpenAsync(state.LinesProcessed, ct) is { } route) {
@@ -1402,7 +1410,7 @@ public sealed class TranscriptRecorder(
                     sent = await TranscriptBatchBuffer.SendAsync(
                         batch,
                         async chunk => {
-                            if (await _canonical.TrySendAsync(chunk, state.LinesProcessed, ct)) return null;
+                            if (await _canonical.TrySendAsync(chunk, stamps, state.LinesProcessed, ct)) return null;
 
                             var ack = await transport.SendBatchAsync(chunk, ct);
 
@@ -1687,7 +1695,8 @@ public sealed class TranscriptRecorder(
             SessionId = sessionId, AgentId = agentId, Vendor = vendor,
             Lines = [..redacted.Lines], LineNumbers = [..tail.LineNumbers.Take(redacted.Consumed)], ObservedCommits = commits.Pending
         };
-        StampLines(tail.Lines.GetRange(0, redacted.Consumed), tail.LineNumbers);
+        // The spool keeps raw lines, which carry no stamp, and projects them only when it drains
+        _ = StampLines(tail.Lines.GetRange(0, redacted.Consumed), tail.LineNumbers);
         var result = TranscriptSpool.AppendResult.Appended;
         if (batch.Lines.Length > 0 || commits.Pending is { Length: > 0 }) {
             // A chunk with more to follow leaves its later commits to the next, and an import carries no commits, so it

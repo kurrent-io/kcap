@@ -263,9 +263,9 @@ public class LifecycleSpoolDrainTests {
         tx.Append(sid, TranscriptSpool.BuildTranscriptSpoolBatch(sid, null, "claude", [lines[3]], [3], null, transcriptPath: path));
 
         var uninterrupted = CanonicalRoute.For("claude", sid, null, true)!;
-        uninterrupted.Encode(new() { SessionId = sid, Lines = lines[..3], LineNumbers = [0, 1, 2] }, DateTimeOffset.UnixEpoch);
+        uninterrupted.Encode(new() { SessionId = sid, Lines = lines[..3], LineNumbers = [0, 1, 2] }, null, DateTimeOffset.UnixEpoch);
         uninterrupted.Acknowledged();
-        var expected = uninterrupted.Encode(new() { SessionId = sid, Lines = [lines[3]], LineNumbers = [3] }, DateTimeOffset.UnixEpoch);
+        var expected = uninterrupted.Encode(new() { SessionId = sid, Lines = [lines[3]], LineNumbers = [3] }, null, DateTimeOffset.UnixEpoch);
 
         var requests = await DrainOverHttp(life, tx, canonical: true);
 

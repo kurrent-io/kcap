@@ -77,7 +77,7 @@ public static class TranscriptPost {
 
     static CanonicalTranscriptBatch? Encode(CanonicalRoute route, TranscriptBatch batch, TimeProvider time) {
         try {
-            return route.Encode(batch, time.GetUtcNow());
+            return route.Encode(batch, stamps: null, time.GetUtcNow());
         } catch (CanonicalEncodingException) {
             return null;
         }

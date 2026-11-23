@@ -22,9 +22,10 @@ public class TranscriptRecorderTests {
     ConfigRoot Config => field ??= new(Tmp.CreateDir("config"));
 
     TranscriptRecorder Recorder(
-            string path, string? agentId = null, string vendor = "claude", RecorderClaims? claims = null, FakeRecorderTransport? transport = null) => new(
-        new RecordingSource(Sid, agentId, path, vendor, null), transport ?? _transport, new NoStamps(), TimeProvider.System,
-        new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _housekeeping, TimeProvider.System, _ => { }, () => { }), claims);
+            string path, string? agentId = null, string vendor = "claude", RecorderClaims? claims = null, FakeRecorderTransport? transport = null,
+            IRowStamper? stamper = null, Action<string>? log = null) => new(
+        new RecordingSource(Sid, agentId, path, vendor, null), transport ?? _transport, stamper ?? new NoStamps(), TimeProvider.System,
+        new RecorderContext(new CapacitorServer("http://127.0.0.1:1", Config, Resolutions.None(Config)), _housekeeping, TimeProvider.System, log ?? (_ => { }), () => { }), claims);
 
     RecorderClaims Claims => field ??= new(Tmp.CreateDir("watchers"), TimeProvider.System);
 
@@ -79,7 +80,7 @@ public class TranscriptRecorderTests {
     /// What one route projecting the whole transcript from its first line sends.
     static string[] Projected(string[] lines) =>
         Serialized(CanonicalRoute.For("claude", Sid, null, serverSupports: true)!.Encode(
-            new TranscriptBatch { SessionId = Sid, Vendor = "claude", Lines = lines, LineNumbers = [.. Enumerable.Range(0, lines.Length)] }, DateTimeOffset.UtcNow).Events);
+            new TranscriptBatch { SessionId = Sid, Vendor = "claude", Lines = lines, LineNumbers = [.. Enumerable.Range(0, lines.Length)] }, null, DateTimeOffset.UtcNow).Events);
 
     [Test]
     public async Task A_recorder_runs_against_a_fake_transport() {
@@ -566,6 +567,86 @@ public class TranscriptRecorderTests {
         await Assert.That(canonicalBeforeReconnect).IsEqualTo(0);
         await Assert.That(EventsSent(_transport)).IsEquivalentTo(Projected(Session[..4])[3..], CollectionOrdering.Matching);
         await Assert.That(_transport.CapabilityAsks).IsEqualTo(2);
+    }
+
+    static readonly Guid Dispatch = Guid.Parse("30000000-0000-4000-8000-000000000001");
+
+    [Test]
+    public async Task Stamps_reach_the_canonical_batch_from_the_recorder() {
+        var path    = Tmp.CreateFile("t.jsonl", Jsonl(Session[..4]));
+        var stamper = new FakeStamper(new(0, Dispatch, IsLocal: false), new(2, null, IsLocal: true));
+        _transport.SupportsCanonical = true;
+        using var recorder = Recorder(path, stamper: stamper);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await CanonicalLinesSent(_transport, 4);
+        await stop.CancelAsync();
+        await run;
+
+        await Assert.That(_transport.CanonicalBatches.SelectMany(batch => batch.Events).Select(e => (e.Line, e.Stamp))).IsEquivalentTo([
+            (0, new CanonicalBatchStamp(Dispatch, Local: false)), (1, null), (2, new CanonicalBatchStamp(null, Local: true)), (3, null),
+        ], CollectionOrdering.Matching);
+        await Assert.That(stamper.Asked).IsEquivalentTo([0, 1, 2, 3], CollectionOrdering.Matching);
+    }
+
+    /// <summary>The server either never takes canonical batches, or refuses one as unsupported and the chunk goes again
+    /// raw. The stamper keeps its place by position, so it still sees every line</summary>
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_raw_send_carries_no_stamp(bool refusedAsUnsupported) {
+        var path    = Tmp.CreateFile("t.jsonl", Jsonl(Session[..2]));
+        var stamper = new FakeStamper(new LineStamp(0, Dispatch, IsLocal: false));
+        _transport.SupportsCanonical = refusedAsUnsupported;
+        _transport.CanonicalRefusals = refusedAsUnsupported ? 1 : 0;
+        using var recorder = Recorder(path, stamper: stamper);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(2);
+        await stop.CancelAsync();
+        await run;
+
+        var raw = string.Join('\n', _transport.Batches.Select(batch => JsonSerializer.Serialize(batch, CapacitorJsonContext.Default.TranscriptBatch)));
+        await Assert.That(_transport.CanonicalBatches).IsEmpty();
+        await Assert.That(_transport.Batches.SelectMany(batch => batch.LineNumbers!)).IsEquivalentTo([0, 1], CollectionOrdering.Matching);
+        await Assert.That(raw).DoesNotContain("\"stamp\"");
+        await Assert.That(stamper.Asked).IsEquivalentTo([0, 1], CollectionOrdering.Matching);
+    }
+
+    [Test]
+    public async Task A_stamp_whose_line_has_no_user_message_is_logged_and_dropped() {
+        var path = Tmp.CreateFile("t.jsonl", Jsonl(Session[..2]));
+        var log  = new ConcurrentQueue<string>();
+        _transport.SupportsCanonical = true;
+        using var recorder = Recorder(path, stamper: new FakeStamper(new(0, Dispatch, IsLocal: false), new(1, null, IsLocal: true)), log: log.Enqueue);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await CanonicalLinesSent(_transport, 2);
+        await stop.CancelAsync();
+        await run;
+
+        await Assert.That(_transport.CanonicalBatches.SelectMany(batch => batch.Events).Select(e => e.Stamp))
+            .IsEquivalentTo([new CanonicalBatchStamp(Dispatch, Local: false), null], CollectionOrdering.Matching);
+        await Assert.That(log.Where(line => line.Contains("stamp", StringComparison.Ordinal)))
+            .IsEquivalentTo(["Line 1's stamp went on no user message; dropped"], CollectionOrdering.Matching);
+    }
+
+    /// <summary>Answers the stamps it was given, by line, and records each line it was asked about</summary>
+    sealed class FakeStamper(params LineStamp[] stamps) : IRowStamper {
+        readonly ConcurrentQueue<int> _asked = new();
+
+        public int[] Asked => [.. _asked];
+
+        public LineStamp? StampFor(int lineNumber, string rawLine) {
+            _asked.Enqueue(lineNumber);
+
+            return stamps.FirstOrDefault(stamp => stamp.LineNumber == lineNumber);
+        }
+
+        public void Acknowledged(int throughLine) { }
     }
 
     /// <summary>Records <paramref name="lines"/> twice: once by one recorder, written in two halves, and once by a recorder
