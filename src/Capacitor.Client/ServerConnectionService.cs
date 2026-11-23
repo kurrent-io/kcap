@@ -768,9 +768,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         return false;
     }
 
-    static async Task AwaitQuietly(Task t) {
-        try { await t.ConfigureAwait(false); } catch { /* ignored */ }
-    }
+    static async Task AwaitQuietly(Task t) => await t.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
     public async ValueTask DisposeAsync() {
         _lifetime.Cancel();

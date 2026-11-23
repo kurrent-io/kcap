@@ -148,8 +148,7 @@ public sealed class AuthenticatedServerReads<TChannel> : IAsyncDisposable where 
             if (lease is not null) lease.Retired = true;
         }
         _dispose.Cancel();
-        try { await Task.WhenAll(active).ConfigureAwait(false); }
-        catch (Exception) { /* ignored */ }
+        await Task.WhenAll(active).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         if (lease is not null) DisposeIfUnused(lease);
         if (_lane is not null) await _lane.DisposeAsync().ConfigureAwait(false);
         _dispose.Dispose();
