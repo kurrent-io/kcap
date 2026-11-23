@@ -125,6 +125,10 @@
             <Setter Property="Margin" Value="-8,0" />
             <Setter Property="CornerRadius" Value="6" />
         </Style>
+        <!-- Without a background, a drag over the gaps between rows hit-tests through the zone and its outline flickers. -->
+        <Style Selector="StackPanel.group, StackPanel.part">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
         <Style Selector="StackPanel.groupItems">
             <Setter Property="Spacing" Value="2" />
             <Setter Property="Margin" Value="22,2,0,0" />
