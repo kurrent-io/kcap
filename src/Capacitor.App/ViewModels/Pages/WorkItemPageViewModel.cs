@@ -199,6 +199,8 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         if (Neighbour(part, 1) is { } below && PlaceAt(part, below, after: true) is { } down) items.Add(new(LucideIconKind.ArrowDown, "Move down", down));
         items.AddRange(Enum.GetValues<WorkStatus>().Where(status => status != part.Status)
             .Select(status => new RowMenuItem(status.Icon(), $"Move to {status.Label()}", () => part.SetStatusCommand.Execute(status.Wire()).Subscribe(), status.BrushKey())));
+        items.Add(new(LucideIconKind.Trash, "Delete slice",
+            () => _ = ChangeAsync(ct => _api.RemovePartAsync(WorkItemId, part.Id, ct), "Couldn't delete that slice")));
         return items;
     }
 

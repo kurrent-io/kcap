@@ -21,6 +21,8 @@ public interface IWorkItemPageApi {
     Task<bool> MakePartAsync(string workItemId, string looseEndId, CancellationToken ct);
     /// The new part's id, or null when the server refused it.
     Task<string?> AddPartAsync(string workItemId, string title, CancellationToken ct);
+    /// Merges the part into its work item: its sessions and links move to the work item.
+    Task<bool> RemovePartAsync(string workItemId, string partId, CancellationToken ct);
     Task<bool> AddLinkAsync(string workItemId, string reference, CancellationToken ct);
     /// Creates a work item titled <paramref name="title"/> holding the session. Its id, or null when the server refused it.
     Task<string?> CreateForSessionAsync(string sessionId, string title, CancellationToken ct);
