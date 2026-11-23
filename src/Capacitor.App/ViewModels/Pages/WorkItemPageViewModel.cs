@@ -374,10 +374,12 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         else if (layout == WorkItemPageLayout.Graph) _flipped.Add(GraphKey);
     }
 
+    // A slice with no sessions has nothing to show in the list, so picking it keeps the graph.
     void ShowInList(WorkItemPagePart part) {
+        if (!part.HasSessions) return;
         Show(WorkItemPageLayout.List);
         OpenGroup(part.Status);
-        if (part.HasSessions && !_openedParts.Contains(part.Id)) _opening.Add(part.Id);
+        if (!_openedParts.Contains(part.Id)) _opening.Add(part.Id);
         _reveals.Add(part.Id);
         Rebuild();
     }

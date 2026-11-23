@@ -88,7 +88,9 @@ public sealed class WorkItemPagePart : ReactiveObject {
 
     public LucideIconKind Icon => Status.Icon();
     /// The status and link keys under the title of its box in the graph.
-    public string GraphSub => HasLinks ? $"{Status.Label()} · {string.Join(" ", Links.Select(link => link.ShortKey))}" : Status.Label();
+    public string GraphSub => string.Join(" · ", new[] {
+        Status.Label(), HasSessions ? SessionSummary : null, HasLinks ? string.Join(" ", Links.Select(link => link.ShortKey)) : null,
+    }.OfType<string>());
     public bool HasSessions => Sessions.Count > 0;
     public string SessionSummary => Sessions.Count == 1 ? "1 session" : $"{Sessions.Count} sessions";
     public bool HasLinks => Links.Count > 0;

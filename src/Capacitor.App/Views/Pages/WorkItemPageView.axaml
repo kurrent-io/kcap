@@ -318,14 +318,15 @@
         <DataTemplate x:Key="GraphBox" x:DataType="pages:WorkItemPagePart">
             <StackPanel Classes="part" Width="{x:Static pages:WorkItemPageGraphNode.Width}">
                 <Border Classes="card" Height="{x:Static pages:WorkItemPageGraphNode.Height}">
-                    <Button Classes="kcapGhost partRow dragRow cardBody" Padding="10,0" VerticalAlignment="Stretch"
-                            ToolTip.Tip="{Binding WaitsOnText}" AutomationProperties.Name="{Binding Title}" Cursor="Hand"
+                    <Button Classes="kcapGhost partRow dragRow cardBody" Classes.expandable="{Binding HasSessions}" Padding="10,0"
+                            VerticalAlignment="Stretch" ToolTip.Tip="{Binding WaitsOnText}" AutomationProperties.Name="{Binding Title}"
                             Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).ShowInListCommand}"
                             CommandParameter="{Binding}">
                         <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" VerticalAlignment="Center">
                             <views:AppIcon Kind="{Binding Icon}" Size="14" VerticalAlignment="Center"
                                            Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
-                            <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="1" Classes="partTitle" Text="{Binding Title}" FontSize="13" FontWeight="Medium"
+                                       TextTrimming="CharacterEllipsis" />
                             <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding GraphSub}" FontSize="11.5" TextTrimming="CharacterEllipsis"
                                        Foreground="{StaticResource KcapMutedBrush}" />
                         </Grid>

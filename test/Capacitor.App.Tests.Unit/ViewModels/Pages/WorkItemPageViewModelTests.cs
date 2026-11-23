@@ -151,6 +151,24 @@ public class WorkItemPageViewModelTests {
         await Assert.That(api.Calls).IsEquivalentTo(["wait c on a"]);
     });
 
+    /// Picking a slice in the graph opens the list only when the slice has sessions; an empty one keeps the graph.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Picking_an_empty_slice_in_the_graph_keeps_the_graph() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeApi { Parts = [FakeApi.Part("a", "open"), FakeApi.Part("b", "open", "s1")] };
+        using var directory = new FakeAgentDirectory();
+        using var page = Page(api, directory);
+        var parts = page.Groups.Single().Parts.ToDictionary(part => part.Id);
+        await page.ShowGraphCommand.Execute();
+
+        await page.ShowInListCommand.Execute(parts["a"]);
+        await Assert.That(page.IsGraph).IsTrue();
+
+        await page.ShowInListCommand.Execute(parts["b"]);
+        await Assert.That(page.IsList).IsTrue();
+        await Assert.That(parts["b"].GraphSub).IsEqualTo($"{parts["b"].Status.Label()} · 1 session");
+    });
+
     /// The graph puts a slice one column right of the deepest slice it waits on, with one arrow per wait, and the
     /// viewer's choice of it outlasts the page.
     [Test]
