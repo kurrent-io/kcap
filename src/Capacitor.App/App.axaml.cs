@@ -517,7 +517,7 @@ public partial class App : Application {
             // The app this would tear down is going away here; an uninstall asked for from now on is asked over the error window.
             _requestUninstall = null;
             var failure = _startupFailure = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            using var settled = System.Reactive.Disposables.Disposable.Create(() => failure.TrySetResult());
+            using var settled = Disposable.Create(() => failure.TrySetResult());
             // Block window recreation and hide-on-close before cleanup can yield.
             if (_coordinator is not null) _coordinator.QuitInProgress = true;
             LatchNavigation();

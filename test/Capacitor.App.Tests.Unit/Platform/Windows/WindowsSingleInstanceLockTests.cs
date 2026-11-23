@@ -91,22 +91,27 @@ public class WindowsSingleInstanceLockTests {
         });
         held.Wait();
 
-        var second = await OnOwnThread(() => WindowsSingleInstanceLock.TryAcquire(name, TimeSpan.Zero, uninstall: true));
-        // Only once the lock's own wait has taken the signal is the request one a late listener could miss. Taking
-        // it here instead means that wait has not run yet, so it is put back. Its callback may still be queued when
-        // the listener is added, and that order delivers too: HeldRequestTests pins the held one on its own.
-        using (var signal = EventWaitHandle.OpenExisting($@"Local\{name}.uninstall")) {
-            for (var attempt = 0; attempt < 250 && signal.WaitOne(0); attempt++) {
-                signal.Set();
-                await Task.Delay(20);
+        try {
+            var second = await OnOwnThread(() => WindowsSingleInstanceLock.TryAcquire(name, TimeSpan.Zero, uninstall: true));
+            // Only once the lock's own wait has taken the signal is the request one a late listener could miss. Taking
+            // it here instead means that wait has not run yet, so it is put back. Its callback may still be queued when
+            // the listener is added, and that order delivers too: HeldRequestTests pins the held one on its own.
+            using (var signal = EventWaitHandle.OpenExisting($@"Local\{name}.uninstall")) {
+                for (var attempt = 0; attempt < 250 && signal.WaitOne(0); attempt++) {
+                    signal.Set();
+                    await Task.Delay(20);
+                }
             }
-        }
-        listen.Set();
-        await asked.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        exit.Set();
-        using var first = await owner;
+            listen.Set();
+            await asked.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        await Assert.That(second).IsNull();
+            await Assert.That(second).IsNull();
+        } finally {
+            // A failure above must not leave the owner thread waiting on events this method is about to dispose.
+            listen.Set();
+            exit.Set();
+            using var first = await owner;
+        }
     }
 
     [Test]
