@@ -297,7 +297,7 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
             .. Vendors.Select(vendor => new AccountVendorGroup(vendor.VendorId, HarnessRegistry.LabelOf(vendor), [
                 .. AccountRows.For(snapshot, vendor.VendorId).Select(r => r.Id is { } id && accounts.TryGetValue(id, out var account)
                     ? new AccountSettingsRow(id, r.Vendor, r.Directory, r.Label, r.RecordingState,
-                        account.Email, account.Plan, account.RefreshError ?? account.LimitsError, SlotFor(id), r.IsDefault)
+                        account.Email, account.Plan, account.RefreshError ?? account.LimitsError, SlotFor(id), r.IsDefault, account.SignIn)
                     : new AccountSettingsRow(r.Id, r.Vendor, r.Directory, r.Label, r.RecordingState, null, null, null, _defaultSlot, r.IsDefault)),
             ])),
         ];

@@ -132,9 +132,15 @@ public partial class App : Application {
      || (OperatingSystem.IsWindows() && RuntimeInformation.OSArchitecture == Architecture.X64);
 
     public App() {
-        _appMenu = new AppMenu(OperatingSystem.IsMacOS() ? AppKitMenus.ShowAboutPanel
+        // About opens Settings → About, the one About surface; the platform's own About covers the
+        // time before a profile can open Settings.
+        Action? platformAbout = OperatingSystem.IsMacOS() ? AppKitMenus.ShowAboutPanel
             : OperatingSystem.IsWindows() ? () => _coordinator?.Window?.ShowAbout()
-            : null);
+            : null;
+        _appMenu = new AppMenu(platformAbout is null ? null : () => {
+            if (_openAboutSettings is { } open) open();
+            else platformAbout();
+        });
         // A live facade creates the device id and the spool under the config root being removed.
         _telemetry   = CliTelemetry.Start(
             DesktopTelemetry(_uninstallMode, _endpoints.SignupUrl,
@@ -317,6 +323,7 @@ public partial class App : Application {
     SettingsWindow? _settingsWindow;
     readonly BehaviorSubject<Action?> _openSearchSettings = new(null);
     readonly BehaviorSubject<Func<bool>?> _openHarnessesSettings = new(null);
+    Action? _openAboutSettings;
     FeedbackWindow? _feedbackWindow;
     internal FeedbackWindow? FeedbackWindowForTests => _feedbackWindow;
     readonly AppMenu _appMenu;
@@ -1660,6 +1667,7 @@ public partial class App : Application {
         Action? openSettings = openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.Default);
         _openSearchSettings.OnNext(openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.Search));
         _openHarnessesSettings.OnNext(openSettingsOn is null ? null : () => openSettingsOn(SettingsTab.Harnesses));
+        _openAboutSettings = openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.About);
         ConfigureSettingsMenu(openSettings);
         _appMenu.SetSetupAction(() => _ = RestartForSetupAsync(desktop));
         var os = OperatingSystem.IsMacOS() ? OSPlatform.OSX

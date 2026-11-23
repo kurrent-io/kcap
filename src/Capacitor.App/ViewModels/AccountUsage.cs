@@ -44,10 +44,15 @@ public static class AccountUsage {
 
     public static bool IsBlocked(AccountViewDto account, DateTimeOffset now) => LiveMainConstraints(account, now).Count > 0;
 
-    /// Why the account cannot record or sign in, or null when it needs nothing.
-    public static string? NeedsFix(AccountViewDto account) =>
-        account.SignIn == SignInStates.SignedOut                                   ? "Needs sign-in"
-        : RecordingStateLabels.IsAttention(account.Vendor, account.RecordingState) ? RecordingStateLabels.Label(account.Vendor, account.RecordingState)
+    public const string NeedsSignIn = "Needs sign-in";
+
+    /// Why the account cannot record or sign in, or null when it needs nothing. The Accounts summary
+    /// and each account's pill both read this, so they cannot disagree.
+    public static string? NeedsFix(AccountViewDto account) => NeedsFix(account.SignIn, account.Vendor, account.RecordingState);
+
+    public static string? NeedsFix(string? signIn, string vendor, string recordingState) =>
+        signIn == SignInStates.SignedOut                           ? NeedsSignIn
+        : RecordingStateLabels.IsAttention(vendor, recordingState) ? RecordingStateLabels.Label(vendor, recordingState)
         : null;
 
     /// The earliest future reset among the main limit's windows.
