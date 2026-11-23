@@ -22,7 +22,7 @@ public sealed class ShimOfferCoordinator {
     readonly ILifecycleSurface _surface;
     readonly string? _target;
     readonly CancellationToken _lifetime;
-    // True only for a gate-Incomplete startup — Offerable/manual install still work, only the once-ever auto-offer DIALOG is skipped.
+    // Skips only the once-ever auto-offer dialog: Offerable, a manual install and a claimed restore still work.
     readonly bool _autoOfferSuppressed;
     readonly Func<bool> _autoOfferHeld;
     readonly bool _restoreClaimed;
@@ -88,7 +88,8 @@ public sealed class ShimOfferCoordinator {
 
             _offerable.OnNext(true); // applicable-but-absent — the menu item is live from here on
 
-            if (_autoOfferSuppressed) return; // item + manual install still work; only the dialog never fires
+            // A restore asks nothing, so a suppressed dialog does not hold it back.
+            if (_autoOfferSuppressed && !_restoreClaimed) return;
             if (_autoOfferHeld()) return;
 
             var state = await _store.LoadAsync().ConfigureAwait(false);
@@ -99,6 +100,7 @@ public sealed class ShimOfferCoordinator {
                 if (_restoreClaimed) await RunInstallAsync().ConfigureAwait(false);
                 return;
             }
+            if (_autoOfferSuppressed) return; // item + manual install still work; only the dialog never fires
 
             var preflight = _installer!.Preflight(_target);
             if (preflight == ShimPreflight.Conflict) return; // no auto-offer; the menu item still lets the user try

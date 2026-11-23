@@ -364,14 +364,14 @@ public class ShimOfferCoordinatorTests {
     /// The coordinator as the Windows app builds it, over a user PATH held in memory: the probe finds kcap
     /// only while the CLI's folder is on that PATH.
     static (ShimOfferCoordinator Coordinator, MemoryUserPath Path, FakeLifecycleSurface Surface, List<bool> Offerable) Reinstalled(
-            string cli, AppState state) {
+            string cli, AppState state, bool autoOfferSuppressed = false) {
         var path    = new MemoryUserPath();
         var folder  = Path.GetDirectoryName(cli)!;
         var probe   = new FakeLoginShellProbe { KcapOnPathBehavior = _ => Task.FromResult<bool?>(path.Value!.Contains(folder)) };
         var surface = new FakeLifecycleSurface();
         var coordinator = new ShimOfferCoordinator(
             Task.CompletedTask, probe, new WindowsUserPathInstaller(path, probe), new FakeAppStateStore { State = state }, surface, cli,
-            CancellationToken.None, restoreClaimed: true);
+            CancellationToken.None, autoOfferSuppressed, restoreClaimed: true);
         var offerable = new List<bool>();
         coordinator.Offerable.Subscribe(offerable.Add);
         return (coordinator, path, surface, offerable);
@@ -388,6 +388,32 @@ public class ShimOfferCoordinatorTests {
         await WaitUntilAsync(() => offerable.Count >= 3, what: "the restored install");
         await Assert.That(path.Value).IsEqualTo($"{Path.GetDirectoryName(cli)};{OtherPathEntry}");
         await Assert.That(offerable.Last()).IsFalse();
+        await Assert.That(surface.Prompts).IsEmpty();
+    }
+
+    /// Setup abandoned or its sign-in skipped leaves the dialog suppressed, and hooks need the entry all the same.
+    [Test]
+    public async Task A_claimed_install_is_restored_while_the_offer_dialog_is_suppressed() {
+        using var tmp = new TempDir();
+        var cli = tmp.PathTo("bin", "kcap.exe");
+        var (coordinator, path, surface, offerable) = Reinstalled(cli, new AppState { ShimOffered = true }, autoOfferSuppressed: true);
+        coordinator.Start();
+
+        await WaitUntilAsync(() => offerable.Count >= 3, what: "the restored install");
+        await Assert.That(path.Value).IsEqualTo($"{Path.GetDirectoryName(cli)};{OtherPathEntry}");
+        await Assert.That(surface.Prompts).IsEmpty();
+    }
+
+    /// Suppression still stops the question for an install nobody has claimed.
+    [Test]
+    public async Task An_unclaimed_install_is_neither_offered_nor_made_while_the_offer_dialog_is_suppressed() {
+        using var tmp = new TempDir();
+        var (coordinator, path, surface, offerable) = Reinstalled(tmp.PathTo("bin", "kcap.exe"), new AppState(), autoOfferSuppressed: true);
+        coordinator.Start();
+
+        await WaitUntilAsync(() => offerable.Contains(true), what: "the item to become visible");
+        await Task.Delay(100); // give a wrongly-running offer every chance to finish
+        await Assert.That(path.Value).IsEqualTo(OtherPathEntry);
         await Assert.That(surface.Prompts).IsEmpty();
     }
 
