@@ -15,7 +15,6 @@ namespace Capacitor.App.ViewModels;
 public sealed partial class WorkContextViewModel {
     readonly AvaloniaList<WorkContextPartViewModel> _parts = new();
     readonly AvaloniaList<WorkContextPartViewModel> _thisSessionParts = new();
-    IReadOnlyList<WorkContextPartCount> _partCounts = [];
     readonly AvaloniaList<string> _blockedBy = new();
     readonly AvaloniaList<WorkContextLinkViewModel> _links = new();
     readonly AvaloniaList<WorkContextLinkViewModel> _issues = new();
@@ -38,7 +37,7 @@ public sealed partial class WorkContextViewModel {
     /// What the collapsed section lists: the parts this session is attached to, in part order.
     public IAvaloniaReadOnlyList<WorkContextPartViewModel> ThisSessionParts => _thisSessionParts;
     /// Open, this session, done: one entry per mark some part carries, so the numbers add up to the list.
-    public IReadOnlyList<WorkContextPartCount> PartCounts => _partCounts;
+    public IReadOnlyList<WorkContextPartCount> PartCounts { get; private set; } = [];
     public IAvaloniaReadOnlyList<string> BlockedBy => _blockedBy;
     public IAvaloniaReadOnlyList<WorkContextLinkViewModel> Links => _links;
     public IAvaloniaReadOnlyList<WorkContextLinkViewModel> Issues => _issues;
@@ -99,8 +98,7 @@ public sealed partial class WorkContextViewModel {
         this.RaisePropertyChanged(nameof(SeparateIssues));
         RaiseRelated();
     }
-    string? _overview;
-    public string? Overview { get => _overview; private set => this.RaiseAndSetIfChanged(ref _overview, value); }
+    public string? Overview { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string? StateLabel { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public bool IsShipped { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public bool IsClosed { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
@@ -185,9 +183,9 @@ public sealed partial class WorkContextViewModel {
         }
     }
     /// The folded counts are told apart only by their marks, so the header names them in words.
-    public string PartsAccessibleName => PartsExpanded || _partCounts.Count == 0
+    public string PartsAccessibleName => PartsExpanded || PartCounts.Count == 0
         ? $"Parts, {PartsHeader}"
-        : $"Parts, {string.Join(", ", _partCounts.Select(c => c.Label))}";
+        : $"Parts, {string.Join(", ", PartCounts.Select(c => c.Label))}";
     public bool PeopleExpanded { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public bool IssuesExpanded {
         get;
@@ -368,8 +366,8 @@ public sealed partial class WorkContextViewModel {
             new(WorkContextPartMark.Settled, SettledCount),
         ];
         var present = counts.Where(c => c.Count > 0).ToArray();
-        if (present.SequenceEqual(_partCounts)) return;
-        _partCounts = present;
+        if (present.SequenceEqual(PartCounts)) return;
+        PartCounts = present;
         this.RaisePropertyChanged(nameof(PartCounts));
     }
 

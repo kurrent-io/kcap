@@ -236,7 +236,7 @@ public class LocalServerTaskServiceTests {
     [Test]
     public async Task The_owner_is_the_root_the_wrapper_the_task_runs_names() {
         Write(WrapperPath, WrapperText);
-        var schtasks = new Schtasks { Results = { ["/Query /TN kcap-local /XML"] = (0, LocalServerTaskUnit.TaskXml(Unit, WrapperPath, @"CORP\u"), "") } };
+        var schtasks = new Schtasks { Results = { ["/Query /TN kcap-local /XML"] = (0, LocalServerTaskUnit.TaskXml(WrapperPath, @"CORP\u"), "") } };
 
         var owner = Service(schtasks).Owner(Unit);
 

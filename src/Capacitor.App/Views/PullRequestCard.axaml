@@ -7,7 +7,7 @@
     <StackPanel Spacing="9">
             <ComboBox x:Name="PullRequestSelector" Classes="kcapField"
                       ItemsSource="{Binding Choices}" SelectedItem="{Binding Selected, Mode=TwoWay}"
-                      IsVisible="{Binding HasMultipleChoices}" HorizontalAlignment="Stretch" FontSize="13"
+                      IsVisible="{Binding HasMultipleChoices}" HorizontalAlignment="Stretch" FontSize="{StaticResource KcapFontSizeBody}"
                       AutomationProperties.Name="Linked pull request">
                 <ComboBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:PullRequestChoice">
@@ -40,7 +40,7 @@
                     IsEnabled="{Binding CanOpenReader}" HorizontalAlignment="Stretch"
                     IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                     AutomationProperties.Name="Open pull request overview">
-                <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="3"
+                <TextBlock Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="3"
                            TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" />
             </Button>
             <TextBlock x:Name="SelectionLoading" Text="Loading…" IsVisible="{Binding IsSelectionLoading}" Classes="prNote" />

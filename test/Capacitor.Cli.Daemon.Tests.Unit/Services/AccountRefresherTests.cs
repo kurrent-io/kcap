@@ -540,7 +540,7 @@ public class AccountRefresherTests {
         using var refresher = Refresher(probe);
 
         try {
-            using (new FileStream(Home.PathTo("accounts", "accounts.json"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {
+            await using (new FileStream(Home.PathTo("accounts", "accounts.json"), FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) {
                 await refresher.StartAsync(CancellationToken.None);
                 await Until(refresher, () => refresher.Finished == 1);
             }

@@ -283,7 +283,7 @@ public class TerminalChatInputTests {
         await Assert.That(TerminalChatInput.HintFor(SendAvailability.Connecting, TerminalSessionState.Resuming))
             .IsEqualTo("Waiting for the agent to resume after a daemon restart…");
         await Assert.That(TerminalChatInput.HintFor(SendAvailability.Ended, TerminalSessionState.Interrupted("worktree_missing")))
-            .IsEqualTo("Not resumed after a daemon restart (worktree_missing). Retry with `kcap agent resume`, or stop it to discard it.");
+            .IsEqualTo("Not resumed after a daemon restart. Its worktree no longer exists. Retry with `kcap agent resume`, or stop it to discard it.");
         await Assert.That(TerminalChatInput.HintFor(SendAvailability.Ended, TerminalSessionState.SessionEnded)).IsEqualTo("This session has ended");
     }
 }

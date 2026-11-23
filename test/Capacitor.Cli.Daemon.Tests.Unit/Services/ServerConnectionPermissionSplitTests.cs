@@ -16,12 +16,12 @@ internal sealed class ServerConnectionPermissionSplitTests {
     [Arguments("Permission request is no longer pending.", RespondOutcomeKind.NotPending)]
     [Arguments("Caller is not the daemon owning session", RespondOutcomeKind.Failed)]
     public async Task Respond_classifies_hub_exceptions_by_message(string message, RespondOutcomeKind expected) {
-        await Assert.That(ServerConnection.ClassifyRespondFailure(new HubException(message)).Kind).IsEqualTo(expected);
+        await Assert.That(ClassifyRespondFailure(new HubException(message)).Kind).IsEqualTo(expected);
     }
 
     [Test]
     public async Task Respond_classifies_a_dropped_connection_as_failed() {
-        var outcome = ServerConnection.ClassifyRespondFailure(new InvalidOperationException("The 'InvokeCoreAsync' method cannot be called if the connection is not active"));
+        var outcome = ClassifyRespondFailure(new InvalidOperationException("The 'InvokeCoreAsync' method cannot be called if the connection is not active"));
         await Assert.That(outcome.Kind).IsEqualTo(RespondOutcomeKind.Failed);
         await Assert.That(outcome.Reason).IsNotNull();
     }

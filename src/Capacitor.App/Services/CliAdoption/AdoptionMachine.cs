@@ -28,7 +28,7 @@ internal sealed class AdoptionMachine(
 
     public async Task<LaunchdJob> ReadJobAsync(string unitName, CancellationToken ct) {
         var result = await _launchctl.PrintAsync(LabelPrefix + unitName, ct).ConfigureAwait(false);
-        return LaunchdPrint.Classify(result.ExitCode, result.Stdout, result.Stderr) == LabelProbe.Loaded
+        return LaunchdPrint.Classify(result.ExitCode, result.Stderr) == LabelProbe.Loaded
             ? new LaunchdJob(true, LaunchdPrint.Pid(result.Stdout), LaunchdPrint.LoadedProgram(result.Stdout))
             : new LaunchdJob(false, null, null);
     }

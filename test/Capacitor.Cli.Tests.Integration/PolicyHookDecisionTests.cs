@@ -23,7 +23,7 @@ public class PolicyHookDecisionTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
     readonly WireMockServer _server = WireMockServer.Start();
     readonly List<Process> _spawned = [];
-    public void Dispose() { _server.Stop(); foreach (var p in _spawned) { try { p.Kill(); } catch { } p.Dispose(); } }
+    public void Dispose() { _server.Stop(); foreach (var p in _spawned) { try { p.Kill(); } catch { /* ignored */ } p.Dispose(); } }
 
     const string Sid = "3f8a2b1c4d5e46f7a8b9c0d1e2f3a4b5";
 

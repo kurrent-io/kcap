@@ -114,6 +114,7 @@ public static partial class TranscriptLineText {
                 }
             }
         } catch {
+            // ignored
         }
 
         return null;
@@ -350,6 +351,7 @@ public static partial class TranscriptLineText {
                     return text;
             }
         } catch {
+            // ignored
         }
 
         return null;
@@ -422,6 +424,7 @@ public static partial class TranscriptLineText {
                 }
             }
         } catch {
+            // ignored
         }
 
         return null;
@@ -444,6 +447,7 @@ public static partial class TranscriptLineText {
                 }
             }
         } catch {
+            // ignored
         }
 
         return null;

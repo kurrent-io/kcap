@@ -116,7 +116,7 @@ internal sealed class LaunchConsentBroker : ILaunchConsentPrompter {
                     // so no verdict (and no decision-log record) is ever produced for a launch
                     // torn down before deciding.
                     if (!_pending.TryRemove(new KeyValuePair<string, Pending>(req.RequestId, pending)))
-                        { try { await tcs.Task; } catch { } }
+                        await ((Task)tcs.Task).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
                     throw;
                 }
                 // The wait timed out, but TryResolve claims the entry by REMOVING it — so race it

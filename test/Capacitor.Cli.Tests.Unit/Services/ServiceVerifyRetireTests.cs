@@ -59,7 +59,7 @@ public class ServiceVerifyRetireTests {
 
         public bool NewProbeUnknown;
 
-        public IReadOnlyList<GeneratedFile> GenerateFiles(ServiceSpec spec) => [new GeneratedFile("/fake/new.plist", OwnPlistContent)];
+        public IReadOnlyList<GeneratedFile> GenerateFiles(ServiceSpec spec) => [new("/fake/new.plist", OwnPlistContent)];
 
         public ServiceQuery Query(string serviceId, TimeSpan timeout) {
             Calls.Add($"query:{serviceId}");

@@ -592,7 +592,7 @@ sealed class PromptHarness : IDisposable {
     public readonly FakeConsentService Consent = new();
     public readonly RecordingNotifier Notifier = new();
     public readonly FakeTicker Ticker = new();
-    public readonly FakeTimeProvider Clock = new(ConsentEntries.T0);
+    public readonly FakeTimeProvider Clock = new(T0);
     public readonly ConsentPromptViewModel Vm;
 
     readonly IDisposable _closeSub;

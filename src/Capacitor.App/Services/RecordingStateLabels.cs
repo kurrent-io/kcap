@@ -25,7 +25,7 @@ public static class RecordingStateLabels {
     public static bool IsAttention(string vendor, string token) =>
         token == Broken || token == NotWired || (token == Installed && IsCodex(vendor));
 
-    public static string? Hint(string vendor, string token, string directory) =>
+    public static string? Hint(string vendor, string token) =>
         token == Installed && IsCodex(vendor)
             ? "Start Codex once with this account and approve kcap's hooks when it asks."
             : token == Broken ? "kcap's hooks in this folder are missing or changed, so its sessions are not recorded."

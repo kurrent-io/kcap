@@ -35,7 +35,7 @@ public static class SessionRowMenu {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Padding = new(10, 6),
-                FontSize = 13.5,
+                FontSize = TypeScale.Body,
             };
             button.Classes.Add("kcapGhost");
             // Hiding the flyout clears the rows' inherited DataContext, so the row is read first.

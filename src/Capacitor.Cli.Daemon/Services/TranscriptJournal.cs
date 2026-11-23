@@ -133,9 +133,7 @@ internal sealed class TranscriptJournal : IDisposable {
 
             // Wall-clock, not the injected TimeProvider: the grace bounds a shutdown against a hung
             // disk, and a caller's test clock advancing is not evidence the disk came back.
-#pragma warning disable RS0030
-            if (await Task.WhenAny(_writer, Task.Delay(_grace)).ConfigureAwait(false) == _writer) {
-#pragma warning restore RS0030
+            if (await _writer.FinishedWithinAsync(_grace, TimeProvider.System).ConfigureAwait(false)) {
                 Drained = true;
                 return true;
             }

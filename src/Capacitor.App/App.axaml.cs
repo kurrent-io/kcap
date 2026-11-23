@@ -132,9 +132,15 @@ public partial class App : Application {
      || (OperatingSystem.IsWindows() && RuntimeInformation.OSArchitecture == Architecture.X64);
 
     public App() {
-        _appMenu = new AppMenu(OperatingSystem.IsMacOS() ? AppKitMenus.ShowAboutPanel
+        // About opens Settings → About, the one About surface; the platform's own About covers the
+        // time before a profile can open Settings.
+        Action? platformAbout = OperatingSystem.IsMacOS() ? AppKitMenus.ShowAboutPanel
             : OperatingSystem.IsWindows() ? () => _coordinator?.Window?.ShowAbout()
-            : null);
+            : null;
+        _appMenu = new AppMenu(platformAbout is null ? null : () => {
+            if (_openAboutSettings is { } open) open();
+            else platformAbout();
+        });
         // A live facade creates the device id and the spool under the config root being removed.
         _telemetry   = CliTelemetry.Start(
             DesktopTelemetry(_uninstallMode, _endpoints.SignupUrl,
@@ -147,6 +153,7 @@ public partial class App : Application {
 #pragma warning restore RS0030
         var state = _appState.LoadAsync().GetAwaiter().GetResult();
         _uiScale = UiScaleSetting.From(_appState, state);
+        SecondaryWindowScale.Install(_uiScale);
         _betaUpdates = BetaUpdatesSetting.From(_appState, state);
         _progressiveDisclosure = state.ProgressiveDisclosure;
         _startupState = state;
@@ -317,6 +324,7 @@ public partial class App : Application {
     SettingsWindow? _settingsWindow;
     readonly BehaviorSubject<Action?> _openSearchSettings = new(null);
     readonly BehaviorSubject<Func<bool>?> _openHarnessesSettings = new(null);
+    Action? _openAboutSettings;
     FeedbackWindow? _feedbackWindow;
     internal FeedbackWindow? FeedbackWindowForTests => _feedbackWindow;
     readonly AppMenu _appMenu;
@@ -355,9 +363,12 @@ public partial class App : Application {
 
     public override void Initialize() {
         AvaloniaXamlLoader.Load(this);
+        ScrollReveal.Register();
         ProgressiveDisclosureViewModel.Shared.Restore(_progressiveDisclosure, _appState);
         LineSelection.Install();
         ToolTipFocusGate.Install();
+        FullOpacityPlaceholder.Install();
+        ReducedMotion.Install();
         CaretBlink.Install();
         // Here, not later: Avalonia exports the app menu right after Initialize, substituting its own
         // "About Avalonia" when there is none.
@@ -1660,6 +1671,7 @@ public partial class App : Application {
         Action? openSettings = openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.Default);
         _openSearchSettings.OnNext(openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.Search));
         _openHarnessesSettings.OnNext(openSettingsOn is null ? null : () => openSettingsOn(SettingsTab.Harnesses));
+        _openAboutSettings = openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.About);
         ConfigureSettingsMenu(openSettings);
         _appMenu.SetSetupAction(() => _ = RestartForSetupAsync(desktop));
         var os = OperatingSystem.IsMacOS() ? OSPlatform.OSX
@@ -3600,14 +3612,12 @@ public partial class App : Application {
     // The shutdown cap: QuiescedAsync itself is unbounded (it just waits for the gate), so this is what
     // keeps a stuck internal mutation from hanging shutdown forever — DisposeAsync's own eventual
     // lifetime-cancel is still the backstop if the cap is reached. Static + delegate-shaped so a
-    // test can drive it without a live controller. Returns which arm won: false = the cap fired
+    // test can drive it without a live controller. False means the cap fired
     // with work still live, which the wizard handoff turns into a degraded (auto-actions closed)
-    // graph. A dead heat reads as false — never claim quiescence that wasn't observed.
+    // graph.
     internal static async Task<bool> AwaitQuiescedAsync(
             Func<Task> quiescedAsync, TimeSpan cap, TimeProvider time) {
-        var quiesced = quiescedAsync();
-
-        return await Task.WhenAny(quiesced, Task.Delay(cap, time)).ConfigureAwait(false) == quiesced;
+        return await quiescedAsync().FinishedWithinAsync(cap, time).ConfigureAwait(false);
     }
 
     // Split out of DisposeAndShutdownAsync so a test can pin the ordering with a recording list.

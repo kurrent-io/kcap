@@ -7,6 +7,11 @@
              ClipToBounds="False"
              IsVisible="{Binding HasLabel, FallbackValue=False}"
              AutomationProperties.Name="{Binding AccessibleName}">
+    <UserControl.Styles>
+        <Style Selector="views|AgentStatusMark.header TextBlock#StatusWord">
+            <Setter Property="AutomationProperties.LiveSetting" Value="Polite" />
+        </Style>
+    </UserControl.Styles>
     <ToolTip.Tip>
         <views:AgentStatusTip DataContext="{Binding}" />
     </ToolTip.Tip>

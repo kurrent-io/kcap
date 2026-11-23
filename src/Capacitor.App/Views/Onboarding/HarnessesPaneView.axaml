@@ -30,7 +30,7 @@
                                          Loaded="OnVisibilityLoaded" AutomationProperties.Name="{Binding Label}"
                                          AutomationProperties.HelpText="{Binding Detail}">
                                 <StackPanel Spacing="2">
-                                    <TextBlock Classes="onboardingLabel" FontSize="13" Text="{Binding Label}" />
+                                    <TextBlock Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeBody}" Text="{Binding Label}" />
                                     <TextBlock Classes="onboardingDetail" Text="{Binding Detail}" />
                                 </StackPanel>
                             </RadioButton>
@@ -53,17 +53,17 @@
                             </Panel>
                         </Border>
                         <StackPanel VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Classes="onboardingLabel" FontSize="15" Text="Looking for harnesses" />
-                            <TextBlock Classes="onboardingBody" FontSize="13">
+                            <TextBlock Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeLarge}" Text="Looking for harnesses" />
+                            <TextBlock Classes="onboardingBody" FontSize="{StaticResource KcapFontSizeBody}">
                                 <Run Text="on " /><Run Text="{Binding MachineName}" FontFamily="{StaticResource OnboardingMonoFont}" /><Run Text=" — usually a moment" />
                             </TextBlock>
                         </StackPanel>
                     </StackPanel>
-                    <StackPanel Spacing="6">
+                    <StackPanel Spacing="6" icons:PulseClock.IsActive="{Binding IsDetecting}">
                         <Border Height="44" CornerRadius="4" BorderThickness="1" BorderBrush="{StaticResource OnboardingPanelBorderBrush}"
-                                Background="{StaticResource OnboardingSkeletonBrush}" Classes="pulsing" />
+                                Background="{StaticResource OnboardingSkeletonBrush}" />
                         <Border Height="44" CornerRadius="4" BorderThickness="1" BorderBrush="{StaticResource OnboardingPanelBorderBrush}"
-                                Background="{StaticResource OnboardingSkeletonBrush}" Classes="pulsing" />
+                                Background="{StaticResource OnboardingSkeletonBrush}" />
                     </StackPanel>
                 </StackPanel>
 
@@ -113,7 +113,7 @@
                                                       ToolTip.Tip="{Binding Label, StringFormat='Give {0} kcap tools'}"
                                                       AutomationProperties.Name="{Binding Label, StringFormat='Give {0} kcap tools'}" />
                                             <TextBlock Grid.Row="0" Grid.RowSpan="2" Grid.Column="2" Text="BUNDLED" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                       FontSize="9.5" FontWeight="SemiBold" LetterSpacing="0.6"
+                                                       FontSize="{StaticResource KcapFontSizeCaption}" FontWeight="SemiBold" LetterSpacing="0.6"
                                                        Foreground="{StaticResource OnboardingDimBrush}" IsVisible="{Binding ToolsBundled}" />
                                         </Grid>
                                         <TextBlock Classes="onboardingDetail" Text="{Binding ConsentNote}" Margin="0,0,152,0"
@@ -138,7 +138,7 @@
                                   IsChecked="{Binding UseProviderApiKey, Mode=TwoWay}" IsEnabled="{Binding Idle}"
                                   AutomationProperties.Name="Use my provider API keys for titles and summaries" />
                         <StackPanel Grid.Column="1" Spacing="3">
-                            <TextBlock Classes="onboardingLabel" FontSize="13" Text="Use these API keys for kcap's own calls" />
+                            <TextBlock Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeBody}" Text="Use these API keys for kcap's own calls" />
                             <TextBlock Classes="onboardingDetail">
                                 <Run Text="{Binding ProviderKeyNotice}" /><Run Text="{Binding ProviderKeyDetail}" />
                             </TextBlock>

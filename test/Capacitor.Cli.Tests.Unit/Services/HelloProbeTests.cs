@@ -33,7 +33,7 @@ public class HelloProbeTests {
         public async ValueTask DisposeAsync() {
             _cts.Cancel();
             _listener.Dispose();
-            try { await _accept; } catch { }
+            try { await _accept; } catch { /* ignored */ }
         }
     }
 

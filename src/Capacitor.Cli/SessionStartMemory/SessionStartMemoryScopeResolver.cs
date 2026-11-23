@@ -28,10 +28,10 @@ internal sealed class SessionStartMemoryScopeResolver(
             }
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;
-        } catch { }
+        } catch { /* ignored */ }
         ct.ThrowIfCancellationRequested();
         if (Remaining() <= TimeSpan.Zero) throw new OperationCanceledException(ct);
-        try { machine = await MachineIdProvider.GetOrCreateAsync(config, ct); } catch (OperationCanceledException) { throw; } catch { }
+        try { machine = await MachineIdProvider.GetOrCreateAsync(config, ct); } catch (OperationCanceledException) { throw; } catch { /* ignored */ }
         return new SessionStartMemoryScope(repoHash, machine);
     }
 }

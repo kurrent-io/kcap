@@ -26,9 +26,9 @@ public sealed class SessionCommits(string path) {
             var cutoff = (time.GetUtcNow() - Retention).UtcDateTime;
 
             foreach (var file in Directory.EnumerateFiles(dir)) {
-                try { if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file); } catch { }
+                try { if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file); } catch { /* ignored */ }
             }
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>

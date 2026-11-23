@@ -129,7 +129,7 @@ internal sealed class SingleFlightReader<TState, TResult>(
         if (!waitForPending) return;
         foreach (var lease in leases) {
             if (lease.Pending is { } pending) {
-                try { await pending; } catch (Exception) { }
+                await pending.ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.SuppressThrowing);
             }
         }
         foreach (var lease in leases) lease.Cts.Dispose();

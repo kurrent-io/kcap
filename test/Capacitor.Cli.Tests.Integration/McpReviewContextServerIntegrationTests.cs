@@ -74,7 +74,7 @@ public class McpReviewContextServerIntegrationTests {
             await Assert.That(Directory.GetFileSystemEntries(config.Directory)).IsEmpty()
                 .Because("context mode must bypass auth/config and update-check state");
         } finally {
-            try { process.StandardInput.Close(); } catch { }
+            try { process.StandardInput.Close(); } catch { /* ignored */ }
             if (!process.WaitForExit(3000)) process.Kill(entireProcessTree: true);
         }
     }

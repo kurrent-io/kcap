@@ -14,7 +14,6 @@ public sealed class LocalBundlePrefetch(Func<IKcapCli> cli, CancellationToken li
 
     readonly Lock _lock = new();
     CancellationTokenSource? _interrupt;
-    Task _completion = Task.CompletedTask;
     bool _started;
     volatile bool _notPublished;
 
@@ -30,13 +29,13 @@ public sealed class LocalBundlePrefetch(Func<IKcapCli> cli, CancellationToken li
         }
     }
 
-    public bool Running => !_completion.IsCompleted;
+    public bool Running => !Completion.IsCompleted;
 
     /// The fetch found no bundle published for this version. A network failure or an interrupted fetch never sets it.
     public bool NotPublished => _notPublished;
 
     /// Completes once the fetch has exited, however it ended; never faults.
-    public Task Completion => _completion;
+    public Task Completion { get; private set; } = Task.CompletedTask;
 
     /// Spawns the fetch the first time it is called; every later call does nothing.
     public void Start() {
@@ -45,7 +44,7 @@ public sealed class LocalBundlePrefetch(Func<IKcapCli> cli, CancellationToken li
             _started = true;
             var interrupt = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
             _interrupt  = interrupt;
-            _completion = Task.Run(() => RunAsync(interrupt.Token), CancellationToken.None);
+            Completion = Task.Run(() => RunAsync(interrupt.Token), CancellationToken.None);
         }
     }
 

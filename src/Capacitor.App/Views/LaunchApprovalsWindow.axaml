@@ -17,7 +17,7 @@
                 CornerRadius="12" Padding="16,8">
                 <Grid>
                     <TextBlock Text="Loading…" Foreground="{StaticResource KcapMutedBrush}"
-                               FontSize="13.5" HorizontalAlignment="Center" VerticalAlignment="Center"
+                               FontSize="{StaticResource KcapFontSizeBody}" HorizontalAlignment="Center" VerticalAlignment="Center"
                                Margin="0,28"
                                IsVisible="{Binding IsLoading}" />
 
@@ -26,10 +26,10 @@
                                 HorizontalAlignment="Center" VerticalAlignment="Center">
                         <TextBlock x:Name="ActivityEmptyText" Text="No launch approvals yet"
                                    Foreground="{StaticResource KcapMutedBrush}"
-                                   FontSize="13.5" HorizontalAlignment="Center" />
+                                   FontSize="{StaticResource KcapFontSizeBody}" HorizontalAlignment="Center" />
                         <TextBlock Text="Approval decisions for launches on this machine appear here."
                                    Foreground="{StaticResource KcapFaintBrush}"
-                                   FontSize="12" TextWrapping="Wrap" MaxWidth="300"
+                                   FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap" MaxWidth="300"
                                    TextAlignment="Center" HorizontalAlignment="Center" />
                     </StackPanel>
 
@@ -61,19 +61,19 @@
                                                         <ColumnDefinition Width="Auto" />
                                                         <ColumnDefinition Width="*" MinWidth="0" />
                                                     </Grid.ColumnDefinitions>
-                                                    <TextBlock Grid.Column="0" Text="{Binding Outcome}" FontSize="12.5" FontWeight="SemiBold"
+                                                    <TextBlock Grid.Column="0" Text="{Binding Outcome}" FontSize="{StaticResource KcapFontSizeSmall}" FontWeight="SemiBold"
                                                                Foreground="{Binding IsAllowed, Converter={x:Static views:OutcomeBrushConverter.Instance}}" />
-                                                    <TextBlock Grid.Column="1" Text=" · " FontSize="12.5"
+                                                    <TextBlock Grid.Column="1" Text=" · " FontSize="{StaticResource KcapFontSizeSmall}"
                                                                Foreground="{StaticResource KcapTextBrush}" />
-                                                    <TextBlock Grid.Column="2" Text="{Binding PrimaryDetail}" FontSize="12.5"
+                                                    <TextBlock Grid.Column="2" Text="{Binding PrimaryDetail}" FontSize="{StaticResource KcapFontSizeSmall}"
                                                                Foreground="{StaticResource KcapTextBrush}"
                                                                TextTrimming="CharacterEllipsis" />
                                                 </Grid>
-                                                <TextBlock Text="{Binding SecondaryLine}" FontSize="12"
+                                                <TextBlock Text="{Binding SecondaryLine}" FontSize="{StaticResource KcapFontSizeSmall}"
                                                            Foreground="{StaticResource KcapMutedBrush}"
                                                            TextTrimming="CharacterEllipsis"
                                                            ToolTip.Tip="{Binding SecondaryTip}" />
-                                                <TextBlock Text="{Binding Time}" FontSize="11"
+                                                <TextBlock Text="{Binding Time}" FontSize="{StaticResource KcapFontSizeCaption}"
                                                            Foreground="{StaticResource KcapFaintBrush}"
                                                            ToolTip.Tip="{Binding TimeTip}" />
                                             </StackPanel>

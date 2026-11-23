@@ -26,7 +26,7 @@ public class DaemonHttpServicesTests {
 
     [Test]
     public async Task The_daemon_resolves_the_same_lanes_the_cli_does() {
-        using var sp = Provider("https://example.test");
+        await using var sp = Provider("https://example.test");
 
         await Assert.That(sp.GetService<ICapacitorHttpClient>()).IsNotNull();
         await Assert.That(sp.GetService<ISessionsApi>()).IsNotNull();
@@ -36,7 +36,7 @@ public class DaemonHttpServicesTests {
     /// is, so one the daemon fails to register first shows up on a live request, not at boot.
     [Test]
     public async Task Building_a_client_constructs_the_lane_handlers() {
-        using var sp = Provider("https://example.test");
+        await using var sp = Provider("https://example.test");
 
         using var client = sp.GetRequiredService<ICapacitorHttpClient>().Anonymous();
 
@@ -47,7 +47,7 @@ public class DaemonHttpServicesTests {
     /// than at each caller.
     [Test]
     public async Task The_server_the_lanes_target_carries_no_trailing_slash() {
-        using var sp = Provider("https://example.test/");
+        await using var sp = Provider("https://example.test/");
 
         await Assert.That(sp.GetRequiredService<CapacitorServer>().Url).IsEqualTo("https://example.test");
     }

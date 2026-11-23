@@ -1078,7 +1078,7 @@ public class WorktreeManagerTests {
             await Assert.That(File.ReadAllText(Path.Combine(externalChild, "sentinel.txt")))
                 .IsEqualTo("keep-me");
         } finally {
-            try { if (Path.Exists(borrowedSnapshots)) File.Delete(borrowedSnapshots); } catch { }
+            try { if (Path.Exists(borrowedSnapshots)) File.Delete(borrowedSnapshots); } catch { /* ignored */ }
         }
     }
 

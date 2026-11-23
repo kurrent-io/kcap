@@ -212,7 +212,7 @@ public class LocalSendTextTests {
 
         var rt2 = new FakeAcpRuntime();
         AgentOrchestratorHarness.SeedAcpAgent(orch, "a2", rt2);
-        using var throwing = new ThrowingStream();
+        await using var throwing = new ThrowingStream();
         await orch.HandleLocalSendTextAsync(Payload("a2", "two"), throwing, CancellationToken.None);
 
         await Assert.That(rt.SentInputs).IsEquivalentTo(new[] { "one" });

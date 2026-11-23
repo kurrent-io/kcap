@@ -165,7 +165,7 @@ public partial class LauncherPaneView : UserControl {
         var isScratch = option.RepoPath.Length == 0;
         var title = new TextBlock {
             Text = isScratch ? "No repository" : RepoLabel.Leaf(option.RepoPath),
-            FontSize = 13.5,
+            FontSize = TypeScale.Body,
             Foreground = this.Brush("KcapTextBrush"),
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         };
@@ -195,7 +195,7 @@ public partial class LauncherPaneView : UserControl {
 
         if (!isScratch) {
             var path = new TextBlock {
-                Text = option.RepoPath, FontSize = 10.5, Foreground = muted,
+                Text = option.RepoPath, FontSize = TypeScale.Caption, Foreground = muted,
                 Margin = new Thickness(0, 2, 0, 0),
             };
             Grid.SetRow(path, 1);
@@ -240,7 +240,7 @@ public partial class LauncherPaneView : UserControl {
     Button MachineRow(HomeViewModel vm, MachineOption option, IBrush muted, Flyout flyout) {
         var title = new TextBlock {
             Text = option.DaemonName,
-            FontSize = 13.5,
+            FontSize = TypeScale.Body,
             Foreground = option.Connected ? this.Brush("KcapTextBrush") : muted,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         };
@@ -249,7 +249,7 @@ public partial class LauncherPaneView : UserControl {
 
         var subtitle = new TextBlock {
             Text = option.IsLocal ? "This machine" : option.Connected ? "Connected" : "Offline",
-            FontSize = 10.5, Foreground = muted, Margin = new Thickness(0, 2, 0, 0),
+            FontSize = TypeScale.Caption, Foreground = muted, Margin = new Thickness(0, 2, 0, 0),
         };
 
         var grid = new Grid {
@@ -336,12 +336,12 @@ public partial class LauncherPaneView : UserControl {
         input.Classes.Add("kcapField");
         AutomationProperties.SetName(input, $"Repository path on {vm.SelectedMachine}");
         var error = new TextBlock {
-            FontSize = 11.5, Foreground = this.Brush("KcapDangerBrush"), IsVisible = false,
+            FontSize = TypeScale.Small, Foreground = this.Brush("KcapDangerBrush"), IsVisible = false,
             TextWrapping = TextWrapping.Wrap, MaxWidth = 320,
         };
         var hint = new TextBlock {
             Text = "Checked on that machine when the session starts.",
-            FontSize = 11.5, Foreground = this.Brush("KcapMutedBrush"),
+            FontSize = TypeScale.Small, Foreground = this.Brush("KcapMutedBrush"),
         };
 
         var body = new StackPanel { Spacing = 6, Margin = new Thickness(10) };
@@ -385,7 +385,7 @@ public partial class LauncherPaneView : UserControl {
         // Typing while the lists load must still narrow them, so this is the text before any await.
         var initial = input.Text;
         var error = new TextBlock {
-            FontSize = 11.5, Foreground = this.Brush("KcapDangerBrush"), IsVisible = false,
+            FontSize = TypeScale.Small, Foreground = this.Brush("KcapDangerBrush"), IsVisible = false,
             TextWrapping = TextWrapping.Wrap, MaxWidth = 280,
         };
 
@@ -480,7 +480,7 @@ public partial class LauncherPaneView : UserControl {
     }
 
     TextBlock BranchNote(string text) => new() {
-        Text = text, FontSize = 11.5, Foreground = this.Brush("KcapMutedBrush"), Margin = new Thickness(10, 4),
+        Text = text, FontSize = TypeScale.Small, Foreground = this.Brush("KcapMutedBrush"), Margin = new Thickness(10, 4),
     };
 
     Control BranchRow(HomeViewModel vm, string branch, bool isDefault, Action choose) {
@@ -490,7 +490,7 @@ public partial class LauncherPaneView : UserControl {
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
         };
         grid.Children.Add(new TextBlock {
-            Text = branch, FontSize = 13.5, Foreground = this.Brush("KcapTextBrush"),
+            Text = branch, FontSize = TypeScale.Body, Foreground = this.Brush("KcapTextBrush"),
             TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         });
         if (isDefault) {
@@ -510,7 +510,7 @@ public partial class LauncherPaneView : UserControl {
     Control RecentBaseRefRow(HomeViewModel vm, string baseRef, Panel section, Action choose) {
         var selected = vm.SelectedBaseRef == baseRef;
         var title = new TextBlock {
-            Text = baseRef, FontSize = 13.5, Foreground = this.Brush("KcapTextBrush"),
+            Text = baseRef, FontSize = TypeScale.Body, Foreground = this.Brush("KcapTextBrush"),
             TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         };
         var grid = new Grid {

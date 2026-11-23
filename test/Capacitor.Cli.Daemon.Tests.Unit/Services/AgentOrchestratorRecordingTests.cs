@@ -666,7 +666,7 @@ public class AgentOrchestratorRecordingTests {
         var input = new MemoryStream();
         await FrameCodec.WriteAsync(input, LocalFrame.Detach(), CancellationToken.None);
         input.Position = 0;
-        using var client = new DuplexTestStream(input, new MemoryStream());
+        await using var client = new DuplexTestStream(input, new MemoryStream());
 
         await f.Orch.HandleLocalSpawnAsync(FrameCodec.Spawn("claude", WorkLocation.BorrowedCwd, isPrivate, f.Checkout, [], 80, 24), client, CancellationToken.None);
     }

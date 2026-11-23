@@ -18,7 +18,7 @@ sealed class SetupFacadeFactory(
     public OnboardingFacade Create(
             ITenantProvisioner? provisioner, ITenantPicker? picker = null, RequestedWorkspace? requested = null,
             IAuthProgress? progress = null) =>
-        new OnboardingFacade(config, store, httpFactory, proxy, github, workos, progress ?? SetupCommand.StepProgress, browser,
+        new(config, store, httpFactory, proxy, github, workos, progress ?? SetupCommand.StepProgress, browser,
             picker ?? SetupCommand.DefaultPicker(browser, () => true, time), provisioner, telemetry, endpoints,
             time, SetupCommand.WorkspaceGuard(requested)) {
             KeyWatcher      = ConsoleKeyWatcher.Instance,

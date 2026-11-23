@@ -48,7 +48,7 @@ public class ExperimentalSettingsStoreTests {
     [Test]
     public async Task A_reader_holding_the_file_does_not_refuse_a_save() {
         await Store.SetAsync("default", "codex-app-server", false, CancellationToken.None);
-        using var reader = new FileStream(FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        await using var reader = new FileStream(FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 
         await Assert.That(await Store.SetAsync("default", "codex-app-server", true, CancellationToken.None)).IsTrue();
         await Assert.That(Store.Load("default").IsEnabled("codex-app-server")).IsTrue();

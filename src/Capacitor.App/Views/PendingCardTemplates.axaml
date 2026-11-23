@@ -5,15 +5,15 @@
     <!-- The three NEEDS YOU card kinds. Every pane that answers a prompt renders them from here,
          so a card looks and behaves the same whether the agent runs on this machine or another. -->
     <DataTemplate x:Key="PermissionCardTemplate" x:DataType="vm:PermissionCardViewModel">
-        <Border x:Name="PermissionCard" Classes="chatPromptCard">
+        <Border x:Name="PermissionCard" Classes="chatPromptCard" AutomationProperties.LiveSetting="Assertive">
             <StackPanel Spacing="6">
                 <views:ChatKindHeader Label="Permission" IconKind="{x:Static views:ToolCategoryIcons.PermissionIcon}" />
-                <TextBlock Text="{Binding ToolName}" FontSize="13" TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}" />
-                <TextBlock Text="{Binding Detail}" FontSize="11.5" Foreground="{StaticResource KcapMutedBrush}"
+                <TextBlock Text="{Binding ToolName}" FontSize="{StaticResource KcapFontSizeBody}" TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}" />
+                <TextBlock Text="{Binding Detail}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}"
                            TextTrimming="{x:Static views:ChatTrimming.MiddleEllipsis}" />
-                <TextBlock Text="{Binding WaitingOn}" FontSize="11.5" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
+                <TextBlock Text="{Binding WaitingOn}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
                            IsVisible="{Binding WaitingOn, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                <TextBlock Text="{Binding ErrorText}" FontSize="11" Foreground="{StaticResource KcapDangerBrush}"
+                <TextBlock Text="{Binding ErrorText}" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapDangerBrush}"
                            IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <StackPanel IsVisible="{Binding OffersAnswers}">
                     <ItemsControl ItemsSource="{Binding Options}" IsVisible="{Binding HasOptions}" HorizontalAlignment="Right">
@@ -21,7 +21,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:AcpOptionViewModel">
                                 <Button Classes="acpOption" Command="{Binding PickCommand}" ToolTip.Tip="{Binding Description}"
-                                        Margin="0,0,6,6" Padding="10,4" FontSize="12" CornerRadius="7" MaxWidth="632"
+                                        Margin="0,0,6,6" Padding="10,4" FontSize="{StaticResource KcapFontSizeSmall}" CornerRadius="7" MaxWidth="632"
                                         HorizontalContentAlignment="Stretch">
                                     <TextBlock Text="{Binding Label}" TextWrapping="Wrap" />
                                 </Button>
@@ -29,9 +29,9 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" IsVisible="{Binding !HasOptions}">
-                        <Button Classes="kcapChip" Content="Deny" Command="{Binding DenyCommand}" Padding="10,4" FontSize="12" CornerRadius="7" />
-                        <Button Classes="kcapChip" Content="Allow always" Command="{Binding AllowAlwaysCommand}" IsVisible="{Binding ShowsAllowAlways}" Padding="10,4" FontSize="12" CornerRadius="7" />
-                        <Button Classes="kcapPrimary" Content="Allow" Command="{Binding AllowCommand}" Padding="12,4" FontSize="12" FontWeight="SemiBold" />
+                        <Button Classes="kcapChip" Content="Deny" Command="{Binding DenyCommand}" Padding="10,4" FontSize="{StaticResource KcapFontSizeSmall}" CornerRadius="7" />
+                        <Button Classes="kcapChip" Content="Allow always" Command="{Binding AllowAlwaysCommand}" IsVisible="{Binding ShowsAllowAlways}" Padding="10,4" FontSize="{StaticResource KcapFontSizeSmall}" CornerRadius="7" />
+                        <Button Classes="kcapPrimary" Content="Allow" Command="{Binding AllowCommand}" Padding="12,4" FontSize="{StaticResource KcapFontSizeSmall}" FontWeight="SemiBold" />
                     </StackPanel>
                 </StackPanel>
             </StackPanel>
@@ -43,7 +43,7 @@
             <Border.Styles>
                 <Style Selector="TextBlock.prompt">
                     <Setter Property="FontWeight" Value="SemiBold" />
-                    <Setter Property="FontSize" Value="15" />
+                    <Setter Property="FontSize" Value="{StaticResource KcapFontSizeLarge}" />
                     <Setter Property="LineHeight" Value="21" />
                     <Setter Property="TextWrapping" Value="Wrap" />
                     <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
@@ -93,7 +93,7 @@
                     <Setter Property="BorderThickness" Value="1" />
                     <Setter Property="CornerRadius" Value="999" />
                     <Setter Property="Padding" Value="10,3" />
-                    <Setter Property="FontSize" Value="11.5" />
+                    <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
                     <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
                     <Setter Property="Cursor" Value="Hand" />
                     <Setter Property="FocusAdorner" Value="{x:Null}" />
@@ -151,7 +151,7 @@
                     <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
                     <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
                     <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
-                    <Setter Property="Opacity" Value="0.45" />
+                    <Setter Property="Opacity" Value="{StaticResource KcapDisabledOpacity}" />
                 </Style>
             </Border.Styles>
             <StackPanel Spacing="10" IsEnabled="{Binding !IsBusy}">
@@ -200,9 +200,9 @@
                                                         <Border Classes="indicator" CornerRadius="3" IsVisible="{Binding IsMulti}" />
                                                     </Panel>
                                                     <StackPanel Spacing="3">
-                                                        <TextBlock Text="{Binding Label}" FontSize="14" FontWeight="Medium" TextWrapping="Wrap"
+                                                        <TextBlock Text="{Binding Label}" FontSize="{StaticResource KcapFontSizeLarge}" FontWeight="Medium" TextWrapping="Wrap"
                                                                    Foreground="{StaticResource KcapTextBrush}" />
-                                                        <TextBlock Text="{Binding Description}" FontSize="12.5" LineHeight="18" TextWrapping="Wrap"
+                                                        <TextBlock Text="{Binding Description}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="18" TextWrapping="Wrap"
                                                                    Foreground="{StaticResource KcapMutedBrush}"
                                                                    IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                                     </StackPanel>
@@ -214,11 +214,11 @@
                                 <DockPanel IsVisible="{Binding #QuestionCard.((vm:QuestionCardViewModel)DataContext).OffersAnswers, FallbackValue=True}">
                                     <Button DockPanel.Dock="Right" Content="Answer" Command="{Binding EnterCommand}"
                                             IsVisible="{Binding ShowsOtherAnswer}" Margin="6,0,0,0"
-                                            Padding="12,5" FontSize="13"
+                                            Padding="12,5" FontSize="{StaticResource KcapFontSizeBody}"
                                             Classes="kcapPrimary" />
                                     <TextBox Classes="kcapField" Text="{Binding OtherText}" PlaceholderText="Other…"
                                              IsEnabled="{Binding #QuestionCard.((vm:QuestionCardViewModel)DataContext).CanAnswer, FallbackValue=True}"
-                                             MaxLength="{Binding MaxOtherLength}" AcceptsReturn="False" FontSize="13" MinHeight="34">
+                                             MaxLength="{Binding MaxOtherLength}" AcceptsReturn="False" FontSize="{StaticResource KcapFontSizeBody}" MinHeight="34">
                                         <TextBox.KeyBindings>
                                             <KeyBinding Gesture="Enter" Command="{Binding EnterCommand}" />
                                         </TextBox.KeyBindings>
@@ -229,7 +229,7 @@
                     </ContentControl.ContentTemplate>
                 </ContentControl>
                 <StackPanel Spacing="8" IsVisible="{Binding IsOnReview}">
-                    <TextBlock Text="Review your answers" FontWeight="SemiBold" FontSize="15" Foreground="{StaticResource KcapTextBrush}" />
+                    <TextBlock Text="Review your answers" FontWeight="SemiBold" FontSize="{StaticResource KcapFontSizeLarge}" Foreground="{StaticResource KcapTextBrush}" />
                     <ItemsControl ItemsSource="{Binding Questions}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
@@ -240,10 +240,10 @@
                             <DataTemplate x:DataType="vm:QuestionGroupViewModel">
                                 <Button Classes="reviewRow" Command="{Binding EditCommand}" AutomationProperties.Name="{Binding Text}">
                                     <StackPanel Spacing="3">
-                                        <TextBlock Text="{Binding Text}" FontSize="12.5" TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
-                                        <TextBlock Text="{Binding AnswerSummary}" FontSize="14" FontWeight="Medium" TextWrapping="Wrap"
+                                        <TextBlock Text="{Binding Text}" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
+                                        <TextBlock Text="{Binding AnswerSummary}" FontSize="{StaticResource KcapFontSizeLarge}" FontWeight="Medium" TextWrapping="Wrap"
                                                    Foreground="{StaticResource KcapTextBrush}" IsVisible="{Binding IsAnswered}" />
-                                        <TextBlock Text="Not answered" FontSize="14" Foreground="{StaticResource KcapWarningBrush}"
+                                        <TextBlock Text="Not answered" FontSize="{StaticResource KcapFontSizeLarge}" Foreground="{StaticResource KcapWarningBrush}"
                                                    IsVisible="{Binding !IsAnswered}" />
                                     </StackPanel>
                                 </Button>
@@ -251,9 +251,9 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </StackPanel>
-                <TextBlock Text="{Binding WaitingOn}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
+                <TextBlock Text="{Binding WaitingOn}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
                            IsVisible="{Binding WaitingOn, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                <TextBlock Text="{Binding ErrorText}" FontSize="12" Foreground="{StaticResource KcapDangerBrush}"
+                <TextBlock Text="{Binding ErrorText}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapDangerBrush}"
                            IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <DockPanel>
                     <DockPanel.IsVisible>
@@ -264,15 +264,15 @@
                     </DockPanel.IsVisible>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
                         <Button Content="Back" Classes="kcapGhost" Command="{Binding BackCommand}" IsVisible="{Binding ShowsSteps}"
-                                Padding="12,5" FontSize="13" CornerRadius="7" />
+                                Padding="12,5" FontSize="{StaticResource KcapFontSizeBody}" CornerRadius="7" />
                         <Button Content="{Binding NextLabel}" Command="{Binding NextCommand}" IsVisible="{Binding ShowsNext}"
-                                Padding="14,5" FontSize="13" FontWeight="SemiBold"
+                                Padding="14,5" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
                                 Classes="kcapPrimary" />
                         <Button Content="Submit" Command="{Binding SubmitCommand}" IsVisible="{Binding ShowsSubmit}"
-                                Padding="14,5" FontSize="13" FontWeight="SemiBold"
+                                Padding="14,5" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
                                 Classes="kcapPrimary" />
                     </StackPanel>
-                    <TextBlock Text="{Binding StepLabel}" FontSize="11.5" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding StepLabel}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
                 </DockPanel>
             </StackPanel>
         </Border>
@@ -283,7 +283,7 @@
 
             <StackPanel Spacing="10" IsEnabled="{Binding !IsBusy}">
                 <views:ChatKindHeader Label="Question" IconKind="{x:Static views:ToolCategoryIcons.QuestionIcon}" />
-                <TextBlock Text="{Binding Prompt}" FontWeight="SemiBold" FontSize="15" LineHeight="21" TextWrapping="Wrap"
+                <TextBlock Text="{Binding Prompt}" FontWeight="SemiBold" FontSize="{StaticResource KcapFontSizeLarge}" LineHeight="21" TextWrapping="Wrap"
                            Foreground="{StaticResource KcapTextBrush}" />
                 <StackPanel Spacing="10" IsVisible="{Binding OffersAnswers}">
                     <ItemsControl ItemsSource="{Binding Options}" IsVisible="{Binding IsMultiSelect}">
@@ -309,11 +309,11 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <TextBox Classes="kcapField" Text="{Binding FreeText}" PlaceholderText="Type your answer…"
-                             IsVisible="{Binding !HasOptions}" IsEnabled="{Binding CanAnswer}" AcceptsReturn="False" FontSize="13" MinHeight="34" />
+                             IsVisible="{Binding !HasOptions}" IsEnabled="{Binding CanAnswer}" AcceptsReturn="False" FontSize="{StaticResource KcapFontSizeBody}" MinHeight="34" />
                 </StackPanel>
-                <TextBlock Text="{Binding WaitingOn}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
+                <TextBlock Text="{Binding WaitingOn}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
                            IsVisible="{Binding WaitingOn, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                <TextBlock Text="{Binding ErrorText}" FontSize="12" Foreground="{StaticResource KcapDangerBrush}"
+                <TextBlock Text="{Binding ErrorText}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapDangerBrush}"
                            IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
                     <StackPanel.IsVisible>
@@ -323,7 +323,7 @@
                         </MultiBinding>
                     </StackPanel.IsVisible>
                     <Button Content="Submit" Command="{Binding SubmitCommand}"
-                            Padding="14,5" FontSize="13" FontWeight="SemiBold"
+                            Padding="14,5" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
                             Classes="kcapPrimary" />
                 </StackPanel>
             </StackPanel>

@@ -688,7 +688,7 @@ public class PiRpcHostedAgentRuntimeTests {
         var (rt, proc) = NewRuntime(stopGrace: TimeSpan.FromSeconds(5));
         await using var _ = rt;
         proc.ExitsOnInputClose  = true;
-        proc.LinesOnInputClose = [PiRpcRuntimeFakes.AssistantText("final words")];
+        proc.LinesOnInputClose = [AssistantText("final words")];
 
         await rt.WaitForSessionReadyAsync(CancellationToken.None).WaitAsync(HangGuard);
         while (rt.Envelopes.TryRead(out var _)) { }

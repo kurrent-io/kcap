@@ -193,7 +193,7 @@ public class LaunchConsentBrokerTests {
         // arrival vs. a TimeoutException that then hits the recheck), the recheck can only ever
         // observe a non-empty subscriber set. That is "arrival wins ties", made deterministic
         // instead of a hardware race between two real threads.
-        using var trigger = time.CreateTimer(
+        await using var trigger = time.CreateTimer(
             _ => broker.Subscribe(), null, budget - TimeSpan.FromMilliseconds(1), Timeout.InfiniteTimeSpan);
 
         time.Advance(budget);

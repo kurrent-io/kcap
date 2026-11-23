@@ -301,7 +301,7 @@ public class CursorTailingWatcherTests {
             // exactly 3, matching the file's true 3 complete lines; no permanent gap opens up.
             await Assert.That(drainRead.NextPosition).IsEqualTo(3);
         } finally {
-            try { File.Delete(Markers.QuarantinePath(sessionId)); } catch { }
+            try { File.Delete(Markers.QuarantinePath(sessionId)); } catch { /* ignored */ }
         }
     }
 }

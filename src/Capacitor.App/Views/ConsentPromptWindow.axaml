@@ -13,7 +13,7 @@
     <Grid Margin="20" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
         <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
             <TextBlock Grid.Column="0" x:Name="RequesterText" Text="{Binding RequesterText}"
-                       FontSize="16" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
+                       FontSize="{StaticResource KcapFontSizeLarge}" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
             <TextBlock Grid.Column="1" x:Name="PositionText" Text="{Binding PositionText}"
                        IsVisible="{Binding PositionVisible}" Opacity="0.7" VerticalAlignment="Center" />
         </Grid>

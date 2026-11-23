@@ -329,6 +329,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                 .DisposeWith(_disposables);
 
         Groups = new ReadOnlyObservableCollection<RailGroupViewModel>(_groupsSource);
+        Observable.FromEventPattern<NotifyCollectionChangedEventHandler, NotifyCollectionChangedEventArgs>(
+                handler => _groupsSource.CollectionChanged += handler, handler => _groupsSource.CollectionChanged -= handler)
+            .Subscribe(_ => QualifyRepositoryLabels())
+            .DisposeWith(_disposables);
         directory.Rows.Connect()
             .Filter(_stateFilter)
             .ObserveOn(RxSchedulers.MainThreadScheduler)
@@ -437,9 +441,9 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             _ => true,
         };
 
-    string GroupKeyOf(AgentRow row) => GroupKey(row, _grouping, _today, _time.LocalTimeZone, _work.GetValueOrDefault(row.Key));
+    string GroupKeyOf(AgentRow row) => GroupKey(row, _grouping, _time.LocalTimeZone, _work.GetValueOrDefault(row.Key));
 
-    internal static string GroupKey(AgentRow row, RailGrouping grouping, DateOnly today, TimeZoneInfo zone, RunningWork work = default) => grouping switch {
+    internal static string GroupKey(AgentRow row, RailGrouping grouping, TimeZoneInfo zone, RunningWork work = default) => grouping switch {
         RailGrouping.Repository => row.RepoGroupKey,
         // Invariant: a Buddhist or Hijri culture would write its own year into a key the label parses
         // back as Gregorian and the preferences persist.
@@ -469,6 +473,12 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         },
         _ => "",
     };
+
+    void QualifyRepositoryLabels() {
+        var repositories = _groupsSource.Where(g => g.Kind == RailGrouping.Repository).ToList();
+        var shown = RailGroupLabels.Disambiguate([.. repositories.Select(g => (g.Key, g.BaseLabel))]);
+        foreach (var group in repositories) group.Relabel(shown[group.Key], qualified: true);
+    }
 
     string DayLabel(string key) {
         if (!DateOnly.TryParseExact(key["day:".Length..], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day)) return key;
@@ -506,7 +516,9 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     static int CompareRepositories(RailGroupViewModel a, RailGroupViewModel b) {
         var byNoRepo = a.IsNoRepository.CompareTo(b.IsNoRepository);
         if (byNoRepo != 0) return byNoRepo;
-        var byLabel = StringComparer.OrdinalIgnoreCase.Compare(a.Label, b.Label);
+        // The label before qualification: a qualified label changes as groups come and go, and the
+        // groups it tells apart stay side by side, in key order, which is their folder path's order.
+        var byLabel = StringComparer.OrdinalIgnoreCase.Compare(a.BaseLabel, b.BaseLabel);
         return byLabel != 0 ? byLabel : string.CompareOrdinal(a.Key, b.Key);
     }
 

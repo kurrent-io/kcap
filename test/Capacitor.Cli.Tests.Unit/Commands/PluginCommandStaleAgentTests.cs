@@ -25,9 +25,9 @@ public sealed class PluginCommandStaleAgentTests {
 
     [Test]
     public async Task A_first_install_names_a_session_that_was_already_running() {
-        using var onPath   = new KcapOnPath();
-        using var home     = new TempHome();
-        using var pipe     = new StringWriter();
+        using var onPath     = new KcapOnPath();
+        using var home       = new TempHome();
+        await using var pipe = new StringWriter();
         var env = Env(home.Path, pipe, found: [Running], onPath.Probe);
         SeedAgent(env, installed: false);
 
@@ -39,9 +39,9 @@ public sealed class PluginCommandStaleAgentTests {
 
     [Test]
     public async Task Re_installing_over_an_existing_agent_says_nothing() {
-        using var onPath   = new KcapOnPath();
-        using var home     = new TempHome();
-        using var pipe     = new StringWriter();
+        using var onPath     = new KcapOnPath();
+        using var home       = new TempHome();
+        await using var pipe = new StringWriter();
         var env = Env(home.Path, pipe, found: [Running], onPath.Probe);
         SeedAgent(env, installed: true);
 
@@ -57,9 +57,9 @@ public sealed class PluginCommandStaleAgentTests {
 
     [Test]
     public async Task A_first_install_with_nothing_running_says_nothing() {
-        using var onPath   = new KcapOnPath();
-        using var home     = new TempHome();
-        using var pipe     = new StringWriter();
+        using var onPath     = new KcapOnPath();
+        using var home       = new TempHome();
+        await using var pipe = new StringWriter();
         var env = Env(home.Path, pipe, found: [], onPath.Probe);
         SeedAgent(env, installed: false);
 
@@ -70,9 +70,9 @@ public sealed class PluginCommandStaleAgentTests {
 
     [Test]
     public async Task An_install_that_failed_claims_nothing_about_future_sessions() {
-        using var onPath   = new KcapOnPath();
-        using var home     = new TempHome();
-        using var pipe     = new StringWriter();
+        using var onPath     = new KcapOnPath();
+        using var home       = new TempHome();
+        await using var pipe = new StringWriter();
         var env = Env(home.Path, pipe, found: [Running], onPath.Probe);
 
         // A directory where the agent JSON belongs: the clone can't write it, the command exits

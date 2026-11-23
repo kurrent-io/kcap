@@ -490,7 +490,7 @@ public class AgentOrchestratorAccountTests {
         var readBuf = new MemoryStream();
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
         readBuf.Position = 0;
-        using var client = new DuplexTestStream(readBuf, new MemoryStream());
+        await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
         await orch.HandleLocalSpawnAsync(
             FrameCodec.Spawn("claude", WorkLocation.BorrowedCwd, isPrivate: true, cwd, [], 80, 24, accountId: accountId), client, default);

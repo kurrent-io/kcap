@@ -305,7 +305,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 // so it never makes a server round-trip on the shutdown path. A failure here still
                 // must not turn a loop exit into a fault.
                 if (streams is not null) {
-                    try { await streams.DisposeAsync().ConfigureAwait(false); } catch (Exception) { }
+                    try { await streams.DisposeAsync().ConfigureAwait(false); } catch (Exception) { /* ignored */ }
                 }
             }
 
@@ -613,7 +613,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 await source.DisposeAsync().ConfigureAwait(false);
                 if (!refused && hub.State == HubConnectionState.Connected) {
                     try { await hub.InvokeAsync(SignalRSubscriptionMethods.Unsubscribe, stream, CancellationToken.None).ConfigureAwait(false); }
-                    catch (Exception) { }
+                    catch (Exception) { /* ignored */ }
                 }
             }
         } finally {
@@ -768,9 +768,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         return false;
     }
 
-    static async Task AwaitQuietly(Task t) {
-        try { await t.ConfigureAwait(false); } catch { }
-    }
+    static async Task AwaitQuietly(Task t) => await t.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
     public async ValueTask DisposeAsync() {
         _lifetime.Cancel();

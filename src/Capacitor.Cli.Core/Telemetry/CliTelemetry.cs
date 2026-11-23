@@ -198,7 +198,7 @@ public sealed class CliTelemetry {
             if (_debug) Console.Error.WriteLine($"[telemetry] {name} {DebugRender(properties)}");
 
             _sink.Enqueue(e);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>
@@ -210,7 +210,7 @@ public sealed class CliTelemetry {
             if (!Enabled) return;
 
             lock (_sharedGate) _shared[name] = value;
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>
@@ -227,7 +227,7 @@ public sealed class CliTelemetry {
                 foreach (var (name, value) in properties)
                     _shared[name] = value?.DeepClone();
             }
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>
@@ -274,7 +274,7 @@ public sealed class CliTelemetry {
             }
 
             Capture("cli_command", props);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     public async Task FlushAndClose() {
@@ -282,7 +282,7 @@ public sealed class CliTelemetry {
             if (!StillEnabled() || StillWaiting() || DeviceId() is not { } deviceId) return;
 
             await _sink.FlushAsync(deviceId, _orgGroup, FlushBudget);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>The id to send under, minted on the first flush after a wait ends.</summary>
@@ -322,7 +322,7 @@ public sealed class CliTelemetry {
 
             _unsaved = UnsavedConsent.Share;
             if (_root is { } root) Announce(root);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>The caller saved an opt-in: the wait ends, and what was held goes with the next flush.</summary>
@@ -333,7 +333,7 @@ public sealed class CliTelemetry {
 
             _unsaved = UnsavedConsent.Share;
             Announce(config);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>A choice saved since the wait began, by this process or another, ends it.</summary>
@@ -374,7 +374,7 @@ public sealed class CliTelemetry {
         try {
             _sink.Abandon();
             Enabled = false;
-        } catch { }
+        } catch { /* ignored */ }
         return false;
     }
 
@@ -393,7 +393,7 @@ public sealed class CliTelemetry {
             _choiceOpen = false;
             _sink.Discard();
             Enabled = false;
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>
@@ -426,7 +426,7 @@ public sealed class CliTelemetry {
 
             // Once per device only if the marker that says so was saved; otherwise the next run shows it again.
             if (TelemetryState.MarkNoticeShown(config)) Capture("cli_first_run", new JsonObject());
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>Whether the desktop app still owes this device the one-time disclosure.</summary>
@@ -447,7 +447,7 @@ public sealed class CliTelemetry {
             // Sent now: the marker is already saved, so an app killed before its next flush would
             // otherwise lose the once-per-device event for good. An unsaved marker shows the notice again.
             if (TelemetryState.MarkNoticeShown(config)) CaptureNow("cli_first_run", new JsonObject());
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>

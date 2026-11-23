@@ -8,7 +8,7 @@ namespace Capacitor.Cli.LocalEdition;
 static class LocalServerActivityReader {
     /// <summary>The plist keeps a job alive only after a failure, so a clean exit is final.</summary>
     public static UnitActivity FromPrint(int exitCode, string stdout, string stderr) {
-        switch (LaunchdPrint.Classify(exitCode, stdout, stderr)) {
+        switch (LaunchdPrint.Classify(exitCode, stderr)) {
             case LabelProbe.Absent:  return UnitActivity.Stopped.Instance;
             case LabelProbe.Unknown: return new UnitActivity.Unknown($"launchctl print failed (exit {exitCode}): {LaunchdUnit.ToolError(stderr)}");
         }

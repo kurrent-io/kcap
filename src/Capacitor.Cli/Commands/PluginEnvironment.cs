@@ -60,7 +60,7 @@ public sealed record PluginEnvironment(
     /// whatever <c>opencode</c> this machine has.</summary>
     public Func<string?> OpenCodeVersion {
         get => field ?? (() => new VendorVersionResolver(Binaries).Resolve("opencode"));
-        init => field = value;
+        init;
     }
 
     /// <summary>The cross-vendor <c>~/.agents</c> tree. Derived from <see cref="Home"/> rather than

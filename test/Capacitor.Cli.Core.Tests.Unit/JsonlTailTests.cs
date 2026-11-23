@@ -119,7 +119,7 @@ public class JsonlTailTests {
     [Test]
     public async Task Reads_a_file_another_handle_holds_open_for_writing() {
         var path = Tmp.PathTo("live.jsonl");
-        using var writer = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+        await using var writer = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
         writer.Write(Encoding.UTF8.GetBytes("{\"a\":1}\n"));
         writer.Flush();
 

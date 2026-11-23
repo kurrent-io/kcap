@@ -20,7 +20,7 @@ public sealed class PageBridge : IAsyncDisposable {
     public static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(5000);
     public static readonly FrozenSet<string> InboundTypes = new[] { "ready", "submit", "refresh" }.ToFrozenSet(StringComparer.Ordinal);
     static readonly string[] ResultsFields = ["mode", "version", "closed", "revealed"];
-    static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement.Clone();
+    static readonly JsonElement EmptyObject = JsonElement.Parse("{}");
 
     // The host script's own cap on the page's message, plus room for the nonce wrapper.
     const int MaxRawLength = 256 * 1024 + 256;
@@ -259,7 +259,7 @@ public sealed class PageBridge : IAsyncDisposable {
     async Task PostAsync(Action<Utf8JsonWriter> write) {
         if (_disposed.IsCancellationRequested) return;
         var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer)) {
+        await using (var writer = new Utf8JsonWriter(buffer)) {
             writer.WriteStartObject();
             write(writer);
             writer.WriteEndObject();

@@ -424,7 +424,7 @@ public class ScriptUpdaterTests {
         var exe = tmp.CreateFile("1.0.0/bin/kcap");
 
         await Assert.That(ScriptUpdater.AnyFileInUse(dir)).IsFalse();
-        using (new FileStream(exe, FileMode.Open, FileAccess.Read, FileShare.Read))
+        await using (new FileStream(exe, FileMode.Open, FileAccess.Read, FileShare.Read))
             await Assert.That(ScriptUpdater.AnyFileInUse(dir)).IsTrue();
         await Assert.That(ScriptUpdater.AnyFileInUse(dir)).IsFalse();
     }
@@ -437,7 +437,7 @@ public class ScriptUpdaterTests {
         var outside = tmp.CreateFile("elsewhere/held");
         File.CreateSymbolicLink(tmp.PathTo("1.0.0/held"), outside);
 
-        using (new FileStream(outside, FileMode.Open, FileAccess.Read, FileShare.Read))
+        await using (new FileStream(outside, FileMode.Open, FileAccess.Read, FileShare.Read))
             await Assert.That(ScriptUpdater.AnyFileInUse(dir)).IsFalse();
     }
 }

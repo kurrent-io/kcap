@@ -16,7 +16,6 @@ public sealed class ChatFindViewModel : ReactiveObject {
     List<ChatFindMatch> _matches = [];
     bool _isOpen;
     string _query = "";
-    int _currentIndex = -1;
     readonly Action<ChatFindState?>? _remember;
     (int ItemIndex, int Ordinal)? _returnTo;
 
@@ -65,13 +64,13 @@ public sealed class ChatFindViewModel : ReactiveObject {
 
     public IReadOnlyList<ChatFindMatch> Matches => _matches;
     public int MatchCount => _matches.Count;
-    public int CurrentIndex => _currentIndex;
-    public ChatFindMatch? Current => _currentIndex >= 0 && _currentIndex < _matches.Count ? _matches[_currentIndex] : null;
+    public int CurrentIndex { get; private set; } = -1;
+    public ChatFindMatch? Current => CurrentIndex >= 0 && CurrentIndex < _matches.Count ? _matches[CurrentIndex] : null;
     public bool HasMatches => _matches.Count > 0;
 
     public string Summary => ActiveQuery is null ? ""
         : _matches.Count == 0 ? "No results"
-        : $"{_currentIndex + 1} of {_matches.Count}";
+        : $"{CurrentIndex + 1} of {_matches.Count}";
 
     public ReactiveCommand<Unit, Unit> NextCommand { get; }
     public ReactiveCommand<Unit, Unit> PreviousCommand { get; }
@@ -111,8 +110,8 @@ public sealed class ChatFindViewModel : ReactiveObject {
     void Step(int delta) {
         if (_matches.Count == 0) return;
         _returnTo = null;
-        var next = _currentIndex < 0 ? (delta > 0 ? 0 : _matches.Count - 1)
-            : (_currentIndex + delta + _matches.Count) % _matches.Count;
+        var next = CurrentIndex < 0 ? (delta > 0 ? 0 : _matches.Count - 1)
+            : (CurrentIndex + delta + _matches.Count) % _matches.Count;
         SetMatches(_matches, next);
         Navigated?.Invoke(Current);
     }
@@ -145,7 +144,7 @@ public sealed class ChatFindViewModel : ReactiveObject {
         var matches = Collect();
         var current = was is null ? (matches.Count > 0 ? 0 : -1)
             : matches.FindIndex(m => ReferenceEquals(m.Item, was.Item) && m.Ordinal == was.Ordinal);
-        if (current < 0 && matches.Count > 0) current = Math.Min(_currentIndex, matches.Count - 1);
+        if (current < 0 && matches.Count > 0) current = Math.Min(CurrentIndex, matches.Count - 1);
         if (ReturnTo(matches) is { } back) {
             SetMatches(matches, back);
             Navigated?.Invoke(Current);
@@ -176,7 +175,7 @@ public sealed class ChatFindViewModel : ReactiveObject {
     void SetMatches(List<ChatFindMatch> matches, int current) {
         var countChanged = matches.Count != _matches.Count;
         _matches = matches;
-        _currentIndex = current;
+        CurrentIndex = current;
         if (Current?.Item is { } item) Reveal(item);
         if (countChanged) {
             this.RaisePropertyChanged(nameof(MatchCount));

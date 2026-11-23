@@ -119,7 +119,7 @@ public class TokenStoreProfileTests {
         Directory.CreateDirectory(TokensDir);
         var store = AuthFixtures.NewTokenStore(Config.Root);
         Task save;
-        using (new FileStream(Path.Combine(TokensDir, "acme.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
+        await using (new FileStream(Path.Combine(TokensDir, "acme.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
             save = store.SaveAsync("acme", MakeTokens("alice"));
             await Task.Delay(200);
             await Assert.That(save.IsCompleted).IsFalse();
@@ -297,7 +297,7 @@ public class TokenStoreProfileTests {
         await File.WriteAllTextAsync(temp, "secret");
 
         Task logout;
-        using (new FileStream(Path.Combine(TokensDir, "acme.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
+        await using (new FileStream(Path.Combine(TokensDir, "acme.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
             logout = AuthFixtures.NewTokenStore(Config.Root).DeleteAsync();
             await Task.Delay(200);
             await Assert.That(File.Exists(temp)).IsTrue();
@@ -390,7 +390,7 @@ public class TokenStoreProfileTests {
         var alphaPath = Path.Combine(TokensDir, "alpha.json");
 
         Task logout;
-        using (new FileStream(Path.Combine(TokensDir, "alpha.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
+        await using (new FileStream(Path.Combine(TokensDir, "alpha.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
             logout = store.DeleteAsync();
             await Task.Delay(200);
             await Assert.That(File.Exists(alphaPath)).IsTrue();
@@ -410,7 +410,7 @@ public class TokenStoreProfileTests {
             System.Text.Json.JsonSerializer.Serialize(MakeTokens("legacy"), CapacitorJsonContext.Default.StoredTokens));
 
         Task logout;
-        using (new FileStream(Path.Combine(TokensDir, "default.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
+        await using (new FileStream(Path.Combine(TokensDir, "default.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
             logout = AuthFixtures.NewTokenStore(Config.Root).DeleteAsync();
             await Task.Delay(200);
             await Assert.That(File.Exists(LegacyPath)).IsTrue();

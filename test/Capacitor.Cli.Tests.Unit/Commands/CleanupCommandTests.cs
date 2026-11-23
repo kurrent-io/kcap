@@ -24,7 +24,7 @@ public class CleanupCommandTests {
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        using (new FileStream(pidFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        await using (new FileStream(pidFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             exit = await new CleanupCommand(watchers, new StandardStreams(stdout, stderr, TextReader.Null)).HandleCleanup();
 
         await Assert.That(exit).IsEqualTo(1);
