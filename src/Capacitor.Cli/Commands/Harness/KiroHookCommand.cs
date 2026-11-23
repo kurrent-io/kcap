@@ -259,11 +259,10 @@ sealed class KiroHookCommand(
         }
 
         var hookBudget = clock.Budget(Ceiling);
-        return await HandleAgentSpawn(node, dashedSessionId, sessionId, cwd, activeProfile, spool, hookBudget);
+        return await HandleAgentSpawn(dashedSessionId, sessionId, cwd, activeProfile, spool, hookBudget);
     }
 
     async Task<int> HandleAgentSpawn(
-            JsonNode   node,
             string     dashedSessionId,
             string     sessionId,
             string?    cwd,

@@ -8,7 +8,7 @@ public sealed record AccountSettingsRow(string? Id, string Vendor, string Direct
     public string StateLabel => RecordingStateLabels.Label(Vendor, RecordingState);
     public bool StateIsAttention => RecordingStateLabels.IsAttention(Vendor, RecordingState);
     public bool StateIsHealthy => RecordingStateLabels.IsHealthy(Vendor, RecordingState);
-    public string? StateHint => IsUnregisteredDefault ? null : RecordingStateLabels.Hint(Vendor, RecordingState, Directory);
+    public string? StateHint => IsUnregisteredDefault ? null : RecordingStateLabels.Hint(Vendor, RecordingState);
     public string? StateCommand => RecordingStateLabels.Command(Vendor, RecordingState, Directory);
     public bool IsUnregisteredDefault => Id is null;
     /// A state with something to explain gets the banner below the usage instead of a badge.

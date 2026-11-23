@@ -139,9 +139,9 @@ public class ImportScopeFilterTests {
         var skip        = new ImportSkip([("acme", "secret")], ["/w/scratch/"]);
 
         var all = await ImportScopeFilter.Apply(transcripts, new ImportScope.All(), resolver,
-            folderOf: id => folders.GetValueOrDefault(id), skip: skip);
+            folderOf: folders.GetValueOrDefault, skip: skip);
         var org = await ImportScopeFilter.Apply(transcripts, new ImportScope.Org("acme"), resolver,
-            folderOf: id => folders.GetValueOrDefault(id), skip: skip);
+            folderOf: folders.GetValueOrDefault, skip: skip);
 
         await Assert.That(all.Select(x => x.SessionId).ToArray()).IsEquivalentTo(["a", "d"]);
         await Assert.That(org.Select(x => x.SessionId).ToArray()).IsEquivalentTo(["a"]);
@@ -154,7 +154,7 @@ public class ImportScopeFilterTests {
         var folders     = new Dictionary<string, string> { ["b"] = "/w/scratch", ["c"] = "/w/notes" };
 
         var kept = await ImportScopeFilter.Apply(transcripts, new ImportScope.Repo([("acme", "web")], ["/w/scratch"]), resolver,
-            folderOf: id => folders.GetValueOrDefault(id));
+            folderOf: folders.GetValueOrDefault);
 
         await Assert.That(kept.Select(x => x.SessionId).ToArray()).IsEquivalentTo(["a", "b"]);
     }

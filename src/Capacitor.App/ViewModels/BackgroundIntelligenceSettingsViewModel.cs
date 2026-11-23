@@ -52,7 +52,6 @@ public sealed class BackgroundIntelligenceSettingsViewModel : ReactiveObject, ID
     IntelligenceSettings? _server;
     // False after a saved mode could not be read back: the preferences shown may be stale.
     bool                  _fresh;
-    bool                  _needsUpdate;
     bool                  _disposed;
     bool                  _visible;
     bool                  _writing;
@@ -129,13 +128,13 @@ public sealed class BackgroundIntelligenceSettingsViewModel : ReactiveObject, ID
         }
     }
 
-    public bool IsLoading => _server is null && Busy && !_needsUpdate;
+    public bool IsLoading => _server is null && Busy && !NeedsUpdate;
 
-    public bool NeedsUpdate => _needsUpdate;
+    public bool NeedsUpdate { get; private set; }
 
-    public string? NeedsUpdateText => _needsUpdate ? Line(IntelligenceRefusals.Describe(IntelligenceSettingsClient.NeedsUpdate)) : null;
+    public string? NeedsUpdateText => NeedsUpdate ? Line(IntelligenceRefusals.Describe(IntelligenceSettingsClient.NeedsUpdate)) : null;
 
-    public bool ShowsControls => _server is not null && !_needsUpdate;
+    public bool ShowsControls => _server is not null && !NeedsUpdate;
 
     public string? ReadError => _readError;
 
@@ -263,10 +262,10 @@ public sealed class BackgroundIntelligenceSettingsViewModel : ReactiveObject, ID
                     Apply(settings);
                     _fresh       = true;
                     _readError   = null;
-                    _needsUpdate = false;
+                    NeedsUpdate = false;
                     break;
                 case IntelligenceSettingsOutcome.Refused { Error: IntelligenceSettingsClient.NeedsUpdate }:
-                    _needsUpdate = true;
+                    NeedsUpdate = true;
                     break;
                 case IntelligenceSettingsOutcome.Refused { Error: var code }:
                     _readError = Line(IntelligenceRefusals.Describe(code));
@@ -362,10 +361,10 @@ public sealed class BackgroundIntelligenceSettingsViewModel : ReactiveObject, ID
                         .ConfigureAwait(true)) {
                 case IntelligenceSettingsOutcome.Read { Settings: var settings }:
                     Apply(settings, resetLimit: request.BacklogSessionTouchesPerDay is not null);
-                    _needsUpdate = false;
+                    NeedsUpdate = false;
                     break;
                 case IntelligenceSettingsOutcome.Refused { Error: IntelligenceSettingsClient.NeedsUpdate }:
-                    _needsUpdate = true;
+                    NeedsUpdate = true;
                     break;
                 case var other:
                     refused(Problem(other));

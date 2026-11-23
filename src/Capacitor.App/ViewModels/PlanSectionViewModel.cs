@@ -24,7 +24,6 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     readonly AvaloniaList<PlanTaskRow> _tasks = [];
     readonly AvaloniaList<PlanTaskRow> _inProgress = [];
     readonly ITimer _settle;
-    IReadOnlyList<PlanTaskCount> _counts = [];
     bool _tornDown;
     bool _serverDown;
     bool _unreachable;
@@ -50,7 +49,7 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     public string HeaderText => $"{DoneCount} of {_tasks.Count} done";
     /// Pending, in progress, done: one entry per state something is in, so the numbers add up
     /// to the list.
-    public IReadOnlyList<PlanTaskCount> Counts => _counts;
+    public IReadOnlyList<PlanTaskCount> Counts { get; private set; } = [];
 
     public bool IsExpanded {
         get;
@@ -178,8 +177,8 @@ public sealed class PlanSectionViewModel : ReactiveObject {
 
     void SyncCounts() {
         var counts = CountStates();
-        if (!counts.SequenceEqual(_counts)) {
-            _counts = counts;
+        if (!counts.SequenceEqual(Counts)) {
+            Counts = counts;
             this.RaisePropertyChanged(nameof(Counts));
         }
     }

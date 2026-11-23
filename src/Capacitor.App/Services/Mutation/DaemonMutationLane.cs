@@ -390,12 +390,12 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
             MutationVerb.DetachedStart => ClassifyDetachedStartAsync(request, result, observation, attemptId, ct),
             MutationVerb.Reload        => ClassifyReloadAsync(request, result, executor, observation, predecessor, ct),
             MutationVerb.Repoint       => ClassifyRepointAsync(request, result, executor, observation, predecessor, ct),
-            var verb when verb.IsAccountVerb() => ClassifyAccountVerbAsync(request, result, ct),
+            var verb when verb.IsAccountVerb() => ClassifyAccountVerbAsync(result, ct),
             _                          => ClassifyServiceVerbAsync(request, result, executor, observation, ct),
         };
 
     // The CLI reports Succeeded with a failed non-fatal step; the lane counts any failed step as a failure.
-    async Task<MutationOutcome> ClassifyAccountVerbAsync(MutationRequest request, ProcessResult result, CancellationToken ct) {
+    async Task<MutationOutcome> ClassifyAccountVerbAsync(ProcessResult result, CancellationToken ct) {
         // A killed run may or may not have committed, whatever it printed; the next snapshot shows which.
         if (result.TimedOut) return new MutationOutcome.Unconfirmed("timeout");
         // The CLI prints a result even for a failed action, so a nonzero exit without one never reached the command.

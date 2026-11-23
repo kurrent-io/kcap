@@ -131,7 +131,7 @@ sealed partial class LaunchdServiceManager(
         var (code, stdout, stderr, timedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
         // A killed-on-timeout print told us nothing about the label — never let its kill exit code
         // masquerade as a real classification; report Unknown so nothing destructive follows.
-        var probe = timedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(code, stdout, stderr);
+        var probe = timedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(code, stderr);
         var state = probe == LabelProbe.Loaded ? LaunchdUnit.StatusFromPrint(code, stdout) : ServiceState.NotInstalled;
         var loaded = probe == LabelProbe.Loaded;
         return new ServiceQuery(probe, unitPresent, state, bin,
@@ -188,8 +188,8 @@ sealed partial class LaunchdServiceManager(
     LabelProbe? WaitUnloaded(string serviceId, long started) {
         var label = LabelProbe.Unknown;
         while (UnloadWait - time.GetElapsedTime(started) is var left && left > TimeSpan.Zero) {
-            var (exit, stdout, stderr, timedOut) = RunCtl(left, LaunchdUnit.PrintArgs(Uid(), serviceId));
-            label = timedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(exit, stdout, stderr);
+            var (exit, _, stderr, timedOut) = RunCtl(left, LaunchdUnit.PrintArgs(Uid(), serviceId));
+            label = timedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(exit, stderr);
             if (label == LabelProbe.Absent) return null;
             Thread.Sleep(UnloadPoll);
         }
@@ -278,7 +278,7 @@ sealed partial class LaunchdServiceManager(
             bool leaveStoppedUnloaded, string? preimagePath, Func<string, string?>? amend, out string? error) {
         error = null;
         var (printExit, printOut, printErr, printTimedOut) = RunCtl(RefreshCtlTimeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
-        var probe = printTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(printExit, printOut, printErr);
+        var probe = printTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(printExit, printErr);
 
         var binary = ReadBinaryPathSafe(path);
         var target = binary is not null && stabilize is not null ? stabilize(binary) : binary;
@@ -469,7 +469,7 @@ sealed partial class LaunchdServiceManager(
 
     (LabelProbe Label, string StdOut) Probe(string serviceId) {
         var (exit, stdout, stderr, timedOut) = RunCtl(RefreshCtlTimeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
-        return (timedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(exit, stdout, stderr), stdout);
+        return (timedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(exit, stderr), stdout);
     }
 
     /// <summary>
@@ -513,8 +513,8 @@ sealed partial class LaunchdServiceManager(
         }
 
         if (bootoutExit != 0) {
-            var (queryExit, stdout, stderr, queryTimedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
-            var probe = queryTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(queryExit, stdout, stderr);
+            var (queryExit, _, stderr, queryTimedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
+            var probe = queryTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(queryExit, stderr);
 
             if (probe != LabelProbe.Absent) {
                 error = $"launchctl bootout failed (exit {bootoutExit}) and the label is still {probe} — plist retained: {path}";
@@ -538,8 +538,8 @@ sealed partial class LaunchdServiceManager(
     public bool Start(string serviceId, TimeSpan t, out string? error) => StartCore(serviceId, t, out error);
 
     bool StartCore(string serviceId, TimeSpan? timeout, out string? error) {
-        var (probeExit, probeOut, probeErr, probeTimedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
-        var probe = probeTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(probeExit, probeOut, probeErr);
+        var (probeExit, _, probeErr, probeTimedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
+        var probe = probeTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(probeExit, probeErr);
 
         switch (probe) {
             case LabelProbe.Absent:
@@ -574,8 +574,8 @@ sealed partial class LaunchdServiceManager(
     /// the caller's forward remainder, including its separately reserved rollback budget).</summary>
     public bool StartBootstrapOnly(string serviceId, TimeSpan timeout, out string? error) {
         var started = time.GetTimestamp();
-        var (probeExit, probeOut, probeErr, probeTimedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
-        var probe = probeTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(probeExit, probeOut, probeErr);
+        var (probeExit, _, probeErr, probeTimedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
+        var probe = probeTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(probeExit, probeErr);
 
         if (probe != LabelProbe.Absent) {
             error = $"cannot bootstrap-only '{serviceId}': launchctl print shows the label {probe} — refusing to kickstart";
@@ -615,8 +615,8 @@ sealed partial class LaunchdServiceManager(
         }
 
         if (bootoutExit != 0) {
-            var (queryExit, stdout, stderr, queryTimedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
-            var probe = queryTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(queryExit, stdout, stderr);
+            var (queryExit, _, stderr, queryTimedOut) = RunCtl(timeout, LaunchdUnit.PrintArgs(Uid(), serviceId));
+            var probe = queryTimedOut ? LabelProbe.Unknown : LaunchdPrint.Classify(queryExit, stderr);
 
             if (probe != LabelProbe.Absent) {
                 error = $"launchctl bootout failed (exit {bootoutExit}) and the label is still {probe}";

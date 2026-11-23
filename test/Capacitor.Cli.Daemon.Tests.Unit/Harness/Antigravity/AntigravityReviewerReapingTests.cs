@@ -178,7 +178,7 @@ public class AntigravityReviewerReapingTests {
         public async Task<HostedRuntimeStart> StartAsync(RuntimeStartContext ctx, CancellationToken ct) {
             var runtime = new AntigravityHostedAgentRuntime(
                 spawnTurn: (_, _, _) => Task.FromResult<IAgyTurnProcess>(new FakeAgyTurnProcess(
-                    FakeTurn.NeverEnds, AntigravityRuntimeFakes.FixedConversationId,
+                    FakeTurn.NeverEnds, FixedConversationId,
                     pid: Environment.ProcessId)),
                 logger: NullLogger.Instance,
                 agentId: ctx.AgentId, timeProvider: TimeProvider.System);

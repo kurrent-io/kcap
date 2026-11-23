@@ -92,7 +92,7 @@ public class ChatBookmarksTests {
             bookmarks.Add(["a"], two);
             bookmarks.Add(["two"], two);
             bookmarks.ToggleMessageCommand.Execute(two).Subscribe();
-            await Assert.That(bookmarks.Sections.Select(static s => s.Topic?.Label)).IsEquivalentTo(new string?[] { null, "Point 1", "Point 2" }, CollectionOrdering.Matching);
+            await Assert.That(bookmarks.Sections.Select(static s => s.Topic?.Label)).IsEquivalentTo(new[] { null, "Point 1", "Point 2" }, CollectionOrdering.Matching);
             await Assert.That(bookmarks.Sections[0].Bookmarks.Select(static b => b.Text)).IsEquivalentTo(["intro"], CollectionOrdering.Matching);
             await Assert.That(bookmarks.Sections[1].Bookmarks).IsEmpty();
             await Assert.That(bookmarks.Sections[2].Bookmarks.Select(static b => (b.Text, b.Quote))).IsEquivalentTo(
@@ -102,7 +102,7 @@ public class ChatBookmarksTests {
             var after = new AssistantTextItem("After");
             items.Add(after);
             bookmarks.Add(["late"], after);
-            await Assert.That(bookmarks.Sections.Select(static s => s.Topic?.Label)).IsEquivalentTo(new string?[] { null, "Point 1", "Point 2", null }, CollectionOrdering.Matching);
+            await Assert.That(bookmarks.Sections.Select(static s => s.Topic?.Label)).IsEquivalentTo(new[] { null, "Point 1", "Point 2", null }, CollectionOrdering.Matching);
             await Assert.That(bookmarks.Sections[3].Bookmarks.Select(static b => b.Text)).IsEquivalentTo(["late"], CollectionOrdering.Matching);
         });
     }

@@ -1139,7 +1139,7 @@ class ImportCommand(
                     (t, _) => new ValueTask<(string?, string?)>(
                         resolved.TryGetValue(t.SessionId, out var v) && v is { } x ? (x.Owner, x.Name) : (null, null)
                     ),
-                    folderOf: sid => sessionCwds.GetValueOrDefault(sid),
+                    folderOf: sessionCwds.GetValueOrDefault,
                     skip: skip
                 ))
                 .Select(t => t.SessionId)

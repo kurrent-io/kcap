@@ -210,7 +210,7 @@ public sealed record DiscoveredTenant {
     /// <see cref="TenantDiscovery.NameProfiles"/> matched an existing profile on its server.</summary>
     [JsonIgnore] public string ProfileName {
         get => field ?? (IsWorkOS ? (Slug ?? OrganizationId ?? "tenant") : OrgLogin);
-        init => field = value;
+        init;
     }
 
     [JsonIgnore] public string Label       => !string.IsNullOrEmpty(DisplayName) ? DisplayName : OrgLogin;

@@ -704,7 +704,7 @@ public class AcpTranscriptForwarderTests {
             patch,
             noItem,
             NewEphemeralEnvelope("t", "thought"),
-            new AcpEventEnvelope { Kind = AcpEventKind.AssistantThinking, Text = "t!", ItemId = "thought", Seq = 1 },
+            new() { Kind = AcpEventKind.AssistantThinking, Text = "t!", ItemId = "thought", Seq = 1 },
         ];
 
         var kept = AcpTranscriptForwarder.DropSupersededEphemerals(drained);

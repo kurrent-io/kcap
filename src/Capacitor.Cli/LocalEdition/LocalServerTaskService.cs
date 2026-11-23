@@ -121,7 +121,7 @@ sealed class LocalServerTaskService(
         _writeUnit(wrapper, LocalServerTaskUnit.Wrapper(unit, StopMarker(unit)), WindowsScheduledTaskServiceManager.WrapperEncoding);
 
         var xml = LocalServerTaskUnit.XmlPath(home, unit);
-        _writeUnit(xml, LocalServerTaskUnit.TaskXml(unit, wrapper), Encoding.Unicode);
+        _writeUnit(xml, LocalServerTaskUnit.TaskXml(wrapper), Encoding.Unicode);
 
         var (exit, _, err) = _schtasks(LocalServerTaskUnit.CreateArgs(unit, xml));
         File.Delete(xml);

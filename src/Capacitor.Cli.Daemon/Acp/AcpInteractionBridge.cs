@@ -90,7 +90,7 @@ internal sealed partial class AcpInteractionBridge(
     /// so a caller downstream can tell "we couldn't even parse this" apart from
     /// "we understood it and it wasn't allowed."
     /// </summary>
-    JsonElement? UnadmittableFrame(AcpRequest request, string why) {
+    JsonElement? UnadmittableFrame(string why) {
         if (unattendedPolicy == AcpUnattendedInteractionPolicy.AllowlistedAutoApprove) {
             logger.LogWarning("ACP: reaping unattended reviewer — {Why} (agent {AgentId})", why, agentId);
             unexpectedUnattendedInteraction?.Invoke($"unattended_frame_unadmittable: {why}");
@@ -309,14 +309,14 @@ internal sealed partial class AcpInteractionBridge(
 
         try {
             if (request.Params is not { } p)
-                return UnadmittableFrame(request, "session/request_permission had no params");
+                return UnadmittableFrame("session/request_permission had no params");
 
             parsed = p.Deserialize(CapacitorJsonContext.Default.SessionRequestPermissionParams)
                 ?? throw new JsonException("null params");
         } catch (JsonException ex) {
             logger.LogDebug(ex, "ACP: malformed session/request_permission params for agent {AgentId}", agentId);
 
-            return UnadmittableFrame(request, "malformed session/request_permission params");
+            return UnadmittableFrame("malformed session/request_permission params");
         }
 
         // The request's OWN params are the sole source of truth for
@@ -325,7 +325,7 @@ internal sealed partial class AcpInteractionBridge(
         if (string.IsNullOrEmpty(parsed.SessionId)) {
             logger.LogDebug("ACP: session/request_permission params carried no sessionId for agent {AgentId}; cannot correlate, defaulting to cancelled", agentId);
 
-            return UnadmittableFrame(request, "session/request_permission carried no sessionId");
+            return UnadmittableFrame("session/request_permission carried no sessionId");
         }
 
         // System.Text.Json does NOT enforce

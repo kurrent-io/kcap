@@ -11,7 +11,7 @@
         </ItemsControl.ItemsPanel>
         <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="vm:StagedAttachmentViewModel">
-                <Border Classes="attachmentChip" Margin="0,0,6,4" Padding="5,4" CornerRadius="8"
+                <Border Margin="0,0,6,4" Padding="5,4" CornerRadius="8"
                         Background="{StaticResource KcapSurfaceRaisedBrush}"
                         BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
                         ToolTip.Tip="{Binding FileName}">

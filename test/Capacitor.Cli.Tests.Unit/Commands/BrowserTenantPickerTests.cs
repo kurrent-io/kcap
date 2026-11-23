@@ -85,8 +85,7 @@ public class BrowserTenantPickerTests {
     static TenantPickContext Context(StubProxy proxy, bool viaLoopback = true, int version = 1) =>
         new(Bearer: "tok", Proxy: proxy, ProxyUrl: "https://auth.test", ViaLoopback: viaLoopback, PickerVersion: version);
 
-    static (BrowserTenantPicker Picker, FakeTimeProvider Time) Build(
-            StubProxy proxy, IKeyWatcher? keys = null, StubLauncher? launcher = null, Func<bool>? canPrompt = null) {
+    static (BrowserTenantPicker Picker, FakeTimeProvider Time) Build(IKeyWatcher? keys = null, StubLauncher? launcher = null, Func<bool>? canPrompt = null) {
         var time = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
         // Non-interactive fallback: it returns null rather than opening a Spectre prompt the test
         // host cannot answer, which makes "fell back" observable as a null.
@@ -123,7 +122,7 @@ public class BrowserTenantPickerTests {
         var proxy = new StubProxy { Prepared = Ready(DateTimeOffset.UnixEpoch.AddMinutes(10)) };
         proxy.Polls.Enqueue(new CliPickerResultResponse { Status = "selected", Key = "org_b" });
 
-        var (picker, _) = Build(proxy);
+        var (picker, _) = Build();
         var picked = await picker.PickAsync(Two, Context(proxy), CancellationToken.None);
 
         await Assert.That(picked).IsNotNull();
@@ -141,7 +140,7 @@ public class BrowserTenantPickerTests {
         var proxy = new StubProxy { Prepared = Ready(DateTimeOffset.UnixEpoch.AddMinutes(10)) };
         proxy.Polls.Enqueue(new CliPickerResultResponse { Status = "selected", Key = "org_vanished" });
 
-        var (picker, _) = Build(proxy);
+        var (picker, _) = Build();
         var picked = await picker.PickAsync(Two, Context(proxy), CancellationToken.None);
 
         await Assert.That(picked).IsNull();
@@ -153,7 +152,7 @@ public class BrowserTenantPickerTests {
         var proxy    = new StubProxy { Prepared = Ready(DateTimeOffset.UnixEpoch.AddMinutes(10)) };
         var launcher = new StubLauncher();
 
-        var (picker, _) = Build(proxy, launcher: launcher);
+        var (picker, _) = Build(launcher: launcher);
         await picker.PickAsync(Two, Context(proxy, viaLoopback: false), CancellationToken.None);
 
         await Assert.That(launcher.Opened).IsNull();
@@ -165,7 +164,7 @@ public class BrowserTenantPickerTests {
     public async Task A_proxy_that_does_not_advertise_the_picker_is_not_asked() {
         var proxy = new StubProxy { Prepared = Ready(DateTimeOffset.UnixEpoch.AddMinutes(10)) };
 
-        var (picker, _) = Build(proxy);
+        var (picker, _) = Build();
         await picker.PickAsync(Two, Context(proxy, version: 0), CancellationToken.None);
 
         await Assert.That(proxy.PreparedWithBearer).IsNull();
@@ -176,7 +175,7 @@ public class BrowserTenantPickerTests {
     public async Task Github_rows_go_to_the_terminal() {
         var proxy = new StubProxy { Prepared = Ready(DateTimeOffset.UnixEpoch.AddMinutes(10)) };
 
-        var (picker, _) = Build(proxy);
+        var (picker, _) = Build();
         await picker.PickAsync([GitHub("acme"), GitHub("globex")], Context(proxy), CancellationToken.None);
 
         await Assert.That(proxy.PreparedWithBearer).IsNull();
@@ -186,7 +185,7 @@ public class BrowserTenantPickerTests {
     public async Task A_prepare_that_fails_falls_back_instead_of_failing_the_setup() {
         var proxy = new StubProxy { Prepared = null };
 
-        var (picker, _) = Build(proxy);
+        var (picker, _) = Build();
         var picked = await picker.PickAsync(Two, Context(proxy), CancellationToken.None);
 
         // Null is the non-interactive fallback declining, not an exception escaping.
@@ -202,7 +201,7 @@ public class BrowserTenantPickerTests {
         var proxy = new StubProxy { Prepared = Ready(DateTimeOffset.UnixEpoch.AddMinutes(10)) };
         proxy.Polls.Enqueue(new CliPickerResultResponse { Status = "selected", Key = "org_b" });
 
-        var (picker, _) = Build(proxy, keys: new StubKeys(available: true));
+        var (picker, _) = Build(keys: new StubKeys(available: true));
         var picked = await picker.PickAsync(Two, Context(proxy), CancellationToken.None);
 
         await Assert.That(picked).IsNull();
@@ -218,7 +217,7 @@ public class BrowserTenantPickerTests {
         var proxy = new StubProxy { Prepared = Ready(DateTimeOffset.UnixEpoch.AddMinutes(-1)) };
         proxy.Polls.Enqueue(new CliPickerResultResponse { Status = "selected", Key = "org_b" });
 
-        var (picker, _) = Build(proxy);
+        var (picker, _) = Build();
         var picked = await picker.PickAsync(Two, Context(proxy), CancellationToken.None);
 
         await Assert.That(picked).IsNull();
@@ -230,7 +229,7 @@ public class BrowserTenantPickerTests {
         var proxy = new StubProxy { Prepared = Ready(DateTimeOffset.UnixEpoch.AddMinutes(10)) };
         proxy.Polls.Enqueue(new CliPickerResultResponse { Status = "expired" });
 
-        var (picker, _) = Build(proxy);
+        var (picker, _) = Build();
         var picked = await picker.PickAsync(Two, Context(proxy), CancellationToken.None);
 
         await Assert.That(picked).IsNull();
@@ -242,7 +241,7 @@ public class BrowserTenantPickerTests {
         var launcher = new StubLauncher();
         proxy.Polls.Enqueue(new CliPickerResultResponse { Status = "selected", Key = "org_a" });
 
-        var (picker, _) = Build(proxy, launcher: launcher);
+        var (picker, _) = Build(launcher: launcher);
         await picker.PickAsync(Two, Context(proxy), CancellationToken.None);
 
         await Assert.That(launcher.Opened).IsEqualTo("https://auth.test/cli/v1/picker/h1");
@@ -257,7 +256,7 @@ public class BrowserTenantPickerTests {
         var proxy    = new StubProxy { Prepared = Ready(DateTimeOffset.UnixEpoch.AddMinutes(10)) };
         var launcher = new StubLauncher();
 
-        var (picker, _) = Build(proxy, launcher: launcher, canPrompt: () => false);
+        var (picker, _) = Build(launcher: launcher, canPrompt: () => false);
         await picker.PickAsync(Two, Context(proxy), CancellationToken.None);
 
         await Assert.That(launcher.Opened).IsNull();
@@ -273,7 +272,7 @@ public class BrowserTenantPickerTests {
         var proxy = new StubProxy { Prepared = Ready(DateTimeOffset.UnixEpoch.AddMinutes(10)) };
         proxy.Polls.Enqueue(new CliPickerResultResponse { Status = "selected", Key = "org_a" });
 
-        var (picker, _) = Build(proxy);
+        var (picker, _) = Build();
         await picker.PickAsync(Two, Context(proxy), CancellationToken.None);
 
         await Assert.That(proxy.PolledWithSecret).IsNotNull();
@@ -292,7 +291,7 @@ public class BrowserTenantPickerTests {
         proxy.Polls.Enqueue(new CliPickerResultResponse { Status = "pending" });
         proxy.Polls.Enqueue(new CliPickerResultResponse { Status = "selected", Key = "org_b" });
 
-        var (picker, time) = Build(proxy);
+        var (picker, time) = Build();
         var pick = picker.PickAsync(Two, Context(proxy), CancellationToken.None);
 
         time.Advance(TimeSpan.FromSeconds(5));
@@ -309,7 +308,7 @@ public class BrowserTenantPickerTests {
             }
         };
 
-        var (picker, _) = Build(proxy);
+        var (picker, _) = Build();
 
         await Assert.That(await picker.PickAsync(Two, Context(proxy), CancellationToken.None)).IsNull();
         await Assert.That(proxy.Polls_).IsEqualTo(0);
@@ -343,7 +342,7 @@ public class BrowserTenantPickerTests {
         var proxy = new StubProxy { Prepared = Ready(DateTimeOffset.UnixEpoch.AddMinutes(10)) };
         for (var i = 0; i < 20; i++) proxy.Polls.Enqueue(null);
 
-        var (picker, time) = Build(proxy);
+        var (picker, time) = Build();
         var picked = await Drive(picker.PickAsync(Two, Context(proxy), CancellationToken.None), time);
 
         await Assert.That(picked).IsNull();
@@ -360,7 +359,7 @@ public class BrowserTenantPickerTests {
         proxy.Polls.Enqueue(null);
         proxy.Polls.Enqueue(new CliPickerResultResponse { Status = "selected", Key = "org_b" });
 
-        var (picker, time) = Build(proxy);
+        var (picker, time) = Build();
 
         await Assert.That((await Drive(picker.PickAsync(Two, Context(proxy), CancellationToken.None), time))?
             .OrganizationId).IsEqualTo("org_b");
@@ -379,7 +378,7 @@ public class BrowserTenantPickerTests {
             }
         };
 
-        var (picker, _) = Build(proxy);
+        var (picker, _) = Build();
 
         await Assert.That(await picker.PickAsync(Two, Context(proxy), CancellationToken.None)).IsNull();
         await Assert.That(proxy.Polls_).IsEqualTo(0);
@@ -394,7 +393,7 @@ public class BrowserTenantPickerTests {
         var proxy = new StubProxy { Prepared = Ready(DateTimeOffset.UnixEpoch.AddMinutes(10)) };
         proxy.Polls.Enqueue(new CliPickerResultResponse { Status = "selected", Key = "org_b" });
 
-        var (picker, _) = Build(proxy, launcher: new StubLauncher(opens: false));
+        var (picker, _) = Build(launcher: new StubLauncher(opens: false));
         var picked = await picker.PickAsync(Two, Context(proxy), CancellationToken.None);
 
         await Assert.That(picked).IsNull();

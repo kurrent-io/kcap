@@ -8,9 +8,6 @@ namespace Capacitor.App.ViewModels;
 public sealed class BackgroundIntelligenceOption : ReactiveObject {
     public const string ProviderToken = IntelligenceOption.ProviderToken;
 
-    bool _found = true;
-    bool _isSelected;
-
     BackgroundIntelligenceOption(string token, string label, string? detail, bool isAgent) {
         Token   = token;
         Label   = label;
@@ -33,20 +30,20 @@ public sealed class BackgroundIntelligenceOption : ReactiveObject {
 
     /// Whether this computer can run the agent; only an agent can be missing.
     public bool Found {
-        get => _found;
+        get;
         internal set {
-            this.RaiseAndSetIfChanged(ref _found, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(CanSelect));
             this.RaisePropertyChanged(nameof(NotFound));
         }
-    }
+    } = true;
 
     public bool CanSelect => Found;
 
     public bool NotFound => !Found;
 
     public bool IsSelected {
-        get => _isSelected;
-        set => this.RaiseAndSetIfChanged(ref _isSelected, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 }

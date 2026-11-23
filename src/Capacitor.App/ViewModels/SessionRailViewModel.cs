@@ -437,9 +437,9 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             _ => true,
         };
 
-    string GroupKeyOf(AgentRow row) => GroupKey(row, _grouping, _today, _time.LocalTimeZone, _work.GetValueOrDefault(row.Key));
+    string GroupKeyOf(AgentRow row) => GroupKey(row, _grouping, _time.LocalTimeZone, _work.GetValueOrDefault(row.Key));
 
-    internal static string GroupKey(AgentRow row, RailGrouping grouping, DateOnly today, TimeZoneInfo zone, RunningWork work = default) => grouping switch {
+    internal static string GroupKey(AgentRow row, RailGrouping grouping, TimeZoneInfo zone, RunningWork work = default) => grouping switch {
         RailGrouping.Repository => row.RepoGroupKey,
         // Invariant: a Buddhist or Hijri culture would write its own year into a key the label parses
         // back as Gregorian and the preferences persist.

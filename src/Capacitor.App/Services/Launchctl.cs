@@ -16,7 +16,7 @@ internal sealed partial class Launchctl(IProcessRunner runner, string? domain = 
     /// a clean answer throws, because a guess here would read an unknown state as an absent job.</summary>
     public async Task<ProcessResult> PrintAsync(string label, CancellationToken ct) {
         var result = await RunAsync(["print", $"{Domain}/{label}"], ct).ConfigureAwait(false);
-        if (result.TimedOut || LaunchdPrint.Classify(result.ExitCode, result.Stdout, result.Stderr) == LabelProbe.Unknown)
+        if (result.TimedOut || LaunchdPrint.Classify(result.ExitCode, result.Stderr) == LabelProbe.Unknown)
             throw new IOException($"Could not determine the state of service '{label}'.");
 
         return result;

@@ -831,7 +831,7 @@ public class SessionRailViewModelTests {
         var row = Local("parent", awaiting: true) with { LiveSubagents = 1 };
 
         await Assert.That(SessionStatusDots.Label(row)).IsEqualTo("Working");
-        await Assert.That(SessionRailViewModel.GroupKey(row, RailGrouping.Status, DateOnly.FromDateTime(Noon), TimeZoneInfo.Utc))
+        await Assert.That(SessionRailViewModel.GroupKey(row, RailGrouping.Status, TimeZoneInfo.Utc))
             .IsEqualTo("status:1");
     }
 
