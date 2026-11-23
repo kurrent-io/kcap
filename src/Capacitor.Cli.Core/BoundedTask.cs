@@ -6,8 +6,10 @@ public static class BoundedTask {
     public static async Task<bool> FinishedWithinAsync(this Task task, TimeSpan limit, TimeProvider time) {
         await task.WaitAsync(limit, time).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
-        if (task.IsFaulted) _ = task.Exception;
+        if (!task.IsCompleted) return false;
 
-        return task.IsCompleted;
+        _ = task.Exception;
+
+        return true;
     }
 }
