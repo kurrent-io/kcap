@@ -2448,8 +2448,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     ownerCt.ThrowIfCancellationRequested();
 
                     if (!TryCommit(candidate)) {
-                        await DisposeCandidateAsync(candidate, recordedWith).ConfigureAwait(false);
+                        var retired = await DisposeCandidateAsync(candidate, recordedWith).ConfigureAwait(false);
                         candidate = null;
+                        if (!retired) throw CandidateRetirementUnconfirmed(ref recordedWith);
                         continue; // attempt failed (candidate died pre-install)
                     }
 
@@ -2498,8 +2499,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     LogAttemptFailed(ex, _agentId, attempts);
 
                     if (candidate is not null) {
-                        await DisposeCandidateAsync(candidate, recordedWith).ConfigureAwait(false);
+                        var retired = await DisposeCandidateAsync(candidate, recordedWith).ConfigureAwait(false);
                         candidate = null;
+                        if (!retired) throw CandidateRetirementUnconfirmed(ref recordedWith);
                     }
                 }
             }
@@ -2901,8 +2903,19 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         return true;
     }
 
-    async Task DisposeCandidateAsync(Incarnation candidate, AcpPidRecordCallbacks? recordedWith) {
+    /// <summary>Drops the candidate's record bundle so the terminal path cannot clear the record of a tree
+    /// that may still be alive</summary>
+    static AcpReconnectTerminalException CandidateRetirementUnconfirmed(ref AcpPidRecordCallbacks? recordedWith) {
+        recordedWith = null;
+        return new("retirement_unconfirmed", "a failed reconnect candidate's process tree could not be confirmed exited");
+    }
+
+    /// <summary>False when the candidate or a listed descendant may still be alive: its PID record is then
+    /// kept, and no further candidate may load the session beside it</summary>
+    async Task<bool> DisposeCandidateAsync(Incarnation candidate, AcpPidRecordCallbacks? recordedWith) {
         try { candidate.LoopCts.Cancel(); } catch (ObjectDisposedException) { }
+
+        var confirmed = false;
 
         // Each cleanup step is INDEPENDENTLY best-effort (code-review r2): a throwing connection
         // disposal must never suppress process-tree retirement — that ordering would leave an
@@ -2916,8 +2929,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         try {
             await candidate.Process.TerminateAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
 
-            if (!await ReapDescendantsAsync(candidate, _reconnect!).ConfigureAwait(false))
-                _logger.LogWarning("ACP reconnect: a failed candidate's descendant survived its kill.");
+            confirmed = candidate.Process.HasExited && await ReapDescendantsAsync(candidate, _reconnect!).ConfigureAwait(false);
         } catch (Exception ex) {
             _logger.LogDebug(ex, "ACP reconnect: candidate process termination failed (best-effort).");
         }
@@ -2928,14 +2940,20 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             _logger.LogDebug(ex, "ACP reconnect: candidate process disposal failed (best-effort).");
         }
 
-        // Clear ONLY through the generation that recorded, and only when a record actually
-        // happened (code-review r3 — a null recordedWith means the Record threw or never ran, so
-        // there is nothing of ours to delete and the original agent's record must survive).
+        if (!confirmed) {
+            _logger.LogWarning("ACP reconnect: a failed candidate's process tree could not be confirmed exited; its PID record is kept.");
+            return false;
+        }
+
+        // Clear only through the generation that recorded: a null recordedWith means the Record threw or
+        // never ran, and the original agent's record must survive.
         try {
             recordedWith?.Clear();
         } catch (Exception ex) {
             _logger.LogDebug(ex, "ACP reconnect: clearing the candidate PID record failed (best-effort).");
         }
+
+        return true;
     }
 
     /// <summary>
