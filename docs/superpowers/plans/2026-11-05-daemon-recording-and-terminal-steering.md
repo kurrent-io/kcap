@@ -38,6 +38,7 @@
 3. **Two profiles on one machine.** A hook on profile B with only profile A's daemon running must spawn a watcher, and A's daemon must never take the session. Task 15.
 4. **A hook fires during launch.** A hosted agent's first hook can run before anything else has happened. The claim must exist before the agent process starts. Task 9.
 5. **One session in two processes.** `--resume` in a second terminal while the first is alive means two mods attach for one session id. The second is refused and the first keeps the attachment. Task 18.
+6. **A forged stamp.** A client stamps a row with another session's dispatch, an attached agent's, or one already credited. The server ignores the stamp, the row takes today's path, and the dispatch stays where it was. Task 11
 
 ---
 
@@ -76,7 +77,8 @@ public interface IRowStamper {
     void Acknowledged(int throughLine);
 }
 
-// Wire, on both sides, optional on TranscriptBatch as LineStamp[]? Stamps
+// The client's answer for one line. It reaches the server only as the stamp on a canonical user message event
+// (Task 11), never on a raw TranscriptBatch
 public sealed record LineStamp(int LineNumber, Guid? DispatchId, bool IsLocal);
 
 // Capacitor.Cli.Core
@@ -190,7 +192,7 @@ Nothing here merges. Build it outside the repository, in a scratch directory.
 
 **Interfaces:**
 - Consumes: Task 4.
-- Produces: `TranscriptRecorder(RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context)` with `Task RunAsync(CancellationToken ct)` and `Task FinishAsync(CancellationToken ct)`. Every recorder has a full context: there is no reduced mode without one, and a test builds one from a `TempDir`. `IRecorderHousekeeping` holds what stays in `kcap` for now, with housekeeping behind four coarse calls, `PrepareAsync`, `BeforeDrainAsync`, `AfterDrainAsync` and `AfterFinalDrainAsync`, and Task 6 shrinks it. `kcap watch` becomes argument parsing, process concerns and one recorder. `LineStamp` joins `src/Capacitor.Cli.Core/Models.cs` here because `IRowStamper` names it, and it reaches the wire in Task 11.
+- Produces: `TranscriptRecorder(RecordingSource source, IRecorderTransport transport, IRowStamper stamper, TimeProvider time, RecorderContext context)` with `Task RunAsync(CancellationToken ct)` and `Task FinishAsync(CancellationToken ct)`. Every recorder has a full context: there is no reduced mode without one, and a test builds one from a `TempDir`. `IRecorderHousekeeping` holds what stays in `kcap` for now, with housekeeping behind four coarse calls, `PrepareAsync`, `BeforeDrainAsync`, `AfterDrainAsync` and `AfterFinalDrainAsync`, and Task 6 shrinks it. `kcap watch` becomes argument parsing, process concerns and one recorder. `LineStamp` joins `src/Capacitor.Cli.Core/Models.cs` here because `IRowStamper` names it, and Task 11 carries it onto the canonical event.
 
 - [ ] **Tests:** the existing `WatchCommandTests`, `LiveWatchHardeningAcceptanceTests` and `CursorTailingWatcherTests` pass against the new shape. Add `A_recorder_runs_against_a_fake_transport`, asserting batches, line numbers and the drain-complete call.
 - [ ] **Implement:** move the loop. `WatchState` is already in `Capacitor.Cli.Core` and stays there. Vendor code stays reachable through an interface for now, so this task can land without Task 6. Process concerns stay in `WatchCommand`: parent-pid watch, pid file, signals, heartbeat.
@@ -334,86 +336,142 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
   - If routine suspension would leave little for stamps to do, stop and bring it back to the owner.
 - [ ] **Record:** update the spec. Commit it alone: `Record the stamp proof's results`.
 
-### Task 11: Stamps on the wire and in attribution
+### Task 11: Stamps on the canonical event and in attribution
+
+A stamp travels only on the canonical route (`docs/superpowers/specs/2026-11-16-canonical-transcript-ingress-design.md`, section 6). It is a field of the user message event a row produces, and a raw `TranscriptBatch` never carries one. Format 1 already reserves the field, so nothing here needs a new format number. A server that predates this task binds the field and drops it, so its rows are unstamped rows and go to the FIFO matcher, as every row does today. Only Claude is on the canonical route, so only Claude rows can be stamped
 
 **Files:**
-- Server: `src/Capacitor.Api.Public.Abstractions/Sessions/TranscriptBatch.cs`, new `LineStamp.cs`, `src/Capacitor.Server.Services/ReadModels/HostedAgentInputProjector.cs`, `src/Capacitor.Server.Core/Chat/UserMessageClassifier.cs` only if the proof needs it, and the transcript append path
-- CLI: `src/Capacitor.Cli.Core/Models.cs`
-- Test: `test/Capacitor.Server.Tests.Agents`, `test/Capacitor.Server.Tests.Ingest`
+- CLI: create `src/Capacitor.Cli.Core/Transcripts/CanonicalBatchStamp.cs`; modify `CanonicalBatchEvent.cs`, `CanonicalBatchAssembler.cs` and `CanonicalRoute.cs` beside it, the JSON context in `src/Capacitor.Cli.Core/Models.cs`, `src/Capacitor.Cli.Recording/RecorderCanonicalRoute.cs`, and `src/Capacitor.Cli.Recording/TranscriptRecorder.cs` (`StampLines` and the chunk send in `DrainNewLines`)
+- Server: create `src/Capacitor.Server.Services/Sessions/Canonical/Ingress/CanonicalStamp.cs`; modify `CanonicalIngressEvent.cs`, `CanonicalBatchReader.cs` and `CanonicalBatchRefusal.cs` beside it, `Ingress` in `src/Capacitor.Api.Public/Hooks/SessionActivityHookHandlers.cs`, and `src/Capacitor.Server.Services/ReadModels/HostedAgentInputProjector.cs`. `UserMessageClassifier` doesn't change
+- Test: CLI `test/Capacitor.Cli.Core.Tests.Unit/Transcripts/` and `test/Capacitor.Cli.Recording.Tests.Unit/`; server `test/Capacitor.Server.Tests.Ingest/Canonical/` and `test/Capacitor.Server.Tests.Agents/HostedAgentInputProjectorTests.cs`
 
 **Interfaces:**
-- Produces: `TranscriptBatch.Stamps : LineStamp[]?`. The event metadata keys `dispatch_id` and `local_input`.
+- Wire: an event's `stamp` is `{"dispatch_id":"<guid>"}` or `{"local":true}`, and nothing else
+- CLI: `CanonicalBatchStamp(Guid? DispatchId, bool Local)` replaces the reserved `JsonElement? Stamp` on `CanonicalBatchEvent`. `CanonicalBatchAssembler.Assemble(TranscriptBatch raw, IReadOnlyDictionary<int, LineStamp>? stamps, DateTimeOffset receivedAt)`, `CanonicalRoute.Encode(raw, stamps, receivedAt)` and `RecorderCanonicalRoute.TrySendAsync(chunk, stamps, cursor, ct)` take a drain's stamps by line number
+- Server: `CanonicalIngressEvent.Stamp : JsonElement?`, copied by `Ingress` and kept by `CanonicalHeldLine` with the rest of the event. A refusal reason `stamp`. The stored metadata keys `$dispatch_id`, the id as a string, and `$local_input`, `true`, both written only by the reader
 
-- [ ] **Tests:**
-  - `A_stamped_row_takes_its_dispatch_without_matching_text`, with redacted text that would fail FIFO.
-  - `An_unstamped_row_still_goes_to_the_matcher`.
-  - `A_local_row_goes_to_the_owner_and_consumes_no_pending_dispatch`: identical text, remote dispatch pending, local row first, then the stamped row links to its dispatch only.
-  - `A_replayed_stamped_row_does_not_attribute_twice`.
-  - `An_older_batch_without_stamps_deserializes_unchanged`.
-- [ ] **Implement:** the projector checks metadata first. A row with `local_input` skips FIFO entirely.
-- [ ] **Verify:** those projects, then raise the `src/cli` submodule in a follow-up once the CLI change lands.
-- [ ] **Commit:** `Attribute stamped transcript rows without matching text`
+**What the client does:**
+- `StampLines` keeps what `IRowStamper.StampFor` answers, and the drain hands the stamps to the canonical send. The assembler puts a line's stamp on that line's first `UserMessageReceived`. A Claude line projects at most one
+- A line sent raw carries no stamp: a vendor not on the canonical list, a server that said no, a batch refused as unsupported and resent raw, the raw stretch while a route is rebuilt after a failed send, and a spooled tail, which the spool keeps as raw lines and projects only when it drains. Those rows go to the FIFO matcher. Stamps never go into the spool
+- A stamp whose line produced no user message event has nowhere to go: capture replaced the line with a capture-loss line, or the projection rejected it. The recorder drops the stamp and logs the line number. The stamper has already retired the entry, so the next row is still compared with the right one, and the dispatch stays pending until the FIFO matcher or the session-end flush settles it
+- A line delivered again is asked about again, since `StampFor` runs on every delivery, and the stamper answers it from its match record (Task 12). A batch the route rebuilds from its cache after a failed send keeps the stamps it was built with
+
+**What the server checks.** This is the validation rule, and it sits in two places:
+- The reader has no state. It refuses the batch as unsupported, reason `stamp`, when a stamp isn't an object, holds a field other than `dispatch_id` and `local`, holds neither or both, holds a `dispatch_id` that isn't a GUID or is the empty one, or a `local` that isn't `true`, sits on an event other than `UserMessageReceived`, or sits in a subagent batch, whose stream the projector never reads. That is the ingress's rule for anything it doesn't understand, and the client then resends those lines raw and unstamped. A stamp it takes becomes `$dispatch_id` or `$local_input`, which the reader writes. Nothing else writes those keys: the reader builds metadata only from named fields and the vendor allow-list, which holds no key for Claude and never these two, and the raw normalizers copy no line field into metadata
+- The projector honours `$dispatch_id` only for a dispatch pending in the same session's queue with no delivery state, which is one the server itself dispatched to this session, to a hosted agent. A dispatch already credited, one pending in another session, an attached agent's (a link credits those), a wake-up's (it isn't in the queue) and one the projector hasn't seen yet all leave the row on today's path, exactly as if it were unstamped. Ingest admits only the session's owner, so a stamp can tie a row only to a message someone was allowed to send to that session's agent. The owner writes the transcript, so a stamp lets them do nothing they couldn't do by typing the same text
+- A `$local_input` row is credited to the session's owner, as the owner fallback credits a row, and consumes no dispatch, burst or wake-up
+- Replay: a row sent again has the same event id and isn't stored twice. A stamped row's attribution is written before its pending dispatch is deleted, and attribution is keyed by row, so a projector that processes the row again writes nothing new. A second row stamped with a dispatch already credited finds it gone and takes today's path
+
+**For G2:** for each stamp it honours, the projector logs whether the FIFO matcher would have chosen the same dispatch, another one, or none, so Task 12's week of comparison needs no second build. Nothing acts on the log
+
+- [ ] **Tests, CLI:**
+  - `A_stamp_goes_on_its_lines_user_message`
+  - `A_stamp_on_a_line_with_no_user_message_is_dropped`: a capture-loss line, and an assistant line
+  - `A_stamped_batch_keeps_format_1`, with the stamp's one field and nothing else in its JSON
+  - `A_route_rebuilt_from_its_cache_keeps_its_stamps`
+  - `Stamps_reach_the_canonical_batch_from_the_recorder`, with a fake stamper and a transport that takes canonical batches
+  - `A_raw_send_carries_no_stamp`: the server says no, and a 422 fallback resends the same lines raw. The stamper was still asked about each line
+- [ ] **Tests, server:**
+  - `A_stamped_row_takes_its_dispatch_without_matching_text`, with redacted text that would fail FIFO
+  - `An_unstamped_row_still_goes_to_the_matcher`
+  - `A_local_row_goes_to_the_owner_and_consumes_no_pending_dispatch`: identical text, remote dispatch pending, local row first, then the stamped row links to its dispatch only
+  - `A_replayed_stamped_row_does_not_attribute_twice`, and `A_second_row_stamped_with_a_credited_dispatch_takes_todays_path`
+  - `A_stamp_naming_another_sessions_dispatch_is_ignored`, and that dispatch stays pending there
+  - `A_stamp_naming_an_attached_agents_dispatch_is_ignored`
+  - `A_stamp_on_an_event_that_is_not_a_user_message_refuses_the_batch`
+  - `A_malformed_stamp_refuses_the_batch`: an unknown field, both fields, neither, the empty GUID, `local` false, not an object
+  - `A_stamp_in_a_subagent_batch_refuses_the_batch`
+  - `The_reader_writes_the_stamp_metadata_itself`, and a client can't send `$dispatch_id` or `$local_input` as vendor metadata
+  - `A_held_canonical_line_keeps_its_stamp`: a line whose write failed is retried, after a restart too, and its row still takes its dispatch
+  - `A_batch_without_stamps_reads_unchanged`
+- [ ] **Implement:** server first, as the wire rule says, then the CLI. The projector checks the stamp before the link and FIFO checks, and a `$local_input` row skips FIFO entirely
+- [ ] **Verify:** those projects and `CanonicalIngressTests`, then raise the `src/cli` submodule in a follow-up once the CLI change lands
+- [ ] **Commit:** server `[AI-4410] Attribute stamped canonical rows without matching text`, CLI `Carry dispatch stamps on canonical user messages`
 
 ### Task 12: Input log and matching
 
+The daemon side stays as the spec's Part 2 designs it, with one change: what tells a person's row from the rest is the library's projection, not a reader of its own. `Capacitor.Models.Transcripts` is where a vendor's format is read, and it already projects the line to the user message event the batch carries
+
 **Files:**
-- Create: `src/Capacitor.Cli.Daemon/Services/InputLog.cs`, `InputLogStamper.cs`
-- Create: `src/Capacitor.Models.Transcripts/Harness/Claude/ClaudePersonRows.cs`, `.../Harness/Codex/CodexPersonRows.cs`
-- Modify: `Services/AgentOrchestrator.cs` (`DeliverInputAsync`, `HandleSendSpecialKey` :5376), `Services/AgentOrchestrator.LocalIpc.cs` (Stdin at :824, `AnswerSendTextCoreAsync`), `src/Capacitor.App/ViewModels/TerminalChatInput.cs:69`
-- Test: `test/Capacitor.Cli.Daemon.Tests.Unit/Services/InputLogTests.cs`, `InputLogStamperTests.cs`; `test/Capacitor.App.Tests.Unit`
+- Create: `src/Capacitor.Cli.Daemon/Services/InputLog.cs`, `InputLogStamper.cs` and `InputAuthor.cs`, with the log file's records beside them
+- Create: `src/Capacitor.Models.Transcripts/UserMessages/PersonRows.cs`
+- Modify: `Services/PtyHostedAgentRuntime.cs` (`Enqueue` and `PasteAndSubmitAsync`, `DeliverLaunchPromptAsync`, `StartCompaction`, `SendRawInputAsync`, `SendSpecialKeyAsync`), `Services/PtyHostedAgentRuntimeFactory.cs`, `Services/IHostedAgentRuntime.cs`, `Services/AgentOrchestrator.cs` (`DeliverInputAsync`, and the launch that starts a recording), `Services/AgentOrchestrator.LocalIpc.cs` (`AnswerSendTextCoreAsync`), `Services/DaemonRecorder.cs` (a stamper per source), `src/Capacitor.App/ViewModels/TerminalChatInput.cs` (`SendAsync`)
+- Test: `test/Capacitor.Cli.Daemon.Tests.Unit/Services/InputLogTests.cs`, `InputLogStamperTests.cs` and the PTY runtime's tests; `test/Capacitor.Models.Transcripts.Tests.Unit/UserMessages/PersonRowsTests.cs`; `test/Capacitor.App.Tests.Unit`
 
 **Interfaces:**
-- Produces: `InputLog(string path, TimeProvider time)` with `long AppendPending(Guid? dispatchId, string sender, string text)`, `void MarkWritten(long position)`, `void Suspend(string reason)`, `bool IsSuspended`, `LineStamp? Match(int lineNumber, string rawLine, string? personText)`, `void Acknowledge(int throughLine)`, `void ResetForNewProcess()`.
-- `IPersonRows.PersonText(string rawLine) : string?`, in `src/Capacitor.Models.Transcripts/IPersonRows.cs`, is null for anything a person didn't author.
-- Text is stored as a SHA-256 hash of the text with trailing newlines trimmed.
+- `PersonRows(ITranscriptProjection projection, string sessionId, string vendor)` with `string? Text(string line, int lineNumber)`: the line projected with a fresh context, and the text of its first `UserMessageReceived` when `UserMessageClassifier` classes it as a person's. Null for every other line. A slash command's text is the command as typed, from what the projection stores for it, so it compares with what was pasted. `static bool IsPersonText(string text, string vendor)` classes a message's own text as a person-authored row carrying it would be classed
+- `InputLog(string path, TimeProvider time)` with `long AppendPending(InputAuthor author, string text)`, `void MarkWritten(long position)`, `void Abandon(long position)`, `void Suspend(string reason)`, `bool IsSuspended`, `LineStamp? Match(int lineNumber, string rawLine, string? personText)`, `void Acknowledge(int throughLine)`, `void ResetForNewProcess(int firstLine)`
+- `InputAuthor`: a dispatch id, the owner at a local surface, or the daemon's own text, whose row consumes its entry and takes no stamp
+- `InputLogStamper(InputLog log, PersonRows rows) : IRowStamper`. `DaemonRecorder` gives one to a hosted Claude agent's root source and `NoStamps` to everything else
+- `IHostedAgentRuntime.SendOwnerInputAsync(string text)`, which defaults to `SendUserInputAsync`: a message the owner sent from a local surface
+- Text is stored as a SHA-256 hash of the text with trailing newlines trimmed. A match record holds a hash of the raw line
+
+**Where entries come from.** The PTY runtime makes them, because it alone knows when bytes reach the PTY and in what order. It appends Pending under the lock that orders its writes, writes the paste, and marks the entry Written once the submit Enter is out. A paste that never started is abandoned. One that failed after the paste suspends stamping, because nobody can say whether a row will come
+- A server dispatch makes an entry with its dispatch id. A local `SendText` or `SendTextWithAttachments` makes one for the owner, stamped local. A launch prompt makes one with its dispatch id (Task 13), or the daemon's own text from a server that sends none. Compaction's `/compact`, a resume nudge and a dispatch with no id make the daemon's own text
+- An entry is made only for text `PersonRows.IsPersonText` calls a person's, so a message whose row will never be compared doesn't wait at the head of the log
+- A raw chunk holding a CR or LF, terminal replies aside, and a special key whose bytes hold one, suspend stamping. The runtime's own repeated submit Enters belong to their entry and suspend nothing
+- The text hashed is the text pasted, the attachment trailer included
+
+**Matching.** For each line it is asked about, the stamper:
+- returns the match record's stamp when one exists for that line number and the line's hash matches, and consumes nothing. A record whose hash doesn't match suspends
+- returns nothing for a line before the current process's first line, or while stamping is suspended
+- runs `PersonRows.Text` on the raw line. Raw rather than redacted, because the entry's hash is of what was pasted, while the batch carries the redacted line's events. A line that isn't a person-authored row returns nothing and changes nothing
+- compares the row's text with the oldest open entry, Pending or Written, because the row can be read before the write's completion is recorded. A match persists a match record (line number, line hash, and the stamp, or none for the daemon's own text) and retires the entry in one write. A mismatch, or a person-authored row with no entry, suspends
+
+The match rule is unproven on real sessions, because G2 hasn't run. What it decides sits in `PersonRows.Text` and `InputLog.Match`, so narrowing it there is all G2 can ask for, and the rows it narrows out go unstamped to the FIFO matcher
+
+**Suspension, crash and replay** stay as the spec says. Only a new process ends suspension. `ResetForNewProcess` discards open entries and stamps from the first line the old process didn't write, counted from the transcript as the new process starts. A Pending entry at load suspends. A match record goes once its line is acknowledged, spooled and final-drain lines included
 
 - [ ] **Tests:**
-  - `Identical_texts_from_two_senders_are_told_apart_by_position`.
-  - `A_row_with_no_matching_entry_goes_unstamped_and_suspends`.
-  - `A_raw_chunk_with_a_newline_suspends`, and `A_special_key_Enter_suspends`.
-  - `A_raw_chunk_without_a_newline_does_not_suspend`.
-  - `A_raw_Enter_never_makes_an_entry`.
-  - `Idle_and_end_of_file_do_not_resume_stamping`.
-  - `A_new_process_resumes_stamping_from_the_first_line_after_it`.
-  - `Suspension_survives_a_daemon_restart`.
-  - `A_Pending_entry_at_recovery_suspends`.
-  - `A_replayed_row_takes_its_stamp_from_the_match_record_and_consumes_no_entry`: identical A and B, crash after matching U to A and before the ack, and U must carry A on replay.
-  - `A_match_record_goes_only_after_the_line_is_acknowledged`, including spooled lines and the final drain.
-  - `The_log_holds_no_message_text`: scan the file for the plaintext.
-  - `A_local_message_marks_its_row_local`.
-  - `TerminalChatInput_sends_plain_text_through_SendText`, in the app tests.
-- [ ] **Implement:** append and flush before the PTY write, mark Written after it. The runtime's own repeated submit Enters belong to the entry and don't suspend. `InputLogStamper : IRowStamper` wires the log to the recorder. Honour whatever G2 narrowed.
-- [ ] **Verify:** the suites. Then turn Task 9's flag on for hosted Claude on one VM and compare stamped attribution to FIFO on the same sessions for a week.
+  - `Identical_texts_from_two_senders_are_told_apart_by_position`
+  - `A_row_with_no_matching_entry_goes_unstamped_and_suspends`
+  - `A_raw_chunk_with_a_newline_suspends`, and `A_special_key_Enter_suspends`
+  - `A_raw_chunk_without_a_newline_does_not_suspend`
+  - `A_raw_Enter_never_makes_an_entry`
+  - `Idle_and_end_of_file_do_not_resume_stamping`
+  - `A_new_process_resumes_stamping_from_the_first_line_after_it`
+  - `Suspension_survives_a_daemon_restart`
+  - `A_Pending_entry_at_recovery_suspends`
+  - `A_replayed_row_takes_its_stamp_from_the_match_record_and_consumes_no_entry`: identical A and B, crash after matching U to A and before the ack, and U must carry A on replay
+  - `A_match_record_goes_only_after_the_line_is_acknowledged`, including spooled lines and the final drain
+  - `A_mismatched_match_record_suspends`
+  - `The_log_holds_no_message_text`: scan the file for the plaintext
+  - `A_local_message_marks_its_row_local`
+  - `A_row_read_before_its_write_is_marked_still_matches`
+  - `A_redacted_line_still_stamps_by_its_raw_hash`
+  - `A_failed_paste_suspends_and_an_unstarted_one_is_abandoned`
+  - `A_text_no_person_row_would_carry_makes_no_entry`
+  - `Person_rows_come_from_the_projection`, in `PersonRowsTests`: a human prompt, a queued prompt and a slash command give their text; a tool result, a meta row, a task notification, a compact summary and an assistant row give none
+  - `TerminalChatInput_sends_plain_text_through_SendText`, in the app tests
+- [ ] **Implement:** the log is one file per session in the daemon's owner-only state directory, rewritten whole through `AtomicFile` before the PTY write. Honour whatever G2 narrowed. The daemon writes a log only for a session it records, so nothing changes while `DaemonConfig.RecordHostedClaude` is off, which is its default
+- [ ] **Verify:** the suites. Then, the owner's to run: turn `RecordHostedClaude` on for hosted Claude on one VM and compare stamped attribution with FIFO on the same sessions for a week, from Task 11's log
 - [ ] **Commit:** `Stamp hosted rows from a persisted input log`, then `Send composer text through SendText from the terminal tab`
 
 ### Task 13: Launch prompts carry their dispatch
 
 **Files:**
-- Server: `src/Capacitor.Api.Public.Abstractions/Agents/Commands/LaunchAgentCommand.cs`, `src/Capacitor.Server.Services/Agents/HostedAgentInputQueue.cs:101`, `src/Capacitor.Api.Public/Agents/DaemonCommandExtensions.cs`
-- CLI: the daemon's `LaunchAgentCommand` binding (`Services/ServerConnection.cs:345`), `Services/AgentOrchestrator.cs` launch path
-- Test: `test/Capacitor.Server.Tests.Agents`, `test/Capacitor.Cli.Daemon.Tests.Unit`
+- Server: `src/Capacitor.Api.Public.Abstractions/Agents/Commands/LaunchAgentCommand.cs`; `src/Capacitor.Api.Public/Sessions/AgentStoreDataService.cs`, which builds each `LaunchAgentCommand` beside its `RegisterLaunchPrompt` (`src/Capacitor.Server.Services/Agents/HostedAgentInputQueue.cs:164`), the staged-attachment path through `src/Capacitor.Server.Services/Agents/LaunchAttachmentStaging.cs` included; `src/Capacitor.Api.Public/Agents/DaemonCommandExtensions.cs` (`LaunchAgentCommand.From`)
+- CLI: `LaunchAgentCommand` in `src/Capacitor.Cli.Core/Models.cs:1718`, bound at `src/Capacitor.Cli.Daemon/Services/ServerConnection.cs:329`; the launch in `Services/AgentOrchestrator.cs`, and `Services/PtyHostedAgentRuntimeFactory.cs:172`, where `DeliverLaunchPrompt` is called
+- Test: `test/Capacitor.Server.Tests.Agents`, `test/Capacitor.Api.Public.Tests`, `test/Capacitor.Cli.Daemon.Tests.Unit`
 
 **Interfaces:**
-- Produces: an optional trailing `Guid? LaunchDispatchId` on `LaunchAgentCommand`.
+- Produces: an optional `Guid? LaunchDispatchId` on `LaunchAgentCommand` on both sides. The record is bound by name, so a daemon that predates it ignores it
 
-- [ ] **Tests:** `A_launch_prompt_row_is_stamped_with_its_minted_dispatch`, and `An_older_daemon_ignores_the_launch_dispatch`.
-- [ ] **Implement:** pass the id from `RegisterLaunchPrompt` through to the launch's `AppendPending`. The paste follows the existing launch path, so a launch prompt never reaches the command line.
-- [ ] **Verify:** those suites.
-- [ ] **Commit:** `Carry a launch prompt's dispatch id to the daemon`
+- [ ] **Tests:** `A_launch_prompt_row_is_stamped_with_its_minted_dispatch`, `A_launch_from_an_older_server_stamps_nothing`, `The_launch_command_names_the_dispatch_the_queue_registers`, and `An_older_daemon_ignores_the_launch_dispatch`
+- [ ] **Implement:** mint the id once where the command is built, and give the same id to `RegisterLaunchPrompt`, so the dispatch `FlushLaunchPromptAsync` appends carries it. The daemon passes it to the launch prompt's `AppendPending`. The paste follows the existing launch path, so a launch prompt never reaches the command line. `FlushLaunchPromptAsync` runs on SessionStart, so a launch prompt's row stored before that dispatch is projected finds no pending dispatch, and Task 11's projector leaves it on today's path
+- [ ] **Verify:** those suites
+- [ ] **Commit:** server `[AI-4410] Send a launch prompt's dispatch id to the daemon`, CLI `Carry a launch prompt's dispatch id to the daemon`
 
-### Task 14: Hosted Codex PTY
+### Task 14: Hosted Codex PTY (not built)
 
-**Files:**
-- Modify: `DaemonRecorder.cs` vendor gate, `CodexPersonRows.cs`
-- Test: `test/Capacitor.Cli.Daemon.Tests.Unit/Services/DaemonRecorderTests.cs`, `test/Capacitor.Models.Transcripts.Tests.Unit/Harness/Codex/`
+**Precondition:** Codex moves to the canonical route first (#2638). A stamp travels only on a canonical user message event, Codex still sends raw lines, and a stamp on the raw batch is ruled out, so a Codex row has nowhere to carry one. Recording hosted Codex in the daemon without stamps, if it's wanted sooner, belongs to Task 16
 
-**Interfaces:**
-- Consumes: Tasks 9, 11 and 12.
-
-- [ ] **Tests:** `Codex_rollout_user_rows_map_to_person_text`, using the row kinds Task 10 recorded, and `A_Codex_redacted_line_still_stamps_by_its_raw_hash`.
-- [ ] **Implement:** add Codex PTY to the gate. App-server Codex stays as it is.
-- [ ] **Verify:** one real hosted Codex session on a VM.
-- [ ] **Commit:** `Record hosted Codex PTY sessions in the daemon`
+**Once Codex is canonical:**
+- **Files:** `DaemonRecorder.cs`, its vendor gate and stamper choice. `PersonRows` needs nothing new if the Codex projection's user message events classify the way Claude's do, which the tests check
+- **Tests:** `Codex_rollout_user_rows_map_to_person_text`, using the row kinds Task 10 recorded, and `A_Codex_redacted_line_still_stamps_by_its_raw_hash`
+- **Implement:** add Codex PTY to the gate, with an `InputLogStamper` on its root source. App-server Codex stays as it is
+- **Verify:** one real hosted Codex session on a VM
+- **Commit:** `Record hosted Codex PTY sessions in the daemon`
 
 ---
 
@@ -617,6 +675,8 @@ The spec opens Part 2 with this measurement. It's a throwaway branch on top of T
 | Gate | After | If it fails |
 |---|---|---|
 | G1, steering proof | Task 3 | Passed on macOS on 2026-11-06. The spec records the results. Windows and Linux `socketPath` stay open |
-| G2, stamp proof | Task 10 | The match rule narrows, or Tasks 11 to 13 stop and go back to the owner |
+| G2, stamp proof | Task 10 | Not run. By the owner's choice Tasks 11 to 13 are built ahead of it, behind `RecordHostedClaude`, which stays off, so the match rule is unproven on real sessions. Where G2 shows order or text doesn't hold, the rule narrows in `PersonRows` and `InputLog.Match`. If routine suspension would leave little for stamps to do, the stamps go back to the owner |
 
 Milestones 3 to 5 and Milestone 6 can run side by side. Milestone 6 needs nothing from Milestones 3 to 5.
+
+Within Milestone 4, Tasks 11 to 13 run in order ahead of Task 10, and Task 14 waits for Codex on the canonical route (#2638) as well as for G2
