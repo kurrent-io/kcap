@@ -609,7 +609,7 @@ internal partial class AgentOrchestrator {
 
         InputDeliveryOutcome outcome;
 
-        try { outcome = await DeliverInputAsync(agent, text, attachmentIds); }
+        try { outcome = await DeliverInputAsync(agent, text, attachmentIds, fromOwner: true); }
         catch (Exception ex) when (ex is not OperationCanceledException) { return Refuse(SendTextReasons.DeliveryFailed, ex.Message); }
 
         switch (outcome.Kind) {
@@ -717,10 +717,11 @@ internal partial class AgentOrchestrator {
 
             // The process's first hook can run before anything after the spawn has, so the claim comes first.
             recording = await ClaimRecordingAsync(agentId, vendor, built.SessionId, isPrivate, worktree, resolution.Account, skipTitle: false);
+            var inputLog = recording is null ? null : _recorder!.InputLogForNewProcess(recording);
 
             spawnedAtUtc = _time.GetUtcNow().UtcDateTime;
             var pty     = _ptyFactory.Spawn(launcher.CliPath, built.Args, worktree.Path, env, cols, rows, removeEnv);
-            var runtime = new PtyHostedAgentRuntime(vendor, pty, _time, logger: _logger);
+            var runtime = new PtyHostedAgentRuntime(vendor, pty, _time, logger: _logger, inputLog: inputLog);
 
             var startedAtUtc = _time.GetUtcNow().UtcDateTime;
 

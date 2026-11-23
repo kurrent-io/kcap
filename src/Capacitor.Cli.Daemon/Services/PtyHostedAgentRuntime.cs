@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Capacitor.Cli.Daemon.Pty;
+using Capacitor.Models.Transcripts.UserMessages;
 using Capacitor.Remote.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -20,13 +21,16 @@ namespace Capacitor.Cli.Daemon.Services;
 /// <paramref name="awaitsSessionStart"/>: the launch prompt waits for <see cref="NoteSessionStarted"/>.
 /// <paramref name="confirmsLaunchPrompt"/>: a prompt counts as delivered only once
 /// <see cref="NoteTurnRelayed"/> reports its turn; an unreported message gets its Enter once more.
+/// <paramref name="inputLog"/>: the session is recorded here, so each message it writes goes into the log, in the
+/// order of the writes, and anything else that could submit suspends stamping
 /// </summary>
 internal sealed partial class PtyHostedAgentRuntime(
         string vendor, IPtyProcess pty, TimeProvider time, bool approvalsDisabled = false,
         ILogger? logger = null, bool readyOnBracketedPaste = false,
         bool bracketedPasteMeansComposerUp = false,
         bool awaitsSessionStart = false,
-        bool confirmsLaunchPrompt = false) : IHostedAgentRuntime {
+        bool confirmsLaunchPrompt = false,
+        InputLog? inputLog = null) : IHostedAgentRuntime {
     /// <summary>
     /// Delays (relative to the previous write) before each carriage return on the spray submit path.
     /// A single CR right after a paste is unreliable: codex's TUI suppresses Enter-as-submit for a
@@ -216,13 +220,14 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// starts, and a paste sent while the agent is still booting reaches its composer but the
     /// submitting CR is lost, leaving the prompt unsent.
     /// </remarks>
-    internal void DeliverLaunchPrompt(string prompt) {
+    /// <param name="dispatchId">The dispatch the server minted for the prompt, or null for the daemon's own text</param>
+    internal void DeliverLaunchPrompt(string prompt, Guid? dispatchId = null) {
         if (LaunchPromptDelivery is not null) throw new InvalidOperationException("The launch prompt is already queued.");
 
-        LaunchPromptDelivery = DeliverLaunchPromptAsync(prompt);
+        LaunchPromptDelivery = DeliverLaunchPromptAsync(prompt, dispatchId is { } id ? InputAuthor.Dispatch(id) : InputAuthor.Daemon);
     }
 
-    async Task<LaunchPromptOutcome> DeliverLaunchPromptAsync(string prompt) {
+    async Task<LaunchPromptOutcome> DeliverLaunchPromptAsync(string prompt, InputAuthor author) {
         try {
             bool settled;
 
@@ -243,8 +248,12 @@ internal sealed partial class PtyHostedAgentRuntime(
             _deliveryHoldsLane = true;
             Task? arrived = null;
             var keystrokes = Volatile.Read(ref _keystrokes);
+            long? entry    = null;
+            var pasted     = false;
+            var submitted  = false;
 
             try {
+                entry = Pending(author, prompt);
                 if (_stopRequested) return LaunchPromptOutcome.StopRequested;
 
                 // Armed before the paste, so only a turn the paste could have started counts.
@@ -255,9 +264,13 @@ internal sealed partial class PtyHostedAgentRuntime(
                     }
                 }
 
+                pasted = true;
                 await pty.WriteAsync(BracketedPaste.Frame(prompt));
                 if (!await SubmitAsync(WaitOutDialogsAsync)) return LaunchPromptOutcome.StopRequested;
+
+                submitted = true;
             } finally {
+                Settle(entry, pasted, submitted);
                 ReleaseDeliveryLane();
             }
 
@@ -510,7 +523,7 @@ internal sealed partial class PtyHostedAgentRuntime(
         Task dialogShown;
         lock (_dialogGate) dialogShown = _dialogShown.Task;
 
-        var (write, held) = Enqueue(text);
+        var (write, held) = Enqueue(text, InputAuthor.Dispatch(dispatchId));
 
         if (held) return write;
 
@@ -528,7 +541,11 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// waiting on a dialog.
     /// </summary>
     /// <exception cref="IOException">The agent was stopping or had exited before the message could be sent.</exception>
-    public Task SendUserInputAsync(string text) => Enqueue(text).Write;
+    public Task SendUserInputAsync(string text) => Enqueue(text, InputAuthor.Daemon).Write;
+
+    /// <summary><see cref="SendUserInputAsync"/> for a message the owner sent from a local surface, whose row is
+    /// stamped as theirs</summary>
+    public Task SendOwnerInputAsync(string text) => Enqueue(text, InputAuthor.Owner).Write;
 
     /// <summary>Types <c>/compact</c> for a vendor whose TUI takes it. Refused while a dialog shows rather than held
     /// behind it like a message, decided under the same gate a dialog opens under.</summary>
@@ -538,30 +555,30 @@ internal sealed partial class PtyHostedAgentRuntime(
         lock (_dialogGate) {
             if (_dialogGone is not null) return CompactionStart.PromptOpen;
 
-            _heldSends = WriteAfterAsync(_heldSends, "/compact");
+            _heldSends = WriteAfterAsync(_heldSends, "/compact", InputAuthor.Daemon);
 
             return CompactionStart.Started(_heldSends, finished: null);
         }
     }
 
     // Every message joins one chain, so one sent while another waits on a dialog lands after it, not in its redraw.
-    (Task Write, bool Held) Enqueue(string text) {
+    (Task Write, bool Held) Enqueue(string text, InputAuthor author) {
         lock (_dialogGate) {
             var held = _dialogGone is not null || !_heldSends.IsCompleted;
-            _heldSends = WriteAfterAsync(_heldSends, text);
+            _heldSends = WriteAfterAsync(_heldSends, text, author);
 
             return (_heldSends, held);
         }
     }
 
-    async Task WriteAfterAsync(Task previous, string text) {
+    async Task WriteAfterAsync(Task previous, string text, InputAuthor author) {
         try {
             await previous;
         } catch (Exception) {
             // The message before reports its own loss; this one is still written.
         }
 
-        await PasteAndSubmitAsync(text);
+        await PasteAndSubmitAsync(text, author);
     }
 
     /// <summary>Waits for the composer, the agent's prompt box where its screen is read, and a quiet
@@ -587,7 +604,7 @@ internal sealed partial class PtyHostedAgentRuntime(
     /// answer, so the paste and each submit Enter wait for any dialog to close, with the lane released so
     /// the dialog can be answered.
     /// </summary>
-    async Task PasteAndSubmitAsync(string text) {
+    async Task PasteAndSubmitAsync(string text, InputAuthor author) {
         await WaitForLaunchPromptAsync();
 
         // Once a stop is asked for, a paste would land behind its "/exit", whatever dialog came and
@@ -596,22 +613,26 @@ internal sealed partial class PtyHostedAgentRuntime(
             await WaitOutDialogAsync();
             await _lane.WaitAsync(_disposal.Token);
 
-            if (Ending) {
-                _lane.Release();
-                throw AgentEnding();
-            }
-
-            if (DialogGone is null) break;
+            if (Ending || DialogGone is null) break;
 
             _lane.Release();
         }
 
         _deliveryHoldsLane = true;
-        var delivery   = Interlocked.Increment(ref _deliveries);
-        var keystrokes = Volatile.Read(ref _keystrokes);
+        long? entry    = null;
+        var pasted     = false;
+        var submitted  = false;
+        var delivery   = 0;
+        var keystrokes = 0;
         Task? arrived  = null;
 
         try {
+            entry = Pending(author, text);
+            if (Ending) throw AgentEnding();
+
+            delivery   = Interlocked.Increment(ref _deliveries);
+            keystrokes = Volatile.Read(ref _keystrokes);
+
             // A message still awaiting its turn shares this one's: the turn either starts reads as
             // both arriving, so neither reports a miss the other's turn answered.
             if (confirmsLaunchPrompt) {
@@ -622,16 +643,18 @@ internal sealed partial class PtyHostedAgentRuntime(
                 }
             }
 
+            pasted = true;
             await pty.WriteAsync(BracketedPaste.Frame(text));
             // Unlike the launch prompt, a stop alone does not withhold the Enter: the stop's "/exit"
             // would land in the composer behind the unsent paste. A stop asked for while a dialog this
             // waited on was open does, even once that dialog has closed: the stop wrote meanwhile.
-            var submitted = await SubmitAsync(async () => {
+            submitted = await SubmitAsync(async () => {
                 var waited = await WaitOutDialogsReportingAsync();
                 return DialogGone is null && !pty.HasExited && !(waited && _stopRequestedDuringDialog);
             });
             if (!submitted) throw AgentEnding();
         } finally {
+            Settle(entry, pasted, submitted);
             ReleaseDeliveryLane();
         }
 
@@ -674,7 +697,10 @@ internal sealed partial class PtyHostedAgentRuntime(
                 LogWheelDropped(_logger);
                 return;
             }
-            if (!isWheel) Interlocked.Increment(ref _keystrokes);
+            if (!isWheel) {
+                Interlocked.Increment(ref _keystrokes);
+                SuspendIfSubmits(bytes, "a special key that can submit reached the terminal");
+            }
             await pty.WriteAsync(bytes);
         } finally {
             _lane.Release();
@@ -685,11 +711,36 @@ internal sealed partial class PtyHostedAgentRuntime(
         await _lane.WaitAsync();
 
         try {
-            if (data.Length > 0 && !TerminalReply.IsOnlyReplies(data)) Interlocked.Increment(ref _keystrokes);
+            if (data.Length > 0 && !TerminalReply.IsOnlyReplies(data)) {
+                Interlocked.Increment(ref _keystrokes);
+                SuspendIfSubmits(data, "raw input that can submit reached the terminal");
+            }
             await pty.WriteAsync(data);
         } finally {
             _lane.Release();
         }
+    }
+
+    /// <summary>An Enter typed at the terminal can answer a dialog, submit an empty composer or sit inside a multiline
+    /// paste, so it proves no row, and the rows after it can no longer be placed. Suspended ahead of the write, so no
+    /// row the Enter makes can be read first</summary>
+    void SuspendIfSubmits(ReadOnlySpan<byte> bytes, string reason) {
+        if (inputLog is { } log && bytes.IndexOfAny((byte)'\r', (byte)'\n') >= 0) log.Suspend(reason);
+    }
+
+    // Under the lane, ahead of the paste, so the log holds messages in the order they are written. Text no person's
+    // row would carry gets no entry, since its row would never be compared and the entry would wait at the head.
+    long? Pending(InputAuthor author, string text) =>
+        inputLog is { } log && PersonRows.IsPersonText(text, vendor) ? log.AppendPending(author, text) : null;
+
+    // A paste that never started has no row coming. One that started and then failed may still produce one, or may sit
+    // in the composer until something else submits it, so nobody can say which row is whose after it.
+    void Settle(long? entry, bool pasted, bool submitted) {
+        if (inputLog is not { } log || entry is not { } position) return;
+
+        if (submitted) log.MarkWritten(position);
+        else if (pasted) log.Suspend("a message failed after its paste started");
+        else log.Abandon(position);
     }
 
     /// <summary>Withheld while a dialog shows, since its default option would take the Enter, and once
@@ -723,10 +774,19 @@ internal sealed partial class PtyHostedAgentRuntime(
         _stopRequested = true;
         var holdsLane  = await TakeLaneWithinAsync(GracefulStopLaneWait);
 
+        long? entry     = null;
+        var   submitted = false;
+
         try {
+            // Without the lane the write can land inside another message's, and neither row is then the one written.
+            if (holdsLane) entry = Pending(InputAuthor.Daemon, "/exit");
+            else inputLog?.Suspend("a stop wrote to the terminal without the input lane");
+
             await pty.WriteAsync("/exit");
             await SubmitAsync();
+            submitted = true;
         } finally {
+            Settle(entry, pasted: true, submitted);
             if (holdsLane) _lane.Release();
         }
     }

@@ -634,19 +634,72 @@ public class TranscriptRecorderTests {
             .IsEquivalentTo(["Line 1's stamp went on no user message; dropped"], CollectionOrdering.Matching);
     }
 
-    /// <summary>Answers the stamps it was given, by line, and records each line it was asked about</summary>
+    /// <summary>Answers the stamps it was given, by line, and records each line it was asked about and each ack</summary>
     sealed class FakeStamper(params LineStamp[] stamps) : IRowStamper {
-        readonly ConcurrentQueue<int> _asked = new();
+        readonly ConcurrentQueue<int>    _asked = new();
+        readonly ConcurrentQueue<string> _lines = new();
+        int _acknowledged = -1;
 
         public int[] Asked => [.. _asked];
 
+        public string[] Lines => [.. _lines];
+
+        public int AcknowledgedThrough => Volatile.Read(ref _acknowledged);
+
         public LineStamp? StampFor(int lineNumber, string rawLine) {
             _asked.Enqueue(lineNumber);
+            _lines.Enqueue(rawLine);
 
             return stamps.FirstOrDefault(stamp => stamp.LineNumber == lineNumber);
         }
 
-        public void Acknowledged(int throughLine) { }
+        public void Acknowledged(int throughLine) => Volatile.Write(ref _acknowledged, Math.Max(throughLine, _acknowledged));
+    }
+
+    /// <summary>The batch carries the redacted line, but a stamper compares with what was pasted, so it is asked about the
+    /// raw one</summary>
+    [Test]
+    public async Task The_stamper_is_asked_about_the_raw_line_of_a_redacted_one() {
+        const string secret = """{"type":"user","message":{"content":"push with ghp_0123456789abcdefghijklmnopqrstuvwxyz"}}""";
+        var path    = Tmp.CreateFile("t.jsonl", $"{secret}\n");
+        var stamper = new FakeStamper();
+        using var recorder = Recorder(path, stamper: stamper);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(1);
+        await stop.CancelAsync();
+        await run;
+
+        await Assert.That(_transport.Batches[0].Lines[0]).DoesNotContain("ghp_0123456789");
+        await Assert.That(stamper.Lines).IsEquivalentTo([secret]);
+    }
+
+    /// <summary>A match record goes once its line is acknowledged, so every way a line leaves the recorder must say so:
+    /// a live send, the final drain, and a tail the final drain spooled</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Lines_the_final_drain_sends_or_spools_are_acknowledged_to_the_stamper(bool connected) {
+        var path    = Tmp.CreateFile("t.jsonl", $"{Prompt}\n");
+        var stamper = new FakeStamper();
+        using var recorder = Recorder(path, stamper: stamper);
+        using var stop     = new CancellationTokenSource();
+
+        var run = recorder.RunAsync(stop.Token);
+        await LinesSent(1);
+        for (var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(10); stamper.AcknowledgedThrough < 0 && DateTimeOffset.UtcNow < deadline;)
+            await Task.Delay(10);
+        await Assert.That(stamper.AcknowledgedThrough).IsEqualTo(0);
+
+        _transport.IsConnected = connected;
+        await File.AppendAllTextAsync(path, $"{Reply}\n");
+        await stop.CancelAsync();
+        await run;
+        await recorder.FinishAsync(CancellationToken.None);
+
+        await Assert.That(stamper.AcknowledgedThrough).IsEqualTo(1);
+        await Assert.That(stamper.Asked).Contains(1);
     }
 
     /// <summary>Records <paramref name="lines"/> twice: once by one recorder, written in two halves, and once by a recorder

@@ -113,6 +113,21 @@ public class LocalSendTextTests {
         await Assert.That(rt.SentInputs).IsEmpty();
     }
 
+    /// <summary>Only the owner reaches the local socket, so composer text is theirs, and a stamped row says so. A message
+    /// the daemon delivers with no dispatch is its own</summary>
+    [Test]
+    public async Task Composer_text_reaches_the_runtime_as_the_owners() {
+        await using var orch = Build();
+        var rt    = new FakeHostedAgentRuntime("claude", emitsTerminalOutput: true);
+        var agent = AgentOrchestratorHarness.SeedAcpAgent(orch, "a1", rt);
+
+        await Assert.That((await Send(orch, Payload("a1", "look at the failure"))).Ok).IsTrue();
+        await orch.DeliverInputAsync(agent, "carry on where you left off", attachmentIds: null);
+
+        await Assert.That(rt.OwnerInputs).IsEquivalentTo(new[] { "look at the failure" });
+        await Assert.That(rt.UserInputs).IsEquivalentTo(new[] { "look at the failure", "carry on where you left off" }, CollectionOrdering.Matching);
+    }
+
     [Test]
     public async Task Delivery_acks_ok_delivered_only_when_the_core_settles() {
         await using var orch = Build();

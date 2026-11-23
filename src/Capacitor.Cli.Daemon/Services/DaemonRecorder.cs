@@ -10,6 +10,7 @@ using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Recording;
 using Capacitor.Cli.Recording.Harness.Claude;
 using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Models.Transcripts.UserMessages;
 using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Services;
@@ -83,6 +84,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     readonly RecorderClaims _claims;
     readonly WatcherLiveness _liveness;
     readonly RecordedSourceList _list;
+    readonly InputLogs _inputLogs;
     readonly KeyedAsyncGate _keys = new();
     readonly ConcurrentDictionary<string, Tracked> _sources = new(StringComparer.Ordinal);
     readonly KeyedAsyncGate _agentGates = new();
@@ -121,8 +123,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         _paths    = WatcherPaths.FromEnvironment(config.ConfigRoot);
         _claims   = new RecorderClaims(_paths.Directory, time, config.Name);
         _liveness = new WatcherLiveness(_paths, time);
-        _list     = new RecordedSourceList(config.Store.StateDirectory(config.Name), logger);
-        _host     = new Lazy<RecorderHost>(CreateHost);
+        _list      = new RecordedSourceList(config.Store.StateDirectory(config.Name), logger);
+        _inputLogs = new InputLogs(Path.Combine(config.Store.StateDirectory(config.Name), "input-logs"), time);
+        _host      = new Lazy<RecorderHost>(CreateHost);
 
         serverRecords.SaidNo += () => _ = Task.Run(LetEverySourceGoAsync);
     }
@@ -240,6 +243,30 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         }
 
         Start(tracked);
+    }
+
+    /// <summary>The input log of a source <see cref="ClaimAsync"/> claimed, for the agent process about to start. Stamping
+    /// starts again from the transcript's next line: the process before, if any, has gone and can add no row</summary>
+    public InputLog InputLogForNewProcess(RecordedSource source) {
+        var log = _inputLogs.Open(source.Key);
+        log.ResetForNewProcess(CompleteLines(source.TranscriptPath));
+
+        return log;
+    }
+
+    // Claude writes the file as this reads it.
+    static int CompleteLines(string transcriptPath) {
+        try {
+            using var stream = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var buffer = new byte[64 * 1024];
+            var lines  = 0;
+
+            for (int read; (read = stream.Read(buffer)) > 0;) lines += buffer.AsSpan(0, read).Count((byte)'\n');
+
+            return lines;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return 0;
+        }
     }
 
     /// <summary>Lets go of a claim whose agent never ran. A source already running stays: it came from the last daemon,
@@ -579,8 +606,16 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
     RecorderHost CreateHost() {
         _transport = _connect();
 
-        return new RecorderHost(_transport, _ => new NoStamps(), ContextFor, _time, _claims, OnAttemptEnded, KeepsClaimOffline);
+        return new RecorderHost(_transport, StamperFor, ContextFor, _time, _claims, OnAttemptEnded, KeepsClaimOffline);
     }
+
+    /// <summary>Only a hosted Claude agent's own transcript has messages this daemon wrote, and only once a launch, or
+    /// the last daemon, has given it a log</summary>
+    internal IRowStamper StamperFor(RecordingSource source) =>
+        _sources.TryGetValue(source.Key, out var tracked) && tracked.Source is { AgentId: not null, SubagentId: null, Vendor: "claude" }
+     && _inputLogs.Find(source.Key) is { } log
+            ? new InputLogStamper(log, new PersonRows(TranscriptProjection.For("claude")!, source.SessionId, "claude"))
+            : new NoStamps();
 
     // A hosted source stays this daemon's through an outage, or it would go to a watcher and lose its stamps for good.
     bool KeepsClaimOffline(RecordingSource source) => !_sources.TryGetValue(source.Key, out var tracked) || !tracked.Source.IsTerminal;
@@ -1099,6 +1134,9 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
                     _ = Task.Run(() => EndSessionAsync(tracked));
                 }
             } else {
+                // Drained behind its agent's exit, it has no line left to answer for, and the session's next process
+                // starts its log over. One stopped or moved mid-way keeps its log for whoever records the rest.
+                if (tracked is { Drained: true, AgentFinished: true }) _inputLogs.Delete(key);
                 Forget(tracked);
             }
         } catch (Exception ex) {

@@ -166,7 +166,8 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
             readyOnBracketedPaste: OperatingSystem.IsWindows(),
             bracketedPasteMeansComposerUp: launcher.BracketedPasteMeansComposerUp,
             awaitsSessionStart: hooksReachDaemon && launcher.SessionStartMeansComposerUp,
-            confirmsLaunchPrompt: hooksReachDaemon);
+            confirmsLaunchPrompt: hooksReachDaemon,
+            inputLog: ctx.InputLog);
 
         if (launchPrompt is not null) {
             runtime.DeliverLaunchPrompt(launchPrompt);

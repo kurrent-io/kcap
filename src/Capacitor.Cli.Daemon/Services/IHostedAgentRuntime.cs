@@ -94,6 +94,10 @@ internal interface IHostedAgentRuntime : IAsyncDisposable {
     /// <see cref="SendUserInputAsync"/>, carried by the task from this method.</summary>
     Task SendUserInputAndWaitForWriteAsync(string text) => SendUserInputAsync(text);
 
+    /// <summary><see cref="SendUserInputAsync"/> for a message the session's owner sent from a local surface. A runtime
+    /// that stamps the rows of what it writes stamps this one as the owner's</summary>
+    Task SendOwnerInputAsync(string text) => SendUserInputAsync(text);
+
     /// <summary>Input a server dispatch delivered. Completes once the runtime has taken the input, failing
     /// with <see cref="InputNotAdmittedException"/> when it will not; the task it yields completes once the
     /// input is written, and faults if it never will be, which for input queued behind an active turn can

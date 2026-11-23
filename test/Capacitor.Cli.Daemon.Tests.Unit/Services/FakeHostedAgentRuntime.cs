@@ -36,6 +36,15 @@ sealed class FakeHostedAgentRuntime(string vendor, bool emitsTerminalOutput) : I
 
         return Task.CompletedTask;
     }
+
+    /// <summary>What reached <see cref="SendOwnerInputAsync"/>, which also counts in <see cref="UserInputs"/></summary>
+    public List<string> OwnerInputs { get; } = [];
+
+    public Task SendOwnerInputAsync(string text) {
+        lock (OwnerInputs) OwnerInputs.Add(text);
+
+        return SendUserInputAsync(text);
+    }
     public List<string> SpecialKeys { get; } = [];
 
     public Task SendSpecialKeyAsync(string key) {
