@@ -43,6 +43,14 @@ exclude:
   - name: MethodHasAsyncOverloadWithCancellation
     paths:
       - test
+  # A test's lambdas run before the test returns, so what they capture is still live, and a captured
+  # counter or flag is read for its latest value on purpose
+  - name: AccessToDisposedClosure
+    paths:
+      - test
+  - name: AccessToModifiedClosure
+    paths:
+      - test
   # Solution-wide usage and visibility analysis can't see serialization, DI, reflection or the clients
   # that bind to public contracts
   - name: AutoPropertyCanBeMadeGetOnly.Global

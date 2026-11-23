@@ -279,7 +279,7 @@ public static partial class CodexConfigToml {
         try {
             WriteOwnerOnlyTemp(tmp, root.ToJsonString(new() { WriteIndented = true }));
             File.Move(tmp, path, overwrite: true);
-        } catch { try { File.Delete(tmp); } catch { } throw; }
+        } catch { try { File.Delete(tmp); } catch { /* ignored */ } throw; }
     }
 
     /// <summary>

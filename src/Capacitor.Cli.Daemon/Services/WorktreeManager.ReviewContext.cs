@@ -421,9 +421,9 @@ public partial class WorktreeManager {
                     "borrowed_snapshot_review_context_case_probe_failed");
             return !File.Exists(upper);
         } finally {
-            try { File.Delete(lower); } catch { }
+            try { File.Delete(lower); } catch { /* ignored */ }
             if (!string.Equals(lower, upper, StringComparison.Ordinal))
-                try { File.Delete(upper); } catch { }
+                try { File.Delete(upper); } catch { /* ignored */ }
         }
     }
 
@@ -455,7 +455,7 @@ public partial class WorktreeManager {
             await process.WaitForExitAsync(timeoutCts.Token);
             await stdoutTask;
         } catch (OperationCanceledException) {
-            try { ProcessTree.Kill(process); } catch { }
+            try { ProcessTree.Kill(process); } catch { /* ignored */ }
             throw new InvalidOperationException(
                 $"git {string.Join(' ', args)} timed out after {timeout.TotalSeconds:F0}s");
         }

@@ -22,8 +22,8 @@ public class FakeAcpAgentTests {
         } catch {
             cts.Cancel();
             // Cleanup must preserve the body failure, including a fault-capture timeout.
-            try { await run; } catch (Exception) { }
-            try { await fake.DisposeAsync(); } catch (Exception) { }
+            try { await run; } catch (Exception) { /* ignored */ }
+            try { await fake.DisposeAsync(); } catch (Exception) { /* ignored */ }
             throw;
         }
 

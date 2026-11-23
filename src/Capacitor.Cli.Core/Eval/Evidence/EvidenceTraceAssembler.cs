@@ -29,8 +29,8 @@ public sealed class EvidenceTraceAssembler(EvidenceReadClient reader, string tok
         var reads  = 0;
         var k      = 0;
 
-        using var buffer = new MemoryStream();
-        using var w      = new Utf8JsonWriter(buffer);
+        using var buffer  = new MemoryStream();
+        await using var w = new Utf8JsonWriter(buffer);
         w.WriteStartArray();
         foreach (var source in sources.Where(s => s.IsAvailable)) {
             w.WriteStartObject();

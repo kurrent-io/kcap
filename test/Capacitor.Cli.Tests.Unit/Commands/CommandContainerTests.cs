@@ -39,7 +39,7 @@ public class CommandContainerTests {
         // Guards the loop below: an empty set would assert nothing at all.
         await Assert.That(commands).IsNotEmpty();
 
-        using var sp = Build(baseUrl);
+        await using var sp = Build(baseUrl);
 
         foreach (var command in commands) {
             // GetRequiredService, not GetService: a missing registration must fail here rather than

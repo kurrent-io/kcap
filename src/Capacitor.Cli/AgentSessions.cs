@@ -33,7 +33,7 @@ sealed class AgentSessions(ConfigRoot config, Func<int, int?> parentOf, TimeProv
     /// fills what is still missing.
     /// </summary>
     public void Claim(int agentPid, SessionId session, ClaimOrigin? origin = null) {
-        try { File.Delete(ExitRecord(session)); } catch { }
+        try { File.Delete(ExitRecord(session)); } catch { /* ignored */ }
 
         try {
             if (ProcessStartToken.ForPid(agentPid) is not { } token) return;
@@ -59,7 +59,7 @@ sealed class AgentSessions(ConfigRoot config, Func<int, int?> parentOf, TimeProv
             File.WriteAllText(temp, text);
             File.Move(temp, note, overwrite: true);
             WriteOrigin(agentPid, token, origin);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>
@@ -132,7 +132,7 @@ sealed class AgentSessions(ConfigRoot config, Func<int, int?> parentOf, TimeProv
                 }
 
                 File.Delete(Note(pid));
-            } catch { }
+            } catch { /* ignored */ }
         }
 
         // A session resumed and gone again since its end was deferred is already here: one end is enough.
@@ -174,9 +174,9 @@ sealed class AgentSessions(ConfigRoot config, Func<int, int?> parentOf, TimeProv
                     File.Delete(path);
                     if (!stale && LiveClaimant(session) is null)
                         taken.Add(new ExitedSession(session, OriginOf(vendor, server, transcript, cwd, hosted) with { Server = server }));
-                } catch { }
+                } catch { /* ignored */ }
             }
-        } catch { }
+        } catch { /* ignored */ }
         return taken;
     }
 
@@ -254,9 +254,9 @@ sealed class AgentSessions(ConfigRoot config, Func<int, int?> parentOf, TimeProv
                 try {
                     if (!DateTimeOffset.TryParse(File.ReadAllText(record), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at) || at < cutoff)
                         File.Delete(record);
-                } catch { }
+                } catch { /* ignored */ }
             }
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     string ExitRecord(SessionId session) => config.Path("agent-sessions", "exited", session.Value.ToLowerInvariant());
@@ -287,7 +287,7 @@ sealed class AgentSessions(ConfigRoot config, Func<int, int?> parentOf, TimeProv
     void DeleteOrigin(int pid, string token) {
         try {
             if (ReadFields(Origin(pid)) is [var owner, ..] && owner == token) File.Delete(Origin(pid));
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     internal ClaimOrigin? ReadOrigin(int pid, string token) {

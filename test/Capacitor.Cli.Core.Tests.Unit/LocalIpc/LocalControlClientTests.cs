@@ -60,7 +60,7 @@ public class LocalControlClientTests {
         public async ValueTask DisposeAsync() {
             _cts.Cancel();
             _listener.Dispose();
-            if (_accept is { } a) { try { await a; } catch { } }
+            if (_accept is { } a) { try { await a; } catch { /* ignored */ } }
         }
     }
 
@@ -120,7 +120,7 @@ public class LocalControlClientTests {
         if (f?.Type != FrameType.StatusSubscribe) return;
         foreach (var json in statusJsons)
             await FrameCodec.WriteAsync(s, LocalFrame.StatusJson(FrameType.DaemonStatus, json), ct);
-        try { await FrameCodec.ReadAsync(s, ct); } catch { } // null (EOF) or an exception once the peer closes
+        try { await FrameCodec.ReadAsync(s, ct); } catch { /* ignored */ } // null (EOF) or an exception once the peer closes
         closed.TrySetResult();
     };
     static ConnScript SubscribeEof() => FrameCodec.ReadAsync;

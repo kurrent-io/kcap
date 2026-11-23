@@ -2456,6 +2456,7 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
+            // ignored
         }
 
         return meta;
@@ -2506,6 +2507,7 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
+            // ignored
         }
 
         return null;
@@ -2540,6 +2542,7 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
+            // ignored
         }
 
         return null;
@@ -2684,6 +2687,7 @@ class ImportCommand(
                 } catch (JsonException) { }
             }
         } catch {
+            // ignored
         }
 
         return meta;

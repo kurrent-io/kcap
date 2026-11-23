@@ -31,7 +31,7 @@ public class UpdateCommandAppInstallTests {
         services.AddSingleton(profiles);
         services.AddSingleton(new CapacitorServer("", Config.Root, profiles));
         services.AddCapacitorHttp(ProfileOverrides.None, MachineAuth.None);
-        using var sp = services.BuildServiceProvider();
+        await using var sp = services.BuildServiceProvider();
 
         var command = new UpdateCommand(
             Config.Root, profiles, new NpmRegistryClient(new HttpClient(npm) { BaseAddress = new Uri("http://registry.test/") }),

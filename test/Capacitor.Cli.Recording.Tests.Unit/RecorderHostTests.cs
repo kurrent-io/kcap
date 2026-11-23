@@ -2517,7 +2517,7 @@ public partial class RecorderHostTests {
         await Eventually(() => LinesSent(source.SessionId) == 1, "its line");
         await File.AppendAllTextAsync(source.TranscriptPath, $"{Reply}\n");
 
-        using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
+        await using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
         var finish = host.FinishAsync(source.Key, CancellationToken.None);
         await Eventually(() => finish.IsCompleted, "the finish", TimeSpan.FromSeconds(1));
 
@@ -2545,7 +2545,7 @@ public partial class RecorderHostTests {
             await entered.Task.WithinDeadlineAsync("the recorder reaching its first drain");
             await File.AppendAllTextAsync(source.TranscriptPath, $"{Prompt}\n{Reply}\n");
 
-            using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
+            await using var unreadable = await HoldExclusivelyAsync(source.TranscriptPath);
             release.SetResult();
             await Eventually(() => AfterDrains(source.Key) == 1, "the first failed drain");
             await Assert.That(_log.Count(line => line.StartsWith($"{source.Key}: Error reading file:", StringComparison.Ordinal))).IsEqualTo(1);

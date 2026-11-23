@@ -142,7 +142,7 @@ public class AgentOrchestratorClaudeDiscoveryTests {
         var readBuf = new MemoryStream();
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
         readBuf.Position = 0;
-        using var client = new DuplexTestStream(readBuf, new MemoryStream());
+        await using var client = new DuplexTestStream(readBuf, new MemoryStream());
         await orch.HandleLocalSpawnAsync(FrameCodec.Spawn("claude", WorkLocation.BorrowedCwd, isPrivate: false, cwd, [], 80, 24), client, default);
 
         var agent = orch.GetAgentForTest(orch.SnapshotAgentsForStatus().Single().Id)!;

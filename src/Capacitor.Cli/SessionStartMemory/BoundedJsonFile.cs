@@ -37,13 +37,13 @@ internal static class BoundedJsonFile {
         try {
             using (var stream = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None)) {
                 if (!OperatingSystem.IsWindows())
-                    try { File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
+                    try { File.SetUnixFileMode(temp, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { /* ignored */ }
                 stream.Write(bytes);
                 stream.Flush();
             }
             File.Move(temp, destination, overwrite: true);
         } finally {
-            try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+            try { if (File.Exists(temp)) File.Delete(temp); } catch { /* ignored */ }
         }
     }
 }

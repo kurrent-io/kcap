@@ -164,7 +164,7 @@ static partial class ProcessHelpers {
                 // runs the work inline and two owners of it would duplicate the result.
                 writeHandle.Dispose();
 
-                try { TerminateByHandle(processHandle); } catch { }
+                try { TerminateByHandle(processHandle); } catch { /* ignored */ }
 
                 processHandle.Dispose();
 

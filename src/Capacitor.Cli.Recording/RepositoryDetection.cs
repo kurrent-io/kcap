@@ -346,7 +346,7 @@ public static class RepositoryDetection {
             // Timed out or failed — kill the child (and its tree) so a slow git/gh probe doesn't
             // outlive the hook and accumulate across repeated invocations. Disposing alone only
             // releases handles; it does not stop the process.
-            try { if (process is { HasExited: false }) ProcessTree.Kill(process); } catch { }
+            try { if (process is { HasExited: false }) ProcessTree.Kill(process); } catch { /* ignored */ }
             return null;
         } finally {
             process?.Dispose();
@@ -387,6 +387,7 @@ public static class RepositoryDetection {
             Directory.CreateDirectory(dir);
             File.WriteAllText(path, JsonSerializer.Serialize(entry, RepositoryCacheJsonContext.Default.GitCacheEntry));
         } catch {
+            // ignored
         }
     }
 
@@ -424,6 +425,7 @@ public static class RepositoryDetection {
                 File.Delete(path);
             }
         } catch {
+            // ignored
         }
     }
 
@@ -434,6 +436,7 @@ public static class RepositoryDetection {
             Directory.CreateDirectory(dir);
             File.WriteAllText(path, JsonSerializer.Serialize(payload, RepositoryCacheJsonContext.Default.RepositoryPayload));
         } catch {
+            // ignored
         }
     }
 }

@@ -383,7 +383,7 @@ public class WatcherManagerClaimTests : IDisposable {
         Claims.TryTake(Key, "daemon", isHosted: false);
         GoStale();
 
-        using (new FileStream(Paths.SpawnLockFile(Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None))
+        await using (new FileStream(Paths.SpawnLockFile(Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None))
             await Watchers.InlineDrainAsync(Key, NewTranscript(), agentId: null);
 
         await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonStale);
@@ -528,7 +528,7 @@ public class WatcherManagerClaimTests : IDisposable {
         Claims.TryTake(Key, "daemon", isHosted: false);
         await LeaveDeadWatcher();
 
-        using (new FileStream(Paths.SpawnLockFile(Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None))
+        await using (new FileStream(Paths.SpawnLockFile(Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None))
             await Watchers.KillWatcher(Key, TextWriter.Null);
 
         await Assert.That(File.Exists(Paths.PidFile(Key))).IsTrue();
@@ -538,7 +538,7 @@ public class WatcherManagerClaimTests : IDisposable {
     /// inode that conflicts with nothing, and both go on to start a recorder.</summary>
     [Test]
     public async Task Cleanup_leaves_a_spawn_lock_someone_holds() {
-        using (new FileStream(Paths.SpawnLockFile(Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None)) {
+        await using (new FileStream(Paths.SpawnLockFile(Key), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None)) {
             await Assert.That(Watchers.PurgeAuxiliaryFiles()).IsEqualTo(0);
             await Assert.That(File.Exists(Paths.SpawnLockFile(Key))).IsTrue();
         }

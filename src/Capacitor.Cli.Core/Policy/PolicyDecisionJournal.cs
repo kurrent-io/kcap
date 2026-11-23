@@ -106,7 +106,7 @@ public sealed class PolicyDecisionJournal(ConfigRoot config) {
         }
         // Bare: also absorbs a foreign-owned mutex on Windows and any other lock/IO surprise —
         // a journal failure must never break a hook.
-        catch { }
+        catch { /* ignored */ }
     }
 
     static PolicyJournalFileV1 Read(string path) {

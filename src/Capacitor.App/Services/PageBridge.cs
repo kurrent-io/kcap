@@ -259,7 +259,7 @@ public sealed class PageBridge : IAsyncDisposable {
     async Task PostAsync(Action<Utf8JsonWriter> write) {
         if (_disposed.IsCancellationRequested) return;
         var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer)) {
+        await using (var writer = new Utf8JsonWriter(buffer)) {
             writer.WriteStartObject();
             write(writer);
             writer.WriteEndObject();

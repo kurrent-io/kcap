@@ -67,7 +67,7 @@ public class CursorComposerTitleTests {
     public async Task Reads_while_a_writer_holds_the_file() {
         var db = BuildStateDb(Tmp.PathTo("state.vscdb"), SessionId, "Live");
 
-        using var writer = new FileStream(db, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
+        await using var writer = new FileStream(db, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite);
 
         await Assert.That(new CursorComposerTitle(db, SessionId).Read()!.Title).IsEqualTo("Live");
     }
@@ -77,9 +77,9 @@ public class CursorComposerTitleTests {
     [Test]
     public async Task A_locked_db_reads_null_promptly() {
         var db = BuildStateDb(Tmp.PathTo("state.vscdb"), SessionId, "Live");
-        using var holder = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = db, Pooling = false }.ToString());
+        await using var holder = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = db, Pooling = false }.ToString());
         holder.Open();
-        using (var begin = holder.CreateCommand()) {
+        await using (var begin = holder.CreateCommand()) {
             begin.CommandText = "BEGIN EXCLUSIVE";
             begin.ExecuteNonQuery();
         }

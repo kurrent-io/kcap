@@ -428,7 +428,7 @@ public class OpenCodeDbTests {
         using var tmp = new TempDir();
         var db = BuildDb(tmp.Path);
 
-        using var writer = new SqliteConnection($"Data Source={db}");
+        await using var writer = new SqliteConnection($"Data Source={db}");
         writer.Open();
         Exec(writer, "PRAGMA journal_mode=WAL;");
         InsertSession(db, "ses_live", null, "/w", "Live", 100);

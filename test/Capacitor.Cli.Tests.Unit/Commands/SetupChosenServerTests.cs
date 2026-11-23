@@ -42,7 +42,7 @@ public class SetupChosenServerTests {
     /// makes the process container unusable rather than merely wrong.
     [Test]
     public async Task A_server_chosen_mid_run_is_reachable_though_startup_resolved_none() {
-        using var scoped = Started(Resolutions.None(Config.Root)).HttpForChosenServer("https://chosen.test");
+        await using var scoped = Started(Resolutions.None(Config.Root)).HttpForChosenServer("https://chosen.test");
 
         var server = scoped.GetRequiredService<CapacitorServer>();
 
@@ -54,7 +54,7 @@ public class SetupChosenServerTests {
     /// credential must not be looked up against it either.
     [Test]
     public async Task A_re_pointed_server_replaces_the_one_resolved_at_startup() {
-        using var scoped = Started(Resolutions.At("https://startup.test", Config.Root))
+        await using var scoped = Started(Resolutions.At("https://startup.test", Config.Root))
             .HttpForChosenServer("https://chosen.test");
 
         var server = scoped.GetRequiredService<CapacitorServer>();
@@ -69,7 +69,7 @@ public class SetupChosenServerTests {
     public async Task The_chosen_server_keeps_the_profile_the_run_writes_to() {
         var startup = Resolutions.At("https://startup.test", Config.Root);
 
-        using var scoped = Started(startup).HttpForChosenServer("https://chosen.test");
+        await using var scoped = Started(startup).HttpForChosenServer("https://chosen.test");
 
         await Assert.That(scoped.GetRequiredService<CapacitorServer>().Profiles.Name).IsEqualTo(startup.Name);
     }
@@ -85,7 +85,7 @@ public class SetupChosenServerTests {
 
         var built = new ProfileContext(new ResolvedProfile("http://127.0.0.1:51234", "default", null, null), new ProfileConfig());
 
-        using var scoped = Started(Resolutions.None(Config.Root), root).HttpForChosenServer("http://127.0.0.1:51234", built);
+        await using var scoped = Started(Resolutions.None(Config.Root), root).HttpForChosenServer("http://127.0.0.1:51234", built);
 
         var server = scoped.GetRequiredService<CapacitorServer>();
 

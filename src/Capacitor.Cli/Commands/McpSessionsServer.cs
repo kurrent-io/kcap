@@ -32,7 +32,7 @@ sealed class McpSessionsServer(ConfigRoot config, ProfileContext profiles, Token
         // block the server from starting, and an absent property is a different value in a funnel
         // from a false one — "could not tell" belongs with "not logged in", not with a gap.
         var loggedIn = false;
-        try { loggedIn = await tokens.LoadForProfileAsync(profiles.Name) is not null; } catch { }
+        try { loggedIn = await tokens.LoadForProfileAsync(profiles.Name) is not null; } catch { /* ignored */ }
 
         // MCP servers are long-lived and denylisted under the top-level "mcp" command
         // (CommandEvents.Denylisted) — a second facade under the reportable pseudo-command

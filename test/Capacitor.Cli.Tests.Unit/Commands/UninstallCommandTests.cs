@@ -772,7 +772,7 @@ public class UninstallCommandTests {
 
         int exit;
         // Held exclusively, the pid file can be neither read to stop the watcher nor deleted.
-        using (new FileStream(pidFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        await using (new FileStream(pidFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             exit = await NewCommand(fixture).HandleAsync(["uninstall", "--yes", "--keep-config"]);
 
         await Assert.That(exit).IsEqualTo(1);

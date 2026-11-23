@@ -519,7 +519,7 @@ public class MuseHookCommandTests : IDisposable {
         DisabledSessions.Exclude(ParentDashless, Config.Root);
         using var stdin  = new StringReader(
             $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}""");
-        using var stdout = new StringWriter();
+        await using var stdout = new StringWriter();
 
         await Command().Handle(stdin, stdout, _ => null, Today);
 
@@ -533,7 +533,7 @@ public class MuseHookCommandTests : IDisposable {
         DisabledSessions.Mark(ParentDashless, Config.Root);
         using var stdin  = new StringReader(
             $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}""");
-        using var stdout = new StringWriter();
+        await using var stdout = new StringWriter();
 
         await Command().Handle(stdin, stdout, _ => null, Today);
 

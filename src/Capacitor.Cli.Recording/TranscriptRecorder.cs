@@ -184,7 +184,7 @@ public sealed class TranscriptRecorder(
     /// <summary>Tails the transcript until <paramref name="ct"/> or the recorder itself stops it. A failure to
     /// register with the server is thrown, as is a failure of a vendor step between drains.</summary>
     public async Task RunAsync(CancellationToken ct) {
-        using var callerStop = ct.Register(static me => ((TranscriptRecorder)me!).CancelRun(), this);
+        await using var callerStop = ct.Register(static me => ((TranscriptRecorder)me!).CancelRun(), this);
 
         var stop      = _stop.Token;
         var sessionId = source.SessionId;
@@ -194,7 +194,7 @@ public sealed class TranscriptRecorder(
 
         // The kill grace runs from the stop request, not from the loop noticing it: an await the loop was in
         // when the request arrived has already spent some of it.
-        using var shutdownStamp = stop.Register(() => Interlocked.CompareExchange(ref _shutdownRequestedAt, time.GetTimestamp(), 0));
+        await using var shutdownStamp = stop.Register(() => Interlocked.CompareExchange(ref _shutdownRequestedAt, time.GetTimestamp(), 0));
 
         // Registering replaces whichever connection holds the source, and that may be the watcher that took it.
         if (HasLostClaim()) return;

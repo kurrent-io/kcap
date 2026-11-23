@@ -228,7 +228,7 @@ public class CursorReconnectRewindTests {
             await Assert.That(guard.VerifyPriorZone("anything-at-all")).IsTrue();
             await Assert.That(Markers.IsQuarantined(sid)).IsFalse(); // NOT quarantined
         } finally {
-            try { File.Delete(Markers.QuarantinePath(sid)); } catch { }
+            try { File.Delete(Markers.QuarantinePath(sid)); } catch { /* ignored */ }
         }
     }
 
@@ -303,7 +303,7 @@ public class CursorReconnectRewindTests {
             // Neither the byte offset nor the guard's checkpoint were touched — no bogus baseline.
             await Assert.That(state.CursorByteOffset).IsEqualTo(0L);
         } finally {
-            try { File.Delete(Markers.QuarantinePath(sid)); } catch { }
+            try { File.Delete(Markers.QuarantinePath(sid)); } catch { /* ignored */ }
         }
     }
 
@@ -495,6 +495,6 @@ public class CursorReconnectRewindTests {
         // Neither frontier moved — the caller (RunWatch) is responsible for exiting instead.
         await Assert.That(state.LinesProcessed).IsEqualTo(12);
         await Assert.That(state.CursorByteOffset).IsEqualTo(7L);
-        try { File.Delete(Markers.QuarantinePath(sid)); } catch { }
+        try { File.Delete(Markers.QuarantinePath(sid)); } catch { /* ignored */ }
     }
 }
