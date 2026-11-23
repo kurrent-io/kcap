@@ -246,5 +246,7 @@ internal sealed record RuntimeStartContext(
         ResolvedAccount?    Account = null,
         // Set only for a session this daemon records, whose rows are stamped from the messages written to it. A PTY
         // runtime writes its entries; every other runtime ignores it.
-        InputLog?           InputLog = null
+        InputLog?           InputLog = null,
+        // The dispatch the server minted for the prompt a PTY runtime pastes; null for the daemon's own text
+        Guid?               LaunchDispatchId = null
     );

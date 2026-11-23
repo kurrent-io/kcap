@@ -3342,7 +3342,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 RequestedTransport: resume?.Entry.Transport,
                 ExpectedRuntimeTransport: cmd.ExpectedRuntimeTransport,
                 PersistenceProbe: () => _agents.TryGetValue(agentId, out var bound) ? bound.AcpForwarder?.Forwarder : null,
-                Account: account
+                Account: account,
+                LaunchDispatchId: cmd.LaunchDispatchId
             );
 
             HostedRuntimeStart start;

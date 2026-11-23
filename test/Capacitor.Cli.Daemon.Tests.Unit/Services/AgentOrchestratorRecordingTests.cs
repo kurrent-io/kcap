@@ -311,6 +311,16 @@ public class AgentOrchestratorRecordingTests {
         await Assert.That(f.Recorder.StamperFor(source) is InputLogStamper).IsEqualTo(recording);
     }
 
+    [Test]
+    public async Task A_launch_hands_its_runtime_the_dispatch_the_server_minted_for_its_prompt() {
+        var minted = Guid.Parse("a0000000-0000-4000-8000-000000000001");
+        await using var f = new Fixture(Tmp, new StartingFactory());
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch() with { LaunchDispatchId = minted });
+
+        await Assert.That(f.Factory.Context!.LaunchDispatchId).IsEqualTo(minted);
+    }
+
     static DisableSessionAckDto AckOf(LocalFrame reply) => JsonSerializer.Deserialize(reply.Text, RecordingIpcJsonContext.Default.DisableSessionAckDto)!;
 
     /// <summary>A PTY agent's mirror isn't recording and stays up, so the answer says so, and only for an agent still

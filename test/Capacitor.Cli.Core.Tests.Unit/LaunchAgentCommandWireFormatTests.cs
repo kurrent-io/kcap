@@ -350,6 +350,40 @@ public class LaunchAgentCommandWireFormatTests {
         await Assert.That(back.AccountId).IsEqualTo("a1b2");
     }
 
+    static readonly Guid Minted = Guid.Parse("90000000-0000-4000-8000-000000000001");
+
+    [Test]
+    public async Task The_launch_dispatch_binds_from_snake_case_and_defaults_null_when_absent() {
+        const string wire =
+            """
+            {"agent_id":"a1","prompt":"build it","model":"m","repo_path":"/r","vendor":"claude","launch_dispatch_id":"90000000-0000-4000-8000-000000000001"}
+            """;
+        const string legacyWire = """{"agent_id":"a1","prompt":"build it","model":"m","repo_path":"/r","vendor":"claude"}""";
+
+        var parsed = JsonSerializer.Deserialize(wire, CapacitorJsonContext.Default.LaunchAgentCommand);
+        var legacy = JsonSerializer.Deserialize(legacyWire, CapacitorJsonContext.Default.LaunchAgentCommand);
+        var sent   = JsonSerializer.Serialize(parsed, ServerWireOptions);
+
+        await Assert.That(parsed.LaunchDispatchId).IsEqualTo(Minted);
+        await Assert.That(sent).Contains("\"launch_dispatch_id\":\"90000000-0000-4000-8000-000000000001\"");
+        await Assert.That(legacy.LaunchDispatchId).IsNull();
+    }
+
+    /// <summary>A daemon that predates the field reads the server's command as it always did, so the prompt it pastes
+    /// is simply unstamped</summary>
+    [Test]
+    public async Task An_older_daemon_ignores_the_launch_dispatch() {
+        var cmd = new LaunchAgentCommand(
+            AgentId: "old0002", Prompt: "build it", Model: "opus", Effort: null, RepoPath: "/tmp/repo", Tools: null, AttachmentIds: null,
+            Vendor: "claude", LaunchDispatchId: Minted);
+
+        var wire   = JsonSerializer.Serialize(cmd, ServerWireOptions);
+        var parsed = JsonSerializer.Deserialize(wire, OldWireJsonContext.Default.OldLaunchAgentCommand);
+
+        await Assert.That(wire).Contains("\"launch_dispatch_id\"");
+        await Assert.That(parsed).IsEqualTo(new OldLaunchAgentCommand("old0002", "build it", "opus", null, "/tmp/repo", null, null, "claude"));
+    }
+
     [Test]
     public async Task RequesterDisplay_roundtrips_and_defaults_null_when_absent() {
         // An old server never sends this field (issue #481) — the daemon must default to null,

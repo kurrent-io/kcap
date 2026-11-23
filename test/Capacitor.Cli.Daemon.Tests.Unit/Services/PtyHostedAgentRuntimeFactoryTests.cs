@@ -6,6 +6,7 @@ using Capacitor.Cli.Daemon.Harness.Codex;
 using Capacitor.Cli.Daemon.Pty;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Daemon.Tests.Unit.Pty;
+using Capacitor.Models.Transcripts.UserMessages;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Time.Testing;
@@ -269,6 +270,50 @@ public class PtyHostedAgentRuntimeFactoryTests {
             process.Exit();
             await start.Runtime.DisposeAsync();
         }
+    }
+
+    static readonly Guid Minted = Guid.Parse("80000000-0000-4000-8000-000000000001");
+
+    const string LaunchPromptRow = """{"type":"user","uuid":"80000000-0000-4000-8000-0000000000aa","origin":{"kind":"human"},"message":{"role":"user","content":"build it"}}""";
+
+    /// <summary>Starts a recorded launch, delivers its prompt, and stamps the row it becomes</summary>
+    async Task<(LineStamp? Stamp, InputLog Log, InputLogStamper Stamper)> StampLaunchPromptAsync(Guid? dispatchId) {
+        var (factory, _, process) = NewPasteFactory();
+        var log   = new InputLog(Tmp.PathTo("input-logs", "session.json"), TimeProvider.System);
+        var start = await factory.StartAsync(BuildClaudeLaunchContext(null) with { InputLog = log, LaunchDispatchId = dispatchId }, CancellationToken.None);
+
+        try {
+            _ = PumpAsync(start.Runtime);
+            process.Emit("\e[?2004hwelcome banner");
+            await ((PtyHostedAgentRuntime)start.Runtime).LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(10));
+        } finally {
+            process.Exit();
+            await start.Runtime.DisposeAsync();
+        }
+
+        var stamper = new InputLogStamper(log, new PersonRows(TranscriptProjection.For("claude")!, "session", "claude"));
+
+        return (stamper.StampFor(0, LaunchPromptRow), log, stamper);
+    }
+
+    [Test]
+    public async Task A_launch_prompt_row_is_stamped_with_its_minted_dispatch() {
+        var (stamp, log, _) = await StampLaunchPromptAsync(Minted);
+
+        await Assert.That(stamp).IsEqualTo(new LineStamp(0, Minted, IsLocal: false));
+        await Assert.That(log.IsSuspended).IsFalse();
+    }
+
+    /// <summary>With no dispatch the prompt is the daemon's own text: its row still takes its entry, so the next row is
+    /// compared with the next message, and carries no stamp</summary>
+    [Test]
+    public async Task A_launch_from_an_older_server_stamps_nothing() {
+        var (stamp, log, stamper) = await StampLaunchPromptAsync(null);
+
+        await Assert.That(stamp).IsNull();
+        await Assert.That(log.IsSuspended).IsFalse();
+        await Assert.That(stamper.StampFor(1, LaunchPromptRow.Replace("0000000000aa", "0000000000ab", StringComparison.Ordinal))).IsNull();
+        await Assert.That(log.IsSuspended).IsTrue();
     }
 
     /// <summary>A resume that pastes nothing still holds the agent's first message until its terminal

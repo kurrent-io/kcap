@@ -220,6 +220,20 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That(f.Orch.GetAgentForTest("killed-idle")!.ActivityClock.AwaitingInput).IsTrue();
     }
 
+    /// <summary>A resume's prompt is the daemon's own nudge, and the dispatch the first launch's prompt carried was that
+    /// prompt's, so the relaunch names none</summary>
+    [Test]
+    public async Task A_resume_carries_no_launch_dispatch() {
+        var f = Build(new ResumableFactory { PtyStyle = true });
+        await using var _ = f.Orch;
+        Entry(f, "killed-busy", state: ResumeState.Running, predecessor: null, daemonInstanceId: "instance-killed");
+
+        f.Orch.LoadResumeLedger();
+        await f.Orch.ResumeOnBootAsync(CancellationToken.None);
+
+        await Assert.That(f.Factory.Contexts.Single().LaunchDispatchId).IsNull();
+    }
+
     /// <summary>A killed daemon last wrote the entry at launch, so its heartbeat is the nearer time the agent was
     /// last alive, and the time the nudge has to name.</summary>
     [Test]

@@ -170,7 +170,7 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
             inputLog: ctx.InputLog);
 
         if (launchPrompt is not null) {
-            runtime.DeliverLaunchPrompt(launchPrompt);
+            runtime.DeliverLaunchPrompt(launchPrompt, ctx.LaunchDispatchId);
             _ = LogLaunchPromptOutcomeAsync(runtime, ctx.AgentId);
         } else if (ctx.ResumeSessionId is not null) {
             runtime.HoldInputUntilReady();
