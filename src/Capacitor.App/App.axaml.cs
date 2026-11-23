@@ -323,6 +323,8 @@ public partial class App : Application {
     // The menu's uninstall, which a launch from Windows' Installed apps asks this running copy for; null until the
     // app can gather what the confirmation names.
     Action? _requestUninstall;
+    // Set when a start fails, and completed once that failure's cleanup has run and its error window is up.
+    TaskCompletionSource? _startupFailure;
     // A field, not a local: the report items it retains are enabled only once the profile has
     // resolved, long after the bar is attached.
     AppMenuBar? _menuBar;
@@ -514,6 +516,8 @@ public partial class App : Application {
             _shutdown.Cancel();
             // The app this would tear down is going away here; an uninstall asked for from now on is asked over the error window.
             _requestUninstall = null;
+            var failure = _startupFailure = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var settled = System.Reactive.Disposables.Disposable.Create(() => failure.TrySetResult());
             // Block window recreation and hide-on-close before cleanup can yield.
             if (_coordinator is not null) _coordinator.QuitInProgress = true;
             LatchNavigation();
@@ -1782,10 +1786,12 @@ public partial class App : Application {
         _uninstalling = true;
         var handedOver = false;
         // A start that failed has cancelled the shared token and torn the app down, and its error window is all that
-        // is left. Removing the app is the likely next step from there, so the question is asked without that token.
-        var startupFailed = _shutdown.IsCancellationRequested;
-        var lifetime      = startupFailed ? CancellationToken.None : _shutdown.Token;
+        // is left. Removing the app is the likely next step from there, so the question is asked without that token,
+        // once the cleanup that ends by showing that window has run.
+        var failure  = _startupFailure;
+        var lifetime = failure is null ? _shutdown.Token : CancellationToken.None;
         try {
+            if (failure is not null) await failure.Task;
             var owner = DialogOwner() ?? desktop.Windows.FirstOrDefault(w => w.IsVisible);
             owner?.Activate();
             var facts = UninstallFactsWithoutApp(install.Root);
@@ -1800,9 +1806,9 @@ public partial class App : Application {
             handedOver = true;
             // Nothing is left for the two-pass quit to tear down after a failed start: the error window's close is
             // that state's exit.
-            if (startupFailed && desktop.MainWindow is { } errorWindow) errorWindow.Close();
-            else if (startupFailed) desktop.Shutdown(1);
-            else desktop.TryShutdown();
+            if (failure is null) desktop.TryShutdown();
+            else if (desktop.MainWindow is { } errorWindow) errorWindow.Close();
+            else desktop.Shutdown(1);
         } catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: could not start the uninstall: {ex.Message}");
