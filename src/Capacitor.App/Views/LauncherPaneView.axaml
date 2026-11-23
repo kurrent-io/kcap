@@ -390,6 +390,24 @@
                                                    Foreground="{StaticResource KcapTextBrush}" />
                                     </Button>
 
+                                    <Button x:Name="WorkItemChip" Classes="kcapChip" Click="OnWorkItemChipClick"
+                                            HorizontalAlignment="Left" MaxWidth="200"
+                                            Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                                            Foreground="{StaticResource KcapTextBrush}" CornerRadius="999" Padding="11,5"
+                                            ToolTip.Tip="Start this session in a work item"
+                                            AutomationProperties.Name="Pick a work item">
+                                        <Button.IsVisible>
+                                            <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                                <Binding Path="NextWork.ServesLaunches" FallbackValue="False" />
+                                                <Binding Path="WorkItemChoices.Count" Converter="{x:Static views:CountIsNotZeroConverter.Instance}" />
+                                            </MultiBinding>
+                                        </Button.IsVisible>
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <views:AppIcon Kind="Target" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                                            <TextBlock Text="Work item" Foreground="{StaticResource KcapTextBrush}" />
+                                        </StackPanel>
+                                    </Button>
+
                                     <Button x:Name="BaseRefChip" Classes="kcapChip" Click="OnBaseRefChipClick"
                                             HorizontalAlignment="Left" MaxWidth="260"
                                             Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"

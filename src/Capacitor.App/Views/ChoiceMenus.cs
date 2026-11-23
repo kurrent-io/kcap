@@ -25,7 +25,7 @@ internal static class ChoiceMenus {
     internal static Button ChoiceRow(this Control scope, string label, bool selected, Action pick) {
         var body = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
         body.Children.Add(new TextBlock {
-            Text = label, FontSize = 13.5, Foreground = scope.Brush("KcapTextBrush"),
+            Text = label, FontSize = 13.5, Foreground = scope.Brush("KcapTextBrush"), TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         });
         var check = scope.SelectionCheck(selected);

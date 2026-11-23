@@ -372,6 +372,51 @@ public partial class LauncherPaneView : UserControl {
         ShowMenu(flyout, anchor);
     }
 
+    // Work-item picker: the project's work items narrowed by the field; a pick fills the launcher the way a next-work
+    // row does, so the session it starts is attached to the item.
+    void OnWorkItemChipClick(object? sender, RoutedEventArgs e) {
+        if (DataContext is not HomeViewModel { NextWork: { } band } vm || sender is not Control anchor) return;
+
+        var search = new TextBox { PlaceholderText = "Find a work item", Margin = new Thickness(4, 4, 4, 6) };
+        search.Classes.Add("kcapField");
+        AutomationProperties.SetName(search, "Find a work item");
+        var list = new StackPanel { Spacing = 2 };
+        var body = new StackPanel { Spacing = 2, Margin = new Thickness(6), Width = 360 };
+        body.Children.Add(search);
+        body.Children.Add(new ScrollViewer { MaxHeight = 320, Content = list });
+        var flyout = ChoiceMenus.PanelFlyout(body, minWidth: 360);
+
+        var picked = vm.NextWorkSource?.Key;
+        List<RailWorkItem> matches = [];
+        void Pick(RailWorkItem item) {
+            flyout.Hide();
+            _ = band.PickWorkItemAsync(item.Id, item.Title);
+        }
+        void Narrow() {
+            var query = search.Text?.Trim() ?? "";
+            matches = [.. vm.WorkItemChoices.Where(item => item.Title.Contains(query, StringComparison.OrdinalIgnoreCase))];
+            list.Children.Clear();
+            foreach (var item in matches)
+                list.Children.Add(this.ChoiceRow(item.Title, picked == ViewModels.NextWork.NextWorkLaneLogic.WorkItemPrefix + item.Id, () => Pick(item)));
+            if (matches.Count == 0) list.Children.Add(BranchNote("No matching work items"));
+        }
+
+        search.TextChanged += (_, _) => Narrow();
+        search.KeyDown += (_, args) => {
+            if (args.Key == Key.Enter && matches.Count > 0) {
+                args.Handled = true;
+                Pick(matches[0]);
+            } else if (args.Key == Key.Down) {
+                args.Handled = true;
+                FlyoutKeyboard.FocusFirstItem(list, NavigationMethod.Directional);
+            }
+        };
+        body.KeyDown += (_, args) => FlyoutKeyboard.DismissOnEscape(flyout, anchor, args, NavigationMethod.Directional);
+        flyout.Opened += (_, _) => search.Focus();
+        Narrow();
+        ShowMenu(flyout, anchor);
+    }
+
     const int MaxBranchRows = 8;
 
     // Base-ref picker: a typed name, then Current HEAD, the refs sessions here recently started

@@ -457,6 +457,16 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         return string.Join("\n\n", parts.Where(p => p is { Length: > 0 }));
     }
 
+    IReadOnlyList<RailWorkItem> _workItemChoices = [];
+    /// The picked project's work items, offered on the launcher to start a session in.
+    public IReadOnlyList<RailWorkItem> WorkItemChoices {
+        get => _workItemChoices;
+        private set => this.RaiseAndSetIfChanged(ref _workItemChoices, value);
+    }
+
+    public void AttachWorkItems(IObservable<IReadOnlyList<RailWorkItem>> items) =>
+        items.Subscribe(list => WorkItemChoices = list).DisposeWith(_disposables);
+
     /// Drops the picked task; what the composer holds stays.
     public void ClearNextWorkSource() => NextWorkSource = null;
 

@@ -2487,6 +2487,7 @@ public partial class App : Application {
             createWorkItem: workItemPages is null ? null : (sessionId, title) => workItemPages.CreateForSessionAsync(sessionId, title, CancellationToken.None),
             openWorkItem: workItemPages is null ? null : id => vm?.OpenWorkItemCommand.Execute(id).Subscribe(),
             createProjectWorkItem: workItemPages is null ? null : (projectId, title) => workItemPages.CreateAsync(projectId, title, CancellationToken.None));
+        home.AttachWorkItems(rail.ProjectWorkItems.Select(next => next.Read?.Items ?? []));
         // The page mutates on whatever thread its inputs arrive on, so every input lands on the UI thread.
         Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory =
             search is null || sessions is null ? null : open => new SessionSearchViewModel(
