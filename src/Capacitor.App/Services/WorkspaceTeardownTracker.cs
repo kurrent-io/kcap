@@ -1,3 +1,5 @@
+using Capacitor.Cli.Core;
+
 namespace Capacitor.App.Services;
 
 /// App-lifetime registry of asynchronous workspace teardowns — the piece the synchronous
@@ -55,5 +57,5 @@ public sealed class WorkspaceTeardownTracker(TimeProvider time, Action<string, E
     // running past the bound keeps the same observer, so its eventual fault (or success) is
     // still consumed exactly once, just later.
     async Task WaitBoundedAsync(Task[] snapshot) =>
-        await Task.WhenAny(Task.WhenAll(snapshot), Task.Delay(DrainBound, time)).ConfigureAwait(false);
+        await Task.WhenAll(snapshot).FinishedWithinAsync(DrainBound, time).ConfigureAwait(false);
 }

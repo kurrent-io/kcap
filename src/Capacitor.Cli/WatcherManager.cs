@@ -784,7 +784,7 @@ public sealed partial class WatcherManager(
                         startLine = WatchCommand.CountFileLines(transcriptPath);
                         break;
                     case System.Net.HttpStatusCode.OK
-                        when JsonDocument.Parse(await resp.Content.ReadAsStringAsync()).RootElement.Num("last_line_number") is { } last:
+                        when JsonElement.Parse(await resp.Content.ReadAsStringAsync()).Num("last_line_number") is { } last:
                         startLine = (int)last + 1;
                         break;
                     default:

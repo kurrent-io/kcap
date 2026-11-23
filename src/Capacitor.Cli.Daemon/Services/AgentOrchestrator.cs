@@ -6265,9 +6265,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             LogCleanupStepFailed(ex, "disposing ACP runtime for final transcript drain", agent.Id);
         }
 
-        var completed = await Task.WhenAny(acpForwarder.RunTask, Task.Delay(AcpFinalDrainBudget, _time));
+        var drained = await acpForwarder.RunTask.FinishedWithinAsync(AcpFinalDrainBudget, _time);
 
-        if (completed != acpForwarder.RunTask) {
+        if (!drained) {
             LogAcpFinalDrainTimedOut(agent.Id, AcpFinalDrainBudget.TotalSeconds);
 
             if (agent.AcpCts is { } acpCts) {
