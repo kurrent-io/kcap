@@ -225,6 +225,11 @@
             <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
             <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
         </Style>
+        <!-- Popups (flyouts, pickers, hover cards, tooltips) open outside the window's text-size scale
+             host; inheriting the transform makes them grow with the text beside them. -->
+        <Style Selector="Popup">
+            <Setter Property="InheritsTransform" Value="True" />
+        </Style>
         <Style Selector="ToolTip">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />

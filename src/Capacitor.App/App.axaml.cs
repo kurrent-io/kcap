@@ -153,6 +153,7 @@ public partial class App : Application {
 #pragma warning restore RS0030
         var state = _appState.LoadAsync().GetAwaiter().GetResult();
         _uiScale = UiScaleSetting.From(_appState, state);
+        SecondaryWindowScale.Install(_uiScale);
         _betaUpdates = BetaUpdatesSetting.From(_appState, state);
         _progressiveDisclosure = state.ProgressiveDisclosure;
         _startupState = state;

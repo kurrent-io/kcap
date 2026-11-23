@@ -25,6 +25,43 @@ public class UiScaleWindowTests {
     static double? Applied(MainWindow window) =>
         (window.FindControl<LayoutTransformControl>("ScaleHost")!.LayoutTransform as ScaleTransform)?.ScaleX;
 
+    /// Flyouts and tooltips open outside the window's scale host; they must still grow with the text size.
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public Task A_popup_grows_with_the_text_size(bool flyout) => AvaloniaSession.RunOnUiAsync(async () => {
+        async Task<double> WidthAt(double scale) {
+            var setting = await NewSetting();
+            await setting.SetAsync(scale);
+            var window = new MainWindow { ContentScale = setting, Width = 1400, Height = 800 };
+            var text = new TextBlock { Text = "Help and support", FontSize = 13 };
+            var button = new Button { Content = "Open" };
+            if (flyout) button.Flyout = new Flyout { Content = text };
+            else ToolTip.SetTip(button, text);
+            try {
+                window.FindControl<Panel>("ContentPane")!.Children.Add(button);
+                window.Show();
+                window.Activate();
+                Dispatcher.UIThread.RunJobs();
+                if (flyout) ((Flyout)button.Flyout!).ShowAt(button);
+                else ToolTip.SetIsOpen(button, true);
+                Dispatcher.UIThread.RunJobs();
+                var root = TopLevel.GetTopLevel(text)!;
+                root.UpdateLayout();
+                return text.TranslatePoint(new Point(text.Bounds.Width, 0), root)!.Value.X - text.TranslatePoint(default, root)!.Value.X;
+            } finally {
+                button.Flyout?.Hide();
+                ToolTip.SetIsOpen(button, false);
+                window.Close();
+            }
+        }
+
+        var plain = await WidthAt(1.0);
+        var large = await WidthAt(1.5);
+        await Assert.That(plain).IsGreaterThan(0);
+        await Assert.That(large).IsGreaterThan(plain * 1.4);
+    });
+
     [Test]
     public Task Main_window_shortcuts_step_the_scale_and_magnify_its_content() => AvaloniaSession.RunOnUiAsync(async () => {
         var setting = await NewSetting();

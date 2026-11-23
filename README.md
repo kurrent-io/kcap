@@ -50,7 +50,7 @@
   | Linux | x64, ARM64 |
   | Linux (Alpine/musl) | x64, ARM64 |
   | Windows | x64 |
-- Desktop app: macOS 15 (Sequoia) or later on Apple silicon, or Windows 10 or later on x64.
+- Desktop app: macOS 15 (Sequoia) or later on Apple silicon, or Windows 10 or later on x64. Its window needs 1200×560 logical pixels at 100 % text size, or the screen's whole work area when that is smaller; while a session is too narrow for the work-context pane beside its chat, the pane hides until there is room. The app has one dark theme: it does not follow a light system theme or Windows high-contrast mode.
 
 ## Getting started
 
