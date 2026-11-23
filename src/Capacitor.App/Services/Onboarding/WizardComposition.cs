@@ -341,7 +341,8 @@ internal static class WizardComposition {
             machine,
             () => options.ResolveIdentity()?.Profile, options.ShutdownToken,
             onLocalPath: OnLocalPath,
-            visibilityOptions: options.ReadVisibilityOptions);
+            visibilityOptions: options.ReadVisibilityOptions,
+            signedInAtStart: signedInAtStart);
         var intelligence = new IntelligenceStepViewModel(
             cli, options.Bridges.Post, OnLocalPath,
             () => [.. harnesses.Rows.Where(r => r.Selected).Select(r => r.Id)],

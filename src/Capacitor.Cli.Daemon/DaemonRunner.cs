@@ -75,6 +75,12 @@ public static partial class DaemonRunner {
         // And the same for the home directory, which the two above fall back to.
         var userHome = UserHome.FromEnvironment();
 
+        // Before the snapshot below, and before any agent inherits this process's environment.
+        if (OperatingSystem.IsWindows()
+         && Path.GetDirectoryName(Core.Mcp.KcapBinaryCommand.ResolveCliSibling()) is { } cliDirectory
+         && CliDirectoryOnPath.Appended(Environment.GetEnvironmentVariable("PATH"), cliDirectory) is { } withCli)
+            Environment.SetEnvironmentVariable("PATH", withCli);
+
         // launchd may carry a restricted PATH captured during setup. A live probe shares the
         // refreshed environment with child processes; other platforms keep their startup snapshot.
         var agentEnvironment = OperatingSystem.IsMacOS() ? new AgentPathEnvironment(new ProcessRunner(time), time) : null;

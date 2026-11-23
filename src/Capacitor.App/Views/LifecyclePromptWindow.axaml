@@ -27,13 +27,14 @@
         <Border Height="32" VerticalAlignment="Top" Background="Transparent"
                 PointerPressed="OnChromePointerPressed" />
 
-        <Grid Margin="36,44,36,28" RowDefinitions="*,Auto">
+        <Grid Margin="36,44,36,28" RowDefinitions="*,Auto,Auto,Auto">
             <ScrollViewer Grid.Row="0">
                 <StackPanel>
                     <views:UpdateIcon HorizontalAlignment="Left" IsVisible="{Binding IsUpdate}" />
                     <Panel Width="64" Height="64" HorizontalAlignment="Left" IsVisible="{Binding !IsUpdate}">
                         <Image Source="avares://kcap-desktop/Assets/kcap-icon.png"
-                               RenderOptions.BitmapInterpolationMode="HighQuality" />
+                               RenderOptions.BitmapInterpolationMode="HighQuality"
+                               AutomationProperties.AccessibilityView="Raw" />
                         <Border CornerRadius="12" BorderThickness="1" BorderBrush="{StaticResource KcapBorderBrush}" />
                     </Panel>
 
@@ -64,15 +65,6 @@
                     <Border Margin="0,16,0,0" Padding="12,9" CornerRadius="8" BorderThickness="1"
                             Background="{StaticResource KcapWarningDimBrush}"
                             BorderBrush="{StaticResource KcapWarningBrush}"
-                            IsVisible="{Binding Warning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                        <TextBlock Text="{Binding Warning}" TextWrapping="Wrap" Width="374"
-                                   FontSize="12.5" LineHeight="19"
-                                   Foreground="{StaticResource KcapWarningBrush}" />
-                    </Border>
-
-                    <Border Margin="0,16,0,0" Padding="12,9" CornerRadius="8" BorderThickness="1"
-                            Background="{StaticResource KcapWarningDimBrush}"
-                            BorderBrush="{StaticResource KcapWarningBrush}"
                             IsVisible="{Binding DegradedPathText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                         <TextBlock Text="{Binding DegradedPathText}" TextWrapping="Wrap" Width="374"
                                    FontSize="12.5" LineHeight="19"
@@ -81,8 +73,25 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <StackPanel Grid.Row="1" Margin="0,22,0,0" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                <Button Content="Not now" Classes="kcapGhost" Command="{Binding DeclineCommand}" IsCancel="True"
+            <!-- Outside the scroll area: a long disclosure must not push the choice, or the warning its answer
+                 carries, below the fold. -->
+            <CheckBox x:Name="ChoiceCheckBox" Grid.Row="1" Margin="0,14,0,0" HorizontalAlignment="Left"
+                      IsChecked="{Binding ChoiceChecked, Mode=TwoWay}" Content="{Binding ChoiceLabel}"
+                      FontSize="13.5" Foreground="{StaticResource KcapTextBrush}"
+                      IsVisible="{Binding ChoiceLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
+            <Border x:Name="WarningBox" Grid.Row="2" Margin="0,16,0,0" Padding="12,9" CornerRadius="8" BorderThickness="1"
+                    HorizontalAlignment="Left"
+                    Background="{StaticResource KcapWarningDimBrush}"
+                    BorderBrush="{StaticResource KcapWarningBrush}"
+                    IsVisible="{Binding Warning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <TextBlock Text="{Binding Warning}" TextWrapping="Wrap" Width="374"
+                           FontSize="12.5" LineHeight="19"
+                           Foreground="{StaticResource KcapWarningBrush}" />
+            </Border>
+
+            <StackPanel Grid.Row="3" Margin="0,22,0,0" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button x:Name="DeclineButton" Content="Not now" Classes="kcapGhost" Command="{Binding DeclineCommand}" IsCancel="True"
                         IsVisible="{Binding ShowDeclineButton}" />
                 <Button x:Name="AcceptButton" Content="{Binding AcceptButtonText}" Command="{Binding AcceptCommand}"
                         Classes.kcapPrimary="{Binding !AcceptIsDestructive}" Classes.kcapDangerFill="{Binding AcceptIsDestructive}"

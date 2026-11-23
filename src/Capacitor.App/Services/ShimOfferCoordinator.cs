@@ -22,9 +22,10 @@ public sealed class ShimOfferCoordinator {
     readonly ILifecycleSurface _surface;
     readonly string? _target;
     readonly CancellationToken _lifetime;
-    // True only for a gate-Incomplete startup — Offerable/manual install still work, only the once-ever auto-offer DIALOG is skipped.
+    // Skips only the once-ever auto-offer dialog: Offerable, a manual install and a claimed restore still work.
     readonly bool _autoOfferSuppressed;
     readonly Func<bool> _autoOfferHeld;
+    readonly bool _restoreClaimed;
     readonly Task<string?> _pendingLink;
     // The warning this coordinator last posted, taken back once an install succeeds.
     string? _warning;
@@ -38,10 +39,12 @@ public sealed class ShimOfferCoordinator {
     /// </param>
     /// <param name="autoOfferHeld">Read once the phase closes: true holds the auto-offer for a later launch without
     /// using it up, as while the CLI takeover has found an install of its own to switch.</param>
+    /// <param name="restoreClaimed">Put back, without asking again, an install already claimed and never declined.
+    /// Only where installing cannot conflict or edit a file of theirs, which is the Windows user PATH.</param>
     public ShimOfferCoordinator(
             Task phaseClosed, ILoginShellProbe probe, ICliPathInstaller? installer, IAppStateStore store,
             ILifecycleSurface surface, string? target, CancellationToken lifetime, bool autoOfferSuppressed = false,
-            Task<string?>? pendingLink = null, Func<bool>? autoOfferHeld = null) {
+            Task<string?>? pendingLink = null, Func<bool>? autoOfferHeld = null, bool restoreClaimed = false) {
         _phaseClosed          = phaseClosed;
         _probe                = probe;
         _installer            = installer;
@@ -52,6 +55,7 @@ public sealed class ShimOfferCoordinator {
         _autoOfferSuppressed  = autoOfferSuppressed;
         _pendingLink          = pendingLink ?? Task.FromResult<string?>(null);
         _autoOfferHeld        = autoOfferHeld ?? (() => false);
+        _restoreClaimed       = restoreClaimed;
     }
 
     /// True while the tray's "Install command-line tool…" item should show: applicable (an
@@ -84,11 +88,19 @@ public sealed class ShimOfferCoordinator {
 
             _offerable.OnNext(true); // applicable-but-absent — the menu item is live from here on
 
-            if (_autoOfferSuppressed) return; // item + manual install still work; only the dialog never fires
+            // A restore asks nothing, so a suppressed dialog does not hold it back.
+            if (_autoOfferSuppressed && !_restoreClaimed) return;
             if (_autoOfferHeld()) return;
 
             var state = await _store.LoadAsync().ConfigureAwait(false);
-            if (state.ShimOffered || state.ShimDenied) return; // already resolved on a prior run
+            if (state.ShimDenied) return;
+            if (state.ShimOffered) {
+                // The Windows uninstaller takes the folder off the user PATH and keeps the settings holding
+                // this claim, so a reinstall finds the install claimed and gone while its hooks still need it.
+                if (_restoreClaimed) await RunInstallAsync().ConfigureAwait(false);
+                return;
+            }
+            if (_autoOfferSuppressed) return; // item + manual install still work; only the dialog never fires
 
             var preflight = _installer!.Preflight(_target);
             if (preflight == ShimPreflight.Conflict) return; // no auto-offer; the menu item still lets the user try

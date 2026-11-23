@@ -1,7 +1,8 @@
 namespace Capacitor.Cli.Core.Setup;
 
-/// Puts the CLI's directory on the user PATH. No elevation and nothing to clobber: an append cannot
-/// overwrite another `kcap`, so there is no conflict state.
+/// Puts the CLI's directory first on the user PATH, so it is searched ahead of a `kcap` launcher another user-level
+/// install left on it. No elevation and nothing to clobber: that launcher stays where it is, so there is no conflict
+/// state. Windows searches the machine PATH before any user entry, and a `kcap` there still comes first.
 public sealed class WindowsUserPathInstaller(IUserPathStore store, ILoginShellProbe probe) : ICliPathInstaller {
     public string Disclosure =>
         "This adds this app's folder to your user PATH, so kcap works from any new terminal. " +
@@ -20,12 +21,11 @@ public sealed class WindowsUserPathInstaller(IUserPathStore store, ILoginShellPr
         if (dir is null || dir.Contains(';') || dir.Contains('\n') || dir.Contains('\r'))
             return new ShimResult(ShimOutcome.Failed, $"The CLI's folder cannot be added to PATH: {target}");
 
-        if (!Contains(store.Read(), dir)) {
-            try {
-                store.Append(dir);
-            } catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or System.Security.SecurityException) {
-                return new ShimResult(ShimOutcome.Failed, $"Could not update your user PATH: {ex.Message}");
-            }
+        try {
+            var current = store.Read();
+            if (!Contains(current, dir)) store.Replace(Leading(current, dir));
+        } catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or System.Security.SecurityException) {
+            return new ShimResult(ShimOutcome.Failed, $"Could not update your user PATH: {ex.Message}");
         }
 
         var onPath = await probe.KcapOnPathAsync(ct, forceRefresh: true).ConfigureAwait(false);
@@ -44,6 +44,10 @@ public sealed class WindowsUserPathInstaller(IUserPathStore store, ILoginShellPr
         store.Replace(next);
         return true;
     }
+
+    /// Every existing entry is kept byte for byte, behind the new one.
+    internal static string Leading(string? rawPath, string dir) =>
+        string.IsNullOrEmpty(rawPath) ? dir : dir + ";" + rawPath.TrimStart(';');
 
     internal static string? Without(string? rawPath, string dir) {
         if (string.IsNullOrEmpty(rawPath)) return null;

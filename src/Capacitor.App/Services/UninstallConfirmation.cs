@@ -3,10 +3,29 @@ using Capacitor.Cli.Core;
 namespace Capacitor.App.Services;
 
 public static class UninstallConfirmation {
+    public const string RemoveSettingsLabel = "Also remove my kcap settings and sign-in";
+
+    /// The prompt opens on the uninstall that keeps the settings; its choice widens it to the one that removes them.
     public static UninstallRequest Build(UninstallFacts facts) {
+        var warning = facts.LocalServerUrl is { } local
+            ? $"The local kcap server at {local} will be removed and every session recorded on it permanently deleted."
+            : null;
+
+        var prompt = new LifecyclePrompt(
+            LifecyclePrompt.KindUninstall, null, null, false, Disclosure(facts, removeSettings: false),
+            Choice: new LifecycleChoice(RemoveSettingsLabel, Disclosure(facts, removeSettings: true), warning));
+        return new UninstallRequest(prompt, facts.LocalServerUrl is not null);
+    }
+
+    static string Disclosure(UninstallFacts facts, bool removeSettings) {
         var lines = new List<string> {
-            "This removes kcap's hooks from your coding agents, every kcap background service, your kcap settings and sign-in, and then the kcap app itself.",
+            removeSettings
+                ? "This removes kcap's hooks from your coding agents, every kcap background service, your kcap settings and sign-in, and then the kcap app itself."
+                : "This removes kcap's hooks from your coding agents, every kcap background service, and then the kcap app itself. Your kcap settings and sign-in are kept, and setup shows them again if you reinstall.",
         };
+
+        if (!removeSettings && facts.LocalServerUrl is { } kept)
+            lines.Add($"The local kcap server at {kept} will be removed. The sessions it recorded are kept.");
 
         if (facts.PathProfiles is null)
             lines.Add("Any marked PATH line kcap added to your shell profile will also be removed.");
@@ -46,12 +65,6 @@ public static class UninstallConfirmation {
                 : $"Another kcap at {other.Path} will stop working. Remove it yourself.");
         }
 
-        var warning = facts.LocalServerUrl is { } local
-            ? $"The local kcap server at {local} will be removed and every session recorded on it permanently deleted."
-            : null;
-
-        var prompt = new LifecyclePrompt(
-            LifecyclePrompt.KindUninstall, null, null, false, string.Join("\n\n", lines), warning);
-        return new UninstallRequest(prompt, facts.LocalServerUrl is not null);
+        return string.Join("\n\n", lines);
     }
 }

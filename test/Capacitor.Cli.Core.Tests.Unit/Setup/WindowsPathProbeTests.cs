@@ -36,6 +36,21 @@ public class WindowsPathProbeTests {
         await Assert.That(await probe.KcapPathAsync(CancellationToken.None)).IsEqualTo(shim);
     }
 
+    /// A hook that starts `kcap.exe` without a shell gets nothing from an npm `kcap.cmd`, wherever it sits on PATH.
+    [Test]
+    public async Task A_direct_start_counts_only_an_exe() {
+        var npm = Tmp.CreateDir("npm");
+        Tmp.CreateFile(Path.Combine("npm", "kcap.cmd"), "@echo off");
+        var app = Tmp.CreateDir("app");
+        var probe = Probe(npm, app, WindowsPathProbe.DirectStartPathExt);
+
+        await Assert.That(await probe.KcapOnPathAsync(CancellationToken.None)).IsFalse();
+
+        var exe = Tmp.CreateFile(Path.Combine("app", "kcap.exe"), "");
+
+        await Assert.That(await probe.KcapPathAsync(CancellationToken.None)).IsEqualTo(exe);
+    }
+
     [Test]
     public async Task First_directory_wins_and_exe_precedes_cmd() {
         var first = Tmp.CreateDir("first");
