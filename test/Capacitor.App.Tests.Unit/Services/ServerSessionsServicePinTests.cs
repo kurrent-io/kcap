@@ -133,6 +133,28 @@ public class ServerSessionsServicePinTests {
         await Assert.That(rig.Summaries.Calls.Single().Id).IsEqualTo("x");
     }
 
+    /// An included session reads back onto the snapshot as ended while no listing carries it, and leaves it when the
+    /// next call drops it.
+    [Test]
+    public async Task An_included_session_rides_the_snapshot_until_dropped() {
+        using var rig = new Rig();
+        rig.Connect();
+
+        rig.Service.Include(new Dictionary<string, PinPresentation> { ["x"] = Presentation });
+        await Eventually(() => rig.Summaries.Calls.Count == 1, "summary read");
+        rig.Summaries.Answer(0, Summary("x"));
+        await Eventually(() => rig.Latest.Included is [_], "included row");
+
+        var row = rig.Latest.Included!.Single();
+        await Assert.That(row.Status).IsEqualTo("ended");
+        await Assert.That(row.Owner!.Username).IsEqualTo("bob");
+
+        rig.Service.Include(new Dictionary<string, PinPresentation>());
+
+        await Assert.That(rig.Latest.Included).IsEmpty();
+        await Assert.That(rig.Summaries.Calls.Count).IsEqualTo(1);
+    }
+
     [Test]
     public async Task A_rename_applies_to_an_unlisted_pinned_row() {
         using var rig = new Rig();

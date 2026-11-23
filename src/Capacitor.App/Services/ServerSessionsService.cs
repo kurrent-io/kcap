@@ -104,6 +104,9 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
     string? _pendingPinId;
     int _pendingPinAccess;
     bool _pendingPinDeleted;
+    IReadOnlyDictionary<string, PinPresentation> _include = FrozenDictionary<string, PinPresentation>.Empty;
+    readonly Dictionary<string, RepoSessionDto> _included = new(StringComparer.Ordinal);
+    readonly HashSet<string> _including = new(StringComparer.Ordinal);
     readonly SessionTitleOverlay _overlay;
     /// Requests awaiting the next admitted read, and those the read in progress answers: a request
     /// is settled by its own read, whatever refreshes queue behind it.
@@ -149,6 +152,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
                 _ownersResolved = false;
                 _identity.OnNext(new(_account, _generation, true));
                 IssuePinRefresh();
+                IssueIncludes();
             }
             _ = RefreshOwnersAsync();
             _ = ReconcileAsync();
@@ -168,6 +172,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
                     if (_kept == push.SessionId) _keptRow = null;
                     if (_pendingPinId == push.SessionId) _pendingPinDeleted = true;
                     if (_pinId == push.SessionId) MarkPinGone();
+                    _included.Remove(push.SessionId);
                     EmitSnapshot();
                 }
             }).DisposeWith(_subscriptions);
@@ -194,7 +199,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         }).DisposeWith(_subscriptions);
 
         var every = reconcileEvery ?? DefaultReconcileEvery;
-        _cadence = time.CreateTimer(_ => { ReconcileIfConnected(); RetryOwnersIfUnresolved(); RefreshPin(null); }, null, every, every);
+        _cadence = time.CreateTimer(_ => { ReconcileIfConnected(); RetryOwnersIfUnresolved(); RefreshPin(null); lock (_lock) IssueIncludes(); }, null, every, every);
     }
 
     public IObservableCache<RepoSessionDto, string> Live => _live.AsObservableCache();
@@ -272,7 +277,9 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         }
         var unlisted = TrackPin();
         var pinned = _pinId is not null && !_pinListed && !_pinGone ? _pinRow : null;
-        _snapshots.OnNext(new([.. _live.Items], [.. _mineLive.Items], ended, pinned, _pinId, _listedProject));
+        List<RepoSessionDto> included = [.. _included.Values.Where(row => ListedPin(row.SessionId) is null)
+            .Select(row => row.Status == "active" ? row with { Status = "ended", EndedAt = row.EndedAt ?? row.LastActivityAt } : row)];
+        _snapshots.OnNext(new([.. _live.Items], [.. _mineLive.Items], ended, pinned, _pinId, _listedProject, included));
         if (unlisted) IssuePinRefresh();
     }
 
@@ -354,6 +361,43 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
             _pendingPinId = null;
             if (_pinId is null) return;
             DropPin();
+            EmitSnapshot();
+        }
+    }
+
+    public void Include(IReadOnlyDictionary<string, PinPresentation> sessions) {
+        lock (_lock) {
+            if (_disposed) return;
+            _include = sessions;
+            var dropped = _included.Keys.Where(id => !sessions.ContainsKey(id)).ToList();
+            foreach (var id in dropped) _included.Remove(id);
+            if (dropped.Count > 0) EmitSnapshot();
+            IssueIncludes();
+        }
+    }
+
+    /// Under the lock. A session that read back nothing is asked for again on the next cadence.
+    void IssueIncludes() {
+        if (!_connected || _disposed || _fetchSummary is null) return;
+        var account = _account;
+        foreach (var (id, presentation) in _include) {
+            if (_included.ContainsKey(id) || _tombstones.ContainsKey(id) || !_including.Add(id)) continue;
+            _ = Task.Run(() => IncludeAsync(id, presentation, account));
+        }
+    }
+
+    async Task IncludeAsync(string sessionId, PinPresentation presentation, int account) {
+        SummaryFetch fetch;
+        try {
+            fetch = await _fetchSummary!(sessionId, _disposing.Token).ConfigureAwait(false);
+        } catch (Exception) {
+            fetch = new(ServerReadOutcome.Failed, null);
+        }
+        lock (_lock) {
+            _including.Remove(sessionId);
+            if (_disposed || account != _account || !_include.ContainsKey(sessionId) || _tombstones.ContainsKey(sessionId)) return;
+            if (fetch is not { Outcome: ServerReadOutcome.Ok, Session: { } summary }) return;
+            _included[sessionId] = PinnedSessionRow.From(summary, presentation);
             EmitSnapshot();
         }
     }
@@ -729,13 +773,14 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         lock (_lock) {
             if (_disposed) return;
             var listed = Listed(sessionId) ?? (_mineLive.Lookup(sessionId) is { HasValue: true, Value: var mine } ? mine : null)
-                ?? (_kept == sessionId ? _keptRow : null) ?? (_pinId == sessionId ? _pinRow : null);
+                ?? (_kept == sessionId ? _keptRow : null) ?? (_pinId == sessionId ? _pinRow : null) ?? _included.GetValueOrDefault(sessionId);
             if (listed is null) return;
             _overlay.Record(sessionId, title, listed.Title);
             foreach (var cache in new[] { _live, _mineLive, _ended })
                 if (cache.Lookup(sessionId) is { HasValue: true, Value: var row }) cache.AddOrUpdate(row with { Title = title });
             if (_keptRow?.SessionId == sessionId) _keptRow = _keptRow with { Title = title };
             if (_pinRow?.SessionId == sessionId) _pinRow = _pinRow with { Title = title };
+            if (_included.TryGetValue(sessionId, out var included)) _included[sessionId] = included with { Title = title };
             EmitSnapshot();
         }
     }
@@ -764,6 +809,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         _pinRequest++;
         _pendingPinId = null;
         DropPin();
+        _included.Clear();
         _tombstones.Clear();
         EmitSnapshot();
     }

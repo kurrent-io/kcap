@@ -47,6 +47,9 @@ public interface IServerSessionsService {
     /// at once, any other only once its summary reads back. Nothing is pinned on a failure.
     Task<PinOutcome> PinAsync(string sessionId, PinPresentation presentation, CancellationToken ct);
     void Unpin();
+    /// Sessions the snapshot carries whether or not a listing pages them in, each read on its own once and dropped
+    /// when the next call leaves it out; the presentation names its owner.
+    void Include(IReadOnlyDictionary<string, PinPresentation> sessions);
     /// What a hand-off of an ended session starts from.
     Task<HandoffContextFetch> ReadHandoffContextAsync(string sessionId, CancellationToken ct);
     /// Shows a rename the server applied at once, in every set that lists the session, and holds it

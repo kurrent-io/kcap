@@ -1093,6 +1093,7 @@ public class SessionRailViewModelTests {
             Action<string>? openWorkItem = null) {
         var directory = new FakeAgentDirectory();
         var sessions = new FakeServerSessionsService();
+        sessions.ViewerIdsSubject.OnNext(FrozenSet.Create(StringComparer.Ordinal, "me"));
         var rail = new SessionRailViewModel(directory, _ => { }, _ => { },
             new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(Noon)),
             openServerSession: _ => { }, sessions: sessions,
@@ -1111,7 +1112,8 @@ public class SessionRailViewModelTests {
             .OrderByDescending(item => item.First().WorkItem!.CreatedAt).ThenBy(item => item.Key, StringComparer.Ordinal)
             .Select(item => new RailWorkItem(item.Key, item.First().WorkItem!.Title, 0, 0,
                 item.ToFrozenDictionary(dto => dto.SessionId, _ => RailWorkItem.NoPart, StringComparer.Ordinal),
-                LastActivityAt: item.Max(dto => dto.LastActivityAt)))];
+                [.. item.OrderByDescending(dto => dto.LastActivityAt)
+                    .Select(dto => new WorkItemSessionRefDto { SessionId = dto.SessionId, Owner = dto.Owner, LastActivityAt = dto.LastActivityAt })]))];
 
     static void List(FakeAgentDirectory directory, FakeServerSessionsService sessions, params RepoSessionDto[] listed) {
         foreach (var dto in listed) {
@@ -1312,6 +1314,26 @@ public class SessionRailViewModelTests {
                 var item = rail.WorkItemGroups.Single();
                 await Assert.That(Ids(item)).IsEquivalentTo(["listed"]);
                 await Assert.That(item.MoreText).IsEqualTo("1 more");
+            }
+        });
+    }
+
+    /// A work item shows the viewer's latest sessions in it, so an older one the session list pages in stays counted
+    /// rather than joining it, the latest it has not paged in are asked for on their own, and a teammate's stays among
+    /// the sessions.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_work_item_shows_its_latest_sessions_whatever_the_list_paged_in() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, rail) = BuildWithWorkItems();
+            using (directory) using (sessions) using (rail) {
+                foreach (var i in Enumerable.Range(2, 4)) sessions.EndedCache.AddOrUpdate(Tracked($"u{i}", "AI-1", Noon.AddHours(-i)));
+                List(directory, sessions, Tracked("recent", "AI-1", Noon.AddHours(-1)), Tracked("older", "AI-1", Noon.AddDays(-1)),
+                    Tracked("theirs", "AI-1", Noon) with { Owner = new() { UserId = "teammate" } });
+
+                await Assert.That(Ids(rail.WorkItemGroups.Single())).IsEquivalentTo(["recent"]);
+                await Assert.That(rail.SessionGroups.SelectMany(Ids)).IsEquivalentTo(["theirs"]);
+                await Assert.That(sessions.Included.Keys).IsEquivalentTo(["recent", "u2", "u3", "u4", "u5"]);
             }
         });
     }

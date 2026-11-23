@@ -44,6 +44,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     HashSet<string> _removed;
     // The sessions of a removed work item, which leave the rail with it.
     FrozenSet<string> _hiddenByWorkItem = FrozenSet<string>.Empty;
+    IReadOnlySet<string> _viewerIds = FrozenSet<string>.Empty;
     readonly Action? _closeWorkspace;
     readonly IReadOnlyList<RailAction> _actions;
     readonly Func<string, string, Task<bool>>? _fileSession;
@@ -623,6 +624,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .SortAndBind(_workItemGroupsSource, _workItemComparer)
             .Subscribe()
             .DisposeWith(_disposables);
+        sessions?.ViewerIds.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(ids => {
+            if (_disposables.IsDisposed) return;
+            _viewerIds = ids;
+            ApplyWorkItems();
+        }).DisposeWith(_disposables);
         work.Subscribe(next => {
             _work = next;
             if (_grouping == RailGrouping.Status) _regroup.OnNext(Unit.Default);
@@ -943,23 +949,27 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     void ApplyWorkItems() {
         IReadOnlyList<RailWorkItem> read = !OffersWorkItem || _readProject != _shownProject?.Id ? [] : _read;
         // Ahead of the work item map, or a removed item's sessions flash into the sessions section.
-        var hidden = read.Where(item => _removed.Contains(WorkItemKey(item.Id))).SelectMany(item => item.PartBySession.Keys)
-            .ToFrozenSet(StringComparer.Ordinal);
+        var hidden = read.Where(item => _removed.Contains(WorkItemKey(item.Id))).SelectMany(item => item.OwnedBy(_viewerIds).Sessions)
+            .Select(session => session.SessionId).ToFrozenSet(StringComparer.Ordinal);
         if (!hidden.SetEquals(_hiddenByWorkItem)) {
             _hiddenByWorkItem = hidden;
             Refilter();
         }
         var since = _time.GetUtcNow() - WorkItemActiveFor;
-        IReadOnlyList<RailWorkItem> items = [.. read.Where(item => Recent(item, since) && !_removed.Contains(WorkItemKey(item.Id)))
+        IReadOnlyList<RailWorkItem> items = [.. read.Where(item => !_removed.Contains(WorkItemKey(item.Id)))
+            .Select(item => item.OwnedBy(_viewerIds)).Where(item => Recent(item, since))
             .Select(item => _retitled.TryGetValue(item.Id, out var title) ? item with { Title = title } : item)];
+        // Only the viewer's own sessions sit under a work item; a teammate's stays among the sessions.
         var workItemOf = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var item in items)
-            foreach (var session in item.PartBySession.Keys) workItemOf.TryAdd(session, item.Id);
+            foreach (var session in item.Sessions) workItemOf.TryAdd(session.SessionId, item.Id);
         foreach (var (session, workItem) in _dropped) {
             workItemOf.Remove(session);
             if (workItem is not null && items.Any(item => item.Id == workItem)) workItemOf[session] = workItem;
         }
         _workItemOf.OnNext(workItemOf.ToFrozenDictionary(StringComparer.Ordinal));
+        _sessions?.Include(items.SelectMany(item => item.Latest)
+            .DistinctBy(entry => entry.Key).ToFrozenDictionary(StringComparer.Ordinal));
         _workItems.EditDiff(items, (a, b) => a == b);
         // A new comparer clears and re-adds every group, so it goes out only when the order moved.
         var order = items.Select(item => WorkItemKey(item.Id)).ToList();
@@ -975,7 +985,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     // A server older than the sessions' last activity sends none, so its items all count as recent.
     static bool Recent(RailWorkItem item, DateTimeOffset since) =>
-        item.PartBySession.Count > 0 && (item.LastActivityAt is not { } at || at > since);
+        item.Sessions.Count > 0 && (item.LastActivityAt is not { } at || at > since);
 
     void Refilter() {
         _baseFilter.OnNext(BaseFilter());

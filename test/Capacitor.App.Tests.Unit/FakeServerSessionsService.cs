@@ -76,6 +76,8 @@ sealed class FakeServerSessionsService : IServerSessionsService, IDisposable {
         PinnedIdSubject.OnNext(null);
     }
     public void Keep(string? sessionId) => Kept = sessionId;
+    public IReadOnlyDictionary<string, PinPresentation> Included = FrozenDictionary<string, PinPresentation>.Empty;
+    public void Include(IReadOnlyDictionary<string, PinPresentation> sessions) => Included = sessions;
     public readonly List<(string SessionId, string Title)> Renames = [];
     public void ApplyRename(string sessionId, string title) => Renames.Add((sessionId, title));
     public IObservable<ServerSessionsPaging> Paging => PagingSubject;

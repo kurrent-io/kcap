@@ -100,6 +100,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
     List<RepoSessionDto> _serverMineLive = [];
     List<RepoSessionDto> _serverEnded = [];
     RepoSessionDto? _serverPinned;
+    List<RepoSessionDto> _serverIncluded = [];
     string? _serverPinnedId;
     RailScope _scope = RailScope.Mine;
     IReadOnlySet<string> _viewerIds = FrozenSet<string>.Empty;
@@ -141,6 +142,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
                         _serverEnded = [.. snapshot.Ended];
                         _serverPinned = snapshot.Pinned;
                         _serverPinnedId = snapshot.PinnedSessionId;
+                        _serverIncluded = [.. snapshot.Included ?? []];
                     }
                     Recompute();
                 })
@@ -490,11 +492,13 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
         foreach (var dto in _serverMineLive) listed.TryAdd(dto.SessionId, dto);
         foreach (var dto in _serverEnded) listed.TryAdd(dto.SessionId, dto);
         if (_serverPinned is { } pinned) listed.TryAdd(pinned.SessionId, pinned);
+        foreach (var dto in _serverIncluded) listed.TryAdd(dto.SessionId, dto);
+        var unpaged = _serverIncluded.Select(dto => dto.SessionId).Append(_serverPinnedId).OfType<string>().ToHashSet(StringComparer.Ordinal);
         var mine = _serverMineLive.Select(dto => dto.SessionId).ToHashSet(StringComparer.Ordinal);
         if (_scope == RailScope.Mine) foreach (var dto in _serverEnded) mine.Add(dto.SessionId);
 
         bool? Ownership(RepoSessionDto dto, string sid) =>
-            sid == _serverPinnedId && !mine.Contains(sid) ? ViewerOwns(dto) : OwnerIsViewer(dto, mine.Contains(sid));
+            unpaged.Contains(sid) && !mine.Contains(sid) ? ViewerOwns(dto) : OwnerIsViewer(dto, mine.Contains(sid));
         bool Matchable(AgentRow row) => row.Origin == AgentOrigin.Local ? localMatchable : registryMatchable;
         string? ListedId(AgentRow row) {
             if (SessionIds.Canonical(row.SessionId) is not { } own) return null;
@@ -534,6 +538,7 @@ public sealed class AgentDirectory : IAgentDirectory, IDisposable {
         var byId = new Dictionary<string, RepoSessionDto>(StringComparer.Ordinal);
         foreach (var dto in source) byId[dto.SessionId] = dto;
         if (_serverPinnedId is { } pinnedId && listed.TryGetValue(pinnedId, out var pinnedDto)) byId.TryAdd(pinnedId, pinnedDto);
+        foreach (var dto in _serverIncluded) byId.TryAdd(dto.SessionId, dto);
         var sessionOfRow = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var row in next)
             if ((row.Origin is AgentOrigin.Local or AgentOrigin.Remote) && Matchable(row)

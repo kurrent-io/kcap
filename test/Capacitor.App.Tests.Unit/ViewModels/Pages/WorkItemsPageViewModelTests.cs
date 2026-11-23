@@ -4,6 +4,7 @@ using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Pages;
+using Capacitor.Remote.Models;
 using TUnit.Assertions.Enums;
 
 namespace Capacitor.App.Tests.Unit.ViewModels.Pages;
@@ -13,8 +14,13 @@ public class WorkItemsPageViewModelTests {
     static readonly WorkItemPerson Me = new("me-id", "Me Myself", null);
     static readonly WorkItemPerson Ana = new("ana-id", "Ana Lee", "https://avatars/ana");
 
+    /// Each session is owned by the next person in turn.
     static RailWorkItem Item(string id, string title, int done, int total, WorkStatus status, WorkItemPerson[] people, params string[] sessions) =>
-        new(id, title, done, total, sessions.ToFrozenDictionary(s => s, _ => RailWorkItem.NoPart, StringComparer.Ordinal), Status: status, People: people);
+        new(id, title, done, total, sessions.ToFrozenDictionary(s => s, _ => RailWorkItem.NoPart, StringComparer.Ordinal),
+            [.. sessions.Select((session, i) => new WorkItemSessionRefDto {
+                SessionId = session,
+                Owner = new() { UserId = people[i % people.Length].UserId, DisplayName = people[i % people.Length].Name, AvatarUrl = people[i % people.Length].AvatarUrl },
+            })], status);
 
     /// The project's open work items list under status sections with their parts, sessions and people; search narrows
     /// by title or person, the owner filter keeps items holding that person's session and follows the rail's scope, a

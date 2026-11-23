@@ -52,8 +52,6 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    const int WorkItemKeeps = 5;
-
     readonly ObservableAsPropertyHelper<string?> _moreText;
     /// Counts a work item's sessions past the few shown, including the ones the rail has not listed; its page lists them all.
     public string? MoreText => _moreText.Value;
@@ -101,10 +99,10 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         var group = rows.AsObservableCache().DisposeWith(_disposables);
         HasSessions = group.CountChanged.Select(count => count > 0).DistinctUntilChanged();
         var query = group.Connect().QueryWhenChanged().Replay(1).RefCount();
-        var kept = query.CombineLatest(openSessionKey ?? selectedSessionKey, (rows, open) => (Keys: KeptOfWorkItem(rows.Items, open), rows.Count))
+        var kept = query.CombineLatest(openSessionKey ?? selectedSessionKey, _workItem, (rows, open, item) => (Keys: KeptOfWorkItem(rows.Items, item!, open), rows.Count))
             .Replay(1).RefCount();
         _moreText = (workItem is null ? Observable.Return(0)
-                : kept.CombineLatest(_workItem, (k, item) => Math.Max(k.Count, item!.PartBySession.Count) - k.Keys.Count))
+                : kept.CombineLatest(_workItem, (k, item) => Math.Max(k.Count, item!.Sessions.Count) - k.Keys.Count))
             .Select(hidden => hidden > 0 ? $"{hidden} more" : null).DistinctUntilChanged()
             .ToProperty(this, x => x.MoreText, initialValue: null)
             .DisposeWith(_disposables);
@@ -162,13 +160,11 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
 
     static bool IsEnded(AgentRow row) => row.IsEndedSession || row is { Origin: AgentOrigin.Local, Status: "Completed" };
 
-    static HashSet<string> KeptOfWorkItem(IEnumerable<AgentRow> rows, string? openKey) {
-        var all = rows.ToList();
-        var kept = all.OrderByDescending(row => row.LastActivityAt ?? row.CreatedAt).Take(WorkItemKeeps).Select(row => row.Key)
-            .ToHashSet(StringComparer.Ordinal);
-        foreach (var row in all)
-            if (!IsEnded(row) || RailSessionViewModel.SelectionKey(row) == openKey) kept.Add(row.Key);
-        return kept;
+    // From the work item's own latest sessions, never from the rows the session list happens to have paged in.
+    static HashSet<string> KeptOfWorkItem(IEnumerable<AgentRow> rows, RailWorkItem item, string? openKey) {
+        var latest = item.Latest;
+        return rows.Where(row => row.SessionId is { } id && latest.ContainsKey(id) || !IsEnded(row) || RailSessionViewModel.SelectionKey(row) == openKey)
+            .Select(row => row.Key).ToHashSet(StringComparer.Ordinal);
     }
 
     // Key's own prefixes ("repo:", "path:", "daemon:{owner}/{daemon}:{path}") are a group identity,

@@ -79,7 +79,7 @@ public sealed class WorkItemsPageViewModel : ReactiveObject, IPage {
 
     /// Owner options grow from the items read and never shrink, so a pick stays in its list.
     void Offer() {
-        foreach (var person in _all.SelectMany(item => item.People ?? []))
+        foreach (var person in _all.SelectMany(item => item.People))
             if (!_viewer.Contains(person.UserId) && Owners.All(o => o.Key != person.UserId))
                 Owners.Add(new(person.UserId, person.Name ?? person.UserId));
     }
@@ -97,7 +97,7 @@ public sealed class WorkItemsPageViewModel : ReactiveObject, IPage {
     }
 
     bool Matches(RailWorkItem item) {
-        var people = item.People ?? [];
+        var people = item.People;
         if (_owner == SessionsPageViewModel.You ? !people.Any(p => _viewer.Contains(p.UserId))
             : _owner.Key is { } id && people.All(p => p.UserId != id)) return false;
         var q = _search.Trim();
@@ -107,7 +107,7 @@ public sealed class WorkItemsPageViewModel : ReactiveObject, IPage {
 
     static WorkItemsPageRow Row(RailWorkItem item) {
         var sessions = item.PartBySession.Count == 1 ? "1 session" : $"{item.PartBySession.Count} sessions";
-        var people = (item.People ?? []).Take(PeopleShown)
+        var people = item.People.Take(PeopleShown)
             .Select(p => new WorkItemsPageRowPerson(p.Name ?? p.UserId, RailSessionViewModel.Initials(p.Name), p.AvatarUrl)).ToList();
         return new(item.Id, item.Title, item.PartsTotal == 0 ? sessions : $"{item.PartsDone} of {item.PartsTotal} parts · {sessions}",
             item.Status, people);
