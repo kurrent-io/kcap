@@ -58,7 +58,7 @@ jobs:
           python3 -I .github/scripts/qodana_mtimes.py record "$RUNNER_TEMP/qodana/caches/mtimes.tsv"
 
       - name: 'Qodana Scan'
-        uses: JetBrains/qodana-action@v2026.2
+        uses: JetBrains/qodana-action@v2026.3
         with:
           args: --linter qodana-dotnet --within-docker false
           cache-dir: ${{ runner.temp }}/qodana/caches
