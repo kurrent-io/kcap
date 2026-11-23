@@ -93,7 +93,7 @@ public sealed class GrokBotGateway(GrokBotDescriptor descriptor, HttpClient http
     }
 
     async Task<JsonDocument> CallAsync(string method, JsonObject body, CancellationToken ct) {
-        var (baseUrl, token) = ReadDescriptor();
+        var (baseUrl, token) = await ReadDescriptorAsync(ct);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/{method}");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -106,8 +106,8 @@ public sealed class GrokBotGateway(GrokBotDescriptor descriptor, HttpClient http
         return JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
     }
 
-    (string BaseUrl, string Token) ReadDescriptor() {
-        var root   = JsonNode.Parse(descriptor.ReadJson())!.AsObject();
+    async Task<(string BaseUrl, string Token)> ReadDescriptorAsync(CancellationToken ct) {
+        var root   = JsonNode.Parse(await descriptor.ReadJsonAsync(ct))!.AsObject();
         var scheme = root["scheme"]?.GetValue<string>() is { Length: > 0 } s ? s : "http";
         var host   = root["host"]?.GetValue<string>() is { Length: > 0 } h && h != "0.0.0.0" ? h : "127.0.0.1";
         var port   = root["port"]?.GetValue<int>() ?? throw new InvalidDataException("gateway.json has no port");
