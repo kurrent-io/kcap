@@ -989,7 +989,7 @@ public sealed class CursorHookCommand(
                     File.Delete(file); // delete only after appending; a crash mid-file may re-append on retry (harmless: server dedupes replays)
                 } catch { /* per-file best effort */ }
             }
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     bool FlagTailForImport(string sessionId, int? firstUnsent, bool hinted = false) {

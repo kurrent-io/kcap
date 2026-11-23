@@ -48,7 +48,7 @@ sealed class FakeProcessStarter : IProcessStarter {
             // The real starter terminates a child it cannot hand back, because the caller never
             // receives one to clean up with; a double that leaked one would let a test pass
             // against production code that strands it.
-            try { child.Kill(entireProcessTree: true); } catch { }
+            try { child.Kill(entireProcessTree: true); } catch { /* ignored */ }
 
             child.Dispose();
 

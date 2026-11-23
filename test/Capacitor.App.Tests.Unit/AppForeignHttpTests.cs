@@ -19,7 +19,7 @@ public class AppForeignHttpTests {
 
     [Test]
     public async Task The_foreign_container_resolves_what_the_app_takes_from_it() {
-        using var sp = Build();
+        await using var sp = Build();
 
         // Everything App.axaml.cs asks this container for. A resolve it cannot answer is a crash
         // during startup or a re-auth, both past the point where a window could report it.
@@ -34,7 +34,7 @@ public class AppForeignHttpTests {
     /// <summary>The desktop app's signups must reach kcap-web as Desktop, not as the CLI default.</summary>
     [Test]
     public async Task Signups_from_the_app_identify_as_the_desktop_app() {
-        using var sp = Build();
+        await using var sp = Build();
 
         await Assert.That(sp.GetRequiredService<ClientAgent>()).IsEqualTo(ClientAgent.Desktop);
     }
@@ -47,7 +47,7 @@ public class AppForeignHttpTests {
     /// </summary>
     [Test]
     public async Task An_unregistered_lane_name_yields_a_plain_client_rather_than_throwing() {
-        using var sp = Build();
+        await using var sp = Build();
 
         var client = sp.GetRequiredService<IHttpClientFactory>().CreateClient(CapacitorClients.Default);
 

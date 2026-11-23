@@ -361,7 +361,7 @@ internal sealed partial class PtyHostedAgentRuntime(
         if (HeldTooLong && !delivery.IsCompleted)
             throw new IOException("the agent is still starting: finish what its terminal is asking, then send this again");
 
-        try { await delivery; } catch (Exception) { }
+        try { await delivery; } catch (Exception) { /* ignored */ }
 
         if (delivery == _inputReadiness && Interlocked.Exchange(ref _inputReadiness, null) is { } readiness && !await readiness)
             LogInputSentUnsettled(_logger, vendor, LaunchPromptMaxWait.TotalSeconds);

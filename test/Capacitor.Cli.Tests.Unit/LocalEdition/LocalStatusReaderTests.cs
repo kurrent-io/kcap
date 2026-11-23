@@ -444,7 +444,7 @@ public class LocalStatusReaderTests {
         await Service.StopAsync(Unit, CancellationToken.None);
         var lockPath = Tmp.CreateFile(["r", "run", LocalStackProbe.ServerLockName]);
 
-        using var held = new FileStream(lockPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        await using var held = new FileStream(lockPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
 
         await Assert.That(Text(await Read())).DoesNotContain("instance lock");
     }

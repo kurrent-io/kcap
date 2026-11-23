@@ -80,7 +80,7 @@ internal sealed class CodexAppServerRpc(StreamWriter input, StreamReader output,
 
     async Task SendAsync(Action<Utf8JsonWriter> body) {
         using var buffer = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(buffer)) {
+        await using (var writer = new Utf8JsonWriter(buffer)) {
             writer.WriteStartObject();
             writer.WriteString("jsonrpc", "2.0");
             body(writer);

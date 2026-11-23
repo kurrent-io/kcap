@@ -50,7 +50,7 @@ public sealed class TelemetryClient(
             // source is live here; its callbacks never take this lock.
             try { _sending?.Cancel(); } catch (ObjectDisposedException) { }
             lock (_queue) _queue.Clear();
-            if (clearSpool) try { spool.Clear(); } catch { }
+            if (clearSpool) try { spool.Clear(); } catch { /* ignored */ }
         }
     }
 

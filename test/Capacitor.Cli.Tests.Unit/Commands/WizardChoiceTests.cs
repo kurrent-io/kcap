@@ -12,7 +12,7 @@ public class WizardChoiceTests {
 
     [Test]
     public async Task The_answer_is_echoed_under_its_title() {
-        using var output = new StringWriter();
+        await using var output = new StringWriter();
         var console = AnsiConsole.Create(new AnsiConsoleSettings {
             Ansi = AnsiSupport.No, ColorSystem = ColorSystemSupport.NoColors, Out = new AnsiConsoleOutput(output),
         });

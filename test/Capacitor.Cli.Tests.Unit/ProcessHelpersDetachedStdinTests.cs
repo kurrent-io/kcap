@@ -38,7 +38,7 @@ public class ProcessHelpersDetachedStdinTests {
         var pid = child.Pid;
 
         try {
-            using (var writer = new StreamWriter(child.StandardInput)) {
+            await using (var writer = new StreamWriter(child.StandardInput)) {
                 writer.Write("""{"hook_event_name":"SessionEnd","session_id":"abc"}""");
             }
 
@@ -98,9 +98,9 @@ public class ProcessHelpersDetachedStdinTests {
                 CloseHandle(probeWrite);
                 probeClosed = true;
 
-                using var probe  = new FileStream(new SafeFileHandle(probeRead, ownsHandle: true), FileAccess.Read);
-                var       buffer = new byte[1];
-                var       read   = probe.ReadAsync(buffer).AsTask();
+                await using var probe = new FileStream(new SafeFileHandle(probeRead, ownsHandle: true), FileAccess.Read);
+                var       buffer      = new byte[1];
+                var       read        = probe.ReadAsync(buffer).AsTask();
 
                 // A read that never settles IS the failure: it means a child is still holding the
                 // write end, so the assertion is on completion first and EOF second.
@@ -110,7 +110,7 @@ public class ProcessHelpersDetachedStdinTests {
                 await Assert.That(await read).IsEqualTo(0);
 
                 // The payload pipe is the one handle that DID cross, so it still works.
-                using var writer = new StreamWriter(child.StandardInput);
+                await using var writer = new StreamWriter(child.StandardInput);
                 writer.Write("x");
             } finally {
                 Kill(pid);
@@ -124,7 +124,7 @@ public class ProcessHelpersDetachedStdinTests {
         try {
             using var child = Process.GetProcessById(pid);
             child.Kill(entireProcessTree: true);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     [StructLayout(LayoutKind.Sequential)]

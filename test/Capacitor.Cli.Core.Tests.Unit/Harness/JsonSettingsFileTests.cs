@@ -138,7 +138,7 @@ public class JsonSettingsFileTests {
         SettingsEdit result;
         // The edit changes nothing, so only the read is exercised: Windows cannot rename over a file
         // another handle holds open, which would fail a replace for a reason unrelated to the read.
-        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete))
+        await using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite | FileShare.Delete))
             result = JsonSettingsFile.Edit(path, root => { seen = root["theme"]?.ToJsonString(); return false; });
 
         await Assert.That(result).IsEqualTo(SettingsEdit.Unchanged);

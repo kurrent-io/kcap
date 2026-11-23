@@ -601,9 +601,9 @@ public sealed class ConPtyProcess : IPtyProcess {
             await TerminateAsync();
         }
 
-        try { await _outputStream.DisposeAsync(); } catch { }
+        try { await _outputStream.DisposeAsync(); } catch { /* ignored */ }
 
-        try { await _inputStream.DisposeAsync(); } catch { }
+        try { await _inputStream.DisposeAsync(); } catch { /* ignored */ }
 
         if (Interlocked.Exchange(ref _pcClosed, 1) == 0) {
             ClosePseudoConsole(_hPC);

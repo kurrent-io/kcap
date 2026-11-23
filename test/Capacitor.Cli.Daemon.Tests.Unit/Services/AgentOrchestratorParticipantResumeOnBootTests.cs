@@ -563,7 +563,7 @@ public class AgentOrchestratorParticipantResumeOnBootTests {
         var (f, lane) = await StartHandshake();
         await using var _ = f.Orch;
 
-        using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
+        await using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
         await f.Orch.HandleLocalListAsync(withTitles: false, withState: true, client, default);
         client.WrittenStream.Position = 0;
         var reply = await FrameCodec.ReadAsync(client.WrittenStream, default);

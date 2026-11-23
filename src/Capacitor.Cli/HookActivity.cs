@@ -29,7 +29,7 @@ public sealed class HookActivity(ConfigRoot config, TimeProvider time) {
             }
 
             File.SetLastWriteTimeUtc(path, now);
-        } catch (Exception) { }
+        } catch (Exception) { /* ignored */ }
     }
 
     /// <summary>Null when the agent never ran a hook here, or when the stamp cannot be read: status

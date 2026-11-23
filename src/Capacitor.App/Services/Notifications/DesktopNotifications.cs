@@ -9,6 +9,6 @@ public static class DesktopNotifications {
 
     internal static void Report(string message) {
         // Never let logging failures propagate across an Objective-C/COM callback boundary.
-        try { Console.Error.WriteLine($"Desktop notifications: {message}"); } catch (Exception) { }
+        try { Console.Error.WriteLine($"Desktop notifications: {message}"); } catch (Exception) { /* ignored */ }
     }
 }

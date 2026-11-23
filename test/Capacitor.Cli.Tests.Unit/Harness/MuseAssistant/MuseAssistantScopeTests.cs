@@ -166,7 +166,7 @@ public class MuseAssistantScopeTests {
         var dir    = MuseAssistantPaths.ScopeDir(Config.Root, Acme);
 
         Task<int> remove;
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-main"))) {
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-main"))) {
             remove = (await ScopeAsync(poster, time: TimeProvider.System)).RemoveAsync("chat-main", default);
             await Task.Delay(600);
             await Assert.That(remove.IsCompleted).IsFalse();
@@ -411,8 +411,8 @@ public class MuseAssistantScopeTests {
 
         // The system clock would let a waiting sweep run for the full lock wait; the test bounds it far below.
         var sweeping = await ScopeAsync(poster, time: TimeProvider.System);
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-a")))
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-b")))
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-a")))
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-b")))
             await Assert.That(await sweeping.SweepAsync(default).WaitAsync(TimeSpan.FromSeconds(10))).IsEqualTo(0);
 
         var lines = output.GetCapturedOutput().Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -429,8 +429,8 @@ public class MuseAssistantScopeTests {
         var dir = MuseAssistantPaths.ScopeDir(Config.Root, Acme);
         using var stderr = ConsoleOutput.StartErrorCapture();
 
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-a")))
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-b")))
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-a")))
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-b")))
             await Assert.That(await TimedOut((await ScopeAsync(poster)).ResetAsync(default))).IsEqualTo(4);
 
         await Assert.That(stderr.GetCapturedError()).Contains("chat=chat-a");
@@ -446,7 +446,7 @@ public class MuseAssistantScopeTests {
         var dir   = MuseAssistantPaths.ScopeDir(Config.Root, Acme);
         using var stderr = ConsoleOutput.StartErrorCapture("\n");
 
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-b")))
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-b")))
             await Assert.That(await TimedOut((await ScopeAsync(flaky)).ResetAsync(default))).IsEqualTo(4);
 
         await Assert.That(State("chat-a").Grant.Revoked).IsTrue();
@@ -461,7 +461,7 @@ public class MuseAssistantScopeTests {
         await (await IngestAsync(poster)).RunAsync(Walk("w1", T0 + Minute, User(1, T0)), default);
         var dir = MuseAssistantPaths.ScopeDir(Config.Root, Acme);
 
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-main")))
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-main")))
             await Assert.That(await TimedOut((await ScopeAsync(poster)).RemoveAsync("chat-main", default))).IsEqualTo(4);
 
         await Assert.That(State().Grant.Revoked).IsFalse();
@@ -480,7 +480,7 @@ public class MuseAssistantScopeTests {
         var dir = MuseAssistantPaths.ScopeDir(Config.Root, Acme);
 
         using var stderr = ConsoleOutput.StartErrorCapture();
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-main")))
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-main")))
             await Assert.That(await TimedOut((await ScopeAsync(poster)).RemoveAsync("chat-main", default))).IsEqualTo(1);
 
         await Assert.That(stderr.GetCapturedError()).Contains("revoked; the end is still being delivered");
@@ -497,7 +497,7 @@ public class MuseAssistantScopeTests {
         var dir = MuseAssistantPaths.ScopeDir(Config.Root, Acme);
 
         using var stderr = ConsoleOutput.StartErrorCapture();
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-main")))
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-main")))
             await Assert.That(await TimedOut((await ScopeAsync(poster)).RemoveAsync("chat-main", default))).IsEqualTo(0);
 
         await Assert.That(stderr.GetCapturedError()).Contains("already revoked");
@@ -511,14 +511,14 @@ public class MuseAssistantScopeTests {
         var dir    = MuseAssistantPaths.ScopeDir(Config.Root, Acme);
 
         using (var stderr = ConsoleOutput.StartErrorCapture()) {
-            using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-main")))
+            await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-main")))
                 await Assert.That(await TimedOut((await ScopeAsync(poster)).AddAsync("chat-main", History, default))).IsEqualTo(1);
 
             await Assert.That(stderr.GetCapturedError()).Contains("ingest in progress, retry chat=chat-main");
         }
 
         using (var stderr = ConsoleOutput.StartErrorCapture()) {
-            using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ScopeLock(dir)))
+            await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ScopeLock(dir)))
                 await Assert.That(await TimedOut((await ScopeAsync(poster)).AddAsync("chat-main", History, default))).IsEqualTo(1);
 
             await Assert.That(stderr.GetCapturedError()).Contains("another scope command or sweep is running, retry");
@@ -583,7 +583,7 @@ public class MuseAssistantScopeTests {
         File.Delete(MuseAssistantPaths.ChatState(dir, "chat-b"));
         using var stderr = ConsoleOutput.StartErrorCapture("\n");
 
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-b")))
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-b")))
             await Assert.That(await TimedOut(scope.ResetAsync(default))).IsEqualTo(4);
 
         await Assert.That(Store().LoadScope().Chats).IsEquivalentTo(["chat-b"]);
@@ -601,7 +601,7 @@ public class MuseAssistantScopeTests {
 
         var clock = new TimerSignallingTimeProvider(_time.GetUtcNow());
         Task<int> reset;
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-b"))) {
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-b"))) {
             reset = (await ScopeAsync(poster, time: clock)).ResetAsync(default);
             await clock.Waiting.WaitAsync(TimeSpan.FromSeconds(10));   // reset has taken its snapshot and is waiting on the chat lock
             Store().SaveState(saved);
@@ -624,7 +624,7 @@ public class MuseAssistantScopeTests {
         var path = MuseAssistantPaths.ChatState(dir, "chat-b");
         File.WriteAllText(path, "{ not json");
 
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-b")))
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-b")))
             await Assert.That(await TimedOut(scope.ResetAsync(default))).IsEqualTo(4);
 
         await Assert.That(File.ReadAllText(path)).IsEqualTo("{ not json");
@@ -636,7 +636,7 @@ public class MuseAssistantScopeTests {
         var poster = await Record(async scope => { await scope.AddAsync("chat-a", History, default); await scope.AddAsync("chat-b", History, default); });
         var dir    = MuseAssistantPaths.ScopeDir(Config.Root, Acme);
 
-        using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-a")))
+        await using (MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(dir, "chat-a")))
             await Assert.That(await TimedOut((await ScopeAsync(poster)).ResetAsync(default))).IsEqualTo(4);
 
         await Assert.That(State("chat-a").Grant.Revoked).IsFalse();

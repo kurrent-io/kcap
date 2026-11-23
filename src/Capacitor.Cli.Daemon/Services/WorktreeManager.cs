@@ -211,7 +211,7 @@ public partial class WorktreeManager(
             prefix = Path.Combine(prefix, parts[i]);
 
             FileSystemInfo? target = null;
-            try { target = new DirectoryInfo(prefix).ResolveLinkTarget(returnFinalTarget: true); } catch { }
+            try { target = new DirectoryInfo(prefix).ResolveLinkTarget(returnFinalTarget: true); } catch { /* ignored */ }
 
             if (target is null) continue;
 
@@ -382,7 +382,7 @@ public partial class WorktreeManager(
         RefuseIfSourceMoved(repoPath, pinned);
 
         try {
-            using (new FileStream(claimPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
+            await using (new FileStream(claimPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
         } catch (IOException) {
             // Loser path: throws WITHOUT touching the destination. The rollback below is unconditional on
             // worktreePath, so a loser falling through it would delete the WINNER's directory — a claim
@@ -499,7 +499,7 @@ public partial class WorktreeManager(
 
         try {
             // Fail-closed: without the marker the walk recurses into its own destination.
-            using (new FileStream(markerPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
+            await using (new FileStream(markerPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
 
             CopySnapshotTree(repoPath, worktreePath, markerName);
             await barrier.ReachedAsync(SnapshotPoint.TreeCopied);

@@ -73,7 +73,7 @@ public class DaemonNameHolderTests {
     public async Task An_unreadable_machine_id_does_not_prove_a_collision() {
         ThisMachine();
         var path = Config.Root.Path("machine.json");
-        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) {
+        await using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) {
             await Assert.That(new MachineId(Config.Root).ReadPersisted()).IsNull();
             await Assert.That(await HolderPlatformAsync(Daemons(("agent", "mach-office", true)), "agent")).IsNull();
         }

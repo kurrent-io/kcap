@@ -12,11 +12,11 @@ public class UnixPtyReaderThreadTests {
     public async Task Output_written_just_before_the_exit_is_seen_still_reaches_the_reader() {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
 
-        using var pipe     = new AnonymousPipeServerStream(PipeDirection.In);
-        var       readFd   = (int)pipe.SafePipeHandle.DangerousGetHandle();
-        var       writeFd  = (int)pipe.ClientSafePipeHandle.DangerousGetHandle();
-        var       lastWord = Encoding.UTF8.GetBytes("Error: auth expired");
-        var       checks   = 0;
+        await using var pipe = new AnonymousPipeServerStream(PipeDirection.In);
+        var       readFd     = (int)pipe.SafePipeHandle.DangerousGetHandle();
+        var       writeFd    = (int)pipe.ClientSafePipeHandle.DangerousGetHandle();
+        var       lastWord   = Encoding.UTF8.GetBytes("Error: auth expired");
+        var       checks     = 0;
 
         using var stop   = new CancellationTokenSource();
         var       reader = new UnixPtyReaderThread(readFd, 0, () => {
@@ -43,10 +43,10 @@ public class UnixPtyReaderThreadTests {
     public async Task Output_ends_after_the_exit_though_a_descendant_never_stops_writing() {
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return;
 
-        using var pipe    = new AnonymousPipeServerStream(PipeDirection.In);
-        var       readFd  = (int)pipe.SafePipeHandle.DangerousGetHandle();
-        var       writeFd = (int)pipe.ClientSafePipeHandle.DangerousGetHandle();
-        var       tick    = "."u8.ToArray();
+        await using var pipe = new AnonymousPipeServerStream(PipeDirection.In);
+        var       readFd     = (int)pipe.SafePipeHandle.DangerousGetHandle();
+        var       writeFd    = (int)pipe.ClientSafePipeHandle.DangerousGetHandle();
+        var       tick       = "."u8.ToArray();
 
         using var stop    = new CancellationTokenSource();
         var       writing = Task.Factory.StartNew(() => {

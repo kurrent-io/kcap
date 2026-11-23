@@ -116,7 +116,7 @@ public class ClaudeHookCommandTests {
 
         await fx.EnterAsync(Lifecycle("SessionStart", sid, outside), clientUnavailable);
 
-        using var title = new StringWriter();
+        await using var title = new StringWriter();
         var prompt = new JsonObject {
             ["hook_event_name"] = "UserPromptSubmit", ["session_id"] = sid, ["prompt"] = "hi", ["permission_mode"] = "bypassPermissions",
         }.ToJsonString();

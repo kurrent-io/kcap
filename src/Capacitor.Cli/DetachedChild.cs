@@ -44,7 +44,7 @@ public sealed class DetachedChild : IDisposable {
             } else if (_handle is { IsInvalid: false }) {
                 ProcessHelpers.TerminateByHandle(_handle);
             }
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     // Closing the pipe first is what delivers EOF to the child; the handle is released from a

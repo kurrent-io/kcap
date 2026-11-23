@@ -281,6 +281,7 @@ public sealed class RemoteAgentsService : IRemoteAgentsService, IDisposable {
             try {
                 result = await _lane.GetConnectedDaemonsAsync(cts.Token).WaitAsync(cts.Token).ConfigureAwait(false);
             } catch (Exception) {
+                // ignored
             }
             TaskCompletionSource? completed = null;
             bool rerun, newIncarnation = false;
@@ -372,6 +373,7 @@ public sealed class RemoteAgentsService : IRemoteAgentsService, IDisposable {
             try {
                 result = await _lane.GetDaemonAccountsAsync(cts.Token).WaitAsync(cts.Token).ConfigureAwait(false);
             } catch (Exception) {
+                // ignored
             }
             lock (_lock) {
                 // Dispose takes this lock before disposing the subject, so a result landing after it stops here.

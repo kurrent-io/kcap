@@ -182,7 +182,7 @@ public sealed class DaemonCommands(
             return 1;
         }
 
-        using var _ = startLock;
+        await using var _ = startLock;
 
         if (DaemonPidProbe.ReadPidFile(store, name) is { } existing && DaemonPidProbe.IsOurDaemon(existing.Pid, existing.StartToken)) {
             console.Error.WriteLine(

@@ -148,7 +148,7 @@ public class FrameCodecTests {
         var f = LocalFrame.Stdout(new byte[5000]); // > one socket read
         using var ms = new MemoryStream();
         await FrameCodec.WriteAsync(ms, f, default);
-        using var choppy = new ChoppyStream(ms.ToArray(), chunk: 7);
+        await using var choppy = new ChoppyStream(ms.ToArray(), chunk: 7);
         var r = await FrameCodec.ReadAsync(choppy, default);
         await Assert.That(r!.Bytes.Length).IsEqualTo(5000);
     }

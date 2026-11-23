@@ -53,7 +53,7 @@ public class LocalDestinationTests : IDisposable {
     public async Task A_command_against_a_retired_origin_is_refused_with_an_error_naming_the_installation() {
         var root = NewRoot();
         Publish(root, Installed.RetireActive());
-        using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
+        await using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
 
         var refused = await Assert.ThrowsAsync<UnusableServerUrlException>(() => sp.GetRequiredService<ICapacitorHttpClient>().ForCommandAsync());
 
@@ -67,7 +67,7 @@ public class LocalDestinationTests : IDisposable {
     public async Task A_command_against_an_uninstalled_installation_is_refused_at_once_naming_setup() {
         var root = NewRoot();
         Publish(root, Installed);
-        using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
+        await using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
         var http = sp.GetRequiredService<ICapacitorHttpClient>();
 
         var refused = await Assert.ThrowsAsync<UnusableServerUrlException>(() => http.ForCommandAsync());
@@ -85,7 +85,7 @@ public class LocalDestinationTests : IDisposable {
     public async Task A_hook_against_a_retired_origin_is_answered_without_a_send() {
         var root = NewRoot();
         Publish(root, Installed.RetireActive());
-        using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
+        await using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
 
         var attempt = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
 
@@ -100,7 +100,7 @@ public class LocalDestinationTests : IDisposable {
     public async Task A_process_that_resolved_the_installation_stops_sending_once_it_is_retired() {
         var root = NewRoot();
         Publish(root, Installed);
-        using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
+        await using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
         using var client = await sp.GetRequiredService<ICapacitorHttpClient>().ForSessionAsync();
 
         using (var before = await client.GetAsync($"{Url}/ping"))
@@ -118,7 +118,7 @@ public class LocalDestinationTests : IDisposable {
     public async Task A_loopback_send_while_the_registry_cannot_be_read_is_refused() {
         var root = NewRoot();
         Publish(root, Installed);
-        using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
+        await using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
         using var client = await sp.GetRequiredService<ICapacitorHttpClient>().ForSessionAsync();
 
         await File.WriteAllTextAsync(root.RegistryPath, "{not json");
@@ -135,7 +135,7 @@ public class LocalDestinationTests : IDisposable {
     public async Task An_anonymous_request_to_a_retired_origin_is_refused() {
         var root = NewRoot();
         Publish(root, Installed);
-        using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
+        await using var sp = Container(Resolutions.AtInstallation(Url, Config.Root, LocalEndpoints.Read(root)), root);
         using var anonymous = sp.GetRequiredService<ICapacitorHttpClient>().Anonymous();
 
         Publish(root, Installed.RetireActive());
@@ -175,7 +175,7 @@ public class LocalDestinationTests : IDisposable {
 
         _server.Given(Request.Create().WithPath("/moved").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(302).WithHeader("Location", $"{retired.Urls[0]}/ping"));
-        using var sp = Container(Resolutions.At(Url, Config.Root), root);
+        await using var sp = Container(Resolutions.At(Url, Config.Root), root);
         using var client = await sp.GetRequiredService<ICapacitorHttpClient>().ForSessionAsync();
 
         var refused = await Assert.ThrowsAsync<LocalDestinationException>(() => client.GetAsync($"{Url}/moved"));
@@ -188,7 +188,7 @@ public class LocalDestinationTests : IDisposable {
     public async Task A_redirect_within_the_server_is_followed() {
         _server.Given(Request.Create().WithPath("/old").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(301).WithHeader("Location", "/ping"));
-        using var sp = Container(Resolutions.At(Url, Config.Root), NewRoot());
+        await using var sp = Container(Resolutions.At(Url, Config.Root), NewRoot());
         using var client = await sp.GetRequiredService<ICapacitorHttpClient>().ForSessionAsync();
 
         using var response = await client.GetAsync($"{Url}/old");
@@ -205,7 +205,7 @@ public class LocalDestinationTests : IDisposable {
         other.Given(Request.Create().WithPath("/landed")).RespondWith(Response.Create().WithStatusCode(200));
         _server.Given(Request.Create().WithPath("/post").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(302).WithHeader("Location", $"{other.Urls[0]}/landed"));
-        using var sp = Container(Resolutions.At(Url, Config.Root), NewRoot());
+        await using var sp = Container(Resolutions.At(Url, Config.Root), NewRoot());
         using var client = await sp.GetRequiredService<ICapacitorHttpClient>().ForSessionAsync();
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{Url}/post") { Content = new StringContent("{}") };
@@ -224,7 +224,7 @@ public class LocalDestinationTests : IDisposable {
     [Test]
     public async Task A_loopback_server_that_was_never_an_installation_is_sent_to() {
         var root = NewRoot();
-        using var sp = Container(Resolutions.At(Url, Config.Root), root);
+        await using var sp = Container(Resolutions.At(Url, Config.Root), root);
         using var client = await sp.GetRequiredService<ICapacitorHttpClient>().ForCommandAsync();
 
         using var response = await client.GetAsync($"{Url}/ping");

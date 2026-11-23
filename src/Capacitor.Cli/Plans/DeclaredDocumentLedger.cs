@@ -24,7 +24,7 @@ sealed class DeclaredDocumentLedger(ConfigRoot config, TimeProvider time) {
             json["server_url"] = serverUrl;
             File.WriteAllText(entry, json.ToJsonString());
             Touch(sessionId);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>Null unless <paramref name="serverUrl"/> accepted the declaration: a document is never
@@ -70,7 +70,7 @@ sealed class DeclaredDocumentLedger(ConfigRoot config, TimeProvider time) {
         foreach (var dir in Directory.EnumerateDirectories(root)) {
             try {
                 if (Directory.GetLastWriteTimeUtc(dir) < cutoff) Directory.Delete(dir, recursive: true);
-            } catch { }
+            } catch { /* ignored */ }
         }
     }
 

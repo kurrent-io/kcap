@@ -103,7 +103,7 @@ public class TokenStoreRefreshLaneTests {
         var retired   = (await File.ReadAllTextAsync(tokenFile)).Replace("\"rt\"", "null", StringComparison.Ordinal);
 
         Task<StoredTokens?> reader;
-        using (new FileStream(Path.ChangeExtension(tokenFile, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
+        await using (new FileStream(Path.ChangeExtension(tokenFile, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
             reader = store.GetValidTokensForProfileAsync("default");
             await Task.Delay(200);
             await File.WriteAllTextAsync(tokenFile, retired);

@@ -167,7 +167,7 @@ public sealed class LoopbackBrowser(
                 // browser arrived at a closed socket, which is exactly what the join's own refusal
                 // to consume itself on a mismatch exists to prevent.
                 if (ctx.Request.Url?.AbsolutePath == "/joined" && Accepted(ctx)) {
-                    try { await WritePageAsync(ctx, success: true, redirectTo: null, joined: true); } catch { }
+                    try { await WritePageAsync(ctx, success: true, redirectTo: null, joined: true); } catch { /* ignored */ }
 
                     return;
                 }
@@ -177,9 +177,9 @@ public sealed class LoopbackBrowser(
                 try {
                     ctx.Response.StatusCode = 404;
                     ctx.Response.Close();
-                } catch { }
+                } catch { /* ignored */ }
             }
-        } catch { } finally {
+        } catch { /* ignored */ } finally {
             TearDown();
         }
     }
@@ -195,9 +195,9 @@ public sealed class LoopbackBrowser(
     public void Dispose() {
         var drain = _drain;
 
-        try { drain?.Wait(DisposeWait); } catch { }
+        try { drain?.Wait(DisposeWait); } catch { /* ignored */ }
         TearDown();
-        try { drain?.Wait(DisposeWait); } catch { }
+        try { drain?.Wait(DisposeWait); } catch { /* ignored */ }
     }
 
     // The single teardown. Both the drain and Dispose attempt the transition; only the winner tears
@@ -205,8 +205,8 @@ public sealed class LoopbackBrowser(
     void TearDown() {
         if (Interlocked.Exchange(ref _tornDown, 1) != 0) return;
 
-        try { _listener?.Stop(); } catch { }
-        try { _listener?.Close(); } catch { }
+        try { _listener?.Stop(); } catch { /* ignored */ }
+        try { _listener?.Close(); } catch { /* ignored */ }
     }
 
     /// <summary>

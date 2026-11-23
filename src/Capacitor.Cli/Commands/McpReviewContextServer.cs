@@ -40,7 +40,7 @@ static class McpReviewContextServer {
         // The loopback lane for the same reason it exists at all: the URL is the credential, so the
         // request must follow no redirect and honour no ambient proxy. This container registers that
         // lane alone — nothing in it resolves a server, a credential or a profile.
-        using var services = new ServiceCollection().AddCapacitorLoopbackClient().BuildValidated();
+        await using var services = new ServiceCollection().AddCapacitorLoopbackClient().BuildValidated();
 
         using var client = services.GetRequiredService<IHttpClientFactory>()
             .CreateClient(CapacitorClients.Loopback);

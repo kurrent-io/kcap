@@ -52,7 +52,7 @@ internal sealed partial class ExperimentalSettingsWatcher : BackgroundService {
         var directory = Path.GetDirectoryName(_path)!;
         var fileName  = Path.GetFileName(_path);
 
-        using var debounce = _time.CreateTimer(
+        await using var debounce = _time.CreateTimer(
             _ => _refresh("experimental settings changed"), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 
         FileSystemWatcher watcher;
