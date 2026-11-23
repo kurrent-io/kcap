@@ -5,18 +5,18 @@ namespace Capacitor.Cli.Core.Tests.Unit.Setup;
 public class LaunchdPrintTests {
     [Test]
     public async Task Classify_zero_exit_is_loaded() {
-        await Assert.That(LaunchdPrint.Classify(0, "state = running\npid = 924\n", "")).IsEqualTo(LabelProbe.Loaded);
+        await Assert.That(LaunchdPrint.Classify(0, "")).IsEqualTo(LabelProbe.Loaded);
     }
 
     [Test]
     public async Task Classify_could_not_find_is_absent() {
-        await Assert.That(LaunchdPrint.Classify(113, "", "Could not find service \"io.kurrent.kcap.daemon.x\" in domain for user gui: 501"))
+        await Assert.That(LaunchdPrint.Classify(113, "Could not find service \"io.kurrent.kcap.daemon.x\" in domain for user gui: 501"))
             .IsEqualTo(LabelProbe.Absent);
     }
 
     [Test]
     public async Task Classify_nonzero_without_not_found_signature_is_unknown() {
-        await Assert.That(LaunchdPrint.Classify(1, "", "Operation not permitted")).IsEqualTo(LabelProbe.Unknown);
+        await Assert.That(LaunchdPrint.Classify(1, "Operation not permitted")).IsEqualTo(LabelProbe.Unknown);
     }
 
     [Test]

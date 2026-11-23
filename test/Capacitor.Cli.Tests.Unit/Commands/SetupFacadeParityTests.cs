@@ -81,7 +81,7 @@ public class SetupFacadeParityTests {
 
     SetupCommand Command(CliTelemetry telemetry, IOnboardingFacadeFactory facades) =>
         new(Config.Root, Resolutions.None(Config.Root),
-            AuthFixtures.NewTokenStore(Config.Root), new RecordingBrowser(),
+            NewTokenStore(Config.Root), new RecordingBrowser(),
             Home, TestHarnesses.Under(Home), new AgentsPaths(Home), new FixedCapacitorHttpClient(),
             Provisioning, Discovery, telemetry, AuthEndpoints.Defaults, facades,
             FakeImportRunner.Of(_ => throw new InvalidOperationException("these tests stop before the import step")),
@@ -327,7 +327,7 @@ public class SetupFacadeParityTests {
             Profiles      = new Dictionary<string, Profile> { ["acme"] = new() { ServerUrl = "https://acme.kcap.ai" } },
             ActiveProfile = "acme",
         });
-        await AuthFixtures.NewTokenStore(Config.Root).SaveAsync("acme", new StoredTokens {
+        await NewTokenStore(Config.Root).SaveAsync("acme", new StoredTokens {
             AccessToken     = "tok",
             ExpiresAt       = DateTimeOffset.UtcNow.AddHours(1),
             GitHubUsername  = "alice",

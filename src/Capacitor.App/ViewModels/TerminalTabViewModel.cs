@@ -2,6 +2,7 @@ using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
 using DynamicData;
@@ -1005,22 +1006,17 @@ public sealed class TerminalTabViewModel : ReactiveObject {
 
         if (client is not null) {
             var detach = client.DetachAsync();
-            var detachWinner = await Task.WhenAny(detach, Task.Delay(DetachBound, _time)).ConfigureAwait(false);
-            if (!ReferenceEquals(detachWinner, detach)) ObserveAbandoned(detach, "detach");
+            var detached = await detach.FinishedWithinAsync(DetachBound, _time).ConfigureAwait(false);
+            if (!detached) ObserveAbandoned(detach, "detach");
 
             var dispose = client.DisposeAsync().AsTask();
-            var disposeWinner = await Task.WhenAny(dispose, Task.Delay(Remaining(), _time)).ConfigureAwait(false);
-            if (ReferenceEquals(disposeWinner, dispose)) {
-                // Completed within budget -- still observe (never re-throw) a fault.
-                if (dispose.IsFaulted) _ = dispose.Exception;
-            } else {
-                ObserveAbandoned(dispose, "dispose");
-            }
+            var disposed = await dispose.FinishedWithinAsync(Remaining(), _time).ConfigureAwait(false);
+            if (!disposed) ObserveAbandoned(dispose, "dispose");
         }
 
         if (runTask is not null) {
-            var runWinner = await Task.WhenAny(runTask, Task.Delay(Remaining(), _time)).ConfigureAwait(false);
-            if (!ReferenceEquals(runWinner, runTask)) ObserveAbandoned(runTask, "run");
+            var runEnded = await runTask.FinishedWithinAsync(Remaining(), _time).ConfigureAwait(false);
+            if (!runEnded) ObserveAbandoned(runTask, "run");
         }
         _runTask = null;
 
@@ -1030,7 +1026,7 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         // ever wedged. Not carved from the (possibly already-exhausted) 3s above -- this is a
         // trivial property set, not something that should ever race the run/dispose budget.
         var clear = Dispatcher.UIThread.InvokeAsync(() => { Surface = null; }).GetTask();
-        await Task.WhenAny(clear, Task.Delay(DetachBound, _time)).ConfigureAwait(false);
+        await clear.FinishedWithinAsync(DetachBound, _time).ConfigureAwait(false);
     }
 
     static void ObserveAbandoned(Task task, string label) =>

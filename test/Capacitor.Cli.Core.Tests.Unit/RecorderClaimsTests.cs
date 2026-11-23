@@ -236,7 +236,7 @@ public class RecorderClaimsTests {
         Claims.TryTake(Key, "daemon-a", isHosted: true);
         _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
 
-        using (Reader())
+        await using (Reader())
             await Assert.That(Claims.TryTake(Key, "daemon-b", isHosted: false)).IsTrue();
 
         await Assert.That(Claims.IsHosted(Key)).IsFalse();
@@ -248,7 +248,7 @@ public class RecorderClaimsTests {
         Claims.TryTake(Key, "daemon", isHosted: false);
         _time.Advance(RecorderClaims.Grace + TimeSpan.FromSeconds(1));
 
-        using (Reader()) Claims.Beat(Key);
+        await using (Reader()) Claims.Beat(Key);
 
         await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.DaemonFresh);
     }
@@ -258,7 +258,7 @@ public class RecorderClaimsTests {
     public async Task A_claim_can_be_released_while_a_reader_holds_it_open() {
         Claims.TryTake(Key, "daemon", isHosted: false);
 
-        using (Reader()) Claims.Release(Key);
+        await using (Reader()) Claims.Release(Key);
 
         await Assert.That(Claims.Read(Key)).IsEqualTo(RecorderClaimState.None);
     }

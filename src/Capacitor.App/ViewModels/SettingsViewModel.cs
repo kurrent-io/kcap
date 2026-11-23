@@ -460,6 +460,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         try {
             await _notificationAccess.RequestAsync();
         } catch {
+            // ignored
         }
         await ReadNotificationAccessAsync();
     }
@@ -501,6 +502,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         try {
             saved = await _notificationSettings.SaveAsync(preferences);
         } catch {
+            // ignored
         }
         if (_lifetime.IsCancellationRequested) return;
         NotificationMessage = saved ? null : "Could not save notification settings. The change still applies for this run.";

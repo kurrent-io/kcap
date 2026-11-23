@@ -5,14 +5,16 @@ namespace Capacitor.App.Views;
 
 /// Sizes a session view's work-context column from its window's <see cref="PaneLayout"/>. Outside a
 /// <see cref="MainWindow"/> the column keeps its minimum width and neither button shows, since
-/// nothing could bring a hidden pane back.
+/// nothing could bring a hidden pane back. Inside one, a view too narrow for the pane and a chat
+/// column hides the pane until it is wide again (<see cref="ContextPaneFit"/>).
 public static class ContextPaneSizing {
     public static void Attach(Control view, ColumnDefinition column, Control pane, WorkContextView content,
             GridSplitter splitter, Button showButton) {
         PaneLayout? panes = null;
+        var fit = new ContextPaneFit();
 
         void Apply() {
-            var collapsed = panes?.ContextCollapsed ?? false;
+            var collapsed = panes is not null && (panes.ContextCollapsed || fit.HidesPane);
             column.MinWidth = panes is null ? PaneLayout.ContextMinWidth : 0;
             column.Width = new GridLength(collapsed ? 0 : panes?.ContextWidth ?? PaneLayout.ContextMinWidth);
             pane.IsVisible = !collapsed;
@@ -32,8 +34,10 @@ public static class ContextPaneSizing {
             if (panes is not null) panes.Changed -= OnChanged;
             panes = null;
         };
-        view.SizeChanged += (_, e) =>
+        view.SizeChanged += (_, e) => {
             column.MaxWidth = PaneLayout.MaxWidth(e.NewSize.Width, PaneLayout.ContextMinWidth, PaneLayout.SessionMinWidth);
+            if (fit.Resize(e.NewSize.Width)) Apply();
+        };
         splitter.DragDelta += (_, _) =>
             pane.Opacity = panes is not null && PaneLayout.HidesAt(column.ActualWidth, PaneLayout.ContextMinWidth)
                 ? PaneLayout.HidingOpacity
@@ -47,10 +51,14 @@ public static class ContextPaneSizing {
             if (hides) panes.ContextCollapsed = true;
         };
         content.HideRequested += (_, _) => {
+            fit.Hidden();
             if (panes is not null) panes.ContextCollapsed = true;
         };
         showButton.Click += (_, _) => {
-            if (panes is not null) panes.ContextCollapsed = false;
+            if (panes is null) return;
+            fit.ShowAnyway();
+            if (panes.ContextCollapsed) panes.ContextCollapsed = false;
+            else Apply();
         };
         Apply();
     }

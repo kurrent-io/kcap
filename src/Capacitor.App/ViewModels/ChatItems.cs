@@ -287,11 +287,10 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     public bool DetailIsProse => Category == ToolCategory.Question;
     public bool DetailIsPath { get; } = detailIsPath;
 
-    string? _filePath;
     Action<string>? _openFile;
 
     /// The file the detail names, set only where it lives on this machine.
-    public string? FilePath => _filePath;
+    public string? FilePath { get; private set; }
     public bool CanOpenFile => _openFile is not null;
 
     /// The warning strip is up: nothing opens until it is confirmed.
@@ -306,14 +305,14 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     }
 
     public void EnableOpenFile(string path, Action<string> open) {
-        _filePath = path;
+        FilePath = path;
         _openFile = open;
         this.RaisePropertyChanged(nameof(FilePath));
         this.RaisePropertyChanged(nameof(CanOpenFile));
     }
 
     public void RequestOpenFile() {
-        if (_filePath is not { } path) return;
+        if (FilePath is not { } path) return;
         FileMissing = !File.Exists(path) && !Directory.Exists(path);
         IsConfirmingOpen = true;
     }
@@ -323,7 +322,7 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     /// The existence check repeats here: the file can go between the warning and the confirm.
     public void ConfirmOpenFile() {
         IsConfirmingOpen = false;
-        if (_filePath is not { } path || _openFile is not { } open) return;
+        if (FilePath is not { } path || _openFile is not { } open) return;
         if (!File.Exists(path) && !Directory.Exists(path)) return;
         open(path);
     }

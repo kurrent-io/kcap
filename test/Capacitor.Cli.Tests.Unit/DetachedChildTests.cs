@@ -40,7 +40,7 @@ public class DetachedChildTests {
         try {
             using var running = Process.GetProcessById(pid);
             running.Kill(entireProcessTree: true);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     [Test]
@@ -90,7 +90,7 @@ public class DetachedChildTests {
         try {
             var child = DetachedChild.ForProcess(process, process.StandardInput.BaseStream);
 
-            using (var payload = new StreamWriter(child.StandardInput)) {
+            await using (var payload = new StreamWriter(child.StandardInput)) {
                 payload.Write("hook-payload");
             }
 

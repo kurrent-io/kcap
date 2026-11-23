@@ -96,7 +96,7 @@ public class FeedbackCommandTests : IDisposable {
 
         var (exitCode, stdout, stderr) = await RunAsync(() =>
             new FeedbackCommand(Api()).HandleAsync(
-                ["feedback", "--feedback"], stdinIsRedirected: false, readLine: () => lines.Dequeue()));
+                ["feedback", "--feedback"], stdinIsRedirected: false, readLine: lines.Dequeue));
 
         await Assert.That(exitCode).IsEqualTo(0);
         await Assert.That(stderr).Contains("What's going on? (end with an empty line)");

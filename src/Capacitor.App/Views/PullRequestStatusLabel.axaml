@@ -8,7 +8,7 @@
     <UserControl.Styles>
         <Style Selector="TextBlock.statusText">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
             <Setter Property="LineHeight" Value="16" />
         </Style>
         <Style Selector="TextBlock.statusText.success"><Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" /></Style>

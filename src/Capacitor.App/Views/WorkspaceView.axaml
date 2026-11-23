@@ -24,7 +24,7 @@
                                                DataContext="{Binding Chat.AgentStatus}"
                                                IsVisible="{Binding !$parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).HasConnectionNotice}"
                                                HorizontalAlignment="Left" VerticalAlignment="Center" />
-                        <TextBlock x:Name="WorkspaceSubtitle" Grid.Column="1" Text="{Binding RepoLabelText}" FontSize="13"
+                        <TextBlock x:Name="WorkspaceSubtitle" Grid.Column="1" Text="{Binding RepoLabelText}" FontSize="{StaticResource KcapFontSizeBody}"
                                    Foreground="{StaticResource KcapMutedBrush}" TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center" />
                     </Grid>
@@ -59,7 +59,7 @@
                         <views:AppIcon Kind="ExternalLink" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
                     </Button>
                     <Button x:Name="StopButton" Content="{Binding StopLabel}" Command="{Binding StopCommand}" Classes="kcapDanger"
-                            IsVisible="{Binding ShowsStop}" Padding="10,5" FontSize="13.5" />
+                            IsVisible="{Binding ShowsStop}" Padding="10,5" FontSize="{StaticResource KcapFontSizeBody}" />
                     <Button x:Name="ContextShowButton" Classes="kcapGhost kcapIcon" IsVisible="False"
                             ToolTip.Tip="Show details" AutomationProperties.Name="Show details">
                         <views:AppIcon Kind="PanelRightOpen" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
@@ -116,7 +116,7 @@
     </Grid>
     <views:WorkContextView x:Name="WorkContextHost" Grid.Column="1" DataContext="{Binding WorkContext}" />
     <!-- Last child so it hit-tests above the workspace column it overhangs. -->
-    <GridSplitter x:Name="ContextSplitter" Grid.Column="1" HorizontalAlignment="Left" Width="6"
-                  Margin="-3,0,0,0" Background="Transparent" ResizeDirection="Columns" />
+    <GridSplitter x:Name="ContextSplitter" Grid.Column="1" HorizontalAlignment="Left" Classes="sidebarSplitter"
+                  Margin="-6,0,0,0" ResizeDirection="Columns" />
     </Grid>
 </UserControl>

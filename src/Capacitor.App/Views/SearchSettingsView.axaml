@@ -49,7 +49,7 @@
                     <TextBlock Classes="kcapHint" Text="{Binding ReembedNote}" TextWrapping="Wrap"
                                IsVisible="{Binding ReembedNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 </StackPanel>
-                <SelectableTextBlock x:Name="SearchFailureText" Text="{Binding FailureText}" FontSize="12.5"
+                <SelectableTextBlock x:Name="SearchFailureText" Text="{Binding FailureText}" FontSize="{StaticResource KcapFontSizeSmall}"
                                      TextWrapping="Wrap" Foreground="{StaticResource KcapDangerBrush}"
                                      IsVisible="{Binding FailureText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>

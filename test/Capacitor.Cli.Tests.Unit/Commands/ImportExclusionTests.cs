@@ -144,8 +144,8 @@ public class ImportExclusionTests {
         var probesBeforeAnswer = -1;
         using var stdin = new ObservedReader(answer + "\n", () =>
             probesBeforeAnswer = server.LogEntries.Count(e => e.RequestMessage.Path == $"/api/sessions/{Secret}/last-line"));
-        using var output = new StringWriter();
-        using var error = new StringWriter();
+        await using var output = new StringWriter();
+        await using var error = new StringWriter();
         var console = new ImportConsole(output, error, stdin, ansi, OutputRedirected: false, InputRedirected: false);
 
         var (exit, outcome) = await RunAsync(server, projects, excluded, console, skipConfirmation: false);
@@ -187,8 +187,8 @@ public class ImportExclusionTests {
         using var ansi = new ScriptedConsole().Line("y");
         using var stdin = new ObservedReader("y\n", () =>
             WriteSession(Tmp.CreateDir("projects").CreateDir("-secret-project"), Secret, otherExcluded));
-        using var output = new StringWriter();
-        using var error = new StringWriter();
+        await using var output = new StringWriter();
+        await using var error = new StringWriter();
         var console = new ImportConsole(output, error, stdin, ansi, OutputRedirected: false, InputRedirected: false);
 
         var (exit, outcome) = await RunAsync(server, projects, excluded, console,
@@ -221,8 +221,8 @@ public class ImportExclusionTests {
             reads++;
             probesBeforeAnswers.Add(server.LogEntries.Count(e => e.RequestMessage.Path == $"/api/sessions/{Secret}/last-line"));
         });
-        using var output = new StringWriter();
-        using var error = new StringWriter();
+        await using var output = new StringWriter();
+        await using var error = new StringWriter();
         var console = new ImportConsole(output, error, stdin, ansi, OutputRedirected: false, InputRedirected: false);
 
         var (exit, outcome) = await RunAsync(server, projects, excluded, console,

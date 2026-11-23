@@ -21,7 +21,7 @@ public class BootCarrierTests {
             ["OTHER"] = "kept",
         };
         var config = new DaemonConfig();
-        DaemonRunner.CaptureBootCarriers(config, k => env.GetValueOrDefault(k), k => env.Remove(k));
+        DaemonRunner.CaptureBootCarriers(config, env.GetValueOrDefault, k => env.Remove(k));
 
         await Assert.That(config.ConsentSeedDirective).IsEqualTo("prompt");
         await Assert.That(config.ExpectedServerUrl).IsEqualTo("https://s.example");
@@ -43,7 +43,7 @@ public class BootCarrierTests {
             [DaemonRunner.BootCarriers.Seed] = "",
         };
         var config = new DaemonConfig();
-        DaemonRunner.CaptureBootCarriers(config, k => env.GetValueOrDefault(k), k => env.Remove(k));
+        DaemonRunner.CaptureBootCarriers(config, env.GetValueOrDefault, k => env.Remove(k));
 
         await Assert.That(config.ConsentSeedDirective).IsEqualTo("");
         await Assert.That(config.ConsentSeedDirective).IsNotNull();

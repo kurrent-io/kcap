@@ -219,7 +219,7 @@ public class AgentOrchestratorLocalAttachTests {
         var readBuf = new MemoryStream();
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
         readBuf.Position = 0;
-        using var client = new DuplexTestStream(readBuf, new MemoryStream());
+        await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
         var spawn = FrameCodec.Spawn("claude", WorkLocation.BorrowedCwd, isPrivate: true, tmp.Path, ["--model", "opus"], 80, 24);
         await orch.HandleLocalSpawnAsync(spawn, client, default);
@@ -249,7 +249,7 @@ public class AgentOrchestratorLocalAttachTests {
             var readBuf = new MemoryStream();
             await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
             readBuf.Position = 0;
-            using var client = new DuplexTestStream(readBuf, new MemoryStream());
+            await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
             var spawn = FrameCodec.Spawn("claude", WorkLocation.BorrowedCwd, isPrivate, tmp.Path, [], 80, 24);
             await orch.HandleLocalSpawnAsync(spawn, client, default);
@@ -377,7 +377,7 @@ public class AgentOrchestratorLocalAttachTests {
         var readBuf = new MemoryStream();
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
         readBuf.Position = 0;
-        using var client = new DuplexTestStream(readBuf, new MemoryStream());
+        await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
         var spawn = FrameCodec.Spawn("claude", WorkLocation.BorrowedCwd, isPrivate: false, tmp.Path, ["--model", "opus"], 80, 24);
         await orch.HandleLocalSpawnAsync(spawn, client, default);
@@ -403,7 +403,7 @@ public class AgentOrchestratorLocalAttachTests {
         var readBuf = new MemoryStream();
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
         readBuf.Position = 0;
-        using var client = new DuplexTestStream(readBuf, new MemoryStream());
+        await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
         var title = new AgentStartTitle("fix the login redirect", Derived: true);
         var spawn = FrameCodec.Spawn("claude", WorkLocation.BorrowedCwd, isPrivate: false, tmp.Path, ["fix the login redirect"], 80, 24, title);
@@ -431,7 +431,7 @@ public class AgentOrchestratorLocalAttachTests {
         var readBuf = new MemoryStream();
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
         readBuf.Position = 0;
-        using var client = new DuplexTestStream(readBuf, new MemoryStream());
+        await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
         var spawn = FrameCodec.Spawn("claude", WorkLocation.BorrowedCwd, isPrivate: false, dir, ["--model", "opus"], 80, 24);
         await orch.HandleLocalSpawnAsync(spawn, client, default);
@@ -623,7 +623,7 @@ public class AgentOrchestratorLocalAttachTests {
             var readBuf = new MemoryStream();
             await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
             readBuf.Position = 0;
-            using var client = new DuplexTestStream(readBuf, new MemoryStream());
+            await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
             var spawn = FrameCodec.Spawn("claude", WorkLocation.BorrowedCwd, isPrivate: false, tmp.Path, [], 80, 24);
             await orch.HandleLocalSpawnAsync(spawn, client, default);
@@ -696,8 +696,8 @@ public class AgentOrchestratorLocalAttachTests {
         // A client that sends nothing and never closes: if the handler attached instead of refusing,
         // it would sit in its read loop until the token fires rather than returning promptly — which
         // is the hang this refusal exists to prevent, and is what the bounded wait below detects.
-        using var client = new DuplexTestStream(new NeverEndingStream(), new MemoryStream());
-        using var cts    = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var client = new DuplexTestStream(new NeverEndingStream(), new MemoryStream());
+        using var cts          = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         await orch.HandleLocalAttachAsync("hosted-1", client, cts.Token).WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -744,7 +744,7 @@ public class AgentOrchestratorLocalAttachTests {
         var readBuf = new MemoryStream();
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Stdin("x"u8.ToArray()), default);
         readBuf.Position = 0;
-        using var client = new DuplexTestStream(readBuf, new MemoryStream());
+        await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
         // Must complete (not throw) within a bounded time — the bug this guards against was an
         // unhandled NotSupportedException escaping the read loop and crashing the attach handler.
@@ -989,7 +989,7 @@ public class AgentOrchestratorLocalAttachTests {
         orch.SeedAgentForTest("rev-1", kind: LaunchKind.Review);
         orch.SeedAgentForTest("flow-1", kind: LaunchKind.ReviewFlow, flowRunId: "flow-7f3a", flowRole: "reviewer");
 
-        using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
+        await using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
         await orch.HandleLocalListAsync(withTitles: false, withState: false, client, default);
         client.WrittenStream.Position = 0;
         var reply = await FrameCodec.ReadAsync(client.WrittenStream, default);
@@ -1016,7 +1016,7 @@ public class AgentOrchestratorLocalAttachTests {
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Resize(40, 10), default);
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
         readBuf.Position = 0;
-        using var client = new DuplexTestStream(readBuf, new MemoryStream());
+        await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
         await orch.HandleLocalAttachAsync("flow-1", client, default);
 
@@ -1047,7 +1047,7 @@ public class AgentOrchestratorLocalAttachTests {
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Stdin("hello"u8.ToArray()), default);
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
         readBuf.Position = 0;
-        using var client = new DuplexTestStream(readBuf, new MemoryStream());
+        await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
         await orch.HandleLocalAttachAsync("plain-1", client, default);
 
@@ -1071,7 +1071,7 @@ public class AgentOrchestratorLocalAttachTests {
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Stdin("hello"u8.ToArray()), default);
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
         readBuf.Position = 0;
-        using var client = new DuplexTestStream(readBuf, new MemoryStream());
+        await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
         await orch.HandleLocalAttachAsync("rev-1", client, default);
 
@@ -1092,7 +1092,7 @@ public class AgentOrchestratorLocalAttachTests {
         var readBuf = new MemoryStream();
         await FrameCodec.WriteAsync(readBuf, LocalFrame.Detach(), default);
         readBuf.Position = 0;
-        using var client = new DuplexTestStream(readBuf, new MemoryStream());
+        await using var client = new DuplexTestStream(readBuf, new MemoryStream());
 
         await orch.HandleLocalAttachAsync("plain-1", client, default, reportRuntime: true);
 
@@ -1155,7 +1155,7 @@ public class AgentOrchestratorLocalAttachTests {
         await using var orch = AgentOrchestratorHarness.BuildOrchestrator(
             new TripwireServerConnection(), new FixedPtyProcessFactory(new OneChunkThenBlockPtyProcess()), launchers);
 
-        using var client = new DuplexTestStream(new ParkedReadStream(), new MemoryStream());
+        await using var client = new DuplexTestStream(new ParkedReadStream(), new MemoryStream());
         var spawn = FrameCodec.Spawn("claude", WorkLocation.BorrowedCwd, isPrivate: false, tmp.Path, [], 80, 24);
 
         var spawnTask = orch.HandleLocalSpawnAsync(spawn, client, cts.Token);
@@ -1216,7 +1216,7 @@ public class AgentOrchestratorLocalAttachTests {
     }
 
     static async Task<LocalFrame?> StopAndReadReply(AgentOrchestrator orch, string agentId) {
-        using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
+        await using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
         await orch.HandleLocalStopAsync(agentId, client, default);
         client.WrittenStream.Position = 0;
 
@@ -1310,7 +1310,7 @@ public class AgentOrchestratorLocalAttachTests {
     }
 
     static async Task<LocalFrame?> StopV2AndReadReply(AgentOrchestrator orch, bool force, string agentId) {
-        using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
+        await using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
         await orch.HandleLocalStopV2Async(force, agentId, client, default);
         client.WrittenStream.Position = 0;
 
@@ -1583,7 +1583,7 @@ public class AgentOrchestratorLocalAttachTests {
         orch.SeedAgentForTest("titled-1", prompt: "Fix the\tflaky test");
 
         async Task<string[]> ListAsync(bool withTitles) {
-            using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
+            await using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
             await orch.HandleLocalListAsync(withTitles, withState: false, client, default);
             client.WrittenStream.Position = 0;
             var reply = await FrameCodec.ReadAsync(client.WrittenStream, default);
@@ -1609,7 +1609,7 @@ public class AgentOrchestratorLocalAttachTests {
         orch.SeedAgentForTest("tabby-1", kind: LaunchKind.ReviewFlow,
             flowRunId: "flow\t7f3a", flowRole: "rev\niewer");
 
-        using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
+        await using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
         await orch.HandleLocalListAsync(withTitles: false, withState: false, client, default);
         client.WrittenStream.Position = 0;
         var reply = await FrameCodec.ReadAsync(client.WrittenStream, default);
@@ -1641,7 +1641,7 @@ public class AgentOrchestratorLocalAttachTests {
         ledger.Write(ResumeLedgerEntries.For("live-1", ResumeState.Running));
 
         async Task<string[][]> ListAsync(bool withState) {
-            using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
+            await using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
             await orch.HandleLocalListAsync(withTitles: true, withState, client, default);
             client.WrittenStream.Position = 0;
             var reply = await FrameCodec.ReadAsync(client.WrittenStream, default);
@@ -1668,7 +1668,7 @@ public class AgentOrchestratorLocalAttachTests {
     }
 
     static async Task<LocalFrame?> StopV2Async(AgentOrchestrator orch, string agentId) {
-        using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
+        await using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
         await orch.HandleLocalStopV2Async(force: false, agentId, client, default);
         client.WrittenStream.Position = 0;
 
@@ -1676,7 +1676,7 @@ public class AgentOrchestratorLocalAttachTests {
     }
 
     static async Task<string[]> ListedIdsAsync(AgentOrchestrator orch) {
-        using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
+        await using var client = new DuplexTestStream(new MemoryStream(), new MemoryStream());
         await orch.HandleLocalListAsync(withTitles: true, withState: true, client, default);
         client.WrittenStream.Position = 0;
         var reply = await FrameCodec.ReadAsync(client.WrittenStream, default);

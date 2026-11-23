@@ -115,6 +115,8 @@ sealed class PollingServiceVerify(
         // An activation must not leave the previous profile's daemon running once the selection has moved, so
         // its unit goes before anything is written for the new one.
         if (activation is not null && retireServiceId is not null && retiredPresent) {
+            // A target the supervisor cannot read is refused while the old unit still stands.
+            if (manager.Query(id).Probe == LabelProbe.Unknown) return Unanswered(id);
             if (await RetireAsync(retireServiceId, fence) is { } retireExit) return retireExit;
             if (validatedDaemonPid(id) is not null) return Fail(VerifyExit.Contended, VerifyExit.ContendedToken);
         }
@@ -208,9 +210,10 @@ sealed class PollingServiceVerify(
         return null;
     }
 
-    /// <summary>No validated pid and no well-formed hello: a hung process that still answers is not stopped.</summary>
+    /// <summary>No well-formed hello and, read after it, no validated pid: a hung process that still answers is not
+    /// stopped, and a daemon that published its pid during the hello wait is not missed.</summary>
     async Task<bool> StoppedAsync(string id) =>
-        validatedDaemonPid(id) is null && !(await hello(id, PollInterval * 4)).WellFormed;
+        !(await hello(id, PollInterval * 4)).WellFormed && validatedDaemonPid(id) is null;
 
     /// <summary>
     /// Proves the task a rename leaves behind is this profile's and, when its daemon runs, takes that

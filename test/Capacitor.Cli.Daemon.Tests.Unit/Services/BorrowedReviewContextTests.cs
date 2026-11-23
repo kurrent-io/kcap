@@ -403,7 +403,7 @@ public class BorrowedReviewContextTests {
 
         // Remove the symlink before TempDir.Dispose recurses into root, so cleanup never
         // has to reason about whether it would follow the link into external.
-        try { Directory.Delete(root.PathTo("borrowed-snapshots")); } catch { }
+        try { Directory.Delete(root.PathTo("borrowed-snapshots")); } catch { /* ignored */ }
     }
 
     [Test]
@@ -497,8 +497,8 @@ public class BorrowedReviewContextTests {
             File.WriteAllText(lower, "probe");
             return !File.Exists(upper);
         } finally {
-            try { File.Delete(lower); } catch { }
-            try { File.Delete(upper); } catch { }
+            try { File.Delete(lower); } catch { /* ignored */ }
+            try { File.Delete(upper); } catch { /* ignored */ }
         }
     }
 }

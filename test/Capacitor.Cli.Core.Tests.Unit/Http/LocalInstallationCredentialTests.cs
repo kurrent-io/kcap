@@ -60,7 +60,7 @@ public class LocalInstallationCredentialTests : IDisposable {
         var profiles = await LeftBehindAsync(Resolutions.InstalledAt(Url), DateTimeOffset.UtcNow.AddHours(1));
         await Assert.That(profiles.Resolution.Endpoint).IsTypeOf<LocalEndpointClass.Local>();
 
-        using var sp       = Container(profiles);
+        await using var sp = Container(profiles);
         using var client   = await sp.GetRequiredService<ICapacitorHttpClient>().ForCommandAsync();
         using var response = await client.GetAsync($"{Url}/ping");
 
@@ -76,7 +76,7 @@ public class LocalInstallationCredentialTests : IDisposable {
         var profiles = await LeftBehindAsync(Resolutions.InstalledAt(Url), DateTimeOffset.UtcNow.AddMinutes(-5));
         AuthProviderCache.Set(Url, AuthProvider.GitHubApp, Config.Root, TimeProvider.System);
 
-        using var sp = Container(profiles);
+        await using var sp = Container(profiles);
         var state = await sp.GetRequiredService<ICredentialSource>().ResolveAsync(CancellationToken.None);
 
         await Assert.That(state.Bearer).IsNull();
@@ -92,7 +92,7 @@ public class LocalInstallationCredentialTests : IDisposable {
         foreach (var registry in new[] { Resolutions.RetiredAt(Url), Resolutions.UnreadableRegistry }) {
             var profiles = await LeftBehindAsync(registry, DateTimeOffset.UtcNow.AddHours(1));
 
-            using var sp = Container(profiles);
+            await using var sp = Container(profiles);
             var state = await sp.GetRequiredService<ICredentialSource>().ResolveAsync(CancellationToken.None);
 
             await Assert.That(state.Bearer).IsNull();
@@ -107,7 +107,7 @@ public class LocalInstallationCredentialTests : IDisposable {
     public async Task The_same_token_is_sent_to_an_ordinary_server() {
         var profiles = await LeftBehindAsync(LocalEndpoints.None, DateTimeOffset.UtcNow.AddHours(1));
 
-        using var sp = Container(profiles);
+        await using var sp = Container(profiles);
         var state = await sp.GetRequiredService<ICredentialSource>().ResolveAsync(CancellationToken.None);
 
         await Assert.That(state.Bearer).IsEqualTo("cloud-token");

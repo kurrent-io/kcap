@@ -70,8 +70,6 @@ public class AcpHostedAgentRuntimeTests {
         public AcpHostedAgentRuntime Runtime { get; }
         public CancellationTokenSource Cts   { get; } = new();
 
-        Task _fakeRunTask = Task.CompletedTask;
-
         public Harness(TranscriptJournal? journal = null, int? transcriptCapacity = null, int? pendingTurnsCapacity = null) {
             Fake    = new FakeAcpAgent();
             Conn    = new AcpConnection(Fake.ClientWriteStream, Fake.ClientReadStream, NullLogger.Instance);
@@ -81,15 +79,15 @@ public class AcpHostedAgentRuntimeTests {
                 pendingTurnsCapacity: pendingTurnsCapacity);
         }
 
-        public void StartFakeAgentLoop() => _fakeRunTask = Fake.RunAsync(Cts.Token);
+        public void StartFakeAgentLoop() => FakeRunTask = Fake.RunAsync(Cts.Token);
 
         /// <summary>Completes when the fake reads EOF on its stdin, or is cancelled.</summary>
-        public Task FakeRunTask => _fakeRunTask;
+        public Task FakeRunTask { get; private set; } = Task.CompletedTask;
 
         public async ValueTask DisposeAsync() {
             Cts.Cancel();
             try {
-                await _fakeRunTask.WaitAsync(HangGuard);
+                await FakeRunTask.WaitAsync(HangGuard);
             } catch (OperationCanceledException) {
                 // expected shutdown path
             }

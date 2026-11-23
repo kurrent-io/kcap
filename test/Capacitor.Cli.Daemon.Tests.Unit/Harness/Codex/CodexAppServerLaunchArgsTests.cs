@@ -18,7 +18,7 @@ public class CodexAppServerLaunchArgsTests {
             ReadInheritedMcpServers = static () => [new("kcap-flows"), new("node_repl")]
         };
 
-    static LauncherContext FlowCtx(string[]? allowlist = null) => new LauncherContext(
+    static LauncherContext FlowCtx(string[]? allowlist = null) => new(
         AgentId: "agent-xyz",
         SourceRepoPath: "/tmp/repo",
         Worktree: new WorktreeInfo(Path: "/tmp/wt", Branch: "wt-branch", SourceRepo: "/tmp/repo"),

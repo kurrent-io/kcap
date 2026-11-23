@@ -87,7 +87,7 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/ping").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200));
 
-        using var sp = Container();
+        await using var sp = Container();
 
         await Assert.That(sp.GetRequiredService<ISessionsApi>()).IsNotNull();
 
@@ -120,8 +120,8 @@ public class CapacitorHttpContainerTests : IDisposable {
                 .WithHeader("Content-Encoding", "gzip")
                 .WithBody(gzipped.ToArray()));
 
-        using var sp     = Container();
-        using var client = sp.GetRequiredService<IHttpClientFactory>().CreateClient(lane);
+        await using var sp = Container();
+        using var client   = sp.GetRequiredService<IHttpClientFactory>().CreateClient(lane);
 
         var text = await client.GetStringAsync($"{Url}/compressed");
 
@@ -138,7 +138,7 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/api/sessions/sess-1").UsingDelete())
             .RespondWith(Response.Create().WithStatusCode(200));
 
-        using var sp = Container();
+        await using var sp = Container();
 
         var result = await sp.GetRequiredService<ISessionsApi>().DeleteSessionAsync("sess-1");
 
@@ -152,7 +152,7 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/api/sessions/sess-2/visibility").UsingPut())
             .RespondWith(Response.Create().WithStatusCode(200));
 
-        using var sp = Container();
+        await using var sp = Container();
 
         await sp.GetRequiredService<ISessionsApi>().HideSessionAsync("sess-2");
 
@@ -168,7 +168,7 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/agent-title").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"applied":true,"title":"A better title"}"""));
 
-        using var sp = Container();
+        await using var sp = Container();
 
         var result = await sp.GetRequiredService<ISessionsApi>().SetSessionTitleAsync("sess-3", "A better title", rename: true);
 
@@ -185,7 +185,7 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/agent-title").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"applied":false,"title":"Chosen at start"}"""));
 
-        using var sp = Container();
+        await using var sp = Container();
 
         var result = await sp.GetRequiredService<ISessionsApi>().SetSessionTitleAsync("sess-3", "Mine", rename: false);
 
@@ -198,8 +198,8 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/agent-title").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("ok"));
 
-        using var sp  = Container();
-        var       api = sp.GetRequiredService<ISessionsApi>();
+        await using var sp = Container();
+        var       api      = sp.GetRequiredService<ISessionsApi>();
 
         await Assert.That(async () => await api.SetSessionTitleAsync("sess-3", "T", rename: true)).Throws<CapacitorApiException>();
         await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/set-title")).Count).IsEqualTo(0);
@@ -213,8 +213,8 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/hooks/agent-title").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(404).WithBody("""{"error":"something_else"}"""));
 
-        using var sp  = Container();
-        var       api = sp.GetRequiredService<ISessionsApi>();
+        await using var sp = Container();
+        var       api      = sp.GetRequiredService<ISessionsApi>();
 
         var ex = await Assert.That(async () => await api.SetSessionTitleAsync("sess-3", "T", rename: true)).Throws<CapacitorApiException>();
 
@@ -231,7 +231,7 @@ public class CapacitorHttpContainerTests : IDisposable {
             .RespondWith(Response.Create().WithStatusCode(404).WithBody("""{"error":"session_not_found"}"""));
 
         var time = new FakeTimeProvider();
-        using var sp = Container(time: time);
+        await using var sp = Container(time: time);
 
         var request = sp.GetRequiredService<ISessionsApi>().SetSessionTitleAsync("sess-new", "T", rename: false);
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -252,7 +252,7 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/api/sessions/gone").UsingDelete())
             .RespondWith(Response.Create().WithStatusCode(404));
 
-        using var sp = Container();
+        await using var sp = Container();
 
         var result = await sp.GetRequiredService<ISessionsApi>().DeleteSessionAsync("gone");
 
@@ -267,7 +267,7 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/api/sessions/sess-4/visibility").UsingPut())
             .RespondWith(Response.Create().WithStatusCode(500));
 
-        using var sp = Container();
+        await using var sp = Container();
         var       api = sp.GetRequiredService<ISessionsApi>();
 
         var ex = await Assert.That(async () => await api.HideSessionAsync("sess-4")).Throws<CapacitorApiException>();
@@ -289,8 +289,8 @@ public class CapacitorHttpContainerTests : IDisposable {
                 .WithHeader("Content-Type", "application/json")
                 .WithBody("""{"message":"Your seat was revoked. Ask an admin to re-invite you."}"""));
 
-        using var sp  = Container();
-        var       api = sp.GetRequiredService<ISessionsApi>();
+        await using var sp = Container();
+        var       api      = sp.GetRequiredService<ISessionsApi>();
 
         var ex = await Assert.That(async () => await api.SetSessionTitleAsync("sess-5", "t", rename: true))
             .Throws<CapacitorApiException>();
@@ -311,8 +311,8 @@ public class CapacitorHttpContainerTests : IDisposable {
         // Provider discovery's connect runs on real time, and Windows takes about two seconds to refuse
         // a loopback port. Stamped on the fake clock, the one the cache is read against.
         AuthProviderCache.Set(dead, AuthProvider.None, Config.Root, time);
-        using var sp  = Container(dead, time);
-        var       api = sp.GetRequiredService<ISessionsApi>();
+        await using var sp = Container(dead, time);
+        var       api      = sp.GetRequiredService<ISessionsApi>();
 
         var request = api.DeleteSessionAsync("sess-6");
         using var guard = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -334,7 +334,7 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/api/sessions/sess-7").UsingDelete())
             .RespondWith(Response.Create().WithStatusCode(200));
 
-        using var sp = Container();
+        await using var sp = Container();
 
         await sp.GetRequiredService<ISessionsApi>().DeleteSessionAsync("sess-7");
 
@@ -352,7 +352,7 @@ public class CapacitorHttpContainerTests : IDisposable {
             .RespondWith(Response.Create().WithStatusCode(200)
                 .WithHeader(HttpClientExtensions.ServerVersionHeader, "0.42.0"));
 
-        using var sp = Container();
+        await using var sp = Container();
 
         await sp.GetRequiredService<ISessionsApi>().DeleteSessionAsync("sess-8");
 
@@ -373,7 +373,7 @@ public class CapacitorHttpContainerTests : IDisposable {
     public async Task The_background_lane_is_silent_where_an_interactive_command_prints_the_hint() {
         StubProvider(AuthProvider.GitHubApp);
 
-        using var sp = Container();
+        await using var sp = Container();
         var       http = sp.GetRequiredService<ICapacitorHttpClient>();
 
         using (var quiet = ConsoleOutput.StartErrorCapture()) {
@@ -398,8 +398,8 @@ public class CapacitorHttpContainerTests : IDisposable {
     public async Task The_hook_lane_reports_a_lapse_as_a_status_and_never_on_stderr() {
         StubProvider(AuthProvider.GitHubApp);
 
-        using var sp      = Container();
-        using var capture = ConsoleOutput.StartErrorCapture();
+        await using var sp = Container();
+        using var capture  = ConsoleOutput.StartErrorCapture();
 
         var attempt = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
 
@@ -423,8 +423,8 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200));
 
-        using var sp     = Container();
-        using var client = sp.GetRequiredService<ICapacitorHttpClient>().Anonymous();
+        await using var sp = Container();
+        using var client   = sp.GetRequiredService<ICapacitorHttpClient>().Anonymous();
 
         using var response = await client.GetAsync($"{Url}/auth/config");
 
@@ -448,8 +448,8 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/landed").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("arrived"));
 
-        using var sp     = Container();
-        using var client = sp.GetRequiredService<ICapacitorHttpClient>().Anonymous();
+        await using var sp = Container();
+        using var client   = sp.GetRequiredService<ICapacitorHttpClient>().Anonymous();
 
         using var response = await client.GetAsync($"{Url}/moved");
 
@@ -469,8 +469,8 @@ public class CapacitorHttpContainerTests : IDisposable {
             .RespondWith(Response.Create().WithStatusCode(200)
                 .WithHeader(HttpClientExtensions.ServerVersionHeader, "9.9.9"));
 
-        using var sp     = Container();
-        using var client = sp.GetRequiredService<ICapacitorHttpClient>().Anonymous();
+        await using var sp = Container();
+        using var client   = sp.GetRequiredService<ICapacitorHttpClient>().Anonymous();
 
         using var response = await client.GetAsync($"{Url}/auth/config");
 
@@ -486,7 +486,7 @@ public class CapacitorHttpContainerTests : IDisposable {
     public async Task The_onboarding_facade_reads_auth_config_on_the_anonymous_lane() {
         StubProvider(AuthProvider.None);
 
-        using var sp = Container();
+        await using var sp = Container();
 
         var facade = new OnboardingFacade(
             Config.Root, sp.GetRequiredService<TokenStore>(),
@@ -516,8 +516,8 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/api/sessions/moved").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("arrived"));
 
-        using var sp     = Container();
-        using var client = await sp.GetRequiredService<ICapacitorHttpClient>().ForCommandAsync();
+        await using var sp = Container();
+        using var client   = await sp.GetRequiredService<ICapacitorHttpClient>().ForCommandAsync();
 
         using var response = await client.GetAsync($"{Url}/api/sessions/sess-r");
 
@@ -533,7 +533,7 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/substitute").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200));
 
-        using var sp = Container();
+        await using var sp = Container();
         var attempt = await sp.GetRequiredService<ICapacitorHttpClient>().ForProtectedReadAsync();
         using var client = attempt.Client;
         using var response = await client.GetAsync($"{Url}/protected");
@@ -559,8 +559,8 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/elsewhere").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("leaked"));
 
-        using var sp     = Container();
-        using var client = sp.GetRequiredService<ICapacitorHttpClient>().Loopback();
+        await using var sp = Container();
+        using var client   = sp.GetRequiredService<ICapacitorHttpClient>().Loopback();
 
         using var response = await client.GetAsync($"{Url}/capability/submit");
 
@@ -578,8 +578,8 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/capability/submit").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200));
 
-        using var sp     = Container();
-        using var client = sp.GetRequiredService<ICapacitorHttpClient>().Loopback();
+        await using var sp = Container();
+        using var client   = sp.GetRequiredService<ICapacitorHttpClient>().Loopback();
 
         using var response = await client.GetAsync($"{Url}/capability/submit");
 
@@ -594,7 +594,7 @@ public class CapacitorHttpContainerTests : IDisposable {
     /// </summary>
     [Test]
     public async Task The_loopback_lane_bypasses_any_ambient_proxy() {
-        using var sp = Container();
+        await using var sp = Container();
 
         HttpMessageHandler handler =
             sp.GetRequiredService<IHttpMessageHandlerFactory>().CreateHandler(CapacitorClients.Loopback);
@@ -619,8 +619,8 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/login").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(401));
 
-        using var sp     = Container();
-        using var client = sp.GetRequiredService<ICapacitorHttpClient>().Bearer();
+        await using var sp = Container();
+        using var client   = sp.GetRequiredService<ICapacitorHttpClient>().Bearer();
 
         client.DefaultRequestHeaders.Authorization = new("Bearer", "tok_caller_supplied");
 
@@ -641,8 +641,8 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/api/me").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(401));
 
-        using var sp     = Container();
-        using var client = sp.GetRequiredService<ICapacitorHttpClient>().Bearer();
+        await using var sp = Container();
+        using var client   = sp.GetRequiredService<ICapacitorHttpClient>().Bearer();
 
         client.DefaultRequestHeaders.Authorization = new("Bearer", "tok_caller_supplied");
 
@@ -669,7 +669,7 @@ public class CapacitorHttpContainerTests : IDisposable {
         _server.Given(Request.Create().WithPath("/api/hook").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(401));
 
-        using var sp = Container();
+        await using var sp = Container();
 
         var (client, status, _, _) = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
 
@@ -698,8 +698,8 @@ public class CapacitorHttpContainerTests : IDisposable {
     public async Task The_lapse_hint_is_printed_once_however_many_clients_a_command_builds() {
         StubProvider(AuthProvider.GitHubApp);
 
-        using var sp   = Container();
-        var       http = sp.GetRequiredService<ICapacitorHttpClient>();
+        await using var sp = Container();
+        var       http     = sp.GetRequiredService<ICapacitorHttpClient>();
 
         using var captured = ConsoleOutput.StartErrorCapture("\n");
 
@@ -729,8 +729,8 @@ public class CapacitorHttpContainerTests : IDisposable {
                     .WithHeader("Authorization", "Bearer tok_after_login"))
             .RespondWith(Response.Create().WithStatusCode(200));
 
-        using var sp     = Container();
-        using var client = await sp.GetRequiredService<ICapacitorHttpClient>().ForSessionAsync();
+        await using var sp = Container();
+        using var client   = await sp.GetRequiredService<ICapacitorHttpClient>().ForSessionAsync();
 
         using (var refused = await client.GetAsync($"{Url}/api/me")) {
             await Assert.That(refused.StatusCode).IsEqualTo(HttpStatusCode.Unauthorized)
@@ -773,7 +773,7 @@ public class CapacitorHttpContainerTests : IDisposable {
                     .WithHeader("Authorization", "Bearer tok_2"))
             .RespondWith(Response.Create().WithStatusCode(200));
 
-        using var sp = Container();
+        await using var sp = Container();
 
         var http = sp.GetRequiredService<ICapacitorHttpClient>();
         var (client, status, _, _) = protectedRead ? await http.ForProtectedReadAsync() : await http.ForWaitAsync();
@@ -811,7 +811,7 @@ public class CapacitorHttpContainerTests : IDisposable {
                     .WithHeader("Authorization", "Bearer tok_2"))
             .RespondWith(Response.Create().WithStatusCode(200));
 
-        using var sp = Container();
+        await using var sp = Container();
 
         var result = await sp.GetRequiredService<ISessionsApi>().DeleteSessionAsync("sess-9");
 
@@ -840,7 +840,7 @@ public class CapacitorHttpContainerTests : IDisposable {
     /// </summary>
     [Test]
     public async Task A_foreign_client_resolves_without_the_authenticated_lanes() {
-        using var sp = new ServiceCollection().AddCapacitorForeignClients().BuildServiceProvider();
+        await using var sp = new ServiceCollection().AddCapacitorForeignClients().BuildServiceProvider();
 
         await Assert.That(sp.GetService<TenantProvisioningClient>()).IsNotNull();
         await Assert.That(sp.GetService<ICapacitorHttpClient>()).IsNull();
@@ -855,7 +855,7 @@ public class CapacitorHttpContainerTests : IDisposable {
                 .WithHeader("Content-Type", "application/json")
                 .WithBody("""{"available":true}"""));
 
-        using var sp = Container();
+        await using var sp = Container();
 
         await sp.GetRequiredService<TenantProvisioningClient>()
             .CheckAvailabilityAsync(Url, "tok_signup", "acme", CancellationToken.None);
@@ -872,7 +872,7 @@ public class CapacitorHttpContainerTests : IDisposable {
     /// client: injecting the façade would close the loop and the container would refuse to build.
     [Test]
     public async Task The_token_store_resolves_from_the_same_container_as_the_lanes() {
-        using var sp = Container();
+        await using var sp = Container();
 
         await Assert.That(sp.GetService<TokenStore>()).IsNotNull();
         await Assert.That(sp.GetService<ICapacitorHttpClient>()).IsNotNull();
@@ -880,7 +880,7 @@ public class CapacitorHttpContainerTests : IDisposable {
 
     [Test]
     public async Task The_auth_proxy_resolves_through_its_interface() {
-        using var sp = new ServiceCollection().AddCapacitorForeignClients().BuildServiceProvider();
+        await using var sp = new ServiceCollection().AddCapacitorForeignClients().BuildServiceProvider();
 
         await Assert.That(sp.GetService<IAuthProxyClient>()).IsTypeOf<AuthProxyClient>();
     }
@@ -894,7 +894,7 @@ public class CapacitorHttpContainerTests : IDisposable {
     /// </summary>
     [Test]
     public async Task A_command_refuses_an_unusable_server_url() {
-        using var sp = Container("ftp://host");
+        await using var sp = Container("ftp://host");
 
         await Assert.That(async () => await sp.GetRequiredService<ICapacitorHttpClient>().ForCommandAsync())
             .Throws<UnusableServerUrlException>();
@@ -911,8 +911,8 @@ public class CapacitorHttpContainerTests : IDisposable {
     public async Task A_hook_is_told_the_url_is_unusable_rather_than_thrown_at() {
         await AuthenticateAsync("tok_seeded");
 
-        using var sp      = Container("ftp://host");
-        var       attempt = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
+        await using var sp = Container("ftp://host");
+        var       attempt  = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
 
         using var client = attempt.Client;
 
@@ -925,8 +925,8 @@ public class CapacitorHttpContainerTests : IDisposable {
     public async Task An_unusable_url_reaches_no_discovery() {
         StubProvider(AuthProvider.GitHubApp);
 
-        using var sp      = Container("ftp://host");
-        var       attempt = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
+        await using var sp = Container("ftp://host");
+        var       attempt  = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
 
         using var client = attempt.Client;
 
@@ -938,8 +938,8 @@ public class CapacitorHttpContainerTests : IDisposable {
     public async Task A_usable_url_still_resolves_its_credential() {
         await AuthenticateAsync("tok_usable");
 
-        using var sp      = Container();
-        var       attempt = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
+        await using var sp = Container();
+        var       attempt  = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
 
         using var client = attempt.Client;
 
@@ -955,8 +955,8 @@ public class CapacitorHttpContainerTests : IDisposable {
     [Test]
     public async Task A_None_reached_while_the_server_was_down_is_re_discovered() {
         // Nothing stubs /auth/config and no token is on disk, so discovery falls through to None.
-        using var sp   = Container();
-        var       http = sp.GetRequiredService<ICapacitorHttpClient>();
+        await using var sp = Container();
+        var       http     = sp.GetRequiredService<ICapacitorHttpClient>();
 
         var down = await http.ForHookAsync();
 

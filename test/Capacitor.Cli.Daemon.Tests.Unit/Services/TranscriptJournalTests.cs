@@ -79,7 +79,7 @@ public class TranscriptJournalTests {
         await journal.CompleteAsync();
 
         // Exclusive open and delete both succeed: nothing else holds the file.
-        using (new FileStream(journal.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+        await using (new FileStream(journal.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
         File.Delete(journal.Path);
         await Assert.That(File.Exists(journal.Path)).IsFalse();
     }

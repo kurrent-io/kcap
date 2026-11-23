@@ -70,7 +70,7 @@ public class KiroImportSourceTests {
     public async Task Usage_sidecar_reads_while_a_writer_holds_it() {
         var path = Tmp.CreateFile($"{Dashed}.json", """{"title":"live"}""");
 
-        using var writer = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+        await using var writer = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
 
         await Assert.That(KiroImportSource.SafeReadText(path)).IsEqualTo("""{"title":"live"}""");
     }

@@ -21,12 +21,10 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public string Key { get; }
     public DateTime CreatedAt { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// The server's last activity for a listed session; null for a row only a daemon knows.
-    DateTime? _lastActivityAt;
-    public DateTime? LastActivityAt { get => _lastActivityAt; private set => this.RaiseAndSetIfChanged(ref _lastActivityAt, value); }
+    public DateTime? LastActivityAt { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string? CheckoutPath { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// Null when the row has no title, in which case the chips line stands alone as the row.
-    string? _primary;
-    public string? Primary { get => _primary; private set => this.RaiseAndSetIfChanged(ref _primary, value); }
+    public string? Primary { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public bool HasTitle { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string SessionAccessibleName => Primary ?? (HasVendor ? Vendor : "Session");
     public string Vendor { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
@@ -34,26 +32,21 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public string? Model { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string Meta { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
     public string Tooltip => MachineBadge is { Length: > 0 } machine
-        ? $"{Status.Tip}\n\n{machine}\nMachine · remote daemon" : Status.Tip;
+        ? $"{Status.Tip}\n\nMachine · remote daemon\n{machine}" : Status.Tip;
     /// The daemon name badge for a remote row; null for a local one.
-    string? _machineBadge;
-    public string? MachineBadge { get => _machineBadge; private set => this.RaiseAndSetIfChanged(ref _machineBadge, value); }
+    public string? MachineBadge { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string MachineLabel => $"on {MachineBadge}";
     public string MachineTooltip => $"This session runs on the remote daemon ‘{MachineBadge}’.";
     public bool IsRemote { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// A session the server lists with no daemon row behind it.
-    bool _isServer;
-    public bool IsServer { get => _isServer; private set => this.RaiseAndSetIfChanged(ref _isServer, value); }
+    public bool IsServer { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// A live server row no daemon hosts: started in a terminal.
-    bool _isTerminalSession;
-    public bool IsTerminalSession { get => _isTerminalSession; private set => this.RaiseAndSetIfChanged(ref _isTerminalSession, value); }
+    public bool IsTerminalSession { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// A terminal session a daemon steers: labelled as one, never as an agent a daemon hosts.
-    bool _isAttached;
-    public bool IsAttached { get => _isAttached; private set => this.RaiseAndSetIfChanged(ref _isAttached, value); }
+    public bool IsAttached { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public bool IsEnded { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// Up to two initials of the owner's name, for a row that is not the signed-in user's.
-    string? _ownerInitials;
-    public string? OwnerInitials { get => _ownerInitials; private set => this.RaiseAndSetIfChanged(ref _ownerInitials, value); }
+    public string? OwnerInitials { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string? OwnerAvatarUrl { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public bool ShowsOwner { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string? OwnerName { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
@@ -63,8 +56,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     /// The repository name moves onto the row when the groups no longer say it.
     public bool ShowsRepo => _showsRepo.Value;
     /// A launch the daemon has not published yet: Meta carries its stage instead of an age.
-    bool _isStarting;
-    public bool IsStarting { get => _isStarting; private set => this.RaiseAndSetIfChanged(ref _isStarting, value); }
+    public bool IsStarting { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public AgentRow Row => _row.Value;
     public ReactiveCommand<Unit, Unit> OpenCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenPullRequestCommand { get; }

@@ -26,7 +26,6 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     public const string WorkspaceSettingUp = "Your workspace is still being set up";
 
     readonly WizardAuthService       _service;
-    readonly ConnectChoiceViewModel  _connect;
     readonly WizardTenantPicker      _picker;
     readonly UiAuthProgress          _progress;
     readonly ConsentFlipClaims       _claims;
@@ -73,7 +72,7 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
         _signingUp       = signingUp ?? (() => false);
         _signUpUrl       = SignUpUrl(bridges.Endpoints.SignupUrl);
         _service         = service;
-        _connect         = connect;
+        Connect         = connect;
         _picker          = bridges.Picker;
         _progress        = bridges.Progress;
         _claims          = claims;
@@ -186,7 +185,7 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     public bool Skippable => false;
     public bool PassThrough => _passThrough?.Invoke() ?? false;
 
-    public ConnectChoiceViewModel Connect => _connect;
+    public ConnectChoiceViewModel Connect { get; }
 
     /// Sign-in committed and a quarantine notice, if any, has been acknowledged.
     public event Action? Completed;
@@ -329,6 +328,13 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
         return Task.CompletedTask;
     }
 
+    /// The re-auth dialog: a Sign in click opened it, so it starts the attempt rather than asking
+    /// for a second click. The wizard step stays on <see cref="OnEnterAsync"/> and waits.
+    public async Task EnterAndSignInAsync(CancellationToken ct) {
+        await OnEnterAsync(ct).ConfigureAwait(true);
+        if (!Satisfied) await SignInAsync().ConfigureAwait(true);
+    }
+
     /// kcap-web's Team sign-up; <c>via=desktop</c> is what it records as the desktop setup path.
     internal static string SignUpUrl(string signupBase) => $"{signupBase.TrimEnd('/')}/get-started?tier=team&via=desktop";
 
@@ -432,8 +438,8 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     }
 
     async Task RunAsync() {
-        if (_connect.Intent is not { } intent) {
-            _connect.Validate();
+        if (Connect.Intent is not { } intent) {
+            Connect.Validate();
             UrlPanelVisible = true;
 
             return;
@@ -542,13 +548,13 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
             ? "No sign-in required for this server."
             : committed.Username is { Length: > 0 } username ? $"Signed in as {username}" : "Signed in.";
 
-    string ReadyStatus() => _connect.Intent switch {
+    string ReadyStatus() => Connect.Intent switch {
         // Destination only — the surrounding chrome already says "Sign in"; detail explains what happens.
         ConnectIntent.Paste paste => paste.ServerInput,
         _                         => "Find your workspaces with single sign-on",
     };
 
-    string ReadyDetail() => _connect.Intent switch {
+    string ReadyDetail() => Connect.Intent switch {
         ConnectIntent.Paste =>
             "Opens your browser to authorize this machine and stores a token for launching hosted agents.",
         _ => "Opens your browser, then lists the workspaces your account can access.",
@@ -583,9 +589,9 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     Task StartAsync(ConnectChoice choice, bool device) {
         if (Busy) return Task.CompletedTask;
 
-        _connect.Choice        = choice;
-        _connect.UseDeviceCode = device;
-        if (choice == ConnectChoice.Paste && !_connect.Validate()) return Task.CompletedTask;
+        Connect.Choice        = choice;
+        Connect.UseDeviceCode = device;
+        if (choice == ConnectChoice.Paste && !Connect.Validate()) return Task.CompletedTask;
 
         return SignInAsync();
     }

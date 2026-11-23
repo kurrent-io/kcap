@@ -1115,7 +1115,7 @@ public class LauncherPaneViewSmokeTests {
             var menu = view.OpenMenuForTesting!;
             var content = (Control)menu.Content!;
             List<string> Picks() => content.GetVisualDescendants().OfType<Button>()
-                .Select(b => AutomationProperties.GetName(b))
+                .Select(AutomationProperties.GetName)
                 .Where(n => n is not null && names.Any(name => n.StartsWith(name, StringComparison.Ordinal))).ToList()!;
             for (var i = 0; i < 200 && Picks().Count == 0; i++) {
                 await Task.Delay(10);

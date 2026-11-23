@@ -70,9 +70,9 @@ public class CursorMemoryIndexLiveCertTests {
         var baseUrl = Environment.GetEnvironmentVariable(ServerUrlEnvVar)!;
         var nonce   = $"kcap-live-nonce-{Guid.NewGuid():N}";
 
-        var       root   = ConfigRoot.FromEnvironment();
-        using var sp     = await AuthenticatedContainerAsync(root, baseUrl);
-        using var client = await sp.GetRequiredService<ICapacitorHttpClient>().ForCommandAsync();
+        var       root     = ConfigRoot.FromEnvironment();
+        await using var sp = await AuthenticatedContainerAsync(root, baseUrl);
+        using var client   = await sp.GetRequiredService<ICapacitorHttpClient>().ForCommandAsync();
         var memoryId = await SaveNonceMemoryAsync(client, baseUrl, nonce);
 
         try {
@@ -103,9 +103,9 @@ public class CursorMemoryIndexLiveCertTests {
         var baseUrl = Environment.GetEnvironmentVariable(ServerUrlEnvVar)!;
         var nonce   = $"kcap-live-nonce-{Guid.NewGuid():N}";
 
-        var       root   = ConfigRoot.FromEnvironment();
-        using var sp     = await AuthenticatedContainerAsync(root, baseUrl);
-        using var client = await sp.GetRequiredService<ICapacitorHttpClient>().ForCommandAsync();
+        var       root     = ConfigRoot.FromEnvironment();
+        await using var sp = await AuthenticatedContainerAsync(root, baseUrl);
+        using var client   = await sp.GetRequiredService<ICapacitorHttpClient>().ForCommandAsync();
         var memoryId = await SaveNonceMemoryAsync(client, baseUrl, nonce);
 
         // Capture the ORIGINAL disable_memory_index value BEFORE the first mutation, and put

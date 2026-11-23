@@ -85,7 +85,7 @@ public class AntigravityUserTurnTests {
         await rt.WaitForConversationIdAsync(CancellationToken.None);
         await rt.SendUserInputAsync("queued");
         const int refused = 50;
-        var refusals = Task.Run(async () => { for (var i = 0; i < refused; i++) { try { await rt.SendUserInputAsync($"r{i}"); } catch { } } });
+        var refusals = Task.Run(async () => { for (var i = 0; i < refused; i++) { try { await rt.SendUserInputAsync($"r{i}"); } catch { /* ignored */ } } });
         await refusals;
 
         // The emitter's journal Record runs one statement AFTER the channel TryWrite, so a channel

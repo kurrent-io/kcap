@@ -8,7 +8,7 @@ public class DaemonRunnerMuseConfigTests {
         var config = new DaemonConfig();
         var env    = new Dictionary<string, string> { ["KCAP_MUSE_PATH"] = "/x/muse", ["KCAP_MUSE_MODEL"] = "muse-wonder-1.0" };
 
-        DaemonRunner.BindVendorOverrides(config, [HarnessId.Muse], name => env.GetValueOrDefault(name));
+        DaemonRunner.BindVendorOverrides(config, [HarnessId.Muse], env.GetValueOrDefault);
 
         await Assert.That(config.MusePath).IsEqualTo("/x/muse");
         await Assert.That(config.MuseModel).IsEqualTo("muse-wonder-1.0");

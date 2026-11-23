@@ -132,5 +132,5 @@ internal sealed class OpenCodeDbFixture : IDisposable {
         }
     }
 
-    public void Dispose() { try { Directory.Delete(Dir, true); } catch { } }
+    public void Dispose() { try { Directory.Delete(Dir, true); } catch { /* ignored */ } }
 }

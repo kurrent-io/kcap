@@ -3,6 +3,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
+using Capacitor.Cli.Core;
 
 namespace Capacitor.App.Views;
 
@@ -101,7 +102,7 @@ internal sealed class ChatViewWarmup(IPermissionService permissions, IUrlOpener 
             view.UpdateLayout();
             var frame = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             window.RequestAnimationFrame(_ => frame.TrySetResult());
-            await Task.WhenAny(frame.Task, Task.Delay(FrameLimit, time));
+            await frame.Task.FinishedWithinAsync(FrameLimit, time);
         } finally {
             window.ReleaseWarmup();
             view.ChatHost.DataContext = null;

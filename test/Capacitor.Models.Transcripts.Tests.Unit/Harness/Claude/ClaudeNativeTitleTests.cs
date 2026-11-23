@@ -78,7 +78,7 @@ public class ClaudeNativeTitleTests {
     public async Task Reads_while_a_writer_holds_the_file() {
         var path = Transcript("""{"type":"ai-title","aiTitle":"Live title","sessionId":"s1"}""");
 
-        using var writer = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+        await using var writer = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
 
         await Assert.That(ClaudeNativeTitle.TryExtract(path)).IsEqualTo("Live title");
     }

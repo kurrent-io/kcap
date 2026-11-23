@@ -86,7 +86,7 @@ public class CursorLiveSubagentLinkerTests {
             await Assert.That(loaded!.Value.ParentSessionId).IsEqualTo("parent-sid");
             await Assert.That(loaded.Value.SubagentType).IsEqualTo("researcher");
         } finally {
-            try { File.Delete(Path.Combine(Config.PathTo("cursor-subagent-links"), sid)); } catch { }
+            try { File.Delete(Path.Combine(Config.PathTo("cursor-subagent-links"), sid)); } catch { /* ignored */ }
         }
     }
 

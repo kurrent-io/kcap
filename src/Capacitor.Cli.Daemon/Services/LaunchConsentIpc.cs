@@ -18,7 +18,7 @@ internal sealed class LaunchConsentIpc(
             // otherwise prompt-mode launches would wait the full timeout for nobody.
             _ = Task.Run(async () => {
                 try { while (await FrameCodec.ReadAsync(stream, cts.Token) is not null) { } }
-                catch { }
+                catch { /* ignored */ }
                 // The enclosing `using` can dispose this CTS (method already returned via the
                 // ReadAllAsync loop completing some other way) before this fire-and-forget task
                 // gets here — Cancel() on an already-disposed CTS throws ObjectDisposedException,

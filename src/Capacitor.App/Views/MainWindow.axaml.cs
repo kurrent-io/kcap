@@ -112,7 +112,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     /// AgentActionService pushes into, so the toast overlay and stderr mirroring are always in
     /// sync. Left null on a plainly-constructed window (tests that don't exercise toasts).
     public IAppNotifier? Notifier {
-        get => field;
+        get;
         set {
             field = value;
             _notifierSubscription?.Dispose();
@@ -147,12 +147,12 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
         ApplyMinimumSize();
         ApplyCaptionInset();
         ApplyRailClearance();
-        if (Onboarding is not null) KeepOnboardingOnScreen();
+        KeepOnScreen();
     }
 
-    // A larger minimum grows the frame from its top-left corner, which can push setup's footer off
-    // the screen; the frame is pulled back inside the work area.
-    void KeepOnboardingOnScreen() {
+    // A larger minimum grows the frame from its top-left corner, which can push setup's footer or the
+    // sessions window's right-hand panes off the screen; the frame is pulled back inside the work area.
+    void KeepOnScreen() {
         if (!IsVisible || WindowState != WindowState.Normal || double.IsNaN(Width) || double.IsNaN(Height)) return;
         if ((Screens?.ScreenFromWindow(this) ?? Screens?.Primary) is not { } screen) return;
         var size = new Size(Math.Max(Width, MinWidth), Math.Max(Height, MinHeight));
@@ -201,6 +201,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     public MainWindow() {
         InitializeComponent();
+        PaneCycle.Attach(this);
         WindowControls.Spacing = RailClearance.Spacing;
         RailToggleButton.Margin = new Thickness(0, 0, RailClearance.ToggleGap - RailClearance.Spacing, 0);
         foreach (var button in new[] { AppMenuButton, RailToggleButton, BackButton, ForwardButton }) {

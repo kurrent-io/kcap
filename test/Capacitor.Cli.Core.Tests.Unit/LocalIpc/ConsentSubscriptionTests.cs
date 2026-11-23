@@ -41,7 +41,7 @@ public class ConsentSubscriptionTests {
         public async ValueTask DisposeAsync() {
             _cts.Cancel();
             _listener.Dispose();
-            if (_accept is { } a) { try { await a; } catch { } }
+            if (_accept is { } a) { try { await a; } catch { /* ignored */ } }
         }
     }
 

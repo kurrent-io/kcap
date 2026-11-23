@@ -97,7 +97,7 @@
                         <TextBlock x:Name="IntelligenceModeNotice" Classes="kcapHint" TextWrapping="Wrap" Text="{Binding ModeNotice}"
                                    Foreground="{StaticResource KcapWarningBrush}"
                                    IsVisible="{Binding ModeNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        <SelectableTextBlock x:Name="IntelligenceModeError" Text="{Binding ModeError}" FontSize="12.5" TextWrapping="Wrap"
+                        <SelectableTextBlock x:Name="IntelligenceModeError" Text="{Binding ModeError}" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
                                              Foreground="{StaticResource KcapDangerBrush}"
                                              IsVisible="{Binding ModeError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                     </StackPanel>

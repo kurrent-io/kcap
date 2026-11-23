@@ -147,4 +147,24 @@ public class ControlVariantTests {
             await Assert.That(Solid(Frame().BorderBrush)).IsNotEqualTo(rest);
         } finally { window.Close(); }
     });
+
+    [Test]
+    public Task A_field_shows_where_it_begins_and_a_readable_placeholder() => AvaloniaSession.RunOnUiAsync(async () => {
+        var surface = ((ISolidColorBrush)Application.Current!.FindResource("KcapSurfaceBrush")!).Color;
+        var field = new TextBox { Classes = { "kcapField" }, PlaceholderText = "Search" };
+        var window = new Window { Width = 320, Height = 120, Background = new SolidColorBrush(surface),
+            Content = new StackPanel { Margin = new Thickness(20), Children = { field } } };
+        window.Show();
+        try {
+            Dispatcher.UIThread.RunJobs();
+            var frame = field.GetVisualDescendants().OfType<Border>().First(b => b.Name == "PART_BorderElement");
+            var placeholder = field.GetVisualDescendants().OfType<TextBlock>().First(b => b.Name == "PART_Placeholder");
+            var fill = Over(Solid(frame.Background), surface);
+            var text = Solid(placeholder.Foreground);
+            var drawn = Over(Color.FromArgb((byte)(text.A * placeholder.Opacity), text.R, text.G, text.B), fill);
+
+            await Assert.That(Contrast(Over(Solid(frame.BorderBrush), surface), surface)).IsGreaterThanOrEqualTo(3.0);
+            await Assert.That(Contrast(drawn, fill)).IsGreaterThanOrEqualTo(4.5);
+        } finally { window.Close(); }
+    });
 }

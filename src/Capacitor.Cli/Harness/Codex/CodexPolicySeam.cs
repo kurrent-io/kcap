@@ -135,7 +135,7 @@ internal sealed class CodexPolicySeam(ConfigRoot config, TimeProvider time, Hook
     static Fields Read(JsonObject body) {
         JsonElement? input = null;
         try {
-            if (body["tool_input"] is { } node) input = JsonDocument.Parse(node.ToJsonString()).RootElement.Clone();
+            if (body["tool_input"] is { } node) input = JsonElement.Parse(node.ToJsonString());
         } catch { input = null; }
         return new(Str(body, "tool_name"), input, Str(body, "cwd"), Str(body, "tool_use_id"), Str(body, "transcript_path"));
     }

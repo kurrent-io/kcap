@@ -16,23 +16,22 @@ public sealed record TailRead(IReadOnlyList<string> Lines, TailStatus Status, st
 /// Windows. Only a length regression resets the cursor — a replacement by a same-or-longer
 /// file is read from the old cursor, which both vendors' append-only transcripts never produce.
 public sealed class JsonlTail(string path) {
-    long _cursor;
 
     public string Path { get; } = path;
-    public long Cursor => _cursor;
+    public long Cursor { get; private set; }
 
     public TailRead ReadAppended() {
         try {
             using var stream = new FileStream(Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             var length = stream.Length;
-            var regressed = length < _cursor;
+            var regressed = length < Cursor;
             // The origin stays local until the read succeeds: assigning the reset cursor up front
             // would let a fault mid-read return Failed with the regression already spent, and the
             // next Ok read would then deliver the whole file on top of what it had reported.
-            var origin = regressed ? 0 : _cursor;
+            var origin = regressed ? 0 : Cursor;
             var status = regressed ? TailStatus.Reset : TailStatus.Ok;
             if (length == origin) {
-                _cursor = origin;
+                Cursor = origin;
                 return new TailRead([], status) { SnapshotLength = length };
             }
 
@@ -47,7 +46,7 @@ public sealed class JsonlTail(string path) {
 
             var offsets = new List<long>();
             var lines = SplitCompleteLines(buffer.AsSpan(0, read), out var consumed, offsets, origin);
-            _cursor = origin + consumed;
+            Cursor = origin + consumed;
             return new TailRead(lines, status) { LineStartOffsets = offsets, SnapshotLength = length };
         } catch (FileNotFoundException) {
             return new TailRead([], TailStatus.Missing);

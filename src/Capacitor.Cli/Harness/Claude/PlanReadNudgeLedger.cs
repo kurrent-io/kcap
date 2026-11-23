@@ -18,11 +18,11 @@ sealed class PlanReadNudgeLedger(ConfigRoot config) {
             var marker = Marker(sessionId, path);
             Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
             File.WriteAllText(marker, path);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     public void Evict(string sessionId) {
-        try { Directory.Delete(SessionDir(sessionId), recursive: true); } catch { }
+        try { Directory.Delete(SessionDir(sessionId), recursive: true); } catch { /* ignored */ }
     }
 
     string SessionDir(string sessionId) => config.Path("plan-read", PolicySnapshotStore.Sanitize(sessionId));

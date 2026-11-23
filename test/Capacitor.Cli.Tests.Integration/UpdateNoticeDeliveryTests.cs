@@ -32,7 +32,7 @@ public class UpdateNoticeDeliveryTests : IDisposable {
 
     public void Dispose() {
         foreach (var (cfgDir, p) in _spawned) {
-            try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { }
+            try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { /* ignored */ }
             p.Dispose();
             cfgDir.Dispose();
         }

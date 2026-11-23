@@ -51,7 +51,7 @@
                           IsChecked="{Binding RunAsWindowsService, Mode=TwoWay}"
                           AutomationProperties.Name="{x:Static vm:InstallStepViewModel.WindowsServiceLabel}" />
                 <StackPanel Grid.Column="1" Spacing="3">
-                    <TextBlock Classes="onboardingLabel" FontSize="13" Text="{x:Static vm:InstallStepViewModel.WindowsServiceLabel}" />
+                    <TextBlock Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeBody}" Text="{x:Static vm:InstallStepViewModel.WindowsServiceLabel}" />
                     <TextBlock Classes="onboardingDetail" Foreground="{StaticResource OnboardingMutedBrush}" TextWrapping="Wrap"
                                Text="{x:Static vm:InstallStepViewModel.WindowsServiceDetail}" />
                 </StackPanel>
@@ -134,15 +134,15 @@
                 <icons:AppIcon Kind="TriangleAlert" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
                                Foreground="{StaticResource KcapDangerBrush}" />
                 <StackPanel Grid.Column="1" Spacing="8">
-                    <TextBlock Classes="onboardingLabel" FontSize="12.5" Text="{x:Static vm:InstallStepViewModel.LockedText}"
+                    <TextBlock Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeSmall}" Text="{x:Static vm:InstallStepViewModel.LockedText}"
                                IsVisible="{Binding LockedVisible}" />
                     <TextBlock x:Name="FailureText" Classes="onboardingDetail" Foreground="{StaticResource OnboardingMutedBrush}"
                                TextWrapping="Wrap" Text="{Binding FailureMessage}" />
                     <StackPanel Spacing="2" IsVisible="{Binding FailureDetailVisible}">
-                        <TextBlock Text="Details from the installer" FontSize="11"
+                        <TextBlock Text="Details from the installer" FontSize="{StaticResource KcapFontSizeCaption}"
                                    Foreground="{StaticResource OnboardingDimBrush}" />
                         <SelectableTextBlock x:Name="FailureDetailText" Text="{Binding FailureDetail}"
-                                             TextWrapping="Wrap" FontSize="11" LineHeight="16"
+                                             TextWrapping="Wrap" FontSize="{StaticResource KcapFontSizeCaption}" LineHeight="16"
                                              Foreground="{StaticResource OnboardingDimBrush}" />
                     </StackPanel>
                     <Button x:Name="TryAgainButton" Classes.onboardingPrimary="{Binding !OtherEditionVisible}" Classes.onboardingSecondary="{Binding OtherEditionVisible}" Content="Try again" HorizontalAlignment="Left"

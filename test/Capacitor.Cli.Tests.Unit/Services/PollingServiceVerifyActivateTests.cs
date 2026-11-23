@@ -35,8 +35,10 @@ public class PollingServiceVerifyActivateTests {
         public ServiceStatus Status(string serviceId) => new(ServiceState.NotInstalled, null);
         public IReadOnlyDictionary<string, string>? UnitEnvironment(string serviceId) => serviceId == OldId ? OldEnv : null;
 
+        public bool TargetUnanswered;
+
         public ServiceQuery Query(string serviceId) => serviceId == NewId
-            ? new(Registered ? LabelProbe.Loaded : LabelProbe.Absent, Registered,
+            ? new(TargetUnanswered ? LabelProbe.Unknown : Registered ? LabelProbe.Loaded : LabelProbe.Absent, Registered,
                 !Registered ? ServiceState.NotInstalled : Running ? ServiceState.Running : ServiceState.Installed, null, Running ? 4242 : null)
             : new(OldRegistered ? LabelProbe.Loaded : LabelProbe.Absent, OldRegistered,
                 !OldRegistered ? ServiceState.NotInstalled : OldRunning ? ServiceState.Running : ServiceState.Installed, null, OldRunning ? 1111 : null);
@@ -190,5 +192,19 @@ public class PollingServiceVerifyActivateTests {
 
         await Assert.That(exit).IsEqualTo(VerifyExit.Ok);
         await Assert.That(manager.Calls).IsEquivalentTo(["install", $"uninstall:{OldId}"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    [Test]
+    public async Task A_target_the_supervisor_cannot_read_is_refused_before_the_old_unit_is_removed() {
+        SeedConfig();
+        var manager = new FakeManager(Active) { OldRegistered = true, TargetUnanswered = true };
+
+        var exit = await Verify(manager).InstallVerifiedAsync(Spec(), replace: true, expectedVersion: null,
+            retireServiceId: OldId, activation: Activation(), retireProfile: "previous");
+
+        await Assert.That(exit).IsEqualTo(VerifyExit.Contended);
+        await Assert.That(manager.Calls).DoesNotContain($"uninstall:{OldId}");
+        await Assert.That(manager.OldRegistered).IsTrue();
+        await Assert.That(Active()).IsEqualTo("previous");
     }
 }

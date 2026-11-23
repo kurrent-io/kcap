@@ -27,7 +27,7 @@
                     </StackPanel>
                 </Button>
             </Grid>
-            <TextBlock Text="{Binding Title}" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap"
+            <TextBlock Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeTitle}" FontWeight="SemiBold" TextWrapping="Wrap"
                        MaxLines="3" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" />
             <TextBlock Text="{Binding Branches}" Classes="prMuted" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Branches}"
                        IsVisible="{Binding HasBranches}" />
@@ -80,7 +80,7 @@
                     <TabStripItem Content="Replies" IsVisible="{Binding IsThreadComments}" />
                 </TabStrip>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding IsThreads}">
-                    <TextBlock Text="Show resolved" FontSize="12.5" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                    <TextBlock Text="Show resolved" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
                     <ToggleSwitch x:Name="ShowResolvedToggle" Classes="kcapSwitch" IsChecked="{Binding IncludeResolved, Mode=TwoWay}"
                                   IsEnabled="{Binding CanReveal}" AutomationProperties.Name="Show resolved threads" />
                 </StackPanel>
@@ -101,7 +101,7 @@
                 <StackPanel x:Name="ConflictsContent" IsVisible="{Binding IsConflicts}" Margin="0,12,0,0" Spacing="12">
                     <views:PullRequestStatusLabel DataContext="{Binding ConflictsStatus}" HorizontalAlignment="Left"
                         IsVisible="{Binding $parent[views:PullRequestReader].((vm:PullRequestContextViewModel)DataContext).HasConflicts}" />
-                    <TextBlock x:Name="ConflictsNoteText" Text="{Binding ConflictsNote}" Foreground="{StaticResource KcapTextBrush}" FontSize="13" TextWrapping="Wrap" />
+                    <TextBlock x:Name="ConflictsNoteText" Text="{Binding ConflictsNote}" Foreground="{StaticResource KcapTextBrush}" FontSize="{StaticResource KcapFontSizeBody}" TextWrapping="Wrap" />
                 </StackPanel>
                 <TextBlock x:Name="PageNoteText" Text="{Binding PageNote}" Classes="prNote" Margin="0,12,0,0" IsVisible="{Binding PageNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <!-- Loading and empty share one slot, glyph size and type so the one gives way to the other in place. -->
@@ -122,14 +122,14 @@
                                     <Border Width="30" Height="30" CornerRadius="7" Background="{StaticResource KcapSurfaceRaisedBrush}" VerticalAlignment="Center" ClipToBounds="True">
                                         <Panel>
                                             <TextBlock Text="{Binding Initial}" IsVisible="{Binding !IsBot}" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                       Foreground="{StaticResource KcapMutedBrush}" FontSize="12" />
+                                                       Foreground="{StaticResource KcapMutedBrush}" FontSize="{StaticResource KcapFontSizeSmall}" />
                                             <views:AppIcon Kind="Bot" Size="16" IsVisible="{Binding IsBot}"
                                                            Foreground="{StaticResource KcapMutedBrush}" />
                                             <views:RemoteAvatar Url="{Binding AvatarUrl}" />
                                         </Panel>
                                     </Border>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                        <TextBlock Text="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" FontSize="13" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
+                                        <TextBlock Text="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" FontSize="{StaticResource KcapFontSizeBody}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
                                         <TextBlock Text="Review re-requested" Classes="prNote" IsVisible="{Binding ReRequested}" />
                                     </StackPanel>
                                     <views:PullRequestStatusLabel Grid.Column="2" DataContext="{Binding Status}" VerticalAlignment="Center" />
@@ -150,7 +150,7 @@
                             <Border Classes="prRow">
                                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
                                     <StackPanel VerticalAlignment="Center" Spacing="3">
-                                        <TextBlock Text="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" FontSize="13" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" FontSize="{StaticResource KcapFontSizeBody}" TextWrapping="Wrap" />
                                         <TextBlock Text="{Binding Detail}" Classes="prNote" IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                         <TextBlock Text="{Binding ItemNote}" IsVisible="{Binding HasItemNote}" Classes="prNote" />
                                     </StackPanel>
@@ -172,7 +172,7 @@
                                 <StackPanel Spacing="8">
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                                         <StackPanel Spacing="3">
-                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource KcapTextBrush}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" TextWrapping="Wrap" />
                                             <TextBlock Text="{Binding Detail}" Classes="prNote" IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                         </StackPanel>
                                         <Button Grid.Column="1" Classes="kcapGhost kcapIcon" IsVisible="{Binding HasLink}" VerticalAlignment="Top"
@@ -183,7 +183,7 @@
                                     </Grid>
                                     <Border IsVisible="{Binding HasHunk}" Background="{StaticResource KcapSurfaceRaisedBrush}" Padding="10" CornerRadius="5">
                                         <SelectableTextBlock Text="{Binding Hunk}" FontFamily="Menlo,Monaco,Consolas,monospace"
-                                                             FontSize="11.5" TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
+                                                             FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
                                     </Border>
                                     <views:MarkdownView Text="{Binding Body}" IsVisible="{Binding HasBody}" Flavor="GitHub"
                                         OpenSourceCommand="{Binding $parent[views:PullRequestReader].((vm:PullRequestContextViewModel)DataContext).OpenRowCommand}"
@@ -211,8 +211,8 @@
                     <TextBlock x:Name="FreshnessText" Text="{Binding FreshnessLabel}" Classes="prNote" IsVisible="{Binding !ShowsRefreshing}" HorizontalAlignment="Left">
                         <ToolTip.Tip>
                             <StackPanel Spacing="2">
-                                <TextBlock Text="{Binding FreshnessDetail}" />
                                 <TextBlock Text="Last updated" Classes="kcapTipCaption" />
+                                <TextBlock Text="{Binding FreshnessDetail}" />
                             </StackPanel>
                         </ToolTip.Tip>
                     </TextBlock>
