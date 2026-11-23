@@ -79,7 +79,7 @@ public class LocalFrameChatInputTests {
 
             rig.Presence.OnNext(new AgentPresence(Agent("a1", "pi", hasTerminal: false) with { Status = "Interrupted", Interruption = "too_old" }, false));
             await Assert.That(rig.Input.CanAcceptText).IsFalse();
-            await Assert.That(rig.Input.Hint).IsEqualTo("Not resumed after a daemon restart (too_old). Retry with `kcap agent resume`, or stop it to discard it.");
+            await Assert.That(rig.Input.Hint).IsEqualTo("Not resumed after a daemon restart. It was idle too long to resume. Retry with `kcap agent resume`, or stop it to discard it.");
         });
     }
 

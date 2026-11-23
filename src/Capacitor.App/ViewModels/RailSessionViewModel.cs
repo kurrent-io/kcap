@@ -32,7 +32,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public string? Model { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string Meta { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
     public string Tooltip => MachineBadge is { Length: > 0 } machine
-        ? $"{Status.Tip}\n\n{machine}\nMachine · remote daemon" : Status.Tip;
+        ? $"{Status.Tip}\n\nMachine · remote daemon\n{machine}" : Status.Tip;
     /// The daemon name badge for a remote row; null for a local one.
     public string? MachineBadge { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string MachineLabel => $"on {MachineBadge}";

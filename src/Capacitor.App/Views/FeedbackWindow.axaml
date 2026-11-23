@@ -38,6 +38,7 @@
                 <StackPanel Spacing="8">
                     <TextBlock Classes="kcapLabel" Text="Message" />
                     <TextBox x:Name="MessageInput" Classes="kcapField" AcceptsReturn="True" TextWrapping="Wrap" Height="170"
+                             AutomationProperties.Name="Message"
                              IsEnabled="{Binding !IsBusy}"
                              PlaceholderText="What happened, and what you expected instead." Text="{Binding Message}" />
                     <TextBlock x:Name="HintText" Classes="kcapHint" Text="{Binding Hint}" TextWrapping="Wrap" />
@@ -46,6 +47,7 @@
                            Text="{Binding Outcome}" TextWrapping="Wrap"
                            IsVisible="{Binding Outcome, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <TextBox x:Name="FullReportText" Classes="kcapField" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                         AutomationProperties.Name="Full report"
                          Height="90" Text="{Binding FullReport}"
                          IsVisible="{Binding FullReport, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>

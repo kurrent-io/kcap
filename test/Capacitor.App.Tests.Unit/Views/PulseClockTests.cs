@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Markup.Xaml.Styling;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Capacitor.App.Services;
 using Capacitor.App.Views;
 
 namespace Capacitor.App.Tests.Unit.Views;
@@ -29,7 +30,7 @@ public class PulseClockTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_marker_fades_on_the_clock_while_active_and_is_steady_once_it_stops() {
-        var (whileActive, clock, afterStop) = await AvaloniaSession.DispatchAsync(() => {
+        var (whileActive, clock, afterStop) = await WithMotionEnabledAsync(() => {
             var marker = new Border();
             var window = new Window { Content = marker, Width = 100, Height = 100 };
             window.Show();
@@ -51,7 +52,7 @@ public class PulseClockTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_marker_in_a_collapsed_section_is_left_alone_until_the_section_shows() {
-        var (whileHidden, whenShown, clock) = await AvaloniaSession.DispatchAsync(() => {
+        var (whileHidden, whenShown, clock) = await WithMotionEnabledAsync(() => {
             var marker = new Border();
             var section = new Panel { IsVisible = false, Children = { marker } };
             var window = new Window { Content = section, Width = 100, Height = 100 };
@@ -77,7 +78,7 @@ public class PulseClockTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_clock_runs_only_while_an_active_marker_shows() {
-        var (whileHidden, whenShown, whenHiddenAgain) = await AvaloniaSession.DispatchAsync(() => {
+        var (whileHidden, whenShown, whenHiddenAgain) = await WithMotionEnabledAsync(() => {
             var marker = new Border();
             var section = new Panel { IsVisible = false, Children = { marker } };
             var window = new Window { Content = section, Width = 100, Height = 100 };
@@ -101,7 +102,7 @@ public class PulseClockTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_minimized_window_stops_the_clock_until_restored() {
-        var (whileShown, whileMinimized, whenRestored, opacity, clock) = await AvaloniaSession.DispatchAsync(() => {
+        var (whileShown, whileMinimized, whenRestored, opacity, clock) = await WithMotionEnabledAsync(() => {
             var marker = new Border();
             var window = new Window { Content = marker, Width = 100, Height = 100 };
             window.Show();
@@ -127,7 +128,7 @@ public class PulseClockTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Closing_the_window_of_the_last_marker_stops_the_clock() {
-        var (whileShown, afterClose) = await AvaloniaSession.DispatchAsync(() => {
+        var (whileShown, afterClose) = await WithMotionEnabledAsync(() => {
             var marker = new Border();
             var window = new Window { Content = marker, Width = 100, Height = 100 };
             window.Show();
@@ -142,6 +143,15 @@ public class PulseClockTests {
         await Assert.That(whileShown).IsTrue();
         await Assert.That(afterClose).IsFalse();
     }
+
+    static Task<T> WithMotionEnabledAsync<T>(Func<T> check) => AvaloniaSession.DispatchAsync(() => {
+        ReducedMotion.OverrideForTesting(false);
+        try {
+            return check();
+        } finally {
+            ReducedMotion.OverrideForTesting(null);
+        }
+    });
 
     static IEnumerable<Style> Animated(IEnumerable<IStyle> styles) {
         foreach (var style in styles) {

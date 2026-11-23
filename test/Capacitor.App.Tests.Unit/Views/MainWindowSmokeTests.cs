@@ -869,7 +869,6 @@ public class MainWindowSmokeTests {
                 var countLeft = count.TranslatePoint(default, header)!.Value.X;
                 await Assert.That(right).IsLessThan(countLeft);
                 await Assert.That(label.TextTrimming).IsEqualTo(TextTrimming.CharacterEllipsis);
-                await Assert.That(label.FontSize).IsEqualTo(11.5);
                 await Assert.That(count.Text).IsEqualTo("1 session");
                 await Assert.That(header.Focusable).IsTrue();
                 await Assert.That(row.IsEffectivelyVisible).IsTrue();
@@ -1260,8 +1259,8 @@ public class MainWindowSmokeTests {
             await Assert.That(seen.VendorPeer).IsEqualTo("Claude Code");
             await Assert.That(seen.ChildTips).IsEqualTo(0);
             await Assert.That(seen.RowTipIsStatus).IsTrue();
-            await Assert.That(seen.RowTip).Contains("Claude Code\nHarness");
-            await Assert.That(seen.RowTip).Contains("opus\nModel");
+            await Assert.That(seen.RowTip).Contains("Harness\nClaude Code");
+            await Assert.That(seen.RowTip).Contains("Model\nopus");
             await Assert.That(seen.VendorLeft).IsLessThan(seen.MarkLeft);
             await Assert.That(seen.MarkRight).IsLessThan(seen.MetaLeft);
             await Assert.That(seen.ModelInRow).IsFalse();
@@ -1652,13 +1651,57 @@ public class MainWindowSmokeTests {
             var docs = rail.FindControl<Button>("RailHelpDocsButton")!;
             var bug = rail.FindControl<Button>("RailHelpBugButton")!;
             var feedback = rail.FindControl<Button>("RailHelpFeedbackButton")!;
-            await Assert.That(docs.Content).IsEqualTo("Documentation");
+            await Assert.That(AutomationProperties.GetName(docs)).IsEqualTo("Documentation");
             await Assert.That(bug.Content).IsEqualTo("Report a bug…");
             await Assert.That(feedback.Content).IsEqualTo("Send feedback…");
             await Assert.That(docs.IsEffectivelyEnabled).IsTrue();
             await Assert.That(bug.IsEffectivelyEnabled).IsFalse();
             await Assert.That(feedback.IsEffectivelyEnabled).IsFalse();
 
+            flyout.Hide();
+            Dispatcher.UIThread.RunJobs();
+        } finally {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
+
+    /// Opened with a key, the menu's first item shows the focus ring; opened with the pointer it takes focus without one.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_help_menu_shows_its_focus_ring_only_when_a_key_opened_it() => AvaloniaSession.RunOnUiAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap());
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, openFeedback: null);
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var rail = window.FindDescendantOfType<SessionRailView>()!;
+            var help = rail.FindControl<Button>("RailHelpButton")!;
+            var flyout = (Flyout)help.Flyout!;
+            Button? Focused() => window.FocusManager.GetFocusedElement() as Button
+                ?? TopLevel.GetTopLevel(rail.FindControl<Button>("RailHelpDocsButton"))?.FocusManager.GetFocusedElement() as Button;
+
+            var centre = help.TranslatePoint(new Point(help.Bounds.Width / 2, help.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(centre, MouseButton.Left);
+            window.MouseUp(centre, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(flyout.IsOpen).IsTrue();
+            var pointed = Focused();
+            await Assert.That(pointed?.FindAncestorOfType<FlyoutPresenter>()).IsNotNull();
+            await Assert.That(pointed!.Classes.Contains(":focus-visible")).IsFalse();
+            flyout.Hide();
+            Dispatcher.UIThread.RunJobs();
+
+            help.Focus(NavigationMethod.Tab);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(flyout.IsOpen).IsTrue();
+            var keyed = Focused();
+            await Assert.That(keyed?.FindAncestorOfType<FlyoutPresenter>()).IsNotNull();
+            await Assert.That(keyed!.Classes.Contains(":focus-visible")).IsTrue();
             flyout.Hide();
             Dispatcher.UIThread.RunJobs();
         } finally {
@@ -2188,7 +2231,7 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Rail_field_click_while_open_selects_the_query_text() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Rail_field_click_while_open_selects_the_query_text_and_keeps_its_placeholder() => AvaloniaSession.RunOnUiAsync(async () => {
         using var host = new SearchWindowHost();
         var field = host.Named<Button>("RailSearchButton");
         Click(host, field);
@@ -2200,7 +2243,7 @@ public class MainWindowSmokeTests {
 
         Click(host, field);
 
-        await Assert.That(label).IsEqualTo("auth");
+        await Assert.That(label).IsEqualTo("Search…").Because("the query shows in one input, the palette's");
         await Assert.That(host.Vm.Search!.Query).IsEqualTo("auth");
         await Assert.That(host.Focused).IsSameReferenceAs(query);
         await Assert.That(query.SelectedText).IsEqualTo("auth");

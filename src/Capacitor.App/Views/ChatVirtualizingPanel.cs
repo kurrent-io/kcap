@@ -342,6 +342,24 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         InvalidateMeasure();
     }
 
+    internal bool TryFocusRow(int index, Func<Control, Control?> focus) {
+        if (_realized.TryGetValue(index, out var existing)) {
+            if (focus(existing.Container) is not { } target) return false;
+            target.BringIntoView();
+            return true;
+        }
+
+        // Measure the candidate so its template controls exist before changing the viewport.
+        var row = Realize(index);
+        row.Container.Measure(new Size(RowWidth(row.Item, _lastWidth), double.PositiveInfinity));
+        if (focus(row.Container) is null) {
+            Unrealize(index);
+            return false;
+        }
+        ScrollIntoView(index);
+        return true;
+    }
+
     protected override Control? ScrollIntoView(int index) {
         if (index < 0 || index >= Items.Count) return null;
         // An explicit scroll outranks the correction a recent insertion still has pending. Until that
@@ -370,6 +388,8 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     }
     protected override IEnumerable<Control> GetRealizedContainers() => _realized.Values.Select(row => row.Container);
     protected override IInputElement? GetControl(NavigationDirection direction, IInputElement? from, bool wrap) {
+        // ItemsControl tries this before ChatTranscriptKeyboard can search without scrolling.
+        if (direction is NavigationDirection.Up or NavigationDirection.Down) return null;
         if (Items.Count == 0 || from is null && direction is not NavigationDirection.First and not NavigationDirection.Last) return null;
         // Directional navigation starts at the focused control inside the row, not the row.
         var index = -1;
@@ -378,8 +398,8 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         int? next = direction switch {
             NavigationDirection.First => 0,
             NavigationDirection.Last => Items.Count - 1,
-            NavigationDirection.Up or NavigationDirection.Previous => index - 1,
-            NavigationDirection.Down or NavigationDirection.Next => index + 1,
+            NavigationDirection.Previous => index - 1,
+            NavigationDirection.Next => index + 1,
             NavigationDirection.Left or NavigationDirection.Right => index,
             _ => null,
         };

@@ -432,7 +432,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         }
     }
 
-    public const string DefaultGoalPlaceholder = "What should we build? Type a goal or paste an issue, PR, or work-item URL…";
+    public const string DefaultGoalPlaceholder = "Type a goal, or paste an issue, PR or work-item URL…";
 
     /// The chip names the picked task, so the placeholder does not again.
     public string GoalPlaceholder => NextWorkSource is not null ? PickedGoalPlaceholder : DefaultGoalPlaceholder;

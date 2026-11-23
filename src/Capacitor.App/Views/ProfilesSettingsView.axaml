@@ -27,7 +27,7 @@
                                                     <TextBlock Classes="profileMark kcapStatusWord" Text="{Binding UsageLabel}" />
                                                 </Border>
                                             </StackPanel>
-                                            <SelectableTextBlock Text="{Binding ServerUrl}" TextWrapping="Wrap" FontSize="12.5" LineHeight="19"
+                                            <SelectableTextBlock Text="{Binding ServerUrl}" TextWrapping="Wrap" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="19"
                                                                  Foreground="{StaticResource KcapMutedBrush}"
                                                                  IsVisible="{Binding HasServer}" />
                                             <WrapPanel IsVisible="{Binding !HasServer}">
@@ -59,8 +59,8 @@
                                                                     Command="{Binding $parent[views:ProfilesSettingsView].((vm:ProfilesSettingsViewModel)DataContext).SignInCommand}"
                                                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8">
                                                                 <StackPanel Spacing="2">
-                                                                    <TextBlock Text="Sign in again" FontSize="13.5" />
-                                                                    <TextBlock Text="Replace this profile's saved sign-in" FontSize="11.5"
+                                                                    <TextBlock Text="Sign in again" FontSize="{StaticResource KcapFontSizeBody}" />
+                                                                    <TextBlock Text="Replace this profile's saved sign-in" FontSize="{StaticResource KcapFontSizeSmall}"
                                                                                Foreground="{StaticResource KcapMutedBrush}" />
                                                                 </StackPanel>
                                                             </Button>
@@ -68,7 +68,7 @@
                                                                     IsVisible="{Binding CanRemove}" CommandParameter="{Binding}"
                                                                     Command="{Binding $parent[views:ProfilesSettingsView].((vm:ProfilesSettingsViewModel)DataContext).RemoveCommand}"
                                                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                                    Padding="10,8" FontSize="13.5" />
+                                                                    Padding="10,8" FontSize="{StaticResource KcapFontSizeBody}" />
                                                         </StackPanel>
                                                     </Flyout>
                                                 </Button.Flyout>

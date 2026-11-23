@@ -19,7 +19,7 @@
                         <Panel Width="32" Height="32" VerticalAlignment="Center">
                             <Border Background="{StaticResource KcapSurfaceBrush}" CornerRadius="5"
                                     IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNull}}">
-                                <TextBlock Text="{Binding Glyph}" FontSize="9" FontWeight="SemiBold"
+                                <TextBlock Text="{Binding Glyph}" FontSize="{StaticResource KcapFontSizeCaption}" FontWeight="SemiBold"
                                            Foreground="{StaticResource KcapMutedBrush}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
@@ -27,14 +27,14 @@
                                    IsVisible="{Binding Thumbnail, Converter={x:Static ObjectConverters.IsNotNull}}" />
                         </Panel>
                         <StackPanel VerticalAlignment="Center" Spacing="1">
-                            <TextBlock x:Name="ChipName" Text="{Binding FileName}" FontSize="12" MaxWidth="170"
+                            <TextBlock x:Name="ChipName" Text="{Binding FileName}" FontSize="{StaticResource KcapFontSizeSmall}" MaxWidth="170"
                                        TextTrimming="CharacterEllipsis" Foreground="{StaticResource KcapTextBrush}" />
-                            <TextBlock Text="{Binding SizeLabel}" FontSize="10.5"
+                            <TextBlock Text="{Binding SizeLabel}" FontSize="{StaticResource KcapFontSizeCaption}"
                                        Foreground="{StaticResource KcapFaintBrush}" />
                         </StackPanel>
                         <Button Classes="kcapGhost kcapIcon" x:Name="ChipRemove" Command="{Binding RemoveCommand}" AutomationProperties.Name="Remove attachment"
-                                ToolTip.Tip="Remove" Width="20" Height="20" Padding="0" FontSize="10"
-                                CornerRadius="10" Cursor="Hand" VerticalAlignment="Center"
+                                ToolTip.Tip="Remove" Width="{StaticResource KcapMinTargetSize}" Height="{StaticResource KcapMinTargetSize}" Padding="0" FontSize="{StaticResource KcapFontSizeCaption}"
+                                CornerRadius="12" Cursor="Hand" VerticalAlignment="Center"
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderThickness="0">
                             <views:AppIcon Kind="X" Size="14" />
                         </Button>

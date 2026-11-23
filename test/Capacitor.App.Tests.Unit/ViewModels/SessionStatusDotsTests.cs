@@ -167,7 +167,7 @@ public class SessionStatusDotsTests {
         var pending = SessionStatusDots.ForRow(Local("a", awaiting: false, subagents: 2), pending: true);
         await Assert.That(pending.Kind).IsEqualTo(AgentStatusKind.NeedsYou);
         await Assert.That(pending.AccessibleName).IsEqualTo("Needs you");
-        await Assert.That(pending.Tip).Contains("Needs you\nStatus");
+        await Assert.That(pending.Tip).StartsWith("Needs you\n");
         await Assert.That(pending.Tip).Contains("Pending response");
         await Assert.That(pending.Tip).Contains("2 subagents running");
         await Assert.That(pending.Pulses).IsFalse();
@@ -180,7 +180,7 @@ public class SessionStatusDotsTests {
         var idle = SessionStatusDots.ForRow(Local("a", awaiting: true), pending: false);
         await Assert.That(idle.Kind).IsEqualTo(AgentStatusKind.Idle);
         await Assert.That(idle.AccessibleName).IsEqualTo("Idle");
-        await Assert.That(idle.Tip).StartsWith("Idle\nStatus");
+        await Assert.That(idle.Tip).StartsWith("Idle\n");
         await Assert.That(idle.Pulses).IsFalse();
 
         var done = SessionStatusDots.ForRow(Local("a", status: "Completed"), pending: false);
@@ -244,26 +244,26 @@ public class SessionStatusDotsTests {
         var status = SessionStatusDots.ForRow(row, pending: false);
 
         await Assert.That(status.Tip.Split('\n')[0]).IsEqualTo("Working");
-        await Assert.That(status.Tip).Contains("Working\nStatus");
+        await Assert.That(status.Tip).StartsWith("Working\n");
 
         var timed = SessionStatusDots.Present(
             "Running", false, false, null, false, null, null, "Working for 2m 39s");
         await Assert.That(timed.Label).IsEqualTo("Working");
-        await Assert.That(timed.Tip).IsEqualTo("Working for 2m 39s\nStatus");
+        await Assert.That(timed.Tip).IsEqualTo("Working for 2m 39s");
 
         var asked = SessionStatusDots.Present(
             "Running", true, true, null, pending: true, null, null, null, answerExpected: true);
         await Assert.That(asked.Kind).IsEqualTo(AgentStatusKind.Answer);
         await Assert.That(asked.Label).IsEqualTo("Answer");
-        await Assert.That(asked.Tip).IsEqualTo("An answer is expected\nStatus");
+        await Assert.That(asked.Tip).IsEqualTo("An answer is expected");
         await Assert.That(asked.Tip).DoesNotContain("Idle");
         await Assert.That(status.Tip).DoesNotContain("abc123");
 
         var named = SessionStatusDots.ForRow(row with { Model = "claude-opus-5" }, pending: false);
-        await Assert.That(named.Tip).Contains("Claude Opus 5\nModel");
-        await Assert.That(named.Tip).Contains("Claude Code\nHarness");
-        await Assert.That(status.Tip).Contains("\n\nada@example.com\nRequester");
-        await Assert.That(status.Tip).Contains("\n\n/repo/wt\nBorrowed from");
+        await Assert.That(named.Tip).Contains("Model\nClaude Opus 5");
+        await Assert.That(named.Tip).Contains("Harness\nClaude Code");
+        await Assert.That(status.Tip).Contains("\n\nRequester\nada@example.com");
+        await Assert.That(status.Tip).Contains("\n\nBorrowed from\n/repo/wt");
     }
 
     [Test]
@@ -294,7 +294,7 @@ public class SessionStatusDotsTests {
         await Assert.That(status.ShowsPause).IsTrue();
         await Assert.That(status.IsInFlight).IsFalse();
         await Assert.That(status.Pulses).IsFalse();
-        await Assert.That(status.Facts.Select(f => (f.Text, f.Caption))).Contains(("too_old", "Reason"));
+        await Assert.That(status.Facts.Select(f => (f.Text, f.Caption))).Contains(("It was idle too long to resume", "Reason"));
         await Assert.That(SessionStatusDots.NeedsAttention(row)).IsTrue();
     }
 

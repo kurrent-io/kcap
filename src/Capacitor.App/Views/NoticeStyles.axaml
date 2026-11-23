@@ -17,14 +17,14 @@
     </Style>
     <Style Selector="TextBlock.noticeTitle">
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="FontWeight" Value="Medium" />
         <Setter Property="LineHeight" Value="20" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style Selector="SelectableTextBlock.noticeBody, TextBlock.noticeBody">
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="LineHeight" Value="18" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
@@ -43,7 +43,7 @@
     </Style>
     <Style Selector="StackPanel.noticeActions > Button, WrapPanel.noticeActions Button">
         <Setter Property="Padding" Value="12,5" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
     </Style>
     <Style Selector="views|AppIcon.noticeIcon.attention">
         <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />

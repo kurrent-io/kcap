@@ -5,7 +5,7 @@
              x:DataType="vm:SearchChoiceViewModel">
     <UserControl.Styles>
         <Style Selector="TextBlock.detail">
-            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
@@ -24,7 +24,7 @@
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
         <Style Selector="Button.inlineLink TextBlock">
-            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
             <Setter Property="TextDecorations" Value="Underline" />
         </Style>
         <!-- Nested under a filled search mode, a second fill stacks; the indent and the dot carry the model pick. -->
@@ -32,7 +32,7 @@
             <Setter Property="Background" Value="Transparent" />
         </Style>
         <Style Selector="RadioButton">
-            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         </Style>
     </UserControl.Styles>
     <StackPanel Spacing="10">

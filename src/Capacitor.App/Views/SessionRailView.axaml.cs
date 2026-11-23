@@ -1,6 +1,4 @@
 using System.ComponentModel;
-using System.Reactive.Disposables;
-using System.Reactive.Linq;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -19,12 +17,10 @@ namespace Capacitor.App.Views;
 /// The session rail. DataContext is the window's own MainWindowViewModel, inherited — this view
 /// never builds or assigns one.
 public partial class SessionRailView : UserControl {
-    readonly SerialDisposable _searchLabel = new();
-
     public SessionRailView() {
         InitializeComponent();
-        DataContextChanged += (_, _) => BindSearchLabel();
         foreach (var anchor in new[] { RailHelpButton, RailGroupButton, RailSortButton }) KeyboardDismissible(anchor);
+        RailKeyboard.Attach(RailGroups);
     }
 
     /// Calls <paramref name="painted"/> once, on the UI thread, with the time the first frame showing a
@@ -75,36 +71,22 @@ public partial class SessionRailView : UserControl {
     }
 
     // A pointer-opened flyout leaves focus on its button, outside the popup, where Escape never reaches it.
+    // The first item takes focus either way, but shows the keyboard ring only when a key opened it.
     static void KeyboardDismissible(Button anchor) {
         if (anchor.Flyout is not Flyout { Content: Control content } flyout) return;
 
+        var byKeyboard = false;
+        anchor.AddHandler(KeyDownEvent, (_, e) => byKeyboard = e.Key is Key.Enter or Key.Space, RoutingStrategies.Tunnel, handledEventsToo: true);
+        anchor.AddHandler(PointerPressedEvent, (_, _) => byKeyboard = false, RoutingStrategies.Tunnel, handledEventsToo: true);
         flyout.Opened += (_, _) => content.GetLogicalDescendants().OfType<Button>()
-            .FirstOrDefault(b => b is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true })?.Focus(NavigationMethod.Tab);
+            .FirstOrDefault(b => b is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true })
+            ?.Focus(byKeyboard ? NavigationMethod.Tab : NavigationMethod.Unspecified);
         content.AddHandler(KeyDownEvent, (_, e) => {
             if (e.Key != Key.Escape || e.Handled) return;
             e.Handled = true;
             flyout.Hide();
             anchor.Focus(NavigationMethod.Tab);
         }, RoutingStrategies.Bubble);
-    }
-
-    // The field shows the page's query while the page is up, and its placeholder otherwise.
-    void BindSearchLabel() {
-        if (DataContext is not MainWindowViewModel vm) {
-            _searchLabel.Disposable = null;
-            ShowSearchLabel(null);
-            return;
-        }
-        var query = vm.Search is { } search ? search.WhenAnyValue(x => x.Query) : Observable.Return("");
-        _searchLabel.Disposable = vm.WhenAnyValue(x => x.IsSearchOpen)
-            .CombineLatest(query, (open, text) => open && text.Length > 0 ? text : null)
-            .Subscribe(ShowSearchLabel);
-    }
-
-    void ShowSearchLabel(string? query) {
-        RailSearchText.Text = query ?? "Search…";
-        RailSearchText.Classes.Set("query", query is not null);
-        RailSearchShortcut.IsVisible = query is null;
     }
 
     // The rail's 44px chrome row IS the title bar on this surface — see WindowChrome.
@@ -140,11 +122,11 @@ public partial class SessionRailView : UserControl {
         foreach (var item in summary.MenuItems) {
             var body = new StackPanel { Spacing = 3 };
             body.Children.Add(new TextBlock {
-                Text = item.Label, FontSize = 13.5, TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = item.Label, FontSize = TypeScale.Body, TextTrimming = TextTrimming.CharacterEllipsis,
                 Foreground = (IBrush)this.FindResource("KcapTextBrush")!,
             });
             body.Children.Add(new TextBlock {
-                Text = item.Detail, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = item.Detail, FontSize = TypeScale.Small, TextTrimming = TextTrimming.CharacterEllipsis,
                 Foreground = (IBrush)this.FindResource("KcapMutedBrush")!,
             });
             var option = new Button {

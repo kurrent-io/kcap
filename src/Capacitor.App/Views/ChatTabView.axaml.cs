@@ -81,6 +81,7 @@ public partial class ChatTabView : UserControl {
         ChatItems.AddHandler(Thumb.DragStartedEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(Thumb.DragDeltaEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(Thumb.DragCompletedEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
+        ChatTranscriptKeyboard.Attach(ChatItems);
         ColumnSizing = ChatColumnSizing.Attach(this, ChatItems, ComposerColumn, ChatColumnLeftHandle, ChatColumnRightHandle, ChatLaneHandle);
         // The handles overlay the list rather than sit inside it, so a wheel over one needs its own route.
         foreach (var handle in new Control[] { ChatColumnLeftHandle, ChatColumnRightHandle, ChatLaneHandle }) {
@@ -390,6 +391,7 @@ public partial class ChatTabView : UserControl {
         }
         ToolTip.SetTip(control, "Copied");
         ToolTip.SetIsOpen(control, true);
+        LiveAnnouncer.Polite(control, "Copied");
     }
 
     // Set before the menu hides: hidden, a row leaves the tree and its bindings let go.

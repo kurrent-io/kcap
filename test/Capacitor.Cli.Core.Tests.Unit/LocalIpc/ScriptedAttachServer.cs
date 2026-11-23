@@ -81,8 +81,11 @@ sealed class ScriptedAttachServer : IAsyncDisposable {
     public Task SendExitedAsync(int code) => SendAsync(LocalFrame.Exited(code));
     public Task SendErrorAsync(string text) => SendAsync(new LocalFrame(FrameType.Error) { Text = text });
     public void CloseConnection() { _stream?.Dispose(); _conn?.Dispose(); }
-    /// For truncation tests: write raw bytes (a partial header/payload), then close.
-    public async Task SendRawThenCloseAsync(byte[] raw) { await _stream!.WriteAsync(raw); CloseConnection(); }
+    public async Task SendTruncatedFrameAsync(byte[] raw) {
+        await _stream!.WriteAsync(raw);
+        // Deliver the partial frame before EOF. An abortive close on Windows can discard it.
+        _conn!.Shutdown(SocketShutdown.Send);
+    }
 
     public async ValueTask DisposeAsync() { CloseConnection(); _listener.Dispose(); await Task.CompletedTask; }
 }

@@ -20,7 +20,7 @@ public partial class AgentStatusMark : UserControl {
     /// style: a line shorter than the font clamps the glyphs, which shears "Working".
     void ApplyHeaderMetrics() {
         if (!Classes.Contains("header")) return;
-        StatusWord.FontSize = 13;
+        StatusWord.FontSize = TypeScale.Body;
         StatusWord.FontWeight = FontWeight.Normal;
         StatusWord.LineHeight = double.NaN;
         Glyph.Width = 16;
