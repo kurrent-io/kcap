@@ -1096,12 +1096,22 @@ public class SessionRailViewModelTests {
         var rail = new SessionRailViewModel(directory, _ => { }, _ => { },
             new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(Noon)),
             openServerSession: _ => { }, sessions: sessions,
-            preferences: RailPreferences.Default with { Grouping = RailGrouping.WorkItem, Project = new RailProject("p", "P", ["h"]) },
-            readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, [])),
+            preferences: RailPreferences.Default with { Project = new RailProject("p", "P", ["h"]) },
+            readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, ServerWorkItems(sessions))),
+            workItemsChanged: sessions.Snapshots.Select(_ => System.Reactive.Unit.Default),
             fileSession: fileSession, unfileSession: unfileSession, renameSession: renameSession, canRenameSession: canRenameSession, renameWorkItem: renameWorkItem,
             notifier: notifier, createWorkItem: createWorkItem, openWorkItem: openWorkItem);
         return (directory, sessions, rail);
     }
+
+    // The server's side: every work item a listed session sits in, newest created first.
+    static IReadOnlyList<RailWorkItem> ServerWorkItems(FakeServerSessionsService sessions) =>
+        [.. sessions.LiveCache.Items.Concat(sessions.EndedCache.Items).Where(dto => dto.WorkItem is not null)
+            .GroupBy(dto => dto.WorkItem!.WorkItemId, StringComparer.Ordinal)
+            .OrderByDescending(item => item.First().WorkItem!.CreatedAt).ThenBy(item => item.Key, StringComparer.Ordinal)
+            .Select(item => new RailWorkItem(item.Key, item.First().WorkItem!.Title, 0, 0,
+                item.ToFrozenDictionary(dto => dto.SessionId, _ => RailWorkItem.NoPart, StringComparer.Ordinal),
+                LastActivityAt: item.Max(dto => dto.LastActivityAt)))];
 
     static void List(FakeAgentDirectory directory, FakeServerSessionsService sessions, params RepoSessionDto[] listed) {
         foreach (var dto in listed) {
@@ -1283,18 +1293,44 @@ public class SessionRailViewModelTests {
         });
     }
 
-    /// A work item nobody has worked on for three days leaves the rail's work items, and its sessions fall back to their days.
+    /// Only a work item with a session worked on in the last three days heads the rail, and only once the rail lists one
+    /// of its sessions; the ones it does not list still count for its page. An older one's sessions sit among the rest.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Only_work_items_worked_on_lately_head_the_rail() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var (directory, sessions, rail) = BuildWithWorkItems();
             using (directory) using (sessions) using (rail) {
-                List(directory, sessions, Tracked("recent", "AI-1", Noon.AddDays(-2)), Tracked("old", "AI-2", Noon.AddDays(-4)));
+                List(directory, sessions, Tracked("old", "AI-1", Noon.AddDays(-4)));
+                sessions.EndedCache.AddOrUpdate(Tracked("unlisted", "AI-2", Noon.AddDays(-2)));
+                await Assert.That(rail.WorkItemGroups).IsEmpty();
 
-                var workItems = rail.Groups.Where(g => g.IsWorkItem).Select(g => g.Label);
-                await Assert.That(workItems).IsEquivalentTo(new[] { "AI-1" });
-                await Assert.That(rail.Groups.Where(g => !g.IsWorkItem).SelectMany(Ids)).Contains("old");
+                List(directory, sessions, Tracked("listed", "AI-2", Noon.AddDays(-3).AddHours(1)));
+
+                await Assert.That(rail.WorkItemGroups.Select(g => g.Label)).IsEquivalentTo(["AI-2"]);
+                await Assert.That(rail.SessionGroups.SelectMany(Ids)).IsEquivalentTo(["old"]);
+                var item = rail.WorkItemGroups.Single();
+                await Assert.That(Ids(item)).IsEquivalentTo(["listed"]);
+                await Assert.That(item.MoreText).IsEqualTo("1 more");
+            }
+        });
+    }
+
+    /// A session in a work item sits only under it, and the Status filter, which is the sessions section's, leaves it there.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_work_items_sessions_sit_under_it_whatever_the_status_filter() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, rail) = BuildWithWorkItems();
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("filed", "AI-1", Noon.AddHours(-1)), Tracked("loose", null, Noon.AddHours(-2)));
+
+                rail.State = RailState.Live;
+
+                await Assert.That(Ids(rail.WorkItemGroups.Single())).IsEquivalentTo(["filed"]);
+                await Assert.That(rail.SessionGroups.SelectMany(Ids)).IsEmpty();
+                rail.State = RailState.All;
+                await Assert.That(rail.SessionGroups.SelectMany(Ids)).IsEquivalentTo(["loose"]);
             }
         });
     }
@@ -1323,10 +1359,10 @@ public class SessionRailViewModelTests {
         });
     }
 
-    /// Work items sort newest created first, so a newer or live session filed under an older one doesn't move it.
+    /// Work items keep the order the server reads them in, so a newer or live session filed under an older one doesn't move it.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Work_items_keep_their_created_order_whatever_their_sessions_do() {
+    public async Task Work_items_keep_the_servers_order_whatever_their_sessions_do() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var (directory, sessions, rail) = BuildWithWorkItems();
             using (directory) using (sessions) using (rail) {
@@ -1339,7 +1375,7 @@ public class SessionRailViewModelTests {
         });
     }
 
-    /// A listing that changes a work item but not the order of work items leaves the groups in place rather than rebuilding them.
+    /// A read that changes a work item but not the order of work items leaves the groups in place rather than rebuilding them.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_work_item_change_that_keeps_their_order_does_not_rebuild_the_groups() {
@@ -1348,7 +1384,7 @@ public class SessionRailViewModelTests {
             using (directory) using (sessions) using (rail) {
                 List(directory, sessions, Tracked("a", "AI-1", Noon.AddHours(-1)), Tracked("b", "AI-2", Noon.AddHours(-2)));
                 var resets = 0;
-                ((System.Collections.Specialized.INotifyCollectionChanged)rail.Groups).CollectionChanged += (_, e) => {
+                ((System.Collections.Specialized.INotifyCollectionChanged)rail.WorkItemGroups).CollectionChanged += (_, e) => {
                     if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) resets++;
                 };
 

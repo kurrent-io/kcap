@@ -92,7 +92,7 @@ public partial class SessionRailView : UserControl {
         if (carried is not IReadOnlyList<RailSessionViewModel> { Count: > 0 } rows || RailModel is not { } rail) return;
         RailDragGhostCount.IsVisible = rows.Count > 1;
         RailDragGhostCountText.Text = rows.Count.ToString(CultureInfo.InvariantCulture);
-        RailDropOut.IsVisible = rail.DropOn(rows, null) is not null && !rail.Groups.Any(g => !g.IsWorkItem);
+        RailDropOut.IsVisible = rail.DropOn(rows, null) is not null && rail.SessionGroups.Count == 0;
     }
 
     void OnDragEnded() {

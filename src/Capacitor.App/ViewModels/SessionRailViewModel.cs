@@ -14,7 +14,6 @@ using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.PullRequests;
-using Capacitor.Remote.Models;
 using DynamicData;
 using DynamicData.Binding;
 using Lucide.Avalonia;
@@ -43,16 +42,16 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     HashSet<string> _collapsed;
     // Session ids and work item keys removed from the rail.
     HashSet<string> _removed;
-    // Sessions filed under a removed work item, hidden like removed sessions while grouping by work item.
+    // The sessions of a removed work item, which leave the rail with it.
     FrozenSet<string> _hiddenByWorkItem = FrozenSet<string>.Empty;
     readonly Action? _closeWorkspace;
     readonly IReadOnlyList<RailAction> _actions;
     readonly Func<string, string, Task<bool>>? _fileSession;
     readonly Func<string, string, Task<bool>>? _unfileSession;
     // Drops shown ahead of the server: session id → the work item it was dropped on, null when dropped out. Each holds
-    // until a listing agrees or the server refuses it.
+    // until a read agrees or the server refuses it.
     readonly Dictionary<string, string?> _dropped = new(StringComparer.Ordinal);
-    // Renames shown ahead of the server: work item id → its new title, until a listing agrees.
+    // Renames shown ahead of the server: work item id → its new title, until a read agrees.
     readonly Dictionary<string, string> _retitled = new(StringComparer.Ordinal);
     readonly Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? _renameSession;
     readonly Func<string, string, Task<bool>>? _renameWorkItem;
@@ -72,11 +71,14 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly BehaviorSubject<string?> _selectedSessionKeyChanges = new(null);
     readonly BehaviorSubject<string?> _selectedWorkItemChanges = new(null);
     readonly BehaviorSubject<string?> _openSessionKeyChanges = new(null);
+    // Project, removed and open row: what every row passes. Sessions outside work items also pass the Status filter.
+    readonly BehaviorSubject<Func<AgentRow, bool>> _baseFilter;
     readonly BehaviorSubject<Func<AgentRow, bool>> _stateFilter;
     readonly Subject<Unit> _regroup = new();
     IReadOnlyDictionary<string, RunningWork> _work = FrozenDictionary<string, RunningWork>.Empty;
     readonly BehaviorSubject<IComparer<RailSessionViewModel>> _rowComparer;
     readonly BehaviorSubject<IComparer<RailGroupViewModel>> _groupComparer;
+    readonly BehaviorSubject<IComparer<RailGroupViewModel>> _workItemComparer;
     readonly BehaviorSubject<RailGrouping> _groupingChanges;
     readonly BehaviorSubject<RailSort> _sortChanges;
     readonly BehaviorSubject<RailProject?> _projectChanges;
@@ -85,9 +87,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly BehaviorSubject<IReadOnlyDictionary<string, string>> _workItemOf = new(FrozenDictionary<string, string>.Empty);
     // Work item rows start folded; the ones opened stay open for the life of the app.
     readonly HashSet<string> _openWorkItems = new(StringComparer.Ordinal);
-    IReadOnlyList<RailWorkItem> _lastWorkItems = [];
+    // The last read of a project's open work items, in the server's order.
+    IReadOnlyList<RailWorkItem> _read = [];
+    string? _readProject;
     IReadOnlyList<string> _workItemOrder = [];
-    ServerSessionsSnapshot _listed = ServerSessionsSnapshot.Empty;
     bool _workItemsOffered;
     DateOnly _today;
 
@@ -104,7 +107,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             this.RaiseAndSetIfChanged(ref _openSessionKey, value);
             _openSessionKeyChanges.OnNext(value);
             ShowOpen();
-            _stateFilter.OnNext(StateFilter());
+            Refilter();
             _sessions?.Keep(value is { } key && key.StartsWith("server:", StringComparison.Ordinal) ? key["server:".Length..] : null);
         }
     }
@@ -174,7 +177,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             this.RaisePropertyChanged(nameof(IsAll));
             this.RaisePropertyChanged(nameof(IsLive));
             this.RaisePropertyChanged(nameof(IsEnded));
-            _stateFilter.OnNext(StateFilter());
+            Refilter();
             this.RaisePropertyChanged(nameof(FiltersDiffer));
             Persist();
         }
@@ -185,34 +188,36 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public bool IsEnded => _state == RailState.Ended;
 
     RailGrouping _grouping;
+    /// How the sessions outside work items are grouped.
     public RailGrouping Grouping {
         get => _grouping;
         set {
             if (_disposables.IsDisposed) return;
+            value = Readable(value);
             if (_grouping == value) return;
             this.RaiseAndSetIfChanged(ref _grouping, value);
-            ApplyGrouping();
+            this.RaisePropertyChanged(nameof(GroupingLabel));
+            this.RaisePropertyChanged(nameof(FiltersDiffer));
+            _groupComparer.OnNext(GroupComparer(value));
+            _groupingChanges.OnNext(value);
+            _regroup.OnNext(Unit.Default);
             Persist();
         }
     }
 
-    RailGrouping _effective;
-    /// The grouping shown: Work item falls back to Repository where it is not offered.
-    public RailGrouping EffectiveGrouping => _effective;
-    /// Work item is offered once a project is picked on a server with work items version 2.
-    public bool OffersWorkItem => _shownProject is not null && _workItemsOffered;
-    RailGrouping DefaultGrouping => OffersWorkItem ? RailGrouping.WorkItem : RailGrouping.Repository;
-    public bool ShowsWorkItems => _effective == RailGrouping.WorkItem && _workItems.Count > 0;
-    public string WorkItemsCountText => $"{_workItems.Count} open";
+    static RailGrouping Readable(RailGrouping stored) => stored == RailGrouping.WorkItem ? RailGrouping.Repository : stored;
 
-    public string GroupingLabel => GroupingName(_effective);
+    /// The work items section shows once a project is picked on a server with work items version 2.
+    public bool OffersWorkItem => _shownProject is not null && _workItemsOffered;
+    public bool ShowsWorkItems => OffersWorkItem && _workItems.Count > 0;
+
+    public string GroupingLabel => GroupingName(_grouping);
 
     public static string GroupingName(RailGrouping grouping) => grouping switch {
         RailGrouping.None => "No grouping",
-        RailGrouping.Repository => "Repository",
         RailGrouping.Date => "Date",
-        RailGrouping.WorkItem => "Work item",
-        _ => "Status",
+        RailGrouping.Status => "Status",
+        _ => "Repository",
     };
 
     RailSort _sort;
@@ -293,9 +298,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         if (_disposables.IsDisposed || Equals(_shownProject, _project)) return;
         ProjectShowing?.Invoke();
         _shownProject = _project;
-        _lastWorkItems = WorkItemsIn(_listed, _shownProject, _time.GetUtcNow());
-        _stateFilter.OnNext(StateFilter());
-        ApplyGrouping();
+        Refilter();
+        ApplyWorkItems();
     }
 
     public string ProjectLabel => _project?.Name ?? AllProjectsLabel;
@@ -317,11 +321,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public bool HasProjects => _projectOptions.Count > 0;
 
     /// True when any of the five controls differs from the defaults, or sessions are removed, however the panel
-    /// is collapsed. The default grouping is Work item where it is offered, else Repository.
+    /// is collapsed.
     public bool FiltersDiffer {
         get {
             var defaults = RailPreferences.Default;
-            return _scope != defaults.Scope || _state != defaults.State || _effective != DefaultGrouping
+            return _scope != defaults.Scope || _state != defaults.State || _grouping != defaults.Grouping
                 || _sort != defaults.Sort || _descending != defaults.Descending || HasRemoved;
         }
     }
@@ -364,8 +368,19 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<Unit, Unit> OpenPreviousSessionCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenNextSessionCommand { get; }
 
-    readonly ObservableCollectionExtended<RailGroupViewModel> _groupsSource = new();
-    public ReadOnlyObservableCollection<RailGroupViewModel> Groups { get; }
+    readonly ObservableCollectionExtended<RailGroupViewModel> _workItemGroupsSource = new();
+    /// The picked project's open work items with a session worked on in the last three days that the rail lists, in the
+    /// server's order.
+    public ReadOnlyObservableCollection<RailGroupViewModel> WorkItemGroups { get; }
+    readonly ObservableCollectionExtended<RailGroupViewModel> _sessionGroupsSource = new();
+    /// The sessions outside those work items, grouped, sorted and filtered the user's way.
+    public ReadOnlyObservableCollection<RailGroupViewModel> SessionGroups { get; }
+    /// Both sections in the order the rail draws them.
+    public IReadOnlyList<RailGroupViewModel> Groups => [.. _workItemGroupsSource, .. _sessionGroupsSource];
+
+    /// The picked project's open work items, read again on every change to them; the Work items page shows the same read.
+    /// Null for a read that failed, only when the project has had no read yet.
+    public IObservable<(RailProject? Project, RailWorkItems? Read)> ProjectWorkItems { get; }
 
     readonly ObservableAsPropertyHelper<(int Count, int Failed)> _attention;
     /// Independent of display filters: a hidden row can still need the user.
@@ -433,14 +448,13 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         IsScopeLocked = scopeLocked;
         _scope = scopeLocked ? RailScope.Mine : initial.Scope;
         _state = initial.State;
-        _grouping = initial.Grouping;
+        _grouping = Readable(initial.Grouping);
         _sort = initial.Sort;
         _descending = initial.Descending;
         _project = initial.Project;
         _shownProject = _project;
         // Assumed until a read says otherwise, so a project opens in its work items rather than flickering through repositories.
         _workItemsOffered = readWorkItems is not null;
-        _effective = Effective(_grouping, OffersWorkItem);
         _collapsed = new HashSet<string>(initial.Collapsed, StringComparer.Ordinal);
         _removed = new HashSet<string>(initial.Removed ?? [], StringComparer.Ordinal);
         _today = LocalDay(_time.GetUtcNow());
@@ -453,24 +467,26 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         SetGroupingCommand = ReactiveCommand.Create<RailGrouping>(grouping => Grouping = grouping).DisposeWith(_disposables);
         SetSortCommand = ReactiveCommand.Create<RailSort>(sort => Sort = sort).DisposeWith(_disposables);
         ToggleDirectionCommand = ReactiveCommand.Create(() => { Descending = !Descending; }).DisposeWith(_disposables);
-        SetProjectCommand = ReactiveCommand.Create<RailProject?>(project => {
-            if (project is not null && Grouping == RailGrouping.Repository) Grouping = RailGrouping.WorkItem;
-            Project = project;
-        }).DisposeWith(_disposables);
+        SetProjectCommand = ReactiveCommand.Create<RailProject?>(project => Project = project).DisposeWith(_disposables);
         RestoreRemovedCommand = ReactiveCommand.Create(() => SetRemoved([], persist: true)).DisposeWith(_disposables);
         ToggleAllExpandedCommand = ReactiveCommand.Create(ToggleAllExpanded).DisposeWith(_disposables);
         OpenPreviousSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(-1); }).DisposeWith(_disposables);
         OpenNextSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(1); }).DisposeWith(_disposables);
+        _baseFilter = new BehaviorSubject<Func<AgentRow, bool>>(BaseFilter()).DisposeWith(_disposables);
         _stateFilter = new BehaviorSubject<Func<AgentRow, bool>>(StateFilter()).DisposeWith(_disposables);
-        if (shownRows is not null) _stateFilter.Subscribe(shownRows.OnNext).DisposeWith(_disposables);
         _rowComparer = new BehaviorSubject<IComparer<RailSessionViewModel>>(RowComparer(_sort, _descending)).DisposeWith(_disposables);
-        _groupComparer = new BehaviorSubject<IComparer<RailGroupViewModel>>(GroupComparer(_effective)).DisposeWith(_disposables);
-        _groupingChanges = new BehaviorSubject<RailGrouping>(_effective).DisposeWith(_disposables);
+        _groupComparer = new BehaviorSubject<IComparer<RailGroupViewModel>>(GroupComparer(_grouping)).DisposeWith(_disposables);
+        _workItemComparer = new BehaviorSubject<IComparer<RailGroupViewModel>>(WorkItemComparer([])).DisposeWith(_disposables);
+        _groupingChanges = new BehaviorSubject<RailGrouping>(_grouping).DisposeWith(_disposables);
         _sortChanges = new BehaviorSubject<RailSort>(_sort).DisposeWith(_disposables);
         _projectChanges = new BehaviorSubject<RailProject?>(_project).DisposeWith(_disposables);
         _disposables.Add(_regroup);
         _disposables.Add(_workItems);
         _disposables.Add(_workItemOf);
+        if (shownRows is not null)
+            _stateFilter.CombineLatest(_baseFilter, _workItemOf, (state, all, workItemOf) => (Func<AgentRow, bool>)(row =>
+                    state(row) || all(row) && row.SessionId is { } id && workItemOf.ContainsKey(id)))
+                .Subscribe(shownRows.OnNext).DisposeWith(_disposables);
         directory.Rows.Connect().Subscribe(NoteArrivals).DisposeWith(_disposables);
 
         var ageTicks = new Subject<Unit>().DisposeWith(_disposables);
@@ -481,7 +497,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             var today = LocalDay(_time.GetUtcNow());
             if (today == _today) return;
             _today = today;
-            foreach (var group in _groupsSource.Where(g => g.Kind == RailGrouping.Date)) group.Relabel(LabelFor(group.Key, RailGrouping.Date));
+            foreach (var group in _sessionGroupsSource.Where(g => g.Kind == RailGrouping.Date)) group.Relabel(LabelFor(group.Key, RailGrouping.Date));
         }).DisposeWith(_disposables);
         IObservable<string?> selected = _selectedSessionKeyChanges;
         // PermissionService.AgentsWithPending emits from background continuations; marshal once
@@ -541,104 +557,100 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Project = Current(_project);
         }).DisposeWith(_disposables);
 
-        if (readWorkItems is not null)
-            Observable.Switch(_projectChanges.DistinctUntilChanged(project => project?.Id)
-                .Select(project => project is null ? Observable.Empty<(string ProjectId, RailWorkItems Read)>()
-                    : Observable.Switch((workItemsChanged ?? Observable.Never<Unit>()).StartWith(Unit.Default)
-                            .Select(_ => Observable.FromAsync(ct => readWorkItems(project.Id, ct)).Catch(Observable.Empty<RailWorkItems?>())))
-                        .Where(read => read is not null)
-                        .Select(read => (ProjectId: project.Id, Read: read!))))
+        ProjectWorkItems = readWorkItems is null ? Observable.Never<(RailProject?, RailWorkItems?)>()
+            : Observable.Switch(_projectChanges.DistinctUntilChanged(project => project?.Id)
+                    .Select(project => project is null ? Observable.Return<(RailProject?, RailWorkItems?)>((null, null))
+                        : Observable.Switch((workItemsChanged ?? Observable.Never<Unit>()).StartWith(Unit.Default)
+                                .Select(_ => Observable.FromAsync(ct => readWorkItems(project.Id, ct)).Catch(Observable.Return<RailWorkItems?>(null))))
+                            // A failed re-read keeps the last one showing.
+                            .Where((read, at) => at == 0 || read is not null)
+                            .Select(read => ((RailProject?)project, read))))
                 .ObserveOn(RxSchedulers.MainThreadScheduler)
-                .Subscribe(next => {
-                    if (_disposables.IsDisposed || next.ProjectId != _project?.Id || _workItemsOffered == next.Read.Available) return;
-                    _workItemsOffered = next.Read.Available;
-                    ApplyGrouping();
-                })
-                .DisposeWith(_disposables);
-
-        sessions?.Snapshots.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(snapshot => {
-            if (_disposables.IsDisposed) return;
-            _listed = snapshot;
-            if (!Equals(_shownProject, _project) && snapshot.ListedProject == _project?.Id) {
-                ShowProject();
-                return;
-            }
-            var items = WorkItemsIn(snapshot, _shownProject, _time.GetUtcNow());
-            foreach (var item in items)
+                .Replay(1).RefCount();
+        ProjectWorkItems.Subscribe(next => {
+            if (_disposables.IsDisposed || next.Project is not { } project || project.Id != _project?.Id || next.Read is not { } read) return;
+            _workItemsOffered = read.Available;
+            _readProject = project.Id;
+            _read = read.Items;
+            foreach (var item in _read)
                 if (_retitled.GetValueOrDefault(item.Id) == item.Title) _retitled.Remove(item.Id);
-            var landed = _dropped.Where(drop => drop.Value == items.FirstOrDefault(item => item.PartBySession.ContainsKey(drop.Key))?.Id).ToList();
-            foreach (var drop in landed) _dropped.Remove(drop.Key);
-            if (landed.Count == 0 && items.SequenceEqual(_lastWorkItems)) return;
-            _lastWorkItems = items;
-            ApplyGrouping();
+            foreach (var drop in _dropped.Where(drop => drop.Value == _read.FirstOrDefault(item => item.PartBySession.ContainsKey(drop.Key))?.Id).ToList())
+                _dropped.Remove(drop.Key);
+            ApplyWorkItems();
         }).DisposeWith(_disposables);
 
-        Groups = new ReadOnlyObservableCollection<RailGroupViewModel>(_groupsSource);
-        // Under Work item grouping a session in a shown work item sits under it, not under its day.
-        var outsideWorkItems = _stateFilter.CombineLatest(_groupingChanges, _workItemOf, (state, grouping, workItemOf) =>
-            grouping != RailGrouping.WorkItem ? state : row => state(row) && !(row.SessionId is { } id && workItemOf.ContainsKey(id)));
-        var groups = directory.Rows.Connect()
+        sessions?.Snapshots.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(snapshot => {
+            if (!_disposables.IsDisposed && !Equals(_shownProject, _project) && snapshot.ListedProject == _project?.Id) ShowProject();
+        }).DisposeWith(_disposables);
+
+        WorkItemGroups = new ReadOnlyObservableCollection<RailGroupViewModel>(_workItemGroupsSource);
+        SessionGroups = new ReadOnlyObservableCollection<RailGroupViewModel>(_sessionGroupsSource);
+        var outsideWorkItems = _stateFilter.CombineLatest(_workItemOf, (state, workItemOf) =>
+            (Func<AgentRow, bool>)(row => state(row) && !(row.SessionId is { } id && workItemOf.ContainsKey(id))));
+        directory.Rows.Connect()
             .Filter(outsideWorkItems)
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Group(GroupKeyOf, _regroup)
-            .Transform(g => {
-                var kind = _effective == RailGrouping.WorkItem ? RailGrouping.Date : _effective;
-                return new RailGroupViewModel(
-                    g.Key, g.Cache.Connect(), kind, LabelFor(g.Key, kind, g), selected, pending, stale, openLocalSession, openRemoteSession, time, answering, work,
-                    prs, localOnAppServer, openPullRequest, !_collapsed.Contains(g.Key), expanded => {
-                        if (expanded) _collapsed.Remove(g.Key);
-                        else _collapsed.Add(g.Key);
-                        Persist();
-                    }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, suggested: suggested,
-                    marked: _marked);
-            });
-        var workItemGroups = _workItems.Connect()
+            .Transform(g => new RailGroupViewModel(
+                g.Key, g.Cache.Connect(), _grouping, LabelFor(g.Key, _grouping, g), selected, pending, stale, openLocalSession, openRemoteSession, time,
+                answering, work, prs, localOnAppServer, openPullRequest, !_collapsed.Contains(g.Key), expanded => {
+                    if (expanded) _collapsed.Remove(g.Key);
+                    else _collapsed.Add(g.Key);
+                    Persist();
+                }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, suggested: suggested, marked: _marked))
+            .DisposeMany()
+            .SortAndBind(_sessionGroupsSource, _groupComparer)
+            .Subscribe()
+            .DisposeWith(_disposables);
+        _workItems.Connect()
             .TransformWithInlineUpdate(item => {
                 var key = WorkItemKey(item.Id);
                 var rows = directory.Rows.Connect()
-                    .Filter(_stateFilter.CombineLatest(_workItemOf, (state, workItemOf) => (Func<AgentRow, bool>)(row =>
-                        state(row) && row.SessionId is { } id && workItemOf.GetValueOrDefault(id) == item.Id)))
+                    .Filter(_baseFilter.CombineLatest(_workItemOf, (all, workItemOf) => (Func<AgentRow, bool>)(row =>
+                        all(row) && row.SessionId is { } id && workItemOf.GetValueOrDefault(id) == item.Id)))
                     .ObserveOn(RxSchedulers.MainThreadScheduler);
                 return new RailGroupViewModel(
-                    key, rows, RailGrouping.WorkItem, item.Title, selected, pending, stale, openLocalSession, openRemoteSession, time, answering, work,
+                    key, rows, RailGrouping.None, item.Title, selected, pending, stale, openLocalSession, openRemoteSession, time, answering, work,
                     prs, localOnAppServer, openPullRequest, _openWorkItems.Contains(key), expanded => {
                         if (expanded) _openWorkItems.Add(key);
                         else _openWorkItems.Remove(key);
-                    }, ageTicks, openServerSession, _groupingChanges, _rowComparer, _sortChanges, item,
+                    }, ageTicks, openServerSession, Observable.Return(RailGrouping.None), _rowComparer, _sortChanges, item,
                     marked: _marked, selectedWorkItem: _selectedWorkItemChanges, openSessionKey: _openSessionKeyChanges);
             }, (group, item) => group.UpdateWorkItem(item))
             .DisposeMany()
-            .FilterOnObservable(group => group.HasSessions);
-        groups.DisposeMany()
-            .Or(workItemGroups)
-            .SortAndBind(_groupsSource, _groupComparer)
+            // A work item whose sessions sit outside the project's repositories has none for the rail to list.
+            .FilterOnObservable(group => group.HasSessions)
+            .SortAndBind(_workItemGroupsSource, _workItemComparer)
             .Subscribe()
             .DisposeWith(_disposables);
         work.Subscribe(next => {
             _work = next;
-            if (_effective == RailGrouping.Status) _regroup.OnNext(Unit.Default);
+            if (_grouping == RailGrouping.Status) _regroup.OnNext(Unit.Default);
         }).DisposeWith(_disposables);
         // The groups, not the directory: a state filter that leaves nothing is an empty rail too.
-        _isEmpty = Observable.FromEventPattern<NotifyCollectionChangedEventHandler, NotifyCollectionChangedEventArgs>(
-                handler => _groupsSource.CollectionChanged += handler, handler => _groupsSource.CollectionChanged -= handler)
-            .Select(_ => _groupsSource.Count == 0)
+        _isEmpty = Observable.Merge(Changed(_workItemGroupsSource), Changed(_sessionGroupsSource))
+            .Select(_ => Groups.Count == 0)
             .DistinctUntilChanged()
-            .ToProperty(this, x => x.IsEmpty, initialValue: _groupsSource.Count == 0)
+            .ToProperty(this, x => x.IsEmpty, initialValue: Groups.Count == 0)
             .DisposeWith(_disposables);
-        _anyExpanded = _groupsSource.ToObservableChangeSet()
+        _anyExpanded = _sessionGroupsSource.ToObservableChangeSet()
             .AutoRefresh(group => group.IsExpanded)
             .ToCollection()
             .Select(groups => groups.Any(group => group.IsExpanded))
             .DistinctUntilChanged()
-            .ToProperty(this, x => x.AnyExpanded, initialValue: _groupsSource.Any(group => group.IsExpanded))
+            .ToProperty(this, x => x.AnyExpanded, initialValue: _sessionGroupsSource.Any(group => group.IsExpanded))
             .DisposeWith(_disposables);
+
+        static IObservable<Unit> Changed(INotifyCollectionChanged groups) =>
+            Observable.FromEventPattern<NotifyCollectionChangedEventHandler, NotifyCollectionChangedEventArgs>(
+                handler => groups.CollectionChanged += handler, handler => groups.CollectionChanged -= handler).Select(_ => Unit.Default);
     }
 
     void ToggleAllExpanded() {
         var expand = !AnyExpanded;
         _applying = true;
         try {
-            foreach (var group in Groups.ToList()) group.SetExpanded(expand);
+            foreach (var group in SessionGroups.ToList()) group.SetExpanded(expand);
         } finally {
             _applying = false;
         }
@@ -659,7 +671,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Project = Current(preferences.Project);
             _collapsed = new HashSet<string>(preferences.Collapsed, StringComparer.Ordinal);
             SetRemoved(preferences.Removed ?? [], persist: false);
-            foreach (var group in Groups.Where(g => !g.IsWorkItem)) group.ApplyExpanded(!_collapsed.Contains(group.Key));
+            foreach (var group in SessionGroups) group.ApplyExpanded(!_collapsed.Contains(group.Key));
         } finally {
             _applying = false;
         }
@@ -853,7 +865,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     void Drop(IReadOnlyList<string> sessions, string? workItem, Func<string, Task<bool>> send) {
         foreach (var session in sessions) _dropped[session] = workItem;
         ClearMarks();
-        ApplyGrouping();
+        ApplyWorkItems();
         foreach (var session in sessions) _ = SettleDropAsync(session, workItem, send(session));
     }
 
@@ -862,14 +874,12 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         _notifier?.Notify(workItem is null ? "Couldn't remove the session from the work item" : "Couldn't move the session");
         if (!_dropped.TryGetValue(session, out var shown) || shown != workItem) return;
         _dropped.Remove(session);
-        ApplyGrouping();
+        ApplyWorkItems();
     }
 
-    // From the whole listing: the rail shows only recent work items, so a session filed under an older one looks loose.
+    // From every open work item read, not only the recent ones the rail shows.
     bool IsFiled(string sessionId) =>
-        _dropped.TryGetValue(sessionId, out var dropped) ? dropped is not null
-            : _listed.Live.Concat(_listed.MineLive).Concat(_listed.Ended).Append(_listed.Pinned).OfType<RepoSessionDto>()
-                .Any(row => row.SessionId == sessionId && row.WorkItem is not null);
+        _dropped.TryGetValue(sessionId, out var dropped) ? dropped is not null : _read.Any(item => item.PartBySession.ContainsKey(sessionId));
 
     async Task ConvertToWorkItemAsync(AgentRow row) {
         var session = row.SessionId!;
@@ -889,9 +899,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     void SetRemoved(IEnumerable<string> ids, bool persist) {
         if (_disposables.IsDisposed) return;
         _removed = new HashSet<string>(ids, StringComparer.Ordinal);
-        _hiddenByWorkItem = HiddenByWorkItem();
-        _stateFilter.OnNext(StateFilter());
-        ApplyGrouping();
+        Refilter();
+        ApplyWorkItems();
         this.RaisePropertyChanged(nameof(HasRemoved));
         this.RaisePropertyChanged(nameof(RestoreRemovedText));
         this.RaisePropertyChanged(nameof(FiltersDiffer));
@@ -902,20 +911,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         if (!_applying) _persist?.Invoke(Preferences);
     }
 
-    static RailGrouping Effective(RailGrouping grouping, bool offersWorkItem) =>
-        grouping == RailGrouping.WorkItem && !offersWorkItem ? RailGrouping.Repository : grouping;
-
     internal static string WorkItemKey(string workItemId) => $"workitem:{workItemId}";
 
     static bool IsWorkItemKey(string key) => key.StartsWith("workitem:", StringComparison.Ordinal);
 
-    FrozenSet<string> HiddenByWorkItem() => _effective != RailGrouping.WorkItem ? FrozenSet<string>.Empty
-        : _lastWorkItems.Where(item => item.Done || _removed.Contains(WorkItemKey(item.Id))).SelectMany(item => item.PartBySession.Keys).ToFrozenSet(StringComparer.Ordinal);
-
-    static readonly TimeSpan WorkItemActiveFor = TimeSpan.FromDays(3);
-
-    /// The work items the project's listed sessions arrived with that are in progress or were worked on lately, newest
-    /// created first so that filing a session under one never moves it.
     // A session the rail has never shown, started moments ago and not part of a bulk load, fades in once.
     void NoteArrivals(IChangeSet<AgentRow, string> changes) {
         var now = _time.GetUtcNow();
@@ -940,37 +939,19 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         lock (_arrivals) return _arrivals.Remove(key, out var at) && now - at < ArrivalWindow;
     }
 
-    static IReadOnlyList<RailWorkItem> WorkItemsIn(ServerSessionsSnapshot listed, RailProject? project, DateTimeOffset now) {
-        if (project is null) return [];
-        return [.. listed.Live.Concat(listed.MineLive).Concat(listed.Ended).Append(listed.Pinned).OfType<RepoSessionDto>()
-            .Where(row => row.WorkItem is not null && (row.Repo?.Hash ?? row.PrimaryRepoHash) is { } hash && project.RepoHashes.Contains(hash, StringComparer.Ordinal))
-            .DistinctBy(row => row.SessionId)
-            .GroupBy(row => row.WorkItem!.WorkItemId, StringComparer.Ordinal)
-            .Where(sessions => sessions.Any(row => row.Status == "active") || sessions.Max(row => row.LastActivityAt) > now - WorkItemActiveFor)
-            .OrderByDescending(sessions => sessions.First().WorkItem!.CreatedAt)
-            .ThenBy(sessions => sessions.Key, StringComparer.Ordinal)
-            .Select(sessions => {
-                var item = sessions.First().WorkItem!;
-                return new RailWorkItem(item.WorkItemId, item.Title, item.PartsDone, item.PartsTotal,
-                    sessions.ToFrozenDictionary(row => row.SessionId, row => row.WorkItem!.Part?.Title ?? RailWorkItem.NoPart, StringComparer.Ordinal),
-                    WorkStatusExtensions.ParseWorkStatus(item.Status) == WorkStatus.Done);
-            })];
-    }
-
-    /// Settles the grouping shown and the work items under it after the choice, the project or a read moved.
-    void ApplyGrouping() {
-        var effective = Effective(_grouping, OffersWorkItem);
-        var moved = effective != _effective;
-        _effective = effective;
-        IReadOnlyList<RailWorkItem> items = effective != RailGrouping.WorkItem ? []
-            : [.. _lastWorkItems.Where(item => !item.Done && !_removed.Contains(WorkItemKey(item.Id)))
-                .Select(item => _retitled.TryGetValue(item.Id, out var title) ? item with { Title = title } : item)];
-        // Ahead of the work item map, or a hidden item's sessions flash into their day groups.
-        var hidden = HiddenByWorkItem();
+    /// Settles the work items shown, and the session each holds, after a read, the project, a removal or a drop moved.
+    void ApplyWorkItems() {
+        IReadOnlyList<RailWorkItem> read = !OffersWorkItem || _readProject != _shownProject?.Id ? [] : _read;
+        // Ahead of the work item map, or a removed item's sessions flash into the sessions section.
+        var hidden = read.Where(item => _removed.Contains(WorkItemKey(item.Id))).SelectMany(item => item.PartBySession.Keys)
+            .ToFrozenSet(StringComparer.Ordinal);
         if (!hidden.SetEquals(_hiddenByWorkItem)) {
             _hiddenByWorkItem = hidden;
-            _stateFilter.OnNext(StateFilter());
+            Refilter();
         }
+        var since = _time.GetUtcNow() - WorkItemActiveFor;
+        IReadOnlyList<RailWorkItem> items = [.. read.Where(item => Recent(item, since) && !_removed.Contains(WorkItemKey(item.Id)))
+            .Select(item => _retitled.TryGetValue(item.Id, out var title) ? item with { Title = title } : item)];
         var workItemOf = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var item in items)
             foreach (var session in item.PartBySession.Keys) workItemOf.TryAdd(session, item.Id);
@@ -980,34 +961,41 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         }
         _workItemOf.OnNext(workItemOf.ToFrozenDictionary(StringComparer.Ordinal));
         _workItems.EditDiff(items, (a, b) => a == b);
-        // A new comparer clears and re-adds every group, so it goes out only when the order it encodes moved.
+        // A new comparer clears and re-adds every group, so it goes out only when the order moved.
         var order = items.Select(item => WorkItemKey(item.Id)).ToList();
-        if (moved || !order.SequenceEqual(_workItemOrder)) {
+        if (!order.SequenceEqual(_workItemOrder)) {
             _workItemOrder = order;
-            _groupComparer.OnNext(GroupComparer(effective, order.Select((key, at) => (Key: key, At: at))
-                .ToFrozenDictionary(entry => entry.Key, entry => entry.At, StringComparer.Ordinal)));
-        }
-        if (moved) {
-            _groupingChanges.OnNext(effective);
-            _regroup.OnNext(Unit.Default);
-            this.RaisePropertyChanged(nameof(EffectiveGrouping));
-            this.RaisePropertyChanged(nameof(GroupingLabel));
+            _workItemComparer.OnNext(WorkItemComparer(order));
         }
         this.RaisePropertyChanged(nameof(OffersWorkItem));
         this.RaisePropertyChanged(nameof(ShowsWorkItems));
-        this.RaisePropertyChanged(nameof(WorkItemsCountText));
-        this.RaisePropertyChanged(nameof(FiltersDiffer));
     }
 
-    Func<AgentRow, bool> StateFilter() {
-        var state = _state;
+    static readonly TimeSpan WorkItemActiveFor = TimeSpan.FromDays(3);
+
+    // A server older than the sessions' last activity sends none, so its items all count as recent.
+    static bool Recent(RailWorkItem item, DateTimeOffset since) =>
+        item.PartBySession.Count > 0 && (item.LastActivityAt is not { } at || at > since);
+
+    void Refilter() {
+        _baseFilter.OnNext(BaseFilter());
+        _stateFilter.OnNext(StateFilter());
+    }
+
+    Func<AgentRow, bool> BaseFilter() {
         var selected = _openSessionKey;
         var project = _shownProject;
         var removed = _removed.ToFrozenSet(StringComparer.Ordinal);
         var hidden = _hiddenByWorkItem;
         return row => row.Key == selected
             || (!(SessionIds.Canonical(row.SessionId) is { } id && removed.Contains(id)) && !(row.SessionId is { } session && hidden.Contains(session))
-                && StateAdmits(state, row, null) && (project is null || project.Holds(row)));
+                && (project is null || project.Holds(row)));
+    }
+
+    Func<AgentRow, bool> StateFilter() {
+        var all = BaseFilter();
+        var state = _state;
+        return row => all(row) && StateAdmits(state, row, null);
     }
 
     /// The listed copy of a remembered project, or all projects once a read no longer lists it.
@@ -1025,13 +1013,13 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             _ => true,
         };
 
-    string GroupKeyOf(AgentRow row) => GroupKey(row, _effective, _today, _time.LocalTimeZone, _work.GetValueOrDefault(row.Key));
+    string GroupKeyOf(AgentRow row) => GroupKey(row, _grouping, _today, _time.LocalTimeZone, _work.GetValueOrDefault(row.Key));
 
     internal static string GroupKey(AgentRow row, RailGrouping grouping, DateOnly today, TimeZoneInfo zone, RunningWork work = default) => grouping switch {
         RailGrouping.Repository => row.RepoGroupKey,
         // Invariant: a Buddhist or Hijri culture would write its own year into a key the label parses
         // back as Gregorian and the preferences persist.
-        RailGrouping.Date or RailGrouping.WorkItem => $"day:{LocalDay(row.LastActivityAt ?? row.CreatedAt, zone).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}",
+        RailGrouping.Date => $"day:{LocalDay(row.LastActivityAt ?? row.CreatedAt, zone).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}",
         RailGrouping.Status => $"status:{StatusBucket(row, work)}",
         _ => "all",
     };
@@ -1086,17 +1074,18 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             return id != 0 ? id : StringComparer.Ordinal.Compare(a.Key, b.Key);
         });
 
-    /// Repositories by label with "No repository" last; days newest first; statuses in their fixed order;
-    /// work items first, in the order the server lists them, then days.
-    internal static IComparer<RailGroupViewModel> GroupComparer(RailGrouping grouping, IReadOnlyDictionary<string, int>? workItemOrder = null) =>
+    /// Repositories by label with "No repository" last; days newest first; statuses in their fixed order.
+    internal static IComparer<RailGroupViewModel> GroupComparer(RailGrouping grouping) =>
         Comparer<RailGroupViewModel>.Create((a, b) => grouping switch {
             RailGrouping.Repository => CompareRepositories(a, b),
             RailGrouping.Date => string.CompareOrdinal(b.Key, a.Key),
-            RailGrouping.WorkItem when a.IsWorkItem != b.IsWorkItem => a.IsWorkItem ? -1 : 1,
-            RailGrouping.WorkItem when a.IsWorkItem => (workItemOrder?.GetValueOrDefault(a.Key) ?? 0).CompareTo(workItemOrder?.GetValueOrDefault(b.Key) ?? 0),
-            RailGrouping.WorkItem => string.CompareOrdinal(b.Key, a.Key),
             _ => string.CompareOrdinal(a.Key, b.Key),
         });
+
+    static IComparer<RailGroupViewModel> WorkItemComparer(IReadOnlyList<string> order) {
+        var at = order.Select((key, index) => (key, index)).ToFrozenDictionary(entry => entry.key, entry => entry.index, StringComparer.Ordinal);
+        return Comparer<RailGroupViewModel>.Create((a, b) => at.GetValueOrDefault(a.Key).CompareTo(at.GetValueOrDefault(b.Key)));
+    }
 
     static int CompareRepositories(RailGroupViewModel a, RailGroupViewModel b) {
         var byNoRepo = a.IsNoRepository.CompareTo(b.IsNoRepository);

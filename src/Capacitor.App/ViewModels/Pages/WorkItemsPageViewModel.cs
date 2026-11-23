@@ -9,9 +9,8 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels.Pages;
 
-/// The open work items of the rail's project under status sections, in the server's order within each, read again
-/// when the project changes. The owner filter keeps the items holding a session of that person; search narrows by
-/// title or person.
+/// The open work items of the rail's project under status sections, in the server's order within each: the rail's own
+/// read. The owner filter keeps the items holding a session of that person; search narrows by title or person.
 public sealed class WorkItemsPageViewModel : ReactiveObject, IPage {
     public PageKey Key => PageKey.WorkItems;
     const int PeopleShown = 3;
@@ -53,23 +52,18 @@ public sealed class WorkItemsPageViewModel : ReactiveObject, IPage {
 
     public ReactiveCommand<WorkItemsPageRow, Unit> OpenWorkItemCommand { get; }
 
-    public WorkItemsPageViewModel(Func<string, CancellationToken, Task<RailWorkItems?>> read,
-            IObservable<(RailScope Scope, RailProject? Project)> filter, IObservable<IReadOnlySet<string>> viewerIds,
-            Action<string> openWorkItem) {
+    public WorkItemsPageViewModel(IObservable<(RailProject? Project, RailWorkItems? Read)> workItems,
+            IObservable<RailScope> scope, IObservable<IReadOnlySet<string>> viewerIds, Action<string> openWorkItem) {
         OpenWorkItemCommand = ReactiveCommand.Create<WorkItemsPageRow>(row => openWorkItem(row.WorkItemId)).DisposeWith(_disposables);
         viewerIds.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(ids => {
             _viewer = ids;
             Redraw();
         }).DisposeWith(_disposables);
-        filter.Select(next => next.Scope).DistinctUntilChanged().ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(scope => {
+        scope.DistinctUntilChanged().ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(scope => {
             this.RaiseAndSetIfChanged(ref _owner, scope == RailScope.Mine ? SessionsPageViewModel.You : SessionsPageViewModel.AnyOwner, nameof(Owner));
             Redraw();
         }).DisposeWith(_disposables);
-        Observable.Switch(filter.Select(next => next.Project).DistinctUntilChanged(p => p?.Id)
-                .Select(p => p is null ? Observable.Return<(RailProject? Project, RailWorkItems? Read)>((null, null))
-                    : Observable.FromAsync(ct => read(p.Id, ct)).Catch(Observable.Return<RailWorkItems?>(null))
-                        .Select(r => (Project: (RailProject?)p, Read: r))))
-            .ObserveOn(RxSchedulers.MainThreadScheduler)
+        workItems.ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(next => {
                 if (_disposables.IsDisposed) return;
                 Heading = next.Project is null ? "Work items" : $"Work items · {next.Project.Name}";

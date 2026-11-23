@@ -56,4 +56,16 @@ public class SessionRailFilterTests {
             await Assert.That(rail.FiltersDiffer).IsFalse();
         });
     }
+
+    /// A grouping stored as Work item, which older versions wrote, reads as the default Repository and is not a custom setting.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_stored_work_item_grouping_reads_as_repository() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            using var rail = Build(directory, preferences: RailPreferences.Default with { Grouping = RailGrouping.WorkItem });
+            await Assert.That(rail.Grouping).IsEqualTo(RailGrouping.Repository);
+            await Assert.That(rail.FiltersDiffer).IsFalse();
+        });
+    }
 }

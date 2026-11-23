@@ -12,9 +12,8 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// One rail group and its sessions: a repository, a day, a status, an open work item of the picked
-/// project, or the single headerless group of an ungrouped rail. Streams arrive on the UI thread from
-/// the rail root.
+/// One rail group and its sessions: an open work item of the picked project, or a repository, a day, a status or
+/// the single headerless group of an ungrouped rail. Streams arrive on the UI thread from the rail root.
 public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public string Key { get; }
     public RailGrouping Kind { get; }
@@ -23,8 +22,8 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public string RootDisplay => Kind == RailGrouping.Repository ? _rootDisplay : Label;
     string _label;
     public string Label { get => _label; private set => this.RaiseAndSetIfChanged(ref _label, value); }
-    public bool ShowsHeader => Kind is not (RailGrouping.None or RailGrouping.WorkItem);
-    public bool IsWorkItem => Kind == RailGrouping.WorkItem;
+    public bool ShowsHeader => !IsWorkItem && Kind != RailGrouping.None;
+    public bool IsWorkItem => WorkItemId is not null;
     public string? WorkItemId { get; }
 
     SessionTitleEditorViewModel? _titleEditor;
@@ -56,7 +55,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     const int WorkItemKeeps = 5;
 
     readonly ObservableAsPropertyHelper<string?> _moreText;
-    /// Counts a work item's sessions past its most recent few that are neither live nor open; its page lists them all.
+    /// Counts a work item's sessions past the few shown, including the ones the rail has not listed; its page lists them all.
     public string? MoreText => _moreText.Value;
 
     readonly ObservableCollectionExtended<RailSessionViewModel> _sessionsSource = new();
@@ -104,7 +103,8 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         var query = group.Connect().QueryWhenChanged().Replay(1).RefCount();
         var kept = query.CombineLatest(openSessionKey ?? selectedSessionKey, (rows, open) => (Keys: KeptOfWorkItem(rows.Items, open), rows.Count))
             .Replay(1).RefCount();
-        _moreText = (workItem is null ? Observable.Return(0) : kept.Select(k => k.Count - k.Keys.Count))
+        _moreText = (workItem is null ? Observable.Return(0)
+                : kept.CombineLatest(_workItem, (k, item) => Math.Max(k.Count, item!.PartBySession.Count) - k.Keys.Count))
             .Select(hidden => hidden > 0 ? $"{hidden} more" : null).DistinctUntilChanged()
             .ToProperty(this, x => x.MoreText, initialValue: null)
             .DisposeWith(_disposables);

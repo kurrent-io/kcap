@@ -9,7 +9,7 @@ using Capacitor.Remote.Models;
 
 namespace Capacitor.App.Services;
 
-/// A project's open work items, for the rail's work item grouping.
+/// A project's open work items, for the rail and the Work items page.
 public static class ServerWorkItemsHttp {
     /// Null when the read says nothing (signed out, offline, a failed status), so the rail keeps what it shows.
     /// A server or tenant without work items version 2 answers not found.
@@ -41,6 +41,7 @@ public static class ServerWorkItemsHttp {
             var people = item.Sessions.Select(session => session.Owner).OfType<RepoSessionOwnerDto>().DistinctBy(owner => owner.UserId)
                 .Select(owner => new WorkItemPerson(owner.UserId, owner.DisplayName ?? owner.Username, owner.AvatarUrl)).ToList();
             return new RailWorkItem(item.WorkItemId, item.Title, item.PartsDone, item.PartsTotal, bySession,
-                Status: WorkStatusExtensions.ParseWorkStatus(item.Status), People: people);
+                Status: WorkStatusExtensions.ParseWorkStatus(item.Status), People: people,
+                LastActivityAt: item.Sessions.Max(session => session.LastActivityAt));
         })];
 }
