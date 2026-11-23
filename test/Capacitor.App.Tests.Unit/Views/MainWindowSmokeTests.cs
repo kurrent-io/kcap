@@ -1651,13 +1651,55 @@ public class MainWindowSmokeTests {
             var docs = rail.FindControl<Button>("RailHelpDocsButton")!;
             var bug = rail.FindControl<Button>("RailHelpBugButton")!;
             var feedback = rail.FindControl<Button>("RailHelpFeedbackButton")!;
-            await Assert.That(docs.Content).IsEqualTo("Documentation");
+            await Assert.That(AutomationProperties.GetName(docs)).IsEqualTo("Documentation");
             await Assert.That(bug.Content).IsEqualTo("Report a bug…");
             await Assert.That(feedback.Content).IsEqualTo("Send feedback…");
             await Assert.That(docs.IsEffectivelyEnabled).IsTrue();
             await Assert.That(bug.IsEffectivelyEnabled).IsFalse();
             await Assert.That(feedback.IsEffectivelyEnabled).IsFalse();
 
+            flyout.Hide();
+            Dispatcher.UIThread.RunJobs();
+        } finally {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
+
+    /// Opened with a key, the menu's first item shows the focus ring; opened with the pointer it takes focus without one.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_help_menu_shows_its_focus_ring_only_when_a_key_opened_it() => AvaloniaSession.RunOnUiAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap());
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, openFeedback: null);
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var rail = window.FindDescendantOfType<SessionRailView>()!;
+            var help = rail.FindControl<Button>("RailHelpButton")!;
+            var flyout = (Flyout)help.Flyout!;
+            Button? Focused() => window.FocusManager?.GetFocusedElement() as Button
+                ?? TopLevel.GetTopLevel(rail.FindControl<Button>("RailHelpDocsButton"))?.FocusManager?.GetFocusedElement() as Button;
+
+            var centre = help.TranslatePoint(new Point(help.Bounds.Width / 2, help.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(centre, MouseButton.Left);
+            window.MouseUp(centre, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(flyout.IsOpen).IsTrue();
+            var pointed = Focused();
+            await Assert.That(pointed?.FindAncestorOfType<FlyoutPresenter>()).IsNotNull();
+            await Assert.That(pointed!.Classes.Contains(":focus-visible")).IsFalse();
+            flyout.Hide();
+            Dispatcher.UIThread.RunJobs();
+
+            help.Focus(NavigationMethod.Tab);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(flyout.IsOpen).IsTrue();
+            await Assert.That(Focused()!.Classes.Contains(":focus-visible")).IsTrue();
             flyout.Hide();
             Dispatcher.UIThread.RunJobs();
         } finally {

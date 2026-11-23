@@ -42,7 +42,7 @@
                     </Button>
                 </StackPanel>
             </TabControl.Tag>
-            <TabItem x:Name="ProfilesTab" IsVisible="False">
+            <TabItem x:Name="ProfilesTab" IsVisible="False" AutomationProperties.Name="Profiles">
                 <views:ProfilesSettingsView DataContext="{Binding Profiles}" />
             </TabItem>
             <views:SettingsSectionHeader Classes="settingsNavHeader" Header="This profile" />

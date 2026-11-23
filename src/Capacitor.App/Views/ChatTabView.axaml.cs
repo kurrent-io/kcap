@@ -392,6 +392,7 @@ public partial class ChatTabView : UserControl {
         }
         ToolTip.SetTip(control, "Copied");
         ToolTip.SetIsOpen(control, true);
+        LiveAnnouncer.Polite(control, "Copied");
     }
 
     // Set before the menu hides: hidden, a row leaves the tree and its bindings let go.

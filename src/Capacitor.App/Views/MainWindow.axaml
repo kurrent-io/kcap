@@ -36,6 +36,11 @@
          only receives presses where no surface content is hit-testable — rail and workspace
          headers carry their own drag handlers. -->
     <Panel>
+        <!-- Live regions for LiveAnnouncer: drawn at no size, so only a screen reader meets them. -->
+        <TextBlock x:Name="PoliteAnnouncer" Width="1" Height="1" Opacity="0" IsHitTestVisible="False"
+                   HorizontalAlignment="Left" VerticalAlignment="Top" AutomationProperties.LiveSetting="Polite" />
+        <TextBlock x:Name="AssertiveAnnouncer" Width="1" Height="1" Opacity="0" IsHitTestVisible="False"
+                   HorizontalAlignment="Left" VerticalAlignment="Top" AutomationProperties.LiveSetting="Assertive" />
         <!-- Outside the scale, so the drag strip stays the title bar's height at any zoom. -->
         <Border Height="40" VerticalAlignment="Top" Background="Transparent"
                 PointerPressed="OnChromePointerPressed" />

@@ -107,6 +107,7 @@
                         <TextBlock Text="Which workspace would you like to use?"
                                    Foreground="{StaticResource KcapTextBrush}" FontSize="{StaticResource KcapFontSizeBody}" />
                         <ListBox x:Name="TenantList" Classes="kcapList" MaxHeight="140"
+                                 AutomationProperties.Name="Workspace"
                                  ItemsSource="{Binding Tenants}"
                                  SelectedItem="{Binding SelectedTenant, Mode=TwoWay}">
                             <ListBox.ItemTemplate>

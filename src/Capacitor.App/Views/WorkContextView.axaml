@@ -4,8 +4,14 @@
              xmlns:views="clr-namespace:Capacitor.App.Views"
              x:Class="Capacitor.App.Views.WorkContextView"
              x:DataType="vm:WorkContextViewModel"
-             Background="{StaticResource KcapSurfaceBrush}">
+             Background="{StaticResource KcapSurfaceBrush}"
+             AutomationProperties.Name="Work context" AutomationProperties.ControlTypeOverride="Group"
+             AutomationProperties.LandmarkType="Complementary">
     <UserControl.Styles>
+        <!-- Section titles are headings, so a screen reader can step through the pane by them. -->
+        <Style Selector="TextBlock.eyebrow">
+            <Setter Property="AutomationProperties.HeadingLevel" Value="2" />
+        </Style>
         <!-- A topic or bookmark row's remove button shows only while the row is pointed at or the
              button has keyboard focus, so it does not repeat down the list. -->
         <Style Selector="Button.markRemove">

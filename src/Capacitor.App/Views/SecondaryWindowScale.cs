@@ -18,14 +18,23 @@ public static class SecondaryWindowScale {
     public static void Install(UiScaleSetting setting) {
         if (_installed) return;
         _installed = true;
-        TemplatedControl.TemplateAppliedEvent.AddClassHandler<Window>((window, _) => Attach(window, setting));
+        TemplatedControl.TemplateAppliedEvent.AddClassHandler<Window>((window, _) => Attach(window, setting, installed: true));
     }
 
-    // MainWindow and SettingsWindow apply the scale through their own ScaleHost.
-    static bool OwnsScaleHost(Window window) => window is MainWindow or SettingsWindow;
+    // MainWindow and SettingsWindow apply the scale through their own ScaleHost; these have none.
+    static readonly HashSet<Type> Scaled = [
+        typeof(AboutWindow), typeof(ConsentPromptWindow), typeof(FeedbackWindow), typeof(InstallLocationWindow),
+        typeof(LaunchApprovalsWindow), typeof(LifecyclePromptWindow), typeof(SignInWindow), typeof(UninstallWindow),
+        typeof(UpdateCheckWindow), typeof(UpdateFinishWindow),
+    ];
+
+    static void Attach(Window window, UiScaleSetting setting, bool installed) {
+        if (installed && !Scaled.Contains(window.GetType())) return;
+        Attach(window, setting);
+    }
 
     public static void Attach(Window window, UiScaleSetting setting) {
-        if (OwnsScaleHost(window) || window.Content is not Control content || content is LayoutTransformControl { Name: HostName }) return;
+        if (window.Content is not Control content || content is LayoutTransformControl { Name: HostName }) return;
 
         window.Content = null;
         var host = new LayoutTransformControl { Name = HostName, Child = content };

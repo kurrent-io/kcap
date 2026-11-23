@@ -71,11 +71,16 @@ public partial class SessionRailView : UserControl {
     }
 
     // A pointer-opened flyout leaves focus on its button, outside the popup, where Escape never reaches it.
+    // The first item takes focus either way, but shows the keyboard ring only when a key opened it.
     static void KeyboardDismissible(Button anchor) {
         if (anchor.Flyout is not Flyout { Content: Control content } flyout) return;
 
+        var byKeyboard = false;
+        anchor.AddHandler(KeyDownEvent, (_, e) => byKeyboard = e.Key is Key.Enter or Key.Space, RoutingStrategies.Tunnel, handledEventsToo: true);
+        anchor.AddHandler(PointerPressedEvent, (_, _) => byKeyboard = false, RoutingStrategies.Tunnel, handledEventsToo: true);
         flyout.Opened += (_, _) => content.GetLogicalDescendants().OfType<Button>()
-            .FirstOrDefault(b => b is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true })?.Focus(NavigationMethod.Tab);
+            .FirstOrDefault(b => b is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true })
+            ?.Focus(byKeyboard ? NavigationMethod.Tab : NavigationMethod.Unspecified);
         content.AddHandler(KeyDownEvent, (_, e) => {
             if (e.Key != Key.Escape || e.Handled) return;
             e.Handled = true;

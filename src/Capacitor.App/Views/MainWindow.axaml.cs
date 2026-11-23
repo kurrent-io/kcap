@@ -201,6 +201,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     public MainWindow() {
         InitializeComponent();
+        PaneCycle.Attach(this);
         WindowControls.Spacing = RailClearance.Spacing;
         RailToggleButton.Margin = new Thickness(0, 0, RailClearance.ToggleGap - RailClearance.Spacing, 0);
         foreach (var button in new[] { AppMenuButton, RailToggleButton, BackButton, ForwardButton }) {

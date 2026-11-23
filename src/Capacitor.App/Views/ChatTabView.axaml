@@ -378,7 +378,8 @@
         </Border>
         <!-- The template owns the ScrollViewer: that is the shape Avalonia virtualizes. An
              ItemsControl inside an external ScrollViewer is measured at infinite height. -->
-        <ItemsControl x:Name="ChatItems" Grid.Row="2" ItemsSource="{Binding Items}">
+        <ItemsControl x:Name="ChatItems" Grid.Row="2" ItemsSource="{Binding Items}"
+                      AutomationProperties.Name="Transcript" AutomationProperties.LandmarkType="Main">
             <ItemsControl.Template>
                 <ControlTemplate>
                     <ScrollViewer x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" BringIntoViewOnFocusChange="False">
@@ -833,7 +834,9 @@
         <Border x:Name="ComposerBand" Grid.Row="3" Padding="22,15,22,16"
                 Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
                 BorderThickness="0,1,0,0">
-            <Grid x:Name="ComposerColumn" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+            <Grid x:Name="ComposerColumn" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                  AutomationProperties.Name="Message composer" AutomationProperties.ControlTypeOverride="Group"
+                  AutomationProperties.LandmarkType="Form">
                 <!-- The subagents and commands that outlive the turn, folded to a count until opened. 5px
                      here plus the toggle's 8px puts the title where the queue banner puts its text. -->
                 <Border x:Name="BackgroundTasksBanner" Grid.Row="0" Margin="0,0,0,8" Padding="5,4"
@@ -917,7 +920,7 @@
                      word on it. -->
                 <ScrollViewer Grid.Row="1" Margin="0,0,0,8" MaxHeight="120" HorizontalScrollBarVisibility="Disabled"
                               IsVisible="{Binding HasDeliveryNotices}">
-                    <ItemsControl x:Name="DeliveryNotices" ItemsSource="{Binding DeliveryNotices}">
+                    <ItemsControl x:Name="DeliveryNotices" ItemsSource="{Binding DeliveryNotices}" AutomationProperties.LiveSetting="Assertive">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Spacing="6" />

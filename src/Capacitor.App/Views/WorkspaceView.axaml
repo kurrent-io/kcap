@@ -20,7 +20,7 @@
                     <!-- Auto so the mark keeps the width of its word. A star beside it would
                          measure the mark with the leftover and clip "Working". -->
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                        <views:AgentStatusMark x:Name="WorkspaceStatus" Classes="header"
+                        <views:AgentStatusMark x:Name="WorkspaceStatus" Classes="header" AutomationProperties.LiveSetting="Polite"
                                                DataContext="{Binding Chat.AgentStatus}"
                                                IsVisible="{Binding !$parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).HasConnectionNotice}"
                                                HorizontalAlignment="Left" VerticalAlignment="Center" />

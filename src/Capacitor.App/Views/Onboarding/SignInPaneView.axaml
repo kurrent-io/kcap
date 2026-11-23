@@ -139,6 +139,7 @@
             <StackPanel Spacing="14">
                 <TextBlock Classes="onboardingMicro" Text="WORKSPACES FOR YOUR ACCOUNT" />
                 <ListBox x:Name="TenantList" Classes="onboardingList" ItemsSource="{Binding Tenants}"
+                         AutomationProperties.Name="Workspaces for your account"
                          SelectedItem="{Binding SelectedTenant, Mode=TwoWay}"
                          IsEnabled="{Binding TenantChoicePending}">
                     <ListBox.ItemTemplate>

@@ -6,7 +6,9 @@
              xmlns:client="clr-namespace:Capacitor.Client;assembly=Capacitor.Client"
              xmlns:cmd="clr-namespace:Capacitor.Cli.Core.Commands;assembly=Capacitor.Cli.Core"
              x:Class="Capacitor.App.Views.SessionRailView"
-             x:DataType="vm:MainWindowViewModel">
+             x:DataType="vm:MainWindowViewModel"
+             AutomationProperties.Name="Sessions" AutomationProperties.ControlTypeOverride="Group"
+             AutomationProperties.LandmarkType="Navigation">
     <!-- DataContext is INHERITED from the window (never assigned here), so Rail is null on any
          window built without one — every Rail.* binding below carries a fallback for that. -->
     <UserControl.Styles>
@@ -332,6 +334,7 @@
                                 AutomationProperties.Name="{Binding Alert.Text, StringFormat='{}{0}: open the launcher', FallbackValue={x:Null}}">
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <TextBlock x:Name="RailAlertText" Text="{Binding Alert.Text, FallbackValue={x:Null}}" Classes="footerValue"
+                                           AutomationProperties.LiveSetting="Assertive"
                                            Foreground="{Binding StatusBrush}" TextWrapping="Wrap" VerticalAlignment="Center"
                                            ToolTip.Tip="{Binding Alert.Detail, FallbackValue={x:Null}}" />
                                 <views:AppIcon Kind="ChevronRight" Size="12" VerticalAlignment="Center" />
@@ -388,10 +391,17 @@
                                         </Button>
                                         <Border Height="1" Margin="8,4" Background="{StaticResource KcapBorderBrush}"
                                                 IsVisible="{Binding Web.IsVisible, FallbackValue=False}" />
-                                        <Button x:Name="RailHelpDocsButton" Classes="kcapGhost" Content="Documentation"
+                                        <!-- Items that open a browser carry the external-link icon. -->
+                                        <Button x:Name="RailHelpDocsButton" Classes="kcapGhost"
                                                 Command="{Binding OpenDocsCommand}" Click="OnHelpFlyoutItemClick"
+                                                AutomationProperties.Name="Documentation"
                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                Padding="10,8" FontSize="{StaticResource KcapFontSizeBody}" />
+                                                Padding="10,8" FontSize="{StaticResource KcapFontSizeBody}">
+                                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                                <TextBlock Text="Documentation" VerticalAlignment="Center" />
+                                                <views:AppIcon Kind="ExternalLink" Size="14" />
+                                            </StackPanel>
+                                        </Button>
                                         <Button x:Name="RailHelpBugButton" Classes="kcapGhost" Content="Report a bug…"
                                                 Command="{Binding OpenFeedbackCommand}" CommandParameter="{x:Static cmd:FeedbackCategory.Bug}"
                                                 Click="OnHelpFlyoutItemClick"

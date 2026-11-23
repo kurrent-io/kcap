@@ -79,6 +79,7 @@ public sealed class CodeBlockActionRenderer(MarkdownView view, CodeBlockActions 
             } catch (Exception) {
                 button.Content = "Copy failed";
             }
+            LiveAnnouncer.Polite(button, (string)button.Content);
             // The label is the only receipt a copy leaves, so a later copy's own receipt outranks
             // this one's expiry rather than being cut short by it.
             DispatcherTimer.RunOnce(() => { if (copies == mine) button.Content = label; }, CopiedFor);
