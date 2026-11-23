@@ -656,8 +656,8 @@ public sealed class ClaudeHookCommand(
             _ = enrichment.ContinueWith(static t => { _ = t.Exception; }, TaskScheduler.Default);
             return fallbackBody;
         }
-        var winner = await Task.WhenAny(enrichment, Task.Delay(budget, time));
-        if (winner != enrichment) {
+        var enriched = await enrichment.FinishedWithinAsync(budget, time);
+        if (!enriched) {
             _ = enrichment.ContinueWith(static t => { _ = t.Exception; }, TaskScheduler.Default); // observe if it later faults
             return fallbackBody;
         }

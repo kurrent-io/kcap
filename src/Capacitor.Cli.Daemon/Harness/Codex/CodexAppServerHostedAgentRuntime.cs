@@ -819,7 +819,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
 
     // JsonNode → JsonElement without reflection (AOT-safe): the node writes its own JSON.
     static JsonElement ToElement(JsonNode node) =>
-        JsonDocument.Parse(node.ToJsonString()).RootElement.Clone();
+        JsonElement.Parse(node.ToJsonString());
 }
 
 /// <summary>Cumulative thread token usage from <c>thread/tokenUsage/updated.total</c> (the app-server

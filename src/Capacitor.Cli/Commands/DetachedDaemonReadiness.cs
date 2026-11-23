@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Services;
 
 namespace Capacitor.Cli.Commands;
@@ -34,7 +35,7 @@ static class DetachedDaemonReadiness {
             remaining = deadline - time.GetUtcNow();
             if (remaining <= TimeSpan.Zero) return DaemonReadiness.NotYetServing;
 
-            await Task.WhenAny(exited, Task.Delay(remaining < PollInterval ? remaining : PollInterval, time));
+            await exited.FinishedWithinAsync(remaining < PollInterval ? remaining : PollInterval, time);
         }
     }
 }
