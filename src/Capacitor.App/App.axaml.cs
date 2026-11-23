@@ -355,6 +355,7 @@ public partial class App : Application {
 
     public override void Initialize() {
         AvaloniaXamlLoader.Load(this);
+        ScrollReveal.Register();
         ProgressiveDisclosureViewModel.Shared.Restore(_progressiveDisclosure, _appState);
         LineSelection.Install();
         ToolTipFocusGate.Install();
