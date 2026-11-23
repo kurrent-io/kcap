@@ -476,7 +476,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     void QualifyRepositoryLabels() {
         var repositories = _groupsSource.Where(g => g.Kind == RailGrouping.Repository).ToList();
-        var shown = RailGroupLabels.Disambiguate(repositories.Select(g => (g.Key, g.BaseLabel)).ToList());
+        var shown = RailGroupLabels.Disambiguate([.. repositories.Select(g => (g.Key, g.BaseLabel))]);
         foreach (var group in repositories) group.Relabel(shown[group.Key], qualified: true);
     }
 

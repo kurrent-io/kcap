@@ -23,7 +23,6 @@ public sealed class SearchHitViewModel : ReactiveObject {
     public string? OwnerAvatarUrl { get; init; }
     /// The coding tool, when the hit knows it: a row leads with its vendor mark, as in the rail.
     public string? Vendor { get; init; }
-    public bool HasVendor => !string.IsNullOrEmpty(Vendor);
     /// An avatar with no owner to name stays out of the control view rather than reading as an unnamed element.
     public AccessibilityView OwnerAvatarView => string.IsNullOrEmpty(OwnerName) ? AccessibilityView.Raw : AccessibilityView.Content;
     public required string WhenText { get; init; }

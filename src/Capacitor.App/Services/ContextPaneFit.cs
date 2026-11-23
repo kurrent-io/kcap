@@ -7,27 +7,26 @@ namespace Capacitor.App.Services;
 public sealed class ContextPaneFit {
     public static double RoomNeeded => PaneLayout.ContextMinWidth + PaneLayout.SessionMinWidth;
 
-    bool _narrow;
     bool _shownAnyway;
 
-    public bool IsNarrow => _narrow;
+    public bool IsNarrow { get; private set; }
 
     /// True when the pane should be hidden for lack of room.
-    public bool HidesPane => _narrow && !_shownAnyway;
+    public bool HidesPane => IsNarrow && !_shownAnyway;
 
     /// Returns true when the answer to <see cref="HidesPane"/> changed.
     public bool Resize(double viewWidth) {
         var before = HidesPane;
         var narrow = viewWidth > 0 && viewWidth < RoomNeeded;
-        if (narrow != _narrow) {
-            _narrow = narrow;
+        if (narrow != IsNarrow) {
+            IsNarrow = narrow;
             _shownAnyway = false;
         }
         return before != HidesPane;
     }
 
     /// The user asked for the pane: it shows even without room, until the next crossing.
-    public void ShowAnyway() => _shownAnyway = _narrow;
+    public void ShowAnyway() => _shownAnyway = IsNarrow;
 
     /// The user hid the pane: there is nothing left to show anyway.
     public void Hidden() => _shownAnyway = false;

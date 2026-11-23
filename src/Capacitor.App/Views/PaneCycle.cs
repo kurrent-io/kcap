@@ -25,13 +25,14 @@ public static class PaneCycle {
             .Where(c => FirstFocusable(c) is not null)
             .ToList();
         if (panes.Count == 0) return false;
-        var focused = window.FocusManager?.GetFocusedElement() as Control;
-        var at = focused is null ? -1 : panes.FindIndex(p => ReferenceEquals(p, focused) || p.IsVisualAncestorOf(focused));
+        var at = window.FocusManager.GetFocusedElement() is Control focused
+            ? panes.FindIndex(p => ReferenceEquals(p, focused) || p.IsVisualAncestorOf(focused))
+            : -1;
         var next = at < 0 ? (step > 0 ? 0 : panes.Count - 1) : (at + step + panes.Count) % panes.Count;
         // Tab, not Directional: a pane that is one Tab stop (rail, transcript) lands where Tab would.
         return FirstFocusable(panes[next])?.Focus(NavigationMethod.Tab) == true;
     }
 
     static Control? FirstFocusable(Control pane) => pane.GetSelfAndVisualDescendants().OfType<Control>()
-        .FirstOrDefault(c => c.Focusable && c.IsEffectivelyVisible && c.IsEffectivelyEnabled && KeyboardNavigation.GetIsTabStop(c));
+        .FirstOrDefault(c => c is { Focusable: true, IsEffectivelyVisible: true, IsEffectivelyEnabled: true } && KeyboardNavigation.GetIsTabStop(c));
 }

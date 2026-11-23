@@ -45,7 +45,7 @@ public static class SecondaryWindowScale {
         var subscription = setting.Changes
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(scale => {
-                host.LayoutTransform = scale == UiScale.Default ? null : new ScaleTransform(scale, scale);
+                host.LayoutTransform = UiScale.IsDefault(scale) ? null : new ScaleTransform(scale, scale);
                 Resize(window, unscaled, scale);
             });
         window.Closed += (_, _) => subscription.Dispose();
@@ -56,7 +56,7 @@ public static class SecondaryWindowScale {
     readonly record struct Frame(double Width, double Height, double MinWidth, double MinHeight);
 
     static void Resize(Window window, Frame unscaled, double scale) {
-        var area = (window.Screens?.ScreenFromWindow(window) ?? window.Screens?.Primary) is { } screen
+        var area = (window.Screens.ScreenFromWindow(window) ?? window.Screens.Primary) is { } screen
             ? screen.WorkingArea.Size.ToSize(screen.Scaling)
             : (Size?)null;
         double Fit(double size, double? limit) => Math.Min(size * scale, limit ?? double.MaxValue);

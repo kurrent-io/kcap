@@ -135,16 +135,16 @@
                                         AutomationProperties.Name="{Binding TitleText}">
                                     <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
                                         <!-- A hit that knows its coding tool leads with the vendor mark, as the rail row does. -->
-                                        <Border Classes="vendorMark" Width="22" Height="22" VerticalAlignment="Top" Background="Transparent"
-                                                IsVisible="{Binding HasVendor}"
+                                        <Border Width="22" Height="22" VerticalAlignment="Top" Background="Transparent"
+                                                IsVisible="{Binding Vendor, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                                 AutomationProperties.Name="{Binding Vendor, Converter={x:Static views:VendorLabelConverter.Instance}}"
                                                 AutomationProperties.AccessibilityView="Content">
                                             <ContentControl HorizontalAlignment="Center" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw"
                                                             Content="{Binding Vendor, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=16}" />
                                         </Border>
                                         <!-- The avatar is read as its owner's name; the initials stay out, or a bare letter is announced. -->
-                                        <Border Width="22" Height="22" CornerRadius="11" VerticalAlignment="Top" ClipToBounds="True"
-                                                IsVisible="{Binding !HasVendor}"
+                                        <Border Grid.Column="0" Width="22" Height="22" CornerRadius="11" VerticalAlignment="Top" ClipToBounds="True"
+                                                IsVisible="{Binding Vendor, Converter={x:Static StringConverters.IsNullOrEmpty}}"
                                                 Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1"
                                                 AutomationProperties.Name="{Binding OwnerName}" AutomationProperties.AccessibilityView="{Binding OwnerAvatarView}">
                                             <Panel>

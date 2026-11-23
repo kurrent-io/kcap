@@ -1680,8 +1680,8 @@ public class MainWindowSmokeTests {
             var rail = window.FindDescendantOfType<SessionRailView>()!;
             var help = rail.FindControl<Button>("RailHelpButton")!;
             var flyout = (Flyout)help.Flyout!;
-            Button? Focused() => window.FocusManager?.GetFocusedElement() as Button
-                ?? TopLevel.GetTopLevel(rail.FindControl<Button>("RailHelpDocsButton"))?.FocusManager?.GetFocusedElement() as Button;
+            Button? Focused() => window.FocusManager.GetFocusedElement() as Button
+                ?? TopLevel.GetTopLevel(rail.FindControl<Button>("RailHelpDocsButton"))?.FocusManager.GetFocusedElement() as Button;
 
             var centre = help.TranslatePoint(new Point(help.Bounds.Width / 2, help.Bounds.Height / 2), window)!.Value;
             window.MouseDown(centre, MouseButton.Left);

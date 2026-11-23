@@ -2,6 +2,18 @@
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              xmlns:views="clr-namespace:Capacitor.App.Views" xmlns:onboarding="clr-namespace:Capacitor.App.ViewModels.Onboarding"
              x:Class="Capacitor.App.Views.CaptureSettingsView" x:DataType="vm:CaptureSettingsViewModel">
+    <UserControl.Styles>
+        <!-- The page's own actions, pinned under its scroll: the same left edge and width as the page column. -->
+        <Style Selector="Border.settingsFooter">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="0,1,0,0" />
+            <Setter Property="Padding" Value="32,14,32,16" />
+        </Style>
+        <Style Selector="Border.settingsFooter > Grid">
+            <Setter Property="MaxWidth" Value="680" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+        </Style>
+    </UserControl.Styles>
     <!-- Save sits in a footer outside the scroll, so it shows at any window height. -->
     <DockPanel IsEnabled="{Binding !Busy}">
         <Border DockPanel.Dock="Bottom" Classes="settingsFooter">

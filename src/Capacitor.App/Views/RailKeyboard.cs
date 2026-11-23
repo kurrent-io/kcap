@@ -21,9 +21,10 @@ public static class RailKeyboard {
         list.AddHandler(InputElement.GotFocusEvent, (_, e) => OnGotFocus(list, e), RoutingStrategies.Bubble);
     }
 
-    static List<Button> Stops(ItemsControl list) => list.GetVisualDescendants().OfType<Button>()
-        .Where(b => (b.Classes.Contains(Header) || b.Classes.Contains(Row)) && b.IsEffectivelyVisible && b.IsEffectivelyEnabled)
-        .ToList();
+    static List<Button> Stops(ItemsControl list) => [
+        .. list.GetVisualDescendants().OfType<Button>()
+            .Where(b => b is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true } && (b.Classes.Contains(Header) || b.Classes.Contains(Row))),
+    ];
 
     static void OnGotFocus(ItemsControl list, FocusChangedEventArgs e) {
         if (e.NavigationMethod != NavigationMethod.Tab || e.Source is not Button entered) return;
@@ -33,7 +34,7 @@ public static class RailKeyboard {
 
     static void OnKeyDown(ItemsControl list, KeyEventArgs e) {
         if (e.Handled || e.KeyModifiers != KeyModifiers.None) return;
-        if (TopLevel.GetTopLevel(list)?.FocusManager?.GetFocusedElement() is not Button focused) return;
+        if (TopLevel.GetTopLevel(list)?.FocusManager.GetFocusedElement() is not Button focused) return;
         var stops = Stops(list);
         var isLink = focused.Classes.Contains(PullRequest);
         var row = isLink ? RowOf(stops, focused) : focused;

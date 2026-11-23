@@ -21,7 +21,7 @@ public static class ChatTranscriptKeyboard {
 
     static void OnKeyDown(ItemsControl transcript, KeyEventArgs e) {
         if (e.Handled || e.KeyModifiers != KeyModifiers.None || e.Key is not (Key.Up or Key.Down)) return;
-        if (TopLevel.GetTopLevel(transcript)?.FocusManager?.GetFocusedElement() is not Control focused || focused is TextBox) return;
+        if (TopLevel.GetTopLevel(transcript)?.FocusManager.GetFocusedElement() is not Control focused || focused is TextBox) return;
         if (IndexOf(transcript, focused) is not { } at) return;
 
         var step = e.Key == Key.Down ? 1 : -1;
@@ -46,5 +46,5 @@ public static class ChatTranscriptKeyboard {
 
     static Control? FirstFocusable(Control container) =>
         container.GetSelfAndVisualDescendants().OfType<Control>()
-            .FirstOrDefault(c => c.Focusable && c.IsEffectivelyVisible && c.IsEffectivelyEnabled && c is not TextBox);
+            .FirstOrDefault(c => c is { Focusable: true, IsEffectivelyVisible: true, IsEffectivelyEnabled: true } and not TextBox);
 }

@@ -20,7 +20,7 @@ public class RailKeyboardSmokeTests {
         window.UpdateLayout();
     }
 
-    static Control? Focused(Window window) => window.FocusManager?.GetFocusedElement() as Control;
+    static Control? Focused(Window window) => window.FocusManager.GetFocusedElement() as Control;
 
     static string? Describe(Control? control) => control?.DataContext switch {
         RailGroupViewModel group => $"header:{group.Label}",
