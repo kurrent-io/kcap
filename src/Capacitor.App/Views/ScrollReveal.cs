@@ -19,7 +19,7 @@ public static class ScrollReveal {
             return;
         }
 
-        var classes = (IPseudoClasses)viewer.Classes;
+        IPseudoClasses classes = viewer.Classes;
         classes.Set(ScrollingClass, true);
 
         var timer = Timers.GetValue(viewer, v => {
