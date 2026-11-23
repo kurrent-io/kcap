@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Daemon.Services;
 
 namespace Capacitor.Cli.Daemon.Acp;
 
@@ -15,5 +16,6 @@ internal sealed record AcpProcessTreeProbe(
     public static readonly AcpProcessTreeProbe Os = new(
         Descendants: pid => pid > 0 && ProcessStartToken.ForPid(pid) is { } identity ? ProcessTree.Descendants(pid, identity) : [],
         Kill:        ProcessTree.Kill,
-        IsAlive:     (pid, identity) => ProcessStartToken.Matches(pid, identity) == true);
+        // An unreadable identity on a live pid counts as alive, so retirement is never confirmed on a guess
+        IsAlive:     (pid, identity) => ProcessIdentity.IsAlive(pid) && ProcessIdentity.MatchesTri(pid, identity) != false);
 }

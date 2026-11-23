@@ -259,6 +259,30 @@ public class AcpHostedAgentRuntimeReconnectTests {
         await Assert.That(Array.IndexOf(events, "kill:6000")).IsLessThan(Array.IndexOf(events, "spawn:5001"));
     }
 
+    /// <summary>Listing spans the whole handshake, so an agent forked after initialize, during session/new, is
+    /// still killed when its wrapper later dies alone</summary>
+    [Test]
+    public async Task Descendant_forked_during_session_new_is_killed_before_the_candidate_spawns() {
+        await using var h = new Harness();
+        var original = h.Incarnations[0].Fake;
+        original.HoldSessionNewResponse = new TaskCompletionSource();
+
+        var start = h.StartAsync();
+        await Harness.PollUntilAsync(() => original.ReceivedCalls.Any(c => c.Method == "session/new"));
+        h.Tree.DescendantsOf[5000] = [(6000, "start:6000")];
+        await Harness.PollUntilAsync(() => h.Tree.Listed(5000));
+        original.HoldSessionNewResponse.TrySetResult();
+        await start;
+
+        h.CrashOriginal();
+        await Harness.PollUntilAsync(() => h.CandidateSpawns >= 1);
+
+        string[] events;
+        lock (h.Events) events = [.. h.Events];
+        await Assert.That(Array.IndexOf(events, "kill:6000")).IsGreaterThanOrEqualTo(0);
+        await Assert.That(Array.IndexOf(events, "kill:6000")).IsLessThan(Array.IndexOf(events, "spawn:5001"));
+    }
+
     /// <summary>A candidate whose wrapper dies during initialize fails its attempt, and the agent it re-execed,
     /// seen while the wrapper lived, is killed before the next candidate spawns</summary>
     [Test]

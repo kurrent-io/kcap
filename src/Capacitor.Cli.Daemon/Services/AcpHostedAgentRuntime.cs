@@ -47,6 +47,17 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         /// <summary>Every descendant seen from spawn through the handshake, so the real agent of a child that
         /// re-execs itself is known even if the spawned wrapper dies first</summary>
         public IReadOnlyList<(int Pid, string Identity)> Descendants { get; set; } = [];
+
+        /// <summary>The running descendant poll, taken by whichever caller stops it first</summary>
+        public DescendantTracking? Tracking;
+    }
+
+    sealed class DescendantTracking(CancellationTokenSource cts, Task loop) {
+        public async Task StopAsync() {
+            await cts.CancelAsync().ConfigureAwait(false);
+            await loop.ConfigureAwait(false);
+            cts.Dispose();
+        }
     }
 
     /// <summary>Runtime lifecycle phase, mutated only under <see cref="_reconnectLock"/>.</summary>
@@ -849,6 +860,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
         JsonElement sessionNewResult;
 
+        StartTrackingDescendants(_installed, ct);
+
         try {
             // Advertise NO client fs/terminal: cursor-agent does file/shell ops itself and never asks
             // the client to serve them (rationale: docs/ai-687-fs-terminal-capability-decision-design.md).
@@ -865,8 +878,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                         Elicitation: new ElicitationCapabilities(Form: new ElicitationFormCapabilities()))),
                 CapacitorJsonContext.Default.InitializeParams);
 
-            var initializeResultElement = await TrackingDescendantsAsync(_installed, _reconnect, ct, () => RunHandshakeStageAsync(
-                    "initialized", stageCt => connection.RequestAsync("initialize", initializeParams, stageCt), ct))
+            var initializeResultElement = await RunHandshakeStageAsync(
+                    "initialized", stageCt => connection.RequestAsync("initialize", initializeParams, stageCt), ct)
                 .ConfigureAwait(false);
 
             // Defensive: a malformed initialize response (wrong-typed protocolVersion, etc.) must not
@@ -988,6 +1001,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         // one consolidated Info log carrying the negotiated protocol version, loadSession, and the
         // resolved model (the applied selection, the handshake's current model for a no-request
         // launch, or null when a requested model did not match or no current marker was published).
+        await StopTrackingDescendantsAsync(_installed).ConfigureAwait(false);
+
         LogHandshakeOk(_agentId, _negotiatedProtocolVersion, _negotiatedCapabilities.LoadSession, ResolvedModel);
 
         // A dropped model is only knowable after session/new publishes the vendor's list, so nothing
@@ -2433,17 +2448,16 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     attemptPidCallbacks.Record(candidate.Process.Pid);
                     recordedWith = attemptPidCallbacks;
 
-                    var initializing = candidate;
-                    await TrackingDescendantsAsync(initializing, support, ownerCt, async () => {
-                        await InitializeCandidateAsync(initializing, ownerCt).ConfigureAwait(false);
-                        return true;
-                    }).ConfigureAwait(false);
+                    StartTrackingDescendants(candidate, ownerCt);
+
+                    await InitializeCandidateAsync(candidate, ownerCt).ConfigureAwait(false);
+                    await LoadSessionAsync(candidate, ownerCt).ConfigureAwait(false);
+                    await ReapplyModelAsync(candidate, ownerCt).ConfigureAwait(false);
+                    await StopTrackingDescendantsAsync(candidate).ConfigureAwait(false);
 
                     // Its exit is not watched until commit, and a re-exec'd agent can answer for a dead wrapper
                     if (candidate.Process.HasExited)
                         throw new IOException("the reconnect candidate's spawned process exited during its handshake");
-                    await LoadSessionAsync(candidate, ownerCt).ConfigureAwait(false);
-                    await ReapplyModelAsync(candidate, ownerCt).ConfigureAwait(false);
 
                     ownerCt.ThrowIfCancellationRequested();
 
@@ -2555,28 +2569,24 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         }
 
         await corpse.Process.TerminateAsync(support.RetirementWait).ConfigureAwait(false);
+        await StopTrackingDescendantsAsync(corpse).ConfigureAwait(false);
 
         var confirmed = corpse.Process.HasExited && await ReapDescendantsAsync(corpse, support).ConfigureAwait(false);
         LogCorpseRetired(_agentId, corpse.Id, confirmed);
         return confirmed;
     }
 
-    /// <summary>Runs <paramref name="handshake"/> while listing the incarnation's descendants, until it ends or the
-    /// spawned process exits. Without reconnect support there is nothing to retire, so nothing is listed</summary>
-    static async Task<T> TrackingDescendantsAsync<T>(
-            Incarnation incarnation, AcpReconnectSupport? support, CancellationToken ct, Func<Task<T>> handshake) {
-        if (support is null) return await handshake().ConfigureAwait(false);
+    /// <summary>Lists the incarnation's descendants until its handshake ends or the spawned process exits. Without
+    /// reconnect support there is nothing to retire, so nothing is listed</summary>
+    void StartTrackingDescendants(Incarnation incarnation, CancellationToken ct) {
+        if (_reconnect is not { } support) return;
 
-        using var tracking = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var tracker = TrackDescendantsAsync(incarnation, support, tracking.Token);
-
-        try {
-            return await handshake().ConfigureAwait(false);
-        } finally {
-            await tracking.CancelAsync().ConfigureAwait(false);
-            await tracker.ConfigureAwait(false);
-        }
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
+        incarnation.Tracking = new DescendantTracking(cts, TrackDescendantsAsync(incarnation, support, cts.Token));
     }
+
+    static Task StopTrackingDescendantsAsync(Incarnation incarnation) =>
+        Interlocked.Exchange(ref incarnation.Tracking, null)?.StopAsync() ?? Task.CompletedTask;
 
     static async Task TrackDescendantsAsync(Incarnation incarnation, AcpReconnectSupport support, CancellationToken ct) {
         try {
@@ -2927,6 +2937,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
         try {
             await candidate.Process.TerminateAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+            await StopTrackingDescendantsAsync(candidate).ConfigureAwait(false);
 
             confirmed = candidate.Process.HasExited && await ReapDescendantsAsync(candidate, _reconnect!).ConfigureAwait(false);
         } catch (Exception ex) {
@@ -3007,6 +3018,17 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     installed.Process.Pid);
         } catch (Exception ex) {
             _logger.LogDebug(ex, "ACP reconnect: terminal-path termination of the installed child failed (best-effort).");
+        }
+
+        // A wrapper that already exited leaves its listed descendants out of reach of the termination above
+        try {
+            await StopTrackingDescendantsAsync(installed).ConfigureAwait(false);
+            if (!await ReapDescendantsAsync(installed, support).ConfigureAwait(false))
+                _logger.LogWarning(
+                    "ACP reconnect: a descendant of the installed child (pid {Pid}) did not confirm exit during terminal-path retirement.",
+                    installed.Process.Pid);
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "ACP reconnect: terminal-path descendant reap failed (best-effort).");
         }
 
         try {
