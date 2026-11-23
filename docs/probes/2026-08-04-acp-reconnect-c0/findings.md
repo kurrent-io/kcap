@@ -70,8 +70,8 @@ Two runs, the same result; the second is archived as `gemini-0.64.0-summary.json
   Cursor and Copilot). gemini-cli's `loadSession` starts `streamHistory` without awaiting it —
   reported upstream as google-gemini/gemini-cli#29707, fix proposed in #29708.
 
-Gemini stays ineligible until a release carries that fix and this probe shows
-`after_response_conversation: 0` on it; enabling then needs that release as a version floor.
+So 0.64.0 is not eligible: the fix must ship and this probe must show `after_response_conversation: 0`
+on it (see the 0.70.0 re-probe below)
 
 ## Re-probe: gemini 0.70.0 (2026-11-23)
 
@@ -108,8 +108,8 @@ Run on Windows, where the kill is `taskkill /T /F` on the spawned `vibe-acp`; ar
 
 1. No vendor implements the `messageId` MAY → the streaming-preserving per-envelope dedup (AI-689
    C3(a)) remains impossible; Cursor's synthetic replay tool ids close it doubly.
-2. The `session/load` response is a reliable closed-world replay barrier for both capable vendors
-   (spec MUST, measured to hold; only non-conversation trailers follow).
+2. The `session/load` response is a reliable closed-world replay barrier for every capable vendor
+   (spec MUST, measured to hold; only non-conversation trailers follow)
 3. Cursor + Copilot are resume-capable across a hard child death; Kiro is not, despite advertising
    `loadSession` — capability gating must be probe-verified per vendor, never inferred from the
    advertisement. Gemini became capable in 0.68.0 (see its 0.70.0 re-probe above)

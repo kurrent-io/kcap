@@ -52,8 +52,25 @@ public class AcpHostedAgentRuntimeReconnectTests {
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
+    /// <summary>Descendants listed per incarnation pid, alive until killed unless they refuse</summary>
+    sealed class FakeProcessTree(List<string> events) {
+        public readonly Dictionary<int, List<(int Pid, string Identity)>> DescendantsOf = [];
+        public readonly HashSet<int> Unkillable = [];
+        readonly HashSet<int> _killed = [];
+
+        public AcpProcessTreeProbe Probe => new(
+            Descendants: pid => DescendantsOf.TryGetValue(pid, out var listed) ? [.. listed] : [],
+            Kill: (pid, _) => {
+                lock (events) events.Add($"kill:{pid}");
+                if (!Unkillable.Contains(pid)) lock (_killed) _killed.Add(pid);
+            },
+            IsAlive: (pid, _) => { lock (_killed) return !_killed.Contains(pid); });
+    }
+
     sealed class Harness : IAsyncDisposable {
         public readonly List<(FakeAcpAgent Fake, FakeAcpProcess Process)> Incarnations = [];
+        public readonly List<string> Events = [];
+        public readonly FakeProcessTree Tree;
         readonly List<AcpEventEnvelope> Envelopes = [];
         public readonly List<int> RecordedPids = [];
         public int  ClearRecordCalls;
@@ -74,6 +91,7 @@ public class AcpHostedAgentRuntimeReconnectTests {
             var fake0 = new FakeAcpAgent();
             var proc0 = new FakeAcpProcess { Pid = 5000, RefuseTermination = refuseOriginalTermination };
             Incarnations.Add((fake0, proc0));
+            Tree = new FakeProcessTree(Events);
 
             Support = withSupport
                 ? new AcpReconnectSupport {
@@ -82,7 +100,8 @@ public class AcpHostedAgentRuntimeReconnectTests {
                     AttemptDelays        = [TimeSpan.Zero, TimeSpan.Zero],
                     RetirementWait       = TimeSpan.FromSeconds(2),
                     SettlementWait       = TimeSpan.FromSeconds(5),
-                    MaxResumesPerSession = maxResumes
+                    MaxResumesPerSession = maxResumes,
+                    ProcessTree          = Tree.Probe
                 }
                 : null;
 
@@ -104,6 +123,7 @@ public class AcpHostedAgentRuntimeReconnectTests {
             var proc = new FakeAcpProcess { Pid = 5000 + Incarnations.Count };
 
             ConfigureCandidate?.Invoke(fake, Incarnations.Count);
+            lock (Events) Events.Add($"spawn:{proc.Pid}");
             Incarnations.Add((fake, proc));
             _fakeLoops.Add(fake.RunAsync(Cts.Token));
 
@@ -209,6 +229,41 @@ public class AcpHostedAgentRuntimeReconnectTests {
 
         // And the candidate's pid was durably recorded at spawn.
         await Assert.That(h.RecordedPids).Contains(5001);
+    }
+
+    /// <summary>A wrapper that dies alone leaves its re-execed agent reparented and alive. Retirement kills
+    /// the descendants listed after the handshake before the candidate is spawned</summary>
+    [Test]
+    public async Task Wrapper_only_death_kills_the_reparented_agent_before_the_candidate_spawns() {
+        await using var h = new Harness();
+        h.Tree.DescendantsOf[5000] = [(6000, "start:6000")];
+
+        await h.StartAsync();
+        h.CrashOriginal();
+
+        await Harness.PollUntilAsync(() => h.CandidateSpawns >= 1);
+
+        string[] events;
+        lock (h.Events) events = [.. h.Events];
+        await Assert.That(events).Contains("kill:6000");
+        await Assert.That(Array.IndexOf(events, "kill:6000")).IsLessThan(Array.IndexOf(events, "spawn:5001"));
+    }
+
+    /// <summary>A descendant still alive after the retirement wait is an unconfirmed retirement: no candidate
+    /// may load the session beside it</summary>
+    [Test]
+    public async Task Surviving_descendant_finalizes_without_spawning_a_candidate() {
+        await using var h = new Harness();
+        h.Tree.DescendantsOf[5000] = [(6000, "start:6000")];
+        h.Tree.Unkillable.Add(6000);
+
+        await h.StartAsync();
+
+        var terminal = h.RuntimeTerminalAsync();
+        h.CrashOriginal();
+
+        await terminal.WaitAsync(HangGuard);
+        await Assert.That(h.CandidateSpawns).IsEqualTo(0);
     }
 
     [Test]

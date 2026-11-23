@@ -43,6 +43,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         public required IAcpProcess             Process    { get; init; }
         public required CancellationTokenSource LoopCts    { get; init; }
         public Task LoopTask { get; set; } = Task.CompletedTask;
+
+        /// <summary>Listed after the handshake, so a child that re-execs itself has started its real agent</summary>
+        public IReadOnlyList<(int Pid, string Identity)> Descendants { get; set; } = [];
     }
 
     /// <summary>Runtime lifecycle phase, mutated only under <see cref="_reconnectLock"/>.</summary>
@@ -889,6 +892,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             }
 
             _negotiatedProtocolVersion = initializeResult.ProtocolVersion;
+
+            if (_reconnect is { } reconnect)
+                _installed.Descendants = reconnect.ProcessTree.Descendants(_installed.Process.Pid);
 
             // Missing agentCapabilities defensively means "advertises nothing" (loadSession=false),
             // not a throw — the reconnect eligibility gate reads loadSession off this.
@@ -2430,6 +2436,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     recordedWith = attemptPidCallbacks;
 
                     await InitializeCandidateAsync(candidate, ownerCt).ConfigureAwait(false);
+                    candidate.Descendants = support.ProcessTree.Descendants(candidate.Process.Pid);
                     await LoadSessionAsync(candidate, ownerCt).ConfigureAwait(false);
                     await ReapplyModelAsync(candidate, ownerCt).ConfigureAwait(false);
 
@@ -2542,9 +2549,29 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
         await corpse.Process.TerminateAsync(support.RetirementWait).ConfigureAwait(false);
 
-        var confirmed = corpse.Process.HasExited;
+        var confirmed = corpse.Process.HasExited && await ReapDescendantsAsync(corpse, support).ConfigureAwait(false);
         LogCorpseRetired(_agentId, corpse.Id, confirmed);
         return confirmed;
+    }
+
+    /// <summary>Kills the corpse's listed descendants and waits within <see cref="AcpReconnectSupport.RetirementWait"/>
+    /// for them to be gone. A wrapper that died alone leaves them reparented, out of reach of its tree kill,
+    /// and a survivor would still hold the session the candidate is about to load</summary>
+    static async Task<bool> ReapDescendantsAsync(Incarnation corpse, AcpReconnectSupport support) {
+        var tree = support.ProcessTree;
+
+        foreach (var (pid, identity) in corpse.Descendants)
+            tree.Kill(pid, identity);
+
+        var deadline = support.TimeProvider.GetUtcNow() + support.RetirementWait;
+
+        while (corpse.Descendants.Any(d => tree.IsAlive(d.Pid, d.Identity))) {
+            if (support.TimeProvider.GetUtcNow() >= deadline) return false;
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50), support.TimeProvider).ConfigureAwait(false);
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -2848,6 +2875,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
         try {
             await candidate.Process.TerminateAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+
+            foreach (var (pid, identity) in candidate.Descendants)
+                _reconnect!.ProcessTree.Kill(pid, identity);
         } catch (Exception ex) {
             _logger.LogDebug(ex, "ACP reconnect: candidate process termination failed (best-effort).");
         }
