@@ -23,7 +23,7 @@ internal sealed class FakePullRequestSource(FakeTimeProvider time) : IPullReques
     public bool EmptyPages;
     /// Held open, every page read waits on it: the section stays in its first load.
     public TaskCompletionSource? PageGate;
-    public string HeadSha = new string('a', 40);
+    public string HeadSha = new('a', 40);
     /// The next page read answers Restart with this reason instead of a page.
     public string? RestartNextPage;
     public string? Failure;

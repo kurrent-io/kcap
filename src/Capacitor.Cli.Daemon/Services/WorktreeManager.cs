@@ -1364,7 +1364,7 @@ public partial class WorktreeManager(
             // enumerates a tree the snapshot has no right to read. The per-file guards below cannot
             // undo a directory-level traversal that has already happened, so the components are
             // checked BEFORE git is invoked here.
-            EnsureNoLinkedComponents(source, subDir, subRel);
+            EnsureNoLinkedComponents(source, subRel);
 
             // Gate on the submodule's OWN git, not on the directory: `git submodule` leaves an empty
             // directory for an uninitialized one, so Directory.Exists is true there and `git -C`
@@ -1424,7 +1424,7 @@ public partial class WorktreeManager(
             }
             var path = ContainedPath(source, rel);
             if (!File.Exists(path)) continue; // tracked deletion
-            EnsureNoLinkedComponents(source, path, rel);
+            EnsureNoLinkedComponents(source, rel);
             var info = new FileInfo(path);
             if (info.LinkTarget is not null || info.Attributes.HasFlag(FileAttributes.ReparsePoint))
                 throw new InvalidOperationException($"borrowed_snapshot_symlink_unsupported: {rel}");
@@ -1667,7 +1667,7 @@ public partial class WorktreeManager(
         return raw;
     }
 
-    static void EnsureNoLinkedComponents(string root, string path, string rel) {
+    static void EnsureNoLinkedComponents(string root, string rel) {
         var current = Path.GetFullPath(root);
         foreach (var component in rel.Split('/')) {
             current = Path.Combine(current, component);

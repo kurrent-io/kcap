@@ -89,21 +89,6 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
         }
     } = [];
 
-    public AccountSummaryCard ReadyCard {
-        get;
-        private set => this.RaiseAndSetIfChanged(ref field, value);
-    } = new("0 of 0", null, false);
-
-    public AccountSummaryCard NextResetCard {
-        get;
-        private set => this.RaiseAndSetIfChanged(ref field, value);
-    } = new("—", null, false);
-
-    public AccountSummaryCard NeedsFixCard {
-        get;
-        private set => this.RaiseAndSetIfChanged(ref field, value);
-    } = new("0", null, false);
-
     public bool CanManage {
         get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
@@ -304,37 +289,10 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
     }
 
     void UpdateUsage() {
-        var accounts = _snapshot?.Accounts ?? [];
-        if (_now is not { } now) {
-            SetCards(accounts, null);
-            return;
-        }
+        if (_now is not { } now) return;
 
-        foreach (var account in accounts)
+        foreach (var account in _snapshot?.Accounts ?? [])
             if (_slots.TryGetValue(account.Id, out var slot)) slot.View = AccountUsage.Project(account, now, _zone);
-
-        SetCards(accounts, now);
-    }
-
-    void SetCards(AccountViewDto[] accounts, DateTimeOffset? now) {
-        var ordered = accounts.OrderBy(a => a.Label, StringComparer.Ordinal).ThenBy(a => a.Directory, StringComparer.Ordinal).ToArray();
-
-        var ready = now is { } at
-            ? ordered.Where(a => AccountUsage.Project(a, at, _zone).Ready).Select(a => a.Label).ToArray()
-            : [];
-        ReadyCard = new($"{ready.Length} of {ordered.Length}", ready.Length == 0 ? null : string.Join(", ", ready), false);
-
-        var next = now is { } n
-            ? ordered.Select(a => (Account: a, Window: AccountUsage.NextResetWindow(a, n))).Where(x => x.Window is not null)
-                .OrderBy(x => x.Window!.ResetsAt).FirstOrDefault()
-            : default;
-        NextResetCard = next.Window is { ResetsAt: { } resets } window
-            ? new(UsageText.Reset(resets, now!.Value, _zone), $"{next.Account.Label} · {UsageText.WindowLabel(window.WindowMinutes)}", false)
-            : new("—", null, false);
-
-        var fixes = ordered.Select(a => (Account: a, Reason: AccountUsage.NeedsFix(a))).Where(x => x.Reason is not null).ToArray();
-        NeedsFixCard = new(fixes.Length.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            fixes.Length == 0 ? null : $"{fixes[0].Account.Label} · {fixes[0].Reason}", fixes.Length > 0);
     }
 
     // A resent snapshot listing the same rows leaves the list alone, so an open menu or a rename in

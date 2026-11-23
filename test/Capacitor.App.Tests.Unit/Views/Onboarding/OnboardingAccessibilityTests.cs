@@ -38,7 +38,7 @@ public class OnboardingAccessibilityTests {
             view.DataContext = step;
 
             var choices = view.GetLogicalDescendants().OfType<RadioButton>()
-                .Select(choice => ControlAutomationPeer.CreatePeerForElement(choice))
+                .Select(ControlAutomationPeer.CreatePeerForElement)
                 .ToList();
 
             await Assert.That(choices.Select(peer => peer.GetName())).IsEquivalentTo(
@@ -67,7 +67,7 @@ public class OnboardingAccessibilityTests {
                     Dispatcher.UIThread.RunJobs();
                     spoken.AddRange(view.GetVisualDescendants().OfType<AppIcon>()
                         .Where(icon => icon.IsEffectivelyVisible)
-                        .Select(icon => ControlAutomationPeer.CreatePeerForElement(icon))
+                        .Select(ControlAutomationPeer.CreatePeerForElement)
                         .Where(peer => peer.IsControlElement())
                         .Select(peer => peer.GetName()));
                 }

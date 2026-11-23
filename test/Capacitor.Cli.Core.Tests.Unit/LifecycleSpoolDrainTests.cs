@@ -324,7 +324,7 @@ public class LifecycleSpoolDrainTests {
         var order = new List<string>();
         // currentSessionId=null → a DIFFERENT vendor's kcap invocation replaying a prior session.
         await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
-            lifecyclePoster: (route, body) => { order.Add($"L:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
+            lifecyclePoster: (_, body) => { order.Add($"L:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
             transcriptPoster: body => { order.Add($"T:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
 
@@ -346,7 +346,7 @@ public class LifecycleSpoolDrainTests {
 
         var order = new List<string>();
         await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: null,
-            lifecyclePoster: (route, body) => { order.Add($"L:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
+            lifecyclePoster: (_, body) => { order.Add($"L:{body}"); return Task.FromResult(DrainOutcome.Delivered); },
             // Transcript poster reports a transient failure — the tail never fully drains.
             transcriptPoster: body => { order.Add($"T:{body}"); return Task.FromResult(DrainOutcome.TransientStop); },
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
@@ -718,7 +718,7 @@ public class LifecycleSpoolDrainTests {
 
         var order = new List<string>();
         await LifecycleSpoolDrain.RunAsync(Config.Root, life, tx, currentSessionId: Sid,
-            lifecyclePoster: (route, body) => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
+            lifecyclePoster: (_, body) => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
             transcriptPoster: body => { order.Add(body); return Task.FromResult(DrainOutcome.Delivered); },
             budget: TimeSpan.FromSeconds(5), ct: CancellationToken.None, time: TimeProvider.System);
 

@@ -24,13 +24,13 @@
                             </TextBlock>
                         </StackPanel>
                     </StackPanel>
-                    <StackPanel Spacing="6">
+                    <StackPanel Spacing="6" icons:PulseClock.IsActive="{Binding Looking}">
                         <Border Height="44" CornerRadius="4" BorderThickness="1" BorderBrush="{StaticResource OnboardingPanelBorderBrush}"
-                                Background="{StaticResource OnboardingSkeletonBrush}" Classes="pulsing" />
+                                Background="{StaticResource OnboardingSkeletonBrush}" />
                         <Border Height="44" CornerRadius="4" BorderThickness="1" BorderBrush="{StaticResource OnboardingPanelBorderBrush}"
-                                Background="{StaticResource OnboardingSkeletonBrush}" Classes="pulsing" />
+                                Background="{StaticResource OnboardingSkeletonBrush}" />
                         <Border Height="44" CornerRadius="4" BorderThickness="1" BorderBrush="{StaticResource OnboardingPanelBorderBrush}"
-                                Background="{StaticResource OnboardingSkeletonBrush}" Classes="pulsing" />
+                                Background="{StaticResource OnboardingSkeletonBrush}" />
                     </StackPanel>
                 </StackPanel>
 

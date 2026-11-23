@@ -61,7 +61,7 @@ public class LocalControlOpsV2PutTests {
 
     [Test]
     public async Task Server_mismatch_acks_identity_mismatch_and_leaves_policy_unchanged() {
-        await RunAsync("lcov2put-c", async (h, ops, ct) => {
+        await RunAsync("lcov2put-c", async (_, ops, ct) => {
             var before = await ops.GetConsentPolicyAsync(ct);
 
             var put = new ConsentPolicyPutV2Dto("lcov2put-c", "https://other-server.example",

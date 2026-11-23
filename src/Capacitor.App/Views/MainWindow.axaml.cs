@@ -112,7 +112,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     /// AgentActionService pushes into, so the toast overlay and stderr mirroring are always in
     /// sync. Left null on a plainly-constructed window (tests that don't exercise toasts).
     public IAppNotifier? Notifier {
-        get => field;
+        get;
         set {
             field = value;
             _notifierSubscription?.Dispose();

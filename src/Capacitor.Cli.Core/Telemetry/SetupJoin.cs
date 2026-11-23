@@ -54,11 +54,10 @@ public sealed class SetupJoin(CliTelemetry telemetry, string signupUrl) : ILoopb
     /// </summary>
     public const string PropertyName = "join_id";
 
-    string? _current;
     int     _consumed;
 
     /// <summary>The key for this run, or null when telemetry is off or nothing minted one.</summary>
-    public string? Current => _current;
+    public string? Current { get; private set; }
 
     /// <summary>
     /// Mints the key and registers it as a telemetry shared property, so every event captured
@@ -69,13 +68,13 @@ public sealed class SetupJoin(CliTelemetry telemetry, string signupUrl) : ILoopb
     public string? Mint() {
         try {
             if (!telemetry.Enabled) return null;
-            if (_current is not null) return _current;
+            if (Current is not null) return Current;
 
             // Same shape and minting discipline as MachineId/TelemetryDeviceId.
-            _current = Guid.NewGuid().ToString("N");
-            telemetry.AddSharedProperty(PropertyName, _current);
+            Current = Guid.NewGuid().ToString("N");
+            telemetry.AddSharedProperty(PropertyName, Current);
 
-            return _current;
+            return Current;
         } catch {
             return null;
         }
@@ -90,7 +89,7 @@ public sealed class SetupJoin(CliTelemetry telemetry, string signupUrl) : ILoopb
     /// </summary>
     public string? FirstHopUrl(int port) {
         try {
-            return _current is null ? null : $"{signupUrl}/api/cli/return?j={_current}&p={port}";
+            return Current is null ? null : $"{signupUrl}/api/cli/return?j={Current}&p={port}";
         } catch {
             return null;
         }
@@ -120,7 +119,7 @@ public sealed class SetupJoin(CliTelemetry telemetry, string signupUrl) : ILoopb
     /// </summary>
     public bool Accept(string query) {
         try {
-            if (_current is null) return false;
+            if (Current is null) return false;
             if (Volatile.Read(ref _consumed) != 0) return false;
 
             var candidate = Param(query, "j");
@@ -154,7 +153,7 @@ public sealed class SetupJoin(CliTelemetry telemetry, string signupUrl) : ILoopb
     // Constant-time, so a local process probing the port cannot recover the key one byte at a
     // time from response timing.
     bool KeyMatches(string candidate) {
-        var expected = _current;
+        var expected = Current;
         if (expected is null || candidate.Length != expected.Length) return false;
 
         return CryptographicOperations.FixedTimeEquals(

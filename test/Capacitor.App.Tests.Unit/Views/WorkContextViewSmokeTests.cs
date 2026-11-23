@@ -817,7 +817,7 @@ public class WorkContextViewSmokeTests {
             List<T> All<T>(string cls) where T : Control => outline.GetVisualDescendants().OfType<T>().Where(c => c.Classes.Contains(cls) && c.IsEffectivelyVisible).ToList();
 
             var topicLinks = All<Button>("topicLink");
-            await Assert.That(topicLinks.Select(b => AutomationProperties.GetName(b)))
+            await Assert.That(topicLinks.Select(AutomationProperties.GetName))
                 .IsEquivalentTo(new string?[] { "Go to topic Locks", "Go to bookmark Lock order", "Go to bookmark Retry jitter" }, CollectionOrdering.Matching);
             await Assert.That(topicLinks[1].TranslatePoint(default, outline)!.Value.X).IsGreaterThan(topicLinks[0].TranslatePoint(default, outline)!.Value.X);
 

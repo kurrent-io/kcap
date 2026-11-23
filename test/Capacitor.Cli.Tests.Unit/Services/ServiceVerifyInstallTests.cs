@@ -31,8 +31,8 @@ public class ServiceVerifyInstallTests {
         public bool Bootstrapped, Uninstalled;
         public bool StayUnknownAfterUninstall;
         public int? RunningPid = 4242;
-        readonly string PlistPath = "/fake/agents/io.kurrent.kcap.daemon.svc-verify-install.plist";
-        readonly string PlistContent = OwnPlistContent;
+        const string PlistPath = "/fake/agents/io.kurrent.kcap.daemon.svc-verify-install.plist";
+        const string PlistContent = OwnPlistContent;
         public Exception? GenerateFilesThrows;
         public Exception? WriteAndBootstrapThrows;
         public Action<string>? OnGenerateFiles;

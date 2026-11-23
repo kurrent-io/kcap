@@ -476,7 +476,7 @@
                                             </Grid>
                                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                                 <Border IsVisible="{Binding ShowsHeaderBadge}" VerticalAlignment="Center" MaxWidth="76">
-                                                    <views:AgentStatusMark Classes="railRepoStatus" DataContext="{Binding HeaderStatus}" ToolTip.Tip="{x:Null}" />
+                                                    <views:AgentStatusMark DataContext="{Binding HeaderStatus}" ToolTip.Tip="{x:Null}" />
                                                 </Border>
                                                 <TextBlock Text="{Binding CountText}" Classes="sectionMeta" />
                                                 <Panel Width="12" Height="12">
@@ -585,7 +585,7 @@
                                                                 HorizontalAlignment="Right" HorizontalContentAlignment="Left" VerticalAlignment="Bottom" Margin="4,0,4,4"
                                                                 FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapMutedBrush}">
                                                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                                                <views:PullRequestStatusLabel Classes="railPrMark" DataContext="{Binding PullRequestStatus}"
+                                                                <views:PullRequestStatusLabel DataContext="{Binding PullRequestStatus}"
                                                                                               ShowText="False"
                                                                                               IsVisible="{Binding $parent[Button].((vm:RailSessionViewModel)DataContext).HasPullRequestLifecycle}"
                                                                                               VerticalAlignment="Center" />

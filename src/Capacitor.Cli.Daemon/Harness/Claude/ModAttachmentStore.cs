@@ -58,7 +58,7 @@ internal sealed partial class ModAttachmentStore(string path, ILogger logger) {
     static T[] Keep<T>(T[]? entries, Func<T?, bool> valid, ref int dropped) where T : class {
         if (entries is null) return [];
 
-        T[] kept = [.. entries.Where(e => valid(e))];
+        T[] kept = [.. entries.Where(valid)];
         dropped += entries.Length - kept.Length;
 
         return kept;

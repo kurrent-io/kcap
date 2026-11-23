@@ -247,13 +247,13 @@ public class SettingsWindowSmokeTests {
             tabs.SelectedItem = tab;
             Settle(window);
 
-            var rows = tabs.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("accountRow")).ToList();
-            string Label(Control row) => row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("accountLabel")).Text!;
+            var rows = tabs.GetVisualDescendants().OfType<Border>().Where(b => b.Name == "AccountRow").ToList();
+            string Label(Control row) => row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "AccountLabel").Text!;
             Border RowOf(string label) => rows.Single(r => Label(r) == label);
-            bool HasPill(Control row) => row.GetVisualDescendants().OfType<Border>().Any(b => b.Classes.Contains("accountDefault") && b.IsEffectivelyVisible);
-            TextBlock State(Control row) => row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("accountState"));
+            bool HasPill(Control row) => row.GetVisualDescendants().OfType<Border>().Any(b => b.Name == "AccountDefault" && b.IsEffectivelyVisible);
+            TextBlock State(Control row) => row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "AccountState");
             Button? Visible(Control row, string kind) =>
-                row.GetVisualDescendants().OfType<Button>().SingleOrDefault(b => b.Classes.Contains(kind) && b.IsEffectivelyVisible);
+                row.GetVisualDescendants().OfType<Button>().SingleOrDefault(b => b.Name == kind && b.IsEffectivelyVisible);
 
             await Assert.That(string.Join(",", rows.Select(Label))).IsEqualTo("home,work,main,.codex");
             await Assert.That(HasPill(RowOf("home"))).IsTrue();
@@ -261,14 +261,17 @@ public class SettingsWindowSmokeTests {
             await Assert.That(HasPill(RowOf("main"))).IsFalse();
             await Assert.That(HasPill(RowOf(".codex"))).IsTrue();
 
-            var trust = State(RowOf("main"));
-            await Assert.That(trust.Text).IsEqualTo("Needs approval in Codex");
-            await Assert.That(ToolTip.GetTip(trust)).IsEqualTo("Start Codex once with this account and approve kcap's hooks when it asks.");
+            var trust = RowOf("main").GetVisualDescendants().OfType<Border>().Single(b => b.Name == "AccountStateNotice");
+            await Assert.That(trust.IsEffectivelyVisible).IsTrue();
+            await Assert.That(string.Join("|", trust.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text)))
+                .Contains("Needs approval in Codex|Start Codex once with this account and approve kcap's hooks when it asks.");
+            await Assert.That(State(RowOf("main")).IsEffectivelyVisible).IsFalse();
             await Assert.That(State(RowOf("home")).Text).IsEqualTo("Recording");
-            await Assert.That(Visible(RowOf(".codex"), "accountMenu")).IsNull();
-            await Assert.That(Visible(RowOf("home"), "accountAdd")).IsNull();
+            await Assert.That(State(RowOf("home")).IsEffectivelyVisible).IsTrue();
+            await Assert.That(Visible(RowOf(".codex"), "AccountMenu")).IsNull();
+            await Assert.That(Visible(RowOf("home"), "AccountAdd")).IsNull();
 
-            var menuButton = Visible(RowOf("work"), "accountMenu")!;
+            var menuButton = Visible(RowOf("work"), "AccountMenu")!;
             await Assert.That(AutomationProperties.GetName(menuButton)).IsEqualTo("Actions for work");
             var menu = (Flyout)menuButton.Flyout!;
             menuButton.BringIntoView();
@@ -284,7 +287,7 @@ public class SettingsWindowSmokeTests {
             await Assert.That(field.IsEffectivelyVisible).IsTrue();
             await Assert.That(field.Text).IsEqualTo("work");
 
-            var add = Visible(RowOf(".codex"), "accountAdd")!;
+            var add = Visible(RowOf(".codex"), "AccountAdd")!;
             add.BringIntoView();
             Click(window, add);
             await WaitUntilAsync(() => requests.Count == 1);
@@ -341,7 +344,7 @@ public class SettingsWindowSmokeTests {
             tabs.SelectedItem = window.FindControl<TabItem>("AccountsTab")!;
             Settle(window);
 
-            var pills = tabs.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("accountBlocked")).ToArray();
+            var pills = tabs.GetVisualDescendants().OfType<Border>().Where(b => b.Name == "AccountBlocked").ToArray();
             await Assert.That(pills).IsNotEmpty();
             await Assert.That(pills.Any(b => b.IsEffectivelyVisible)).IsFalse();
         } finally {
@@ -379,7 +382,7 @@ public class SettingsWindowSmokeTests {
             tabs.SelectedItem = window.FindControl<TabItem>("AccountsTab")!;
             Settle(window);
 
-            var menuButton = tabs.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("accountMenu") && b.IsEffectivelyVisible);
+            var menuButton = tabs.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AccountMenu" && b.IsEffectivelyVisible);
             menuButton.BringIntoView();
             Click(window, menuButton);
             var menu = (Flyout)menuButton.Flyout!;
@@ -737,7 +740,7 @@ public class SettingsWindowSmokeTests {
             window.Show();
             Settle(window);
             var peers = window.GetVisualDescendants().OfType<SettingsSectionHeader>()
-                .Select(header => ControlAutomationPeer.CreatePeerForElement(header))
+                .Select(ControlAutomationPeer.CreatePeerForElement)
                 .ToList();
 
             await Assert.That(peers.Select(peer => peer.GetName())).IsEquivalentTo(["This profile", "This computer"]);

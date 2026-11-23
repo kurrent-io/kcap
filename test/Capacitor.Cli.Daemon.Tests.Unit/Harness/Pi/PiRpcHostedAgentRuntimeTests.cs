@@ -539,7 +539,7 @@ public class PiRpcHostedAgentRuntimeTests {
 
         await rt.WaitForSessionReadyAsync(CancellationToken.None).WaitAsync(HangGuard);
 
-        var read = Task.Run(async () => { await foreach (var _unused in rt.ReadOutputAsync()) { } });
+        var read = Task.Run(() => rt.ReadOutputAsync().ToArrayAsync().AsTask());
         proc.EndOfStream();
         await read.WaitAsync(HangGuard);   // terminal has genuinely been entered
 
@@ -688,7 +688,7 @@ public class PiRpcHostedAgentRuntimeTests {
         var (rt, proc) = NewRuntime(stopGrace: TimeSpan.FromSeconds(5));
         await using var _ = rt;
         proc.ExitsOnInputClose  = true;
-        proc.LinesOnInputClose = [PiRpcRuntimeFakes.AssistantText("final words")];
+        proc.LinesOnInputClose = [AssistantText("final words")];
 
         await rt.WaitForSessionReadyAsync(CancellationToken.None).WaitAsync(HangGuard);
         while (rt.Envelopes.TryRead(out var _)) { }
@@ -708,7 +708,7 @@ public class PiRpcHostedAgentRuntimeTests {
         var (rt, proc) = NewRuntime();
         await using var _ = rt;
 
-        var read = Task.Run(async () => { await foreach (var _unused in rt.ReadOutputAsync()) { } });
+        var read = Task.Run(() => rt.ReadOutputAsync().ToArrayAsync().AsTask());
 
         await rt.WaitForSessionReadyAsync(CancellationToken.None).WaitAsync(HangGuard);
         proc.Push(AssistantText("still going"));

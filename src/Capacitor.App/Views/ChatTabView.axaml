@@ -659,7 +659,7 @@
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
-                            <views:ToolImagePreview Grid.Row="2" Classes="toolBody kcapGhost" Margin="0,6,0,2" Path="{Binding PreviewPath}" />
+                            <views:ToolImagePreview Grid.Row="2" Classes="kcapGhost" Margin="0,6,0,2" Path="{Binding PreviewPath}" />
                             <Border x:Name="ToolInspection" Grid.Row="3" Classes="toolInspection" IsVisible="{Binding IsExpanded}">
                                 <StackPanel Spacing="4">
                                     <Button x:Name="ToolOpenFile" Classes="kcapGhost kcapQuiet" Content="Open file…" HorizontalAlignment="Left"

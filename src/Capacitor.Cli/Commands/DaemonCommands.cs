@@ -115,13 +115,13 @@ public sealed class DaemonCommands(
                 return 1;
             }
 
-            return await SpawnForegroundAsync(name, args);
+            return await SpawnForegroundAsync(args);
         } finally {
             startLock.Dispose();
         }
     }
 
-    async Task<int> SpawnForegroundAsync(string name, string[] args) {
+    async Task<int> SpawnForegroundAsync(string[] args) {
         var daemonPath = UnitIdentity.ResolveDaemonBinary();
 
         if (daemonPath is null) {

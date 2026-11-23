@@ -83,6 +83,8 @@
             <SolidColorBrush x:Key="ScrollBarTrackStroke" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollBarTrackStrokePointerOver" Color="#1E2E52" />
             <SolidColorBrush x:Key="ScrollBarBackground" Color="#00000000" />
+            <ScaleTransform x:Key="VerticalSmallScrollThumbScaleTransform" ScaleX="1" ScaleY="1" />
+            <ScaleTransform x:Key="HorizontalSmallScrollThumbScaleTransform" ScaleX="1" ScaleY="1" />
             <SolidColorBrush x:Key="ScrollBarBackgroundPointerOver" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollBarButtonBackground" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollBarButtonBackgroundPointerOver" Color="#00000000" />
@@ -134,6 +136,7 @@
         <StyleInclude Source="avares://kcap-desktop/Views/ChatBubbleStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/Onboarding/OnboardingStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/StatusStyles.axaml" />
+        <StyleInclude Source="avares://kcap-desktop/Views/NoticeStyles.axaml" />
         <!-- Toasts are the launcher's notice card, floating: the status shows as the icon, never a coloured bar. The
              template keeps Fluent's part names, which its open and close animations target. The message wraps in
              full, because a toast often ends with the instruction the user needs. -->
@@ -866,6 +869,16 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="ContextFlyout" Value="{x:Null}" />
         </Style>
+        <Style Selector="ScrollViewer:not(:scrolling) /template/ ScrollBar[AllowAutoHide=True][IsExpanded=False]">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector="ScrollBar[AllowAutoHide=True]">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+                </Transitions>
+            </Setter>
+        </Style>
         <Style Selector="ScrollBar:vertical">
             <Setter Property="Width" Value="12" />
             <Setter Property="MinWidth" Value="12" />
@@ -962,6 +975,42 @@
         <Style Selector="ScrollBar:horizontal /template/ Thumb:pressed /template/ Border#ThumbPill">
             <Setter Property="Opacity" Value="1" />
             <Setter Property="RenderTransform" Value="scale(0.97, 0.72)" />
+        </Style>
+        <Style Selector="GridSplitter.sidebarSplitter">
+            <Setter Property="Width" Value="12" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Cursor" Value="SizeWestEast" />
+            <Setter Property="Template">
+                <ControlTemplate TargetType="GridSplitter">
+                    <Border Background="Transparent">
+                        <Border Name="SplitterLine"
+                                Width="2"
+                                HorizontalAlignment="Center"
+                                Background="{StaticResource KcapBorderBrush}"
+                                CornerRadius="99"
+                                RenderTransformOrigin="50%,50%"
+                                RenderTransform="scaleX(1)">
+                            <Border.Transitions>
+                                <Transitions>
+                                    <BrushTransition Property="Background" Duration="0:0:0.14" />
+                                    <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+                                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12" Easing="CubicEaseOut" />
+                                </Transitions>
+                            </Border.Transitions>
+                        </Border>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="GridSplitter.sidebarSplitter:pointerover /template/ Border#SplitterLine">
+            <Setter Property="Background" Value="{StaticResource KcapInfoBrush}" />
+            <Setter Property="Opacity" Value="0.75" />
+            <Setter Property="RenderTransform" Value="scaleX(1.5)" />
+        </Style>
+        <Style Selector="GridSplitter.sidebarSplitter:pressed /template/ Border#SplitterLine">
+            <Setter Property="Background" Value="{StaticResource KcapInfoBrush}" />
+            <Setter Property="Opacity" Value="1" />
+            <Setter Property="RenderTransform" Value="scaleX(1.5)" />
         </Style>
         <StyleInclude Source="avares://kcap-desktop/Views/SectionStyles.axaml" />
         <Style Selector="Button.acpOption, ToggleButton.acpOption">

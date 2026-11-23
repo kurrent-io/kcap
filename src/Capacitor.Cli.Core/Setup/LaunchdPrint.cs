@@ -100,7 +100,7 @@ public static class LaunchdPrint {
         return result;
     }
 
-    public static LabelProbe Classify(int exitCode, string stdout, string stderr) {
+    public static LabelProbe Classify(int exitCode, string stderr) {
         if (exitCode == 0) return LabelProbe.Loaded;
         return stderr.Contains("Could not find service", StringComparison.OrdinalIgnoreCase)
             ? LabelProbe.Absent

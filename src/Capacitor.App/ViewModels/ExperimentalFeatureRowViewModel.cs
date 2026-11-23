@@ -7,7 +7,6 @@ namespace Capacitor.App.ViewModels;
 /// One experimental feature's switch and the line under it. The switch saves on change; a save the store
 /// refuses puts it back.
 public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
-    readonly ExperimentalFeature _feature;
     readonly Func<ExperimentalFeatureRowViewModel, bool, Task> _save;
     bool _enabled;
     // False while the profile never set the switch, so _enabled is the feature's default and nothing is stored.
@@ -18,10 +17,10 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
     bool _canChange;
     bool _changedHere;
 
-    internal ExperimentalFeature Feature => _feature;
+    internal ExperimentalFeature Feature { get; }
 
     internal ExperimentalFeatureRowViewModel(ExperimentalFeature feature, bool enabled, bool canChange, Func<ExperimentalFeatureRowViewModel, bool, Task> save) {
-        _feature = feature;
+        Feature = feature;
         _enabled = enabled;
         _save = save;
         _canChange = canChange;
@@ -35,9 +34,9 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
     /// A daemon starts with nothing accepted, so a switch left on waits for that first registration.
     public const string WaitingForServerText = "Starts once the daemon connects to your kcap server.";
 
-    internal string Id => _feature.Id;
-    public string DisplayName => _feature.DisplayName;
-    public string Description => _feature.Description;
+    internal string Id => Feature.Id;
+    public string DisplayName => Feature.DisplayName;
+    public string Description => Feature.Description;
     public bool CanChange {
         get => _canChange;
         private set => this.RaiseAndSetIfChanged(ref _canChange, value);
@@ -97,12 +96,12 @@ public sealed class ExperimentalFeatureRowViewModel : ReactiveObject {
 
     void Recompute() {
         // The daemon reports nothing for an app-only feature, so the switch alone is its state.
-        if (!_hasStatus || _feature.DesktopAppOnly) {
+        if (!_hasStatus || Feature.DesktopAppOnly) {
             StatusText = "";
             StatusIsWarning = false;
             return;
         }
-        var (kind, reason) = ExperimentalFeatureState.Classify(_set && _enabled, _enabled, _daemonRunning, _status, _feature.Id);
+        var (kind, reason) = ExperimentalFeatureState.Classify(_set && _enabled, _enabled, _daemonRunning, _status, Feature.Id);
         StatusText = kind switch {
             ExperimentalFeatureStateKind.Active => "Active",
             ExperimentalFeatureStateKind.OnNotActive => $"On, not active: {reason}",

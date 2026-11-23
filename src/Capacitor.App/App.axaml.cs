@@ -363,6 +363,7 @@ public partial class App : Application {
 
     public override void Initialize() {
         AvaloniaXamlLoader.Load(this);
+        ScrollReveal.Register();
         ProgressiveDisclosureViewModel.Shared.Restore(_progressiveDisclosure, _appState);
         LineSelection.Install();
         ToolTipFocusGate.Install();
@@ -3600,14 +3601,12 @@ public partial class App : Application {
     // The shutdown cap: QuiescedAsync itself is unbounded (it just waits for the gate), so this is what
     // keeps a stuck internal mutation from hanging shutdown forever — DisposeAsync's own eventual
     // lifetime-cancel is still the backstop if the cap is reached. Static + delegate-shaped so a
-    // test can drive it without a live controller. Returns which arm won: false = the cap fired
+    // test can drive it without a live controller. False means the cap fired
     // with work still live, which the wizard handoff turns into a degraded (auto-actions closed)
-    // graph. A dead heat reads as false — never claim quiescence that wasn't observed.
+    // graph.
     internal static async Task<bool> AwaitQuiescedAsync(
             Func<Task> quiescedAsync, TimeSpan cap, TimeProvider time) {
-        var quiesced = quiescedAsync();
-
-        return await Task.WhenAny(quiesced, Task.Delay(cap, time)).ConfigureAwait(false) == quiesced;
+        return await quiescedAsync().FinishedWithinAsync(cap, time).ConfigureAwait(false);
     }
 
     // Split out of DisposeAndShutdownAsync so a test can pin the ordering with a recording list.

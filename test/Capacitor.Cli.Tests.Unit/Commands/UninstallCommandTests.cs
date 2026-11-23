@@ -918,7 +918,7 @@ public class UninstallCommandTests {
             Daemons.Store, fixture.Root, profiles, fixture.UserHome, TestHarnesses.Under(fixture.UserHome), TestBinaries.None,
             TestWatchers.In(WatchersOf(fixture), fixture.Root, profiles, new FixedCapacitorHttpClient()), TimeProvider.System,
             new StandardStreams(fixture.Out, fixture.Err, new StringReader(""))) {
-            ServicesFor = store => launchctl.Manager(store),
+            ServicesFor = launchctl.Manager,
         };
 
         await recorders.StopAsync();

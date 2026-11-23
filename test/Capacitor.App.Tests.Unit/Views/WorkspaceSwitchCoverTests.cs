@@ -15,11 +15,8 @@ using static Capacitor.App.Tests.Unit.WorkspaceFixtures;
 namespace Capacitor.App.Tests.Unit.Views;
 
 public class WorkspaceSwitchCoverTests {
-    /// On a 2x display the still the cover holds over a session switch reproduces the pane pixel for
-    /// pixel: not its top-left quarter magnified, nor a 1x capture scaled up. The outgoing content is
-    /// hidden once the still is taken, so what the frame still shows can only come from the cover.
-    /// The hold's limit runs on the view model's clock, so the sample cannot race it, and the cover
-    /// lifts once that clock passes the limit.
+    /// The cover reproduces the outgoing pane pixel for pixel at 2x after the original content is
+    /// hidden, then lifts when the view model's clock reaches the hold limit.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_switch_cover_shows_the_outgoing_pane_unmagnified_at_2x() {
@@ -38,6 +35,8 @@ public class WorkspaceSwitchCoverTests {
                 window.Show();
                 window.SetRenderScaling(2);
                 try {
+                    // The rail splitter paints over the pane but sits outside the captured visual.
+                    window.RailSplitter.IsVisible = false;
                     var pane = Named<Panel>(window, "ContentPane");
                     var cover = Named<Control>(window, "SwitchCover");
                     var outgoing = Quadrants();

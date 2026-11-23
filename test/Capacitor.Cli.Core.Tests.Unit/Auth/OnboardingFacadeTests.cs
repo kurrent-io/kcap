@@ -82,7 +82,7 @@ public class OnboardingFacadeTests {
         await Assert.That(result).IsTypeOf<AuthResult.Committed>();
         await Assert.That(((AuthResult.Committed)result).Username).IsEqualTo("alice");
 
-        var stored = await AuthFixtures.NewTokenStore(Config.Root).LoadAsync("acme");
+        var stored = await NewTokenStore(Config.Root).LoadAsync("acme");
         await Assert.That(stored!.AccessToken).IsEqualTo("capacitor-jwt");
         await Assert.That(stored.Provider).IsEqualTo(AuthProvider.GitHubApp);
 
@@ -106,7 +106,7 @@ public class OnboardingFacadeTests {
 
         await Assert.That(result).IsTypeOf<AuthResult.Committed>();
         await Assert.That(((AuthResult.Committed)result).CredentialSaved).IsTrue();
-        await Assert.That((await AuthFixtures.NewTokenStore(Config.Root).LoadAsync("acme"))!.AccessToken).IsEqualTo("capacitor-jwt");
+        await Assert.That((await NewTokenStore(Config.Root).LoadAsync("acme"))!.AccessToken).IsEqualTo("capacitor-jwt");
 
         // No repoint and no claim on a server the profile doesn't name.
         var profile = ReadConfig().Profiles["acme"];
@@ -144,7 +144,7 @@ public class OnboardingFacadeTests {
 
         await Assert.That(result).IsTypeOf<AuthResult.Committed>();
 
-        var stored = await AuthFixtures.NewTokenStore(Config.Root).LoadAsync("acme");
+        var stored = await NewTokenStore(Config.Root).LoadAsync("acme");
         await Assert.That(stored!.AccessToken).IsEqualTo("acc");
         await Assert.That(stored.RefreshToken).IsEqualTo("rt");
         await Assert.That(stored.ClientId).IsEqualTo("client_d");
@@ -564,7 +564,7 @@ public class OnboardingFacadeTests {
         await Assert.That(committed.ActiveProfile).IsEqualTo("eventuous");
         await Assert.That(committed.Provider).IsEqualTo(AuthProvider.WorkOS);
 
-        var stored = await AuthFixtures.NewTokenStore(Config.Root).LoadAsync("eventuous");
+        var stored = await NewTokenStore(Config.Root).LoadAsync("eventuous");
         await Assert.That(stored!.AccessToken).IsEqualTo("acc2");
         await Assert.That(stored.RefreshToken).IsEqualTo("rt2");
         await Assert.That(stored.ClientId).IsEqualTo("client_d");
@@ -599,7 +599,7 @@ public class OnboardingFacadeTests {
         await Assert.That(handler.Seen.Any(s => s.Contains("/user_management/authorize/device"))).IsTrue();
         await Assert.That(progress.DeviceCodes).Count().IsEqualTo(1);
 
-        var stored = await AuthFixtures.NewTokenStore(Config.Root).LoadAsync("eventuous");
+        var stored = await NewTokenStore(Config.Root).LoadAsync("eventuous");
         await Assert.That(stored!.AccessToken).IsEqualTo("acc2");
     }
 
@@ -639,7 +639,7 @@ public class OnboardingFacadeTests {
         var result = await facade.DiscoverAsync(AuthProvider.WorkOS, forceDevice: false, CancellationToken.None);
 
         await Assert.That(result).IsTypeOf<AuthResult.Committed>();
-        await Assert.That((await AuthFixtures.NewTokenStore(Config.Root).LoadAsync("acme"))!.AccessToken).IsEqualTo("acc2");
+        await Assert.That((await NewTokenStore(Config.Root).LoadAsync("acme"))!.AccessToken).IsEqualTo("acc2");
         await Assert.That(ReadConfig().Profiles["acme"].AuthProvider!.Provider).IsEqualTo(AuthProvider.WorkOS);
     }
 

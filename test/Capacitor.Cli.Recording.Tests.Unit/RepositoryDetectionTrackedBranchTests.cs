@@ -26,7 +26,7 @@ public class RepositoryDetectionTrackedBranchTests {
     const string TrackedPr     = """{"number":874,"title":"T","url":"https://github.com/acme/widget/pull/874","headRefName":"remote-name","isCrossRepository":false}""";
 
     static CommandRunner RealGitFakeGh(Func<string, string?> gh, List<string>? ghCalls = null) =>
-        (cmd, args, cwd, cap) => {
+        (cmd, args, cwd, _) => {
             if (cmd != "gh") return RepositoryDetection.DefaultRunner(TimeProvider.System)(cmd, args, cwd, GitTimeout);
 
             ghCalls?.Add(args);

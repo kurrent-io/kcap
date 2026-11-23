@@ -363,7 +363,7 @@ public class RemoteAgentsServiceTests {
 
     [Test]
     public async Task A_connect_publishes_an_unanswered_listing_then_the_list() {
-        IReadOnlyList<DaemonInfo> rows = [new DaemonInfo { Name = "work-mac", Connected = true }];
+        IReadOnlyList<DaemonInfo> rows = [new() { Name = "work-mac", Connected = true }];
         var lane = new FakeServerLane { DaemonsHandler = () => Task.FromResult<IReadOnlyList<DaemonInfo>?>(rows) };
         using var svc = new RemoteAgentsService(lane, NoAgents, TimeSpan.Zero, time: new FakeTimeProvider());
         var listings = new List<DaemonListing>();
@@ -382,7 +382,7 @@ public class RemoteAgentsServiceTests {
     public async Task A_failed_fetch_publishes_FetchFailed_and_retries_with_backoff() {
         var time = new FakeTimeProvider();
         var calls = 0;
-        IReadOnlyList<DaemonInfo> rows = [new DaemonInfo { Name = "work-mac", Connected = true }];
+        IReadOnlyList<DaemonInfo> rows = [new() { Name = "work-mac", Connected = true }];
         var lane = new FakeServerLane {
             DaemonsHandler = () => Interlocked.Increment(ref calls) switch {
                 1 => Task.FromResult<IReadOnlyList<DaemonInfo>?>(null),
@@ -421,8 +421,8 @@ public class RemoteAgentsServiceTests {
     [Test]
     public async Task A_reconnect_returns_the_listing_to_unanswered_until_it_answers() {
         var calls = 0;
-        IReadOnlyList<DaemonInfo> first = [new DaemonInfo { Name = "work-mac", Connected = true }];
-        IReadOnlyList<DaemonInfo> second = [new DaemonInfo { Name = "home-mac", Connected = true }];
+        IReadOnlyList<DaemonInfo> first = [new() { Name = "work-mac", Connected = true }];
+        IReadOnlyList<DaemonInfo> second = [new() { Name = "home-mac", Connected = true }];
         var gate = new TaskCompletionSource<IReadOnlyList<DaemonInfo>?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var lane = new FakeServerLane {
             DaemonsHandler = () => Interlocked.Increment(ref calls) == 1 ? Task.FromResult<IReadOnlyList<DaemonInfo>?>(first) : gate.Task,
@@ -448,7 +448,7 @@ public class RemoteAgentsServiceTests {
     public async Task RefreshDaemonsAsync_fetches_at_once() {
         var time = new FakeTimeProvider();
         var calls = 0;
-        IReadOnlyList<DaemonInfo> rows = [new DaemonInfo { Name = "work-mac", Connected = true }];
+        IReadOnlyList<DaemonInfo> rows = [new() { Name = "work-mac", Connected = true }];
         var lane = new FakeServerLane {
             DaemonsHandler = () => Task.FromResult(Interlocked.Increment(ref calls) == 1 ? null : rows),
         };
@@ -472,8 +472,8 @@ public class RemoteAgentsServiceTests {
     [Test]
     public async Task A_result_from_a_superseded_generation_is_dropped() {
         var calls = 0;
-        IReadOnlyList<DaemonInfo> stale = [new DaemonInfo { Name = "old-mac", Connected = true }];
-        IReadOnlyList<DaemonInfo> fresh = [new DaemonInfo { Name = "work-mac", Connected = true }];
+        IReadOnlyList<DaemonInfo> stale = [new() { Name = "old-mac", Connected = true }];
+        IReadOnlyList<DaemonInfo> fresh = [new() { Name = "work-mac", Connected = true }];
         var gate = new TaskCompletionSource<IReadOnlyList<DaemonInfo>?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var lane = new FakeServerLane {
             DaemonsHandler = () => Interlocked.Increment(ref calls) == 1 ? gate.Task : Task.FromResult<IReadOnlyList<DaemonInfo>?>(fresh),
@@ -503,8 +503,8 @@ public class RemoteAgentsServiceTests {
     [Test]
     public async Task A_reconnect_without_a_subject_returns_the_listing_to_unanswered_and_drops_the_stale_result() {
         var calls = 0;
-        IReadOnlyList<DaemonInfo> stale = [new DaemonInfo { Name = "old-mac", Connected = true }];
-        IReadOnlyList<DaemonInfo> fresh = [new DaemonInfo { Name = "work-mac", Connected = true }];
+        IReadOnlyList<DaemonInfo> stale = [new() { Name = "old-mac", Connected = true }];
+        IReadOnlyList<DaemonInfo> fresh = [new() { Name = "work-mac", Connected = true }];
         var gate = new TaskCompletionSource<IReadOnlyList<DaemonInfo>?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var lane = new FakeServerLane {
             DaemonsHandler = () => Interlocked.Increment(ref calls) == 1 ? gate.Task : Task.FromResult<IReadOnlyList<DaemonInfo>?>(fresh),
@@ -533,8 +533,8 @@ public class RemoteAgentsServiceTests {
     public async Task A_second_Connected_in_a_row_fetches_again_so_the_listing_and_accounts_answer() {
         var daemonCalls = 0;
         var accountCalls = 0;
-        IReadOnlyList<DaemonInfo> stale = [new DaemonInfo { Name = "old-mac", Connected = true }];
-        IReadOnlyList<DaemonInfo> fresh = [new DaemonInfo { Name = "work-mac", Connected = true }];
+        IReadOnlyList<DaemonInfo> stale = [new() { Name = "old-mac", Connected = true }];
+        IReadOnlyList<DaemonInfo> fresh = [new() { Name = "work-mac", Connected = true }];
         var daemonsGate = new TaskCompletionSource<IReadOnlyList<DaemonInfo>?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var accountsGate = new TaskCompletionSource<IReadOnlyList<DaemonAccountsDto>?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var lane = new FakeServerLane {

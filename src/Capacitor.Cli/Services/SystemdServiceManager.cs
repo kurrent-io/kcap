@@ -16,7 +16,7 @@ sealed class SystemdServiceManager(
     public string UnitDirectory => SystemdUnit.UserUnitDir(home);
 
     public IReadOnlyList<GeneratedFile> GenerateFiles(ServiceSpec spec) =>
-        [new GeneratedFile(SystemdUnit.UnitPath(home, spec.ServiceId), SystemdUnit.Unit(spec))];
+        [new(SystemdUnit.UnitPath(home, spec.ServiceId), SystemdUnit.Unit(spec))];
 
     public IReadOnlyList<string> ListInstalled() {
         var dir = SystemdUnit.UserUnitDir(home);

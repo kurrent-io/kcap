@@ -1715,7 +1715,7 @@ public class AgentOrchestratorResumeOnBootTests {
     public async Task A_reopened_session_the_server_takes_no_events_for_falls_through_to_continue_without_its_first_turn(string refusal) {
         using var silence = new CancellationTokenSource();
         var server = new CaptureServerConnection {
-            AcpEventsAckOverride = batch => refusal == "rejected"
+            AcpEventsAckOverride = _ => refusal == "rejected"
                 ? new AcpBatchAck(-1, -1, Rejected: true)
                 : new AcpBatchAck(41, 41),
             AcpEventsBlockUntil = refusal == "silent" ? silence : null

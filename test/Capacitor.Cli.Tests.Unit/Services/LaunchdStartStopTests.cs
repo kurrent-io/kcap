@@ -351,7 +351,7 @@ public partial class LaunchdStartStopTests {
 
         SeedPlist();
 
-        var mgr = new LaunchdServiceManager(Home, TimeProvider.System, runBounded: (_, args, timeout) =>
+        var mgr = new LaunchdServiceManager(Home, TimeProvider.System, runBounded: (_, args, _) =>
             args[0] == "print"
                 ? (113, "", "Could not find service \"io.kurrent.kcap.daemon.test\" in domain for user gui: 501", true) // timed out
                 : (0, "", "", false));

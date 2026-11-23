@@ -437,7 +437,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
 
         var reloadAction = reloadDaemon ?? (_ => Task.CompletedTask);
         ReloadDaemonCommand = ReactiveCommand.CreateFromTask(
-            ct => reloadAction(ct),
+            reloadAction,
             service.Status
                 .CombineLatest(isReloading ?? Observable.Return(false), (st, reloading) => st.State == AttachState.Connected && !reloading)
                 .DistinctUntilChanged()

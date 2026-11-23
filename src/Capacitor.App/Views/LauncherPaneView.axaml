@@ -9,19 +9,6 @@
          externally (MainWindow binds Home). Notices stack at the top; the composer stays centred
          until they would reach it, then moves down rather than being covered. -->
     <UserControl.Styles>
-        <Style Selector="Border.notice">
-            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="12" />
-            <Setter Property="Padding" Value="14,12" />
-        </Style>
-        <!-- Size stays on each icon, and each icon sits in a top-aligned Panel: AppIcon sets its own
-             size and alignment, which outrank a style. -->
-        <Style Selector="views|AppIcon.noticeIcon">
-            <Setter Property="Margin" Value="0,2,0,0" />
-            <Setter Property="VerticalAlignment" Value="Top" />
-        </Style>
         <Style Selector="views|AppIcon.importStatusIcon">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
@@ -31,42 +18,12 @@
         <Style Selector="views|AppIcon.importStatusIcon.attention">
             <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
         </Style>
-        <Style Selector="TextBlock.noticeTitle">
-            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
-            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
-            <Setter Property="FontWeight" Value="Medium" />
-            <Setter Property="LineHeight" Value="20" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-        </Style>
-        <Style Selector="SelectableTextBlock.noticeBody, TextBlock.noticeBody">
-            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
-            <Setter Property="LineHeight" Value="18" />
-            <Setter Property="TextWrapping" Value="Wrap" />
-        </Style>
         <Style Selector="ProgressBar.noticeProgress">
             <Setter Property="Height" Value="2" />
             <Setter Property="MinHeight" Value="2" />
             <Setter Property="Margin" Value="0,4,0,2" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
             <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
-        </Style>
-        <Style Selector="StackPanel.noticeActions, WrapPanel.noticeActions">
-            <Setter Property="HorizontalAlignment" Value="Left" />
-            <Setter Property="Margin" Value="0,10,0,0" />
-        </Style>
-        <Style Selector="StackPanel.noticeActions">
-            <Setter Property="Orientation" Value="Horizontal" />
-            <Setter Property="Spacing" Value="8" />
-        </Style>
-        <Style Selector="WrapPanel.noticeActions">
-            <Setter Property="Orientation" Value="Horizontal" />
-            <Setter Property="ItemSpacing" Value="8" />
-            <Setter Property="LineSpacing" Value="4" />
-        </Style>
-        <Style Selector="StackPanel.noticeActions > Button, WrapPanel.noticeActions Button">
-            <Setter Property="Padding" Value="12,5" />
-            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         </Style>
         <Style Selector="Button.importDismiss.kcapGhost">
             <Setter Property="Padding" Value="0,5" />
