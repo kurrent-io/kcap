@@ -4,7 +4,7 @@ using Capacitor.App.Services;
 
 namespace Capacitor.App.Views;
 
-/// "Sandbox · …" / "Approvals · …": the category stays visible after a pick.
+/// "Sandbox (…)" / "Approvals (…)": the category stays visible after a pick.
 public sealed class CodexPostureChipTextConverter : IValueConverter {
     public static readonly CodexPostureChipTextConverter Sandbox =
         new("Sandbox", HostedHarnessCatalog.CodexSandboxLabelFor, HostedHarnessCatalog.DefaultCodexSandbox);
@@ -23,7 +23,7 @@ public sealed class CodexPostureChipTextConverter : IValueConverter {
     }
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        $"{_category} · {_label(value as string ?? _fallback)}";
+        $"{_category} ({_label(value as string ?? _fallback)})";
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();

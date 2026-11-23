@@ -15,7 +15,7 @@ public class AgentChipTextConverterTests {
         string? Label(string? account) => AgentChipTextConverter.Instance.Convert(
             [options, "claude", "opus", catalog, account], typeof(string), null, CultureInfo.InvariantCulture) as string;
 
-        await Assert.That(Label(null)).IsEqualTo("Claude · Opus");
-        await Assert.That(Label("work")).IsEqualTo("Claude · Opus · work");
+        await Assert.That(Label(null)).IsEqualTo("Claude (Opus)");
+        await Assert.That(Label("work")).IsEqualTo("Claude (Opus, work)");
     }
 }

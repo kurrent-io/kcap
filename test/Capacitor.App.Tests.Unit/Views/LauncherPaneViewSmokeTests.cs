@@ -475,8 +475,8 @@ public class LauncherPaneViewSmokeTests {
 
         await Assert.That(forClaude).IsFalse();
         await Assert.That(forCodex).IsTrue();
-        await Assert.That(labels.Item1).IsEqualTo("Sandbox · Workspace write");
-        await Assert.That(labels.Item2).IsEqualTo("Approvals · On request");
+        await Assert.That(labels.Item1).IsEqualTo("Sandbox (Workspace write)");
+        await Assert.That(labels.Item2).IsEqualTo("Approvals (On request)");
     }
 
     [Test]
@@ -1430,7 +1430,7 @@ public class LauncherPaneViewSmokeTests {
 
             await vm.PickAccountAsync("a2");
             Settle(window);
-            await Assert.That(chip.Text).IsEqualTo("Claude Code · Default · work");
+            await Assert.That(chip.Text).IsEqualTo("Claude Code (Default, work)");
 
             rig.Snapshots.OnNext(AccountsSnapshot(2, HomeAccount));
             vm.Goal = "go";
@@ -1439,13 +1439,13 @@ public class LauncherPaneViewSmokeTests {
             await Assert.That(Find<TextBlock>(window, "StartErrorText")!.Text)
                 .IsEqualTo("work is not available on this machine. Use the default account or pick another.");
             await Assert.That(useDefault.IsVisible).IsTrue();
-            await Assert.That(chip.Text).IsEqualTo("Claude Code · Default · work — unavailable");
+            await Assert.That(chip.Text).IsEqualTo("Claude Code (Default, work) — unavailable");
             var starts = rig.Launch.StartCount;
 
             Click(window, useDefault);
             await Assert.That(banner.IsVisible).IsFalse();
             await Assert.That(useDefault.IsVisible).IsFalse();
-            await Assert.That(chip.Text).IsEqualTo("Claude Code · Default");
+            await Assert.That(chip.Text).IsEqualTo("Claude Code (Default)");
             await Assert.That(rig.Launch.StartCount).IsEqualTo(starts);
 
             window.Close();

@@ -202,7 +202,7 @@ public class ButtonAutomationNameTests {
         window.Show();
         Settle(window);
         try {
-            await Assert.That(await AnnouncedAsync(window)).Contains("Claude Code · Default");
+            await Assert.That(await AnnouncedAsync(window)).Contains("Claude Code (Default)");
 
             var chips = view.GetVisualDescendants().OfType<LaunchChipsView>().Single();
             async Task<List<string>> OpenAsync(string chip) {
