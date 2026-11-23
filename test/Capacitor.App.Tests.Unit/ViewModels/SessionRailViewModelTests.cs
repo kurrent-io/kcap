@@ -1345,6 +1345,30 @@ public class SessionRailViewModelTests {
         });
     }
 
+    /// The work items' fold-all opens every work item while none is open, then folds them all, leaving the session groups alone.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Toggling_all_work_items_opens_then_folds_only_the_work_items() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, rail) = BuildWithWorkItems();
+            using (directory) using (sessions) using (rail) {
+                List(directory, sessions, Tracked("a", "AI-1", Noon), Tracked("b", "AI-2", Noon));
+                directory.Rows.AddOrUpdate(Local("loose"));
+                await Assert.That(rail.WorkItemGroups.Count).IsEqualTo(2);
+                await Assert.That(rail.AnyWorkItemExpanded).IsFalse();
+                var sessionsOpen = rail.SessionGroups.Select(group => group.IsExpanded).ToList();
+
+                await rail.ToggleAllWorkItemsExpandedCommand.Execute();
+                await Assert.That(rail.WorkItemGroups.All(group => group.IsExpanded)).IsTrue();
+                await Assert.That(rail.AnyWorkItemExpanded).IsTrue();
+
+                await rail.ToggleAllWorkItemsExpandedCommand.Execute();
+                await Assert.That(rail.WorkItemGroups.Any(group => group.IsExpanded)).IsFalse();
+                await Assert.That(rail.SessionGroups.Select(group => group.IsExpanded)).IsEquivalentTo(sessionsOpen);
+            }
+        });
+    }
+
     /// A work item shows the viewer's latest sessions in it, so an older one the session list pages in stays counted
     /// rather than joining it, the latest it has not paged in are asked for on their own, and a teammate's stays among
     /// the sessions.

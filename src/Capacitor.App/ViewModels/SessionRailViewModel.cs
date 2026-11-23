@@ -346,6 +346,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<Unit, Unit> RestoreRemovedCommand { get; }
     /// Folds every group while any is open, else opens them all.
     public ReactiveCommand<Unit, Unit> ToggleAllExpandedCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleAllWorkItemsExpandedCommand { get; }
 
     public bool HasRemoved => _removed.Count > 0;
     public string RestoreRemovedText {
@@ -366,6 +367,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public bool IsEmpty => _isEmpty.Value;
     readonly ObservableAsPropertyHelper<bool> _anyExpanded;
     public bool AnyExpanded => _anyExpanded.Value;
+    readonly ObservableAsPropertyHelper<bool> _anyWorkItemExpanded;
+    public bool AnyWorkItemExpanded => _anyWorkItemExpanded.Value;
 
     readonly ObservableAsPropertyHelper<bool> _showsViewAll;
     /// The listing holds ended sessions older than the ones the rail shows.
@@ -479,6 +482,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         SetProjectCommand = ReactiveCommand.Create<RailProject?>(project => Project = project).DisposeWith(_disposables);
         RestoreRemovedCommand = ReactiveCommand.Create(() => SetRemoved([], persist: true)).DisposeWith(_disposables);
         ToggleAllExpandedCommand = ReactiveCommand.Create(ToggleAllExpanded).DisposeWith(_disposables);
+        ToggleAllWorkItemsExpandedCommand = ReactiveCommand.Create(ToggleAllWorkItemsExpanded).DisposeWith(_disposables);
         CreateWorkItemCommand = ReactiveCommand.Create(() => { _ = CreateWorkItemAsync(); },
             this.WhenAnyValue(x => x.NewWorkItemTitle, title => !string.IsNullOrWhiteSpace(title))).DisposeWith(_disposables);
         OpenPreviousSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(-1); }).DisposeWith(_disposables);
@@ -649,13 +653,19 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .DistinctUntilChanged()
             .ToProperty(this, x => x.IsEmpty, initialValue: Groups.Count == 0)
             .DisposeWith(_disposables);
-        _anyExpanded = _sessionGroupsSource.ToObservableChangeSet()
-            .AutoRefresh(group => group.IsExpanded)
-            .ToCollection()
-            .Select(groups => groups.Any(group => group.IsExpanded))
-            .DistinctUntilChanged()
+        _anyExpanded = AnyExpandedIn(_sessionGroupsSource)
             .ToProperty(this, x => x.AnyExpanded, initialValue: _sessionGroupsSource.Any(group => group.IsExpanded))
             .DisposeWith(_disposables);
+        _anyWorkItemExpanded = AnyExpandedIn(_workItemGroupsSource)
+            .ToProperty(this, x => x.AnyWorkItemExpanded, initialValue: _workItemGroupsSource.Any(group => group.IsExpanded))
+            .DisposeWith(_disposables);
+
+        static IObservable<bool> AnyExpandedIn(ObservableCollectionExtended<RailGroupViewModel> groups) =>
+            groups.ToObservableChangeSet()
+                .AutoRefresh(group => group.IsExpanded)
+                .ToCollection()
+                .Select(all => all.Any(group => group.IsExpanded))
+                .DistinctUntilChanged();
 
         static IObservable<Unit> Changed(INotifyCollectionChanged groups) =>
             Observable.FromEventPattern<NotifyCollectionChangedEventHandler, NotifyCollectionChangedEventArgs>(
@@ -671,6 +681,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             _applying = false;
         }
         Persist();
+    }
+
+    void ToggleAllWorkItemsExpanded() {
+        var expand = !AnyWorkItemExpanded;
+        foreach (var group in WorkItemGroups.ToList()) group.SetExpanded(expand);
     }
 
     /// Another user's remembered shape, or this user's set now that the lane has named them: applied
