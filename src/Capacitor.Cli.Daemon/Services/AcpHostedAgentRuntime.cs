@@ -2958,11 +2958,15 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
         try {
             await candidate.Process.TerminateAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
-            await StopTrackingDescendantsAsync(candidate).ConfigureAwait(false);
-
-            confirmed = candidate.Process.HasExited && await ReapDescendantsAsync(candidate, _reconnect!).ConfigureAwait(false);
         } catch (Exception ex) {
             _logger.LogDebug(ex, "ACP reconnect: candidate process termination failed (best-effort).");
+        }
+
+        try {
+            await StopTrackingDescendantsAsync(candidate).ConfigureAwait(false);
+            confirmed = await ReapDescendantsAsync(candidate, _reconnect!).ConfigureAwait(false) && candidate.Process.HasExited;
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "ACP reconnect: candidate descendant reap failed (best-effort).");
         }
 
         try {
