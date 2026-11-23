@@ -283,6 +283,28 @@ public class AcpHostedAgentRuntimeReconnectTests {
         await Assert.That(Array.IndexOf(events, "kill:6000")).IsLessThan(Array.IndexOf(events, "spawn:5001"));
     }
 
+    /// <summary>A launch whose wrapper dies mid-handshake fails to start, and disposing the runtime kills the agent
+    /// it re-execed</summary>
+    [Test]
+    public async Task Failed_launch_kills_the_listed_agent_on_dispose() {
+        await using var h = new Harness();
+        var original = h.Incarnations[0].Fake;
+        original.HoldSessionNewResponse = new TaskCompletionSource();
+        h.Tree.DescendantsOf[5000] = [(6000, "start:6000")];
+
+        var start = h.StartAsync();
+        await Harness.PollUntilAsync(() => h.Tree.Listed(5000) && original.ReceivedCalls.Any(c => c.Method == "session/new"));
+        h.CrashOriginal();
+
+        try { await start; } catch { /* the launch fails; that is the precondition */ }
+        await h.Runtime.DisposeAsync();
+
+        string[] events;
+        lock (h.Events) events = [.. h.Events];
+        await Assert.That(events).Contains("kill:6000");
+        await Assert.That(h.CandidateSpawns).IsEqualTo(0);
+    }
+
     /// <summary>A candidate whose wrapper dies during initialize fails its attempt, and the agent it re-execed,
     /// seen while the wrapper lived, is killed before the next candidate spawns</summary>
     [Test]

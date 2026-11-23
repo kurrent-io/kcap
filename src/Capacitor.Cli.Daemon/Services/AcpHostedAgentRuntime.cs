@@ -2256,6 +2256,18 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             }
         }
 
+        // A launch that failed after the child re-exec'd itself, or a wrapper already gone, leaves listed
+        // descendants out of reach of the process disposal below
+        if (_reconnect is { } reconnect) {
+            try {
+                await StopTrackingDescendantsAsync(installed).ConfigureAwait(false);
+                if (!await ReapDescendantsAsync(installed, reconnect).ConfigureAwait(false))
+                    _logger.LogWarning("ACP: a descendant of agent {AgentId}'s child did not confirm exit during dispose.", _agentId);
+            } catch (Exception ex) {
+                _logger.LogDebug(ex, "ACP: descendant reap failed during dispose for agent {AgentId}.", _agentId);
+            }
+        }
+
         try {
             // NESTED, not sequential in one try: a faulting Connection.DisposeAsync would otherwise
             // skip Process.DisposeAsync entirely.
