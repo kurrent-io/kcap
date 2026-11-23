@@ -848,8 +848,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     // Closes even over the launcher: the swap bumps the navigation generation, which keeps an
     // in-flight launch from opening its workspace over the next draft.
     async Task NewSessionAsync() {
-        if (Page is WorkItemPageViewModel item && CanStartInWorkItem) {
-            await StartInWorkItemAsync(item.WorkItemId, item.Title);
+        if (Page is WorkItemPageViewModel { CanStartSession: true } item) {
+            await item.StartSessionHereAsync();
             return;
         }
         var onLauncher = CurrentWorkspace is null && !IsSearchOpen;
@@ -862,8 +862,6 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         if (onLauncher) _launcherNudges.OnNext(Unit.Default);
         if (selected is not null && Home is { } home) await home.SelectRepositoryOfAsync(selected);
     }
-
-    public bool CanStartInWorkItem => Home?.NextWork?.ServesLaunches == true;
 
     /// Opens the launcher with the work item picked, so the session it starts is attached to it.
     public async Task StartInWorkItemAsync(string workItemId, string title) {

@@ -36,8 +36,8 @@ public class LauncherPaneViewSmokeTests {
         var repository = Directory.CreateDirectory(Tmp.PathTo("repository")).FullName;
         var alias = Tmp.PathTo("alias");
         Directory.CreateSymbolicLink(alias, repository);
-        await Assert.That(LauncherPaneView.IsSameRepositoryFolder(alias + Path.DirectorySeparatorChar, repository)).IsTrue();
-        await Assert.That(LauncherPaneView.IsSameRepositoryFolder(Tmp.PathTo("other"), repository)).IsFalse();
+        await Assert.That(LaunchComposerView.IsSameRepositoryFolder(alias + Path.DirectorySeparatorChar, repository)).IsTrue();
+        await Assert.That(LaunchComposerView.IsSameRepositoryFolder(Tmp.PathTo("other"), repository)).IsFalse();
     }
 
     /// A row's ▶ and menu show under the pointer, on the picked row and while the menu is open, not on the focus a click

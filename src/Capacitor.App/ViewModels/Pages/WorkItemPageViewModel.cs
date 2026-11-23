@@ -54,6 +54,8 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
 
     public string WorkItemId { get; }
     public PageKey Key => new PageKey.WorkItem(WorkItemId);
+    /// The launch draft's key for this work item itself, as opposed to one of its slices.
+    public string OwnSourceKey => NextWork.NextWorkLaneLogic.WorkItemPrefix + WorkItemId;
 
     string _title = "";
     public string Title { get => _title; private set => this.RaiseAndSetIfChanged(ref _title, value); }
@@ -101,9 +103,12 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     public PageViewerViewModel? PageViewer { get => _pageViewer; private set => this.RaiseAndSetIfChanged(ref _pageViewer, value); }
 
     public ReactiveCommand<Unit, Unit> OpenInWebCommand { get; }
-    public ReactiveCommand<Unit, Unit> StartSessionCommand { get; }
+    /// The launch composer under the slices, aimed at this work item once it loads; null when sessions can't start from here.
+    public HomeViewModel? Launcher { get; }
     public ReactiveCommand<WorkItemPagePart, Unit> StartSliceSessionCommand { get; }
     public bool CanStartSession { get; }
+    string? _picked;
+    bool _disposed;
     public ReactiveCommand<WorkItemPageLink, Unit> OpenLinkCommand { get; }
     public ReactiveCommand<WorkItemPublishedPage, Unit> OpenPageCommand { get; }
     public ReactiveCommand<Unit, Unit> ClosePageCommand { get; }
@@ -134,7 +139,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     public WorkItemPageViewModel(string workItemId, IWorkItemPageApi api, IAgentDirectory directory, TimeProvider time,
             ISet<string> flipped, IObservable<IReadOnlySet<string>>? needsYou = null, IObservable<Unit>? changed = null,
             Action<string>? openSession = null, Action<string>? openUrl = null, Action? openInWeb = null,
-            Func<string, string, PageViewerViewModel?>? viewPage = null, Func<string, string, Task>? startSession = null) {
+            Func<string, string, PageViewerViewModel?>? viewPage = null, HomeViewModel? launcher = null) {
         WorkItemId = workItemId;
         _api = api;
         _directory = directory;
@@ -144,10 +149,9 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         _layout = flipped.Contains(GraphKey) ? WorkItemPageLayout.Graph : flipped.Contains(BoardKey) ? WorkItemPageLayout.Board : WorkItemPageLayout.List;
 
         OpenInWebCommand = ReactiveCommand.Create(() => openInWeb?.Invoke(), Observable.Return(openInWeb is not null)).DisposeWith(_disposables);
-        CanStartSession = startSession is not null;
-        StartSessionCommand = ReactiveCommand.CreateFromTask(() => startSession?.Invoke(WorkItemId, Title) ?? Task.CompletedTask,
-            Observable.Return(CanStartSession)).DisposeWith(_disposables);
-        StartSliceSessionCommand = ReactiveCommand.CreateFromTask<WorkItemPagePart>(part => startSession?.Invoke(part.Id, part.Title) ?? Task.CompletedTask,
+        CanStartSession = launcher?.NextWork?.ServesLaunches == true;
+        Launcher = CanStartSession ? launcher : null;
+        StartSliceSessionCommand = ReactiveCommand.CreateFromTask<WorkItemPagePart>(part => PickAsync(part.Id, part.Title),
             Observable.Return(CanStartSession)).DisposeWith(_disposables);
         OpenLinkCommand = ReactiveCommand.Create<WorkItemPageLink>(link => { if (link.Url is { } url) openUrl?.Invoke(url); }).DisposeWith(_disposables);
         OpenPageCommand = ReactiveCommand.Create<WorkItemPublishedPage>(page => {
@@ -198,9 +202,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
                     if (_read is null) Message = "Couldn't load this work item";
                     return;
                 }
+                var first = _read is null;
                 _read = read;
                 Message = null;
                 Rebuild();
+                if (first && CanStartSession) _ = PickAsync(WorkItemId, Title);
             })
             .DisposeWith(_disposables);
         needsYou?.ObserveOn(RxSchedulers.MainThreadScheduler)
@@ -597,7 +603,24 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
 
     string Ago(DateTimeOffset at) => RelativeTime.Ago(at, _time.GetUtcNow(), _time.LocalTimeZone);
 
+    /// Aims the composer back at this work item and focuses it, as New session does on this page.
+    public Task StartSessionHereAsync() => PickAsync(WorkItemId, Title);
+
+    /// Aims the shared launch draft at a work item or slice, so the session the composer starts is attached to it.
+    async Task PickAsync(string id, string title) {
+        _picked = NextWork.NextWorkLaneLogic.WorkItemPrefix + id;
+        await Launcher!.NextWork!.PickWorkItemAsync(id, title);
+        if (_disposed) ReleasePick();
+    }
+
+    // The draft is the launcher's too: a pick left behind would attach the next launcher session to a page merely visited.
+    void ReleasePick() {
+        if (_picked is not null && Launcher?.NextWorkSource?.Key == _picked) Launcher.ClearNextWorkSource();
+    }
+
     public void Dispose() {
+        _disposed = true;
+        ReleasePick();
         ClosePage();
         _disposables.Dispose();
     }

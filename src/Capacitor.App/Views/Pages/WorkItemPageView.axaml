@@ -651,14 +651,6 @@
                         </Panel>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <Button x:Name="WorkItemStartSession" Classes="kcapChip" Command="{Binding StartSessionCommand}"
-                                IsVisible="{Binding CanStartSession}" ToolTip.Tip="Start a session on this work item"
-                                AutomationProperties.Name="Start session">
-                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                <views:AppIcon Kind="Play" Size="12" />
-                                <TextBlock Text="Start session" />
-                            </StackPanel>
-                        </Button>
                         <Button x:Name="WorkItemOpenInWeb" Classes="kcapGhost kcapIcon" Command="{Binding OpenInWebCommand}"
                                 ToolTip.Tip="Open in the web app" AutomationProperties.Name="Open in the web app">
                             <views:AppIcon Kind="ExternalLink" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
@@ -671,6 +663,10 @@
                 </Grid>
             </Border>
 
+            <views:LaunchComposerView x:Name="WorkItemComposer" DockPanel.Dock="Bottom" DataContext="{Binding Launcher}" Compact="True"
+                                      ImpliedSourceKey="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OwnSourceKey}"
+                                      IsVisible="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).CanStartSession}"
+                                      Margin="20,0,16,16" />
             <Panel>
                 <DockPanel x:Name="WorkItemPageHost" IsVisible="{Binding PageViewer, Converter={x:Static ObjectConverters.IsNotNull}}">
                     <Border DockPanel.Dock="Top" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1" Padding="16,6">
@@ -806,6 +802,16 @@
                             </Panel>
                         </StackPanel>
                 </ScrollViewer>
+                <!-- Fades the slices out above the composer rather than cutting a row in half. -->
+                <Border Height="32" VerticalAlignment="Bottom" IsHitTestVisible="False"
+                        Background="{StaticResource KcapCanvasBrush}" IsVisible="{Binding CanStartSession}">
+                    <Border.OpacityMask>
+                        <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                            <GradientStop Offset="0" Color="Transparent" />
+                            <GradientStop Offset="1" Color="Black" />
+                        </LinearGradientBrush>
+                    </Border.OpacityMask>
+                </Border>
             </Panel>
         </DockPanel>
 

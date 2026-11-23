@@ -1,0 +1,222 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.LaunchComposerView"
+             x:DataType="vm:HomeViewModel">
+    <UserControl.Styles>
+        <Style Selector="Border.startError">
+            <Setter Property="Background" Value="{StaticResource KcapDangerDimBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapDangerBrush}" />
+        </Style>
+        <Style Selector="Border.startError SelectableTextBlock#StartErrorText">
+            <Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" />
+        </Style>
+        <Style Selector="Border.startError.calm">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        </Style>
+        <Style Selector="Border.startError.calm SelectableTextBlock#StartErrorText">
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="StackPanel#ComposerStack">
+            <Setter Property="Spacing" Value="20" />
+        </Style>
+        <Style Selector="StackPanel#ChipsRow">
+            <Setter Property="HorizontalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Border#GoalCard">
+            <Setter Property="Padding" Value="14" />
+        </Style>
+        <Style Selector="StackPanel#CardStack">
+            <Setter Property="Spacing" Value="12" />
+        </Style>
+        <Style Selector="TextBox#GoalInput">
+            <Setter Property="MinHeight" Value="72" />
+        </Style>
+        <!-- Compact: one line that grows with what is typed, for a composer docked under other content. -->
+        <Style Selector="views|LaunchComposerView.compact StackPanel#ComposerStack">
+            <Setter Property="Spacing" Value="6" />
+        </Style>
+        <!-- Compact moves the checkout chips into the card's footer; the page around it already names the work item. -->
+        <Style Selector="ContentControl#FooterChips, Border#ChipsDivider">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="views|LaunchComposerView.compact ContentControl#FooterChips, views|LaunchComposerView.compact Border#ChipsDivider">
+            <Setter Property="IsVisible" Value="True" />
+        </Style>
+        <Style Selector="views|LaunchComposerView.compact StackPanel#ChipsRow">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="views|LaunchComposerView.compact Border#GoalCard:focus-within">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+        </Style>
+        <Style Selector="views|LaunchComposerView.compact Border#GoalCard">
+            <Setter Property="Padding" Value="14,12,10,10" />
+        </Style>
+        <Style Selector="views|LaunchComposerView.compact StackPanel#CardStack">
+            <Setter Property="Spacing" Value="6" />
+        </Style>
+        <Style Selector="views|LaunchComposerView.compact TextBox#GoalInput">
+            <Setter Property="MinHeight" Value="40" />
+        </Style>
+    </UserControl.Styles>
+
+    <UserControl.Resources>
+        <!-- Machine before repo, since picking a machine resets the repo to one of its own. -->
+        <DataTemplate x:Key="CheckoutChips" x:DataType="vm:HomeViewModel">
+            <StackPanel Orientation="Horizontal" Spacing="2">
+                <Button x:Name="MachineChip" Classes="kcapGhost kcapQuiet" Click="OnMachineChipClick" FontSize="13" MaxWidth="200"
+                        IsVisible="{Binding MachinePickerVisible}" ToolTip.Tip="Machine to launch this session on">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <views:AppIcon Kind="Monitor" Size="14" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding SelectedMachine, Converter={x:Static views:MachineLabelConverter.Instance}}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <views:AppIcon Kind="ChevronDown" Size="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="RepositoryChip" Classes="kcapGhost kcapQuiet" Click="OnRepositoryChipClick" FontSize="13" MaxWidth="260"
+                        ToolTip.Tip="{Binding SelectedRepoPath, Converter={x:Static views:RepositoryChipTipConverter.Instance}}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <views:AppIcon Kind="Folder" Size="14" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding SelectedRepoPath, Converter={x:Static views:RepositoryLabelConverter.Instance}}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <views:AppIcon Kind="ChevronDown" Size="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="BaseRefChip" Classes="kcapGhost kcapQuiet" Click="OnBaseRefChipClick" FontSize="13" MaxWidth="220"
+                        ToolTip.Tip="Where the session's own branch starts. It runs in its own worktree under .capacitor/worktrees, so your checkout stays as it is."
+                        AutomationProperties.Name="{Binding SelectedBaseRef, Converter={x:Static views:BaseRefLabelConverter.Instance}}"
+                        IsVisible="{Binding SelectedRepoPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <views:AppIcon Kind="GitBranch" Size="14" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding SelectedBaseRef, TargetNullValue=HEAD}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                        <views:AppIcon Kind="ChevronDown" Size="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <StackPanel x:Name="ComposerStack">
+        <StackPanel x:Name="ChipsRow" Orientation="Horizontal" Spacing="2">
+            <ContentControl Content="{Binding}" ContentTemplate="{StaticResource CheckoutChips}" />
+            <Button x:Name="WorkItemChip" Classes="kcapGhost kcapQuiet" Click="OnWorkItemChipClick" FontSize="13" MaxWidth="220"
+                    ToolTip.Tip="Start this session in a work item" AutomationProperties.Name="Pick a work item">
+                <Button.IsVisible>
+                    <MultiBinding Converter="{x:Static BoolConverters.And}">
+                        <Binding Path="NextWork.ServesLaunches" FallbackValue="False" />
+                        <Binding Path="WorkItemChoices.Count" Converter="{x:Static views:CountIsNotZeroConverter.Instance}" />
+                    </MultiBinding>
+                </Button.IsVisible>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <views:AppIcon Kind="Target" Size="14" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                    <TextBlock Text="Work item" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                    <views:AppIcon Kind="ChevronDown" Size="12" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+        </StackPanel>
+        <!-- The nudge ring overlays the card rather than recolouring it, so its fade never
+             delays the drop ring on GoalCard itself. -->
+        <Panel>
+            <Border x:Name="GoalCard" Classes="attachTarget" Background="{StaticResource KcapSurfaceBrush}"
+                    BorderThickness="1" CornerRadius="12">
+                <StackPanel x:Name="CardStack">
+                    <!-- The picked next-work task: the launch sends its line, then the goal as context, then the prompt the server
+                         built for it. -->
+                    <Border x:Name="NextWorkSourceChip" HorizontalAlignment="Left" CornerRadius="999" Padding="10,3,4,3"
+                            ToolTip.Tip="{Binding NextWorkSource.ContextSummary, FallbackValue={x:Null}}"
+                            Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
+                        <Border.IsVisible>
+                            <MultiBinding Converter="{x:Static views:SameValueConverter.Different}">
+                                <Binding Path="NextWorkSource.Key" FallbackValue="{x:Null}" />
+                                <Binding Path="ImpliedSourceKey" RelativeSource="{RelativeSource AncestorType=views:LaunchComposerView}" />
+                            </MultiBinding>
+                        </Border.IsVisible>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <views:AppIcon Kind="Lightbulb" Size="12" Foreground="{StaticResource KcapMutedBrush}" />
+                            <TextBlock Text="Picked up" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding NextWorkSource.Label, FallbackValue={x:Null}}" FontSize="12" Foreground="{StaticResource KcapTextBrush}"
+                                       MaxWidth="360" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                            <Button x:Name="ClearNextWorkSourceButton" Classes="kcapGhost" Width="20" Height="20" Padding="0"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                    Click="OnClearNextWorkSource" ToolTip.Tip="Unpick this task" AutomationProperties.Name="Unpick the task">
+                                <views:AppIcon Kind="X" Size="12" Foreground="{StaticResource KcapMutedBrush}" />
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <views:AttachmentChipStrip x:Name="ChipStrip" Tray="{Binding Tray}"
+                                               IsVisible="{Binding Tray.HasAttachments}" />
+
+                    <TextBox x:Name="GoalInput" Classes="kcapEmbedded" Text="{Binding Goal}"
+                             AutomationProperties.Name="Session goal"
+                             PlaceholderText="{Binding GoalPlaceholder}"
+                             Background="Transparent" Foreground="{StaticResource KcapTextBrush}"
+                             BorderThickness="0" MaxHeight="180" TextWrapping="Wrap"
+                             VerticalContentAlignment="Top" AcceptsReturn="True" />
+
+                    <StackPanel>
+                        <Grid ColumnDefinitions="*,Auto">
+                            <views:LaunchChipsView x:Name="LaunchChips" DataContext="{Binding}" VerticalAlignment="Center">
+                                <views:LaunchChipsView.Leading>
+                                    <StackPanel Orientation="Horizontal" Spacing="2">
+                                        <Button x:Name="AttachButton" Classes="kcapGhost"
+                                                IsEnabled="{Binding CanAttach}" ToolTip.Tip="{Binding AttachHint}"
+                                                ToolTip.ShowOnDisabled="True" AutomationProperties.Name="Attach files"
+                                                Width="26" Height="26" Padding="0" FontSize="15"
+                                                HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                                            <views:AppIcon Kind="Paperclip" Size="16" />
+                                        </Button>
+                                        <ContentControl x:Name="FooterChips" Content="{Binding}" ContentTemplate="{StaticResource CheckoutChips}" />
+                                        <Border x:Name="ChipsDivider" Width="1" Height="16" Margin="6,0" VerticalAlignment="Center"
+                                                Background="{StaticResource KcapBorderBrush}" />
+                                    </StackPanel>
+                                </views:LaunchChipsView.Leading>
+                            </views:LaunchChipsView>
+
+                            <Button Grid.Column="1" x:Name="StartButton" Classes="kcapPrimary" Command="{Binding StartCommand}"
+                                    Background="{StaticResource KcapPrimaryBrush}" Width="36" Height="36" CornerRadius="18"
+                                    Padding="0" Margin="12,0,0,0" VerticalAlignment="Center"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                    ToolTip.ShowOnDisabled="True"
+                                    AutomationProperties.Name="Start"
+                                    IsEnabled="{Binding SelectedRepoPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                <ToolTip.Tip>
+                                    <MultiBinding Converter="{x:Static views:StartButtonTipConverter.Instance}">
+                                        <Binding Path="StartButtonTip" />
+                                        <Binding Path="Uploading" />
+                                    </MultiBinding>
+                                </ToolTip.Tip>
+                                <views:AppIcon Kind="ArrowUp" Size="16" Foreground="{StaticResource KcapOnPrimaryBrush}" />
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+
+                    <Border x:Name="StartErrorBanner" Classes="startError" Classes.calm="{Binding StartErrorIsNotice}"
+                            Padding="12,9" CornerRadius="8" BorderThickness="1"
+                            IsVisible="{Binding StartError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                        <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
+                            <views:AppIcon Kind="CircleAlert" Size="14" Margin="0,2,8,0" VerticalAlignment="Top"
+                                           Foreground="{StaticResource KcapDangerBrush}"
+                                           IsVisible="{Binding !StartErrorIsNotice}" />
+                            <views:AppIcon Kind="Info" Size="14" Margin="0,2,8,0" VerticalAlignment="Top"
+                                           Foreground="{StaticResource KcapFaintBrush}"
+                                           IsVisible="{Binding StartErrorIsNotice}" />
+                            <SelectableTextBlock Grid.Column="1" x:Name="StartErrorText" Text="{Binding StartError}"
+                                       FontSize="13" LineHeight="18" TextWrapping="Wrap" VerticalAlignment="Center"
+                                       IsVisible="{Binding StartError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            <Button Grid.Row="1" Grid.Column="1" x:Name="RequestRepositoryAccessButton" Classes="kcapChip"
+                                    Content="Allow folder access" Click="OnRequestRepositoryAccessClick"
+                                    IsVisible="{Binding CanRequestRepositoryAccess}"
+                                    HorizontalAlignment="Left" Margin="0,8,0,0" Padding="12,4" />
+                            <Button Grid.Column="2" x:Name="UseDefaultAccountButton" Classes="kcapChip" Content="Use default"
+                                    Command="{Binding UseDefaultAccountCommand}" IsVisible="{Binding StartErrorOffersDefault}"
+                                    VerticalAlignment="Center" Margin="12,0,0,0" Padding="12,4" />
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </Border>
+            <Border x:Name="GoalNudgeRing" Classes="goalNudgeRing" IsHitTestVisible="False"
+                    BorderThickness="1" CornerRadius="12" />
+        </Panel>
+    </StackPanel>
+</UserControl>
