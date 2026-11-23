@@ -126,88 +126,51 @@ public partial class LauncherPaneView : UserControl {
         vm.StartCommand.Execute().Subscribe();
     }
 
-    // Repository picker: one flyout item per ListRepositoriesAsync entry — leaf name over full
-    // path, remembered-harness pill on the right. The scratch entry and
-    // the add affordance sit last, each behind a separator; for a remote machine the add is a typed
-    // path, since the folder picker only sees this machine. Built as a kcapPanel Flyout
-    // (same shape as the agent picker) rather than MenuFlyout — Fluent's radio MenuItem chrome
-    // fights the dark palette.
+    // Repository picker: the known repositories narrowed by the field, then the add row. A remote machine's add is a
+    // typed path, since the folder picker only sees this machine.
     async void OnRepositoryChipClick(object? sender, RoutedEventArgs e) {
         if (DataContext is not HomeViewModel vm || sender is not Control anchor) return;
 
-        var muted = this.Brush("KcapMutedBrush");
-        var rows = new StackPanel { Spacing = 2, Margin = new Thickness(6) };
-
-        var flyout = ChoiceMenus.PanelFlyout(rows, minWidth: 300);
-        foreach (var option in await vm.ListRepositoriesAsync()) {
-            // Scratch is only listed when there are no real repos — still separate it visually
-            // if it ever shares the menu with another row.
-            if (option.RepoPath.Length == 0 && rows.Children.Count > 0)
-                rows.Children.Add(this.ChoiceSeparator());
-            rows.Children.Add(RepositoryRow(vm, option, muted, flyout));
-        }
-        rows.Children.Add(this.ChoiceSeparator());
-        if (vm.RemoteMachineSelected)
-            rows.Children.Add(this.ChoiceRow($"Enter a path on {vm.SelectedMachine}…", selected: false, () => {
-                flyout.Hide();
-                ShowRemotePathEntry(vm, anchor);
-            }));
-        else
-            rows.Children.Add(this.ChoiceRow("Add repository…", selected: false, () => {
-                flyout.Hide();
-                _ = AddRepositoryAsync(vm);
-            }));
-
-        ShowMenu(flyout, anchor);
+        var options = await vm.ListRepositoriesAsync();
+        var add = vm.RemoteMachineSelected
+            ? this.ChoiceRow($"Enter a path on {vm.SelectedMachine}…", selected: false, () => ShowRemotePathEntry(vm, anchor))
+            : this.ChoiceRow("Add repository…", selected: false, () => _ = AddRepositoryAsync(vm));
+        SearchMenu(anchor, "Find a repository", "No matching repositories", query => [.. options
+            .Where(option => option.RepoPath.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .Select(option => RepositoryRow(vm, option))], this.ChoiceSeparator(), add);
     }
 
-    Button RepositoryRow(HomeViewModel vm, RepositoryOption option, IBrush muted, Flyout flyout) {
+    Button RepositoryRow(HomeViewModel vm, RepositoryOption option) {
         var isScratch = option.RepoPath.Length == 0;
         var title = new TextBlock {
             Text = isScratch ? "No repository" : RepoLabel.Leaf(option.RepoPath),
-            FontSize = 13.5,
-            Foreground = this.Brush("KcapTextBrush"),
-            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            FontSize = 13.5, Foreground = this.Brush("KcapTextBrush"), TextTrimming = TextTrimming.CharacterEllipsis,
         };
+        var text = new StackPanel { Spacing = 1, Children = { title } };
+        if (!isScratch)
+            text.Children.Add(new TextBlock {
+                Text = option.RepoPath, FontSize = 11, Foreground = this.Brush("KcapMutedBrush"),
+                TextTrimming = TextTrimming.PrefixCharacterEllipsis,
+            });
 
-        // Pill sits on the title row only (not vertically centered on title+path), so every
-        // repo's badge lines up with "No repository"'s badge. No harness available, no badge.
-        var pill = new StatusBadge {
-            Text = HostedHarnessCatalog.LabelFor(vm.Harnesses, option.Vendor),
-            Margin = new Thickness(12, 0, 0, 0),
-            IsVisible = HomeViewModel.IsAvailable(vm.Harnesses, option.Vendor),
-        };
-
-        var grid = new Grid {
-            ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"),
-            RowDefinitions = new RowDefinitions("Auto,Auto"),
-            MinWidth = 260,
-            // Stretch so the * column eats leftover width and the pill stays right-aligned
-            // across one-line and two-line rows alike.
-            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-        };
-        grid.Children.Add(title);
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto") };
+        grid.Children.Add(text);
         var check = this.SelectionCheck(option.Selected);
         Grid.SetColumn(check, 1);
         grid.Children.Add(check);
-        Grid.SetColumn(pill, 2);
-        grid.Children.Add(pill);
-
-        if (!isScratch) {
-            var path = new TextBlock {
-                Text = option.RepoPath, FontSize = 10.5, Foreground = muted,
-                Margin = new Thickness(0, 2, 0, 0),
-            };
-            Grid.SetRow(path, 1);
-            Grid.SetColumnSpan(path, 3);
-            grid.Children.Add(path);
+        // Only a repository that would switch the harness says which one it remembers.
+        if (option.Vendor != vm.SelectedVendor && HomeViewModel.IsAvailable(vm.Harnesses, option.Vendor)) {
+            var glyph = LaunchChipsView.BuildGlyph(option.Vendor, 13);
+            glyph.Margin = new Thickness(10, 0, 0, 0);
+            glyph.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+            ToolTip.SetTip(glyph, HostedHarnessCatalog.LabelFor(vm.Harnesses, option.Vendor));
+            Grid.SetColumn(glyph, 2);
+            grid.Children.Add(glyph);
         }
 
         var repoPath = option.RepoPath;
-        var row = ChoiceMenus.ChoiceButton(grid, () => {
-            flyout.Hide();
-            _ = SelectRepositoryObservedAsync(vm, repoPath);
-        });
+        var row = ChoiceMenus.ChoiceButton(grid, () => _ = SelectRepositoryObservedAsync(vm, repoPath));
+        row.Padding = new Thickness(10, 6);
         AutomationProperties.SetName(row, ChoiceMenus.ChoiceName(title.Text, option.Selected));
         return row;
     }
@@ -376,36 +339,39 @@ public partial class LauncherPaneView : UserControl {
     // row does, so the session it starts is attached to the item.
     void OnWorkItemChipClick(object? sender, RoutedEventArgs e) {
         if (DataContext is not HomeViewModel { NextWork: { } band } vm || sender is not Control anchor) return;
-
-        var search = new TextBox { PlaceholderText = "Find a work item", Margin = new Thickness(4, 4, 4, 6) };
-        search.Classes.Add("kcapField");
-        AutomationProperties.SetName(search, "Find a work item");
-        var list = new StackPanel { Spacing = 2 };
-        var body = new StackPanel { Spacing = 2, Margin = new Thickness(6), Width = 360 };
-        body.Children.Add(search);
-        body.Children.Add(new ScrollViewer { MaxHeight = 320, Content = list });
-        var flyout = ChoiceMenus.PanelFlyout(body, minWidth: 360);
-
         var picked = vm.NextWorkSource?.Key;
-        List<RailWorkItem> matches = [];
-        void Pick(RailWorkItem item) {
-            flyout.Hide();
-            _ = band.PickWorkItemAsync(item.Id, item.Title);
-        }
-        void Narrow() {
-            var query = search.Text?.Trim() ?? "";
-            matches = [.. vm.WorkItemChoices.Where(item => item.Title.Contains(query, StringComparison.OrdinalIgnoreCase))];
-            list.Children.Clear();
-            foreach (var item in matches)
-                list.Children.Add(this.ChoiceRow(item.Title, picked == ViewModels.NextWork.NextWorkLaneLogic.WorkItemPrefix + item.Id, () => Pick(item)));
-            if (matches.Count == 0) list.Children.Add(BranchNote("No matching work items"));
-        }
+        SearchMenu(anchor, "Find a work item", "No matching work items", query => [.. vm.WorkItemChoices
+            .Where(item => item.Title.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .Select(item => this.ChoiceRow(item.Title, picked == ViewModels.NextWork.NextWorkLaneLogic.WorkItemPrefix + item.Id,
+                () => _ = band.PickWorkItemAsync(item.Id, item.Title)))]);
+    }
 
+    // A find field over a capped, scrolling list, with any footer rows below it. Enter picks the first match, Down
+    // moves into the list, and any row's click closes the menu.
+    void SearchMenu(Control anchor, string placeholder, string empty, Func<string, IReadOnlyList<Button>> rowsFor, params Control[] footer) {
+        var search = new TextBox { PlaceholderText = placeholder, Margin = new Thickness(4, 4, 4, 6) };
+        search.Classes.Add("kcapField");
+        AutomationProperties.SetName(search, placeholder);
+        var list = new StackPanel { Spacing = 2 };
+        var body = new StackPanel { Spacing = 2, Margin = new Thickness(6), Width = 380 };
+        body.Children.Add(search);
+        body.Children.Add(new ScrollViewer { MaxHeight = 340, Content = list });
+        body.Children.AddRange(footer);
+        var flyout = ChoiceMenus.PanelFlyout(body, minWidth: 380);
+        body.AddHandler(Button.ClickEvent, (_, _) => flyout.Hide());
+
+        IReadOnlyList<Button> rows = [];
+        void Narrow() {
+            rows = rowsFor(search.Text?.Trim() ?? "");
+            list.Children.Clear();
+            list.Children.AddRange(rows);
+            if (rows.Count == 0) list.Children.Add(BranchNote(empty));
+        }
         search.TextChanged += (_, _) => Narrow();
         search.KeyDown += (_, args) => {
-            if (args.Key == Key.Enter && matches.Count > 0) {
+            if (args.Key == Key.Enter && rows.Count > 0) {
                 args.Handled = true;
-                Pick(matches[0]);
+                rows[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             } else if (args.Key == Key.Down) {
                 args.Handled = true;
                 FlyoutKeyboard.FocusFirstItem(list, NavigationMethod.Directional);
@@ -605,17 +571,6 @@ public partial class LauncherPaneView : UserControl {
 
 }
 
-/// Leaf under the fixed question; empty when nothing is selected (the subtitle is then hidden).
-public sealed class LauncherRepoSubtitleConverter : IValueConverter {
-    public static readonly LauncherRepoSubtitleConverter Instance = new();
-
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        value is string { Length: > 0 } path ? RepoLabel.Leaf(path) : "";
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        throw new NotSupportedException();
-}
-
 /// Repo chip tip: full path when selected, otherwise the control's job label.
 public sealed class RepositoryChipTipConverter : IValueConverter {
     public static readonly RepositoryChipTipConverter Instance = new();
@@ -627,18 +582,17 @@ public sealed class RepositoryChipTipConverter : IValueConverter {
         throw new NotSupportedException();
 }
 
-/// MachineChip's label: always "Machine · …" so the chip's job stays readable next to Repo.
 public sealed class MachineLabelConverter : IValueConverter {
     public static readonly MachineLabelConverter Instance = new();
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        value is string { Length: > 0 } name ? $"Machine · {name}" : "Machine";
+        value is string { Length: > 0 } name ? name : "Machine";
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();
 }
 
-/// BaseRefChip's label: "Branch from · …", HEAD when nothing is chosen.
+/// BaseRefChip's spoken name: "Branch from · …", HEAD when nothing is chosen.
 public sealed class BaseRefLabelConverter : IValueConverter {
     public static readonly BaseRefLabelConverter Instance = new();
 

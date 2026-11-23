@@ -205,38 +205,30 @@ public class LauncherPaneViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Headline_keeps_a_fixed_question_and_a_repo_subtitle() {
-        var (question, subtitleBefore, subtitleVisibleBefore, subtitleAfter, subtitleVisibleAfter) =
-            await AvaloniaSession.DispatchAsync(async () => {
-                var (vm, _, _, tmp) = Build();
-                using var _tmp = tmp;
-                var window = new Window { Content = new LauncherPaneView { DataContext = vm }, Width = 900, Height = 600 };
-                window.Show();
-                Dispatcher.UIThread.RunJobs();
+    public async Task Headline_keeps_a_fixed_question_and_the_repo_picker_names_the_repo() {
+        var (question, before, after) = await AvaloniaSession.DispatchAsync(async () => {
+            var (vm, _, _, tmp) = Build();
+            using var _tmp = tmp;
+            var window = new Window { Content = new LauncherPaneView { DataContext = vm }, Width = 900, Height = 600 };
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
 
-                var headline = Find<TextBlock>(window, "LauncherHeadline")!;
-                var subtitle = Find<TextBlock>(window, "LauncherRepoSubtitle")!;
-                var beforeText = subtitle.Text;
-                var beforeVisible = subtitle.IsVisible;
+            var label = Find<Button>(window, "RepositoryChip")!.GetVisualDescendants().OfType<TextBlock>().First();
+            var beforeText = label.Text;
+            await vm.SelectRepositoryAsync("/repos/kcap-New-Machine");
+            Dispatcher.UIThread.RunJobs();
+            var afterText = label.Text;
+            var q = Find<TextBlock>(window, "LauncherHeadline")!.Text;
 
-                await vm.SelectRepositoryAsync("/repos/kcap-New-Machine");
-                Dispatcher.UIThread.RunJobs();
-
-                var afterText = subtitle.Text;
-                var afterVisible = subtitle.IsVisible;
-                var q = headline.Text;
-
-                window.Close();
-                Dispatcher.UIThread.RunJobs();
-                vm.Dispose();
-                return (q, beforeText, beforeVisible, afterText, afterVisible);
-            });
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            vm.Dispose();
+            return (q, beforeText, afterText);
+        });
 
         await Assert.That(question).IsEqualTo("What should we build?");
-        await Assert.That(subtitleVisibleBefore).IsFalse();
-        await Assert.That(subtitleBefore ?? "").IsEqualTo("");
-        await Assert.That(subtitleVisibleAfter).IsTrue();
-        await Assert.That(subtitleAfter).IsEqualTo("kcap-New-Machine");
+        await Assert.That(before).IsEqualTo("Choose a repository");
+        await Assert.That(after).IsEqualTo("kcap-New-Machine");
     }
 
     [Test]
