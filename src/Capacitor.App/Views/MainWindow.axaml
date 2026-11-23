@@ -102,8 +102,8 @@
                         </Border>
                     </Panel>
                     <!-- Last child so it hit-tests above the content pane it overhangs. -->
-                    <GridSplitter x:Name="RailSplitter" Grid.Column="0" HorizontalAlignment="Right" Width="6"
-                                  Margin="0,0,-3,0" Background="Transparent" ResizeDirection="Columns"
+                    <GridSplitter x:Name="RailSplitter" Grid.Column="0" HorizontalAlignment="Right" Classes="sidebarSplitter"
+                                  Margin="0,0,-6,0" ResizeDirection="Columns"
                                   DragDelta="OnRailSplitterDragDelta" DragCompleted="OnRailSplitterDragCompleted" />
                 </Grid>
 

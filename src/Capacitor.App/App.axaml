@@ -930,6 +930,42 @@
             <Setter Property="Opacity" Value="1" />
             <Setter Property="RenderTransform" Value="scale(0.97, 0.72)" />
         </Style>
+        <Style Selector="GridSplitter.sidebarSplitter">
+            <Setter Property="Width" Value="12" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Cursor" Value="SizeWestEast" />
+            <Setter Property="Template">
+                <ControlTemplate TargetType="GridSplitter">
+                    <Border Background="Transparent">
+                        <Border Name="SplitterLine"
+                                Width="2"
+                                HorizontalAlignment="Center"
+                                Background="{StaticResource KcapBorderBrush}"
+                                CornerRadius="99"
+                                RenderTransformOrigin="50%,50%"
+                                RenderTransform="scaleX(1)">
+                            <Border.Transitions>
+                                <Transitions>
+                                    <BrushTransition Property="Background" Duration="0:0:0.14" />
+                                    <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+                                    <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12" Easing="CubicEaseOut" />
+                                </Transitions>
+                            </Border.Transitions>
+                        </Border>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="GridSplitter.sidebarSplitter:pointerover /template/ Border#SplitterLine">
+            <Setter Property="Background" Value="{StaticResource KcapInfoBrush}" />
+            <Setter Property="Opacity" Value="0.75" />
+            <Setter Property="RenderTransform" Value="scaleX(1.5)" />
+        </Style>
+        <Style Selector="GridSplitter.sidebarSplitter:pressed /template/ Border#SplitterLine">
+            <Setter Property="Background" Value="{StaticResource KcapInfoBrush}" />
+            <Setter Property="Opacity" Value="1" />
+            <Setter Property="RenderTransform" Value="scaleX(1.5)" />
+        </Style>
         <StyleInclude Source="avares://kcap-desktop/Views/SectionStyles.axaml" />
         <Style Selector="Button.acpOption, ToggleButton.acpOption">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
