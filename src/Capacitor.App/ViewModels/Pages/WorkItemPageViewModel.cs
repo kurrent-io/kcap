@@ -43,6 +43,8 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     readonly Dictionary<string, string> _containerOf = new(StringComparer.Ordinal);
     // Slices added through the composer, marked as arriving the first time they are built.
     readonly HashSet<string> _arrivals = new(StringComparer.Ordinal);
+    // Slices picked in the graph, marked as revealed the first time the list builds them.
+    readonly HashSet<string> _reveals = new(StringComparer.Ordinal);
     readonly Subject<Unit> _reread = new();
     readonly CompositeDisposable _disposables = new();
     WorkItemPartsDto? _read;
@@ -110,6 +112,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     public ReactiveCommand<Unit, Unit> ShowListCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowBoardCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowGraphCommand { get; }
+    public ReactiveCommand<WorkItemPagePart, Unit> ShowInListCommand { get; }
 
     Action? _pendingDrop;
     string? _dropPrompt;
@@ -160,6 +163,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         ShowListCommand = ReactiveCommand.Create(() => Show(WorkItemPageLayout.List)).DisposeWith(_disposables);
         ShowBoardCommand = ReactiveCommand.Create(() => Show(WorkItemPageLayout.Board)).DisposeWith(_disposables);
         ShowGraphCommand = ReactiveCommand.Create(() => Show(WorkItemPageLayout.Graph)).DisposeWith(_disposables);
+        ShowInListCommand = ReactiveCommand.Create<WorkItemPagePart>(ShowInList).DisposeWith(_disposables);
         ConfirmDropCommand = ReactiveCommand.Create(() => {
             var drop = _pendingDrop;
             EndDropPrompt();
@@ -280,8 +284,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     }
 
     void Compose(WorkStatus status) {
-        if (ExpandedByDefault(status)) _flipped.Remove(status.Wire());
-        else _flipped.Add(status.Wire());
+        OpenGroup(status);
         Composing = status;
         Rebuild();
     }
@@ -312,6 +315,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     }
 
     static bool ExpandedByDefault(WorkStatus status) => status != WorkStatus.Done;
+
+    void OpenGroup(WorkStatus status) {
+        if (ExpandedByDefault(status)) _flipped.Remove(status.Wire());
+        else _flipped.Add(status.Wire());
+    }
 
     // Shows the sessions where they go before the change is sent, so a drop lands where it was let go; a refusal puts them back.
     async Task<bool> ShiftAsync(IReadOnlyList<string> sessionIds, string? to, Func<CancellationToken, Task<bool>> change, string failure) {
@@ -364,6 +372,14 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         _flipped.Remove(GraphKey);
         if (layout == WorkItemPageLayout.Board) _flipped.Add(BoardKey);
         else if (layout == WorkItemPageLayout.Graph) _flipped.Add(GraphKey);
+    }
+
+    void ShowInList(WorkItemPagePart part) {
+        Show(WorkItemPageLayout.List);
+        OpenGroup(part.Status);
+        if (part.HasSessions && !_openedParts.Contains(part.Id)) _opening.Add(part.Id);
+        _reveals.Add(part.Id);
+        Rebuild();
     }
 
     // Shown at once; a refusal, such as slices that would wait on each other in a loop, puts it back.
@@ -538,7 +554,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
                 _opening.Remove(id);
                 if (expanded) _openedParts.Add(id);
                 else _openedParts.Remove(id);
-            }, setStatus, _arrivals.Remove(id), _opening.Contains(id));
+            }, setStatus, _arrivals.Remove(id), _opening.Contains(id), _reveals.Remove(id));
     }
 
     static IReadOnlyList<WorkItemPageLink> LinksOf(IEnumerable<WorkItemLinkDto> links) =>

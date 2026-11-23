@@ -316,7 +316,9 @@
             <StackPanel Classes="part" Width="{x:Static pages:WorkItemPageGraphNode.Width}">
                 <Border Classes="card" Height="{x:Static pages:WorkItemPageGraphNode.Height}">
                     <Button Classes="kcapGhost partRow dragRow cardBody" Padding="10,0" VerticalAlignment="Stretch"
-                            ToolTip.Tip="{Binding WaitsOnText}" AutomationProperties.Name="{Binding Title}">
+                            ToolTip.Tip="{Binding WaitsOnText}" AutomationProperties.Name="{Binding Title}" Cursor="Hand"
+                            Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).ShowInListCommand}"
+                            CommandParameter="{Binding}">
                         <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" VerticalAlignment="Center">
                             <views:AppIcon Kind="{Binding Icon}" Size="14" VerticalAlignment="Center"
                                            Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />

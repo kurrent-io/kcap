@@ -1,10 +1,13 @@
 using System.ComponentModel;
 using System.Windows.Input;
 using Avalonia;
+using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
@@ -58,6 +61,40 @@ public partial class WorkItemPageView : UserControl {
         if (sender is not Control { DataContext: WorkItemPagePart part } row) return;
         if (part.Arrives) _ = Motion.Arrive.RunAsync(row, CancellationToken.None, (OpacityProperty, 0d, 1d));
         if (part.Opens) Dispatcher.UIThread.Post(part.Open, DispatcherPriority.Background);
+        if (part.Reveals && row is StackPanel panel) Dispatcher.UIThread.Post(() => _ = RevealAsync(panel), DispatcherPriority.Background);
+    }
+
+    // Posted after the row's Open, so its fold has measured the height it unfolds to.
+    async Task RevealAsync(StackPanel row) {
+        if (!row.IsEffectivelyVisible) return;
+        if (row.Children[0] is Button { Presenter: { } presenter } && this.FindResource("KcapSelectionBrush") is ISolidColorBrush selection)
+            _ = Flash(selection).RunAsync(presenter);
+        if (row.FindAncestorOfType<ScrollViewer>() is not { } scroller || row.TranslatePoint(default, scroller) is not { } at) return;
+        var height = row.Children[0].Bounds.Height + row.Children[1].DesiredSize.Height;
+        if (at.Y < 0 || at.Y + height > scroller.Viewport.Height) await ScrollToAsync(scroller, scroller.Offset.Y + at.Y - 16);
+    }
+
+    static Animation Flash(ISolidColorBrush brush) => new() {
+        Duration = TimeSpan.FromMilliseconds(1600),
+        Children = {
+            new KeyFrame { Cue = new Cue(0d), Setters = { new Setter(BackgroundProperty, brush) } },
+            new KeyFrame { Cue = new Cue(0.5d), Setters = { new Setter(BackgroundProperty, brush) } },
+            new KeyFrame { Cue = new Cue(1d), Setters = { new Setter(BackgroundProperty, new SolidColorBrush(brush.Color, 0)) } },
+        },
+    };
+
+    // Stepped per frame rather than animated, so each step is clamped to the extent as the fold grows it.
+    static async Task ScrollToAsync(ScrollViewer scroller, double y) {
+        if (TopLevel.GetTopLevel(scroller) is not { } top) return;
+        var from = scroller.Offset.Y;
+        TimeSpan? start = null;
+        for (double t = 0; t < 1;) {
+            var frame = new TaskCompletionSource<TimeSpan>();
+            top.RequestAnimationFrame(frame.SetResult);
+            var now = await frame.Task;
+            t = Math.Min(1, (now - (start ??= now)) / Motion.Standard.Duration);
+            scroller.Offset = scroller.Offset.WithY(from + (y - from) * Motion.Standard.Easing.Ease(t));
+        }
     }
 
     // A rebuild replaces the group, and with it the field being typed in, so the new field takes focus back.
