@@ -1171,7 +1171,7 @@
                             <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="1" Margin="8,0,0,0" IsVisible="{Binding ShowsComposer}">
                                 <Button x:Name="SendButton" Classes="kcapPrimary" Classes.alone="{Binding !ShowsMarks}" Content="{Binding SendLabel}" Command="{Binding SendCommand}"
                                         Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" />
-                                <Button x:Name="SendModeButton" Classes="kcapPrimary" IsVisible="{Binding ShowsMarks}" Classes.sendIdle="{Binding !#SendButton.IsEffectivelyEnabled}" Width="22" Height="24" Padding="0" CornerRadius="0,7,7,0"
+                                <Button x:Name="SendModeButton" Classes="kcapPrimary" IsVisible="{Binding ShowsMarks}" Classes.sendIdle="{Binding !#SendButton.IsEffectivelyEnabled}" Width="{StaticResource KcapMinTargetSize}" Height="24" Padding="0" CornerRadius="0,7,7,0"
                                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Cursor="Hand"
                                         ToolTip.Tip="Send, or start or end a topic with this message"
                                         AutomationProperties.Name="Choose what Send does">

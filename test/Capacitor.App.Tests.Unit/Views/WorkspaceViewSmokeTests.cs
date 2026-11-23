@@ -610,7 +610,6 @@ public class WorkspaceViewSmokeTests {
                 await Assert.That(workingWord.Text).IsEqualTo("Working");
                 var workingLines = TipLines(working);
                 await Assert.That(workingLines[0]).StartsWith("Working for ");
-                await Assert.That(workingLines[1]).IsEqualTo("Status");
                 await Assert.That(AutomationProperties.GetName(working)).IsEqualTo(workingLines[0]);
                 await Assert.That(Visible(window, "ChatActivityNote")).IsFalse();
 

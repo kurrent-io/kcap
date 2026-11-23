@@ -25,6 +25,7 @@ public partial class SessionRailView : UserControl {
         InitializeComponent();
         DataContextChanged += (_, _) => BindSearchLabel();
         foreach (var anchor in new[] { RailHelpButton, RailGroupButton, RailSortButton }) KeyboardDismissible(anchor);
+        RailKeyboard.Attach(RailGroups);
     }
 
     /// Calls <paramref name="painted"/> once, on the UI thread, with the time the first frame showing a

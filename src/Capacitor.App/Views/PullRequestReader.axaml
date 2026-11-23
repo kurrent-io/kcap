@@ -211,8 +211,8 @@
                     <TextBlock x:Name="FreshnessText" Text="{Binding FreshnessLabel}" Classes="prNote" IsVisible="{Binding !ShowsRefreshing}" HorizontalAlignment="Left">
                         <ToolTip.Tip>
                             <StackPanel Spacing="2">
-                                <TextBlock Text="{Binding FreshnessDetail}" />
                                 <TextBlock Text="Last updated" Classes="kcapTipCaption" />
+                                <TextBlock Text="{Binding FreshnessDetail}" />
                             </StackPanel>
                         </ToolTip.Tip>
                     </TextBlock>

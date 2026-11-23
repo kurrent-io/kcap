@@ -13,6 +13,24 @@ namespace Capacitor.App.Tests.Unit.ViewModels;
 public class SessionRailViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public async Task Two_groups_with_the_same_name_show_their_parent_folders_until_one_goes() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+            rail.State = RailState.All;
+            directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto("a", "/work/demo"), new RepoIdentity("path:/work/demo", "demo")));
+            var play = AgentRow.FromLocal(Dto("b", "/play/demo"), new RepoIdentity("path:/play/demo", "demo"));
+            directory.Rows.AddOrUpdate(play);
+
+            await Assert.That(rail.Groups.Select(g => g.Label)).IsEquivalentTo(["work/demo", "play/demo"]);
+
+            directory.Rows.Remove(play);
+            await Assert.That(rail.Groups.Select(g => g.Label)).IsEquivalentTo(["demo"]);
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task Attention_tracks_the_unfiltered_row_source_while_the_rail_hides_live_sessions() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var directory = new FakeAgentDirectory();

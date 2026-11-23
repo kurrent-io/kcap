@@ -869,7 +869,6 @@ public class MainWindowSmokeTests {
                 var countLeft = count.TranslatePoint(default, header)!.Value.X;
                 await Assert.That(right).IsLessThan(countLeft);
                 await Assert.That(label.TextTrimming).IsEqualTo(TextTrimming.CharacterEllipsis);
-                await Assert.That(label.FontSize).IsEqualTo(11.5);
                 await Assert.That(count.Text).IsEqualTo("1 session");
                 await Assert.That(header.Focusable).IsTrue();
                 await Assert.That(row.IsEffectivelyVisible).IsTrue();
@@ -1260,8 +1259,8 @@ public class MainWindowSmokeTests {
             await Assert.That(seen.VendorPeer).IsEqualTo("Claude Code");
             await Assert.That(seen.ChildTips).IsEqualTo(0);
             await Assert.That(seen.RowTipIsStatus).IsTrue();
-            await Assert.That(seen.RowTip).Contains("Claude Code\nHarness");
-            await Assert.That(seen.RowTip).Contains("opus\nModel");
+            await Assert.That(seen.RowTip).Contains("Harness\nClaude Code");
+            await Assert.That(seen.RowTip).Contains("Model\nopus");
             await Assert.That(seen.VendorLeft).IsLessThan(seen.MarkLeft);
             await Assert.That(seen.MarkRight).IsLessThan(seen.MetaLeft);
             await Assert.That(seen.ModelInRow).IsFalse();

@@ -344,6 +344,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .SortAndBind(_groupsSource, _groupComparer)
             .Subscribe()
             .DisposeWith(_disposables);
+        Observable.FromEventPattern<NotifyCollectionChangedEventHandler, NotifyCollectionChangedEventArgs>(
+                handler => _groupsSource.CollectionChanged += handler, handler => _groupsSource.CollectionChanged -= handler)
+            .Subscribe(_ => QualifyRepositoryLabels())
+            .DisposeWith(_disposables);
         work.Subscribe(next => {
             _work = next;
             if (_grouping == RailGrouping.Status) _regroup.OnNext(Unit.Default);
@@ -469,6 +473,12 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         },
         _ => "",
     };
+
+    void QualifyRepositoryLabels() {
+        var repositories = _groupsSource.Where(g => g.Kind == RailGrouping.Repository).ToList();
+        var shown = RailGroupLabels.Disambiguate(repositories.Select(g => (g.Key, g.BaseLabel)).ToList());
+        foreach (var group in repositories) group.Relabel(shown[group.Key], qualified: true);
+    }
 
     string DayLabel(string key) {
         if (!DateOnly.TryParseExact(key["day:".Length..], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day)) return key;

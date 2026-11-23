@@ -349,9 +349,9 @@
                                IsVisible="{Binding FooterIdentity, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                         <ToolTip.Tip>
                             <StackPanel Spacing="2">
-                                <TextBlock Text="{Binding FooterServerUrl}" />
                                 <TextBlock Text="{x:Static vm:MainWindowViewModel.ServerUrlTip}"
                                            Classes="kcapTipCaption" />
+                                <TextBlock Text="{Binding FooterServerUrl}" />
                             </StackPanel>
                         </ToolTip.Tip>
                     </TextBlock>
@@ -370,7 +370,7 @@
                         </Grid>
                     </StackPanel>
                     <Button x:Name="RailHelpButton" Grid.Column="1" Classes="kcapChip" VerticalAlignment="Bottom"
-                            Width="22" Height="22" Padding="0" CornerRadius="6" Margin="10,0,0,0"
+                            Width="{StaticResource KcapMinTargetSize}" Height="{StaticResource KcapMinTargetSize}" Padding="0" CornerRadius="6" Margin="10,0,0,0"
                             ToolTip.Tip="Help and support" AutomationProperties.Name="Help and support">
                         <views:AppIcon Kind="CircleQuestionMark" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
                         <Button.Flyout>
@@ -447,7 +447,9 @@
                 <StackPanel>
                     <TextBlock Text="No sessions" Foreground="{StaticResource KcapFaintBrush}" Margin="8,16"
                                IsVisible="{Binding ShowsNoSessions}" />
-                    <ItemsControl x:Name="RailGroups" ItemsSource="{Binding Rail.Groups, FallbackValue={x:Null}}">
+                    <!-- One Tab stop for the whole list; arrow keys move between headers and rows (RailKeyboard). -->
+                    <ItemsControl x:Name="RailGroups" ItemsSource="{Binding Rail.Groups, FallbackValue={x:Null}}"
+                                  KeyboardNavigation.TabNavigation="Once">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:RailGroupViewModel">
                                 <StackPanel Margin="8,10,8,0">
@@ -497,12 +499,12 @@
                                                                                    IsVisible="{Binding HasTitle}" />
                                                                         <views:AgentStatusTip DataContext="{Binding Status}" />
                                                                         <StackPanel Spacing="1" IsVisible="{Binding MachineBadge, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                                                            <TextBlock Text="{Binding MachineBadge}" TextWrapping="Wrap" />
                                                                             <TextBlock Text="Machine · remote daemon" Classes="kcapTipCaption" />
+                                                                            <TextBlock Text="{Binding MachineBadge}" TextWrapping="Wrap" />
                                                                         </StackPanel>
                                                                         <StackPanel Spacing="1" IsVisible="{Binding CheckoutPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                                                            <TextBlock Text="{Binding CheckoutPath}" TextWrapping="Wrap" />
                                                                             <TextBlock Text="Checkout" Classes="kcapTipCaption" />
+                                                                            <TextBlock Text="{Binding CheckoutPath}" TextWrapping="Wrap" />
                                                                         </StackPanel>
                                                                     </StackPanel>
                                                                 </ToolTip.Tip>

@@ -33,8 +33,8 @@
                                        Foreground="{StaticResource KcapFaintBrush}" />
                         </StackPanel>
                         <Button Classes="kcapGhost kcapIcon" x:Name="ChipRemove" Command="{Binding RemoveCommand}" AutomationProperties.Name="Remove attachment"
-                                ToolTip.Tip="Remove" Width="20" Height="20" Padding="0" FontSize="{StaticResource KcapFontSizeCaption}"
-                                CornerRadius="10" Cursor="Hand" VerticalAlignment="Center"
+                                ToolTip.Tip="Remove" Width="{StaticResource KcapMinTargetSize}" Height="{StaticResource KcapMinTargetSize}" Padding="0" FontSize="{StaticResource KcapFontSizeCaption}"
+                                CornerRadius="12" Cursor="Hand" VerticalAlignment="Center"
                                 HorizontalContentAlignment="Center" VerticalContentAlignment="Center" BorderThickness="0">
                             <views:AppIcon Kind="X" Size="14" />
                         </Button>

@@ -241,8 +241,8 @@ public class RailSessionViewModelTests {
             await Assert.That(row.Vendor).IsEqualTo("claude");
             await Assert.That(row.HasVendor).IsTrue();
             await Assert.That(row.Model).IsEqualTo("Opus 5");
-            await Assert.That(row.Tooltip).Contains("Claude Code\nHarness");
-            await Assert.That(row.Tooltip).Contains("Opus 5\nModel");
+            await Assert.That(row.Tooltip).Contains("Harness\nClaude Code");
+            await Assert.That(row.Tooltip).Contains("Model\nOpus 5");
         });
     }
 
@@ -288,8 +288,8 @@ public class RailSessionViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var row = new RailSessionViewModel(Row(model: null), new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
             await Assert.That(row.Model).IsNull();
-            await Assert.That(row.Tooltip).Contains("Claude Code\nHarness");
-            await Assert.That(row.Tooltip).DoesNotContain("\nModel");
+            await Assert.That(row.Tooltip).Contains("Harness\nClaude Code");
+            await Assert.That(row.Tooltip).DoesNotContain("Model\n");
         });
     }
 
