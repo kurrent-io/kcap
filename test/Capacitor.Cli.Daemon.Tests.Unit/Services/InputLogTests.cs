@@ -1,5 +1,6 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
@@ -155,6 +156,48 @@ public class InputLogTests {
         await Assert.That(log.Match(3, "an assistant line", null)).IsNull();
         await Assert.That(log.IsSuspended).IsFalse();
         await Assert.That(log.Match(4, "line 4", "run the tests")).IsEqualTo(new LineStamp(4, First, IsLocal: false));
+    }
+
+    static string[] Informed(CapturingLogger<InputLog> logger) {
+        lock (logger.Entries) return [.. logger.Entries.Where(entry => entry.Level == LogLevel.Information).Select(entry => entry.Message)];
+    }
+
+    /// <summary>The week of comparison counts suspended sessions from the daemon's log, so a suspension says why once,
+    /// however many rows go unstamped behind it, and a new process says it starts stamping again</summary>
+    [Test]
+    public async Task A_suspension_logs_its_reason_once() {
+        var logger = new CapturingLogger<InputLog>();
+        var log    = new InputLog(LogPath, Time, logger, "session-1");
+        log.MarkWritten(log.AppendPending(InputAuthor.Dispatch(First), "run the tests"));
+
+        await Assert.That(log.Match(3, "line 3", "typed at the terminal")).IsNull();
+        await Assert.That(log.Match(4, "line 4", "run the tests")).IsNull();
+        await Assert.That(log.Match(5, "line 5", "and again")).IsNull();
+        log.Suspend("a raw Enter reached the terminal");
+
+        var suspended = Informed(logger);
+        await Assert.That(suspended).Count().IsEqualTo(1);
+        await Assert.That(suspended[0]).Contains("session-1");
+        await Assert.That(suspended[0]).Contains("a person-authored row is not the next message");
+
+        log.ResetForNewProcess(firstLine: 6);
+
+        await Assert.That(Informed(logger)).Count().IsEqualTo(2);
+        await Assert.That(Informed(logger)[1]).Contains("session-1");
+        await Assert.That(Informed(logger)[1]).Contains("6");
+    }
+
+    [Test]
+    public async Task A_log_that_cannot_be_written_warns_and_suspends() {
+        var logger  = new CapturingLogger<InputLog>();
+        var blocker = Tmp.CreateFile("blocker");
+        var log     = new InputLog(Path.Combine(blocker, "session.json"), Time, logger, "session-1");
+
+        log.MarkWritten(log.AppendPending(InputAuthor.Dispatch(First), "run the tests"));
+
+        await Assert.That(log.IsSuspended).IsTrue();
+        await Assert.That(logger.Entries.Count(entry => entry.Level == LogLevel.Warning)).IsEqualTo(1);
+        await Assert.That(logger.Entries.Single(entry => entry.Level == LogLevel.Warning).Message).Contains("session-1");
     }
 
     /// <summary>A trailing newline is the submit's, not the message's, whichever side carries it</summary>

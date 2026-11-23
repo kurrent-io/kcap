@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Skills;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Capacitor.Cli.Daemon.Services;
 
@@ -10,13 +12,16 @@ namespace Capacitor.Cli.Daemon.Services;
 /// The messages this daemon wrote to one hosted session's terminal, in the order it wrote them, and the rows already
 /// placed against them, so a person-authored row can carry the message it came from. Exact or nothing: a row it can't
 /// account for suspends it, and only the session's next process ends a suspension. Its file holds hashes, never text,
-/// and is rewritten whole after every change, so a crash leaves the last state whole
+/// and is rewritten whole after every change, so a crash leaves the last state whole. Each suspension and each reset is
+/// logged once, so the sessions it gave up on can be counted from the daemon's log
 /// </summary>
-internal sealed class InputLog {
+internal sealed partial class InputLog {
     const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
     readonly string _path;
     readonly TimeProvider _time;
+    readonly ILogger _logger;
+    readonly string _key;
     readonly Lock _gate = new();
     readonly List<InputLogEntry> _entries = [];
     readonly List<InputLogMatch> _matches = [];
@@ -29,12 +34,16 @@ internal sealed class InputLog {
     string? _suspended;
     DateTimeOffset? _suspendedAt;
     bool _retired;
+    bool _writeFailing;
 
     /// <summary>Loads what <paramref name="path"/> holds. A file that can't be read loads suspended, and so does one
     /// whose last entry may or may not have reached the terminal</summary>
-    public InputLog(string path, TimeProvider time) {
-        _path = path;
-        _time = time;
+    /// <param name="key">The source it stamps, as its log lines name it; its file's name when not given</param>
+    public InputLog(string path, TimeProvider time, ILogger? logger = null, string? key = null) {
+        _path   = path;
+        _time   = time;
+        _logger = logger ?? NullLogger.Instance;
+        _key    = key ?? Path.GetFileNameWithoutExtension(path);
 
         Load();
     }
@@ -120,14 +129,15 @@ internal sealed class InputLog {
             _suspendedAt = null;
             _firstLine   = firstLine;
             Persist();
+            LogReset(_key, firstLine);
         }
     }
 
     /// <summary>Its file was deleted, so nothing writes it again and nothing is stamped from it</summary>
     internal void Retire() {
         lock (_gate) {
-            _retired = true;
-            SuspendLocked("its session's recording finished");
+            _retired   = true;
+            _suspended ??= "its session's recording finished";
         }
     }
 
@@ -156,6 +166,7 @@ internal sealed class InputLog {
 
         _suspended   = reason;
         _suspendedAt = _time.GetUtcNow();
+        LogSuspended(_key, reason);
 
         return true;
     }
@@ -209,8 +220,20 @@ internal sealed class InputLog {
             else Directory.CreateDirectory(directory, OwnerOnly | UnixFileMode.UserExecute);
 
             AtomicFile.Replace(_path, JsonSerializer.Serialize(state, InputLogJsonContext.Default.InputLogState), OwnerOnly, followLink: false, durable: true);
+            _writeFailing = false;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            if (!_writeFailing) LogUnwritable(ex, _key, _path);
+            _writeFailing = true;
             SuspendLocked("its file could not be written");
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Stamping {Key}'s rows is suspended until its next process: {Reason}")]
+    partial void LogSuspended(string key, string reason);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Stamping {Key}'s rows starts again from line {FirstLine} for a new process")]
+    partial void LogReset(string key, int firstLine);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The input log of {Key} at {Path} could not be written, so its rows go unstamped")]
+    partial void LogUnwritable(Exception ex, string key, string path);
 }

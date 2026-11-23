@@ -124,7 +124,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         _claims   = new RecorderClaims(_paths.Directory, time, config.Name);
         _liveness = new WatcherLiveness(_paths, time);
         _list      = new RecordedSourceList(config.Store.StateDirectory(config.Name), logger);
-        _inputLogs = new InputLogs(Path.Combine(config.Store.StateDirectory(config.Name), "input-logs"), time);
+        _inputLogs = new InputLogs(Path.Combine(config.Store.StateDirectory(config.Name), "input-logs"), time, logger);
         _host      = new Lazy<RecorderHost>(CreateHost);
 
         serverRecords.SaidNo += () => _ = Task.Run(LetEverySourceGoAsync);

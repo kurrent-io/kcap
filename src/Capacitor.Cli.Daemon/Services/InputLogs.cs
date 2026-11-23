@@ -1,11 +1,12 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace Capacitor.Cli.Daemon.Services;
 
 /// <summary>One <see cref="InputLog"/> per recorded source, shared by the runtime that writes the session's messages
 /// and the recorder that stamps its rows, under the daemon's owner-only state directory</summary>
-internal sealed class InputLogs(string directory, TimeProvider time) {
+internal sealed class InputLogs(string directory, TimeProvider time, ILogger logger) {
     readonly Lock _gate = new();
     readonly Dictionary<string, InputLog> _logs = new(StringComparer.Ordinal);
 
@@ -21,7 +22,7 @@ internal sealed class InputLogs(string directory, TimeProvider time) {
     }
 
     InputLog OpenLocked(string key) {
-        if (!_logs.TryGetValue(key, out var log)) _logs[key] = log = new InputLog(PathFor(key), time);
+        if (!_logs.TryGetValue(key, out var log)) _logs[key] = log = new InputLog(PathFor(key), time, logger, key);
 
         return log;
     }
