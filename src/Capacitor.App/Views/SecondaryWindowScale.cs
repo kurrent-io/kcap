@@ -40,29 +40,31 @@ public static class SecondaryWindowScale {
         var host = new LayoutTransformControl { Name = HostName, Child = content };
         window.Content = host;
 
-        var applied = UiScale.Default;
+        // Sizes at 100 %, so a scale capped by the screen does not shrink the window when it steps back.
+        var unscaled = new Frame(window.Width, window.Height, window.MinWidth, window.MinHeight);
         var subscription = setting.Changes
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(scale => {
                 host.LayoutTransform = scale == UiScale.Default ? null : new ScaleTransform(scale, scale);
-                Resize(window, scale / applied);
-                applied = scale;
+                Resize(window, unscaled, scale);
             });
         window.Closed += (_, _) => subscription.Dispose();
     }
 
     const string HostName = "SecondaryScaleHost";
 
-    static void Resize(Window window, double factor) {
-        if (factor == 1) return;
+    readonly record struct Frame(double Width, double Height, double MinWidth, double MinHeight);
+
+    static void Resize(Window window, Frame unscaled, double scale) {
         var area = (window.Screens?.ScreenFromWindow(window) ?? window.Screens?.Primary) is { } screen
             ? screen.WorkingArea.Size.ToSize(screen.Scaling)
             : (Size?)null;
-        if (window.SizeToContent is not (SizeToContent.Width or SizeToContent.WidthAndHeight) && double.IsFinite(window.Width))
-            window.Width = Math.Min(window.Width * factor, area?.Width ?? double.MaxValue);
-        if (window.SizeToContent is not (SizeToContent.Height or SizeToContent.WidthAndHeight) && double.IsFinite(window.Height))
-            window.Height = Math.Min(window.Height * factor, area?.Height ?? double.MaxValue);
-        if (window.MinWidth > 0) window.MinWidth = Math.Min(window.MinWidth * factor, area?.Width ?? double.MaxValue);
-        if (window.MinHeight > 0) window.MinHeight = Math.Min(window.MinHeight * factor, area?.Height ?? double.MaxValue);
+        double Fit(double size, double? limit) => Math.Min(size * scale, limit ?? double.MaxValue);
+        if (window.SizeToContent is not (SizeToContent.Width or SizeToContent.WidthAndHeight) && double.IsFinite(unscaled.Width))
+            window.Width = Fit(unscaled.Width, area?.Width);
+        if (window.SizeToContent is not (SizeToContent.Height or SizeToContent.WidthAndHeight) && double.IsFinite(unscaled.Height))
+            window.Height = Fit(unscaled.Height, area?.Height);
+        if (unscaled.MinWidth > 0) window.MinWidth = Fit(unscaled.MinWidth, area?.Width);
+        if (unscaled.MinHeight > 0) window.MinHeight = Fit(unscaled.MinHeight, area?.Height);
     }
 }

@@ -52,11 +52,13 @@ def ratio(a, b):
 
 def main():
     palette = colours(AXAML.read_text())
+    missing = sorted(set(SURFACES + TEXT + STATUS_FILLS + STATUS_TEXT + EDGES) - palette.keys())
+    if missing:
+        print("Missing palette entries: " + ", ".join(missing))
+        return 1
     failures = []
 
     def check(fg, bg, need):
-        if fg not in palette or bg not in palette:
-            return
         back = rgb(palette[bg])
         r = ratio(rgb(palette[fg], back), back)
         flag = "ok " if r >= need else "LOW"

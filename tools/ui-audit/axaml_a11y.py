@@ -31,7 +31,7 @@ def named(text, match, styled):
     if attr(attrs, "AutomationProperties.Name") or attr(attrs, "AutomationProperties.LabeledBy"):
         return True
     classes = set((attr(attrs, "Classes") or "").split())
-    if classes & (styled | NAMED_IN_CODE) or attr(attrs, "x:Name") in NAMED_IN_CODE:
+    if any(needed <= classes for needed in styled) or classes & NAMED_IN_CODE or attr(attrs, "x:Name") in NAMED_IN_CODE:
         return True
     if attr(attrs, "Content") or attr(attrs, "Header") or attr(attrs, "PlaceholderText"):
         return True
@@ -45,14 +45,17 @@ def named(text, match, styled):
 def main():
     small, unnamed = [], []
     paths = [p for p in sorted(APP.rglob("*.axaml")) if "/obj/" not in str(p) and "/bin/" not in str(p)]
-    # Classes whose style sets the accessible name.
-    styled = set()
+    # Class sets whose style sets the accessible name; a control is named when it carries a whole set.
+    styled = []
     for path in paths:
         for selector, _ in STYLE_NAME.findall(path.read_text()):
-            # The first class of the last compound: "Button.topicHere.on" names topicHere, not "on".
-            first = re.search(r"\.([A-Za-z]\w*)", selector.split(",")[0].split(" ")[-1])
-            if first:
-                styled.add(first[1])
+            for alternative in selector.split(","):
+                compound = alternative.split()[-1]
+                if ":" in compound:
+                    continue
+                needed = frozenset(re.findall(r"\.([A-Za-z]\w*)", compound))
+                if needed:
+                    styled.append(needed)
     for path in paths:
         text = path.read_text()
         for m in TAG.finditer(text):

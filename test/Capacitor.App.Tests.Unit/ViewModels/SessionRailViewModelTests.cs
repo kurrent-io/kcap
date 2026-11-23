@@ -18,14 +18,16 @@ public class SessionRailViewModelTests {
             using var directory = new FakeAgentDirectory();
             using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
             rail.State = RailState.All;
+            directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto("f", "/src/foo"), new RepoIdentity("path:/src/foo", "foo")));
             directory.Rows.AddOrUpdate(AgentRow.FromLocal(Dto("a", "/work/demo"), new RepoIdentity("path:/work/demo", "demo")));
             var play = AgentRow.FromLocal(Dto("b", "/play/demo"), new RepoIdentity("path:/play/demo", "demo"));
             directory.Rows.AddOrUpdate(play);
 
-            await Assert.That(rail.Groups.Select(g => g.Label)).IsEquivalentTo(["work/demo", "play/demo"]);
+            await Assert.That(string.Join(", ", rail.Groups.Select(g => g.Label))).IsEqualTo("play/demo, work/demo, foo")
+                .Because("groups that share a name stay side by side");
 
             directory.Rows.Remove(play);
-            await Assert.That(rail.Groups.Select(g => g.Label)).IsEquivalentTo(["demo"]);
+            await Assert.That(string.Join(", ", rail.Groups.Select(g => g.Label))).IsEqualTo("demo, foo");
         });
     }
 

@@ -28,8 +28,23 @@ MAP = {
 }
 
 AXAML_ATTR = re.compile(r'FontSize="(\d+(?:\.\d+)?)"')
-AXAML_SETTER = re.compile(r'(<Setter Property="FontSize" Value=")(\d+(?:\.\d+)?)(")')
-CS_LITERAL = re.compile(r'FontSize = (\d+(?:\.\d+)?)\b')
+AXAML_SETTER_TAG = re.compile(r'<Setter\b[^>]*>', re.S)
+SETTER_VALUE = re.compile(r'(\bValue\s*=\s*")(\d+(?:\.\d+)?)(")')
+CS_LITERAL = re.compile(r'\bFontSize\s*=\s*(\d+(?:\.\d+)?)[dDfFmM]?(?![\w.])')
+
+
+def setters(text, fix):
+    """FontSize setters with a literal Value, whatever the attribute order or line breaks."""
+    found = []
+
+    def one(tag):
+        t = tag[0]
+        if not re.search(r'\bProperty\s*=\s*"FontSize"', t) or not (m := SETTER_VALUE.search(t)):
+            return t
+        found.append(t)
+        return t[:m.start()] + f'{m[1]}{{StaticResource KcapFontSize{key(m[2])}}}{m[3]}' + t[m.end():] if fix else t
+
+    return AXAML_SETTER_TAG.sub(one, text), found
 
 
 def key(value):
@@ -50,13 +65,12 @@ def main():
     for path in files("*.axaml"):
         text = path.read_text()
         new = AXAML_ATTR.sub(lambda m: f'FontSize="{{StaticResource KcapFontSize{key(m[1])}}}"', text)
-        new = AXAML_SETTER.sub(lambda m: f'{m[1]}{{StaticResource KcapFontSize{key(m[2])}}}{m[3]}', new)
-        if new != text:
-            if fix:
-                path.write_text(new)
-            else:
-                left += [f"{path.relative_to(ROOT)}: {m[0]}" for m in AXAML_ATTR.finditer(text)]
-                left += [f"{path.relative_to(ROOT)}: {m[0]}" for m in AXAML_SETTER.finditer(text)]
+        new, literal_setters = setters(new, fix)
+        if fix and new != text:
+            path.write_text(new)
+        elif not fix:
+            left += [f"{path.relative_to(ROOT)}: {m[0]}" for m in AXAML_ATTR.finditer(text)]
+            left += [f"{path.relative_to(ROOT)}: {' '.join(s.split())}" for s in literal_setters]
     for path in files("*.cs"):
         if path.name == "TypeScale.cs":
             continue

@@ -516,7 +516,9 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     static int CompareRepositories(RailGroupViewModel a, RailGroupViewModel b) {
         var byNoRepo = a.IsNoRepository.CompareTo(b.IsNoRepository);
         if (byNoRepo != 0) return byNoRepo;
-        var byLabel = StringComparer.OrdinalIgnoreCase.Compare(a.Label, b.Label);
+        // The label before qualification: a qualified label changes as groups come and go, and the
+        // groups it tells apart stay side by side, in key order, which is their folder path's order.
+        var byLabel = StringComparer.OrdinalIgnoreCase.Compare(a.BaseLabel, b.BaseLabel);
         return byLabel != 0 ? byLabel : string.CompareOrdinal(a.Key, b.Key);
     }
 
