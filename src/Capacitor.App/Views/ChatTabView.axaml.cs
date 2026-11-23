@@ -82,6 +82,7 @@ public partial class ChatTabView : UserControl {
         ChatItems.AddHandler(Thumb.DragStartedEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(Thumb.DragDeltaEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(Thumb.DragCompletedEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
+        ChatTranscriptKeyboard.Attach(ChatItems);
         ColumnSizing = ChatColumnSizing.Attach(this, ChatItems, ComposerColumn, ChatColumnLeftHandle, ChatColumnRightHandle, ChatLaneHandle);
         // The handles overlay the list rather than sit inside it, so a wheel over one needs its own route.
         foreach (var handle in new Control[] { ChatColumnLeftHandle, ChatColumnRightHandle, ChatLaneHandle }) {

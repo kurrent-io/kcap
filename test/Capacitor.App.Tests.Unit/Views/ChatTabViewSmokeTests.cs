@@ -3293,6 +3293,38 @@ public class ChatTabViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public async Task Tab_reaches_the_composer_in_the_same_presses_however_many_messages_show() {
+        await RunOnUiAsync(async () => {
+            async Task<(int Presses, bool ArrowMoved)> FromTranscriptAsync(int messages) {
+                var host = new Host();
+                try {
+                    await host.LoadAsync(Tmp.CreateFile($"links-{messages}.jsonl", [.. Enumerable.Repeat(AssistantLinkLine, messages)]));
+                    host.Settle();
+                    var items = host.View.GetVisualDescendants().OfType<ItemsControl>().Single(c => c.Name == "ChatItems");
+                    var first = items.GetVisualDescendants().OfType<Control>().First(c => c.Focusable && c.IsEffectivelyVisible);
+                    first.Focus(NavigationMethod.Tab);
+                    host.Press(PhysicalKey.ArrowDown);
+                    var moved = host.Window.FocusManager?.GetFocusedElement() is Control now && !ReferenceEquals(now, first)
+                        && now.GetVisualAncestors().Contains(items);
+                    var presses = 0;
+                    while (!host.Composer.IsFocused && presses < 40) {
+                        host.Press(PhysicalKey.Tab);
+                        presses++;
+                    }
+                    return (presses, moved);
+                } finally { await host.CloseAsync(); }
+            }
+
+            var few = await FromTranscriptAsync(3);
+            var many = await FromTranscriptAsync(12);
+            await Assert.That(few.Presses).IsLessThan(40);
+            await Assert.That(many.Presses).IsEqualTo(few.Presses);
+            await Assert.That(few.ArrowMoved).IsTrue().Because("Down moves to the next message");
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task A_question_card_takes_focus_and_tabs_out() {
         await RunOnUiAsync(async () => {
             var host = new Host();
