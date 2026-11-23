@@ -22,6 +22,14 @@ public sealed class GrokBotWatchCommand(GrokBotWatcher watcher, UserHome home, T
             return 1;
         }
 
+        // A source option given with no value must not quietly fall through to auto-discovery.
+        foreach (var flag in new[] { "--gateway", "--gateway-cmd", "--desktop" }) {
+            if (Array.IndexOf(args, flag) >= 0 && string.IsNullOrWhiteSpace(Option(args, flag))) {
+                await Console.Error.WriteLineAsync($"{flag} needs a value.");
+                return 1;
+            }
+        }
+
         var options = new GrokBotWatchOptions(
             Gateway:        Option(args, "--gateway"),
             GatewayCommand: Option(args, "--gateway-cmd"),

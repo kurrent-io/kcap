@@ -512,15 +512,19 @@ First tell the user what it records, and start it only once they agree:
 
 On this computer the gateway descriptor at `~/sand-data/gateway.json` may be
 owned by another user and unreadable here — check with `test -r
-~/sand-data/gateway.json && echo readable || echo no`. When it is not readable
-and `sudo -n true` succeeds, the watcher can still reach it through a privileged
-read. This opens a file the computer deliberately keeps from Bots, so use it
-only if the user asks: tell them plainly that recording the cloud computer needs
-a `sudo` read of a gateway file xAI locked away from Bots, and that a Grok Bot
-update may stop it working, and go on only on a clear yes. Then add
-`--gateway-cmd "sudo -n cat $HOME/sand-data/gateway.json"` after `watch` on the
-start line below, and on the cron line if you add one. When the descriptor is
-readable, or the user declines, start without it.
+~/sand-data/gateway.json && echo readable || echo no`. When it is not readable,
+the watcher can still reach it through a privileged `sudo` read. This opens a
+file the computer deliberately keeps from Bots, so use it only if the user asks:
+tell them plainly that recording the cloud computer needs a `sudo` read of a
+gateway file xAI locked away from Bots, and that a Grok Bot update may stop it
+working, and go on only on a clear yes. On that yes, confirm the read is actually
+permitted — `sudo -n cat "$HOME/sand-data/gateway.json" >/dev/null 2>&1 && echo ok
+|| echo no`, which discards the contents so no token is shown (do not use `sudo -n
+true` as a stand-in: a sudoers rule may allow `cat` of this file but not `true`).
+When it prints `ok`, add `--gateway-cmd "sudo -n cat $HOME/sand-data/gateway.json"`
+after `watch` on the start line below, and on the cron line if you add one. When
+the descriptor is readable, the read is not permitted, or the user declines,
+start without it.
 
 ```bash
 mkdir -p ~/.config/kcap/grok-bot
