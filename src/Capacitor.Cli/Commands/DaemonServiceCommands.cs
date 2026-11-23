@@ -48,6 +48,8 @@ sealed class DaemonServiceCommands(
                 foreach (var line in refusal) await Console.Error.WriteLineAsync(line);
                 return 1;
             }
+            if (rest.Contains("--activate") && await ActivationPreparedAsync(root, profiles, tokens, serviceId, rest) is { } unprepared)
+                return unprepared;
 
             var enrolled = new RegistryServiceEnrollmentStore().Read()?.Name;
             // A malformed --retire names no target here; the install below refuses it
@@ -775,6 +777,23 @@ sealed class DaemonServiceCommands(
         } catch (IOException) { }
 
         return 0;
+    }
+
+    /// <summary>Runs the activation's viability and preparation, both of which touch no unit, ahead of a step that
+    /// changes the machine; null when the activation may go on. The install repeats both under its own lock.</summary>
+    static async Task<int?> ActivationPreparedAsync(
+            ConfigRoot root, ProfileContext profiles, TokenStore? tokens, string serviceId, string[] args) {
+        var profile = DaemonCommands.ExtractFlagValue(args, "--profile") ?? profiles.Resolution.ProfileName;
+        if (string.IsNullOrEmpty(profile) || tokens is null) {
+            await Console.Error.WriteLineAsync("install --activate needs a profile to activate; pass --profile.");
+            return 1;
+        }
+        var unitEnv = new Dictionary<string, string>();
+        if (Environment.GetEnvironmentVariable(ProfileOverrides.UrlVar) is { Length: > 0 } url) unitEnv[ProfileOverrides.UrlVar] = url;
+        var activation = new ProfileActivation(root, profile, Environment.GetEnvironmentVariable(ExpectedServer.Var)!, serviceId,
+            unitEnv, owner => tokens.MigrateLegacyAsync(owner));
+        if (activation.Viability() is { } unviable) return ProfileActivation.Refusal(unviable);
+        return await activation.PrepareAsync() is { } unprepared ? ProfileActivation.Refusal(unprepared) : null;
     }
 
     /// <summary>Why <c>--activate</c> cannot run with these arguments, as the lines to print, or null.</summary>
