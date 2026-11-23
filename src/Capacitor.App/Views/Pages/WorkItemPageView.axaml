@@ -327,7 +327,7 @@
                                            Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
                             <TextBlock Grid.Column="1" Classes="partTitle" Text="{Binding Title}" FontSize="13" FontWeight="Medium"
                                        TextTrimming="CharacterEllipsis" />
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding GraphSub}" FontSize="11.5" TextTrimming="CharacterEllipsis"
+                            <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="{Binding GraphSub}" FontSize="11.5" TextTrimming="CharacterEllipsis"
                                        Foreground="{StaticResource KcapMutedBrush}" />
                         </Grid>
                     </Button>
