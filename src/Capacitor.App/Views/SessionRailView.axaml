@@ -118,9 +118,6 @@
         <Style Selector="TextBlock#RailSearchText">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
-        <Style Selector="TextBlock#RailSearchText.query">
-            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
-        </Style>
         <Style Selector="TextBlock.footerValue">
             <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />

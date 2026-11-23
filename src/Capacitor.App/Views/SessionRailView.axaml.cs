@@ -1,6 +1,4 @@
 using System.ComponentModel;
-using System.Reactive.Disposables;
-using System.Reactive.Linq;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -19,11 +17,8 @@ namespace Capacitor.App.Views;
 /// The session rail. DataContext is the window's own MainWindowViewModel, inherited — this view
 /// never builds or assigns one.
 public partial class SessionRailView : UserControl {
-    readonly SerialDisposable _searchLabel = new();
-
     public SessionRailView() {
         InitializeComponent();
-        DataContextChanged += (_, _) => BindSearchLabel();
         foreach (var anchor in new[] { RailHelpButton, RailGroupButton, RailSortButton }) KeyboardDismissible(anchor);
         RailKeyboard.Attach(RailGroups);
     }
@@ -87,25 +82,6 @@ public partial class SessionRailView : UserControl {
             flyout.Hide();
             anchor.Focus(NavigationMethod.Tab);
         }, RoutingStrategies.Bubble);
-    }
-
-    // The field shows the page's query while the page is up, and its placeholder otherwise.
-    void BindSearchLabel() {
-        if (DataContext is not MainWindowViewModel vm) {
-            _searchLabel.Disposable = null;
-            ShowSearchLabel(null);
-            return;
-        }
-        var query = vm.Search is { } search ? search.WhenAnyValue(x => x.Query) : Observable.Return("");
-        _searchLabel.Disposable = vm.WhenAnyValue(x => x.IsSearchOpen)
-            .CombineLatest(query, (open, text) => open && text.Length > 0 ? text : null)
-            .Subscribe(ShowSearchLabel);
-    }
-
-    void ShowSearchLabel(string? query) {
-        RailSearchText.Text = query ?? "Search…";
-        RailSearchText.Classes.Set("query", query is not null);
-        RailSearchShortcut.IsVisible = query is null;
     }
 
     // The rail's 44px chrome row IS the title bar on this surface — see WindowChrome.

@@ -2187,7 +2187,7 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Rail_field_click_while_open_selects_the_query_text() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Rail_field_click_while_open_selects_the_query_text_and_keeps_its_placeholder() => AvaloniaSession.RunOnUiAsync(async () => {
         using var host = new SearchWindowHost();
         var field = host.Named<Button>("RailSearchButton");
         Click(host, field);
@@ -2199,7 +2199,7 @@ public class MainWindowSmokeTests {
 
         Click(host, field);
 
-        await Assert.That(label).IsEqualTo("auth");
+        await Assert.That(label).IsEqualTo("Search…").Because("the query shows in one input, the palette's");
         await Assert.That(host.Vm.Search!.Query).IsEqualTo("auth");
         await Assert.That(host.Focused).IsSameReferenceAs(query);
         await Assert.That(query.SelectedText).IsEqualTo("auth");

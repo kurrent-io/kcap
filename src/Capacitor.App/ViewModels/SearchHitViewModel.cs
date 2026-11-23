@@ -21,6 +21,9 @@ public sealed class SearchHitViewModel : ReactiveObject {
     public string? OwnerName { get; init; }
     public string? OwnerInitials { get; init; }
     public string? OwnerAvatarUrl { get; init; }
+    /// The coding tool, when the hit knows it: a row leads with its vendor mark, as in the rail.
+    public string? Vendor { get; init; }
+    public bool HasVendor => !string.IsNullOrEmpty(Vendor);
     /// An avatar with no owner to name stays out of the control view rather than reading as an unnamed element.
     public AccessibilityView OwnerAvatarView => string.IsNullOrEmpty(OwnerName) ? AccessibilityView.Raw : AccessibilityView.Content;
     public required string WhenText { get; init; }
@@ -90,6 +93,7 @@ public sealed class SearchHitViewModel : ReactiveObject {
             OwnerName = owner,
             OwnerInitials = RailSessionViewModel.Initials(owner),
             OwnerAvatarUrl = string.IsNullOrEmpty(source.OwnerAvatarUrl) ? GitHubAvatar.UrlFor(ownerId) : source.OwnerAvatarUrl,
+            Vendor = row.HasVendor ? row.Vendor : null,
             WhenText = row.IsEnded
                 ? RelativeTime.Format(new DateTimeOffset(DateTime.SpecifyKind(row.LastActivityAt ?? row.CreatedAt, DateTimeKind.Utc)), now)
                 : "Live",
