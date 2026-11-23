@@ -85,6 +85,10 @@ internal sealed class LocalFrameChatInput : ChatInput {
     internal static bool HasAttachCapability(AttachStatus status) =>
         status.Capabilities is { } caps && caps.Contains(AttachCapability);
 
+    /// The connected daemon takes the plain SendText frame
+    internal static bool HasInputCapability(AttachStatus status) =>
+        status.Capabilities is { } caps && caps.Contains(InputCapability);
+
     internal static bool IsOwnedWorktree(AgentPresence presence) =>
         string.Equals(presence.Dto?.WorkLocation, WorkLocationText.Owned, StringComparison.Ordinal);
 

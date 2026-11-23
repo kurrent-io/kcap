@@ -6,9 +6,10 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// The composer channel for a session with a PTY. Text alone is a paste the terminal commits, but a
-/// prompt carrying attachments has no PTY representation: it takes the daemon's frame exchange
-/// instead, and nothing is written to the terminal for it.
+/// The composer channel for a session with a PTY. A message takes the daemon's frame exchange, and
+/// the daemon pastes and submits it among the other messages it writes, so a recorded session can
+/// place the row it becomes; typed through the terminal, its Enter would stop that for the session.
+/// Only a daemon without the plain frame gets text as a paste the terminal commits
 internal sealed class TerminalChatInput : ChatInput {
     readonly TerminalTabViewModel _terminal;
     readonly string _agentId;
@@ -55,9 +56,12 @@ internal sealed class TerminalChatInput : ChatInput {
         CanInterrupt ? _terminal.SendEscapeAsync(ct) : Task.CompletedTask;
     public override Task<bool> SendKeysAsync(byte[] keys, CancellationToken ct) => _terminal.SendRawAsync(keys, ct);
     public override bool CanSendKeys => true;
-    public override bool CanResubmit => !_disposed && _terminal.CanInterrupt;
+    /// The daemon presses, and presses again, its own Enter for what it pastes
+    public override bool CanResubmit => !_disposed && _terminal.CanInterrupt && !PastesThroughDaemon;
     public override Task<bool> ResubmitAsync(CancellationToken ct) =>
         CanResubmit ? _terminal.ResubmitAsync(ct) : Task.FromResult(false);
+
+    bool PastesThroughDaemon => LocalFrameChatInput.HasInputCapability(_status);
     public override string Hint => _sending ? "Sending…" : _notice ?? HintFor(_terminal.SendAvailability, _terminal.State);
 
     public override bool CanAttach =>
@@ -66,20 +70,23 @@ internal sealed class TerminalChatInput : ChatInput {
     public override string? AttachHint =>
         CanAttach ? null : LocalFrameChatInput.AttachHintFor(_status, _presence, Hint);
 
-    /// The terminal path has nothing to cancel: acceptance is synchronous. Attachments do not
-    /// travel that path, so they wait on the daemon's ack like the frame channel's sends.
+    /// A send waits on the daemon's ack like the frame channel's. The terminal fallback has nothing
+    /// to cancel: its acceptance is synchronous.
     public override async Task<ChatSendOutcome> SendAsync(string text, IReadOnlyList<string> attachmentIds, CancellationToken ct) {
         if (_disposed || ct.IsCancellationRequested) return ChatSendOutcome.Rejected;
-        if (attachmentIds.Count == 0)
+        if (attachmentIds.Count == 0 && !PastesThroughDaemon)
             return CanAcceptText && _terminal.TrySendText(text) ? ChatSendOutcome.Accepted : ChatSendOutcome.Rejected;
+        if (attachmentIds.Count == 0 && !CanAcceptText) return ChatSendOutcome.Rejected;
         // The capability can go while the upload runs, and a bare rejection leaves the chips sitting
         // in the composer with nothing said about them.
-        if (!CanAttach)
+        if (attachmentIds.Count > 0 && !CanAttach)
             return Settle(ChatSendOutcome.Rejected, AttachHint ?? LocalFrameChatInput.AttachmentsRefused);
         _sending = true; _notice = null; Raise();
         SendTextResult result;
         try {
-            result = await _ops.SendTextWithAttachmentsAsync(_agentId, text, attachmentIds, ct);
+            result = attachmentIds.Count == 0
+                ? await _ops.SendTextAsync(_agentId, text, ct)
+                : await _ops.SendTextWithAttachmentsAsync(_agentId, text, attachmentIds, ct);
         } catch (Exception) {
             return Settle(ChatSendOutcome.Unconfirmed, LocalFrameChatInput.Unconfirmed);
         }

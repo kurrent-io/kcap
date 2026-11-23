@@ -124,22 +124,67 @@ public class TerminalChatInputTests {
         });
     }
 
-    /// Text alone never leaves the PTY, and a prompt carrying ids never writes to it — the frame
-    /// exchange delivers both halves, so a submit from the app would duplicate the message.
+    /// The daemon writes the message among the others it writes, so a recorded session can place its
+    /// row, and presses its own Enter: nothing reaches the terminal from the app, and the app never
+    /// presses Enter again for it.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Text_only_stays_on_the_terminal_and_ids_take_one_frame_exchange_closing_the_gate_meanwhile() {
+    public async Task TerminalChatInput_sends_plain_text_through_SendText() {
+        await RunOnUiAsync(async () => {
+            var rig = await BuildAttachedAsync();
+            rig.Connected("status/1", "input/1");
+            rig.RunningAt(WorkLocationText.Owned);
+
+            var gate = rig.Ops.ArmSendText();
+            var send = rig.Input.SendAsync("hi", [], CancellationToken.None);
+            await Assert.That(rig.Input.CanAcceptText).IsFalse();
+            await Assert.That(rig.Input.Hint).IsEqualTo("Sending…");
+            gate.SetResult(new SendTextResult(true, null, null, SendTextOutcomes.Delivered));
+
+            await Assert.That(await send).IsEqualTo(ChatSendOutcome.Accepted);
+            await Assert.That(rig.Ops.SendTextPayloads).IsEquivalentTo(new[] { ("a1", "hi") });
+            await Assert.That(rig.Client.SentInput).IsEmpty();
+            await Assert.That(rig.Input.CanAcceptText).IsTrue();
+            await Assert.That(rig.Input.CanResubmit).IsFalse();
+
+            rig.Ops.QueueSendText(new SendTextResult(false, SendTextReasons.QueueFull, null, null));
+            await Assert.That(await rig.Input.SendAsync("again", [], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Rejected);
+            await Assert.That(rig.Input.Hint).IsEqualTo("the agent's input queue is full, try again shortly");
+            await Assert.That(rig.Client.SentInput).IsEmpty();
+            rig.Input.Dispose();
+            await rig.Terminal.TeardownAsync();
+        });
+    }
+
+    /// A daemon without the plain frame has only the terminal, which commits the paste itself.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Plain_text_is_a_terminal_paste_for_a_daemon_without_SendText() {
+        await RunOnUiAsync(async () => {
+            var rig = await BuildAttachedAsync();
+            rig.Connected("status/1");
+
+            await Assert.That(await rig.Input.SendAsync("hi", [], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Accepted);
+            rig.Time.Advance(TimeSpan.FromMilliseconds(150));
+            await rig.Terminal.PendingDeliveryForTesting!;
+
+            await Assert.That(rig.Client.SentInput).Count().IsEqualTo(2);
+            await Assert.That(rig.Ops.SendTextCalls).IsEqualTo(0);
+            await Assert.That(rig.Input.CanResubmit).IsTrue();
+            rig.Input.Dispose();
+            await rig.Terminal.TeardownAsync();
+        });
+    }
+
+    /// A prompt carrying ids never writes to the PTY: the frame exchange delivers both halves, so a
+    /// submit from the app would duplicate the message.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Ids_take_one_frame_exchange_closing_the_gate_meanwhile() {
         await RunOnUiAsync(async () => {
             var rig = await BuildAttachedAsync();
             rig.Connected("status/1", "input/1", "input/2");
             rig.RunningAt(WorkLocationText.Owned);
-
-            await Assert.That(await rig.Input.SendAsync("hi", [], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Accepted);
-            await Assert.That(rig.Ops.SendTextWithAttachmentsCalls).IsEqualTo(0);
-            await Assert.That(rig.Client.SentInput).Count().IsEqualTo(1);
-            rig.Time.Advance(TimeSpan.FromMilliseconds(150));
-            await rig.Terminal.PendingDeliveryForTesting!;
-            await Assert.That(rig.Client.SentInput).Count().IsEqualTo(2);
 
             var gate = rig.Ops.ArmSendText();
             var send = rig.Input.SendAsync("hi", [Id], CancellationToken.None);
@@ -150,7 +195,8 @@ public class TerminalChatInputTests {
             await Assert.That(await send).IsEqualTo(ChatSendOutcome.Accepted);
             await Assert.That(rig.Input.CanAcceptText).IsTrue();
             await Assert.That(rig.Ops.SendTextWithAttachmentsPayloads.Single().Ids).IsEquivalentTo(new[] { Id });
-            await Assert.That(rig.Client.SentInput).Count().IsEqualTo(2);
+            await Assert.That(rig.Ops.SendTextCalls).IsEqualTo(0);
+            await Assert.That(rig.Client.SentInput).IsEmpty();
             rig.Input.Dispose();
             await rig.Terminal.TeardownAsync();
         });
