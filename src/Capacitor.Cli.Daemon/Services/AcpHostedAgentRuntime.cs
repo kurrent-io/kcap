@@ -2907,9 +2907,10 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
     static AcpReconnectTerminalException CandidateRetirementUnconfirmed() =>
         new("retirement_unconfirmed", "a failed reconnect candidate's process tree could not be confirmed exited");
 
-    /// <summary>False when the candidate or a listed descendant outlived its SIGKILL, which ends the incident so
-    /// no further candidate loads the session beside it. Nothing more is held for such a survivor: only a process
-    /// stuck in uninterruptible sleep outlives SIGKILL, and one that comes unstuck has lost its pipes and exits</summary>
+    /// <summary>False when the candidate's tree could not be confirmed exited, for whatever reason; the caller then
+    /// ends the incident, so no further candidate loads the session beside a possible survivor. Nothing durable is
+    /// kept for one: a survivor of SIGKILL is stuck in uninterruptible sleep, and once unstuck it has lost its pipes
+    /// and exits</summary>
     async Task<bool> DisposeCandidateAsync(Incarnation candidate, AcpPidRecordCallbacks? recordedWith) {
         try { candidate.LoopCts.Cancel(); } catch (ObjectDisposedException) { }
 
