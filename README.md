@@ -68,7 +68,7 @@ Windows (PowerShell):
 irm https://www.kurrent.io/install.ps1 | iex
 ```
 
-The installer checks the download against its published checksum, installs the native `kcap` binary for your [platform](#requirements), and, on a first install from a terminal, runs `kcap setup` unless you pass `--no-setup` (run headless with no setup options, it only installs; run `kcap setup` yourself afterward). On macOS and Windows the [desktop app](#desktop-app) is the easier way in; `kcap setup` is for the terminal, and for scripts — see [Unattended setup](#unattended-setup) for both editions' recipes. Setup asks whether you want kcap locally on this Mac or for your team in the cloud (sign-up opens in your browser), signs you in, finds your workspace, offers to install kcap into every coding agent it detects, and offers to import this machine's past sessions, with a checklist to leave projects out of that import. On a server that offers it, you finish in the browser. [Initial setup](#initial-setup) covers every step and unattended runs.
+The installer checks the download against its published checksum, installs the native `kcap` binary for your [platform](#requirements), and, on a first install from a terminal, runs `kcap setup` unless you pass `--no-setup` (run headless with no setup options, it only installs; run `kcap setup` yourself afterward). On macOS and Windows the [desktop app](#desktop-app) is the easier way in; `kcap setup` is for the terminal, and for scripts — see [Unattended setup](#unattended-setup) for both editions' recipes. Setup asks whether you want kcap locally on this Mac or for your team in the cloud (sign-up opens in your browser), signs you in, finds your workspace, offers to install kcap into every coding agent it detects, asks whether to record [Grok Bot](#grok-bot) chats where it finds that app, and offers to import this machine's past sessions, with a checklist to leave projects out of that import. On a server that offers it, you finish in the browser. [Initial setup](#initial-setup) covers every step and unattended runs.
 
 ### 2. Start a new agent session
 
@@ -229,6 +229,7 @@ At a glance — each links to its section below:
 | [`.kcap/approvals.yaml`](#approval-policy) | Auto-allow, deny, or force-ask specific tool calls |
 | [`kcap import`](#loading-historical-sessions) | Backfill past sessions from every detected agent |
 | [`kcap muse-assistant`](#muse-assistant) | Record Muse Assistant chats as private sessions, run by Muse's own cron inside its VM |
+| [`kcap grok-bot watch`](#grok-bot) | Record every Grok Bot chat, from its cloud computer or from the desktop app |
 | [`kcap recap`](#session-recap) | AI summary + per-turn outline of a session |
 | [`kcap sessions`](#listing-sessions-on-a-repository) | List the sessions you can see, on one repo or all, optionally within a period |
 | [`kcap validate-plan`](#plan-validation) | Check that every planned item was completed |
@@ -1377,6 +1378,47 @@ Muse Assistant (Meta's consumer agent) runs in a Meta-hosted VM with no transcri
 - **Nothing lost, nothing twice.** Each walk is validated whole — Muse's own cursor chain, complete pages, every recorded item intact — before anything is posted; the watermark advances only after the server accepts each call; every lifecycle post is recorded as an intent first and replayed by the next run or by `sweep`; a failed ingest keeps its directory for the next tick. One ingest per chat at a time, held by a lock the kernel releases.
 - **Exit codes.** `0` done; `1` server, network or sign-in failure, or an unexpected local failure; `2` malformed input or a wrong argument shape; `3` chat out of scope; `4` from `scope remove` or `scope reset` only: recording could not be confirmed stopped (nothing revoked, or an unexpected error), so retry — retrying is safe. A `scope reset` that exits 1 or 4 may also have set chats aside; its stderr says which.
 - **Requires** a server that knows the `muse-assistant` vendor: against an older server the ingest exits 1 and advances nothing.
+
+### Grok Bot
+
+A Bot runs on a Cursor-hosted cloud computer, writes no transcript file there, and its hooks carry no conversation id, so none of the hook or watcher paths above can record it. `kcap grok-bot watch` records its chats instead, from either of two places:
+
+- **The cloud computer.** It polls the computer's local Grok Bot gateway: each Bot's own thread, and every new chat, which the gateway lists as a group. Recording continues with your own computer off.
+- **The desktop app.** On a computer with the Grok Bot desktop app it reads the app's own copy of each chat, with nothing installed in the cloud. It records while that computer is on and the app has the chat.
+
+The simplest way onto the cloud computer is to ask any Bot:
+
+> Read https://raw.githubusercontent.com/kurrent-io/kcap-cli/main/kcap/skills/connect-kcap/SKILL.md and follow it to connect kcap to https://<your-tenant>
+
+The Bot installs kcap, shows you a sign-in code to approve on your own device, tells you what will be recorded and starts the watcher once you agree. The kcap plugin from the Cursor marketplace carries the same `connect-kcap` skill. By hand it is:
+
+```bash
+npm install -g @kurrent/kcap
+kcap setup --server-url https://<your-tenant> --device --no-prompt --skip-cursor-hooks --skip-cursor-mcp --skip-import
+mkdir -p ~/.config/kcap/grok-bot
+nohup kcap grok-bot watch >> ~/.config/kcap/grok-bot/watch.log 2>&1 &
+```
+
+On some cloud computers the gateway descriptor is owned by another user and a Bot's own user cannot read it, so the watcher finds no gateway. Where the computer allows a privileged read, `--gateway-cmd "<command>"` takes the descriptor from that command's output instead of a file, for example `kcap grok-bot watch --gateway-cmd "sudo -n cat $HOME/sand-data/gateway.json"`. It is off unless you pass it, since it reads a file the computer keeps from the Bot; the `connect-kcap` skill offers it only after explaining that and only with your go-ahead. The command is run directly, with no shell, so it takes no pipes, must exit at once, and needs an absolute path: your shell expands `$HOME` before kcap sees it, but a `~` stays literal inside the quotes and will not resolve.
+
+On a computer with the desktop app, `kcap setup` finds the app and asks once whether to record its chats; the answer is the profile's `grok_bot.record` setting. While it is on, the kcap daemon runs the watcher itself, so recording starts with the daemon at login and needs no terminal:
+
+```bash
+kcap config set grok_bot.record true    # or false to stop; the running daemon follows within half a minute
+```
+
+The kcap desktop app shows the same switch under Settings → Harnesses on a computer where it finds the Grok Bot app, or where the profile is already recording. A setup run with `--no-prompt` asks nothing and prints that command instead. `kcap grok-bot watch` remains for running the watcher by hand, and `kcap grok-bot watch --once --dry-run` shows what it would send even while the daemon's watcher is running. The watcher reads the gateway where the computer has one and the desktop app's chats otherwise; `--gateway <gateway.json>`, `--gateway-cmd "<command>"` and `--desktop <dir>` name one explicitly.
+
+- **Both at once is safe.** The two read the same entries and cut them into the same sessions under the same ids, so a chat recorded from both places is stored once.
+
+- **Sessions.** A Bot has one endless thread; a new session starts at the first message after two hours of quiet, and ends once that gap passes with no new message and no turn running. The gap is fixed, because a session's id comes from where it falls: `--gap-minutes <n>` is accepted with `--dry-run` only, to show what another gap would cut.
+- **What is recorded.** User messages, Bot messages, the questions a Bot asks with the answer chosen, and the name of a file a Bot shares, not its content. A message one Bot sends another is recorded in both chats, under the other Bot's name. Tool calls and computer use are in neither source and are not recorded. A question is held until it is answered or skipped, or you send another message; an answer given after that, or more than two hours after the question, is not recorded.
+- **Privacy.** Every session is private to you, whatever your profile's default visibility. Secrets in a message are replaced before it leaves the computer, as for every other harness.
+- **History.** The first run backfills every chat. A chat whose beginning the source no longer holds — a long chat in the desktop app, which keeps the newest entries only — is recorded from the next quiet gap that its copy still holds a message on each side of. If the watcher was off long enough for that copy to move on past the last entry sent, it says so in its log: what the app dropped in between cannot be recorded. Delivery state lives under `~/.config/kcap/grok-bot/`, kept apart per server and profile, and advances only once the server accepts each call, so a restarted watcher resends nothing and loses nothing.
+- **Failures back off.** A failed cycle — gateway unreachable, server refusing a call, a lapsed sign-in (`kcap login --device` fixes it) — is retried with a doubling wait up to five minutes and logged once, not on every retry; nothing advances until the server accepts, so recovery loses nothing.
+- **One per computer.** A second watcher refuses to start, whether the first is the daemon's or a `kcap grok-bot watch`. `kcap grok-bot status` says whether one is running, which server it posts to and as which profile, and whether that server last accepted or refused what it sent; a watcher keeps the server and profile it started with, and stays running through a refusal. `--once` runs a single polling cycle and exits, 1 if it failed; `--dry-run` logs the calls it would make and sends and saves nothing.
+
+The gateway and the desktop app's chat files are internal, undocumented Grok Bot formats; a Grok Bot update can change them. The watcher logs and retries rather than guessing at an unfamiliar shape. It requires a server that knows the `grok-bot` vendor: an older server refuses each batch and nothing advances.
 
 ### Daemon
 

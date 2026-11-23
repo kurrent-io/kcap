@@ -20,6 +20,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
     readonly IAppStateStore? _toolsMemory;
     readonly Action<HistoryImportRun>? _showImport;
     readonly Action<Action> _post;
+    readonly Func<bool>? _grokBotFound;
     readonly CancellationTokenSource _lifetime;
 
     public HarnessesSettingsViewModel(SettingsProfileStore store, IKcapCli cli,
@@ -27,6 +28,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
             CancellationToken appLifetime = default, Func<HarnessId, bool>? isWired = null,
             Func<CancellationToken, Task<string?>>? ensureTerminalCommand = null, IAppStateStore? toolsMemory = null,
             Func<HarnessId, bool, bool>? isUntrusted = null, Action<HistoryImportRun>? showImport = null,
+            Func<bool>? grokBotFound = null,
             Action<Action>? post = null) {
         _store = store;
         _cli = cli;
@@ -37,6 +39,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         _toolsMemory = toolsMemory;
         _showImport = showImport;
         _post = post ?? (action => action());
+        _grokBotFound = grokBotFound;
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(appLifetime);
         var idle = this.WhenAnyValue(x => x.Busy, x => x.Scanning, (busy, scanning) => !busy && !scanning);
         RescanCommand = ReactiveCommand.CreateFromTask(RescanAsync, idle);
@@ -45,7 +48,15 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         ToggleToolsCommand = ReactiveCommand.CreateFromTask<HarnessSettingsRow>(ToggleToolsAsync, idle);
         ImportEarlierCommand = ReactiveCommand.Create<HarnessSettingsRow>(ImportEarlier);
         DeclineImportCommand = ReactiveCommand.Create<HarnessSettingsRow>(row => row.OfferImport(null));
+        ToggleGrokBotCommand = ReactiveCommand.CreateFromTask(ToggleGrokBotAsync, idle);
     }
+
+    /// The Grok Bot desktop app was found on this computer. It is no coding tool and installs nothing, so it
+    /// has a switch of its own: the attached profile's setting, which the daemon acts on.
+    public bool GrokBotShown { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool GrokBotRecording { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? GrokBotMessage { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public ReactiveCommand<Unit, Unit> ToggleGrokBotCommand { get; }
 
     public IReadOnlyList<HarnessSettingsRow> Rows {
         get;
@@ -92,11 +103,56 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
                             untrusted: Untrusted(h.Id, wired));
                     }).ToArray();
             }, _lifetime.Token);
+            var (grokBotFound, grokBotRecording) = await Task.Run(ReadGrokBot, _lifetime.Token);
+            // An unreadable setting leaves the switch as it was, shown or not and on or off: off would
+            // read as a confirmed opt-out while the daemon, which keeps its last answer too, may still
+            // be recording.
+            GrokBotShown = grokBotFound || (grokBotRecording ?? GrokBotShown);
+            if (grokBotRecording is { } recording) GrokBotRecording = recording;
+            GrokBotMessage = GrokBotShown && grokBotRecording is null ? GrokBotUnread : null;
             Message = null;
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
             Message = $"Could not look for coding tools: {ex.Message}";
         } finally { Scanning = false; }
+    }
+
+    /// <summary>Whether the app is on this computer, and what the profile says: null when it cannot be read.
+    /// A gateway records with no app on the computer, and the switch is where that is turned off, so a
+    /// profile that is recording shows it either way.</summary>
+    (bool Found, bool? Recording) ReadGrokBot() {
+        if (_grokBotFound is null) return (false, false);
+
+        var found = _grokBotFound();
+        try {
+            return (found, _store.LoadProfile().GrokBot?.Record == true);
+        } catch (InvalidOperationException) {
+            return (found, null);
+        }
+    }
+
+    internal const string GrokBotUnread = "Could not read this profile's setting, so the switch may not show what the daemon is doing. Rescan to try again.";
+
+    // The switch is the daemon's setting only: a watcher started in a terminal never reads it.
+    internal const string GrokBotOn  = "On. The daemon starts recording within half a minute.";
+    internal const string GrokBotOff = "Off. The daemon stops recording within half a minute. A `kcap grok-bot watch` started in a terminal keeps recording until it is stopped.";
+
+    internal async Task ToggleGrokBotAsync() {
+        if (Busy || Scanning || !GrokBotShown) return;
+        var record = !GrokBotRecording;
+        Busy = true;
+        try {
+            await _store.SaveGrokBotRecordAsync(record, _lifetime.Token);
+            GrokBotRecording = record;
+            GrokBotMessage = record ? GrokBotOn : GrokBotOff;
+        } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
+        } catch (Exception ex) {
+            GrokBotMessage = $"Could not change Grok Bot recording: {ex.Message}";
+        } finally {
+            // The click has already flipped the checkbox, and its one-way binding follows a notification only.
+            this.RaisePropertyChanged(nameof(GrokBotRecording));
+            Busy = false;
+        }
     }
 
     internal const string PartlyInstalled = "Setup completed, but some parts were not installed. Check the details, then try again.";
@@ -267,6 +323,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         ToggleToolsCommand.Dispose();
         ImportEarlierCommand.Dispose();
         DeclineImportCommand.Dispose();
+        ToggleGrokBotCommand.Dispose();
         _lifetime.Dispose();
     }
 }
