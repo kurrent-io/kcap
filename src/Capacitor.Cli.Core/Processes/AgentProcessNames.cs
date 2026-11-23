@@ -68,9 +68,11 @@ public static class AgentProcessNames {
 
     /// <summary>The names a vendor's process shows, where they are not the vendor token itself.
     /// Vibe retitles its interpreter to "Vibe CLI" on Linux and macOS; on Windows the title is
-    /// unchanged and its <c>vibe.exe</c> launcher is what the walk meets.</summary>
+    /// unchanged and its <c>vibe.exe</c> launcher is what the walk meets. Antigravity's CLI runs as
+    /// <c>agy</c>.</summary>
     static string[] ProcessNamesOf(string vendor) => vendor switch {
         "mistral-vibe" => ["vibe", "Vibe CLI"],
+        "antigravity"  => ["antigravity", "agy"],
         _              => [vendor],
     };
 

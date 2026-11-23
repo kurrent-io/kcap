@@ -1755,8 +1755,8 @@ tool confirmation and auto-denies every one it raises, so without those rules a 
 reasons, and can never deliver its result. The grant admits those named tools and nothing else;
 `--dangerously-skip-permissions`, which *is* the read boundary, stays off this arm.
 
-**Give the daemon durable credentials.** An unattended reviewer's stdin is closed, so it cannot complete an
-interactive login — an unauthenticated `agy` fails the launch with a coded
+**Give the daemon durable credentials.** A daemon-hosted `agy` reads only its prompt from stdin, which is
+then closed, so it cannot complete an interactive login — an unauthenticated `agy` fails the launch with a coded
 `antigravity_reviewer_auth_unavailable` rather than hanging. On Windows an `agy` you have already signed
 in to needs nothing more: its sign-in is not kept in the profile the launch redirects, so a daemon started
 with none of the three variables below launches it as it is. Elsewhere, Application Default Credentials
@@ -1818,6 +1818,11 @@ It is a **minimum, not an exact match**: any build at or above it runs, so **an 
 action from you** — which matters more here than for the other reviewers, since `agy` updates itself
 (observed going 1.1.8 → 1.1.10 mid-session). A build older than the recorded minimum, or one whose
 `agy --version` cannot be read, is withheld with a coded reason naming both versions.
+
+Whatever minimum is recorded, every launch needs **`agy` 1.1.15 or newer**. The daemon hands `agy` each
+prompt on stdin (`--input-format stream-json`), never on its command line, where any local user could read
+it and a `pkill -f` could match it. An older build fails the launch with `antigravity_reviewer_agy_too_old`;
+`agy update` fixes it.
 
 This vendor's minimum is recorded whenever `agy` first resolves, even on a daemon whose reviewer you have
 explicitly turned off — its floor also gates *hosted* Antigravity agents, which are never gated by the
