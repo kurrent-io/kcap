@@ -33,11 +33,13 @@ and this section replaces the breakdown, relation and merge guidance below:
   item, pass `new_title` instead; it lands in the session's project. Never create one
   unasked. `issue_key` and `pr_number` are refused.
 - When the user asks to split a work item, `create_work_item_part` (`work_item_id`,
-  `title`) under it. A part can't have parts.
+  `title`) under it. A part can't have parts. To lay out an order of work, create the
+  parts that come first, then each later one with `waits_on_ids`.
 - `add_work_item_link` (`work_item_id`, `reference`) adds a PR or issue to a work item or
   part. One already on another is refused, naming it: tell the user, a person removes it.
 - `wait_on_part` (`part_id`, `waits_on_id`) says a part can't start until another part of
-  the same work item is done; `stop_waiting_on_part` takes it back. Never in a loop.
+  the same work item is done; `stop_waiting_on_part` takes it back. Never in a loop: a
+  refused one names the parts it would run through.
 - `get_work_item_parts` reads a work item's links and parts, with each part's links and
   what it waits on, and its Pages: the designs and plans its sessions published. Read one
   with the kcap-pages tool `get_page` and its `artefact_id`. `declare_work_item` says how

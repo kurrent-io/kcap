@@ -69,7 +69,7 @@
         <Style Selector="Button.partRow">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="Padding" Value="4,0,6,0" />
+            <Setter Property="Padding" Value="4,0,10,0" />
             <Setter Property="CornerRadius" Value="6" />
         </Style>
         <Style Selector="Button.partRow.expandable">
@@ -283,11 +283,57 @@
             </Button>
         </DataTemplate>
 
+        <DataTemplate x:Key="WaitChoice" x:DataType="pages:WorkItemPageWaitChoice">
+            <Button Classes="kcapGhost menuRow" Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Title}">
+                <Grid ColumnDefinitions="16,*,Auto" ColumnSpacing="7">
+                    <views:AppIcon Kind="Check" Size="14" IsVisible="{Binding Waits}" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="1" Text="{Binding Title}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                    <TextBlock Grid.Column="2" Text="waits on this" FontSize="11" IsVisible="{Binding Loops}" VerticalAlignment="Center"
+                               Foreground="{StaticResource KcapFaintBrush}" />
+                </Grid>
+            </Button>
+        </DataTemplate>
+
+        <DataTemplate x:Key="WaitChoices" x:DataType="pages:WorkItemPageWaitPicker">
+            <StackPanel Margin="6" Width="320">
+                <TextBlock Text="Waits on" FontSize="11" Margin="10,4" Foreground="{StaticResource KcapMutedBrush}" />
+                <TextBox Classes="kcapField" Margin="4,2,4,6" PlaceholderText="Search slices" AutomationProperties.Name="Search slices"
+                         Text="{Binding Filter}" IsVisible="{Binding Searches}" AttachedToVisualTree="OnWaitSearchAttached" />
+                <ScrollViewer MaxHeight="320" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Shown}" ItemTemplate="{StaticResource WaitChoice}" />
+                </ScrollViewer>
+                <TextBlock Text="No slice matches" FontSize="12" Margin="10,6" Foreground="{StaticResource KcapFaintBrush}"
+                           IsVisible="{Binding !Shown.Count}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- Stays open while slices are ticked: the page holds its rebuilds until it closes. -->
+        <Flyout x:Key="WaitPicker" FlyoutPresenterClasses="kcapPanel" Opened="OnWaitPickerOpened" Closed="OnWaitPickerClosed">
+            <ContentControl x:DataType="pages:WorkItemPagePart" Content="{Binding WaitPicker}" ContentTemplate="{StaticResource WaitChoices}" />
+        </Flyout>
+
+        <DataTemplate x:Key="GraphBox" x:DataType="pages:WorkItemPagePart">
+            <StackPanel Classes="part" Width="{x:Static pages:WorkItemPageGraphNode.Width}">
+                <Border Classes="card" Height="{x:Static pages:WorkItemPageGraphNode.Height}">
+                    <Button Classes="kcapGhost partRow dragRow cardBody" Padding="10,0" VerticalAlignment="Stretch"
+                            ToolTip.Tip="{Binding WaitsOnText}" AutomationProperties.Name="{Binding Title}">
+                        <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" VerticalAlignment="Center">
+                            <views:AppIcon Kind="{Binding Icon}" Size="14" VerticalAlignment="Center"
+                                           Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
+                            <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="13" FontWeight="Medium" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding GraphSub}" FontSize="11.5" TextTrimming="CharacterEllipsis"
+                                       Foreground="{StaticResource KcapMutedBrush}" />
+                        </Grid>
+                    </Button>
+                </Border>
+            </StackPanel>
+        </DataTemplate>
+
         <DataTemplate x:Key="Part" x:DataType="pages:WorkItemPagePart">
             <StackPanel Classes="part" AttachedToVisualTree="OnRowAttached">
-                <Button Classes="kcapGhost partRow dragRow" Classes.expandable="{Binding HasSessions}" ToolTip.Tip="{Binding Tip}"
+                <Button Classes="kcapGhost partRow dragRow" Classes.expandable="{Binding HasSessions}"
                         Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Title}">
-                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="4" MinHeight="34">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,72,14" ColumnSpacing="4" MinHeight="34">
                         <views:AppIcon Kind="{Binding Icon}" Size="14" Margin="6,0,4,0" VerticalAlignment="Center"
                                        Foreground="{Binding Status, Converter={x:Static views:WorkStatusBrushConverter.Instance}}" />
                         <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="14" FontWeight="Medium" TextTrimming="CharacterEllipsis"
@@ -296,7 +342,7 @@
                                 VerticalAlignment="Center" IsVisible="{Binding NeedsYou}">
                             <TextBlock Text="Needs you" FontSize="12.5" Foreground="{StaticResource KcapWarningBrush}" />
                         </Border>
-                        <Button Grid.Column="3" Classes="kcapGhost linkSum" IsVisible="{Binding HasLinks}" ToolTip.Tip="{Binding LinkTip}"
+                        <Button Grid.Column="4" Classes="kcapGhost linkSum" IsVisible="{Binding HasLinks}" ToolTip.Tip="{Binding LinkTip}"
                                 AutomationProperties.Name="{Binding LinkTip, StringFormat='Links: {0}'}">
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <views:AppIcon Kind="GitPullRequest" Size="12" IsVisible="{Binding HasPrs}" />
@@ -310,13 +356,17 @@
                                 </Flyout>
                             </Button.Flyout>
                         </Button>
-                        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="4" Margin="6,0" VerticalAlignment="Center"
-                                    IsVisible="{Binding HasSessions}" TextElement.Foreground="{StaticResource KcapMutedBrush}">
-                            <TextBlock Text="{Binding SessionSummary}" FontSize="11" />
-                            <views:FoldChevron Size="12" Classes="chevron" IsOpen="{Binding IsExpanded}" />
-                        </StackPanel>
-                        <TextBlock Grid.Column="4" Text="No sessions" FontSize="11" Margin="6,0" VerticalAlignment="Center"
-                                   Foreground="{StaticResource KcapFaintBrush}" IsVisible="{Binding !HasSessions}" />
+                        <Button Grid.Column="3" Classes="kcapGhost linkSum" IsVisible="{Binding Waits}" ToolTip.Tip="{Binding WaitsOnText}"
+                                Click="OnWaitsClick" AutomationProperties.Name="{Binding WaitsOnText}">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <views:AppIcon Kind="Hourglass" Size="12" />
+                                <TextBlock Text="{Binding WaitsOn.Count}" />
+                            </StackPanel>
+                        </Button>
+                        <TextBlock Grid.Column="5" Text="{Binding SessionSummary}" FontSize="11" TextAlignment="Right" VerticalAlignment="Center"
+                                   Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding HasSessions}" />
+                        <views:FoldChevron Grid.Column="6" Size="12" Classes="chevron" IsOpen="{Binding IsExpanded}" VerticalAlignment="Center"
+                                           Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding HasSessions}" />
                     </Grid>
                 </Button>
                 <views:FoldPanel IsOpen="{Binding IsExpanded}">
@@ -414,7 +464,7 @@
             <StackPanel Classes="part" AttachedToVisualTree="OnRowAttached">
                 <Border Classes="card">
                     <StackPanel>
-                        <Button Classes="kcapGhost partRow dragRow cardBody" Classes.expandable="{Binding HasSessions}" ToolTip.Tip="{Binding Tip}"
+                        <Button Classes="kcapGhost partRow dragRow cardBody" Classes.expandable="{Binding HasSessions}"
                                 Command="{Binding ToggleCommand}" AutomationProperties.Name="{Binding Title}">
                             <StackPanel Spacing="10">
                                 <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
@@ -443,6 +493,15 @@
                                                 <ItemsControl ItemsSource="{Binding Links}" ItemTemplate="{StaticResource LinkButton}" Margin="6" MinWidth="340" />
                                             </Flyout>
                                         </Button.Flyout>
+                                    </Button>
+                                    <Button Classes="kcapGhost linkSum pillButton" IsVisible="{Binding Waits}" ToolTip.Tip="{Binding WaitsOnText}"
+                                            Click="OnWaitsClick" AutomationProperties.Name="{Binding WaitsOnText}">
+                                        <Border Classes="pill">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <views:AppIcon Kind="Hourglass" Size="12" VerticalAlignment="Center" />
+                                                <TextBlock Text="{Binding WaitsOn.Count}" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </Border>
                                     </Button>
                                     <Border Classes="pill" IsVisible="{Binding HasSessions}" ToolTip.Tip="{Binding SessionSummary}">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
@@ -626,9 +685,11 @@
                                     <Border Classes="kcapSegment" Padding="2">
                                         <StackPanel Orientation="Horizontal" Spacing="2">
                                             <Button x:Name="WorkItemListButton" Classes="kcapSegmentItem boardSwitch" Content="List"
-                                                    Classes.active="{Binding !IsBoard}" Command="{Binding ShowListCommand}" />
+                                                    Classes.active="{Binding IsList}" Command="{Binding ShowListCommand}" />
                                             <Button x:Name="WorkItemBoardButton" Classes="kcapSegmentItem boardSwitch" Content="Board"
                                                     Classes.active="{Binding IsBoard}" Command="{Binding ShowBoardCommand}" />
+                                            <Button x:Name="WorkItemGraphButton" Classes="kcapSegmentItem boardSwitch" Content="Graph"
+                                                    Classes.active="{Binding IsGraph}" Command="{Binding ShowGraphCommand}" />
                                         </StackPanel>
                                     </Border>
                                     <Button x:Name="AddPartButton" Classes="kcapGhost kcapIcon" ToolTip.Tip="Add slice"
@@ -641,13 +702,70 @@
 
                             <Panel x:Name="WorkItemSlices">
                                 <ItemsControl x:Name="WorkItemGroups" ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource Group}"
-                                              IsVisible="{Binding !IsBoard}">
+                                              IsVisible="{Binding IsList}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
                                             <StackPanel Spacing="8" />
                                         </ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
                                 </ItemsControl>
+                                <StackPanel x:Name="WorkItemGraphView" IsVisible="{Binding IsGraph}" Spacing="8">
+                                    <TextBlock Text="Nothing waits on anything yet. Drag a slice onto the one it waits on." FontSize="12"
+                                               Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding !Graph.Nodes.Count}" />
+                                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                                  IsVisible="{Binding Graph.Nodes.Count}">
+                                        <Panel Width="{Binding Graph.Width}" Height="{Binding Graph.Height}" HorizontalAlignment="Left" Margin="0,0,0,12">
+                                            <ItemsControl ItemsSource="{Binding Graph.Edges}" IsHitTestVisible="False">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <Panel />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="pages:WorkItemPageGraphEdge">
+                                                        <Panel>
+                                                            <Path Data="{Binding Curve}" Stroke="{StaticResource KcapBorderStrongBrush}" StrokeThickness="1.5" />
+                                                            <Path Data="{Binding Head}" Fill="{StaticResource KcapBorderStrongBrush}" />
+                                                        </Panel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <ItemsControl ItemsSource="{Binding Graph.Nodes}">
+                                                <ItemsControl.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <Canvas />
+                                                    </ItemsPanelTemplate>
+                                                </ItemsControl.ItemsPanel>
+                                                <ItemsControl.Styles>
+                                                    <Style Selector="ItemsControl > ContentPresenter" x:DataType="pages:WorkItemPageGraphNode">
+                                                        <Setter Property="Canvas.Left" Value="{Binding X}" />
+                                                        <Setter Property="Canvas.Top" Value="{Binding Y}" />
+                                                    </Style>
+                                                </ItemsControl.Styles>
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="pages:WorkItemPageGraphNode">
+                                                        <ContentControl Content="{Binding Part}" ContentTemplate="{StaticResource GraphBox}" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </Panel>
+                                    </ScrollViewer>
+                                    <TextBlock Classes="bar" Text="{Binding Graph.Loose.Count, StringFormat='No dependencies · {0}'}" FontSize="13">
+                                        <TextBlock.IsVisible>
+                                            <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                                <Binding Path="Graph.Nodes.Count" />
+                                                <Binding Path="Graph.Loose.Count" />
+                                            </MultiBinding>
+                                        </TextBlock.IsVisible>
+                                    </TextBlock>
+                                    <ItemsControl ItemsSource="{Binding Graph.Loose}" ItemTemplate="{StaticResource GraphBox}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel ItemSpacing="8" LineSpacing="8" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                    </ItemsControl>
+                                </StackPanel>
                                 <ScrollViewer x:Name="WorkItemBoardView" IsVisible="{Binding IsBoard}" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                     <ItemsControl x:Name="WorkItemBoard" ItemsSource="{Binding Columns}" ItemTemplate="{StaticResource Column}"
                                                   Margin="0,0,0,12">

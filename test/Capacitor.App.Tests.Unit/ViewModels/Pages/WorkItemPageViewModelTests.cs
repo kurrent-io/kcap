@@ -28,6 +28,8 @@ public class WorkItemPageViewModelTests {
         public Task<bool> SetStatusAsync(string workItemId, string? status, CancellationToken ct) => Record($"status {workItemId} {status ?? "<links>"}");
         public Task<bool> OrderPartsAsync(string workItemId, IReadOnlyList<string> partIds, CancellationToken ct) => Record($"order {string.Join(",", partIds)}");
         public Task<bool> MoveSessionAsync(string workItemId, string sessionId, CancellationToken ct) => Record($"move {sessionId} to {workItemId}");
+        public Task<bool> SetWaitAsync(string partId, string waitsOnId, bool waits, CancellationToken ct) =>
+            Record($"{(waits ? "wait" : "stop waiting")} {partId} on {waitsOnId}");
 
         public async Task<string?> AddPartAsync(string workItemId, string title, CancellationToken ct) =>
             await Record($"add {title}") ? "p9" : null;
@@ -95,6 +97,77 @@ public class WorkItemPageViewModelTests {
         await Assert.That(page.GoalEditor.IsEditing).IsTrue();
         await Assert.That(page.Goal).IsEqualTo("Pay in two steps");
         await Assert.That(page.Message).IsEqualTo("Couldn't save the goal");
+    });
+
+    static WorkItemPartDetailDto Waiting(string id, params string[] on) =>
+        FakeApi.Part(id, "open") with { WaitsOn = [.. on.Select(other => new WorkItemRefDto { WorkItemId = other, Title = other })] };
+
+    /// A wait shows on the slice at once, before any read reports it, and a refused one is put back with a message.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_wait_shows_at_once_and_a_refused_one_is_put_back() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeApi { Parts = [FakeApi.Part("a", "open"), FakeApi.Part("b", "open")] };
+        using var directory = new FakeAgentDirectory();
+        using var page = Page(api, directory);
+        WorkItemPagePart B() => page.Groups.Single().Parts.Single(part => part.Id == "b");
+
+        await B().WaitPicker.Choices.Single().ToggleCommand.Execute();
+
+        await Assert.That(api.Calls).IsEquivalentTo(["wait b on a"]);
+        await Assert.That(B().WaitsOnText).IsEqualTo("waits on a");
+
+        await B().WaitPicker.Choices.Single().ToggleCommand.Execute();
+        await Assert.That(api.Calls.Last()).IsEqualTo("stop waiting b on a");
+        await Assert.That(B().WaitsOnText).IsNull();
+
+        api.Accepts = false;
+        var refused = B().WaitPicker.Choices.Single();
+        await refused.ToggleCommand.Execute();
+
+        await Assert.That((refused.Waits, B().WaitsOnText)).IsEqualTo((false, null));
+        await Assert.That(page.Message).IsEqualTo("Couldn't make that slice wait");
+    });
+
+    /// A slice can't be made to wait on one that waits on it, directly or through others: its choice is off, and in the
+    /// graph it can't be dropped there, while a drop that makes no loop asks first and then records the wait.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_wait_that_would_loop_is_not_offered() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeApi { Parts = [Waiting("a"), Waiting("b", "a"), Waiting("c", "b")] };
+        using var directory = new FakeAgentDirectory();
+        using var page = Page(api, directory);
+        var parts = page.Groups.Single().Parts.ToDictionary(part => part.Id);
+        await page.ShowGraphCommand.Execute();
+
+        await Assert.That(parts["a"].WaitPicker.Choices.Select(choice => (choice.Id, choice.Loops))).IsEquivalentTo([("b", true), ("c", true)]);
+        await Assert.That(await parts["a"].WaitPicker.Choices[0].ToggleCommand.CanExecute.FirstAsync()).IsFalse();
+        await Assert.That(page.DropOn(parts["a"], parts["c"]) is null).IsTrue();
+        await Assert.That(page.DropOn(parts["c"], parts["b"]) == WorkItemPageViewModel.Stay).IsTrue();
+
+        page.DropOn(parts["c"], parts["a"])!();
+        await Assert.That(page.DropPrompt).IsEqualTo("Make “c” wait on “a”?");
+        await page.ConfirmDropCommand.Execute();
+
+        await Assert.That(api.Calls).IsEquivalentTo(["wait c on a"]);
+    });
+
+    /// The graph puts a slice one column right of the deepest slice it waits on, with one arrow per wait, and the
+    /// viewer's choice of it outlasts the page.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_graph_orders_slices_by_what_they_wait_on() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeApi { Parts = [Waiting("c", "a", "b"), Waiting("b", "a"), Waiting("a")] };
+        var flipped = new HashSet<string>();
+        using var directory = new FakeAgentDirectory();
+        using var page = new WorkItemPageViewModel("w1", api, directory, TimeProvider.System, flipped);
+
+        var x = page.Graph.Nodes.ToDictionary(node => node.Part.Id, node => node.X);
+        await Assert.That(x["a"] < x["b"] && x["b"] < x["c"]).IsTrue();
+        await Assert.That(page.Graph.Edges.Select(edge => $"{edge.From.Part.Id}>{edge.To.Part.Id}")).IsEquivalentTo(["c>a", "c>b", "b>a"]);
+
+        await page.ShowGraphCommand.Execute();
+        using var reopened = new WorkItemPageViewModel("w1", api, directory, TimeProvider.System, flipped);
+        await Assert.That((reopened.IsGraph, reopened.IsBoard, reopened.IsList)).IsEqualTo((true, false, false));
     });
 
     /// A session the app has not listed takes its title and agent from the work item's read.
@@ -209,7 +282,7 @@ public class WorkItemPageViewModelTests {
 
     static string[] Ids(WorkItemPageGroupViewModel group) => [.. group.Parts.Select(part => part.Id)];
 
-    static void Run(WorkItemPageViewModel page, WorkItemPagePart part, string label) => page.MenuFor(part).Single(item => item.Label == label).Run();
+    static void Run(WorkItemPageViewModel page, WorkItemPagePart part, string label) => page.MenuFor(part, _ => { }).Single(item => item.Label == label).Run();
 
     /// A slice moved down takes its place at once and keeps it, though the read that follows still reports the old
     /// order (this fake never catches up).

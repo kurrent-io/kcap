@@ -25,7 +25,7 @@ public partial class WorkItemPageView : UserControl {
         _ = new RowMenu(this, "sessionRow", row =>
             row is WorkItemPageSession session && DataContext is WorkItemPageViewModel page ? page.MenuFor(session) : []);
         _ = new RowMenu(this, "partRow", row =>
-            row is WorkItemPagePart part && DataContext is WorkItemPageViewModel page ? page.MenuFor(part) : []);
+            row is WorkItemPagePart part && DataContext is WorkItemPageViewModel page ? page.MenuFor(part, PickWaits) : []);
         _ = new RowDrag(this, WorkItemSlices, DragGhost, DragGhostSnapshot, "dragRow", row => row, OutlinedTargetAt,
             started: _ => _page?.HoldRebuilds(true),
             ended: () => {
@@ -48,8 +48,9 @@ public partial class WorkItemPageView : UserControl {
     }
 
     void OnPageChanged(object? sender, PropertyChangedEventArgs e) {
-        if (e.PropertyName == nameof(WorkItemPageViewModel.IsBoard))
-            _ = Motion.Standard.RunAsync(_page!.IsBoard ? WorkItemBoardView : WorkItemGroups, CancellationToken.None, (OpacityProperty, 0d, 1d));
+        if (e.PropertyName == nameof(WorkItemPageViewModel.Layout))
+            _ = Motion.Standard.RunAsync(_page!.IsBoard ? WorkItemBoardView : _page.IsGraph ? WorkItemGraphView : WorkItemGroups,
+                CancellationToken.None, (OpacityProperty, 0d, 1d));
     }
 
     // Opened after the fold has loaded, since a fold that is not yet loaded snaps open.
@@ -94,13 +95,36 @@ public partial class WorkItemPageView : UserControl {
         OnFlyoutItemClick(sender, e);
     }
 
+    void OnWaitsClick(object? sender, RoutedEventArgs e) {
+        if (sender is Control { DataContext: WorkItemPagePart part }) PickWaits(part);
+        e.Handled = true;
+    }
+
+    // Under the row's right end in the list, where its count shows; under a card or a graph box otherwise. Posted so
+    // a menu that asked for it has closed first, or the picker is dismissed with it, and the row is found by id then,
+    // since a read in between replaces the rows.
+    void PickWaits(WorkItemPagePart part) => Dispatcher.UIThread.Post(() => {
+        var row = WorkItemSlices.GetVisualDescendants().OfType<Button>().FirstOrDefault(button =>
+            button.Classes.Contains("partRow") && button.DataContext is WorkItemPagePart shown && shown.Id == part.Id && button.IsEffectivelyVisible);
+        if (row is null || this.FindResource("WaitPicker") is not Flyout picker) return;
+        picker.Placement = _page?.IsList == true ? PlacementMode.BottomEdgeAlignedRight : PlacementMode.BottomEdgeAlignedLeft;
+        picker.ShowAt(row);
+    }, DispatcherPriority.Background);
+
+    static void OnWaitSearchAttached(object? sender, VisualTreeAttachmentEventArgs e) {
+        if (sender is TextBox { IsVisible: true } box) Dispatcher.UIThread.Post(() => box.Focus(), DispatcherPriority.Loaded);
+    }
+
+    void OnWaitPickerOpened(object? sender, EventArgs e) => _page?.HoldRebuilds(true);
+    void OnWaitPickerClosed(object? sender, EventArgs e) => _page?.HoldRebuilds(false);
+
     void OnFlyoutItemClick(object? sender, RoutedEventArgs e) =>
         ((sender as Control)?.FindLogicalAncestorOfType<Popup>()?.PlacementTarget as Button)?.Flyout?.Hide();
 
     // The board's columns and cards mark a drop themselves.
     RowDropTarget? OutlinedTargetAt(object carried, Point at) {
         var target = DropTargetAt(carried, at);
-        Outline(_page?.IsBoard != true ? target?.Zone : null);
+        Outline(_page?.IsList == true ? target?.Zone : null);
         return target;
     }
 
@@ -123,7 +147,7 @@ public partial class WorkItemPageView : UserControl {
         if (DataContext is not WorkItemPageViewModel page) return null;
         foreach (var visual in (this.InputHitTest(at) as Visual)?.GetSelfAndVisualAncestors() ?? []) {
             if (visual is not Control { DataContext: { } target } zone || !(zone.Classes.Contains("part") || zone.Classes.Contains("group"))) continue;
-            if (carried is WorkItemPagePart && target is WorkItemPagePart) continue;
+            if (carried is WorkItemPagePart && target is WorkItemPagePart && !page.IsGraph) continue;
             return page.DropOn(carried, target) is { } drop ? new(zone, drop) : null;
         }
         return null;

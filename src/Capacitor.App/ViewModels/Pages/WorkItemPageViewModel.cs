@@ -17,6 +17,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     const string LooseEndsKey = "loose_ends";
     const string OnWorkItemKey = "on_work_item";
     const string BoardKey = "board";
+    const string GraphKey = "graph";
     // The server refuses a longer slice title.
     const int MaxSliceTitle = 200;
     static readonly WorkStatus[] BoardOrder = [WorkStatus.Open, WorkStatus.InProgress, WorkStatus.InReview, WorkStatus.Blocked, WorkStatus.Done];
@@ -32,6 +33,9 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     readonly Dictionary<string, string> _setStatuses = new(StringComparer.Ordinal);
     // A slice order the viewer just set, shown until a read reports it, for the same reason.
     List<string>? _setOrder;
+    WorkItemPageWaits _waits = WorkItemPageWaits.None;
+    // Waits the viewer just set or cleared, shown until a read reports them, for the same reason.
+    readonly Dictionary<(string Part, string On), bool> _setWaits = [];
     List<string> _order = [];
     // Sessions the viewer just moved, by id, shown where they went until a read reports them gone from where they were.
     // A null destination hides one until the slice it is going to appears.
@@ -68,8 +72,13 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     /// order. A column that takes drops is there even when empty.
     IReadOnlyList<WorkItemPageGroupViewModel> _columns = [];
     public IReadOnlyList<WorkItemPageGroupViewModel> Columns { get => _columns; private set => this.RaiseAndSetIfChanged(ref _columns, value); }
-    bool _isBoard;
-    public bool IsBoard { get => _isBoard; private set => this.RaiseAndSetIfChanged(ref _isBoard, value); }
+    WorkItemPageLayout _layout;
+    public WorkItemPageLayout Layout { get => _layout; private set => this.RaiseAndSetIfChanged(ref _layout, value); }
+    public bool IsList => Layout == WorkItemPageLayout.List;
+    public bool IsBoard => Layout == WorkItemPageLayout.Board;
+    public bool IsGraph => Layout == WorkItemPageLayout.Graph;
+    WorkItemPageGraph _graph = WorkItemPageGraph.Empty;
+    public WorkItemPageGraph Graph { get => _graph; private set => this.RaiseAndSetIfChanged(ref _graph, value); }
     bool _isLoading = true;
     public bool IsLoading { get => _isLoading; private set => this.RaiseAndSetIfChanged(ref _isLoading, value); }
     string? _message;
@@ -100,6 +109,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     public ReactiveCommand<Unit, Unit> AddLinkCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowListCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowBoardCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowGraphCommand { get; }
 
     Action? _pendingDrop;
     string? _dropPrompt;
@@ -125,7 +135,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         _time = time;
         _flipped = flipped;
         _disposables.Add(_reread);
-        _isBoard = flipped.Contains(BoardKey);
+        _layout = flipped.Contains(GraphKey) ? WorkItemPageLayout.Graph : flipped.Contains(BoardKey) ? WorkItemPageLayout.Board : WorkItemPageLayout.List;
 
         OpenInWebCommand = ReactiveCommand.Create(() => openInWeb?.Invoke(), Observable.Return(openInWeb is not null)).DisposeWith(_disposables);
         OpenLinkCommand = ReactiveCommand.Create<WorkItemPageLink>(link => { if (link.Url is { } url) openUrl?.Invoke(url); }).DisposeWith(_disposables);
@@ -147,8 +157,9 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
             if (await ChangeAsync(ct => _api.AddLinkAsync(WorkItemId, NewLinkReference.Trim(), ct), "Couldn't add that link")) NewLinkReference = "";
         }, this.WhenAnyValue(x => x.NewLinkReference, reference => !string.IsNullOrWhiteSpace(reference))).DisposeWith(_disposables);
 
-        ShowListCommand = ReactiveCommand.Create(() => ShowBoard(false)).DisposeWith(_disposables);
-        ShowBoardCommand = ReactiveCommand.Create(() => ShowBoard(true)).DisposeWith(_disposables);
+        ShowListCommand = ReactiveCommand.Create(() => Show(WorkItemPageLayout.List)).DisposeWith(_disposables);
+        ShowBoardCommand = ReactiveCommand.Create(() => Show(WorkItemPageLayout.Board)).DisposeWith(_disposables);
+        ShowGraphCommand = ReactiveCommand.Create(() => Show(WorkItemPageLayout.Graph)).DisposeWith(_disposables);
         ConfirmDropCommand = ReactiveCommand.Create(() => {
             var drop = _pendingDrop;
             EndDropPrompt();
@@ -193,8 +204,10 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
             () => _ = ChangeAsync(ct => _api.RemoveSessionAsync(WorkItemId, session.SessionId, ct), "Couldn't remove that session")),
     ];
 
-    public IReadOnlyList<RowMenuItem> MenuFor(WorkItemPagePart part) {
+    /// <param name="pickWaits">Opens the slice's wait picker.</param>
+    public IReadOnlyList<RowMenuItem> MenuFor(WorkItemPagePart part, Action<WorkItemPagePart> pickWaits) {
         var items = new List<RowMenuItem>();
+        if (part.CanWait) items.Add(new(LucideIconKind.Hourglass, "Waits on…", () => pickWaits(part)));
         if (Neighbour(part, -1) is { } above && PlaceAt(part, above, after: false) is { } up) items.Add(new(LucideIconKind.ArrowUp, "Move up", up));
         if (Neighbour(part, 1) is { } below && PlaceAt(part, below, after: true) is { } down) items.Add(new(LucideIconKind.ArrowDown, "Move down", down));
         items.AddRange(Enum.GetValues<WorkStatus>().Where(status => status != part.Status)
@@ -205,10 +218,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     }
 
     /// What dropping a dragged slice or session on <paramref name="target"/> does; null when it can't go there. A
-    /// session goes into a slice or a group, a slice only onto a group: a slice dropped on a status takes that status,
-    /// a session dropped on a status becomes a new slice there, and a slice dropped on the other sessions hands them
-    /// its sessions. Dropped where it already is, it stays, which <see cref="Stay"/> does. A drop onto a group waits on
-    /// <see cref="DropPrompt"/>.
+    /// session goes into a slice or a group, a slice onto a group: a slice dropped on a status takes that status, a
+    /// session dropped on a status becomes a new slice there, and a slice dropped on the other sessions hands them its
+    /// sessions. In the graph a slice dropped on another waits on it, unless that would make a loop. Dropped where it
+    /// already is, it stays, which <see cref="Stay"/> does. A drop that changes more than one session's place waits
+    /// on <see cref="DropPrompt"/>.
     public Action? DropOn(object dragged, object target) => (dragged, target) switch {
         (WorkItemPageSession session, WorkItemPagePart part) =>
             part.Sessions.Any(s => s.SessionId == session.SessionId) ? Stay : () => _ = MoveSessionAsync(session, part.Id),
@@ -217,6 +231,10 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
                 : Ask($"Move “{session.Title}” to {group.Label}?", () => _ = MoveSessionAsync(session, WorkItemId)),
         (WorkItemPageSession session, WorkItemPageGroupViewModel { Status: { } status }) =>
             Ask($"Make “{session.Title}” a new slice in {status.Label()}?", () => _ = SliceFromAsync(session, status)),
+        (WorkItemPagePart part, WorkItemPagePart onto) when IsGraph && part.Id != onto.Id =>
+            part.WaitsOn.Contains(onto.Id) ? Stay
+                : _waits.Reaches(onto.Id, part.Id) ? null
+                : Ask($"Make “{part.Title}” wait on “{onto.Title}”?", () => _ = SetWaitAsync(part.Id, onto.Id, true)),
         (WorkItemPagePart part, WorkItemPageGroupViewModel { Key: OnWorkItemKey } group) when part.HasSessions =>
             Ask($"Move the sessions of “{part.Title}” to {group.Label}?", () => _ = MoveSessionsOutAsync(part)),
         (WorkItemPagePart part, WorkItemPageGroupViewModel { Status: { } status }) =>
@@ -339,10 +357,38 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         _reread.OnNext(Unit.Default);
     }
 
-    void ShowBoard(bool board) {
-        IsBoard = board;
-        if (board) _flipped.Add(BoardKey);
-        else _flipped.Remove(BoardKey);
+    void Show(WorkItemPageLayout layout) {
+        Layout = layout;
+        foreach (var name in (string[])[nameof(IsList), nameof(IsBoard), nameof(IsGraph)]) this.RaisePropertyChanged(name);
+        _flipped.Remove(BoardKey);
+        _flipped.Remove(GraphKey);
+        if (layout == WorkItemPageLayout.Board) _flipped.Add(BoardKey);
+        else if (layout == WorkItemPageLayout.Graph) _flipped.Add(GraphKey);
+    }
+
+    // Shown at once; a refusal, such as slices that would wait on each other in a loop, puts it back.
+    async Task<bool> SetWaitAsync(string partId, string onId, bool waits) {
+        _setWaits[(partId, onId)] = waits;
+        Rebuild();
+        if (await ChangeAsync(ct => _api.SetWaitAsync(partId, onId, waits, ct),
+                waits ? "Couldn't make that slice wait" : "Couldn't stop that slice waiting")) return true;
+        if (_disposables.IsDisposed) return false;
+        _setWaits.Remove((partId, onId));
+        Rebuild();
+        return false;
+    }
+
+    // What each slice waits on: the read, with the waits the viewer just set over it.
+    WorkItemPageWaits Waits(IReadOnlyList<WorkItemPartDetailDto> parts) {
+        var ids = parts.Select(part => part.WorkItemId).ToHashSet(StringComparer.Ordinal);
+        var waits = parts.ToDictionary(part => part.WorkItemId,
+            part => part.WaitsOn.Select(on => on.WorkItemId).Where(ids.Contains).ToHashSet(StringComparer.Ordinal), StringComparer.Ordinal);
+        foreach (var (key, set) in _setWaits.ToList()) {
+            if (!waits.TryGetValue(key.Part, out var on) || !ids.Contains(key.On) || on.Contains(key.On) == set) _setWaits.Remove(key);
+            else if (set) on.Add(key.On);
+            else on.Remove(key.On);
+        }
+        return new(waits);
     }
 
     void ShowPage(PageViewerViewModel viewer) {
@@ -421,8 +467,10 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
 
         var readOrder = read.Parts.Select(part => part.WorkItemId).ToList();
         if (_setOrder is { } set && (set.SequenceEqual(readOrder) || !set.ToHashSet(StringComparer.Ordinal).SetEquals(readOrder))) _setOrder = null;
+        var waits = _waits = Waits(read.Parts);
         var parts = (_setOrder is { } order ? read.Parts.OrderBy(part => order.IndexOf(part.WorkItemId)) : read.Parts.AsEnumerable())
-            .Select(part => PartOf(part, rows, named)).ToList();
+            .Select(part => PartOf(part, read.Parts, waits, rows, named)).ToList();
+        Graph = WorkItemPageGraph.Of(parts);
         _order = [.. parts.Select(part => part.Id)];
         var done = parts.Count(part => part.Status == WorkStatus.Done);
         ProgressText = parts.Count == 0 ? "" : $"{done}/{parts.Count}";
@@ -456,13 +504,14 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
             .OrderByDescending(id => named.FirstOrDefault(session => session.SessionId == id)?.LastActivityAt)
             .ThenBy(id => id, StringComparer.Ordinal);
 
-    WorkItemPagePart PartOf(WorkItemPartDetailDto part, Dictionary<string, AgentRow> rows, IReadOnlyList<WorkItemPartSessionDto> named) {
+    WorkItemPagePart PartOf(WorkItemPartDetailDto part, IReadOnlyList<WorkItemPartDetailDto> all, WorkItemPageWaits waits,
+            Dictionary<string, AgentRow> rows, IReadOnlyList<WorkItemPartSessionDto> named) {
         if (_setStatuses.TryGetValue(part.WorkItemId, out var set) && set == part.Status) _setStatuses.Remove(part.WorkItemId);
         var status = WorkStatusExtensions.ParseWorkStatus(_setStatuses.GetValueOrDefault(part.WorkItemId, part.Status));
-        var tip = status == WorkStatus.Blocked && part.WaitsOn.Count > 0
-            ? $"Waits on {string.Join(", ", part.WaitsOn.Select(other => other.Title))}"
-            : null;
         var id = part.WorkItemId;
+        var others = all.Where(other => other.WorkItemId != id).ToList();
+        WorkItemPageWaitPicker Picker() => new(others.Select(other => new WorkItemPageWaitChoice(other.WorkItemId, other.Title,
+            waits.Waits(id, other.WorkItemId), waits.Reaches(other.WorkItemId, id), wait => SetWaitAsync(id, other.WorkItemId, wait))));
         var sessionIds = Placed(id, part.SessionIds, named).ToList();
         var needsYou = sessionIds.Any(sessionId => rows.TryGetValue(sessionId, out var row) && _needsYou.Contains(row.Id));
         // A set status shows at once and a refused one is put back; handing the slice back to its links waits for the
@@ -481,7 +530,9 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
             else _setStatuses.Remove(id);
             Rebuild();
         });
-        return new WorkItemPagePart(id, part.Title, status, tip, needsYou, LinksOf(part.Links),
+        return new WorkItemPagePart(id, part.Title, status,
+            [.. others.Where(other => waits.Waits(id, other.WorkItemId)).Select(other => (other.WorkItemId, other.Title))], others.Count > 0, Picker,
+            needsYou, LinksOf(part.Links),
             [.. sessionIds.Select(sessionId => SessionOf(id, sessionId, rows, named))], _openedParts.Contains(id),
             expanded => {
                 _opening.Remove(id);

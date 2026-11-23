@@ -53,6 +53,9 @@ public sealed class WorkItemPageApi(ICapacitorHttpClient http, ProfileContext pr
     public Task<bool> RemovePartAsync(string workItemId, string partId, CancellationToken ct) =>
         ChangeAsync(ApiRoutes.WorkItem(workItemId, $"parts/{Uri.EscapeDataString(partId)}/remove"), (client, url) => client.PostAsync(url, null, ct), null, ct);
 
+    public Task<bool> SetWaitAsync(string partId, string waitsOnId, bool waits, CancellationToken ct) =>
+        PostAsync(ApiRoutes.WorkItem(partId, waits ? "waits" : "waits/remove"), new WorkItemWaitRequestDto(waitsOnId), Json.WorkItemWaitRequestDto, ct);
+
     public Task<bool> AddLinkAsync(string workItemId, string reference, CancellationToken ct) =>
         PostAsync(ApiRoutes.WorkItem(workItemId, "links"), new WorkItemLinkRequestDto(reference), Json.WorkItemLinkRequestDto, ct);
 

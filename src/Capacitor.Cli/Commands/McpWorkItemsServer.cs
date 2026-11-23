@@ -221,7 +221,7 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
                     ItemUrl(baseUrl, arguments, "work_item_id", "incomplete"), ToJsonContent(BuildDeclareIncompleteBody(arguments))),
 
                 "create_work_item_part" => await client.PostAsync(
-                    ItemUrl(baseUrl, arguments, "work_item_id", "parts"), ToJsonContent(new() { ["title"] = McpToolArguments.RequireString(arguments, "title") })),
+                    ItemUrl(baseUrl, arguments, "work_item_id", "parts"), ToJsonContent(BuildCreatePartBody(arguments))),
                 "add_work_item_link"    => await client.PostAsync(
                     ItemUrl(baseUrl, arguments, "work_item_id", "links"), ToJsonContent(new() { ["reference"] = McpToolArguments.RequireString(arguments, "reference") })),
                 "wait_on_part"          => await client.PostAsync(
@@ -852,6 +852,18 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     // wrong-typed argument must fail loudly rather than be dropped, because a silently omitted
     // part_ids turns a malformed declare into a differently-shaped request whose rejection reads as
     // if the caller had sent nothing.
+    internal static JsonObject BuildCreatePartBody(JsonObject? args) {
+        var body = new JsonObject { ["title"] = McpToolArguments.RequireString(args, "title") };
+
+        if (args is not null && args.TryGetPropertyValue("waits_on_ids", out var node)) {
+            if (node is null) throw new ArgumentException("'waits_on_ids' must be an array of strings, not null.");
+
+            body["waits_on_ids"] = ReadStringArray(node, "waits_on_ids");
+        }
+
+        return body;
+    }
+
     internal static JsonObject BuildBreakdownBody(JsonObject? args) {
         var body = new JsonObject();
 
@@ -1166,10 +1178,13 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
     static readonly McpTool[] PartTools = [
         new("create_work_item_part",
             "Create a part under a work item, when the user asks to split it. A part can't have parts, so create it "
-          + "under the work item. Answers the new part's work_item_id.",
+          + "under the work item. To lay out an order of work, create the parts that come first, then each later one "
+          + "with waits_on_ids. Answers the new part's work_item_id and the waits_on_ids it recorded; an answer "
+          + "without waits_on_ids recorded none, so say them with wait_on_part.",
             new("object", new() {
                 ["work_item_id"] = new("string", "The work item to create the part under."),
-                ["title"]        = new("string", "The part's title.")
+                ["title"]        = new("string", "The part's title."),
+                ["waits_on_ids"] = new("array", "Parts of the same work item the new part can't start before.", new("string", "A part's work item id."))
             }, ["work_item_id", "title"]), McpToolAnnotations.Additive),
 
         new("add_work_item_link",
@@ -1182,7 +1197,8 @@ sealed class McpWorkItemsServer(ConfigRoot config, ProfileContext profiles, Toke
 
         new("wait_on_part",
             "Say a part waits on another part of the same work item: it can't start until that one is done. A part "
-          + "can't wait on a part of another work item, on itself, or in a loop.",
+          + "can't wait on a part of another work item, on itself, or in a loop; a refused loop names the parts it "
+          + "would run through.",
             new("object", new() {
                 ["part_id"]     = new("string", "The part that waits."),
                 ["waits_on_id"] = new("string", "The part it waits on.")

@@ -998,6 +998,7 @@ public class McpWorkItemsServerTests {
 
     [Test]
     [Arguments("create_work_item_part", """{"work_item_id":"wi-1","title":"Payment form"}""", "POST", "http://x/api/work-items/wi-1/parts", """{"title":"Payment form"}""")]
+    [Arguments("create_work_item_part", """{"work_item_id":"wi-1","title":"Order summary","waits_on_ids":["p1","p2"]}""", "POST", "http://x/api/work-items/wi-1/parts", """{"title":"Order summary","waits_on_ids":["p1","p2"]}""")]
     [Arguments("add_work_item_link", """{"work_item_id":"wi-1","reference":"web#40"}""", "POST", "http://x/api/work-items/wi-1/links", """{"reference":"web#40"}""")]
     [Arguments("wait_on_part", """{"part_id":"p2","waits_on_id":"p1"}""", "POST", "http://x/api/work-items/p2/waits", """{"waits_on_id":"p1"}""")]
     [Arguments("stop_waiting_on_part", """{"part_id":"p2","waits_on_id":"p1"}""", "POST", "http://x/api/work-items/p2/waits/remove", """{"waits_on_id":"p1"}""")]
