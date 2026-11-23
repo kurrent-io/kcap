@@ -361,8 +361,8 @@ mcp pass:
   be shared, in the harness's prompt or in kcap; no tool approves it.
 
 mcp knowledge:
-  Exposes eleven tools for agents to read retained facts and curated skills,
-  to fine-tune skills, and to merge facts filed under two categories.
+  Exposes eight tools for agents to read retained facts and curated skills,
+  and to fine-tune skills.
 
     list_skills           A repo's skills, most recently changed first.
     get_skill             One skill with bodies, members, pins and doc_revision.
@@ -373,11 +373,6 @@ mcp knowledge:
     adjust_skill_members  exclude | include draft members, or add | remove |
                           clear assignment pins.
     curate_fact_cluster   Curate a fact by its curation_key.
-    list_category_merges  Fact pairs in different categories that read as
-                          the same lesson.
-    merge_categories      Fold a pair's absorbed fact into its survivor.
-    dismiss_category_merge
-                          Mark a pair as not the same lesson, for good.
 
   Arguments are the server's field names. Reads default to the current
   repository. Skill writes take get_skill's doc_revision as
