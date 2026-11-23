@@ -9,7 +9,7 @@ public class SessionEndTests {
     static HostedAgent Agent(string? id) => new(id, false, DaemonBridge.None);
 
     static Func<HostedAgent, bool> Ledger(ResumeState? state) =>
-        hosted => state == ResumeState.Resuming;
+        _ => state == ResumeState.Resuming;
 
     [Test]
     public async Task A_parent_exit_end_is_held_while_the_entry_is_resuming() {

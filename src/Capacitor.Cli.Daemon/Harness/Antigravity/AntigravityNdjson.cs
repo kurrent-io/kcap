@@ -215,10 +215,6 @@ internal sealed class AntigravityStepAccumulator {
         public string?  State;
         public bool     HasUsage;
         public long?    InputTokens;
-        public long?    OutputTokens;
-        public long?    ThinkingTokens;
-        public long?    CacheReadTokens;
-        public long?    TotalTokens;
         public bool     IsTool;
         public bool     ToolCallEmitted;
         public string?  ToolName;
@@ -247,12 +243,8 @@ internal sealed class AntigravityStepAccumulator {
 
         if (evt.InputTokens is not null || evt.OutputTokens is not null || evt.ThinkingTokens is not null
                 || evt.CacheReadTokens is not null || evt.TotalTokens is not null) {
-            buf.HasUsage        = true;
-            buf.InputTokens     = evt.InputTokens;
-            buf.OutputTokens    = evt.OutputTokens;
-            buf.ThinkingTokens  = evt.ThinkingTokens;
-            buf.CacheReadTokens = evt.CacheReadTokens;
-            buf.TotalTokens     = evt.TotalTokens;
+            buf.HasUsage    = true;
+            buf.InputTokens = evt.InputTokens;
         }
 
         if (buf.StepType == "tool") {

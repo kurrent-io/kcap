@@ -469,7 +469,7 @@ public class RemoteSessionViewSmokeTests {
     }, fixture => fixture.OfferResume(Machine), ResumableServerRow());
 
     [Test]
-    public Task Dropping_a_file_adds_it_to_the_tray() => WithHandoffAsync(async (host, fixture, view) => {
+    public Task Dropping_a_file_adds_it_to_the_tray() => WithHandoffAsync(async (host, _, view) => {
         var composer = host.Vm.Chat.Handoff!;
         await Assert.That(composer.CanAttach).IsTrue();
         var card = Named<Border>(view, "HandoffCard");
@@ -567,7 +567,7 @@ public class RemoteSessionViewSmokeTests {
     });
 
     [Test]
-    public Task A_connecting_daemon_shows_why_start_waits() => WithHandoffAsync(async (host, _, view) => {
+    public Task A_connecting_daemon_shows_why_start_waits() => WithHandoffAsync(async (_, _, view) => {
         var progress = Named<TextBlock>(view, "HandoffProgress");
         await Assert.That(progress.Text).IsEqualTo(HandoffComposerViewModel.WaitingForDaemon);
         await Assert.That(progress.IsEffectivelyVisible).IsTrue();

@@ -1508,7 +1508,7 @@ public class CursorImportSourceTests {
         await Assert.That(childClass.SourceMeta!.ContainsKey("IsSubagentChild")).IsTrue();
 
         var posted = new List<string>();
-        using var postHandler = new StubHandler(postCapture: (req, body) => { posted.Add(req.RequestUri!.AbsolutePath); return new HttpResponseMessage(HttpStatusCode.OK); });
+        using var postHandler = new StubHandler(postCapture: (req, _) => { posted.Add(req.RequestUri!.AbsolutePath); return new HttpResponseMessage(HttpStatusCode.OK); });
         using var postClient = new HttpClient(postHandler);
 
         var outcome = await src.ImportSessionAsync(childClass, new ImportContext(postClient, "http://localhost", ForcePrivate: false), CancellationToken.None);

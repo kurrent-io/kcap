@@ -1049,7 +1049,7 @@ public class RemoteTranscriptFeedTests {
     /// from the kept lines would show part of the session as the whole of it.
     [Test]
     public async Task A_whole_session_longer_than_the_cache_holds_is_read_again_in_full() {
-        var count = RemoteTranscriptCache.MaxLines + 50;
+        const int count = RemoteTranscriptCache.MaxLines + 50;
         var server = new FakeSessionEvents([.. Enumerable.Range(0, count).Select(i => Text(i, $"m{i}"))]);
         var lane = new FakeServerLane();
         using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
@@ -1283,7 +1283,7 @@ public class RemoteTranscriptFeedTests {
         using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
         using var subject = new BehaviorSubject<string?>("u1");
         using var cache = new RemoteTranscriptCache(subject, new Subject<(string, SessionAccessState)>());
-        using (var first = new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
+        using (new RemoteTranscriptFeed("s1", "gemini", access, server.Reader, lane, new FakeTimeProvider(), _ => { }, cache: cache)) {
             await WaitUntilAsync(() => lane.Tails.Count == 1, what: "the first tail");
         }
         await Assert.That(cache.Contains("s1")).IsTrue();

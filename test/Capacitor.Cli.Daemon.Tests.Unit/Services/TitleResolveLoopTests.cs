@@ -87,7 +87,7 @@ public class TitleResolveLoopTests {
                 return Native(a) is { } title ? new HarnessTitlePost(title, NativeKind, NativeChangedAt) : null;
             },
             (a, ct) => { Interlocked.Increment(ref GenerateCalls); return Generate(a, ct); },
-            (sessionId, title, ct) => {
+            (sessionId, title, _) => {
                 GeneratedPosts.Add((sessionId, title));
                 return Task.FromResult(PostGeneratedResult);
             },

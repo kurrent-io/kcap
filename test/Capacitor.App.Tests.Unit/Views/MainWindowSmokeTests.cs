@@ -864,7 +864,7 @@ public class MainWindowSmokeTests {
                 var label = header.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("eyebrow"));
                 var count = header.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("sectionMeta"));
                 var row = RailRow(window, repo.Sessions[0].Primary!);
-                var body = row.GetVisualAncestors().OfType<Border>().Single(b => b.Classes.Contains("sectionBody"));
+                _ = row.GetVisualAncestors().OfType<Border>().Single(b => b.Classes.Contains("sectionBody"));
                 var right = label.TranslatePoint(new Point(label.Bounds.Width, 0), header)!.Value.X;
                 var countLeft = count.TranslatePoint(default, header)!.Value.X;
                 await Assert.That(right).IsLessThan(countLeft);

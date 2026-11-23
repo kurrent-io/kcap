@@ -116,12 +116,11 @@ public sealed partial class WorkContextViewModel {
         }
     }
 
-    int _sessionCount;
     int SessionCount {
-        get => _sessionCount;
+        get;
         set {
-            if (_sessionCount == value) return;
-            _sessionCount = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged(nameof(WhoCountText));
         }
     }
@@ -158,7 +157,7 @@ public sealed partial class WorkContextViewModel {
         && !ShowsPullRequestCard;
     public const string PullRequestEmptyNote = "No pull request linked";
     public bool ShowsPullRequestSection => ShowsPullRequestCard || ShowsLegacyLinkCards || ShowsPullRequestEmpty;
-    public string WhoCountText => _sessionCount switch {
+    public string WhoCountText => SessionCount switch {
         0     => "",
         1     => "1 session",
         var n => $"{n} sessions",

@@ -140,7 +140,7 @@ public class PollingServiceVerifyTests {
 
     PollingServiceVerify SlowBootVerify(FakeManager manager, Func<HelloProbeResult> hello, TimeSpan bootBudget, string? notePath = null) =>
         new(Daemons.Store, manager,
-            id => manager.Running ? DaemonPid : null,
+            _ => manager.Running ? DaemonPid : null,
             (_, _) => Task.FromResult(manager.Running ? hello() : NoAnswer),
             TimeProvider.System, () => true, ShortBudget, bootBudget: bootBudget, endNotePath: _ => notePath);
 
