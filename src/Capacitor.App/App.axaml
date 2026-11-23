@@ -313,6 +313,18 @@
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource KcapMutedBrush}" />
         </Style>
+        <!-- A field-shaped button that opens a surface you then type in (the rail's search box) is not
+             itself an input, so it keeps the quiet card edge rather than the field edge. -->
+        <Style Selector="Button.kcapField.kcapLauncher">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        </Style>
+        <Style Selector="Button.kcapField.kcapLauncher /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        </Style>
+        <Style Selector="Button.kcapField.kcapLauncher:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.kcapField.kcapLauncher:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+        </Style>
         <Style Selector="NumericUpDown.kcapField">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
