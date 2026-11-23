@@ -3,6 +3,7 @@ using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Daemon.Harness.Codex;
 using Capacitor.Cli.Daemon.Pty;
+using Capacitor.Models.Transcripts.UserMessages;
 using Microsoft.Extensions.Logging;
 using Capacitor.Cli.Core;
 
@@ -161,7 +162,16 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
         var disablesApprovalPrompts = launcher.DisablesApprovalPrompts(launcherCtx);
         var hooksReachDaemon        = bridged && launcher.HooksWired(launcherCtx);
 
-        var pty     = ptyFactory.Spawn(launcher.CliPath, args, ctx.Worktree.Path, env, ctx.Cols, ctx.Rows, removeEnv);
+        // A command left on the command line is the process's first message, ahead of anything pasted. A spawn that
+        // fails leaves its entry Pending, and the session's next process resets the log anyway.
+        long? inlineEntry = null;
+        if (launchPrompt is null && ctx.InputLog is { } inputLog && launcherCtx.Prompt is { Length: > 0 } inline
+         && args.Contains(inline) && PersonRows.IsPersonText(inline, ctx.Vendor))
+            inlineEntry = inputLog.AppendPending(ctx.LaunchDispatchId is { } id ? InputAuthor.Dispatch(id) : InputAuthor.Daemon, inline);
+
+        var pty = ptyFactory.Spawn(launcher.CliPath, args, ctx.Worktree.Path, env, ctx.Cols, ctx.Rows, removeEnv);
+        if (inlineEntry is { } written) ctx.InputLog!.MarkWritten(written);
+
         var runtime = new PtyHostedAgentRuntime(ctx.Vendor, pty, time, disablesApprovalPrompts, logger,
             readyOnBracketedPaste: OperatingSystem.IsWindows(),
             bracketedPasteMeansComposerUp: launcher.BracketedPasteMeansComposerUp,

@@ -356,6 +356,37 @@ public class PtyHostedAgentRuntimeFactoryTests {
         }
     }
 
+    /// <summary>A slash command on the command line is still the process's first message, so its row is placed like a
+    /// pasted prompt's, and the rows after it go on being stamped</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task An_inline_slash_commands_row_is_stamped_with_its_launch_dispatch(bool dispatched) {
+        var (factory, pty, process) = NewPasteFactory();
+        var log   = new InputLog(Tmp.PathTo("input-logs", "session.json"), TimeProvider.System);
+        var start = await factory.StartAsync(
+            BuildClaudeLaunchContext(null) with { Prompt = "/review 42", InputLog = log, LaunchDispatchId = dispatched ? Minted : null },
+            CancellationToken.None);
+
+        try {
+            await Assert.That(pty.LastArgs![^1]).IsEqualTo("/review 42");
+            await Assert.That(PastesALaunchPrompt(start)).IsFalse();
+            await Assert.That(new InputLog(Tmp.PathTo("input-logs", "session.json"), TimeProvider.System).IsSuspended).IsFalse();
+
+            log.MarkWritten(log.AppendPending(InputAuthor.Owner, "and the docs"));
+            var stamper = new InputLogStamper(log, new PersonRows(TranscriptProjection.For("claude")!, "session", "claude"));
+            const string command = """{"type":"user","uuid":"80000000-0000-4000-8000-0000000000ba","message":{"content":"<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args>42</command-args>"}}""";
+            const string followUp = """{"type":"user","uuid":"80000000-0000-4000-8000-0000000000bb","origin":{"kind":"human"},"message":{"content":"and the docs"}}""";
+
+            await Assert.That(stamper.StampFor(0, command)).IsEqualTo(dispatched ? new LineStamp(0, Minted, IsLocal: false) : null);
+            await Assert.That(stamper.StampFor(1, followUp)).IsEqualTo(new LineStamp(1, null, IsLocal: true));
+            await Assert.That(log.IsSuspended).IsFalse();
+        } finally {
+            process.Exit();
+            await start.Runtime.DisposeAsync();
+        }
+    }
+
     /// <summary>An agent that quits before its prompt arrives leaves no other trace that the task
     /// never reached it.</summary>
     [Test]
