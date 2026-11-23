@@ -111,7 +111,7 @@ public class AccountRowsTests {
     }
 
     [Test]
-    public async Task Only_a_state_whose_fix_is_not_on_the_row_carries_a_hint() {
+    public async Task Only_a_state_that_needs_the_user_carries_a_hint() {
         await Assert.That(RecordingStateLabels.Hint("codex", "installed", "/u/.codex-work"))
             .IsEqualTo("Start Codex once with this account and approve kcap's hooks when it asks.");
         await Assert.That(RecordingStateLabels.Command("codex", "installed", "/u/.codex-work", windows: false)).IsEqualTo("CODEX_HOME=/u/.codex-work codex");
@@ -119,7 +119,7 @@ public class AccountRowsTests {
         await Assert.That(RecordingStateLabels.Hint("claude", "installed", "/u/.claude")).IsNull();
         await Assert.That(RecordingStateLabels.Hint("codex", "recording", "/u/.codex")).IsNull();
         await Assert.That(RecordingStateLabels.Hint("claude", "broken", "/u/.claude")).IsNotNull();
-        await Assert.That(RecordingStateLabels.Hint("claude", "not_wired", "/u/.claude")).IsNull();
+        await Assert.That(RecordingStateLabels.Hint("claude", "not_wired", "/u/.claude")).IsNotNull();
     }
 
     [Test]

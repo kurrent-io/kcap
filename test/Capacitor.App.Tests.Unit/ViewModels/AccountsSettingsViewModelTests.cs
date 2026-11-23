@@ -280,10 +280,27 @@ public class AccountsSettingsViewModelTests {
 
         var work = rig.Row("work");
         await Assert.That(work.Email).IsEqualTo("w@x.io");
-        await Assert.That(work.Plan).IsEqualTo("Max");
+        await Assert.That(work.PlanLabel).IsEqualTo("MAX");
         await Assert.That(work.ErrorText).IsEqualTo("limits down");
         await Assert.That(rig.Row("home").ErrorText).IsEqualTo("refresh failed");
         await Assert.That(work.Usage.View).IsNotNull();
+    });
+
+    [Test]
+    public Task A_registered_account_kcap_is_off_in_says_so_and_offers_reconnect() => AvaloniaSession.RunOnUiAsync(async () => {
+        var off = Account("a1", "claude", "/u/.claude", "me@x.io", "not_wired") with { Email = "me@x.io" };
+        using var rig = new Rig(new AccountsSnapshotDto("host-1", 1, [off], [new("claude", "/u/.claude", "/u/.claude"), new("codex", "/u/.codex", "/u/.codex")]));
+
+        var row = rig.Row("me@x.io");
+        await Assert.That(row.StateHint).IsNotNull();
+        await Assert.That(row.ShowsStateBadge).IsFalse();
+        await Assert.That(row.CanReconnect).IsTrue();
+        await Assert.That(row.ShowsEmail).IsFalse();
+
+        var fallback = rig.Vm.Groups[1].Rows.Single();
+        await Assert.That(fallback.StateHint).IsNull();
+        await Assert.That(fallback.ShowsStateBadge).IsTrue();
+        await Assert.That(fallback.CanReconnect).IsFalse();
     });
 
     [Test]
@@ -318,44 +335,6 @@ public class AccountsSettingsViewModelTests {
 
         await Assert.That(rig.Vm.Groups).IsSameReferenceAs(groups);
         await Assert.That(rig.Row("work").Usage).IsSameReferenceAs(slot);
-    });
-
-    [Test]
-    public Task Cards_count_registered_accounts_only() => AvaloniaSession.RunOnUiAsync(async () => {
-        var signedIn = Account("a2", "claude", "/u/.claude-work", "work") with { SignIn = SignInStates.SignedIn };
-        using var rig = new Rig(new AccountsSnapshotDto("host-1", 1, [signedIn], [new("codex", "/u/.codex", "/u/.codex")]));
-
-        await Assert.That(rig.Vm.Groups[1].Rows.Single().IsUnregisteredDefault).IsTrue();
-        await Assert.That(rig.Vm.NeedsFixCard).IsEqualTo(new AccountSummaryCard("0", null, false));
-        await Assert.That(rig.Vm.ReadyCard.Value).IsEqualTo("0 of 1");
-    });
-
-    [Test]
-    public Task Ready_card_lists_ready_labels() => AvaloniaSession.RunOnUiAsync(async () => {
-        using var rig = new Rig(UsageSnapshot());
-
-        await Assert.That(rig.Vm.ReadyCard).IsEqualTo(new AccountSummaryCard("1 of 3", "work", false));
-    });
-
-    [Test]
-    public Task Next_reset_card_names_account_and_window() => AvaloniaSession.RunOnUiAsync(async () => {
-        using var rig = new Rig(UsageSnapshot());
-
-        await Assert.That(rig.Vm.NextResetCard).IsEqualTo(new AccountSummaryCard("resets in 30m", "home · 5h", false));
-    });
-
-    [Test]
-    public Task Next_reset_card_is_a_dash_when_nothing_resets() => AvaloniaSession.RunOnUiAsync(async () => {
-        using var rig = new Rig(Snapshot);
-
-        await Assert.That(rig.Vm.NextResetCard).IsEqualTo(new AccountSummaryCard("—", null, false));
-    });
-
-    [Test]
-    public Task Need_a_fix_card_counts_signed_out_and_needs_trust() => AvaloniaSession.RunOnUiAsync(async () => {
-        using var rig = new Rig(UsageSnapshot());
-
-        await Assert.That(rig.Vm.NeedsFixCard).IsEqualTo(new AccountSummaryCard("2", "home · Needs sign-in", true));
     });
 
     [Test]

@@ -118,6 +118,7 @@
         <StyleInclude Source="avares://kcap-desktop/Views/ChatBubbleStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/Onboarding/OnboardingStyles.axaml" />
         <StyleInclude Source="avares://kcap-desktop/Views/StatusStyles.axaml" />
+        <StyleInclude Source="avares://kcap-desktop/Views/NoticeStyles.axaml" />
         <!-- Toasts are the launcher's notice card, floating: the status shows as the icon, never a coloured bar. The
              template keeps Fluent's part names, which its open and close animations target. The message wraps in
              full, because a toast often ends with the instruction the user needs. -->

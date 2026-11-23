@@ -1,4 +1,3 @@
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Accounts.Readings;
 using Capacitor.Cli.Core.Harness.Claude;
@@ -44,17 +43,8 @@ public static class AccountUsage {
 
     public static bool IsBlocked(AccountViewDto account, DateTimeOffset now) => LiveMainConstraints(account, now).Count > 0;
 
-    /// Why the account cannot record or sign in, or null when it needs nothing.
-    public static string? NeedsFix(AccountViewDto account) =>
-        account.SignIn == SignInStates.SignedOut                                   ? "Needs sign-in"
-        : RecordingStateLabels.IsAttention(account.Vendor, account.RecordingState) ? RecordingStateLabels.Label(account.Vendor, account.RecordingState)
-        : null;
-
-    /// The earliest future reset among the main limit's windows.
-    public static DateTimeOffset? NextReset(AccountViewDto account, DateTimeOffset now) => NextResetWindow(account, now)?.ResetsAt;
-
     /// The main-limit window that resets first, or null when none has a future reset.
-    public static UsageWindowDto? NextResetWindow(AccountViewDto account, DateTimeOffset now) =>
+    static UsageWindowDto? NextResetWindow(AccountViewDto account, DateTimeOffset now) =>
         account.Reading is { } reading
             ? reading.Windows.Where(w => w.LimitId == MainLimitId(account.Vendor) && w.ResetsAt > now).MinBy(w => w.ResetsAt)
             : null;
