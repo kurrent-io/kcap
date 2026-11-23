@@ -34,7 +34,7 @@
                                 <ItemsControl ItemsSource="{Binding Rows}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:AccountSettingsRow">
-                                            <Border Classes="profileRow accountRow settingsListRow">
+                                            <Border Name="AccountRow" Classes="settingsListRow">
                                                 <Grid Classes="settingsRow" ColumnDefinitions="*,Auto">
                                                     <StackPanel Classes="settingsRowText">
                                                         <WrapPanel ItemSpacing="8" LineSpacing="6">
@@ -44,13 +44,13 @@
                                                                     <Binding Path="$parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).Renaming" />
                                                                 </MultiBinding>
                                                             </WrapPanel.IsVisible>
-                                                            <TextBlock Classes="kcapLabel accountLabel" Text="{Binding Label}" VerticalAlignment="Center" MaxWidth="260" TextWrapping="Wrap" />
-                                                            <views:StatusBadge Classes="accountDefault" Text="Default" IsVisible="{Binding IsDefault}"
+                                                            <TextBlock Name="AccountLabel" Classes="kcapLabel" Text="{Binding Label}" VerticalAlignment="Center" MaxWidth="260" TextWrapping="Wrap" />
+                                                            <views:StatusBadge Name="AccountDefault" Text="Default" IsVisible="{Binding IsDefault}"
                                                                                ToolTip.Tip="The tool's standard folder, used when a session does not pick an account" />
-                                                            <Border Classes="kcapBadge accountPlan" IsVisible="{Binding PlanLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                                            <Border Classes="kcapBadge" IsVisible="{Binding PlanLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                                                                 <TextBlock Classes="kcapStatusWord" Text="{Binding PlanLabel}" />
                                                             </Border>
-                                                            <Border Classes="kcapBadge danger accountBlocked" IsVisible="{Binding Usage.View.BlockedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}">
+                                                            <Border Name="AccountBlocked" Classes="kcapBadge danger" IsVisible="{Binding Usage.View.BlockedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}">
                                                                 <TextBlock Classes="kcapStatusWord" Text="{Binding Usage.View.BlockedText}" />
                                                             </Border>
                                                             <Border Classes="kcapBadge" Classes.attention="{Binding StateIsAttention}" Classes.success="{Binding StateIsHealthy}"
@@ -58,7 +58,7 @@
                                                                 <StackPanel Orientation="Horizontal" Spacing="5">
                                                                     <views:AppIcon Kind="TriangleAlert" Size="12" IsVisible="{Binding StateIsAttention}" />
                                                                     <views:AppIcon Kind="CircleCheck" Size="12" IsVisible="{Binding StateIsHealthy}" />
-                                                                    <TextBlock Classes="accountState kcapStatusWord" Classes.attention="{Binding StateIsAttention}"
+                                                                    <TextBlock Name="AccountState" Classes="kcapStatusWord" Classes.attention="{Binding StateIsAttention}"
                                                                                Text="{Binding StateLabel}" />
                                                                 </StackPanel>
                                                             </Border>
@@ -139,17 +139,17 @@
                                                                 </StackPanel>
                                                             </Grid>
                                                         </Border>
-                                                        <TextBlock Classes="kcapHint accountError" Text="{Binding ErrorText}" TextWrapping="Wrap"
+                                                        <TextBlock Classes="kcapHint" Text="{Binding ErrorText}" TextWrapping="Wrap"
                                                                    Foreground="{StaticResource KcapWarningBrush}"
                                                                    IsVisible="{Binding ErrorText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                                     </StackPanel>
                                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Top" Margin="0,-5,0,0">
-                                                        <Button Classes="kcapChip settingsCompact accountAdd" Content="Set up" IsVisible="{Binding IsUnregisteredDefault}"
+                                                        <Button Name="AccountAdd" Classes="kcapChip settingsCompact" Content="Set up" IsVisible="{Binding IsUnregisteredDefault}"
                                                                 ToolTip.Tip="Record sessions from this folder"
                                                                 AutomationProperties.Name="{Binding Label, StringFormat='Add {0} account'}"
                                                                 Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).AddDefaultCommand}"
                                                                 CommandParameter="{Binding}" />
-                                                        <Button Classes="kcapGhost kcapIcon accountMenu" IsVisible="{Binding !IsUnregisteredDefault}"
+                                                        <Button Name="AccountMenu" Classes="kcapGhost kcapIcon" IsVisible="{Binding !IsUnregisteredDefault}"
                                                                 IsEnabled="{Binding !$parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).IsBusy}"
                                                                 AutomationProperties.Name="{Binding Label, StringFormat='Actions for {0}'}"
                                                                 ToolTip.Tip="Refresh, rename, reconnect or remove">
