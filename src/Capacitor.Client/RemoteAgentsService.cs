@@ -174,11 +174,11 @@ public sealed class RemoteAgentsService : IRemoteAgentsService, IDisposable {
         // RefreshAgentsAsync can await its completion before publishing rows that AgentDirectory
         // deduplicates against Daemons.
         var refreshDaemons = everyConnect.Merge(lane.DaemonsChanged.Throttle(wait))
-            .Select(_ => Observable.FromAsync(() => RefreshListingAsync()))
+            .Select(_ => Observable.FromAsync(RefreshListingAsync))
             .Merge()
             .Subscribe();
         var refreshDaemonAccounts = everyConnect.Merge(lane.DaemonAccountsChanged.Throttle(wait))
-            .Select(_ => Observable.FromAsync(() => RefreshDaemonAccountsAsync()))
+            .Select(_ => Observable.FromAsync(RefreshDaemonAccountsAsync))
             .Merge()
             .Subscribe();
         var refreshAgents = everyConnect.Merge(lane.AgentInstancesChanged.Throttle(wait))

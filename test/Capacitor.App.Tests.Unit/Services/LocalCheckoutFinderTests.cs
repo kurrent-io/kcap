@@ -12,7 +12,7 @@ public class LocalCheckoutFinderTests {
     }
 
     static LocalCheckoutFinder Finder(Dictionary<string, string> origins) =>
-        new(new RepoIdentityResolver(root => origins.GetValueOrDefault(root)));
+        new(new RepoIdentityResolver(origins.GetValueOrDefault));
 
     [Test]
     public async Task Lists_the_sessions_own_checkout_first() {

@@ -212,7 +212,7 @@ public class CommitBoundaryTests {
 
         var seen   = new List<AuthIdentity>();
         var result = await WorkOSDiscovery.PublishAsync(
-            Config.Root, AuthFixtures.NewTokenStore(Config.Root),
+            Config.Root, NewTokenStore(Config.Root),
             (WorkOSDiscoveryFlow.Ready)flow, new RecordingAuthProgress(),
             beforeCommit: (ids, _) => { seen.AddRange(ids); return Task.CompletedTask; },
             ct: CancellationToken.None, time: TimeProvider.System);
@@ -223,7 +223,7 @@ public class CommitBoundaryTests {
         var tokenPath = Path.Combine(TokensDir, "eventuous.json");
         await Assert.That(File.GetLastWriteTimeUtc(ConfigPath)).IsLessThanOrEqualTo(File.GetLastWriteTimeUtc(tokenPath));
 
-        var stored = await AuthFixtures.NewTokenStore(Config.Root).LoadAsync("eventuous");
+        var stored = await NewTokenStore(Config.Root).LoadAsync("eventuous");
         await Assert.That(stored!.AccessToken).IsEqualTo("acc2");
         await Assert.That(stored.RefreshToken).IsEqualTo("rt2");
         await Assert.That(stored.Provider).IsEqualTo(AuthProvider.WorkOS);
@@ -246,7 +246,7 @@ public class CommitBoundaryTests {
             var flow     = await ReadyEventuousFlowAsync();
             var progress = new RecordingAuthProgress();
 
-            var result = await WorkOSDiscovery.PublishAsync(Config.Root, AuthFixtures.NewTokenStore(Config.Root), flow, progress, beforeCommit: null, ct: CancellationToken.None, time: TimeProvider.System);
+            var result = await WorkOSDiscovery.PublishAsync(Config.Root, NewTokenStore(Config.Root), flow, progress, beforeCommit: null, ct: CancellationToken.None, time: TimeProvider.System);
 
             // The config commit landed, so the boundary had begun — no torn stop, and the loss is reported.
             await Assert.That(result).IsTypeOf<AuthResult.Committed>();
@@ -267,7 +267,7 @@ public class CommitBoundaryTests {
             var flow     = await ReadyEventuousFlowAsync();
             var progress = new RecordingAuthProgress();
 
-            var result = await WorkOSDiscovery.PublishAsync(Config.Root, AuthFixtures.NewTokenStore(Config.Root), flow, progress, beforeCommit: null, ct: CancellationToken.None, time: TimeProvider.System);
+            var result = await WorkOSDiscovery.PublishAsync(Config.Root, NewTokenStore(Config.Root), flow, progress, beforeCommit: null, ct: CancellationToken.None, time: TimeProvider.System);
 
             // Nothing durable began, so this arm is honestly a failure rather than a partial commit.
             await Assert.That(result).IsTypeOf<AuthResult.Failed>();
@@ -371,7 +371,7 @@ public class CommitBoundaryTests {
                 new WorkOSAuthResponse { OrganizationId = "org_a", AccessToken = "acc2", RefreshToken = "rt2" }), time: TimeProvider.System);
 
         var result = await WorkOSDiscovery.PublishAsync(
-            Config.Root, AuthFixtures.NewTokenStore(Config.Root),
+            Config.Root, NewTokenStore(Config.Root),
             (WorkOSDiscoveryFlow.Ready)flow, new RecordingAuthProgress(),
             beforeCommit: (_, _) => throw new IOException("claim not persisted"),
             ct: CancellationToken.None, time: TimeProvider.System);
@@ -399,12 +399,12 @@ public class CommitBoundaryTests {
                 new WorkOSAuthResponse { OrganizationId = "org_a", AccessToken = "acc2", RefreshToken = "rt2" }), time: TimeProvider.System);
 
         var result = await WorkOSDiscovery.PublishAsync(
-            Config.Root, AuthFixtures.NewTokenStore(Config.Root),
+            Config.Root, NewTokenStore(Config.Root),
             (WorkOSDiscoveryFlow.Ready)flow, new RecordingAuthProgress(), beforeCommit: null,
             TimeProvider.System, CancellationToken.None);
 
         await Assert.That(result).IsTypeOf<AuthResult.Committed>();
-        await Assert.That((await AuthFixtures.NewTokenStore(Config.Root).LoadAsync("eventuous"))!.AccessToken).IsEqualTo("acc2");
+        await Assert.That((await NewTokenStore(Config.Root).LoadAsync("eventuous"))!.AccessToken).IsEqualTo("acc2");
         await Assert.That(ConfigMutator.LoadPure(ConfigPath).Profiles["eventuous"].AuthProvider!.Provider)
             .IsEqualTo(AuthProvider.WorkOS);
     }

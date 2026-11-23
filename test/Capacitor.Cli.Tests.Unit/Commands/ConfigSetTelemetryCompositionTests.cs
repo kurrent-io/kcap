@@ -26,7 +26,7 @@ public class ConfigSetTelemetryCompositionTests {
         var seeded = new ProfileConfig {
             ActiveProfile = "default",
             Profiles = new Dictionary<string, Profile> {
-                ["default"] = new Profile { ServerUrl = "https://sentinel.invalid" }
+                ["default"] = new() { ServerUrl = "https://sentinel.invalid" }
             }
         };
         await ConfigMutator.MutateAsync(Config.Root, _ => seeded);

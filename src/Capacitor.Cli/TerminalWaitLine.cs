@@ -37,14 +37,13 @@ sealed class TerminalWaitLine(bool tty, TimeProvider time, TextWriter? control =
     ITimer? _timer;
     string? _text;
     string? _offer;
-    int     _drawn;
     int     _frame;
     bool    _running;
     bool    _hidden;
 
     /// <summary>How many rows the block currently occupies. The one piece of state a wrong erase would
     /// corrupt, so it is readable rather than inferred.</summary>
-    internal int Drawn => _drawn;
+    internal int Drawn { get; private set; }
 
     /// <summary>
     /// Whether a block is on screen for a line to change in place, which the caller reads to decide
@@ -56,7 +55,7 @@ sealed class TerminalWaitLine(bool tty, TimeProvider time, TextWriter? control =
     /// terminal that has widened, and the frame timer means that is never more than a frame away.</para>
     /// </summary>
     public bool Pinned {
-        get { lock (_gate) return _drawn > 0; }
+        get { lock (_gate) return Drawn > 0; }
     }
 
     /// <summary>Sets what the block says, starting it if it is not already running.</summary>
@@ -132,7 +131,7 @@ sealed class TerminalWaitLine(bool tty, TimeProvider time, TextWriter? control =
         HideCursor();
 
         AnsiConsole.Markup($"  [cyan]{Frames[_frame]}[/] {Markup.Escape(Clip(_text, width - 5))}");
-        _drawn = 1;
+        Drawn = 1;
 
         if (_offer is null) return;
 
@@ -141,19 +140,19 @@ sealed class TerminalWaitLine(bool tty, TimeProvider time, TextWriter? control =
         // arithmetic below a row it does not know about.
         _control.Write("\r\n");
         AnsiConsole.Markup($"    [dim]{Markup.Escape(Clip(_offer, width - 5))}[/]");
-        _drawn = 2;
+        Drawn = 2;
     }
 
     /// <summary>Clears the drawn rows and leaves the cursor at the start of the first one, so the next
     /// write lands where the block was.</summary>
     void Erase() {
-        for (var row = _drawn; row > 0; row--) {
+        for (var row = Drawn; row > 0; row--) {
             _control.Write(ClearLine);
 
             if (row > 1) _control.Write(CursorUp);
         }
 
-        _drawn = 0;
+        Drawn = 0;
     }
 
     /// <summary>Read live rather than from <c>AnsiConsole.Profile.Width</c>, which Spectre fixes when the

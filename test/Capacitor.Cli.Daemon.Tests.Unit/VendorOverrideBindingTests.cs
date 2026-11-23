@@ -12,7 +12,7 @@ public class VendorOverrideBindingTests {
     static Func<string, string?> Reads(params (string Var, string Value)[] set) {
         var values = set.ToDictionary(e => e.Var, e => e.Value);
 
-        return name => values.GetValueOrDefault(name);
+        return values.GetValueOrDefault;
     }
 
     /// <summary>The mapping stated a SECOND time, independently of <see cref="HarnessOverrides"/> and

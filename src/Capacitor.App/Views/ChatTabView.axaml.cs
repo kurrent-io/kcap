@@ -34,7 +34,6 @@ public partial class ChatTabView : UserControl {
     /// layout, so it covers exactly the scroll changes that gesture produced — an expansion click
     /// or a wheel notch — and not the appends that land later.
     bool _readerGesture;
-    int _listInputVersion;
     bool _thumbDragging;
     bool _dragSelecting;
     bool _edgeScrollQueued;
@@ -212,7 +211,7 @@ public partial class ChatTabView : UserControl {
         _scroll?.ScrollToEnd();
     }
 
-    internal int ListInputVersion => _listInputVersion;
+    internal int ListInputVersion { get; private set; }
     internal bool IsSmoothScrolling => _smoothFrameQueued || Math.Abs(_smoothRemaining) > 0.5;
     internal bool CanPreserveReadingPosition => !_followTail && _anchorItem is null && _thumbFraction is null;
 
@@ -220,7 +219,7 @@ public partial class ChatTabView : UserControl {
         if (e is PointerPressedEventArgs pressed && _primaryPointer is null
             && pressed.GetCurrentPoint(ChatItems).Properties.PointerUpdateKind == PointerUpdateKind.LeftButtonPressed)
             _primaryPointer = pressed.Pointer;
-        _listInputVersion++;
+        ListInputVersion++;
         // A TextBox in the list (Other…, free-text) is editing, not reading: arming follow-tail
         // would ScrollToEnd and recycle its virtualizing row, which drops the caret.
         if (OriginatesFromTextBox(e)) {

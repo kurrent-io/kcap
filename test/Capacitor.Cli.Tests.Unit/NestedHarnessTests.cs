@@ -61,7 +61,7 @@ public class NestedHarnessTests {
         };
         var walked = false;
 
-        var result = NestedHarness.Shed(name => env.GetValueOrDefault(name), (name, value) => env[name] = value, () => { walked = true; return nested; });
+        var result = NestedHarness.Shed(env.GetValueOrDefault, (name, value) => env[name] = value, () => { walked = true; return nested; });
 
         await Assert.That(result).IsEqualTo(shed);
         await Assert.That(env[HostedAgent.AgentIdVar] is null).IsEqualTo(shed || !hosted);

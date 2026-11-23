@@ -151,8 +151,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     long? CurrentOffset => _lease?.Feed.CurrentOffset;
 
     public IAvaloniaReadOnlyList<ChatItemViewModel> Items => _items;
-    public ChatTopics Topics => _topics;
-    readonly ChatTopics _topics;
+    public ChatTopics Topics { get; }
     public ChatBookmarks Bookmarks { get; }
 
     /// Whether the user can make topics and bookmarks here: only where they are kept, which a chat
@@ -272,14 +271,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// Stays true once a graded reply is seen, so trimming early rows never hides the controls that grade it.
     /// A switch to another session's feed clears it, and that feed's replay raises it again if it grades.
     public bool HasProgressiveDisclosureMarks {
-        get => field;
+        get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Whether the current feed has delivered its first Reset. A remote send made before it has no
     /// baseline, and its echo can land inside the history that Reset replays, where nothing acknowledges it.
     public bool HasSeed {
-        get => field;
+        get;
         private set {
             if (field == value) return;
             this.RaiseAndSetIfChanged(ref field, value);
@@ -299,7 +298,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     }
 
     public SessionConnectionPresentation? WorkspaceNotice {
-        get => field;
+        get;
         set {
             this.RaiseAndSetIfChanged(ref field, value);
             RaisePhaseNote();
@@ -357,7 +356,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// How many chips the upload in flight carries — the snapshot the send took, not the tray,
     /// which the user may go on staging into. Zero when nothing is uploading.
     public int UploadingFiles {
-        get => field;
+        get;
         private set {
             if (field == value) return;
             var was = Uploading;
@@ -505,13 +504,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// A vendor menu is on the terminal: a usage-limit question or a select dialog. Text sent now
     /// would be typed into it. Stays set while a pending card hides the card itself.
     public bool HasTerminalMenu {
-        get => field;
+        get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The menu card. A pending hook card hides the screen's copy of the dialog it raised.
     public bool ShowsTerminalMenu {
-        get => field;
+        get;
         private set {
             this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsTerminalOffer));
@@ -522,18 +521,18 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     }
 
     public string TerminalMenuTitle {
-        get => field;
+        get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
     } = "";
 
     public string TerminalMenuHeading {
-        get => field;
+        get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
     } = "";
 
     /// The dialog as the terminal shows it, for a dialog whose choices could not be read.
     public string TerminalMenuScreen {
-        get => field;
+        get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
     } = "";
 
@@ -552,22 +551,22 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     public ReactiveCommand<Unit, Unit> ShowTerminalCommand { get; }
 
     public string TerminalMenuSummary {
-        get => field;
+        get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
     } = "";
 
     public string TerminalMenuPrompt {
-        get => field;
+        get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
     } = "";
 
     public string TerminalMenuHint {
-        get => field;
+        get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
     } = "";
 
     public string TerminalMenuError {
-        get => field;
+        get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
     } = "";
 
@@ -586,7 +585,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     /// A terminal session the daemon steers: the server refuses its Escape, so its interrupt shows disabled.
     public bool IsAttached {
-        get => field;
+        get;
         private set {
             if (field == value) return;
             this.RaiseAndSetIfChanged(ref field, value);
@@ -628,7 +627,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     bool _isOwnedByCurrentUser;
     public string UserTitle => _origin == AgentOrigin.Local || _isOwnedByCurrentUser ? "You" : "User";
 
-    public string ModelLabel { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); } = "default";
+    public string ModelLabel { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "default";
 
     /// The label and the bars come from one snapshot row, so they are swapped as one value.
     sealed record AccountStripState(string? Label, AccountUsageView? Usage);
@@ -637,11 +636,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     public string? AccountLabel => _accountStrip.Label;
 
-    public string? AccountDirectory { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? AccountDirectory { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    public string AccountVendor { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public string AccountVendor { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
-    public bool ShowsAccountStrip { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool ShowsAccountStrip { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     readonly bool _tracksAccountReadings;
 
@@ -674,26 +673,26 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             ? new(string.IsNullOrWhiteSpace(account.Label) ? source.Fallback : account.Label, AccountUsage.Project(account, now, TimeZoneInfo.Local))
             : new(source.Fallback, null);
 
-    public string StatusText { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public string StatusText { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
     public AgentStatusPresentation AgentStatus {
-        get => field;
+        get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
     } = AgentStatusPresentation.None;
 
     public bool ShowsActivityNote {
-        get => field;
+        get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool ShowsLiveNote {
-        get => field;
+        get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Live elapsed time throughout a busy turn, including while output is streaming.
     public string ActivityNote {
-        get => field;
+        get;
         private set {
             if (field == value) return;
             this.RaiseAndSetIfChanged(ref field, value);
@@ -810,7 +809,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// input for the read-only banner, and the send gate refuses regardless of the terminal
     /// attach — the kind, not the handshake, is what makes the session unmessageable.
     public bool IsReadOnlyParticipant {
-        get => field;
+        get;
         private set {
             if (field == value) return;
             this.RaiseAndSetIfChanged(ref field, value);
@@ -818,13 +817,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         }
     }
 
-    internal bool TakesAttachments { get => field; set => this.RaiseAndSetIfChanged(ref field, value); } = true;
+    internal bool TakesAttachments { get; set => this.RaiseAndSetIfChanged(ref field, value); } = true;
 
     internal const string NoAttachmentsHint = "a review agent takes no attachments";
 
     /// An ended session's hand-off composer, shown in the composer's place; the host owns its lifetime.
     public HandoffComposerViewModel? Handoff {
-        get => field;
+        get;
         set {
             if (ReferenceEquals(field, value)) return;
             this.RaiseAndSetIfChanged(ref field, value);
@@ -835,9 +834,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     public bool ShowsReadOnlyBanner => IsReadOnlyParticipant && Handoff is null;
 
     /// What the hand-off carried over from the previous session, shown above the transcript.
-    public HandoffOutcomeViewModel? HandoffOutcome { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public HandoffOutcomeViewModel? HandoffOutcome { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    public string ReadOnlyNotice { get => field; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public string ReadOnlyNotice { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
     /// Why this session cannot be messaged, or "" when it can. Mirrors the wording of the daemon's
     /// attach-time ProtectionReason so the chat banner and the terminal banner name the same block
@@ -918,8 +917,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             Action<string>? openLink = null, IObservable<AgentViewerAccess>? viewerAccess = null,
             HeldMessagesViewModel? heldMessages = null, ChatFindMemory? findMemory = null,
             ChatMarks? chatMarks = null) {
-        _topics = new ChatTopics(_items, chatMarks);
-        Bookmarks = new ChatBookmarks(_topics, chatMarks) { LoadOlder = LoadOlderForBookmark };
+        Topics = new(_items, chatMarks);
+        Bookmarks = new(Topics, chatMarks) { LoadOlder = LoadOlderForBookmark };
         ShowsMarks = chatMarks is not null;
         _tracksAccountReadings = accountReadings is not null;
         _drafts = drafts;
@@ -1549,7 +1548,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     void SwitchFeed(string key, Func<string, IChatTranscriptFeed> open) {
         // A released tab's runs belong to the monitor that took its feed; this tab reads nothing more.
         if (_feedReleased) return;
-        _topics.Reset(key);
+        Topics.Reset(key);
         Bookmarks.Reset(key);
         HasProgressiveDisclosureMarks = false;
         _items.Clear();
@@ -2000,7 +1999,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 // Skip everything the new source replays: it may be history, not receipts. The feed
                 // names where that history ends — anything past it arrived after and can acknowledge.
                 RebaseQueuedMessages(read.SnapshotOffset ?? CurrentOffset ?? 0);
-                _topics.Reset(_feedKey);
+                Topics.Reset(_feedKey);
                 Bookmarks.Reset(_feedKey);
                 _items.Clear();
                 _history.ClearForReplay();
@@ -2207,7 +2206,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         }
         Reconcile();
         SyncPendingCardItems();
-        _topics.Restore();
+        Topics.Restore();
         if (hasOlder && (older.Fresh.Count == 0 || !_ended || prefetch)) RequestOlder();
     }
 
@@ -2249,14 +2248,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 RefreshActivityNote();
                 RequestOlderUnasked();
             }
-            _topics.Restore();
+            Topics.Restore();
             return;
         }
         RefreshQueue();
         Reconcile();
         SyncPendingCardItems();
         RefreshActivityNote();
-        _topics.Restore();
+        Topics.Restore();
         if (read.Status == FeedStatus.Reset) RequestOlderUnasked();
     }
 

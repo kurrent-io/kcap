@@ -1240,15 +1240,14 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
 
     /// The local stack's upgrade banner; null unless the server is this machine's local installation.
     public LocalStackViewModel? LocalStack {
-        get => _localStack;
+        get;
         init {
-            _localStack = value;
+            field = value;
             if (value is not null)
                 Notices.TrackStack(value.WhenAnyValue(x => x.BannerVisible, x => x.Upgrading, x => x.IsNote, (visible, upgrading, note) =>
                     (visible, upgrading ? LauncherNotices.Kind.Progress : note ? LauncherNotices.Kind.Note : LauncherNotices.Kind.Problem)));
         }
     }
-    readonly LocalStackViewModel? _localStack;
 
     /// Which of the launcher's problem notices show.
     public LauncherNotices Notices { get; } = new();

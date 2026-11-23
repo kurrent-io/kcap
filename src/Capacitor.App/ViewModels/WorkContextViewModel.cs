@@ -94,8 +94,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         }
     }
     public bool CanCopyRepository => !string.IsNullOrEmpty(_repositoryPath);
-    string _worktree = "—";
-    public string Worktree { get => _worktree; private set => this.RaiseAndSetIfChanged(ref _worktree, value); }
+    public string Worktree { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "—";
     string? _worktreePath;
     public string? WorktreePath {
         get => _worktreePath;

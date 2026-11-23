@@ -117,7 +117,7 @@ sealed partial class LocalServerLaunchdService(
 
     LabelProbe Probe(LocalServerUnit unit) {
         var (exit, stdout, stderr) = _run("launchctl", LocalServerLaunchdUnit.PrintArgs(_uid, unit));
-        return LaunchdPrint.Classify(exit, stdout, stderr);
+        return LaunchdPrint.Classify(exit, stderr);
     }
 
     void Check(string[] args) {

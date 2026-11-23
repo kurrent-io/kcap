@@ -119,7 +119,7 @@ internal static class AntigravityReviewerHome {
     /// <summary>This home's Antigravity layout, derived from the home directory alone. The null
     /// override is load-bearing: <c>GEMINI_CLI_HOME</c> REPLACES the Gemini root, so honouring it
     /// here would resolve every file below outside the isolated home.</summary>
-    static AntigravityPaths LayoutFor(string home) => new AntigravityPaths(new(home), null);
+    static AntigravityPaths LayoutFor(string home) => new(new(home), null);
 
     /// <summary>Writes <c>{home}/.gemini/config/mcp_config.json</c> — the plain, trust-less
     /// <c>mcpServers</c> shape (<c>McpConfigShape.Standard</c>) — holding only <paramref name="injected"/>.

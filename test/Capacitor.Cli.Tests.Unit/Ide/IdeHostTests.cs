@@ -59,7 +59,6 @@ public class IdeHostTests {
     sealed class Host : IDisposable {
         readonly IdeRpcLoop _loop;
         readonly Task _run;
-        int _lastId;
 
         public Host() {
             Ide = new IdeHost(
@@ -84,10 +83,10 @@ public class IdeHostTests {
         /// <summary>Notifications read while waiting for something else, in the order they arrived.</summary>
         public List<JsonObject> Seen { get; } = [];
 
-        public int LastId => _lastId;
+        public int LastId { get; private set; }
 
         public async Task<JsonObject> CallAsync(string method, JsonNode? parameters) {
-            var id      = ++_lastId;
+            var id      = ++LastId;
             var request = new JsonObject { ["jsonrpc"] = "2.0", ["id"] = id, ["method"] = method };
             if (parameters is not null) request["params"] = parameters.DeepClone();
             Input.Send(request.ToJsonString());

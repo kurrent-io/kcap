@@ -79,12 +79,11 @@ public sealed class PageViewerViewModel : ReactiveObject {
 
     /// A link the page tried to follow, held until the user opens or dismisses it: a page's script
     /// must never reach the browser without a click in the app.
-    string? _pendingExternalUrl;
     public string? PendingExternalUrl {
-        get => _pendingExternalUrl;
+        get;
         private set {
-            if (_pendingExternalUrl == value) return;
-            this.RaiseAndSetIfChanged(ref _pendingExternalUrl, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(PendingPrompt));
             this.RaisePropertyChanged(nameof(HasPending));
         }
