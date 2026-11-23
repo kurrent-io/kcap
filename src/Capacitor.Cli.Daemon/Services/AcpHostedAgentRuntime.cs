@@ -48,12 +48,21 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         /// re-execs itself is known even if the spawned wrapper dies first</summary>
         public IReadOnlyList<(int Pid, string Identity)> Descendants { get; set; } = [];
 
-        /// <summary>The running descendant poll, taken by whichever caller stops it first</summary>
+        /// <summary>The descendant poll, null when reconnect support is absent</summary>
         public DescendantTracking? Tracking;
     }
 
+    /// <summary>Every caller of <see cref="StopAsync"/> awaits the same stop, so none reaps before the poll's final
+    /// merge is published</summary>
     sealed class DescendantTracking(CancellationTokenSource cts, Task loop) {
-        public async Task StopAsync() {
+        readonly Lock _gate = new();
+        Task? _stopped;
+
+        public Task StopAsync() {
+            lock (_gate) return _stopped ??= StopCoreAsync();
+        }
+
+        async Task StopCoreAsync() {
             await cts.CancelAsync().ConfigureAwait(false);
             await loop.ConfigureAwait(false);
             cts.Dispose();
@@ -2594,11 +2603,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         if (_reconnect is not { } support) return;
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
-        incarnation.Tracking = new DescendantTracking(cts, TrackDescendantsAsync(incarnation, support, cts.Token));
+        Volatile.Write(ref incarnation.Tracking, new DescendantTracking(cts, TrackDescendantsAsync(incarnation, support, cts.Token)));
     }
 
     static Task StopTrackingDescendantsAsync(Incarnation incarnation) =>
-        Interlocked.Exchange(ref incarnation.Tracking, null)?.StopAsync() ?? Task.CompletedTask;
+        Volatile.Read(ref incarnation.Tracking)?.StopAsync() ?? Task.CompletedTask;
 
     static async Task TrackDescendantsAsync(Incarnation incarnation, AcpReconnectSupport support, CancellationToken ct) {
         try {
