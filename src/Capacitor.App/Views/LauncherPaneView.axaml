@@ -293,7 +293,7 @@
                             <Button x:Name="RetryServerButton" Classes.kcapPrimary="{Binding !SignInVisible}" Classes.kcapChip="{Binding SignInVisible}" Content="Retry"
                                     AutomationProperties.Name="Retry the server connection"
                                     Command="{Binding RetryServerCommand}" IsVisible="{Binding ServerRetryVisible}" />
-                            <Button x:Name="OpenHarnessesSettingsButton" Classes="kcapPrimary" Content="Open settings"
+                            <Button x:Name="OpenHarnessesSettingsButton" Classes="kcapPrimary" Content="Open Settings"
                                     Command="{Binding OpenHarnessesSettingsCommand}" IsVisible="{Binding HarnessesSettingsVisible}"
                                     ToolTip.Tip="{x:Static vm:HomeViewModel.HarnessesSettingsTip}" />
                         </StackPanel>
