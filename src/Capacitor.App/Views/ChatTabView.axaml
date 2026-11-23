@@ -920,7 +920,7 @@
                      word on it. -->
                 <ScrollViewer Grid.Row="1" Margin="0,0,0,8" MaxHeight="120" HorizontalScrollBarVisibility="Disabled"
                               IsVisible="{Binding HasDeliveryNotices}">
-                    <ItemsControl x:Name="DeliveryNotices" ItemsSource="{Binding DeliveryNotices}" AutomationProperties.LiveSetting="Assertive">
+                    <ItemsControl x:Name="DeliveryNotices" ItemsSource="{Binding DeliveryNotices}">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <StackPanel Spacing="6" />
@@ -947,6 +947,7 @@
                                             <views:AppIcon Kind="CircleAlert" Size="12" Foreground="{StaticResource KcapWarningBrush}" IsVisible="{Binding DeliveryNeedsSender}" />
                                         </Panel>
                                         <TextBlock DockPanel.Dock="Right" Text="{Binding DeliveryNote}" Classes="deliveryNote"
+                                                   AutomationProperties.LiveSetting="Assertive"
                                                    Classes.needsSender="{Binding DeliveryNeedsSender}" Classes.delivered="{Binding IsDelivered}"
                                                    FontSize="{StaticResource KcapFontSizeSmall}" Margin="12,0,0,0" MaxWidth="320" TextWrapping="Wrap" VerticalAlignment="Center" />
                                         <TextBlock Text="{Binding DisplayText}" ToolTip.Tip="{Binding DisplayText}" FontSize="{StaticResource KcapFontSizeBody}"

@@ -268,8 +268,8 @@ public class AgentAttachClientTests {
             var run = client.RunAsync(80, 24, CancellationToken.None);
             await server.AcceptAndPumpInboundAsync();
             await server.SendAttachedAsync(AgentId, []);
-            await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
-            await server.SendRawThenCloseAsync([0x41, 0x00]);          // stdout type byte + half a length
+            await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");
+            await server.SendTruncatedFrameAsync([0x41, 0x00]);          // stdout type byte + half a length
 
             await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
         }, "dispose to join the run");
@@ -539,7 +539,7 @@ public class AgentAttachClientTests {
             var run = client.RunAsync(80, 24, CancellationToken.None);
             await server.AcceptAndPumpInboundAsync();
             await server.SendAttachedAsync(AgentId, []);
-            await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
+            await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");
 
             server.CloseConnection();                                  // break the transport under the writer
             await client.SendInputAsync([1, 2, 3]);                    // must not throw
@@ -717,7 +717,7 @@ public class AgentAttachClientTests {
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
         await rec.AttachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
-        await server.SendRawThenCloseAsync([0x41, 0x00]);   // stdout type byte + half a length: mid-header truncation
+        await server.SendTruncatedFrameAsync([0x41, 0x00]);   // stdout type byte + half a length: mid-header truncation
 
         await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());
         await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");

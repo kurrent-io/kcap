@@ -13,6 +13,6 @@ public sealed record AccountSettingsRow(string? Id, string Vendor, string Direct
     public string? StateHint => SignedOut
         ? "Signed out. Sign in to this account again so its sessions record and its usage reads."
         : RecordingStateLabels.Hint(Vendor, RecordingState, Directory);
-    public string? StateCommand => RecordingStateLabels.Command(Vendor, RecordingState, Directory);
+    public string? StateCommand => SignedOut ? null : RecordingStateLabels.Command(Vendor, RecordingState, Directory);
     public bool IsUnregisteredDefault => Id is null;
 }

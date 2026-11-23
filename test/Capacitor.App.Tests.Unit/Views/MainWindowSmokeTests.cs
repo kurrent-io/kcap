@@ -1699,7 +1699,9 @@ public class MainWindowSmokeTests {
             window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
             Dispatcher.UIThread.RunJobs();
             await Assert.That(flyout.IsOpen).IsTrue();
-            await Assert.That(Focused()!.Classes.Contains(":focus-visible")).IsTrue();
+            var keyed = Focused();
+            await Assert.That(keyed?.FindAncestorOfType<FlyoutPresenter>()).IsNotNull();
+            await Assert.That(keyed!.Classes.Contains(":focus-visible")).IsTrue();
             flyout.Hide();
             Dispatcher.UIThread.RunJobs();
         } finally {

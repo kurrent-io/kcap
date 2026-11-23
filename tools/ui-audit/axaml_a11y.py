@@ -8,6 +8,7 @@ Usage: python3 tools/ui-audit/axaml_a11y.py
 """
 import re
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,7 +18,8 @@ TARGETS = ("Button", "ToggleButton", "RadioButton")
 NAMED_KINDS = ("TextBox", "ListBox", "ComboBox", "ToggleSwitch", "CheckBox", "Slider", "NumericUpDown", "TabItem")
 # Named in code-behind (AutomationProperties.SetName), which this scan cannot read.
 NAMED_IN_CODE = {"RailToggleButton", "bookmarkAsk", "topicAsk"}
-STYLE_NAME = re.compile(r'<Style Selector="([^"]+)">((?:(?!</Style>).)*?)<Setter Property="AutomationProperties.Name"', re.S)
+XML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+SIMPLE_SELECTOR = re.compile(r"(?P<kind>[A-Za-z]+)?(?P<classes>(?:\.[A-Za-z_][\w-]*)+)")
 TAG = re.compile(r"<(?P<kind>[A-Za-z]+)(?P<attrs>(?:\s+[^<>]*?)?)(?P<end>/?)>", re.S)
 
 
@@ -42,23 +44,32 @@ def named(text, match, styled):
     return "<TextBlock" in body or f"<{match['kind']}.Header>" in body
 
 
+def naming_styles(text):
+    root = ET.fromstring(text)
+    namespace, separator, _ = root.tag.rpartition("}")
+    namespace += separator
+    styles = root.find(root.tag + ".Styles")
+    if styles is None:
+        return []
+    # Root styles cover this document. Nested styles and selectors with ancestry need a scope check.
+    named_selectors = []
+    for style in styles.findall(namespace + "Style"):
+        if not any(setter.get("Property") == "AutomationProperties.Name" and setter.get("Value")
+                   for setter in style.findall(namespace + "Setter")):
+            continue
+        for alternative in style.get("Selector", "").split(","):
+            match = SIMPLE_SELECTOR.fullmatch(alternative.strip())
+            if match:
+                named_selectors.append((match["kind"], frozenset(match["classes"][1:].split("."))))
+    return named_selectors
+
+
 def main():
     small, unnamed = [], []
-    paths = [p for p in sorted(APP.rglob("*.axaml")) if "/obj/" not in str(p) and "/bin/" not in str(p)]
-    # (control type, classes) a naming style requires; a control is named when it matches both.
-    styled = []
+    paths = [p for p in sorted(APP.rglob("*.axaml")) if not {"obj", "bin"}.intersection(p.relative_to(APP).parts)]
     for path in paths:
-        for selector, _ in STYLE_NAME.findall(path.read_text()):
-            for alternative in selector.split(","):
-                compound = alternative.split()[-1]
-                if ":" in compound:
-                    continue
-                kind = re.match(r"[A-Za-z]+", compound)
-                needed = frozenset(re.findall(r"\.([A-Za-z]\w*)", compound))
-                if needed:
-                    styled.append((kind[0] if kind else None, needed))
-    for path in paths:
-        text = path.read_text()
+        text = XML_COMMENT.sub(lambda m: re.sub(r"[^\r\n]", " ", m[0]), path.read_text())
+        styled = naming_styles(text)
         for m in TAG.finditer(text):
             line = text.count("\n", 0, m.start()) + 1
             where = f"{path.relative_to(ROOT)}:{line}"

@@ -58,13 +58,14 @@ def main():
         return 1
     failures = []
 
-    def check(fg, bg, need):
-        back = rgb(palette[bg])
+    def check(fg, bg, need, surface=None):
+        back = rgb(palette[bg], rgb(palette[surface]) if surface else None)
+        background = f"{bg} over {surface}" if surface else bg
         r = ratio(rgb(palette[fg], back), back)
         flag = "ok " if r >= need else "LOW"
-        print(f"  {flag} {r:5.2f}:1  {fg:28} on {bg}")
+        print(f"  {flag} {r:5.2f}:1  {fg:28} on {background}")
         if r < need:
-            failures.append((fg, bg, r, need))
+            failures.append((fg, background, r, need))
 
     print("Text on surfaces (need 4.5:1)")
     for bg in SURFACES:
@@ -72,8 +73,11 @@ def main():
             check(fg, bg, 4.5)
     print("Text on status fills (need 4.5:1)")
     for bg in STATUS_FILLS:
-        for fg in STATUS_TEXT:
-            check(fg, bg, 4.5)
+        fill = palette[bg]
+        surfaces = SURFACES if len(fill) == 9 and int(fill[1:3], 16) < 255 else [None]
+        for surface in surfaces:
+            for fg in STATUS_TEXT:
+                check(fg, bg, 4.5, surface)
     print("Field edges on surfaces (need 3:1)")
     for bg in SURFACES:
         for fg in EDGES:

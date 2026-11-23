@@ -19,6 +19,16 @@ public class AccountSettingsRowTests {
     }
 
     [Test]
+    public async Task Signed_out_Codex_shows_only_the_sign_in_guidance() {
+        var row = Row(SignInStates.SignedOut) with {
+            Vendor = "codex", RecordingState = RecordingStates.Token(RecordingState.Installed),
+        };
+        await Assert.That(row.StateLabel).IsEqualTo(AccountUsage.NeedsSignIn);
+        await Assert.That(row.StateCommand).IsNull();
+        await Assert.That((row with { SignIn = SignInStates.SignedIn }).StateCommand).IsNotNull();
+    }
+
+    [Test]
     public async Task A_signed_in_recording_account_reads_healthy() {
         var row = Row(SignInStates.SignedIn);
         await Assert.That(AccountUsage.NeedsFix(SignInStates.SignedIn, "claude", Recording)).IsNull();

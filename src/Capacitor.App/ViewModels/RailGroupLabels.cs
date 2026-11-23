@@ -1,42 +1,79 @@
+using System.Collections.Frozen;
+using System.Globalization;
+
 namespace Capacitor.App.ViewModels;
 
-/// Repository group headers that would read the same: each gets its owner or parent folder in front,
-/// so two "demo" groups show as "acme/demo" and "work/demo".
 public static class RailGroupLabels {
-    /// The label to show for each key. A key whose label is unique keeps it; a key whose qualifier
-    /// also collides keeps its plain label, since another prefix would still not tell them apart.
     public static IReadOnlyDictionary<string, string> Disambiguate(IReadOnlyList<(string Key, string Label)> groups) {
+        if (groups.Count == 0) return FrozenDictionary<string, string>.Empty;
+
         var shown = new Dictionary<string, string>(StringComparer.Ordinal);
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pending = new List<(string Key, string Label, string[] Candidates)>();
         foreach (var same in groups.GroupBy(g => g.Label, StringComparer.OrdinalIgnoreCase)) {
-            var members = same.ToList();
-            if (members.Count == 1) {
-                shown[members[0].Key] = members[0].Label;
+            if (same.Count() == 1) {
+                var group = same.First();
+                shown.Add(group.Key, group.Label);
+                used.Add(group.Label);
                 continue;
             }
-            var qualified = members.Select(m => (m.Key, m.Label, Qualifier: QualifierOf(m.Key))).ToList();
-            foreach (var m in qualified) {
-                var unique = m.Qualifier is { Length: > 0 }
-                    && qualified.Count(o => string.Equals(o.Qualifier, m.Qualifier, StringComparison.OrdinalIgnoreCase)) == 1;
-                shown[m.Key] = unique ? $"{m.Qualifier}/{m.Label}" : m.Label;
+            foreach (var (key, label) in same)
+                pending.Add((key, label, [.. QualifiedLabels(key, label)]));
+        }
+
+        for (var depth = 0; pending.Any(g => depth < g.Candidates.Length); depth++) {
+            var candidates = pending.Where(g => depth < g.Candidates.Length)
+                .GroupBy(g => g.Candidates[depth], StringComparer.OrdinalIgnoreCase);
+            foreach (var candidate in candidates) {
+                if (candidate.Skip(1).Any() || !used.Add(candidate.Key)) continue;
+                shown.Add(candidate.First().Key, candidate.Key);
             }
+            pending.RemoveAll(g => shown.ContainsKey(g.Key));
+        }
+
+        foreach (var (key, label, candidates) in pending.OrderBy(g => g.Key, StringComparer.Ordinal)) {
+            var prefix = candidates.LastOrDefault() ?? label;
+            var number = 1;
+            string candidate;
+            do {
+                candidate = $"{prefix} ({number.ToString(CultureInfo.InvariantCulture)})";
+                number++;
+            } while (!used.Add(candidate));
+            shown.Add(key, candidate);
         }
         return shown;
     }
 
-    // "repo:owner/name" -> owner; "path:/a/b/demo" and "daemon:<id>:/a/b/demo" -> b.
-    static string? QualifierOf(string key) {
+    static IEnumerable<string> QualifiedLabels(string key, string label) {
         if (key.StartsWith("repo:", StringComparison.Ordinal)) {
             var slash = key.IndexOf('/', "repo:".Length);
-            return slash > "repo:".Length ? key["repo:".Length..slash] : null;
+            if (slash > "repo:".Length) yield return $"{key["repo:".Length..slash]}/{label}";
+            yield break;
         }
-        var path = key.StartsWith("path:", StringComparison.Ordinal) ? key["path:".Length..]
-            : key.StartsWith("daemon:", StringComparison.Ordinal) && key.IndexOf(':', "daemon:".Length) is var colon and > 0 ? key[(colon + 1)..]
-            : null;
-        if (string.IsNullOrEmpty(path)) return null;
-        var parent = path.TrimEnd('/', '\\');
-        var cut = parent.LastIndexOfAny(['/', '\\']);
-        if (cut <= 0) return null;
-        var leaf = RepoLabel.Leaf(parent[..cut]);
-        return leaf is { Length: > 0 } and not "—" ? leaf : null;
+
+        string path;
+        string? daemon = null;
+        if (key.StartsWith("path:", StringComparison.Ordinal)) {
+            path = key["path:".Length..];
+        } else if (key.StartsWith("daemon:", StringComparison.Ordinal) && key.IndexOf(':', "daemon:".Length) is var colon and > 0) {
+            daemon = key["daemon:".Length..colon];
+            path = key[(colon + 1)..];
+        } else {
+            yield break;
+        }
+
+        // Remote paths can use either convention, regardless of the desktop OS.
+        char[] separators = path.StartsWith('/') && !path.StartsWith("//", StringComparison.Ordinal) ? ['/'] : ['/', '\\'];
+        var segments = path.Split(separators, StringSplitOptions.RemoveEmptyEntries);
+        var qualified = label;
+        for (var i = segments.Length - 2; i >= 0; i--) {
+            qualified = $"{segments[i]}/{qualified}";
+            yield return qualified;
+        }
+        if (daemon is { Length: > 0 }) {
+            var slash = daemon.IndexOf('/');
+            if (slash >= 0) yield return $"{daemon[(slash + 1)..]}/{qualified}";
+            yield return $"{daemon}/{qualified}";
+        }
     }
 }

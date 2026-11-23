@@ -41,7 +41,7 @@ public static class SecondaryWindowScale {
         window.Content = host;
 
         // Sizes at 100 %, so a scale capped by the screen does not shrink the window when it steps back.
-        var unscaled = new Frame(window.Width, window.Height, window.MinWidth, window.MinHeight);
+        var unscaled = new Frame(window.Width, window.Height, window.MinWidth, window.MinHeight, window.MaxHeight);
         var subscription = setting.Changes
             .ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(scale => {
@@ -53,7 +53,7 @@ public static class SecondaryWindowScale {
 
     const string HostName = "SecondaryScaleHost";
 
-    readonly record struct Frame(double Width, double Height, double MinWidth, double MinHeight);
+    readonly record struct Frame(double Width, double Height, double MinWidth, double MinHeight, double MaxHeight);
 
     static void Resize(Window window, Frame unscaled, double scale) {
         var area = (window.Screens.ScreenFromWindow(window) ?? window.Screens.Primary) is { } screen
@@ -62,8 +62,11 @@ public static class SecondaryWindowScale {
         double Fit(double size, double? limit) => Math.Min(size * scale, limit ?? double.MaxValue);
         if (window.SizeToContent is not (SizeToContent.Width or SizeToContent.WidthAndHeight) && double.IsFinite(unscaled.Width))
             window.Width = Fit(unscaled.Width, area?.Width);
-        if (window.SizeToContent is not (SizeToContent.Height or SizeToContent.WidthAndHeight) && double.IsFinite(unscaled.Height))
+        if (window.SizeToContent is SizeToContent.Height or SizeToContent.WidthAndHeight) {
+            window.MaxHeight = Math.Min(unscaled.MaxHeight * scale, area?.Height ?? double.PositiveInfinity);
+        } else if (double.IsFinite(unscaled.Height)) {
             window.Height = Fit(unscaled.Height, area?.Height);
+        }
         if (unscaled.MinWidth > 0) window.MinWidth = Fit(unscaled.MinWidth, area?.Width);
         if (unscaled.MinHeight > 0) window.MinHeight = Fit(unscaled.MinHeight, area?.Height);
     }

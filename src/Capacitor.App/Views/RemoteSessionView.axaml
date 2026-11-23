@@ -16,7 +16,7 @@
                 <StackPanel Spacing="6" VerticalAlignment="Center" Margin="0,0,8,0">
                     <views:SessionTitleEditor x:Name="RemoteTitle" DataContext="{Binding TitleEditor}" />
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                        <views:AgentStatusMark x:Name="RemoteStatus" Classes="header" AutomationProperties.LiveSetting="Polite"
+                        <views:AgentStatusMark x:Name="RemoteStatus" Classes="header"
                                                DataContext="{Binding Chat.AgentStatus}"
                                                IsVisible="{Binding !$parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).HasAccessNotice}"
                                                HorizontalAlignment="Left" VerticalAlignment="Center" />

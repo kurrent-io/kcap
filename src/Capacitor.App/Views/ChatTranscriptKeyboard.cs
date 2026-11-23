@@ -24,13 +24,15 @@ public static class ChatTranscriptKeyboard {
         if (TopLevel.GetTopLevel(transcript)?.FocusManager.GetFocusedElement() is not Control focused || focused is TextBox) return;
         if (IndexOf(transcript, focused) is not { } at) return;
 
+        e.Handled = true;
         var step = e.Key == Key.Down ? 1 : -1;
         for (var i = at + step; i >= 0 && i < transcript.ItemCount && Math.Abs(i - at) <= SearchLimit; i += step) {
-            transcript.ScrollIntoView(i);
-            if (transcript.ContainerFromIndex(i) is not { } container || FirstFocusable(container) is not { } target) continue;
-            target.Focus(NavigationMethod.Directional);
-            target.BringIntoView();
-            e.Handled = true;
+            if (transcript.ItemsPanelRoot is ChatVirtualizingPanel panel) {
+                if (!panel.TryFocusRow(i, FocusFirst)) continue;
+            } else {
+                if (transcript.ContainerFromIndex(i) is not { } container || FocusFirst(container) is not { } target) continue;
+                target.BringIntoView();
+            }
             return;
         }
     }
@@ -44,7 +46,12 @@ public static class ChatTranscriptKeyboard {
         return null;
     }
 
-    static Control? FirstFocusable(Control container) =>
-        container.GetSelfAndVisualDescendants().OfType<Control>()
-            .FirstOrDefault(c => c is { Focusable: true, IsEffectivelyVisible: true, IsEffectivelyEnabled: true } and not TextBox);
+    static Control? FocusFirst(Control container) {
+        foreach (var control in container.GetSelfAndVisualDescendants().OfType<Control>()) {
+            if (control is not { Focusable: true, IsEffectivelyVisible: true, IsEffectivelyEnabled: true } or TextBox
+                || !control.Focus(NavigationMethod.Directional)) continue;
+            return control;
+        }
+        return null;
+    }
 }

@@ -329,6 +329,10 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                 .DisposeWith(_disposables);
 
         Groups = new ReadOnlyObservableCollection<RailGroupViewModel>(_groupsSource);
+        Observable.FromEventPattern<NotifyCollectionChangedEventHandler, NotifyCollectionChangedEventArgs>(
+                handler => _groupsSource.CollectionChanged += handler, handler => _groupsSource.CollectionChanged -= handler)
+            .Subscribe(_ => QualifyRepositoryLabels())
+            .DisposeWith(_disposables);
         directory.Rows.Connect()
             .Filter(_stateFilter)
             .ObserveOn(RxSchedulers.MainThreadScheduler)
@@ -343,10 +347,6 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .DisposeMany()
             .SortAndBind(_groupsSource, _groupComparer)
             .Subscribe()
-            .DisposeWith(_disposables);
-        Observable.FromEventPattern<NotifyCollectionChangedEventHandler, NotifyCollectionChangedEventArgs>(
-                handler => _groupsSource.CollectionChanged += handler, handler => _groupsSource.CollectionChanged -= handler)
-            .Subscribe(_ => QualifyRepositoryLabels())
             .DisposeWith(_disposables);
         work.Subscribe(next => {
             _work = next;

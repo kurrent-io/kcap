@@ -13,6 +13,19 @@ namespace Capacitor.App.Tests.Unit.ViewModels;
 public class SessionRailViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public Task An_initial_snapshot_qualifies_duplicate_repository_labels() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        using var directory = new FakeAgentDirectory();
+        directory.Rows.AddOrUpdate([
+            AgentRow.FromLocal(Dto("a", "/work/demo") with { Status = "Running" }, new RepoIdentity("path:/work/demo", "demo")),
+            AgentRow.FromLocal(Dto("b", "/play/demo") with { Status = "Running" }, new RepoIdentity("path:/play/demo", "demo")),
+        ]);
+
+        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+        await Assert.That(string.Join(", ", rail.Groups.Select(g => g.Label))).IsEqualTo("play/demo, work/demo");
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task Two_groups_with_the_same_name_show_their_parent_folders_until_one_goes() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var directory = new FakeAgentDirectory();
