@@ -7,7 +7,7 @@
     <Grid ColumnDefinitions="20,*,Auto">
         <views:SessionStatusSlot Height="18" DataContext="{Binding Status}" />
         <StackPanel Grid.Column="1" Spacing="2">
-            <TextBlock Text="{Binding Title}" FontSize="13" TextTrimming="CharacterEllipsis" />
+            <TextBlock Text="{Binding Title}" FontSize="13.5" TextTrimming="CharacterEllipsis" />
             <StackPanel Orientation="Horizontal" Spacing="5">
                 <ContentControl Width="12" Height="12" VerticalAlignment="Center" IsVisible="{Binding HasVendor}"
                                 AutomationProperties.Name="{Binding Vendor, Converter={x:Static views:VendorLabelConverter.Instance}}"
