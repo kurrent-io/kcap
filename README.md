@@ -1399,13 +1399,15 @@ mkdir -p ~/.config/kcap/grok-bot
 nohup kcap grok-bot watch >> ~/.config/kcap/grok-bot/watch.log 2>&1 &
 ```
 
+On some cloud computers the gateway descriptor is owned by another user and a Bot's own user cannot read it, so the watcher finds no gateway. Where the computer allows a privileged read, `--gateway-cmd "<command>"` takes the descriptor from that command's output instead of a file, for example `kcap grok-bot watch --gateway-cmd "sudo -n cat ~/sand-data/gateway.json"`. It is off unless you pass it, since it reads a file the computer keeps from the Bot; the `connect-kcap` skill offers it only after explaining that and only with your go-ahead. The command is run directly, with no shell, so it takes no quoting or pipes and must exit at once.
+
 On a computer with the desktop app, `kcap setup` finds the app and asks once whether to record its chats; the answer is the profile's `grok_bot.record` setting. While it is on, the kcap daemon runs the watcher itself, so recording starts with the daemon at login and needs no terminal:
 
 ```bash
 kcap config set grok_bot.record true    # or false to stop; the running daemon follows within half a minute
 ```
 
-The kcap desktop app shows the same switch under Settings → Harnesses on a computer where it finds the Grok Bot app, or where the profile is already recording. A setup run with `--no-prompt` asks nothing and prints that command instead. `kcap grok-bot watch` remains for running the watcher by hand, and `kcap grok-bot watch --once --dry-run` shows what it would send even while the daemon's watcher is running. The watcher reads the gateway where the computer has one and the desktop app's chats otherwise; `--gateway <gateway.json>` and `--desktop <dir>` name one explicitly.
+The kcap desktop app shows the same switch under Settings → Harnesses on a computer where it finds the Grok Bot app, or where the profile is already recording. A setup run with `--no-prompt` asks nothing and prints that command instead. `kcap grok-bot watch` remains for running the watcher by hand, and `kcap grok-bot watch --once --dry-run` shows what it would send even while the daemon's watcher is running. The watcher reads the gateway where the computer has one and the desktop app's chats otherwise; `--gateway <gateway.json>`, `--gateway-cmd "<command>"` and `--desktop <dir>` name one explicitly.
 
 - **Both at once is safe.** The two read the same entries and cut them into the same sessions under the same ids, so a chat recorded from both places is stored once.
 

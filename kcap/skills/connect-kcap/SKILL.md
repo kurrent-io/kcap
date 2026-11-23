@@ -510,6 +510,18 @@ First tell the user what it records, and start it only once they agree:
   they chose, not tool calls or files;
 - as sessions private to them, a new one after two hours of quiet.
 
+On this computer the gateway descriptor at `~/sand-data/gateway.json` may be
+owned by another user and unreadable here — check with `test -r
+~/sand-data/gateway.json && echo readable || echo no`. When it is not readable
+and `sudo -n true` succeeds, the watcher can still reach it through a privileged
+read. This opens a file the computer deliberately keeps from Bots, so use it
+only if the user asks: tell them plainly that recording the cloud computer needs
+a `sudo` read of a gateway file xAI locked away from Bots, and that a Grok Bot
+update may stop it working, and go on only on a clear yes. Then add
+`--gateway-cmd "sudo -n cat $HOME/sand-data/gateway.json"` after `watch` on the
+start line below, and on the cron line if you add one. When the descriptor is
+readable, or the user declines, start without it.
+
 ```bash
 mkdir -p ~/.config/kcap/grok-bot
 pgrep -af "[k]cap grok-bot watch" || {
@@ -529,7 +541,9 @@ recording, and C5 says what the status said, no more.
 
 - `No Grok Bot watcher is running` means the start failed, and the last lines
   of the log say why: `No Grok Bot here` is a computer with no Grok Bot gateway
-  to read. Tell the user what the log says and stop here, without C5.
+  to read — which on a cloud computer can mean the descriptor is there but
+  unreadable, the `--gateway-cmd` case above. Tell the user what the log says and
+  stop here, without C5.
 - any other address or profile is a watcher from before this run: handle it as
   C1 says.
 

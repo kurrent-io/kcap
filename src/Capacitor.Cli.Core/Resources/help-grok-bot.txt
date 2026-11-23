@@ -18,6 +18,12 @@ each chat. The gateway is used where the computer has one, the desktop app's
 chats otherwise. Both give the same sessions under the same ids, so a chat
 recorded from both places is stored once.
 
+Where a cloud computer no longer lets a Bot's own user read the gateway
+descriptor, --gateway-cmd runs a command whose output is that descriptor — for
+example a sudo read of the file. It is off unless given, since it reads a file
+the computer keeps from the Bot; the connect-kcap skill offers it only after
+saying what it does.
+
 The kcap daemon runs this watcher itself while the profile's grok_bot.record
 setting is on (kcap config set grok_bot.record true; kcap setup asks once on a
 computer with the desktop app), so recording starts with the daemon and needs
@@ -46,6 +52,11 @@ Options:
   --once                  Run one polling cycle and exit (1 if it failed)
   --dry-run               Log the calls it would make; send and save nothing
   --gateway <path>        Read this gateway descriptor (default: ~/sand-data/gateway.json)
+  --gateway-cmd <command> Read the gateway descriptor from this command's output
+                          instead of a file. Run directly (no shell), so no
+                          quoting or pipes, and it must be non-interactive and
+                          exit at once, e.g.
+                          sudo -n cat /home/box/sand-data/gateway.json
   --desktop <dir>         Read the desktop app's chat store in this directory
   --interval <seconds>    Polling interval (default: 5)
   --gap-minutes <n>       With --dry-run only: show the sessions another idle gap

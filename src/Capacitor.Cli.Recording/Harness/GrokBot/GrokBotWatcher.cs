@@ -197,9 +197,10 @@ public sealed class GrokBotWatcher(ConfigRoot config, ProfileContext profiles, U
     /// <summary>The source the options name, else the gateway where this computer has one, else the desktop
     /// app's chats. A cloud computer has no desktop app, so the gateway's presence settles which it is.</summary>
     IGrokBotSource? Source(GrokBotWatchOptions options, HttpClient plain) {
-        if (options.Gateway is { } descriptor) return File.Exists(descriptor) ? new GrokBotGateway(descriptor, plain) : null;
+        if (options.GatewayCommand is { Length: > 0 } cmd) return new GrokBotGateway(new GrokBotCommandDescriptor(cmd, time), plain);
+        if (options.Gateway is { } descriptor) return File.Exists(descriptor) ? new GrokBotGateway(new GrokBotFileDescriptor(descriptor), plain) : null;
         if (options.Desktop is { } dir) return Directory.Exists(dir) ? new GrokBotDesktopChats(dir) : null;
-        if (File.Exists(GatewayDescriptor)) return new GrokBotGateway(GatewayDescriptor, plain);
+        if (File.Exists(GatewayDescriptor)) return new GrokBotGateway(new GrokBotFileDescriptor(GatewayDescriptor), plain);
 
         return GrokBotDesktopPaths.HasChatStore(home) ? new GrokBotDesktopChats(GrokBotDesktopPaths.ChatStore(home)!) : null;
     }

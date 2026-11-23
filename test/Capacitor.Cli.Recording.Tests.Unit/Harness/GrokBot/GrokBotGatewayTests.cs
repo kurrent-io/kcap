@@ -18,7 +18,7 @@ public class GrokBotGatewayTests {
     async Task<GrokBotAgent> ListOne(string agentJson) {
         var descriptor = Tmp.CreateFile("gateway.json", """{"scheme":"http","host":"0.0.0.0","port":1340,"token":"t"}""");
         using var http = new HttpClient(new Canned($"[{agentJson}]"));
-        return (await new GrokBotGateway(descriptor, http).ListAgentsAsync(CancellationToken.None)).Single();
+        return (await new GrokBotGateway(new GrokBotFileDescriptor(descriptor), http).ListAgentsAsync(CancellationToken.None)).Single();
     }
 
     const string Base = "\"id\":\"g1\",\"name\":\"weather\",\"isGroup\":true,\"isRunningTurn\":false,\"lastEntry\":{\"kind\":\"text\",\"text\":\"```\"},\"localActivityAt\":1";
@@ -53,7 +53,7 @@ public class GrokBotGatewayTests {
         var descriptor = Tmp.CreateFile("gateway.json", """{"scheme":"http","host":"127.0.0.1","port":1340,"token":"t"}""");
         using var http = new HttpClient(new Canned("""{"chats":[]}"""));
 
-        await Assert.That(async () => await new GrokBotGateway(descriptor, http).ListAgentsAsync(CancellationToken.None))
+        await Assert.That(async () => await new GrokBotGateway(new GrokBotFileDescriptor(descriptor), http).ListAgentsAsync(CancellationToken.None))
             .Throws<InvalidDataException>();
     }
 
@@ -84,7 +84,7 @@ public class GrokBotGatewayTests {
         var handler    = new Paged(count, pageSize: 10, stuckAt, unusable, shapelessAt);
         using var http = new HttpClient(handler);
 
-        return (await new GrokBotGateway(descriptor, http).ReadSinceAsync("g1", lastSeq, CancellationToken.None), handler.Calls);
+        return (await new GrokBotGateway(new GrokBotFileDescriptor(descriptor), http).ReadSinceAsync("g1", lastSeq, CancellationToken.None), handler.Calls);
     }
 
     [Test]

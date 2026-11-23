@@ -16,15 +16,16 @@ public sealed class GrokBotWatchCommand(GrokBotWatcher watcher, UserHome home, T
         }
 
         if (args.Length < 2 || args[1] != "watch") {
-            await Console.Error.WriteLineAsync("Usage: kcap grok-bot watch [--once] [--dry-run] [--gateway <gateway.json> | --desktop <dir>] [--interval <seconds>]");
+            await Console.Error.WriteLineAsync("Usage: kcap grok-bot watch [--once] [--dry-run] [--gateway <gateway.json> | --gateway-cmd \"<command>\" | --desktop <dir>] [--interval <seconds>]");
             await Console.Error.WriteLineAsync("       kcap grok-bot watch --dry-run [--gap-minutes <n>]");
             await Console.Error.WriteLineAsync("       kcap grok-bot status");
             return 1;
         }
 
         var options = new GrokBotWatchOptions(
-            Gateway:  Option(args, "--gateway"),
-            Desktop:  Option(args, "--desktop"),
+            Gateway:        Option(args, "--gateway"),
+            GatewayCommand: Option(args, "--gateway-cmd"),
+            Desktop:        Option(args, "--desktop"),
             Interval: int.TryParse(Option(args, "--interval"), out var s) && s > 0 ? TimeSpan.FromSeconds(s) : default,
             Gap:      int.TryParse(Option(args, "--gap-minutes"), out var g) && g > 0 ? TimeSpan.FromMinutes(g) : default,
             Once:     args.Contains("--once"),
@@ -41,7 +42,7 @@ public sealed class GrokBotWatchCommand(GrokBotWatcher watcher, UserHome home, T
                 case GrokBotWatchOutcome.NoSource:
                     await Console.Error.WriteLineAsync(
                         $"No Grok Bot here: no gateway at {watcher.GatewayDescriptor}, and no desktop app chats at {GrokBotDesktopPaths.ChatStore(home) ?? "(no application data directory)"}. "
-                      + "Run this on a Grok Bot cloud computer or on a computer with the Grok Bot desktop app, or pass --gateway or --desktop.");
+                      + "Run this on a Grok Bot cloud computer or on a computer with the Grok Bot desktop app, or pass --gateway, --gateway-cmd or --desktop.");
                     return 1;
 
                 case GrokBotWatchOutcome.AlreadyRunning:

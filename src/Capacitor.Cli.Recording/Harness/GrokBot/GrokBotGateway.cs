@@ -2,22 +2,21 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Capacitor.Cli.Core;
 
 namespace Capacitor.Cli.Recording.Harness.GrokBot;
 
 /// <summary>
 /// Client for the Grok Bot cloud computer's local gateway, an undocumented internal API: every call is
-/// <c>POST /api/{method}</c> with the bearer token from <c>gateway.json</c>. The descriptor is re-read on
+/// <c>POST /api/{method}</c> with the bearer token from the gateway descriptor. The descriptor is re-read on
 /// every call, because the gateway restarts with a new port and token.
 /// </summary>
-public sealed class GrokBotGateway(string descriptorPath, HttpClient http) : IGrokBotSource {
+public sealed class GrokBotGateway(GrokBotDescriptor descriptor, HttpClient http) : IGrokBotSource {
     public const int TailLimit = 200;
 
     /// <summary>A chat longer than this many tail pages is not read back to its first entry.</summary>
     public const int MaxPages = 50;
 
-    public string Description => $"the gateway at {descriptorPath}";
+    public string Description => descriptor.Describe;
 
     // Fields that move when a chat gains or changes an entry. lastEntry and localActivityAt look as if they
     // should and do not: one previews how the last message opens, the other is the chat's creation time.
@@ -108,8 +107,7 @@ public sealed class GrokBotGateway(string descriptorPath, HttpClient http) : IGr
     }
 
     (string BaseUrl, string Token) ReadDescriptor() {
-        // The gateway rewrites its descriptor on every restart, so the read must not deny that write.
-        var root   = JsonNode.Parse(File.ReadAllTextShared(descriptorPath))!.AsObject();
+        var root   = JsonNode.Parse(descriptor.ReadJson())!.AsObject();
         var scheme = root["scheme"]?.GetValue<string>() is { Length: > 0 } s ? s : "http";
         var host   = root["host"]?.GetValue<string>() is { Length: > 0 } h && h != "0.0.0.0" ? h : "127.0.0.1";
         var port   = root["port"]?.GetValue<int>() ?? throw new InvalidDataException("gateway.json has no port");
