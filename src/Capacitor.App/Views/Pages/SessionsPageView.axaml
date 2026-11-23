@@ -8,22 +8,10 @@
                     SearchPlaceholder="Search sessions" Message="{Binding Message}">
         <local:ListPage.Filters>
             <StackPanel Orientation="Horizontal" Spacing="8">
-                <ComboBox x:Name="SessionsWorkItem" Classes="kcapField filter" ItemsSource="{Binding WorkItems}"
-                          SelectedItem="{Binding WorkItem, Mode=TwoWay}" AutomationProperties.Name="Work item">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate x:DataType="pages:SessionsPageChoice">
-                            <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
-                <ComboBox x:Name="SessionsOwner" Classes="kcapField filter" ItemsSource="{Binding Owners}"
-                          SelectedItem="{Binding Owner, Mode=TwoWay}" AutomationProperties.Name="Owner">
-                    <ComboBox.ItemTemplate>
-                        <DataTemplate x:DataType="pages:SessionsPageChoice">
-                            <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
-                        </DataTemplate>
-                    </ComboBox.ItemTemplate>
-                </ComboBox>
+                <local:FilterPicker x:Name="SessionsWorkItem" Classes="kcapField filter" Choices="{Binding WorkItems}"
+                          Selected="{Binding WorkItem, Mode=TwoWay}" SearchPlaceholder="Search work items" AutomationProperties.Name="Work item" />
+                <local:FilterPicker x:Name="SessionsOwner" Classes="kcapField filter" Choices="{Binding Owners}"
+                          Selected="{Binding Owner, Mode=TwoWay}" SearchPlaceholder="Search people" AutomationProperties.Name="Owner" />
             </StackPanel>
         </local:ListPage.Filters>
         <local:ListPage.Footer>

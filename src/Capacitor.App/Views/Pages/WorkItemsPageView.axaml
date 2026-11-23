@@ -8,14 +8,8 @@
     <local:ListPage x:Name="WorkItemsPage" Heading="{Binding Heading}" Count="{Binding Count}" Search="{Binding Search}"
                     SearchPlaceholder="Search work items" Message="{Binding Message}">
         <local:ListPage.Filters>
-            <ComboBox x:Name="WorkItemsOwner" Classes="kcapField filter" ItemsSource="{Binding Owners}"
-                      SelectedItem="{Binding Owner, Mode=TwoWay}" AutomationProperties.Name="Owner">
-                <ComboBox.ItemTemplate>
-                    <DataTemplate x:DataType="pages:SessionsPageChoice">
-                        <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
-            </ComboBox>
+            <local:FilterPicker x:Name="WorkItemsOwner" Classes="kcapField filter" Choices="{Binding Owners}"
+                          Selected="{Binding Owner, Mode=TwoWay}" SearchPlaceholder="Search people" AutomationProperties.Name="Owner" />
         </local:ListPage.Filters>
         <ItemsControl x:Name="WorkItemsPageGroups" ItemsSource="{Binding Groups}">
             <ItemsControl.ItemTemplate>

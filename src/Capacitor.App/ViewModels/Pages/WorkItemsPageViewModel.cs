@@ -39,7 +39,6 @@ public sealed class WorkItemsPageViewModel : ReactiveObject, IPage {
         }
     }
 
-    // A ComboBox writes null while its items change; that is not a pick.
     SessionsPageChoice _owner = SessionsPageViewModel.AnyOwner;
     public SessionsPageChoice Owner {
         get => _owner;

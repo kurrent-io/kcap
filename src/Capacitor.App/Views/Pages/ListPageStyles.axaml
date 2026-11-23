@@ -41,7 +41,7 @@
         </ControlTheme>
     </Styles.Resources>
 
-    <Style Selector="local|ListPage ComboBox.filter">
+    <Style Selector="local|ListPage Button.filter">
         <Setter Property="MinWidth" Value="140" />
         <Setter Property="MaxWidth" Value="220" />
         <Setter Property="FontSize" Value="13" />
