@@ -328,6 +328,13 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
         return Task.CompletedTask;
     }
 
+    /// The re-auth dialog: a Sign in click opened it, so it starts the attempt rather than asking
+    /// for a second click. The wizard step stays on <see cref="OnEnterAsync"/> and waits.
+    public async Task EnterAndSignInAsync(CancellationToken ct) {
+        await OnEnterAsync(ct).ConfigureAwait(true);
+        if (!Satisfied) await SignInAsync().ConfigureAwait(true);
+    }
+
     /// kcap-web's Team sign-up; <c>via=desktop</c> is what it records as the desktop setup path.
     internal static string SignUpUrl(string signupBase) => $"{signupBase.TrimEnd('/')}/get-started?tier=team&via=desktop";
 
