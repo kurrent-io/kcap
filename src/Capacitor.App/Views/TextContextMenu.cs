@@ -48,7 +48,7 @@ public static class TextContextMenu {
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Padding = new(10, 6),
-                FontSize = 13.5,
+                FontSize = TypeScale.Body,
             };
             button.Classes.Add("kcapGhost");
             button.Click += (_, _) => {

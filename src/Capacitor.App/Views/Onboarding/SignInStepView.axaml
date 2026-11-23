@@ -13,7 +13,7 @@
                  the surface. Status is the first thing the user needs. -->
             <StackPanel Spacing="8">
                 <TextBlock x:Name="SignInStatusText" Text="{Binding Status}" TextWrapping="Wrap"
-                           FontSize="18" FontWeight="SemiBold" LineHeight="26" LetterSpacing="-0.3"
+                           FontSize="{StaticResource KcapFontSizeHeading}" FontWeight="SemiBold" LineHeight="26" LetterSpacing="-0.3"
                            Foreground="{StaticResource KcapTextBrush}"
                            Classes.failed="{Binding StatusIsError}">
                     <TextBlock.Styles>
@@ -24,7 +24,7 @@
                     </TextBlock.Styles>
                 </TextBlock>
                 <TextBlock x:Name="SignInDetailText" Text="{Binding StatusDetail}" TextWrapping="Wrap"
-                           FontSize="13.5" LineHeight="21" LetterSpacing="0.2" Foreground="{StaticResource KcapMutedBrush}"
+                           FontSize="{StaticResource KcapFontSizeBody}" LineHeight="21" LetterSpacing="0.2" Foreground="{StaticResource KcapMutedBrush}"
                            IsVisible="{Binding StatusDetail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -44,16 +44,16 @@
                 IsVisible="{Binding BrowserUrl, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
             <StackPanel Spacing="10">
                 <TextBlock Text="Finish in your browser"
-                           FontSize="13.5" FontWeight="SemiBold"
+                           FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
                            Foreground="{StaticResource KcapTextBrush}" />
                 <TextBlock x:Name="WaitingText" Text="{Binding WaitingText}" TextWrapping="Wrap"
-                           FontSize="12.5" Foreground="{StaticResource KcapMutedBrush}"
+                           FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}"
                            IsVisible="{Binding WaitingText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <TextBlock Text="If a browser window didn't open, use the link below."
-                           TextWrapping="Wrap" FontSize="12"
+                           TextWrapping="Wrap" FontSize="{StaticResource KcapFontSizeSmall}"
                            Foreground="{StaticResource KcapFaintBrush}" />
                 <SelectableTextBlock x:Name="SignInBrowserUrlText" Text="{Binding BrowserUrl}"
-                                     TextWrapping="Wrap" FontSize="11.5"
+                                     TextWrapping="Wrap" FontSize="{StaticResource KcapFontSizeSmall}"
                                      Foreground="{StaticResource KcapTextBrush}" />
                 <StackPanel Orientation="Horizontal" Spacing="8">
                     <Button x:Name="OpenSignInUrlButton" Classes="kcapChip"
@@ -73,7 +73,7 @@
             <ItemsControl x:Name="SignInLog" ItemsSource="{Binding Log}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="x:String">
-                        <TextBlock Text="{Binding}" FontSize="11.5"
+                        <TextBlock Text="{Binding}" FontSize="{StaticResource KcapFontSizeSmall}"
                                    Foreground="{StaticResource KcapFaintBrush}" TextWrapping="Wrap"
                                    Margin="0,2" />
                     </DataTemplate>
@@ -90,14 +90,14 @@
                             IsVisible="{Binding DeviceCode, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                         <StackPanel Spacing="10">
                             <TextBlock Text="Enter this code to finish signing in"
-                                       Foreground="{StaticResource KcapMutedBrush}" FontSize="12.5" />
+                                       Foreground="{StaticResource KcapMutedBrush}" FontSize="{StaticResource KcapFontSizeSmall}" />
                             <TextBlock x:Name="DeviceCodeText" Text="{Binding DeviceCode}"
-                                       FontSize="28" FontWeight="Bold" LetterSpacing="2"
+                                       FontSize="{StaticResource KcapFontSizeDisplay}" FontWeight="Bold" LetterSpacing="2"
                                        Foreground="{StaticResource KcapTextBrush}" />
                             <Button x:Name="OpenVerificationUriButton" Classes="kcapChip"
                                     Content="{Binding VerificationUri}"
                                     Command="{Binding OpenVerificationUriCommand}"
-                                    Padding="12,7" FontSize="12" HorizontalAlignment="Left" />
+                                    Padding="12,7" FontSize="{StaticResource KcapFontSizeSmall}" HorizontalAlignment="Left" />
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -105,7 +105,7 @@
                 <StackPanel Spacing="12">
                     <StackPanel Spacing="10" IsVisible="{Binding TenantPickerVisible}">
                         <TextBlock Text="Which workspace would you like to use?"
-                                   Foreground="{StaticResource KcapTextBrush}" FontSize="13.5" />
+                                   Foreground="{StaticResource KcapTextBrush}" FontSize="{StaticResource KcapFontSizeBody}" />
                         <ListBox x:Name="TenantList" Classes="kcapList" MaxHeight="140"
                                  ItemsSource="{Binding Tenants}"
                                  SelectedItem="{Binding SelectedTenant, Mode=TwoWay}">

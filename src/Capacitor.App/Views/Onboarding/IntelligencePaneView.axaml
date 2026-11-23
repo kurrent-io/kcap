@@ -19,7 +19,7 @@
                                      AutomationProperties.Name="{Binding Label}" AutomationProperties.HelpText="{Binding Detail}"
                                      IsChecked="{Binding IsSelected, Mode=TwoWay}">
                             <StackPanel Spacing="2">
-                                <TextBlock Classes="onboardingLabel" FontSize="13" Text="{Binding Label}" />
+                                <TextBlock Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeBody}" Text="{Binding Label}" />
                                 <TextBlock Classes="onboardingDetail" TextWrapping="Wrap" Text="{Binding Detail}" />
                             </StackPanel>
                         </RadioButton>

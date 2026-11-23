@@ -32,7 +32,7 @@
                         <Border Name="PART_CompactHeader" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
                                 IsHitTestVisible="False">
                             <TextBlock Name="PART_CompactTitle" Margin="32,0" VerticalAlignment="Center"
-                                       FontSize="13.5" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}"
+                                       FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}"
                                        TextTrimming="CharacterEllipsis" Opacity="0">
                                 <TextBlock.Transitions>
                                     <Transitions>
@@ -60,7 +60,7 @@
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Padding" Value="10,0" />
         <Setter Property="MinHeight" Value="32" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="FontWeight" Value="Medium" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Left" />
@@ -99,7 +99,7 @@
         <Setter Property="Template">
             <ControlTemplate>
                 <ContentPresenter Content="{TemplateBinding Header}" Padding="10,18,10,6"
-                                  FontSize="11.5" FontWeight="SemiBold" LetterSpacing="0.2"
+                                  FontSize="{StaticResource KcapFontSizeSmall}" FontWeight="SemiBold" LetterSpacing="0.2"
                                   Foreground="{StaticResource KcapFaintBrush}" />
             </ControlTemplate>
         </Setter>
@@ -141,7 +141,7 @@
         <Setter Property="Spacing" Value="3" />
     </Style>
     <Style Selector="TextBlock.settingsGroupTitle">
-        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeLarge}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="LineHeight" Value="22" />
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
@@ -177,12 +177,12 @@
         <Setter Property="BorderThickness" Value="0" />
     </Style>
     <Style Selector="TextBlock.settingsFieldLabel">
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="FontWeight" Value="Medium" />
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
     </Style>
     <Style Selector="TextBlock.settingsFootnote">
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="LineHeight" Value="18" />
         <Setter Property="TextWrapping" Value="Wrap" />
         <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
@@ -211,7 +211,7 @@
         <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <Style Selector="Border.settingsContextChip TextBlock">
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="VerticalAlignment" Value="Center" />
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
     </Style>
@@ -251,7 +251,7 @@
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                             <Panel Width="16" Height="16" VerticalAlignment="Top" Margin="0,1,0,0">
                                 <Ellipse Name="Ring" Width="16" Height="16" StrokeThickness="1.5"
-                                         Stroke="{StaticResource SettingsControlBorderBrush}" Fill="Transparent" />
+                                         Stroke="{StaticResource KcapFieldBorderBrush}" Fill="Transparent" />
                                 <Ellipse Name="Dot" Width="8" Height="8" Fill="{StaticResource KcapInfoBrush}" IsVisible="False" />
                             </Panel>
                             <ContentPresenter Grid.Column="1" Name="OptionContent" Content="{TemplateBinding Content}"
@@ -299,11 +299,11 @@
         <Setter Property="LetterSpacing" Value="0" />
     </Style>
     <Style Selector="TabControl.settingsSidebar TextBlock.kcapLabel">
-        <Setter Property="FontSize" Value="13.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="FontWeight" Value="Medium" />
     </Style>
     <Style Selector="TabControl.settingsSidebar TextBlock.kcapHint">
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="LineHeight" Value="19" />
         <Setter Property="LetterSpacing" Value="0" />
     </Style>
@@ -343,7 +343,7 @@
         <Setter Property="Background" Value="{StaticResource KcapWarningDimBrush}" />
     </Style>
     <Style Selector="TextBlock.settingsErrorTitle">
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         <Setter Property="TextWrapping" Value="Wrap" />
@@ -352,7 +352,7 @@
         <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
     </Style>
     <Style Selector="SelectableTextBlock.settingsErrorDetail">
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="LineHeight" Value="18" />
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         <Setter Property="TextWrapping" Value="Wrap" />
@@ -360,7 +360,7 @@
     <!-- The command line's raw output under a failure: monospace, so paths and messages line up as printed. -->
     <Style Selector="SelectableTextBlock.settingsErrorOutput">
         <Setter Property="FontFamily" Value="{StaticResource OnboardingMonoFont}" />
-        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
     </Style>
     <Style Selector="ToggleButton.settingsDetailsToggle">
@@ -369,7 +369,7 @@
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="MinHeight" Value="0" />
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="HorizontalAlignment" Value="Left" />
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
     </Style>
@@ -387,22 +387,22 @@
     </Style>
     <Style Selector="Button.settingsCompact">
         <Setter Property="Padding" Value="10,5" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
     </Style>
 
     <!-- Fields: one outline and one focus treatment for every input on these pages. -->
     <Style Selector="TabControl.settingsSidebar TextBox.kcapField,
                      TabControl.settingsSidebar ComboBox.kcapField,
                      TabControl.settingsSidebar NumericUpDown.kcapField">
-        <Setter Property="BorderBrush" Value="{StaticResource SettingsControlBorderBrush}" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapFieldBorderBrush}" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
     </Style>
     <Style Selector="TabControl.settingsSidebar TextBox.kcapField /template/ Border#PART_BorderElement,
                      TabControl.settingsSidebar TextBox.kcapField:pointerover /template/ Border#PART_BorderElement,
                      TabControl.settingsSidebar ComboBox.kcapField /template/ Border#Background,
                      TabControl.settingsSidebar ComboBox.kcapField:pointerover /template/ Border#Background,
                      TabControl.settingsSidebar ComboBox.kcapField:pressed /template/ Border#Background">
-        <Setter Property="BorderBrush" Value="{StaticResource SettingsControlBorderBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapFieldBorderBrush}" />
     </Style>
     <Style Selector="TabControl.settingsSidebar TextBox.kcapField:focus /template/ Border#PART_BorderElement,
                      TabControl.settingsSidebar ComboBox.kcapField:focus /template/ Border#Background">
@@ -417,7 +417,7 @@
         <Setter Property="MinHeight" Value="64" />
         <Setter Property="MaxHeight" Value="160" />
         <Setter Property="FontFamily" Value="{StaticResource OnboardingMonoFont}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
     </Style>
 
     <!-- The search choices are shared with setup, whose radio rows use setup's palette. -->
@@ -431,7 +431,7 @@
         <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
     </Style>
     <Style Selector="TabControl.settingsSidebar RadioButton.onboardingOption /template/ Ellipse#Ring">
-        <Setter Property="Stroke" Value="{StaticResource SettingsControlBorderBrush}" />
+        <Setter Property="Stroke" Value="{StaticResource KcapFieldBorderBrush}" />
     </Style>
     <Style Selector="TabControl.settingsSidebar RadioButton.onboardingOption:checked /template/ Ellipse#Ring">
         <Setter Property="Stroke" Value="{StaticResource KcapInfoBrush}" />

@@ -17,7 +17,7 @@
 
     <Panel>
         <Grid x:Name="TitleDisplay" ColumnDefinitions="*,Auto" HorizontalAlignment="Left" IsVisible="{Binding !IsEditing}">
-            <TextBlock x:Name="TitleText" Grid.Column="0" Text="{Binding Title}" FontWeight="SemiBold" FontSize="16"
+            <TextBlock x:Name="TitleText" Grid.Column="0" Text="{Binding Title}" FontWeight="SemiBold" FontSize="{StaticResource KcapFontSizeLarge}"
                        Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                        ToolTip.Tip="{Binding Title}" />
             <Button x:Name="RenameButton" Grid.Column="1" Classes="kcapGhost titleAction" Margin="4,0,0,0"
@@ -30,7 +30,7 @@
         <Grid x:Name="TitleEditing" ColumnDefinitions="*,Auto,Auto" IsVisible="{Binding IsEditing}">
             <TextBox Classes="kcapField" x:Name="TitleInput" Grid.Column="0" Text="{Binding Draft}" MaxLength="120"
                      IsEnabled="{Binding IsInputEnabled}" AutomationProperties.Name="Session name"
-                     FontWeight="SemiBold" FontSize="16" MinHeight="0" Padding="6,2" VerticalContentAlignment="Center" />
+                     FontWeight="SemiBold" FontSize="{StaticResource KcapFontSizeLarge}" MinHeight="0" Padding="6,2" VerticalContentAlignment="Center" />
             <Button x:Name="SaveRenameButton" Grid.Column="1" Classes="kcapGhost titleAction" Margin="4,0,0,0"
                     Command="{Binding SaveCommand}" AutomationProperties.Name="Save name" ToolTip.Tip="Save name">
                 <views:AppIcon Kind="Check" Size="16" Foreground="{StaticResource KcapSuccessBrush}" />

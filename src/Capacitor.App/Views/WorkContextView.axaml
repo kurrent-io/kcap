@@ -40,7 +40,7 @@
             <Setter Property="Height" Value="24" />
         </Style>
         <Style Selector="TextBlock.cardEyebrow">
-            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeCaption}" />
             <Setter Property="FontWeight" Value="Bold" />
             <Setter Property="LetterSpacing" Value="0.8" />
             <Setter Property="LineHeight" Value="16" />
@@ -88,7 +88,7 @@
             <Setter Property="AutomationProperties.AccessibilityView" Value="Content" />
         </Style>
         <Style Selector="Border.avatar > Panel > TextBlock">
-            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
             <Setter Property="HorizontalAlignment" Value="Center" />
@@ -158,7 +158,7 @@
         </Style>
         <!-- A settled task steps back through the class, so a local Foreground must not be set on it. -->
         <Style Selector="TextBlock.planTask">
-            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
             <Setter Property="LineHeight" Value="16" />
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
@@ -174,8 +174,8 @@
                     <StackPanel Spacing="6">
                         <TextBlock Text="{Binding Eyebrow}" Classes="cardEyebrow" />
                         <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock x:Name="LinkKey" Text="{Binding Key}" FontSize="13" FontWeight="Bold" Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
-                            <TextBlock x:Name="LinkTitle" Text="{Binding Title}" FontSize="13" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                            <TextBlock x:Name="LinkKey" Text="{Binding Key}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="Bold" Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
+                            <TextBlock x:Name="LinkTitle" Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                        IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>
                     </StackPanel>
@@ -233,7 +233,7 @@
                 <StackPanel Grid.Column="1" Spacing="2">
                     <TextBlock Text="{Binding Title}" Classes="planTask" Classes.settled="{Binding IsSettled}"
                                TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
-                    <TextBlock Text="{Binding Note}" FontSize="12" LineHeight="16" Foreground="{StaticResource KcapFaintBrush}"
+                    <TextBlock Text="{Binding Note}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="16" Foreground="{StaticResource KcapFaintBrush}"
                                TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Note}"
                                IsVisible="{Binding Note, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 </StackPanel>
@@ -261,7 +261,7 @@
                 <Panel Width="12" Height="16" VerticalAlignment="Center">
                     <ContentControl Content="{Binding Mark}" ContentTemplate="{StaticResource PartMark}" VerticalAlignment="Center" />
                 </Panel>
-                <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" TextWrapping="Wrap"
+                <TextBlock Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" TextWrapping="Wrap"
                            VerticalAlignment="Center" Foreground="{StaticResource KcapTextBrush}"
                            Classes.settled="{Binding IsSettled}" />
             </StackPanel>
@@ -285,9 +285,9 @@
                         <ContentControl Content="{Binding State}" ContentTemplate="{StaticResource SubagentMark}" VerticalAlignment="Center" />
                     </Panel>
                     <StackPanel Grid.Column="1" Spacing="2">
-                        <TextBlock Text="{Binding Name}" FontSize="13" LineHeight="16" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}"
+                        <TextBlock Text="{Binding Name}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}"
                                    TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" ToolTip.ShowOnDisabled="True" />
-                        <TextBlock Text="{Binding Description}" FontSize="12" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
+                        <TextBlock Text="{Binding Description}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
                                    TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Description}" ToolTip.ShowOnDisabled="True"
                                    IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         <TextBlock Text="{Binding StateText}" Classes="kcapStatusWord" Classes.inflight="{Binding IsRunning}" Classes.danger="{Binding IsFailed}" TextWrapping="Wrap"
@@ -302,9 +302,9 @@
                     <Flyout FlyoutPresenterClasses="kcapPanel" Opening="OnBookmarkMenuOpening">
                         <StackPanel Spacing="2" Margin="6" MinWidth="160">
                             <Button Classes="kcapGhost bookmarkAsk" Tag="{x:Static vm:ChatBookmarkAsk.StartSession}" Click="OnBookmarkAskClick"
-                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="13.5" />
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="{StaticResource KcapFontSizeBody}" />
                             <Button Classes="kcapGhost bookmarkAsk" Tag="{x:Static vm:ChatBookmarkAsk.FileLooseEnd}" Click="OnBookmarkAskClick"
-                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="13.5" />
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="{StaticResource KcapFontSizeBody}" />
                         </StackPanel>
                     </Flyout>
                 </Grid.ContextFlyout>
@@ -420,7 +420,7 @@
                         <StackPanel IsVisible="{Binding IsReady}" Spacing="22">
                             <StackPanel Spacing="8">
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                    <TextBlock x:Name="WorkContextKey" Text="{Binding Key}" FontSize="15" FontWeight="SemiBold"
+                                    <TextBlock x:Name="WorkContextKey" Text="{Binding Key}" FontSize="{StaticResource KcapFontSizeLarge}" FontWeight="SemiBold"
                                                Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center"
                                                IsVisible="{Binding Key, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                     <views:StatusBadge x:Name="StatePill" Grid.Column="1" Classes="inflight"
@@ -428,13 +428,13 @@
                                                        Text="{Binding StateLabel}"
                                                        IsVisible="{Binding StateLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                 </Grid>
-                                <TextBlock x:Name="WorkContextTitle" Text="{Binding DisplayTitle}" FontSize="14" LineHeight="20"
+                                <TextBlock x:Name="WorkContextTitle" Text="{Binding DisplayTitle}" FontSize="{StaticResource KcapFontSizeLarge}" LineHeight="20"
                                            Foreground="{StaticResource KcapTextBrush}" TextWrapping="Wrap"
                                            IsVisible="{Binding DisplayTitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                <TextBlock x:Name="OverviewText" Text="{Binding Overview}" FontSize="13" LineHeight="19"
+                                <TextBlock x:Name="OverviewText" Text="{Binding Overview}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="19"
                                            Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
                                            IsVisible="{Binding Overview, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                <TextBlock x:Name="PartOfLine" Text="{Binding PartOfTitle, StringFormat='Part of {0}'}" FontSize="12"
+                                <TextBlock x:Name="PartOfLine" Text="{Binding PartOfTitle, StringFormat='Part of {0}'}" FontSize="{StaticResource KcapFontSizeSmall}"
                                            Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
                                            IsVisible="{Binding PartOfTitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                             </StackPanel>
@@ -447,14 +447,14 @@
                                         <ItemsControl ItemsSource="{Binding BlockedBy}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="x:String">
-                                                    <TextBlock Text="{Binding}" FontSize="12" LineHeight="18" TextWrapping="Wrap"
+                                                    <TextBlock Text="{Binding}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="18" TextWrapping="Wrap"
                                                                Foreground="{StaticResource KcapWarningBrush}" />
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
                                         </ItemsControl>
                                     </StackPanel>
                                 </Border>
-                                <TextBlock x:Name="CycleNoteText" Text="{Binding CycleNote}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}"
+                                <TextBlock x:Name="CycleNoteText" Text="{Binding CycleNote}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}"
                                            TextWrapping="Wrap"
                                            IsVisible="{Binding CycleNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                             </StackPanel>
@@ -525,7 +525,7 @@
                         <StackPanel IsVisible="{Binding !IsReady}" Spacing="10" Margin="0,10,0,0">
                             <ProgressBar views:BusyIndicator.IsBusy="True" Height="2" IsVisible="{Binding ShowsReadProgress}"
                                          AutomationProperties.Name="Loading work context" />
-                            <TextBlock x:Name="PhaseNoteText" Text="{Binding PhaseNote}" FontSize="13" LineHeight="19"
+                            <TextBlock x:Name="PhaseNoteText" Text="{Binding PhaseNote}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="19"
                                        Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" />
                             <Button x:Name="SignInButton" Classes="kcapPrimary" Content="Sign in" Command="{Binding SignInCommand}" IsVisible="{Binding ShowsSignIn}"
                                     FontWeight="SemiBold" Padding="13,5" HorizontalAlignment="Left" />
@@ -582,9 +582,9 @@
                                             <Button Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Name}"
                                                     HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Name}" AutomationProperties.Name="{Binding Name, StringFormat='Copy {0}'}">
                                                 <StackPanel>
-                                                    <TextBlock x:Name="ContributorNameText" Text="{Binding Name}" FontSize="13" FontWeight="SemiBold"
+                                                    <TextBlock x:Name="ContributorNameText" Text="{Binding Name}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
                                                                Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
-                                                    <TextBlock Text="{Binding LastActivityText}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" Margin="0,1,0,0"
+                                                    <TextBlock Text="{Binding LastActivityText}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapFaintBrush}" Margin="0,1,0,0"
                                                                IsVisible="{Binding LastActivityText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                                 </StackPanel>
                                             </Button>
@@ -604,9 +604,9 @@
                                         HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Requester}" IsVisible="{Binding PeopleExpanded}"
                                         AutomationProperties.Name="{Binding Requester, StringFormat='Copy {0}'}">
                                     <StackPanel>
-                                        <TextBlock Text="{Binding Requester}" FontSize="13" FontWeight="SemiBold"
+                                        <TextBlock Text="{Binding Requester}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
                                                    Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding RequesterRole}" FontSize="12" Foreground="{StaticResource KcapFaintBrush}" Margin="0,1,0,0" />
+                                        <TextBlock Text="{Binding RequesterRole}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapFaintBrush}" Margin="0,1,0,0" />
                                     </StackPanel>
                                 </Button>
                             </Grid>
@@ -628,7 +628,7 @@
                         </Button>
                         <Border Classes="sectionBody">
                             <StackPanel Spacing="8">
-                                <TextBlock Text="Linked to this session" FontSize="11" LineHeight="16"
+                                <TextBlock Text="Linked to this session" FontSize="{StaticResource KcapFontSizeCaption}" LineHeight="16"
                                            Foreground="{StaticResource KcapFaintBrush}" IsVisible="{Binding PullRequests.HasPullRequest}" />
                                 <views:PullRequestCard x:Name="PullRequestCard" DataContext="{Binding PullRequests}" />
                             </StackPanel>
@@ -648,7 +648,7 @@
                         </Button>
                         <Border Classes="sectionBody">
                             <TextBlock x:Name="PullRequestEmptyText" Text="{x:Static vm:WorkContextViewModel.PullRequestEmptyNote}"
-                                       FontSize="13" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}" />
+                                       FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}" />
                         </Border>
                     </StackPanel>
                 </StackPanel>
@@ -679,11 +679,11 @@
                                     AutomationProperties.Name="{Binding SeparateIssue.AccessibleName}"
                                     HorizontalAlignment="Stretch">
                                 <Panel>
-                                    <TextBlock x:Name="IssueTitle" Text="{Binding SeparateIssue.Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
+                                    <TextBlock x:Name="IssueTitle" Text="{Binding SeparateIssue.Title}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" FontWeight="SemiBold"
                                                TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}"
                                                IsVisible="{Binding SeparateIssue.Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                     <TextBlock x:Name="IssueTitleMissing" Text="{x:Static vm:WorkContextLinkViewModel.TitleMissingNote}"
-                                               FontSize="13" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
+                                               FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
                                                IsVisible="{Binding SeparateIssue.Title, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
                                 </Panel>
                             </Button>
@@ -700,12 +700,12 @@
                                                 ToolTip.Tip="{Binding Url}" AutomationProperties.Name="{Binding AccessibleName}"
                                                 HorizontalAlignment="Stretch">
                                             <StackPanel Spacing="4">
-                                                <TextBlock Text="{Binding Key}" Classes="prMuted" FontSize="12" />
-                                                <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
+                                                <TextBlock Text="{Binding Key}" Classes="prMuted" FontSize="{StaticResource KcapFontSizeSmall}" />
+                                                <TextBlock Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" FontWeight="SemiBold"
                                                            TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}"
                                                            IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                                 <TextBlock Text="{x:Static vm:WorkContextLinkViewModel.TitleMissingNote}"
-                                                           FontSize="13" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
+                                                           FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
                                                            IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
                                             </StackPanel>
                                         </Button>
@@ -744,10 +744,10 @@
                                             CommandParameter="{Binding}" ToolTip.Tip="{Binding Url}" AutomationProperties.Name="{Binding Title}"
                                             HorizontalAlignment="Stretch">
                                         <StackPanel Spacing="4">
-                                            <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
+                                            <TextBlock Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" FontWeight="SemiBold"
                                                        TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
                                                        Foreground="{StaticResource KcapTextBrush}" />
-                                            <TextBlock Text="{Binding UpdatedLabel}" Classes="prMuted" FontSize="12" />
+                                            <TextBlock Text="{Binding UpdatedLabel}" Classes="prMuted" FontSize="{StaticResource KcapFontSizeSmall}" />
                                         </StackPanel>
                                     </Button>
                                 </DataTemplate>
@@ -758,10 +758,10 @@
 
                 <!-- Plan: read from the server, so unlike AGENTS it shows nothing while signed out. -->
                 <StackPanel x:Name="PlanSection" IsVisible="{Binding Plan.ShowsPlan}" Margin="0,18,0,0">
-                    <TextBlock Text="Loading plan…" FontSize="13" Foreground="{StaticResource KcapMutedBrush}"
+                    <TextBlock Text="Loading plan…" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapMutedBrush}"
                                Margin="0,4,0,0" IsVisible="{Binding Plan.IsLoading}" />
                     <TextBlock x:Name="PlanUnavailableText" Text="Couldn't load the plan. It loads again once the server is reachable."
-                               FontSize="13" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
+                               FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
                                Margin="0,4,0,0" IsVisible="{Binding Plan.IsUnavailable}" />
                     <Button x:Name="PlanToggle" Command="{Binding Plan.ToggleCommand}" Classes="sectionHeader expandable"
                             IsVisible="{Binding Plan.HasPlan}" AutomationProperties.Name="Plan">
@@ -817,7 +817,7 @@
                             </MultiBinding>
                         </Border.IsVisible>
                         <StackPanel Spacing="10">
-                            <TextBlock x:Name="PlanMergeNote" Text="{Binding PlanMergeNote}" FontSize="12" LineHeight="17"
+                            <TextBlock x:Name="PlanMergeNote" Text="{Binding PlanMergeNote}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="17"
                                        Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap"
                                        IsVisible="{Binding ShowsPlanMergeNote}" />
                             <Border x:Name="PlanBody">
@@ -919,7 +919,7 @@
                 <StackPanel x:Name="SessionFactSections" IsVisible="{Binding HasAgent}">
                     <StackPanel.Styles>
                         <Style Selector="TextBlock.factLabel">
-                            <Setter Property="FontSize" Value="10.5" />
+                            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeCaption}" />
                             <Setter Property="FontWeight" Value="Bold" />
                             <Setter Property="LetterSpacing" Value="0.8" />
                             <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
@@ -927,7 +927,7 @@
                             <Setter Property="Margin" Value="0,0,12,0" />
                         </Style>
                         <Style Selector="SelectableTextBlock.factValue">
-                            <Setter Property="FontSize" Value="13" />
+                            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
                             <Setter Property="LineHeight" Value="18" />
                             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
                             <Setter Property="TextWrapping" Value="Wrap" />
@@ -938,7 +938,7 @@
                             <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
                         </Style>
                         <Style Selector="TextBlock.factValue">
-                            <Setter Property="FontSize" Value="13" />
+                            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
                             <Setter Property="LineHeight" Value="18" />
                             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
                             <Setter Property="VerticalAlignment" Value="Center" />
@@ -1095,7 +1095,7 @@
                                                     <Flyout FlyoutPresenterClasses="kcapPanel" Opening="OnTopicMenuOpening">
                                                         <StackPanel Spacing="2" Margin="6" MinWidth="160">
                                                             <Button Classes="kcapGhost topicAsk" Click="OnTopicLooseEndsClick"
-                                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="13.5" />
+                                                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,6" FontSize="{StaticResource KcapFontSizeBody}" />
                                                         </StackPanel>
                                                     </Flyout>
                                                 </Grid.ContextFlyout>
@@ -1110,7 +1110,7 @@
                                                         <TextBlock Grid.Column="1" Classes="topicName" Classes.current="{Binding Topic.IsCurrent, FallbackValue=False}"
                                                                    Text="{Binding Topic.Label, FallbackValue={x:Null}}" TextTrimming="CharacterEllipsis"
                                                                    VerticalAlignment="Center" Foreground="{StaticResource KcapTextBrush}" />
-                                                        <TextBlock Grid.Column="2" Text="{Binding Topic.Summary, FallbackValue={x:Null}}" FontSize="12" VerticalAlignment="Center"
+                                                        <TextBlock Grid.Column="2" Text="{Binding Topic.Summary, FallbackValue={x:Null}}" FontSize="{StaticResource KcapFontSizeSmall}" VerticalAlignment="Center"
                                                                    IsVisible="{Binding !Topic.IsExpanded, FallbackValue=False}" Foreground="{StaticResource KcapMutedBrush}" />
                                                     </Grid>
                                                 </Button>

@@ -102,7 +102,7 @@
                 <Border Classes="onboardingCallout" IsVisible="{Binding DeviceCode, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                     <StackPanel Spacing="8">
                         <TextBlock Classes="onboardingMicro" Text="ENTER THIS CODE TO FINISH SIGNING IN" />
-                        <TextBlock x:Name="DeviceCodeText" Text="{Binding DeviceCode}" FontSize="28" FontWeight="Bold"
+                        <TextBlock x:Name="DeviceCodeText" Text="{Binding DeviceCode}" FontSize="{StaticResource KcapFontSizeDisplay}" FontWeight="Bold"
                                    LetterSpacing="3" FontFamily="{StaticResource OnboardingMonoFont}"
                                    Foreground="{StaticResource OnboardingTextBrush}" />
                         <Button x:Name="OpenVerificationUriButton" Classes="onboardingLink" HorizontalAlignment="Left"

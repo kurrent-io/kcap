@@ -7,7 +7,7 @@
              x:DataType="vm:AccountsSettingsViewModel">
     <UserControl.Styles>
         <Style Selector="TextBlock.summaryValue">
-            <Setter Property="FontSize" Value="20" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeHeading}" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         </Style>
@@ -115,7 +115,7 @@
                                                                     Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).CommitRenameCommand}" />
                                                         </StackPanel>
                                                         <SelectableTextBlock Text="{Binding Directory}" TextWrapping="Wrap"
-                                                                             FontFamily="{StaticResource OnboardingMonoFont}" FontSize="12"
+                                                                             FontFamily="{StaticResource OnboardingMonoFont}" FontSize="{StaticResource KcapFontSizeSmall}"
                                                                              Foreground="{StaticResource KcapMutedBrush}" />
                                                         <TextBlock Classes="kcapHint" Text="{Binding Email}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                                    IsVisible="{Binding Email, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -188,19 +188,19 @@
                                                                         <Button Classes="kcapGhost" Content="Refresh" Click="OnMenuItemClick" CommandParameter="{Binding}"
                                                                                 Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).RefreshCommand}"
                                                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                                                Padding="10,8" FontSize="13.5" />
+                                                                                Padding="10,8" FontSize="{StaticResource KcapFontSizeBody}" />
                                                                         <Button Classes="kcapGhost" Content="Rename" Click="OnMenuItemClick" CommandParameter="{Binding}"
                                                                                 Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).BeginRenameCommand}"
                                                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                                                Padding="10,8" FontSize="13.5" />
+                                                                                Padding="10,8" FontSize="{StaticResource KcapFontSizeBody}" />
                                                                         <Button Classes="kcapGhost" Content="Reconnect" Click="OnMenuItemClick" CommandParameter="{Binding}"
                                                                                 Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).RewireCommand}"
                                                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                                                Padding="10,8" FontSize="13.5" />
+                                                                                Padding="10,8" FontSize="{StaticResource KcapFontSizeBody}" />
                                                                         <Button Classes="kcapDanger" Content="Remove" Click="OnMenuItemClick" CommandParameter="{Binding}"
                                                                                 Command="{Binding $parent[views:AccountsSettingsView].((vm:AccountsSettingsViewModel)DataContext).RemoveCommand}"
                                                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                                                Padding="10,8" FontSize="13.5" />
+                                                                                Padding="10,8" FontSize="{StaticResource KcapFontSizeBody}" />
                                                                     </StackPanel>
                                                                 </Flyout>
                                                             </Button.Flyout>
@@ -258,7 +258,7 @@
                     <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="6" FlyoutPresenterClasses="kcapPanel"
                             Opening="OnAddMenuOpening" Opened="OnMenuOpened">
                         <StackPanel Spacing="2" Margin="6" MinWidth="280">
-                            <TextBlock Text="Found on this computer" Margin="10,6,10,2" FontSize="11.5" FontWeight="SemiBold"
+                            <TextBlock Text="Found on this computer" Margin="10,6,10,2" FontSize="{StaticResource KcapFontSizeSmall}" FontWeight="SemiBold"
                                        Foreground="{StaticResource KcapFaintBrush}" IsVisible="{Binding !!Candidates.Count}" />
                             <ItemsControl x:Name="AddAccountCandidates" ItemsSource="{Binding Candidates}">
                                 <ItemsControl.ItemsPanel>
@@ -276,8 +276,8 @@
                                                 <ContentControl VerticalAlignment="Center"
                                                                 Content="{Binding Vendor, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=14}" />
                                                 <StackPanel Spacing="2">
-                                                    <TextBlock Text="{Binding Directory}" FontSize="12.5" FontFamily="{StaticResource OnboardingMonoFont}" />
-                                                    <TextBlock Text="{Binding Vendor, Converter={x:Static views:HarnessLabelConverter.Instance}}" FontSize="11.5" Foreground="{StaticResource KcapMutedBrush}" />
+                                                    <TextBlock Text="{Binding Directory}" FontSize="{StaticResource KcapFontSizeSmall}" FontFamily="{StaticResource OnboardingMonoFont}" />
+                                                    <TextBlock Text="{Binding Vendor, Converter={x:Static views:HarnessLabelConverter.Instance}}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" />
                                                 </StackPanel>
                                             </StackPanel>
                                         </Button>
@@ -288,10 +288,10 @@
                                     IsVisible="{Binding !!Candidates.Count}" />
                             <Button Classes="kcapGhost" Content="Choose a Claude Code folder…" Click="OnMenuItemClick"
                                     Command="{Binding AddFromPickerCommand}" CommandParameter="claude"
-                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" FontSize="13.5" />
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" FontSize="{StaticResource KcapFontSizeBody}" />
                             <Button Classes="kcapGhost" Content="Choose a Codex folder…" Click="OnMenuItemClick"
                                     Command="{Binding AddFromPickerCommand}" CommandParameter="codex"
-                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" FontSize="13.5" />
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" FontSize="{StaticResource KcapFontSizeBody}" />
                         </StackPanel>
                     </Flyout>
                 </Button.Flyout>

@@ -17,7 +17,7 @@
         <TabControl x:Name="SettingsTabs" Classes="settingsSidebar" TabStripPlacement="Left" SelectedIndex="2">
             <TabControl.Tag>
                 <StackPanel Spacing="6">
-                    <TextBlock Text="Profile" Margin="10,4,10,0" FontSize="11.5" FontWeight="SemiBold" LetterSpacing="0.2"
+                    <TextBlock Text="Profile" Margin="10,4,10,0" FontSize="{StaticResource KcapFontSizeSmall}" FontWeight="SemiBold" LetterSpacing="0.2"
                                Foreground="{StaticResource KcapFaintBrush}" />
                     <Button x:Name="ProfileCard" Classes="kcapChip settingsProfileCard" Classes.selected="{Binding #ProfilesTab.IsSelected}" Click="OnProfileCardClick"
                             IsEnabled="{Binding Profiles, Converter={x:Static ObjectConverters.IsNotNull}}"
@@ -28,11 +28,11 @@
                                 <views:AppIcon Kind="UserRound" Size="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding ProfileName}" FontSize="13" FontWeight="SemiBold"
+                                <TextBlock Text="{Binding ProfileName}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
                                            Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{Binding ServerLabel}" FontSize="11.5"
+                                <TextBlock Text="{Binding ServerLabel}" FontSize="{StaticResource KcapFontSizeSmall}"
                                            Foreground="{StaticResource KcapMutedBrush}" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Classes="profileManageLabel" Text="{Binding ProfileCardLabel}" FontSize="11.5" Margin="0,5,0,0"
+                                <TextBlock Classes="profileManageLabel" Text="{Binding ProfileCardLabel}" FontSize="{StaticResource KcapFontSizeSmall}" Margin="0,5,0,0"
                                            TextWrapping="Wrap" />
                             </StackPanel>
                             <views:AppIcon Grid.Column="2" Kind="ChevronRight" Size="14" VerticalAlignment="Center"
@@ -97,7 +97,7 @@
                                     <Grid Classes="settingsRow" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto">
                                         <TextBlock Classes="kcapLabel" Text="Daemon" VerticalAlignment="Center" />
                                         <SelectableTextBlock x:Name="DaemonStateText" Grid.Column="1" Text="{Binding DaemonState}"
-                                                             FontSize="12.5" TextWrapping="Wrap"
+                                                             FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
                                                              Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                         <TextBlock x:Name="DaemonStateHintText" Grid.Row="1" Grid.Column="1" Classes="kcapHint" Margin="0,4,0,0"
                                                    Text="{Binding DaemonStateHint}" TextWrapping="Wrap"
@@ -108,7 +108,7 @@
                                         <Grid Classes="settingsRow" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto">
                                             <TextBlock Classes="kcapLabel" Text="Server connection" VerticalAlignment="Center" />
                                             <SelectableTextBlock x:Name="ServerStateText" Grid.Column="1" Text="{Binding ServerState}"
-                                                                 FontSize="12.5" TextWrapping="Wrap"
+                                                                 FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
                                                                  Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                             <TextBlock x:Name="ServerStateHintText" Grid.Row="1" Grid.Column="1" Classes="kcapHint" Margin="0,4,0,0"
                                                        Text="{Binding ServerStateHint}" TextWrapping="Wrap"
@@ -293,7 +293,7 @@
                                         <views:AppIcon Kind="AArrowDown" Size="16" />
                                     </Button>
                                     <TextBlock x:Name="TextSizeText" Text="{Binding Appearance.ScaleLabel, FallbackValue={x:Null}}"
-                                               MinWidth="48" TextAlignment="Center" FontSize="13" FontWeight="SemiBold"
+                                               MinWidth="48" TextAlignment="Center" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
                                                Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                     <Button x:Name="TextLargerButton" Classes="kcapChip settingsCompact"
                                             Command="{Binding Appearance.LargerCommand, FallbackValue={x:Null}}"
@@ -522,21 +522,21 @@
                                     <Grid Classes="settingsRow" ColumnDefinitions="140,*">
                                         <TextBlock Classes="kcapLabel" Text="Desktop app" VerticalAlignment="Center" />
                                         <SelectableTextBlock x:Name="AboutAppVersionText" Grid.Column="1" Text="{Binding About.AppVersion, FallbackValue={x:Null}}"
-                                                             FontFamily="{StaticResource OnboardingMonoFont}" FontSize="12.5"
+                                                             FontFamily="{StaticResource OnboardingMonoFont}" FontSize="{StaticResource KcapFontSizeSmall}"
                                                              Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                     </Grid>
                                     <Border Classes="settingsDivider" />
                                     <Grid Classes="settingsRow" ColumnDefinitions="140,*">
                                         <TextBlock Classes="kcapLabel" Text="Command line" VerticalAlignment="Center" />
                                         <SelectableTextBlock x:Name="AboutCliVersionText" Grid.Column="1" Text="{Binding About.CliVersion, FallbackValue={x:Null}}"
-                                                             FontFamily="{StaticResource OnboardingMonoFont}" FontSize="12.5"
+                                                             FontFamily="{StaticResource OnboardingMonoFont}" FontSize="{StaticResource KcapFontSizeSmall}"
                                                              Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                     </Grid>
                                     <Border Classes="settingsDivider" />
                                     <Grid Classes="settingsRow" ColumnDefinitions="140,*">
                                         <TextBlock Classes="kcapLabel" Text="Daemon" VerticalAlignment="Center" />
                                         <SelectableTextBlock x:Name="AboutDaemonVersionText" Grid.Column="1" Text="{Binding About.DaemonVersion, FallbackValue={x:Null}}"
-                                                             FontFamily="{StaticResource OnboardingMonoFont}" FontSize="12.5"
+                                                             FontFamily="{StaticResource OnboardingMonoFont}" FontSize="{StaticResource KcapFontSizeSmall}"
                                                              Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                     </Grid>
                                     <StackPanel IsVisible="{Binding About.LocalStack, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}">
@@ -544,7 +544,7 @@
                                     <Grid Classes="settingsRow" ColumnDefinitions="140,*">
                                         <TextBlock Classes="kcapLabel" Text="Local server" VerticalAlignment="Center" />
                                         <SelectableTextBlock x:Name="AboutLocalVersionText" Grid.Column="1" Text="{Binding About.LocalStack.Version, FallbackValue={x:Null}}"
-                                                             FontFamily="{StaticResource OnboardingMonoFont}" FontSize="12.5"
+                                                             FontFamily="{StaticResource OnboardingMonoFont}" FontSize="{StaticResource KcapFontSizeSmall}"
                                                              Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                     </Grid>
                                     </StackPanel>
@@ -573,7 +573,7 @@
                                     <Grid Classes="settingsRow" ColumnDefinitions="140,*">
                                         <TextBlock Classes="kcapLabel" Text="Daemon" VerticalAlignment="Center" />
                                         <SelectableTextBlock x:Name="AboutDaemonStatusText" Grid.Column="1" Text="{Binding About.DaemonStatus, FallbackValue={x:Null}}"
-                                                             FontSize="12.5" TextWrapping="Wrap"
+                                                             FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
                                                              Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                     </Grid>
                                     <StackPanel IsVisible="{Binding About.ServerConnection, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}">
@@ -581,7 +581,7 @@
                                         <Grid Classes="settingsRow" ColumnDefinitions="140,*">
                                             <TextBlock Classes="kcapLabel" Text="Server connection" VerticalAlignment="Center" />
                                             <SelectableTextBlock x:Name="AboutServerConnectionText" Grid.Column="1" Text="{Binding About.ServerConnection, FallbackValue={x:Null}}"
-                                                                 FontSize="12.5" TextWrapping="Wrap"
+                                                                 FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
                                                                  Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                         </Grid>
                                     </StackPanel>
@@ -590,7 +590,7 @@
                                         <Grid Classes="settingsRow" ColumnDefinitions="140,*">
                                             <TextBlock Classes="kcapLabel" Text="Hosted agents" VerticalAlignment="Center" />
                                             <SelectableTextBlock x:Name="AboutRunningAgentsText" Grid.Column="1" Text="{Binding About.RunningAgents, FallbackValue={x:Null}}"
-                                                                 FontSize="12.5" TextWrapping="Wrap"
+                                                                 FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
                                                                  Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                         </Grid>
                                     </StackPanel>
@@ -599,7 +599,7 @@
                                         <Grid Classes="settingsRow" ColumnDefinitions="140,*">
                                             <TextBlock Classes="kcapLabel" Text="Local server" VerticalAlignment="Center" />
                                             <SelectableTextBlock x:Name="AboutLocalStatusText" Grid.Column="1" Text="{Binding About.LocalStack.StateText, FallbackValue={x:Null}}"
-                                                                 FontSize="12.5" TextWrapping="Wrap"
+                                                                 FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
                                                                  Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                         </Grid>
                                     </StackPanel>

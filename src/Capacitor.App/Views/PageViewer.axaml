@@ -7,7 +7,7 @@
     <Grid RowDefinitions="Auto,Auto,*">
         <Border BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1" Padding="24,12">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                <TextBlock x:Name="PageTitle" Text="{Binding Title}" FontSize="13" FontWeight="SemiBold"
+                <TextBlock x:Name="PageTitle" Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
                 <Button x:Name="OpenInBrowser" Grid.Column="1" Classes="kcapGhost" Content="Open in browser"
                         Command="{Binding OpenInBrowserCommand}" />
@@ -17,7 +17,7 @@
                 Background="{StaticResource KcapWarningDimBrush}">
             <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                 <TextBlock x:Name="PendingPrompt" Text="{Binding PendingPrompt}" ToolTip.Tip="{Binding PendingExternalUrl}"
-                           FontSize="12.5" Foreground="{StaticResource KcapWarningBrush}" VerticalAlignment="Center"
+                           FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapWarningBrush}" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" />
                 <Button x:Name="OpenPending" Grid.Column="1" Classes="kcapGhost" Content="Open"
                         Command="{Binding OpenPendingCommand}" />
@@ -27,7 +27,7 @@
         </Border>
         <StackPanel Grid.Row="2" IsVisible="{Binding !IsReady}" Margin="24,20" Spacing="12">
             <TextBlock x:Name="PageNotice" Text="{Binding Notice}"
-                       FontSize="13" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" />
+                       FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" />
             <Button x:Name="Retry" Classes="kcapPrimary" Content="Retry" HorizontalAlignment="Left"
                     IsVisible="{Binding CanRetry}" Command="{Binding ReloadCommand}" />
         </StackPanel>

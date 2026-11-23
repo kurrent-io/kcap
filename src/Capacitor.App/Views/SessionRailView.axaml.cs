@@ -140,11 +140,11 @@ public partial class SessionRailView : UserControl {
         foreach (var item in summary.MenuItems) {
             var body = new StackPanel { Spacing = 3 };
             body.Children.Add(new TextBlock {
-                Text = item.Label, FontSize = 13.5, TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = item.Label, FontSize = TypeScale.Body, TextTrimming = TextTrimming.CharacterEllipsis,
                 Foreground = (IBrush)this.FindResource("KcapTextBrush")!,
             });
             body.Children.Add(new TextBlock {
-                Text = item.Detail, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis,
+                Text = item.Detail, FontSize = TypeScale.Small, TextTrimming = TextTrimming.CharacterEllipsis,
                 Foreground = (IBrush)this.FindResource("KcapMutedBrush")!,
             });
             var option = new Button {

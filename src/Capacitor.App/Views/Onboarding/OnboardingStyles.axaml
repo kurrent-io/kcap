@@ -11,13 +11,13 @@
     <!-- Type -->
     <Style Selector="TextBlock.onboardingEyebrow">
         <Setter Property="FontFamily" Value="{StaticResource OnboardingMonoFont}" />
-        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeCaption}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="LetterSpacing" Value="1.5" />
         <Setter Property="Foreground" Value="{StaticResource OnboardingAtmosphereBrush}" />
     </Style>
     <Style Selector="TextBlock.onboardingHeadline">
-        <Setter Property="FontSize" Value="30" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeDisplay}" />
         <Setter Property="FontWeight" Value="Bold" />
         <Setter Property="LineHeight" Value="37" />
         <Setter Property="LetterSpacing" Value="-0.75" />
@@ -27,13 +27,13 @@
     <Style Selector="TextBlock.onboardingLede">
         <Setter Property="MaxWidth" Value="500" />
         <Setter Property="HorizontalAlignment" Value="Left" />
-        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeLarge}" />
         <Setter Property="LineHeight" Value="25" />
         <Setter Property="TextWrapping" Value="Wrap" />
         <Setter Property="Foreground" Value="{StaticResource OnboardingMutedBrush}" />
     </Style>
     <Style Selector="TextBlock.onboardingBody">
-        <Setter Property="FontSize" Value="13.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="LineHeight" Value="21" />
         <Setter Property="TextWrapping" Value="Wrap" />
         <Setter Property="Foreground" Value="{StaticResource OnboardingMutedBrush}" />
@@ -41,25 +41,25 @@
     <!-- Section heads inside a card: "found on <machine>", "record", "how much history". -->
     <Style Selector="TextBlock.onboardingMicro">
         <Setter Property="FontFamily" Value="{StaticResource OnboardingMonoFont}" />
-        <Setter Property="FontSize" Value="10" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeCaption}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="LetterSpacing" Value="1.2" />
         <Setter Property="Foreground" Value="{StaticResource OnboardingDimBrush}" />
     </Style>
     <Style Selector="TextBlock.onboardingLabel">
-        <Setter Property="FontSize" Value="13.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="LetterSpacing" Value="-0.1" />
         <Setter Property="Foreground" Value="{StaticResource OnboardingTextBrush}" />
     </Style>
     <Style Selector="TextBlock.onboardingNote">
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="LineHeight" Value="18.5" />
         <Setter Property="TextWrapping" Value="Wrap" />
         <Setter Property="Foreground" Value="{StaticResource OnboardingDimBrush}" />
     </Style>
     <Style Selector="TextBlock.onboardingDetail">
-        <Setter Property="FontSize" Value="11.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="LineHeight" Value="17" />
         <Setter Property="TextWrapping" Value="Wrap" />
         <Setter Property="Foreground" Value="{StaticResource OnboardingDimBrush}" />
@@ -70,17 +70,17 @@
     </Style>
     <Style Selector="TextBlock.onboardingValue">
         <Setter Property="FontFamily" Value="{StaticResource OnboardingMonoFont}" />
-        <Setter Property="FontSize" Value="26" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeDisplay}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="Foreground" Value="{StaticResource OnboardingTextBrush}" />
     </Style>
     <Style Selector="TextBlock.onboardingUnit">
         <Setter Property="FontFamily" Value="{StaticResource OnboardingMonoFont}" />
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="Foreground" Value="{StaticResource OnboardingDimBrush}" />
     </Style>
     <Style Selector="TextBlock.onboardingError">
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="LineHeight" Value="18" />
         <Setter Property="TextWrapping" Value="Wrap" />
         <Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" />
@@ -121,7 +121,7 @@
     <Style Selector="Button.onboardingPrimary, Button.onboardingSecondary, Button.onboardingQuiet, Button.onboardingLink">
         <Setter Property="CornerRadius" Value="4" />
         <Setter Property="Padding" Value="18,12" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
@@ -192,7 +192,7 @@
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource OnboardingAccentBrush}" />
         <Setter Property="Padding" Value="0,6" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="LetterSpacing" Value="0" />
     </Style>
     <Style Selector="Button.onboardingLink /template/ ContentPresenter#PART_ContentPresenter,
@@ -260,7 +260,7 @@
         <Setter Property="Background" Value="{StaticResource OnboardingAccentWashBrush}" />
     </Style>
     <Style Selector="Border.onboardingRecommended TextBlock">
-        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeCaption}" />
         <Setter Property="Foreground" Value="{StaticResource OnboardingAccentBrush}" />
     </Style>
     <!-- An edition this machine cannot take: the head fades, the footer saying why stays legible. -->
@@ -273,7 +273,7 @@
     </Style>
     <Style Selector="Button.onboardingCompact">
         <Setter Property="Padding" Value="14,7" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
     </Style>
 
     <!-- Fields inside the pane keep the app's kcapField chrome, on the card's own surface. -->
@@ -286,7 +286,7 @@
         <Setter Property="CornerRadius" Value="4" />
         <Setter Property="Padding" Value="12,10" />
         <Setter Property="MinHeight" Value="40" />
-        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeLarge}" />
         <Setter Property="PlaceholderForeground" Value="{StaticResource OnboardingDimBrush}" />
     </Style>
     <Style Selector="TextBox.onboardingField /template/ Border#PART_BorderElement">
