@@ -245,12 +245,6 @@ public class AntigravityContainmentTests {
         using var cts  = new CancellationTokenSource(TurnTimeout);
         using var proc = Process.Start(psi) ?? throw new InvalidOperationException("agy did not start — is it on PATH?");
 
-        // The prompt and then end of input, exactly as the production turn process does: nothing can
-        // consume a pasted OAuth code, so an unauthenticated agy fails against the deadline rather than
-        // waiting on a human who is not there.
-        await proc.StandardInput.WriteLineAsync(AgyTurnProcess.InputLine(prompt));
-        proc.StandardInput.Close();
-
         var stderrDrain = Task.Run(async () => {
             try { return await proc.StandardError.ReadToEndAsync(cts.Token); } catch { return ""; }
         }, cts.Token);
@@ -261,6 +255,13 @@ public class AntigravityContainmentTests {
         List<string> processes      = [];
 
         try {
+            // The prompt and then end of input, exactly as the production turn process does: nothing can
+            // consume a pasted OAuth code, so an unauthenticated agy fails against the deadline rather than
+            // waiting on a human who is not there. Inside the try, so an agy that closed its stdin and made
+            // the write throw is still killed.
+            await proc.StandardInput.WriteLineAsync(AgyTurnProcess.InputLine(prompt));
+            proc.StandardInput.Close();
+
             while (await proc.StandardOutput.ReadLineAsync(cts.Token) is { } line) {
                 if (AntigravityNdjson.TryParseLine(line) is not { } evt) continue;
 
