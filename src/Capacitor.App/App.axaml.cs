@@ -374,7 +374,8 @@ public partial class App : Application {
             _windowLifecycle = windowLifecycle;
             desktop.Exit += (_, _) => { windowLifecycle.Dispose(); Program.Host.Dispose(); };
             Program.Host.SingleInstance.UninstallRequested += () => Dispatcher.UIThread.Post(() => {
-                if (_shutdownStarted || _uninstalling || _uninstallRun is not null) return;
+                // A copy started to uninstall is already asking or removing; a second question would start a second removal.
+                if (_shutdownStarted || _uninstalling || _uninstallRun is not null || _uninstallMode is not null) return;
                 if (_requestUninstall is { } request) {
                     MainWindowAction(_coordinator)?.Invoke();
                     request();
