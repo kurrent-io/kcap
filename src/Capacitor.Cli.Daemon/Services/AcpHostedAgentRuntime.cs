@@ -44,7 +44,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         public required CancellationTokenSource LoopCts    { get; init; }
         public Task LoopTask { get; set; } = Task.CompletedTask;
 
-        /// <summary>Listed after the handshake, so a child that re-execs itself has started its real agent</summary>
+        /// <summary>Every descendant seen from spawn through the handshake, so the real agent of a child that
+        /// re-execs itself is known even if the spawned wrapper dies first</summary>
         public IReadOnlyList<(int Pid, string Identity)> Descendants { get; set; } = [];
     }
 
@@ -864,8 +865,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                         Elicitation: new ElicitationCapabilities(Form: new ElicitationFormCapabilities()))),
                 CapacitorJsonContext.Default.InitializeParams);
 
-            var initializeResultElement = await RunHandshakeStageAsync(
-                    "initialized", stageCt => connection.RequestAsync("initialize", initializeParams, stageCt), ct)
+            var initializeResultElement = await TrackingDescendantsAsync(_installed, _reconnect, ct, () => RunHandshakeStageAsync(
+                    "initialized", stageCt => connection.RequestAsync("initialize", initializeParams, stageCt), ct))
                 .ConfigureAwait(false);
 
             // Defensive: a malformed initialize response (wrong-typed protocolVersion, etc.) must not
@@ -892,9 +893,6 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             }
 
             _negotiatedProtocolVersion = initializeResult.ProtocolVersion;
-
-            if (_reconnect is { } reconnect)
-                _installed.Descendants = reconnect.ProcessTree.Descendants(_installed.Process.Pid);
 
             // Missing agentCapabilities defensively means "advertises nothing" (loadSession=false),
             // not a throw — the reconnect eligibility gate reads loadSession off this.
@@ -2435,8 +2433,15 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     attemptPidCallbacks.Record(candidate.Process.Pid);
                     recordedWith = attemptPidCallbacks;
 
-                    await InitializeCandidateAsync(candidate, ownerCt).ConfigureAwait(false);
-                    candidate.Descendants = support.ProcessTree.Descendants(candidate.Process.Pid);
+                    var initializing = candidate;
+                    await TrackingDescendantsAsync(initializing, support, ownerCt, async () => {
+                        await InitializeCandidateAsync(initializing, ownerCt).ConfigureAwait(false);
+                        return true;
+                    }).ConfigureAwait(false);
+
+                    // Its exit is not watched until commit, and a re-exec'd agent can answer for a dead wrapper
+                    if (candidate.Process.HasExited)
+                        throw new IOException("the reconnect candidate's spawned process exited during its handshake");
                     await LoadSessionAsync(candidate, ownerCt).ConfigureAwait(false);
                     await ReapplyModelAsync(candidate, ownerCt).ConfigureAwait(false);
 
@@ -2552,6 +2557,41 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         var confirmed = corpse.Process.HasExited && await ReapDescendantsAsync(corpse, support).ConfigureAwait(false);
         LogCorpseRetired(_agentId, corpse.Id, confirmed);
         return confirmed;
+    }
+
+    /// <summary>Runs <paramref name="handshake"/> while listing the incarnation's descendants, until it ends or the
+    /// spawned process exits. Without reconnect support there is nothing to retire, so nothing is listed</summary>
+    static async Task<T> TrackingDescendantsAsync<T>(
+            Incarnation incarnation, AcpReconnectSupport? support, CancellationToken ct, Func<Task<T>> handshake) {
+        if (support is null) return await handshake().ConfigureAwait(false);
+
+        using var tracking = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var tracker = TrackDescendantsAsync(incarnation, support, tracking.Token);
+
+        try {
+            return await handshake().ConfigureAwait(false);
+        } finally {
+            await tracking.CancelAsync().ConfigureAwait(false);
+            await tracker.ConfigureAwait(false);
+        }
+    }
+
+    static async Task TrackDescendantsAsync(Incarnation incarnation, AcpReconnectSupport support, CancellationToken ct) {
+        try {
+            while (!incarnation.Process.HasExited) {
+                MergeDescendants(incarnation, support.ProcessTree);
+                await Task.Delay(TimeSpan.FromMilliseconds(50), support.TimeProvider, ct).ConfigureAwait(false);
+            }
+        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+            MergeDescendants(incarnation, support.ProcessTree);
+        }
+    }
+
+    static void MergeDescendants(Incarnation incarnation, AcpProcessTreeProbe tree) {
+        var listed = tree.Descendants(incarnation.Process.Pid);
+        if (listed.Count == 0) return;
+
+        lock (incarnation) incarnation.Descendants = [.. incarnation.Descendants.Union(listed)];
     }
 
     /// <summary>Kills the corpse's listed descendants and waits within <see cref="AcpReconnectSupport.RetirementWait"/>
@@ -2876,8 +2916,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         try {
             await candidate.Process.TerminateAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
 
-            foreach (var (pid, identity) in candidate.Descendants)
-                _reconnect!.ProcessTree.Kill(pid, identity);
+            if (!await ReapDescendantsAsync(candidate, _reconnect!).ConfigureAwait(false))
+                _logger.LogWarning("ACP reconnect: a failed candidate's descendant survived its kill.");
         } catch (Exception ex) {
             _logger.LogDebug(ex, "ACP reconnect: candidate process termination failed (best-effort).");
         }

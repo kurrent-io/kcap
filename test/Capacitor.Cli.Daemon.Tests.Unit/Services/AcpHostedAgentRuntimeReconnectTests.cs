@@ -52,14 +52,22 @@ public class AcpHostedAgentRuntimeReconnectTests {
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    /// <summary>Descendants listed per incarnation pid, alive until killed unless they refuse</summary>
-    sealed class FakeProcessTree(List<string> events) {
+    /// <summary>Descendants listed per incarnation pid while that incarnation lives, as the OS lists none for a
+    /// dead root; each stays alive until killed unless it refuses</summary>
+    sealed class FakeProcessTree(List<string> events, Func<int, bool> rootAlive) {
         public readonly Dictionary<int, List<(int Pid, string Identity)>> DescendantsOf = [];
         public readonly HashSet<int> Unkillable = [];
         readonly HashSet<int> _killed = [];
+        readonly HashSet<int> _listed = [];
+
+        public bool Listed(int pid) { lock (_listed) return _listed.Contains(pid); }
 
         public AcpProcessTreeProbe Probe => new(
-            Descendants: pid => DescendantsOf.TryGetValue(pid, out var listed) ? [.. listed] : [],
+            Descendants: pid => {
+                if (!rootAlive(pid) || !DescendantsOf.TryGetValue(pid, out var listed)) return [];
+                lock (_listed) _listed.Add(pid);
+                return [.. listed];
+            },
             Kill: (pid, _) => {
                 lock (events) events.Add($"kill:{pid}");
                 if (!Unkillable.Contains(pid)) lock (_killed) _killed.Add(pid);
@@ -91,7 +99,9 @@ public class AcpHostedAgentRuntimeReconnectTests {
             var fake0 = new FakeAcpAgent();
             var proc0 = new FakeAcpProcess { Pid = 5000, RefuseTermination = refuseOriginalTermination };
             Incarnations.Add((fake0, proc0));
-            Tree = new FakeProcessTree(Events);
+            Tree = new FakeProcessTree(Events, pid => {
+                lock (Incarnations) return Incarnations.Any(i => i.Process.Pid == pid && !i.Process.HasExited);
+            });
 
             Support = withSupport
                 ? new AcpReconnectSupport {
@@ -124,7 +134,7 @@ public class AcpHostedAgentRuntimeReconnectTests {
 
             ConfigureCandidate?.Invoke(fake, Incarnations.Count);
             lock (Events) Events.Add($"spawn:{proc.Pid}");
-            Incarnations.Add((fake, proc));
+            lock (Incarnations) Incarnations.Add((fake, proc));
             _fakeLoops.Add(fake.RunAsync(Cts.Token));
 
             return (fake.ClientWriteStream, fake.ClientReadStream, proc);
@@ -247,6 +257,30 @@ public class AcpHostedAgentRuntimeReconnectTests {
         lock (h.Events) events = [.. h.Events];
         await Assert.That(events).Contains("kill:6000");
         await Assert.That(Array.IndexOf(events, "kill:6000")).IsLessThan(Array.IndexOf(events, "spawn:5001"));
+    }
+
+    /// <summary>A candidate whose wrapper dies during initialize fails its attempt, and the agent it re-execed,
+    /// seen while the wrapper lived, is killed before the next candidate spawns</summary>
+    [Test]
+    public async Task Candidate_wrapper_death_during_initialize_kills_its_agent_before_the_next_spawn() {
+        await using var h = new Harness();
+        h.Tree.DescendantsOf[5001] = [(6001, "start:6001")];
+        var hold = new TaskCompletionSource();
+        h.ConfigureCandidate = (fake, index) => { if (index == 1) fake.HoldInitializeResponse = hold; };
+
+        await h.StartAsync();
+        h.CrashOriginal();
+
+        await Harness.PollUntilAsync(() => h.Tree.Listed(5001));
+        h.Incarnations[1].Process.SignalExited(1);
+        hold.TrySetResult();
+
+        await Harness.PollUntilAsync(() => h.CandidateSpawns >= 2);
+
+        string[] events;
+        lock (h.Events) events = [.. h.Events];
+        await Assert.That(events).Contains("kill:6001");
+        await Assert.That(Array.IndexOf(events, "kill:6001")).IsLessThan(Array.IndexOf(events, "spawn:5002"));
     }
 
     /// <summary>A descendant still alive after the retirement wait is an unconfirmed retirement: no candidate

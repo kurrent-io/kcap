@@ -70,8 +70,8 @@ Two runs, the same result; the second is archived as `gemini-0.64.0-summary.json
   Cursor and Copilot). gemini-cli's `loadSession` starts `streamHistory` without awaiting it —
   reported upstream as google-gemini/gemini-cli#29707, fix proposed in #29708.
 
-So 0.64.0 is not eligible: the fix must ship and this probe must show `after_response_conversation: 0`
-on it (see the 0.70.0 re-probe below)
+So 0.64.0 fails the replay barrier. Reconnect is on for Gemini without a version floor, so on 0.64.0 a
+reconnect writes the trailing replay into the transcript again (see the 0.70.0 re-probe below)
 
 ## Re-probe: gemini 0.70.0 (2026-11-23)
 
