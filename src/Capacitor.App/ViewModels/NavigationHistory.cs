@@ -62,11 +62,12 @@ public sealed class NavigationHistory : ReactiveObject {
 
     /// An entry without a session id is still launching, so it matches its agent's later entries.
     internal static bool SamePlace(NavigationEntry a, NavigationEntry b) =>
-        a.IsLauncher ? b.IsLauncher
-            : !b.IsLauncher
-              && AgentIds.Normalize(a.AgentId) == AgentIds.Normalize(b.AgentId)
-              && (a.SessionId is null || b.SessionId is null
-                  || SessionIds.SameSession(a.SessionId, b.SessionId) || SessionIds.SameSession(b.SessionId, a.SessionId));
+        a.Page is not null || b.Page is not null ? a.Page == b.Page
+        : a.IsLauncher ? b.IsLauncher
+        : !b.IsLauncher
+          && AgentIds.Normalize(a.AgentId) == AgentIds.Normalize(b.AgentId)
+          && (a.SessionId is null || b.SessionId is null
+              || SessionIds.SameSession(a.SessionId, b.SessionId) || SessionIds.SameSession(b.SessionId, a.SessionId));
 
     void Refresh() {
         CanGoBack = _back.Count > 0;

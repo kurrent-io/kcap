@@ -6,6 +6,7 @@ using Capacitor.App.Services;
 using Capacitor.App.Services.Update;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Onboarding;
+using Capacitor.App.ViewModels.Pages;
 using Capacitor.App.Views;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Commands;
@@ -39,6 +40,10 @@ public class MainWindowViewModelTests {
             Task.FromResult(new LaunchOutcome(false, null, "unexpected launch"));
     }
 
+    sealed record StubPage(PageKey Key) : IPage {
+        public void Dispose() { }
+    }
+
     /// The view-state/rail-wiring tests' standard construction: a VM over the fake service, with
     /// an optional workspace factory and rail.
     static MainWindowViewModel NewVm(
@@ -48,13 +53,14 @@ public class MainWindowViewModelTests {
             Action<Func<Task>>? trackWorkspaceTeardown = null, IAgentDirectory? directory = null,
             Action<FeedbackCategory>? openFeedback = null, IUrlOpener? opener = null,
             Func<string, RemoteSessionViewModel?>? serverWorkspaceFactory = null, TimeProvider? time = null,
-            IServerSessionsService? sessions = null) {
+            IServerSessionsService? sessions = null, Func<PageKey, IPage?>? pages = null) {
         return new MainWindowViewModel(
             service, CancellationToken.None, TestActivity.New(), time ?? TimeProvider.System,
             trackWorkspaceTeardown: trackWorkspaceTeardown,
             workspaceFactory: workspaceFactory, rail: rail,
             originOf: originOf, remoteWorkspaceFactory: remoteWorkspaceFactory, directory: directory,
-            openFeedback: openFeedback, opener: opener, serverWorkspaceFactory: serverWorkspaceFactory, sessions: sessions);
+            openFeedback: openFeedback, opener: opener, serverWorkspaceFactory: serverWorkspaceFactory, sessions: sessions,
+            pages: pages);
     }
 
     /// A real WorkspaceViewModel over the fake service and scripted attach/surface fakes — same
@@ -2645,6 +2651,36 @@ public class MainWindowViewModelTests {
             await vm.GoForwardCommand.Execute().ToTask();
             await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a2");
             await Assert.That(vm.History.CanGoForward).IsFalse();
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// Pages are places too: back from a session opened off a page returns to that page, and from
+    /// a work item to the list it was opened from.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Back_and_forward_walk_through_pages() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), trackWorkspaceTeardown: teardown => _ = teardown(),
+                pages: key => new StubPage(key));
+            await vm.OpenPageCommand.Execute(PageKey.WorkItems).ToTask();
+            await vm.OpenWorkItemCommand.Execute("w1").ToTask();
+            vm.OpenSession("a1");
+
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.Page?.Key).IsEqualTo(new PageKey.WorkItem("w1"));
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.Page?.Key).IsEqualTo(PageKey.WorkItems);
+            await vm.GoBackCommand.Execute().ToTask();
+            await Assert.That(vm.Page).IsNull();
+            await Assert.That(vm.CurrentWorkspace).IsNull();
+
+            await vm.GoForwardCommand.Execute().ToTask();
+            await vm.GoForwardCommand.Execute().ToTask();
+            await vm.GoForwardCommand.Execute().ToTask();
+            await Assert.That(vm.Page).IsNull();
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
             vm.CloseWorkspace();
         });
     }

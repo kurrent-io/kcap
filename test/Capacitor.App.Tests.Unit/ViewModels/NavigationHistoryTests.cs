@@ -3,7 +3,7 @@ using Capacitor.App.ViewModels;
 namespace Capacitor.App.Tests.Unit.ViewModels;
 
 public class NavigationHistoryTests {
-    static NavigationEntry Session(string id) => new(id, null, false, false, false, null, null);
+    static NavigationEntry Session(string id) => new(id, null, false, false, false, null, null, null);
 
     /// Leaving the same place twice in a row is one entry, so back never lands where it already is.
     [Test]
@@ -20,9 +20,9 @@ public class NavigationHistoryTests {
     [Test]
     public async Task One_agent_with_two_sessions_keeps_both_entries() {
         var history = new NavigationHistory();
-        history.Left(new NavigationEntry("a1", "s1", false, false, false, null, null));
-        history.Left(new NavigationEntry("a1", "s2", false, false, false, null, null));
-        history.Left(new NavigationEntry("a1", null, false, false, false, null, null));
+        history.Left(new NavigationEntry("a1", "s1", false, false, false, null, null, null));
+        history.Left(new NavigationEntry("a1", "s2", false, false, false, null, null, null));
+        history.Left(new NavigationEntry("a1", null, false, false, false, null, null, null));
 
         await Assert.That(history.TakeBack()?.SessionId).IsNull();
         await Assert.That(history.TakeBack()?.SessionId).IsEqualTo("s1");

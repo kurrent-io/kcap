@@ -470,7 +470,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         OpenSearchCommand = ReactiveCommand.Create(OpenSearch);
         DismissSearchCommand = ReactiveCommand.Create(ClosePages);
         _pages = pages;
-        OpenPageCommand = ReactiveCommand.Create<PageKey>(OpenPage);
+        OpenPageCommand = ReactiveCommand.Create<PageKey>(key => OpenPage(key));
         OpenWorkItemCommand = ReactiveCommand.Create<string>(id => OpenPage(new PageKey.WorkItem(id)));
         var canRefreshWork = Observable.Switch(this.WhenAnyValue(x => x.CurrentWorkspace)
             .Select(CanRefreshOpenWork))
@@ -868,11 +868,13 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         _navigation.Bump();
     }
 
-    void OpenPage(PageKey key) {
+    void OpenPage(PageKey key, bool record = true) {
         if (_pages is null || Page?.Key == key || _pages(key) is not { } page) return;
+        var from = Here();
         ClosePages();
         Page = page;
         _navigation.Bump();
+        if (record) RecordLeaving(from);
     }
 
     void ClosePage() {
@@ -1077,7 +1079,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         ShowTab(parked.Entry);
     }
 
-    NavigationEntry Here() => CurrentWorkspace is { } open ? EntryFor(open) : NavigationEntry.Launcher;
+    NavigationEntry Here() =>
+        Page is { } page ? NavigationEntry.ForPage(page.Key)
+        : CurrentWorkspace is { } open ? EntryFor(open) : NavigationEntry.Launcher;
 
     NavigationEntry EntryFor(ISessionWorkspace open) {
         var (terminal, pullRequest, artefacts) = open switch {
@@ -1088,7 +1092,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         var sessionId = SessionOfOpen();
         var pin = sessionId is not null && (_sessions?.PinnedSessionId ?? _searchPin) is { } pinned && SessionIds.SameSession(pinned, sessionId)
             ? _searchPinPresentation : null;
-        return new NavigationEntry(open.AgentId, sessionId, terminal, pullRequest, artefacts, open.PullRequests?.Selected?.Subject, pin);
+        return new NavigationEntry(open.AgentId, sessionId, terminal, pullRequest, artefacts, open.PullRequests?.Selected?.Subject, pin, null);
     }
 
     void ShowTab(NavigationEntry entry) {
@@ -1124,6 +1128,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// The lane is resolved afresh, so a session that has moved lanes opens where it is now; one no
     /// lane lists any longer is found again by its session, pinning it when the rail no longer has it.
     async Task<bool> ReturnToAsync(NavigationEntry target, int generation) {
+        if (target.Page is { } key) {
+            OpenPage(key, record: false);
+            return Page?.Key == key;
+        }
         if (target.IsLauncher) {
             ClosePages();
             CloseWorkspace();
