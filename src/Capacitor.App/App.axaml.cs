@@ -512,6 +512,8 @@ public partial class App : Application {
             // A quit during cleanup must retain the startup failure's exit code.
             _exitCode = 1;
             _shutdown.Cancel();
+            // The app this would tear down is going away here; an uninstall asked for from now on is asked over the error window.
+            _requestUninstall = null;
             // Block window recreation and hide-on-close before cleanup can yield.
             if (_coordinator is not null) _coordinator.QuitInProgress = true;
             LatchNavigation();
