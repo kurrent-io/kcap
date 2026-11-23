@@ -385,7 +385,7 @@ public class LocalSetupRecoveryTests {
         var serverLock = Tmp.CreateFile($"home/.config/kcap/local/run/{LocalStackProbe.ServerLockName}");
 
         LocalInstallFailure? first;
-        using (new FileStream(serverLock, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        await using (new FileStream(serverLock, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             first = await Recover();
 
         await Assert.That(first?.Code).IsEqualTo(LocalInstallFailureCode.RecoveryFailed);

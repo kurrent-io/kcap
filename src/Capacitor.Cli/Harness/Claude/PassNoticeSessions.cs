@@ -12,11 +12,11 @@ sealed class PassNoticeSessions(ConfigRoot config) {
             var marker = Marker(sessionId);
             Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
             File.WriteAllText(marker, serverUrl);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     public void Disarm(string sessionId) {
-        try { File.Delete(Marker(sessionId)); } catch { }
+        try { File.Delete(Marker(sessionId)); } catch { /* ignored */ }
     }
 
     /// <summary>Whether the session is armed for any server; cheap enough to ask before the profile is resolved.</summary>

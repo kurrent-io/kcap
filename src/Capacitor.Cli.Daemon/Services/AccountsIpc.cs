@@ -18,7 +18,7 @@ internal sealed class AccountsIpc(AccountsPublisher publisher) {
             // Without this a vanished subscriber would park the handler on the publisher forever.
             _ = Task.Run(async () => {
                 try { while (await FrameCodec.ReadAsync(stream, cts.Token) is not null) { } }
-                catch { }
+                catch { /* ignored */ }
                 try { cts.Cancel(); } catch (ObjectDisposedException) { }
             }, cts.Token);
 

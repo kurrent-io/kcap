@@ -125,8 +125,8 @@ public sealed class Supervisor<TEnrollment>(
             log.Write($"graceful stop of {entry.Enrollment.Name} could not be requested: {ex.Message}");
         }
 
-        var finished = await Task.WhenAny(daemon.Exited, Task.Delay(gracefulStopWait, time)).ConfigureAwait(false);
-        if (finished != daemon.Exited) {
+        await ((Task)daemon.Exited).WaitAsync(gracefulStopWait, time).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        if (!daemon.Exited.IsCompleted) {
             log.Write($"{entry.Enrollment.Name} (pid {daemon.Pid}) did not stop within {gracefulStopWait.TotalSeconds:0}s; ending it");
             daemon.Terminate();
         }

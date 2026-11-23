@@ -174,11 +174,11 @@ public sealed class RemoteAgentsService : IRemoteAgentsService, IDisposable {
         // RefreshAgentsAsync can await its completion before publishing rows that AgentDirectory
         // deduplicates against Daemons.
         var refreshDaemons = everyConnect.Merge(lane.DaemonsChanged.Throttle(wait))
-            .Select(_ => Observable.FromAsync(() => RefreshListingAsync()))
+            .Select(_ => Observable.FromAsync(RefreshListingAsync))
             .Merge()
             .Subscribe();
         var refreshDaemonAccounts = everyConnect.Merge(lane.DaemonAccountsChanged.Throttle(wait))
-            .Select(_ => Observable.FromAsync(() => RefreshDaemonAccountsAsync()))
+            .Select(_ => Observable.FromAsync(RefreshDaemonAccountsAsync))
             .Merge()
             .Subscribe();
         var refreshAgents = everyConnect.Merge(lane.AgentInstancesChanged.Throttle(wait))
@@ -281,6 +281,7 @@ public sealed class RemoteAgentsService : IRemoteAgentsService, IDisposable {
             try {
                 result = await _lane.GetConnectedDaemonsAsync(cts.Token).WaitAsync(cts.Token).ConfigureAwait(false);
             } catch (Exception) {
+                // ignored
             }
             TaskCompletionSource? completed = null;
             bool rerun, newIncarnation = false;
@@ -372,6 +373,7 @@ public sealed class RemoteAgentsService : IRemoteAgentsService, IDisposable {
             try {
                 result = await _lane.GetDaemonAccountsAsync(cts.Token).WaitAsync(cts.Token).ConfigureAwait(false);
             } catch (Exception) {
+                // ignored
             }
             lock (_lock) {
                 // Dispose takes this lock before disposing the subject, so a result landing after it stops here.

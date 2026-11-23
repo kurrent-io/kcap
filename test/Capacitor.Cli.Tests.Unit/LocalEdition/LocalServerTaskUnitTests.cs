@@ -54,7 +54,7 @@ public class LocalServerTaskUnitTests {
 
     [Test]
     public async Task The_task_runs_the_wrapper_headless_at_normal_priority() {
-        var xml = LocalServerTaskUnit.TaskXml(Unit(), Wrapper, @"CORP\u");
+        var xml = LocalServerTaskUnit.TaskXml(Wrapper, @"CORP\u");
         var ns  = XNamespace.Get("http://schemas.microsoft.com/windows/2004/02/mit/task");
 
         await Assert.That(XDocument.Parse(xml).Descendants(ns + "Priority").Single().Value).IsEqualTo("5");

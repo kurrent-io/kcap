@@ -319,7 +319,7 @@ public class GeminiReviewerLiveCertTests {
                        $"timed out after {TurnTimeout.TotalSeconds:N0}s; stderr tail: "
                      + err[Math.Max(0, err.Length - 400)..]);
         } finally {
-            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { /* ignored */ }
         }
     }
 }

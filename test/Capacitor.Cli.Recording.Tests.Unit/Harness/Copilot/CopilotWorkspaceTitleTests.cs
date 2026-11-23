@@ -44,7 +44,7 @@ public class CopilotWorkspaceTitleTests {
     public async Task Reads_while_a_writer_holds_the_file() {
         var path = Tmp.CreateFile("workspace.yaml", "name: proj\nuser_named: true\n");
 
-        using var writer = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+        await using var writer = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
 
         await Assert.That(new CopilotWorkspaceTitle(path).Read()!.Title).IsEqualTo("proj");
     }

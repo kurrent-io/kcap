@@ -55,7 +55,7 @@ public class McpStdioLoopTests {
     [Test]
     public async Task A_long_call_holds_up_neither_a_later_call_nor_a_ping() {
         var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var output = new Responses();
+        await using var output = new Responses();
         var input = string.Join('\n', Call(1, "slow"), Call(2, "fast"), Request("3", "\"ping\""));
 
         var loop = Run(input, output, (id, request) =>
@@ -76,7 +76,7 @@ public class McpStdioLoopTests {
         var release     = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var slowStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var started     = new ConcurrentQueue<string>();
-        using var output = new Responses();
+        await using var output = new Responses();
         var input = string.Join('\n', Call(1, "slow"), Call(2, "fast"), Request("3", "\"ping\""));
 
         var loop = McpStdioLoop.RunAsync(new StringReader(input), output, [], (id, request) => {
@@ -103,7 +103,7 @@ public class McpStdioLoopTests {
         var release     = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var firstHeld   = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var started     = new ConcurrentQueue<string>();
-        using var output = new Responses();
+        await using var output = new Responses();
         var input = string.Join('\n', Call(1, "a-first"), Call(2, "a-second"), Call(3, "b"));
 
         var loop = McpStdioLoop.RunAsync(new StringReader(input), output, [], (id, request) => {
@@ -129,7 +129,7 @@ public class McpStdioLoopTests {
     /// request rather than run alongside the call it should have waited for.</summary>
     [Test]
     public async Task A_call_whose_order_key_cannot_be_read_is_refused_and_the_loop_serves_on() {
-        using var output = new Responses();
+        await using var output = new Responses();
         var ran = 0;
         // A duplicated key nested in arguments throws when the order key first reads it.
         var input = string.Join('\n',
@@ -162,7 +162,7 @@ public class McpStdioLoopTests {
     /// a call to a tool the list does not hold, reach the server as before.</summary>
     [Test]
     public async Task A_call_passing_an_argument_its_tool_does_not_declare_is_refused_before_it_runs() {
-        using var output = new Responses();
+        await using var output = new Responses();
         var ran = new ConcurrentBag<string>();
         var input = string.Join('\n',
             CallWith(1, "list", """{"repo":"a/b","from":"2026-01-01","to":"2026-02-01"}"""),
@@ -186,7 +186,7 @@ public class McpStdioLoopTests {
     /// handler rather than answering it as an internal error.</summary>
     [Test]
     public async Task A_call_whose_arguments_repeat_a_key_still_reaches_its_tool() {
-        using var output = new Responses();
+        await using var output = new Responses();
         var ran = 0;
 
         await McpStdioLoop.RunAsync(new StringReader(CallWith(1, "list", """{"repo":"a","repo":"b"}""")), output, Filtered,
@@ -211,7 +211,7 @@ public class McpStdioLoopTests {
     [Test]
     public async Task A_failing_read_still_waits_for_the_call_in_flight_before_failing() {
         var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var output = new Responses();
+        await using var output = new Responses();
 
         var loop = McpStdioLoop.RunAsync(new FailingReader(Call(1, "slow")), output, [], (_, _) => release.Task,
             (id, method, _) => Answer(id, method), "test");
@@ -227,7 +227,7 @@ public class McpStdioLoopTests {
 
     [Test]
     public async Task A_call_that_throws_is_answered_with_an_internal_error_and_the_loop_serves_on() {
-        using var output = new Responses();
+        await using var output = new Responses();
         var input = string.Join('\n', Call(1, "broken"), Request("2", "\"ping\""));
 
         await Run(input, output, (_, _) => throw new InvalidOperationException("boom"));
@@ -241,7 +241,7 @@ public class McpStdioLoopTests {
     [Test]
     public async Task Notifications_and_unreadable_lines_get_no_answer_and_a_non_string_method_reads_as_none() {
         // A duplicated key surfaces on the first property read, not in Parse.
-        using var output = new Responses();
+        await using var output = new Responses();
         var input = string.Join('\n',
             """{"jsonrpc":"2.0","method":"notifications/initialized"}""",
             "not json",
@@ -273,7 +273,7 @@ public class McpStdioLoopTests {
     /// the waiting call instead of being answered back.</summary>
     [Test]
     public async Task A_client_answer_completes_the_request_the_server_sent() {
-        using var output = new Responses();
+        await using var output = new Responses();
         var input  = new Lines();
         var client = new McpClientRequests();
 

@@ -117,13 +117,13 @@ public sealed class DaemonCommands(
                 return 1;
             }
 
-            return await SpawnForegroundAsync(name, args);
+            return await SpawnForegroundAsync(args);
         } finally {
             startLock.Dispose();
         }
     }
 
-    async Task<int> SpawnForegroundAsync(string name, string[] args) {
+    async Task<int> SpawnForegroundAsync(string[] args) {
         var daemonPath = UnitIdentity.ResolveDaemonBinary();
 
         if (daemonPath is null) {
@@ -184,7 +184,7 @@ public sealed class DaemonCommands(
             return 1;
         }
 
-        using var _ = startLock;
+        await using var _ = startLock;
 
         if (DaemonPidProbe.ReadPidFile(store, name) is { } existing && DaemonPidProbe.IsOurDaemon(existing.Pid, existing.StartToken)) {
             console.Error.WriteLine(

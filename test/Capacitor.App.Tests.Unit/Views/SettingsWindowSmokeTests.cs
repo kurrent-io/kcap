@@ -740,7 +740,7 @@ public class SettingsWindowSmokeTests {
             window.Show();
             Settle(window);
             var peers = window.GetVisualDescendants().OfType<SettingsSectionHeader>()
-                .Select(header => ControlAutomationPeer.CreatePeerForElement(header))
+                .Select(ControlAutomationPeer.CreatePeerForElement)
                 .ToList();
 
             await Assert.That(peers.Select(peer => peer.GetName())).IsEquivalentTo(["This profile", "This computer"]);

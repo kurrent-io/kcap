@@ -281,7 +281,7 @@ var telemetry = sp.GetRequiredService<CliTelemetry>();
 // a day on the agent's critical path) whose facade is off anyway.
 if (telemetry.Enabled) {
     var loggedIn = false;
-    try { loggedIn = await sp.GetRequiredService<TokenStore>().LoadForProfileAsync(profiles.Name) is not null; } catch { }
+    try { loggedIn = await sp.GetRequiredService<TokenStore>().LoadForProfileAsync(profiles.Name) is not null; } catch { /* ignored */ }
     telemetry.AddSharedProperty("logged_in", loggedIn);
 }
 
@@ -869,15 +869,16 @@ switch (command) {
         // (before this potentially slow resolution) so a parent exit can't truncate it.
         if (detachedImport is not null) DetachedImportLog.SignalAccepted();
 
-        using var disableGuard = detachedImport is not null && filterSession is not null
-            ? DisabledSessionImportGuard.Start(filterSession, config, time, () => {
-                Console.Error.WriteLine($"Session {filterSession} was disabled; stopping the import.");
-                Console.Error.Flush();
-                Environment.Exit(0);
-            })
-            : null;
-
         try {
+            // Disposed inside the try: its callback writes to the log the finally closes.
+            await using var disableGuard = detachedImport is not null && filterSession is not null
+                ? DisabledSessionImportGuard.Start(filterSession, config, time, () => {
+                    Console.Error.WriteLine($"Session {filterSession} was disabled; stopping the import.");
+                    Console.Error.Flush();
+                    Environment.Exit(0);
+                })
+                : null;
+
             ImportCommand.ImportRunOutcome? outcome = null;
 
             var exit = await Run<ImportCommand>().HandleImport(
@@ -1003,7 +1004,7 @@ switch (command) {
     // outlives the hook to finish the rotation. Not in PrintUsage — nobody types it by hand.
     case RefreshTokenHandoff.Command: {
         if (!profiles.Resolution.SendsNoBearer)
-            try { await sp.GetRequiredService<TokenStore>().GetValidTokensForProfileAsync(profiles.Name); } catch { }
+            try { await sp.GetRequiredService<TokenStore>().GetValidTokensForProfileAsync(profiles.Name); } catch { /* ignored */ }
 
         return 0;
     }

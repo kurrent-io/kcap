@@ -48,7 +48,7 @@ public class ClaudeTitlePromptTests {
     [Test]
     public async Task Reports_a_marker_it_cannot_write_and_asks_nothing() {
         Tmp.CreateFile("watchers");
-        using var stderr = new StringWriter();
+        await using var stderr = new StringWriter();
 
         await Assert.That(Run(Prompt(Sid), stderr)).IsEqualTo("");
         await Assert.That(stderr.ToString()).Contains(Sid);
@@ -103,7 +103,7 @@ public class ClaudeTitlePromptTests {
     [Arguments("not json")]
     [Arguments("[]")]
     public async Task Survives_a_payload_that_is_not_a_json_object(string body) {
-        using var stderr = new StringWriter();
+        await using var stderr = new StringWriter();
 
         await Assert.That(Run(body, stderr)).IsEqualTo("");
         await Assert.That(stderr.ToString()).IsEqualTo("");

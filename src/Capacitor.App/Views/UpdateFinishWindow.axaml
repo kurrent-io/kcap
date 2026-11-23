@@ -23,10 +23,10 @@
 
                 <!-- A live region: a window's name change is not announced while focus sits on the Open button. -->
                 <TextBlock x:Name="HeadingText" Margin="0,20,0,0" Text="{Binding Heading}" AutomationProperties.LiveSetting="Polite"
-                           FontSize="19" FontWeight="SemiBold" LineHeight="26" LetterSpacing="-0.2"
+                           FontSize="{StaticResource KcapFontSizeHeading}" FontWeight="SemiBold" LineHeight="26" LetterSpacing="-0.2"
                            Foreground="{StaticResource KcapTextBrush}" />
                 <TextBlock Margin="0,14,0,0" HorizontalAlignment="Left" Text="{Binding Description}"
-                           TextWrapping="Wrap" FontSize="13.5" LineHeight="21" Foreground="{StaticResource KcapMutedBrush}" />
+                           TextWrapping="Wrap" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="21" Foreground="{StaticResource KcapMutedBrush}" />
 
                 <Border Margin="0,18,0,0" Padding="14,12" CornerRadius="8" BorderThickness="1"
                         Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}">
@@ -48,20 +48,20 @@
                                         <views:AppIcon Kind="CircleX" Size="14" Foreground="{StaticResource KcapDangerBrush}" IsVisible="{Binding Step.IsProblem}" />
                                     </Panel>
                                     <StackPanel Grid.Column="1" Spacing="2">
-                                        <TextBlock Text="{Binding Step.Title}" FontSize="13" LineHeight="19"
+                                        <TextBlock Text="{Binding Step.Title}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="19"
                                                    Foreground="{StaticResource KcapTextBrush}" />
                                         <!-- A running step's detail stays on one line, so the window keeps its height as the phases change. -->
                                         <SelectableTextBlock Text="{Binding Step.Detail}" IsVisible="{Binding Step.HasDetail}"
                                                              TextWrapping="{Binding Step.DetailWrapping}" TextTrimming="CharacterEllipsis"
-                                                             FontSize="12.5" LineHeight="18" Foreground="{StaticResource KcapMutedBrush}" />
+                                                             FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="18" Foreground="{StaticResource KcapMutedBrush}" />
                                         <Button Content="Details" Classes="kcapChip" HorizontalAlignment="Left" Margin="0,4,0,0"
                                                 IsVisible="{Binding Step.HasDiagnostic}" Tag="{Binding #DiagnosticText}" Click="OnDetails" />
                                         <SelectableTextBlock x:Name="DiagnosticText" Text="{Binding Step.Hint}" TextWrapping="Wrap" IsVisible="False"
-                                                             FontSize="12" Foreground="{StaticResource KcapMutedBrush}" />
+                                                             FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" />
                                     </StackPanel>
                                     <!-- Kept out of the detail and fixed in width, so a changing figure never reflows the row. -->
                                     <TextBlock Grid.Column="2" Text="{Binding Step.Trailing}" MinWidth="40" Margin="10,0,0,0"
-                                               TextAlignment="Right" VerticalAlignment="Top" FontSize="12.5" LineHeight="19"
+                                               TextAlignment="Right" VerticalAlignment="Top" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="19"
                                                FontFamily="{StaticResource OnboardingMonoFont}" Foreground="{StaticResource KcapMutedBrush}" />
                                 </Grid>
                             </DataTemplate>

@@ -68,9 +68,9 @@ public class AntigravitySummaryTitleTests {
 
         string conversations  = Tmp.CreateDir("antigravity-cli", "conversations");
         var    conversationDb = Path.Combine(conversations, $"{ConversationId}.db");
-        using (var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = conversationDb, Pooling = false }.ToString())) {
+        await using (var conn = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = conversationDb, Pooling = false }.ToString())) {
             conn.Open();
-            using var create = conn.CreateCommand();
+            await using var create = conn.CreateCommand();
             create.CommandText = "CREATE TABLE steps (id INTEGER PRIMARY KEY)";
             create.ExecuteNonQuery();
         }
@@ -103,9 +103,9 @@ public class AntigravitySummaryTitleTests {
     [Test]
     public async Task A_locked_db_reads_null_promptly() {
         var db = BuildDb("Locked");
-        using var holder = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = db, Pooling = false }.ToString());
+        await using var holder = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = db, Pooling = false }.ToString());
         holder.Open();
-        using (var begin = holder.CreateCommand()) {
+        await using (var begin = holder.CreateCommand()) {
             begin.CommandText = "BEGIN EXCLUSIVE";
             begin.ExecuteNonQuery();
         }

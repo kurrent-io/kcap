@@ -24,7 +24,7 @@ public class DaemonRunnerConcurrentProbeTests {
 
         ThreadPool.GetMinThreads(out var minWorkers, out _);
         var blockers = Enumerable.Range(0, Math.Max(minWorkers, ThreadPool.ThreadCount) + 4)
-            .Select(_ => Task.Run(() => hold.Wait()))
+            .Select(_ => Task.Run(hold.Wait))
             .ToArray();
 
         IReadOnlyDictionary<string, string> result;

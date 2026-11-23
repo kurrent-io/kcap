@@ -230,7 +230,7 @@ public class WizardAuthServiceTests {
         var started      = new TaskCompletionSource();
         var cancelSeen   = new TaskCompletionSource();
         var service = new WizardAuthService(async (_, ct) => {
-            using var registration = ct.Register(() => cancelSeen.TrySetResult());
+            await using var registration = ct.Register(() => cancelSeen.TrySetResult());
             started.SetResult();
             await cancelSeen.Task;
             return Committed(Acme);

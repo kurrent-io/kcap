@@ -22,7 +22,6 @@ public sealed class UsageDataStepViewModel : ReactiveObject, IWizardStep {
     readonly UsageDataNotice? _notice;
     bool?   _choice;
     bool    _unsavedShown;
-    string? _problem;
 
     public UsageDataStepViewModel(UsageDataNotice? notice) {
         _notice    = notice;
@@ -65,7 +64,7 @@ public sealed class UsageDataStepViewModel : ReactiveObject, IWizardStep {
         }
     }
 
-    public string? Problem => _problem;
+    public string? Problem { get; private set; }
 
     public Task OnEnterAsync(CancellationToken ct) {
         // The edition chosen since construction decides which page this is.
@@ -109,7 +108,7 @@ public sealed class UsageDataStepViewModel : ReactiveObject, IWizardStep {
     /// Holds the page once to say so; the next Continue goes on.
     bool Unsaved(string problem) {
         _unsavedShown = true;
-        _problem      = problem;
+        Problem      = problem;
         this.RaisePropertyChanged(nameof(Problem));
         this.RaisePropertyChanged(nameof(ChoiceVisible));
         this.RaisePropertyChanged(nameof(CanContinue));

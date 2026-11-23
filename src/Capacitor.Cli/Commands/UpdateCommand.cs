@@ -277,8 +277,8 @@ public sealed class UpdateCommand(
             if (t.IsFaulted) _ = t.Exception;
         }, cts, TaskScheduler.Default);
 
-        var firstWinner = await Task.WhenAny(checkTask, Task.Delay(cacheFreshBudgetVal, time));
-        if (firstWinner == checkTask) {
+        var answered = await checkTask.FinishedWithinAsync(cacheFreshBudgetVal, time);
+        if (answered) {
             return checkTask.IsCompletedSuccessfully ? checkTask.Result : null;
         }
 
@@ -286,11 +286,10 @@ public sealed class UpdateCommand(
         // the defensive bound) — a network refresh is in flight. Let the cancellation already
         // armed on `cts` cut the HTTP request at networkCancelAfterVal, then allow cleanupGraceVal
         // more for the CancellationToken.None-guarded backoff write to persist.
-        var remaining    = networkCancelAfterVal - cacheFreshBudgetVal + cleanupGraceVal;
-        var secondWinner = await Task.WhenAny(
-            checkTask, Task.Delay(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, time));
+        var remaining = networkCancelAfterVal - cacheFreshBudgetVal + cleanupGraceVal;
+        await checkTask.FinishedWithinAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, time);
 
-        return secondWinner == checkTask && checkTask.IsCompletedSuccessfully ? checkTask.Result : null;
+        return checkTask.IsCompletedSuccessfully ? checkTask.Result : null;
     }
 
     /// <summary>

@@ -243,7 +243,7 @@ public class ParticipantUnreachableRetryTests {
 
         var clock = Clock();
         using var response = (await McpFlowsServer.SendWithSettlementRetryAsync(
-            client, "https://flows.example.test", (c, ct) => c.PostAsync($"{server.Url}/start", null, ct),
+            client, (c, ct) => c.PostAsync($"{server.Url}/start", null, ct),
             clock, SettlementBackoff.Seeded(11)) as McpFlowsServer.SettlementSendResult.Response)!.Value;
 
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Conflict);
@@ -274,7 +274,7 @@ public class ParticipantUnreachableRetryTests {
 
             var clock = Clock();
             using var response = (await McpFlowsServer.SendWithSettlementRetryAsync(
-                client, "https://flows.example.test", (c, ct) => c.PostAsync($"{server.Url}/{code}", null, ct),
+                client, (c, ct) => c.PostAsync($"{server.Url}/{code}", null, ct),
                 clock, SettlementBackoff.Seeded(11)) as McpFlowsServer.SettlementSendResult.Response)!.Value;
 
             await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.OK);
@@ -295,7 +295,7 @@ public class ParticipantUnreachableRetryTests {
 
         var clock = Clock();
         using var response = (await McpFlowsServer.SendWithSettlementRetryAsync(
-            client, "https://flows.example.test", (c, ct) => c.PostAsync($"{server.Url}/rounds", null, ct),
+            client, (c, ct) => c.PostAsync($"{server.Url}/rounds", null, ct),
             clock, SettlementBackoff.Seeded(11), extraRetryableCode: McpFlowsServer.ParticipantUnreachableCode)
             as McpFlowsServer.SettlementSendResult.Response)!.Value;
 
@@ -316,7 +316,7 @@ public class ParticipantUnreachableRetryTests {
 
         var clock = Clock();
         using var response = (await McpFlowsServer.SendWithSettlementRetryAsync(
-            client, "https://flows.example.test", (c, ct) => c.PostAsync($"{server.Url}/rounds", null, ct),
+            client, (c, ct) => c.PostAsync($"{server.Url}/rounds", null, ct),
             clock, SettlementBackoff.Seeded(11), extraRetryableCode: McpFlowsServer.ParticipantUnreachableCode)
             as McpFlowsServer.SettlementSendResult.Response)!.Value;
 

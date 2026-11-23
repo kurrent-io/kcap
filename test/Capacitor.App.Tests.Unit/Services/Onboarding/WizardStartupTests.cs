@@ -1317,7 +1317,7 @@ public class WizardStartupTests {
 
         // A quit mid-probe must not go on to build a wizard window — same rule as the gate's.
         await Assert.ThrowsAsync<OperationCanceledException>(() => AppUnderTest.ResolveShimApplicableAsync(
-            true, "/opt/kcap/bin/kcap", ct => Task.FromCanceled<bool?>(ct), cts.Token));
+            true, "/opt/kcap/bin/kcap", Task.FromCanceled<bool?>, cts.Token));
     }
 
     // ── the sign-in step's committed answer ───────────────────────────────────

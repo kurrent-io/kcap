@@ -161,7 +161,7 @@ public sealed partial class LocalBundleClient(HttpClient http, TimeProvider time
         var url = $"{BaseUrl}/models/{modelSetId}/{file.Name}";
 
         using var stall = new CancellationTokenSource();
-        using var timer = time.CreateTimer(CancelStalled, stall, ModelStallTimeout, Timeout.InfiniteTimeSpan);
+        await using var timer = time.CreateTimer(CancelStalled, stall, ModelStallTimeout, Timeout.InfiniteTimeSpan);
 
         try {
             using var cts  = CancellationTokenSource.CreateLinkedTokenSource(ct, stall.Token);

@@ -21,10 +21,10 @@ public static class BoundedAuth {
             return null;
         }
 
-        var task   = factory();
-        var winner = await Task.WhenAny(task, Task.Delay(cap, time));
+        var task    = factory();
+        var created = await task.FinishedWithinAsync(cap, time);
 
-        if (winner != task) {
+        if (!created) {
             onAbandoned?.Invoke();
 
             _ = task.ContinueWith(static t => {

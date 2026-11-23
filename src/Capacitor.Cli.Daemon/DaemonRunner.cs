@@ -1810,11 +1810,11 @@ public static partial class DaemonRunner {
             try { drained = Task.WaitAll([stdout, stderr], DrainGraceMs); }
             catch { /* a faulted drain is a miss, same as a timeout */ }
             if (!drained) {
-                try { ProcessTree.Kill(process); } catch { }
+                try { ProcessTree.Kill(process); } catch { /* ignored */ }
                 // Ask the drains to return what they already read. Closing the readers here deadlocks:
                 // a blocked read holds the reader lock that dispose needs.
                 stop.Cancel();
-                try { Task.WaitAll([stdout, stderr], DrainGraceMs); } catch { }
+                try { Task.WaitAll([stdout, stderr], DrainGraceMs); } catch { /* ignored */ }
             }
 
             var output = ResultOrEmpty(stdout).Trim();
@@ -1826,7 +1826,7 @@ public static partial class DaemonRunner {
         } catch {
             return null;
         } finally {
-            try { process?.Dispose(); } catch { }
+            try { process?.Dispose(); } catch { /* ignored */ }
         }
     }
 

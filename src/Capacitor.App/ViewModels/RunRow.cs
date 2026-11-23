@@ -11,7 +11,6 @@ public sealed class RunRow : ReactiveObject {
     /// With no report of its own, a run that began before the latest restart is running only if it
     /// waited after that restart. Each is the latest heard, so the order they land in cannot matter.
     DateTimeOffset? _restartedAt;
-    DateTimeOffset? _waitedAt;
     bool _openable = true;
 
     public RunRow(string callId, string name, string description, DateTimeOffset startedAt, RunKind kind = RunKind.Agent) {
@@ -120,7 +119,7 @@ public sealed class RunRow : ReactiveObject {
         IsCutOff = false;
     }
 
-    internal DateTimeOffset? WaitedAt => _waitedAt;
+    internal DateTimeOffset? WaitedAt { get; private set; }
 
     /// Ended by a restart rather than by anything the run said.
     internal bool IsCutOff { get; private set; }
@@ -129,7 +128,7 @@ public sealed class RunRow : ReactiveObject {
     /// report that still lands says how it really ended.
     internal void CutOff(DateTimeOffset at) {
         _restartedAt = Later(_restartedAt, at);
-        if (IsEnded || _waitedAt > _restartedAt) return;
+        if (IsEnded || WaitedAt > _restartedAt) return;
         End(RunState.Stopped, at);
         _outcomeUnknown = true;
         IsCutOff = true;
@@ -149,8 +148,8 @@ public sealed class RunRow : ReactiveObject {
     /// made: the pause's own stop, heard ahead of the notification. Past a restart only a wait dated
     /// after it can, since a notification can be written well after the time it carries.
     internal void Waited(DateTimeOffset at) {
-        _waitedAt = Later(_waitedAt, at);
-        if (!_endedByStop && !IsCutOff || _waitedAt <= _restartedAt) return;
+        WaitedAt = Later(WaitedAt, at);
+        if (!_endedByStop && !IsCutOff || WaitedAt <= _restartedAt) return;
         Outcome = RunState.Running;
         EndedAt = null;
         _outcomeUnknown = false;

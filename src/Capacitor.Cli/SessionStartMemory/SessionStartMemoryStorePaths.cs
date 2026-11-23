@@ -11,7 +11,7 @@ internal static class SessionStartMemoryStorePaths {
         if (!OperatingSystem.IsWindows()) {
             try {
                 File.SetUnixFileMode(full, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            } catch { }
+            } catch { /* ignored */ }
         }
         var info = new DirectoryInfo(full);
         if ((info.Attributes & FileAttributes.ReparsePoint) != 0)

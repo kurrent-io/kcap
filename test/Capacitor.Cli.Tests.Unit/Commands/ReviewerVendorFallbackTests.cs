@@ -584,7 +584,7 @@ public class ReviewerVendorFallbackTests {
         using var client = new HttpClient();
 
         var result = await McpFlowsServer.SendWithSettlementRetryAsync(
-            client, "https://flows.example.test",
+            client,
             (_, _) => {
                 sends++;
 

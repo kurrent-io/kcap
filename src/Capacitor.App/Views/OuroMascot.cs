@@ -5,11 +5,13 @@ using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Svg.Skia;
 using Avalonia.Threading;
+using Capacitor.App.Services;
 
 namespace Capacitor.App.Views;
 
 /// Svg.Skia renders a static picture, so the class hooks in ouro.svg take each pose's transforms
-/// and the baked frames are stepped here, only while IsPlaying and on screen.
+/// and the baked frames are stepped here, only while IsPlaying and on screen, and never while the
+/// OS is set to reduce motion: then it holds its first frame.
 public sealed class OuroMascot : Image {
     public static readonly StyledProperty<bool> IsPlayingProperty =
         AvaloniaProperty.Register<OuroMascot, bool>(nameof(IsPlaying));
@@ -42,16 +44,20 @@ public sealed class OuroMascot : Image {
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e) {
         base.OnAttachedToVisualTree(e);
+        ReducedMotion.Changed += Sync;
         Sync();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
         base.OnDetachedFromVisualTree(e);
+        ReducedMotion.Changed -= Sync;
         Sync();
     }
 
+    internal bool IsStepping => _timer.IsEnabled;
+
     void Sync() {
-        if (IsPlaying && VisualRoot is not null) {
+        if (IsPlaying && VisualRoot is not null && !ReducedMotion.IsOn) {
             _timer.Start();
             return;
         }

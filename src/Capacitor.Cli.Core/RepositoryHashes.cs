@@ -16,7 +16,7 @@ public static class RepositoryHashes {
     public static Task<string?> ForAsync(
             HttpClient client, string baseUrl, string owner, string name, Func<HttpResponseMessage, Task>? onFailure = null,
             Action<HttpRequestException>? onUnreachable = null, CancellationToken ct = default) =>
-        ForAsync((url, token) => client.GetAsync(url, token), baseUrl, owner, name, onFailure, onUnreachable, ct);
+        ForAsync(client.GetAsync, baseUrl, owner, name, onFailure, onUnreachable, ct);
 
     /// <param name="get">Sends a GET to the absolute URL it is given.</param>
     /// <param name="onFailure">Sees a refused or failed lookup before it reads as unresolved, so a caller can tell an

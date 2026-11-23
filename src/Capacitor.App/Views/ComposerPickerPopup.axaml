@@ -7,7 +7,7 @@
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="Padding" Value="8,5" />
-            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         </Style>
         <Style Selector="ContentPresenter.active Button.pickerRow /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />

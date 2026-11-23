@@ -34,7 +34,7 @@ internal sealed class DaemonStatusIpc(
             // ConsentSubscribe), or the daemon would keep serializing snapshots for nobody.
             _ = Task.Run(async () => {
                 try { while (await FrameCodec.ReadAsync(stream, cts.Token) is not null) { } }
-                catch { }
+                catch { /* ignored */ }
                 try { cts.Cancel(); } catch (ObjectDisposedException) { }
             }, cts.Token);
 

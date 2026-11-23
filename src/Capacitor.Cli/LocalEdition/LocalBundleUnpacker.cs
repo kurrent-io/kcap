@@ -40,7 +40,7 @@ public static class LocalBundleUnpacker {
         var symlinks    = new List<(string Name, string Full, string Target)>();
 
         await using (var gzip = new GZipStream(File.OpenRead(archive), CompressionMode.Decompress))
-        using (var reader = new TarReader(gzip)) {
+        await using (var reader = new TarReader(gzip)) {
             while (await reader.GetNextEntryAsync(copyData: false, ct) is { } entry) {
                 try {
                     await Process(entry, root, directories, knownDirs, files, symlinks, ct);

@@ -51,7 +51,7 @@ public class MuseAssistantStateStoreTests {
         var updated = State(Acme) with { Watermark = 99 };
 
         Task saving;
-        using (new FileStream(MuseAssistantPaths.ChatState(dir, "chat-main"), FileMode.Open, FileAccess.Read, FileShare.Read)) {
+        await using (new FileStream(MuseAssistantPaths.ChatState(dir, "chat-main"), FileMode.Open, FileAccess.Read, FileShare.Read)) {
             saving = Task.Run(() => store.SaveState(updated));
             await Task.Delay(50);
         }

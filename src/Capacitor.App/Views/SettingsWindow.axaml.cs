@@ -147,5 +147,6 @@ public partial class SettingsWindow : Window {
     public void ShowPage(SettingsTab page) {
         if (page == SettingsTab.Search) ShowSearch();
         else if (page == SettingsTab.Harnesses) SettingsTabs.SelectedItem = HarnessesTab;
+        else if (page == SettingsTab.About) SettingsTabs.SelectedItem = AboutTab;
     }
 }

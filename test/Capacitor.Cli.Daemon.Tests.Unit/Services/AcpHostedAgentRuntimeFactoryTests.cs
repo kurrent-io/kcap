@@ -895,7 +895,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         var fakeRunTask = fake.RunAsync(cts.Token);
 
         AcpMcpServerSpec[] mcpServers = [
-            new AcpMcpServerSpec(Name: "fs", Command: "npx",
+            new(Name: "fs", Command: "npx",
                 Args: ["-y", "@modelcontextprotocol/server-filesystem"],
                 Env: [new AcpMcpServerEnvVar("FOO", "bar")])
         ];
@@ -924,7 +924,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         var fakeRunTask = fake.RunAsync(cts.Token);
 
         AcpMcpServerSpec[] mcpServers = [
-            new AcpMcpServerSpec(Name: "fs", Command: "npx", Args: ["-y", "server-filesystem"], Env: [])
+            new(Name: "fs", Command: "npx", Args: ["-y", "server-filesystem"], Env: [])
         ];
         var ctx = MakeContext("agent-1") with { McpServers = mcpServers };
 
@@ -951,7 +951,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         var fakeRunTask = fake.RunAsync(cts.Token);
 
         AcpMcpServerSpec[] mcpServers = [
-            new AcpMcpServerSpec(Name: "fs", Command: "npx",
+            new(Name: "fs", Command: "npx",
                 Args: ["-y", "@modelcontextprotocol/server-filesystem"],
                 Env: [new AcpMcpServerEnvVar("FOO", "bar")])
         ];
@@ -2294,7 +2294,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         var fakeRunTask = fake.RunAsync(cts.Token);
 
         AcpMcpServerSpec[] mcpServers = [
-            new AcpMcpServerSpec(Name: "kcap-flow-result", Command: "kcap", Args: ["mcp", "flow-result"], Env: [])
+            new(Name: "kcap-flow-result", Command: "kcap", Args: ["mcp", "flow-result"], Env: [])
         ];
         var ctx = MakeContext("agent-1") with { McpServers = mcpServers };
 

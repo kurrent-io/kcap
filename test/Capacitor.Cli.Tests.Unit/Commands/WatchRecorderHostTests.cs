@@ -65,7 +65,7 @@ public class WatchRecorderHostTests {
         var ready = Ready("s-a");
 
         int failed;
-        using (new FileStream(pidFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        await using (new FileStream(pidFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             failed = await children.Stop(host, children.SelectStops(ready, now), ready);
 
         await Assert.That(failed).IsEqualTo(0);

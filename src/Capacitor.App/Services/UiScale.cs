@@ -19,6 +19,9 @@ public static class UiScale {
         return Math.Round(Math.Round(Math.Clamp(value, Min, Max) * StepsPerUnit, MidpointRounding.AwayFromZero) / StepsPerUnit, 2);
     }
 
+    /// Whether <paramref name="scale"/> lands on 100 %, compared by step rather than exact equality.
+    public static bool IsDefault(double scale) => Math.Abs(Normalize(scale) - Default) < Step / 2;
+
     public static double Larger(double scale) => Normalize(Normalize(scale) + Step);
 
     public static double Smaller(double scale) => Normalize(Normalize(scale) - Step);

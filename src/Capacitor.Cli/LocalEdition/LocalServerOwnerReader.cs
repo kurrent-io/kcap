@@ -11,7 +11,7 @@ namespace Capacitor.Cli.LocalEdition;
 /// files.</summary>
 static class LocalServerOwnerReader {
     public static OwnerReading FromPrint(int exitCode, string stdout, string stderr) {
-        switch (LaunchdPrint.Classify(exitCode, stdout, stderr)) {
+        switch (LaunchdPrint.Classify(exitCode, stderr)) {
             case LabelProbe.Absent:  return OwnerReading.Absent.Instance;
             case LabelProbe.Unknown: return new OwnerReading.Unreadable($"launchctl print failed (exit {exitCode}): {stderr.Trim()}");
         }

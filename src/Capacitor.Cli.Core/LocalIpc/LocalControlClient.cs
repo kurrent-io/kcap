@@ -283,6 +283,6 @@ public sealed class LocalControlClient(DaemonStore store, string daemonName, Tim
 
     static async ValueTask DisposeQuietly(NetworkStream? s) {
         if (s is null) return;
-        try { await s.DisposeAsync(); } catch { }
+        try { await s.DisposeAsync(); } catch { /* ignored */ }
     }
 }

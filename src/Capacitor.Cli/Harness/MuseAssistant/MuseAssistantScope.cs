@@ -137,7 +137,7 @@ public sealed class MuseAssistantScope(
             var seen   = store.EnumerateStates().ToDictionary(x => x.ChatId, StringComparer.Ordinal);
 
             foreach (var chatId in listed.Union(seen.Keys).ToList()) {
-                using var chatLock = await LockAsync(MuseAssistantPaths.ChatLock(store.ScopeDir, chatId), ct);
+                await using var chatLock = await LockAsync(MuseAssistantPaths.ChatLock(store.ScopeDir, chatId), ct);
                 if (chatLock is null) {
                     if (seen.TryGetValue(chatId, out var found) && found.Grant.Revoked) {
                         // Already revoked, so recording is stopped; `chat=` is kept for the chats that may still record.
@@ -170,7 +170,7 @@ public sealed class MuseAssistantScope(
             foreach (var file in store.EnumerateUnusableStateFiles().ToList()) {
                 var listedAs = listedByKey.GetValueOrDefault(Path.GetFileNameWithoutExtension(file));
 
-                using var fileLock = await LockAsync(Path.ChangeExtension(file, ".lock"), ct);
+                await using var fileLock = await LockAsync(Path.ChangeExtension(file, ".lock"), ct);
                 if (fileLock is null) {
                     if (listedAs is null) {
                         Console.Error.WriteLine($"kcap muse-assistant scope reset: {Busy}; the unusable state file {Path.GetFileName(file)} was not set aside");
@@ -242,7 +242,7 @@ public sealed class MuseAssistantScope(
 
                 // A wait here would hold the scope lock against a user-turn scope command. An ingest holding
                 // the chat replays its own intents; a revoked closure is left for the next sweep.
-                using var chatLock = MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(store.ScopeDir, chatId));
+                await using var chatLock = MuseAssistantChatLock.TryAcquire(MuseAssistantPaths.ChatLock(store.ScopeDir, chatId));
                 if (chatLock is null) {
                     Console.Error.WriteLine($"kcap muse-assistant sweep: {Busy} chat={chatId}");
                     if (!state.Grant.Revoked) active.Add(Describe(state));
@@ -286,11 +286,11 @@ public sealed class MuseAssistantScope(
 
         var store = stores.Create(MuseAssistantPaths.ScopeDir(config, principal), principal);
 
-        using var scopeLock = await LockAsync(MuseAssistantPaths.ScopeLock(store.ScopeDir), ct);
+        await using var scopeLock = await LockAsync(MuseAssistantPaths.ScopeLock(store.ScopeDir), ct);
         if (scopeLock is null) return Fail(verb, unavailable, ScopeBusy);
         if (chatId is null) return await body(principal, store);
 
-        using var chatLock = await LockAsync(MuseAssistantPaths.ChatLock(store.ScopeDir, chatId), ct);
+        await using var chatLock = await LockAsync(MuseAssistantPaths.ChatLock(store.ScopeDir, chatId), ct);
         if (chatLock is null) return whenChatBusy?.Invoke(store) ?? Fail(verb, unavailable, $"{Busy} chat={chatId}");
 
         return await body(principal, store);

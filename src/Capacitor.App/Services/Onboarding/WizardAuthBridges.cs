@@ -73,7 +73,7 @@ public sealed class WizardTenantPicker(IAuthProgress progress) : ITenantPicker {
         // A displaced pick has no view left to resolve it — end it rather than orphan its await.
         displaced?.TrySetCanceled(CancellationToken.None);
 
-        using var registration = ct.Register(() => pending.TrySetCanceled(ct));
+        await using var registration = ct.Register(() => pending.TrySetCanceled(ct));
 
         SelectionRequested?.Invoke(tenants);
 

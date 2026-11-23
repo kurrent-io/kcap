@@ -138,7 +138,7 @@ public partial class ChatTabViewModelTests {
                 await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with { Status = "Interrupted", Interruption = "worktree_missing" });
 
                 await Assert.That(h.Chat.AgentStatus.Kind).IsEqualTo(AgentStatusKind.Interrupted);
-                await Assert.That(h.Chat.AgentStatus.Tip).Contains("worktree_missing");
+                await Assert.That(h.Chat.AgentStatus.Tip).Contains("Its worktree no longer exists");
                 await Assert.That(h.Chat.AgentStatus.Tip).Contains("kcap agent resume a1");
             } finally { await h.TeardownAsync(); }
         });

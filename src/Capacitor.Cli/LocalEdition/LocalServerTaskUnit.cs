@@ -61,7 +61,7 @@ static class LocalServerTaskUnit {
         return sb.ToString();
     }
 
-    public static string TaskXml(LocalServerUnit unit, string wrapperPath, string? userId = null) =>
+    public static string TaskXml(string wrapperPath, string? userId = null) =>
         WindowsTaskUnit.TaskXml("kcap local server", wrapperPath, userId, Priority,
             "The wrapper sits under the user profile, so the local edition cannot register its task for this account.");
 

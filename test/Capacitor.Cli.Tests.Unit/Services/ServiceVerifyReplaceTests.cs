@@ -53,7 +53,7 @@ public class ServiceVerifyReplaceTests {
         public int WriteAndBootstrapCalls => Calls.Count(c => c == "writeAndBootstrap");
         public int UninstallCalls         => Calls.Count(c => c == "uninstall");
 
-        public IReadOnlyList<GeneratedFile> GenerateFiles(ServiceSpec spec) => [new GeneratedFile(PlistPath, PlistContent)];
+        public IReadOnlyList<GeneratedFile> GenerateFiles(ServiceSpec spec) => [new(PlistPath, PlistContent)];
 
         public ServiceQuery Query(string serviceId, TimeSpan timeout) {
             Calls.Add("query");
@@ -472,7 +472,7 @@ public class ServiceVerifyReplaceTests {
 
         public int WriteAndBootstrapCalls => Calls.Count(c => c == "writeAndBootstrap");
 
-        public IReadOnlyList<GeneratedFile> GenerateFiles(ServiceSpec spec) => [new GeneratedFile("/fake/agents/orphan.plist", OwnPlistContent)];
+        public IReadOnlyList<GeneratedFile> GenerateFiles(ServiceSpec spec) => [new("/fake/agents/orphan.plist", OwnPlistContent)];
 
         public ServiceQuery Query(string serviceId, TimeSpan timeout) {
             Calls.Add("query");
