@@ -65,6 +65,8 @@
             <SolidColorBrush x:Key="ScrollBarTrackStroke" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollBarTrackStrokePointerOver" Color="#1E2E52" />
             <SolidColorBrush x:Key="ScrollBarBackground" Color="#00000000" />
+            <ScaleTransform x:Key="VerticalSmallScrollThumbScaleTransform" ScaleX="1" ScaleY="1" />
+            <ScaleTransform x:Key="HorizontalSmallScrollThumbScaleTransform" ScaleX="1" ScaleY="1" />
             <SolidColorBrush x:Key="ScrollBarBackgroundPointerOver" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollBarButtonBackground" Color="#00000000" />
             <SolidColorBrush x:Key="ScrollBarButtonBackgroundPointerOver" Color="#00000000" />
@@ -831,6 +833,16 @@
         <Style Selector="ScrollBar">
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="ContextFlyout" Value="{x:Null}" />
+        </Style>
+        <Style Selector="ScrollViewer:not(:scrolling) /template/ ScrollBar[AllowAutoHide=True]:not(:expanded)">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
+        <Style Selector="ScrollBar[AllowAutoHide=True]">
+            <Setter Property="Transitions">
+                <Transitions>
+                    <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+                </Transitions>
+            </Setter>
         </Style>
         <Style Selector="ScrollBar:vertical">
             <Setter Property="Width" Value="12" />
