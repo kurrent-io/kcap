@@ -43,6 +43,12 @@ sealed class DaemonServiceCommands(
         // Elevated first, so the install below already finds the service and enrolls with it. The elevated step
         // changes the machine's service, so a hosted caller is refused ahead of it.
         if (system && action == "install" && OperatingSystem.IsWindows()) {
+            // The elevated step changes the machine, so an activation that would be refused is refused first.
+            if (ActivationRefusal(rest) is { } refusal) {
+                foreach (var line in refusal) await Console.Error.WriteLineAsync(line);
+                return 1;
+            }
+
             var enrolled = new RegistryServiceEnrollmentStore().Read()?.Name;
             // A malformed --retire names no target here; the install below refuses it
             if (await RefuseHostedCallerAsync(HostsCallerOf(store), serviceId, ParseRetire(rest).Id, enrolled, rest)) return 1;
@@ -69,8 +75,9 @@ sealed class DaemonServiceCommands(
         };
 
         // An update of the service binary: when the daemon is already enrolled as asked, the elevated step was the
-        // whole job. A changed profile or agent cap goes through the install below, which re-enrolls.
-        if (system && action == "install" && manager is WindowsServiceManager windows && EnrolledAsAsked(windows)) {
+        // whole job. A changed profile or agent cap goes through the install below, which re-enrolls, and so does an
+        // activation, whose job is the selection as much as the unit.
+        if (system && action == "install" && !rest.Contains("--activate") && manager is WindowsServiceManager windows && EnrolledAsAsked(windows)) {
             await Console.Out.WriteLineAsync($"kcap-service is current; '{serviceId}' is already enrolled with it.");
             return serverMoveFailed ? 1 : 0;
         }
@@ -663,16 +670,11 @@ sealed class DaemonServiceCommands(
         }
 
         var activate = args.Contains("--activate");
-        if (activate && !(replace && verify)) {
-            await Console.Error.WriteLineAsync("install --activate requires --replace --verify.");
+        if (ActivationRefusal(args) is { } activationRefusal) {
+            foreach (var line in activationRefusal) await Console.Error.WriteLineAsync(line);
             return 1;
         }
         var expectedServer = Environment.GetEnvironmentVariable(ExpectedServer.Var);
-        if (activate && string.IsNullOrEmpty(expectedServer)) {
-            await Console.Error.WriteLineAsync($"install --activate requires {ExpectedServer.Var}.");
-            await Console.Error.WriteLineAsync("expect_server_required");
-            return 1;
-        }
         if (activate && MigrateLegacy is null) {
             await Console.Error.WriteLineAsync("install --activate cannot move saved sign-ins from here.");
             return 1;
@@ -773,6 +775,15 @@ sealed class DaemonServiceCommands(
         } catch (IOException) { }
 
         return 0;
+    }
+
+    /// <summary>Why <c>--activate</c> cannot run with these arguments, as the lines to print, or null.</summary>
+    internal static string[]? ActivationRefusal(string[] args) {
+        if (!args.Contains("--activate")) return null;
+        if (!(args.Contains("--replace") && args.Contains("--verify"))) return ["install --activate requires --replace --verify."];
+        return string.IsNullOrEmpty(Environment.GetEnvironmentVariable(ExpectedServer.Var))
+            ? [$"install --activate requires {ExpectedServer.Var}.", "expect_server_required"]
+            : null;
     }
 
     /// <summary>What the unit does for the daemon. kcap-service starts a user's daemon only once they sign in, as the

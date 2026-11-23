@@ -25,6 +25,21 @@ internal sealed class DaemonCommandsServiceInstallTests {
         yield return () => (["--replace", "--activate"], "install --replace requires --verify.");
     }
 
+    /// <summary>The Windows service's elevated step runs before the install verb, so the activation preflight is
+    /// shared: it refuses there too, before the machine is changed.</summary>
+    [Test, NotInParallel]
+    public async Task The_activation_preflight_refuses_what_the_install_would_refuse() {
+        using (EnvScope.Exclusive(ExpectedServer.Var, "https://acme.example")) {
+            await Assert.That(DaemonServiceCommands.ActivationRefusal(["--replace", "--verify"])).IsNull();
+            await Assert.That(DaemonServiceCommands.ActivationRefusal(["--replace", "--verify", "--activate"])).IsNull();
+            await Assert.That(DaemonServiceCommands.ActivationRefusal(["--verify", "--activate"])!)
+                .IsEquivalentTo(["install --activate requires --replace --verify."]);
+        }
+        using (EnvScope.Exclusive(ExpectedServer.Var, null)) {
+            await Assert.That(DaemonServiceCommands.ActivationRefusal(["--replace", "--verify", "--activate"])!).Contains("expect_server_required");
+        }
+    }
+
     /// <summary>The app names the server it expects; without it an activation could select a profile
     /// repointed since the app looked, so the command refuses before touching anything.</summary>
     [Test, NotInParallel]
