@@ -263,7 +263,7 @@ public class WorkContextViewSmokeTests {
         workItem.Focus(NavigationMethod.Directional);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
         await Assert.That(TooltipPreviewScope.Text(workItem)).IsEquivalentTo(
-            new[] { "WK-2198", "In flight", "Open work item in web" }, CollectionOrdering.Matching);
+            new[] { "WK-2198", "In flight" }, CollectionOrdering.Matching);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
         await Assert.That(openedWorkItems).IsEquivalentTo(new[] { "w1" });
@@ -273,7 +273,7 @@ public class WorkContextViewSmokeTests {
         header.Focus(NavigationMethod.Directional);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
         await Assert.That(TooltipPreviewScope.Text(header)).IsEquivalentTo(
-            new[] { title, "In Progress", "linear.app · WK-2200", "Open issue in browser" }, CollectionOrdering.Matching);
+            new[] { title, "In Progress", "linear.app · WK-2200", "Opens in browser" }, CollectionOrdering.Matching);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
         await Assert.That(host.Opener.Opened).IsEquivalentTo(new[] { issue.Url! });
@@ -296,7 +296,7 @@ public class WorkContextViewSmokeTests {
         header.Focus(NavigationMethod.Directional);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
         await Assert.That(TooltipPreviewScope.Text(header)).IsEquivalentTo(
-            new[] { "3 linked issues", "Show all linked issues" }, CollectionOrdering.Matching);
+            new[] { "3 linked issues" }, CollectionOrdering.Matching);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
         var buttons = host.Find<ItemsControl>("IssueList").GetVisualDescendants().OfType<Button>().ToArray();

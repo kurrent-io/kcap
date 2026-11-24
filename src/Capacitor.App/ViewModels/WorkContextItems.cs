@@ -47,7 +47,6 @@ public sealed class WorkContextLinkViewModel : ReactiveObject {
     public string  AccessibleName => $"{Key}: {(Title.Length == 0 ? TitleMissingNote : Title)}";
     public KcapTip LinkTip {
         get {
-            var action = CanOpen ? $"Open {(Eyebrow == "ISSUE" ? "issue" : "pull request")} in browser" : null;
             var destination = CanOpen && Uri.TryCreate(Url, UriKind.Absolute, out var uri)
                 ? uri.Host : null;
             var state = State?.Replace('_', ' ').Trim();
@@ -60,7 +59,7 @@ public sealed class WorkContextLinkViewModel : ReactiveObject {
             var identity = string.IsNullOrWhiteSpace(Key) ? (Eyebrow == "ISSUE" ? "Issue" : "Pull request") : Key;
             return new(hasTitle ? Title : identity, string.IsNullOrWhiteSpace(state) ? null : state, tone,
                 KcapTipDetail.Present(KcapTipDetail.Note(hasTitle ? KcapTip.Join(destination, identity) : destination),
-                    CanOpen ? null : KcapTipDetail.Note("Link unavailable")), action);
+                    KcapTipDetail.Note(CanOpen ? "Opens in browser" : "Link unavailable")));
         }
     }
     public ReactiveCommand<Unit, Unit> OpenCommand { get; }

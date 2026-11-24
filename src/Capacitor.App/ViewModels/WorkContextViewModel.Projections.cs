@@ -93,14 +93,12 @@ public sealed partial class WorkContextViewModel {
             var state = StateLabel?.ToLowerInvariant();
             var status = string.IsNullOrEmpty(state) ? null : char.ToUpperInvariant(state[0]) + state[1..];
             return new(title, status, IsClosed ? "danger" : state == "in flight" ? "active" : null,
-                KcapTipDetail.Present(string.Equals(title, Key, StringComparison.OrdinalIgnoreCase) ? null : KcapTipDetail.Note(Key)),
-                _canOpenWorkItem.Value ? "Open work item in web" : null);
+                KcapTipDetail.Present(string.Equals(title, Key, StringComparison.OrdinalIgnoreCase) ? null : KcapTipDetail.Note(Key)));
         }
     }
 
     public KcapTip? IssueHeaderTip => HasMultipleIssues
-        ? new($"{IssueSectionMeta} linked issues",
-            Action: IssuesOverflows ? (IssuesExpanded ? "Show fewer issues" : "Show all linked issues") : null)
+        ? new($"{IssueSectionMeta} linked issues")
         : SeparateIssue?.LinkTip;
 
     void NotifyIdentity() {

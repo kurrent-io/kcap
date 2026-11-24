@@ -5,11 +5,8 @@
              x:Class="Capacitor.App.Views.PullRequestCard"
              x:DataType="vm:PullRequestContextViewModel">
     <UserControl.Styles>
-        <Style Selector="Button.prReaderTip[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:PullRequestContextViewModel">
-            <Setter Property="views:PreviewTooltip.Model" Value="{Binding ReaderLinkTip}" />
-        </Style>
-        <Style Selector="Button.prSourceTip[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:PullRequestContextViewModel">
-            <Setter Property="views:PreviewTooltip.Model" Value="{Binding SourceLinkTip}" />
+        <Style Selector="Button.prLinkTip[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:PullRequestContextViewModel">
+            <Setter Property="views:PreviewTooltip.Model" Value="{Binding PullRequestTip}" />
         </Style>
         <Style Selector="ComboBox.prSelectorTip[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:PullRequestContextViewModel">
             <Setter Property="views:PreviewTooltip.Model" Value="{Binding Selected.ChoiceTip, FallbackValue={x:Null}}" />
@@ -20,7 +17,7 @@
         <Style Selector="TextBlock.prChoiceTip[(views|PreviewTooltip.Enabled)=True]">
             <Setter Property="IsHitTestVisible" Value="False" />
         </Style>
-        <Style Selector="Button.prReaderTip[(views|PreviewTooltip.Enabled)=True] TextBlock.prReaderTitle">
+        <Style Selector="Button.prLinkTip[(views|PreviewTooltip.Enabled)=True] TextBlock.prReaderTitle">
             <Setter Property="IsHitTestVisible" Value="False" />
         </Style>
     </UserControl.Styles>
@@ -48,7 +45,7 @@
                                ToolTip.Tip="{Binding RepositoryLabel}" />
                 </StackPanel>
                 <Button x:Name="OpenGitHubButton" Grid.Column="1" Command="{Binding OpenGitHubCommand}" IsEnabled="{Binding CanOpenSource}"
-                        IsVisible="{Binding ShowsOpenSource}" Classes="kcapGhost kcapQuiet prSourceTip kcapStructuredTip" VerticalAlignment="Center"
+                        IsVisible="{Binding ShowsOpenSource}" Classes="kcapGhost kcapQuiet prLinkTip kcapStructuredTip" VerticalAlignment="Center"
                         AutomationProperties.Name="Open pull request in browser">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="{Binding ProviderLabel}" VerticalAlignment="Center" />
@@ -56,7 +53,7 @@
                     </StackPanel>
                 </Button>
             </Grid>
-            <Button x:Name="PullRequestTitleButton" Classes="copyValue prReaderTip kcapStructuredTip" Command="{Binding OpenReaderCommand}"
+            <Button x:Name="PullRequestTitleButton" Classes="copyValue prLinkTip kcapStructuredTip" Command="{Binding OpenReaderCommand}"
                     IsEnabled="{Binding CanOpenReader}" HorizontalAlignment="Stretch"
                     IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                     AutomationProperties.Name="Open pull request overview">

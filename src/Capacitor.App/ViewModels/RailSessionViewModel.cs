@@ -71,11 +71,11 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public KcapTip? LinkedPullRequestTip => PullRequest switch {
         { Count: 1 } summary => SinglePullRequestTip(summary.MenuItems[0]),
         { Count: > 1 } summary => new(summary.Description,
-            Details: KcapTipDetail.Present(KcapTipDetail.Field("Linked session", Primary)), Action: "Choose a pull request"),
+            Details: KcapTipDetail.Present(KcapTipDetail.Field("Linked session", Primary))),
         _ => null,
     };
     KcapTip SinglePullRequestTip(RailPullRequestMenuItem item) => KcapTip.PullRequest(
-        item.Subject.Number, item.Title, item.Status, item.Repository, "Open pull request details", KcapTipDetail.Field("Linked session", Primary));
+        item.Subject.Number, item.Title, item.Status, item.Repository, KcapTipDetail.Field("Linked session", Primary));
 
     public bool HasPullRequest => PullRequest is not null;
     public string PullRequestAccessibleName => $"{(HasMultiplePullRequests ? "Choose from" : "Open")} {PullRequestLabel}{(HasPullRequestLifecycle ? $", {PullRequest?.Lifecycle}" : "")} for {Primary ?? Vendor}";

@@ -13,7 +13,7 @@ public sealed record PullRequestChoice(PullRequestLinkDto Link, bool IsAvailable
         _ => null,
     };
     public KcapTip ChoiceTip => KcapTip.PullRequest(Link.Number, IsAvailable ? Link.Title : null,
-        IsAvailable ? LinkedLifecycle : null, $"{Link.Owner}/{Link.RepoName}", IsAvailable ? "Select linked pull request" : null,
+        IsAvailable ? LinkedLifecycle : null, $"{Link.Owner}/{Link.RepoName}",
         IsAvailable ? null : KcapTipDetail.Note("Pull request unavailable"));
     public override string ToString() => Label;
 }

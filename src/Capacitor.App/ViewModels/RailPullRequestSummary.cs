@@ -7,7 +7,7 @@ public sealed record RailPullRequestMenuItem(PullRequestSubjectDto Subject, stri
     public string Label => string.IsNullOrWhiteSpace(Title) ? $"PR #{Subject.Number}" : Title;
     public string Repository => $"{Subject.Owner}/{Subject.RepoName}";
     public PullRequestStatus Status => new(Lifecycle, Lifecycle.ToLowerInvariant());
-    public KcapTip PickerTip => KcapTip.PullRequest(Subject.Number, Title, Status, Repository, "Open pull request details");
+    public KcapTip PickerTip => KcapTip.PullRequest(Subject.Number, Title, Status, Repository);
     public string Detail => $"{Subject.Owner}/{Subject.RepoName} #{Subject.Number} · {Lifecycle}";
 }
 

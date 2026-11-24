@@ -30,7 +30,7 @@ public class PullRequestViewSmokeTests {
         await Assert.That(lines[0]).IsEqualTo("Private PR");
         await Assert.That(lines[1]).IsEqualTo("Open");
         await Assert.That(lines).Contains(host.Model.ChecksStatus.Text);
-        await Assert.That(lines[^1]).IsEqualTo("Open pull request overview");
+        await Assert.That(lines.Contains("Open pull request overview")).IsFalse();
         await Assert.That(AutomationProperties.GetName(title)).IsEqualTo("Open pull request overview");
         var select = host.Card.FindControl<ComboBox>("PullRequestSelector")!;
         await Assert.That(select.IsEffectivelyVisible).IsTrue();
@@ -53,7 +53,7 @@ public class PullRequestViewSmokeTests {
         select.Focus(NavigationMethod.Tab);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
         await Assert.That(TooltipPreviewScope.Text(select)).IsEquivalentTo(
-            new[] { "First linked PR", "Open", "Pull request", "example/repo #1", "Select linked pull request" },
+            new[] { "First linked PR", "Open", "Pull request", "example/repo #1" },
             CollectionOrdering.Matching);
         await Assert.That(AutomationProperties.GetHelpText(select)).Contains("First linked PR").And.Contains("Pull request · example/repo #1");
         TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
@@ -68,7 +68,7 @@ public class PullRequestViewSmokeTests {
         await Assert.That(AutomationProperties.GetHelpText(second)).Contains("Second linked PR");
         TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
         await Assert.That(TooltipPreviewScope.Text(second)).IsEquivalentTo(
-            new[] { "Second linked PR", "Merged", "Pull request", "example/repo #2", "Select linked pull request" },
+            new[] { "Second linked PR", "Merged", "Pull request", "example/repo #2" },
             CollectionOrdering.Matching);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
         await Assert.That(ToolTip.GetIsOpen(second)).IsFalse();

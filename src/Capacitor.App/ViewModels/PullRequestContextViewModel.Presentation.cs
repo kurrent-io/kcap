@@ -11,8 +11,6 @@ public sealed partial class PullRequestContextViewModel {
     public string SectionMeta => _choices.Count > 0 ? _choices.Count.ToString(CultureInfo.InvariantCulture) : "";
     public string RepositoryLabel => _selected is { } choice ? $"{choice.Link.Owner}/{choice.Link.RepoName}" : "";
     public string NumberLabel => _selected is { } choice ? "#" + choice.Link.Number.ToString(CultureInfo.InvariantCulture) : "";
-    public KcapTip? ReaderLinkTip => LinkTip(CanOpenReader ? "Open pull request overview" : null);
-    public KcapTip? SourceLinkTip => LinkTip(CanOpenSource ? $"Open in {ProviderLabel}" : null);
 
     (int Number, string? Title, PullRequestStatus? Lifecycle, string Repository, string? Context, string? Checks)? LinkTipContent =>
         _selected is { } choice
@@ -22,8 +20,8 @@ public sealed partial class PullRequestContextViewModel {
             RepositoryLabel, choice.IsAvailable ? null : "Pull request unavailable", CanDisplay ? ChecksStatus.Text : null)
         : null;
 
-    KcapTip? LinkTip(string? action) => LinkTipContent is { } content
-        ? KcapTip.PullRequest(content.Number, content.Title, content.Lifecycle, content.Repository, action,
+    public KcapTip? PullRequestTip => LinkTipContent is { } content
+        ? KcapTip.PullRequest(content.Number, content.Title, content.Lifecycle, content.Repository,
             KcapTipDetail.Note(content.Context), content.Checks)
         : null;
 
@@ -208,9 +206,7 @@ public sealed partial class PullRequestContextViewModel {
         NotifyValue(SelectedTabIndex);
         NotifyValue(SelectedReviewTabIndex);
         NotifyValue(LifecycleStatus);
-        var linkTip = LinkTipContent;
-        NotifyValue((linkTip, CanOpenReader), nameof(ReaderLinkTip));
-        NotifyValue((linkTip, CanOpenSource ? ProviderLabel : null), nameof(SourceLinkTip));
+        NotifyValue(LinkTipContent, nameof(PullRequestTip));
         NotifyValue(MergedPullRequests);
         NotifyValue(ReviewStatus);
         NotifyValue(ChecksStatus);
