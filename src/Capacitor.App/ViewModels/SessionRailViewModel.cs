@@ -361,7 +361,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     public RailPreferences Preferences =>
         new(Scope, State, Grouping, Sort, Descending, [.. _collapsed.Order(StringComparer.Ordinal)], Project,
-            [.. _removed.Order(StringComparer.Ordinal)]);
+            [.. _removed.Order(StringComparer.Ordinal)], [.. _created]);
 
     readonly ObservableAsPropertyHelper<bool> _isEmpty;
     public bool IsEmpty => _isEmpty.Value;
@@ -469,6 +469,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         _workItemsOffered = readWorkItems is not null;
         _collapsed = new HashSet<string>(initial.Collapsed, StringComparer.Ordinal);
         _removed = new HashSet<string>(initial.Removed ?? [], StringComparer.Ordinal);
+        _created = [.. initial.Created ?? []];
         _today = LocalDay(_time.GetUtcNow());
         if (sessions is not null) {
             sessions.Scope = _scope;
@@ -701,6 +702,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Descending = preferences.Descending;
             Project = Current(preferences.Project);
             _collapsed = new HashSet<string>(preferences.Collapsed, StringComparer.Ordinal);
+            _created = [.. preferences.Created ?? []];
             SetRemoved(preferences.Removed ?? [], persist: false);
             foreach (var group in SessionGroups) group.ApplyExpanded(!_collapsed.Contains(group.Key));
         } finally {
@@ -935,8 +937,15 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             if (NewWorkItemTitle.Length == 0) NewWorkItemTitle = title;
             return;
         }
+        _created = [.. _created.Where(id => id != created).Append(created).TakeLast(CreatedKept)];
+        Persist();
+        ApplyWorkItems();
         _openWorkItem?.Invoke(created);
     }
+
+    // Enough for every work item still waiting on its first session.
+    const int CreatedKept = 20;
+    List<string> _created;
 
     List<RailSessionViewModel> ShownRows() =>
         [.. Groups.Where(group => group.IsExpanded).SelectMany(group => group.Sessions)];
@@ -996,7 +1005,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         }
         var since = _time.GetUtcNow() - WorkItemActiveFor;
         IReadOnlyList<RailWorkItem> items = [.. read.Where(item => !_removed.Contains(WorkItemKey(item.Id)))
-            .Select(item => item.OwnedBy(_viewerIds)).Where(item => Recent(item, since))
+            .Select(item => item.OwnedBy(_viewerIds)).Where(item => Recent(item, since) || (item.Sessions.Count == 0 && _created.Contains(item.Id)))
             .Select(item => _retitled.TryGetValue(item.Id, out var title) ? item with { Title = title } : item)];
         // Only the viewer's own sessions sit under a work item; a teammate's stays among the sessions.
         var workItemOf = new Dictionary<string, string>(StringComparer.Ordinal);

@@ -11,6 +11,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
+using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Pages;
 
@@ -20,12 +21,19 @@ namespace Capacitor.App.Views.Pages;
 public partial class WorkItemPageView : UserControl, IRowDropSurface {
     WorkItemPageViewModel? _page;
     Control? _outlined;
+    readonly Action? _layOutDetails;
 
     public WorkItemPageView() {
         InitializeComponent();
         // Tunnels, since the field handles Enter itself before a bubbling handler sees it.
         AddHandler(KeyDownEvent, OnComposerKeyDown, RoutingStrategies.Tunnel);
-        ContextPaneSizing.Attach(this, SplitGrid.ColumnDefinitions[1], DetailsPane, HideButton, ContextSplitter, ContextShowButton);
+        _layOutDetails = ContextPaneSizing.Attach(this, SplitGrid.ColumnDefinitions[1], DetailsPane, HideButton, ContextSplitter,
+            ContextShowButton, hidden: () => _page?.IsCompact == true);
+        AttachedToVisualTree += (_, _) => LayOut();
+        SizeChanged += (_, _) => LayOut();
+        StarterSplitter.DragCompleted += (_, _) => {
+            if (TopLevel.GetTopLevel(this) is MainWindow window) window.Panes.ContextWidth = StarterGrid.ColumnDefinitions[1].ActualWidth;
+        };
         _ = new RowMenu(this, "sessionRow", row =>
             row is WorkItemPageSession session && DataContext is WorkItemPageViewModel page ? page.MenuFor(session) : []);
         _ = new RowMenu(this, "partRow", row =>
@@ -49,9 +57,24 @@ public partial class WorkItemPageView : UserControl, IRowDropSurface {
         if (_page is not null) _page.PropertyChanged -= OnPageChanged;
         _page = DataContext as WorkItemPageViewModel;
         if (_page is not null) _page.PropertyChanged += OnPageChanged;
+        LayOut();
+    }
+
+    void LayOut() {
+        _layOutDetails?.Invoke();
+        var starting = _page?.IsStarting == true;
+        StarterPane.IsVisible = starting;
+        StarterSplitter.IsVisible = starting;
+        var (chat, page) = (StarterGrid.ColumnDefinitions[0], StarterGrid.ColumnDefinitions[1]);
+        var width = (TopLevel.GetTopLevel(this) as MainWindow)?.Panes.ContextWidth ?? PaneLayout.ContextMinWidth;
+        chat.Width = starting ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        page.Width = starting ? new GridLength(width) : new GridLength(1, GridUnitType.Star);
+        page.MinWidth = starting ? PaneLayout.ContextMinWidth : 0;
+        page.MaxWidth = starting ? PaneLayout.MaxWidth(Bounds.Width, PaneLayout.ContextMinWidth, PaneLayout.SessionMinWidth) : double.PositiveInfinity;
     }
 
     void OnPageChanged(object? sender, PropertyChangedEventArgs e) {
+        if (e.PropertyName == nameof(WorkItemPageViewModel.IsCompact)) LayOut();
         if (e.PropertyName == nameof(WorkItemPageViewModel.Layout))
             _ = Motion.Standard.RunAsync(_page!.IsBoard ? WorkItemBoardView : _page.IsGraph ? WorkItemGraphView : WorkItemGroups,
                 CancellationToken.None, (OpacityProperty, 0d, 1d));

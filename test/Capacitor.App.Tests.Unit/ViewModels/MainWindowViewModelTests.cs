@@ -53,14 +53,15 @@ public class MainWindowViewModelTests {
             Action<Func<Task>>? trackWorkspaceTeardown = null, IAgentDirectory? directory = null,
             Action<FeedbackCategory>? openFeedback = null, IUrlOpener? opener = null,
             Func<string, RemoteSessionViewModel?>? serverWorkspaceFactory = null, TimeProvider? time = null,
-            IServerSessionsService? sessions = null, Func<PageKey, IPage?>? pages = null) {
+            IServerSessionsService? sessions = null, Func<PageKey, IPage?>? pages = null,
+            WorkItemMainSessions? mainSessions = null) {
         return new MainWindowViewModel(
             service, CancellationToken.None, TestActivity.New(), time ?? TimeProvider.System,
             trackWorkspaceTeardown: trackWorkspaceTeardown,
             workspaceFactory: workspaceFactory, rail: rail,
             originOf: originOf, remoteWorkspaceFactory: remoteWorkspaceFactory, directory: directory,
             openFeedback: openFeedback, opener: opener, serverWorkspaceFactory: serverWorkspaceFactory, sessions: sessions,
-            pages: pages);
+            pages: pages, mainSessions: mainSessions);
     }
 
     /// A real WorkspaceViewModel over the fake service and scripted attach/surface fakes — same
@@ -2681,6 +2682,41 @@ public class MainWindowViewModelTests {
             await vm.GoForwardCommand.Execute().ToTask();
             await Assert.That(vm.Page).IsNull();
             await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            vm.CloseWorkspace();
+        });
+    }
+
+    /// A work item with a main chat opens that chat with its page docked beside it; expanding spreads
+    /// the page across the main area again, and clearing the main chat forgets it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_work_item_opens_beside_its_main_chat() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            var mainSessions = new WorkItemMainSessions(new AppStateStore(path));
+            mainSessions.Set("w1", "a1");
+            using var directory = new FakeAgentDirectory();
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), trackWorkspaceTeardown: teardown => _ = teardown(),
+                directory: directory, mainSessions: mainSessions,
+                pages: key => key is PageKey.WorkItem { Id: var id }
+                    ? new WorkItemPageViewModel(id, new FakeWorkItemPageApi(), directory, TimeProvider.System, new HashSet<string>())
+                    : null);
+
+            await vm.OpenWorkItemCommand.Execute("w1").ToTask();
+            var page = (WorkItemPageViewModel)vm.Page!;
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            await Assert.That(vm.DockedPage).IsSameReferenceAs(page);
+            await Assert.That(vm.ShownPage).IsNull();
+            await Assert.That(page.IsDocked).IsTrue();
+
+            await page.ExpandCommand.Execute().ToTask();
+            await Assert.That(vm.ShownPage).IsSameReferenceAs(page);
+            await Assert.That(page.CanOpenMainChat).IsTrue();
+
+            page.ChooseMainChat!(null);
+            await Assert.That(mainSessions.Get("w1")).IsNull();
+            await Assert.That(page.CanOpenMainChat).IsFalse();
             vm.CloseWorkspace();
         });
     }

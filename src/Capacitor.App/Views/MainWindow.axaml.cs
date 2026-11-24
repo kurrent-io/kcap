@@ -275,6 +275,12 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
                     UpdateWorkspaceVisibility();
                 })
                 .DisposeWith(disposables);
+            // The docked page is the pane's content, so docking it opens a pane the user had closed.
+            Observable.Switch(this.WhenAnyValue(x => x.ViewModel)
+                    .Select(vm => vm is null ? Observable.Return<ViewModels.Pages.IPage?>(null) : vm.WhenAnyValue(x => x.DockedPage)))
+                .Where(page => page is not null)
+                .Subscribe(_ => Panes.ContextCollapsed = false)
+                .DisposeWith(disposables);
             Observable.Switch(this.WhenAnyValue(x => x.ViewModel)
                     .Select(vm => vm?.LauncherNudges ?? Observable.Empty<System.Reactive.Unit>()))
                 .Subscribe(_ => LauncherView.Nudge())

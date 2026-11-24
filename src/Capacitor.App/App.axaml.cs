@@ -1450,6 +1450,7 @@ public partial class App : Application {
                     : null,
                 remoteWorkspaceFactory: BuildRemote, serverWorkspaceFactory: BuildServer,
                 sessions: sessions, railPreferences: railPreferences, profileName: profiles?.Name,
+                mainSessions: new WorkItemMainSessions(_appState),
                 readProjects: ServerProjectsHttp.Reader(sessionHttp, profiles),
                 readWorkItems: ServerWorkItemsHttp.Reader(sessionHttp, profiles),
                 workItemPages: workItems, renameSession: RenameSessionAsync, canRenameSession: CanRenameSession, pageContent: planArtifacts, inAppPages: () => webView.IsAvailable && inAppPages.IsOn,
@@ -2373,7 +2374,7 @@ public partial class App : Application {
             Func<string, CancellationToken, Task<RailWorkItems?>>? readWorkItems = null,
             IWorkItemPageApi? workItemPages = null, IPageContentSource? pageContent = null, Func<bool>? inAppPages = null,
             Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? renameSession = null,
-            Func<AgentRow, bool>? canRenameSession = null) {
+            Func<AgentRow, bool>? canRenameSession = null, WorkItemMainSessions? mainSessions = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
         // the VM's WhenActivated-scoped projections.
@@ -2526,7 +2527,7 @@ public partial class App : Application {
             laneStatus: lane?.Status, restartPending: restartPending, daemonOnOtherInstall: daemonOnOtherInstall,
             originOf: originOf, remoteWorkspaceFactory: remoteWorkspaceFactory, directory: resolvedDirectory,
             serverWorkspaceFactory: serverWorkspaceFactory, sessions: sessions,
-            searchFactory: searchFactory, appServerUrl: appServerUrl, pages: pages,
+            searchFactory: searchFactory, appServerUrl: appServerUrl, pages: pages, mainSessions: mainSessions,
             openFeedback: openFeedback, opener: new ShellUrlOpener(), requestSignIn: requestSignIn,
             settingsAction: settingsAction, checkForUpdatesAction: checkForUpdatesAction,
             uninstallAction: uninstallAction, requestSetup: requestSetup, historyImport: historyImport,

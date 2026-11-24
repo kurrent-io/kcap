@@ -842,5 +842,21 @@
             <Setter Property="RenderTransform" Value="scale(0.97, 0.72)" />
         </Style>
         <StyleInclude Source="avares://kcap-desktop/Views/SectionStyles.axaml" />
+
+        <!-- Every pane splitter shows a grip centered on its divider, so the edge reads as draggable. -->
+        <Style Selector="GridSplitter">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Panel Background="{TemplateBinding Background}">
+                        <Border x:Name="PART_Grip" Width="4" Height="32" CornerRadius="2"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Background="{StaticResource KcapBorderBrush}" />
+                    </Panel>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="GridSplitter:pointerover /template/ Border#PART_Grip, GridSplitter:pressed /template/ Border#PART_Grip">
+            <Setter Property="Background" Value="{StaticResource KcapFaintBrush}" />
+        </Style>
     </Application.Styles>
 </Application>

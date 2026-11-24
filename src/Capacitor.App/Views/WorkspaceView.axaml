@@ -2,6 +2,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              xmlns:views="clr-namespace:Capacitor.App.Views"
+             xmlns:pages="clr-namespace:Capacitor.App.ViewModels.Pages"
+             xmlns:pageViews="clr-namespace:Capacitor.App.Views.Pages"
              xmlns:terminal="clr-namespace:SvcSystems.UI.Terminal;assembly=SvcSystems.UI.Terminal"
              x:Class="Capacitor.App.Views.WorkspaceView"
              x:DataType="vm:WorkspaceViewModel"
@@ -16,7 +18,10 @@
                 Padding="20,16,16,16" Background="Transparent" PointerPressed="OnHeaderPointerPressed">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                 <StackPanel Spacing="6" VerticalAlignment="Center" Margin="0,0,8,0">
-                    <views:SessionTitleEditor x:Name="WorkspaceTitle" DataContext="{Binding TitleEditor}" />
+                    <views:SessionTitleEditor x:Name="WorkspaceTitle" DataContext="{Binding TitleEditor}"
+                                              IsVisible="{Binding $parent[views:MainWindow].((vm:MainWindowViewModel)DataContext).DockedWorkItem, Converter={x:Static ObjectConverters.IsNull}}" />
+                    <views:SessionTitleEditor x:Name="WorkItemTitle" DataContext="{Binding $parent[views:MainWindow].((vm:MainWindowViewModel)DataContext).DockedWorkItem.TitleEditor}"
+                                              IsVisible="{Binding $parent[views:MainWindow].((vm:MainWindowViewModel)DataContext).DockedWorkItem, Converter={x:Static ObjectConverters.IsNotNull}}" />
                     <TextBlock x:Name="WorkspaceSubtitle" Text="{Binding RepoLabelText}" FontSize="13"
                                Foreground="{StaticResource KcapMutedBrush}" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
@@ -95,7 +100,22 @@
                     IsVisible="{Binding $parent[views:WorkspaceView].((vm:WorkspaceViewModel)DataContext).ShowsStartingNotice}" />
         </Grid>
     </Grid>
-    <views:WorkContextView x:Name="WorkContextHost" Grid.Column="1" DataContext="{Binding WorkContext}" />
+    <!-- Collapsing hides this wrapper. A work item page docked beside its main chat takes the pane's place. -->
+    <Panel x:Name="ContextColumn" Grid.Column="1">
+        <views:WorkContextView x:Name="WorkContextHost" DataContext="{Binding WorkContext}"
+                               IsVisible="{Binding $parent[views:MainWindow].((vm:MainWindowViewModel)DataContext).DockedPage, Converter={x:Static ObjectConverters.IsNull}}" />
+        <Border BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1,0,0,0"
+                IsVisible="{Binding $parent[views:MainWindow].((vm:MainWindowViewModel)DataContext).DockedPage, Converter={x:Static ObjectConverters.IsNotNull}}">
+            <ContentControl x:Name="DockedPageHost"
+                            Content="{Binding $parent[views:MainWindow].((vm:MainWindowViewModel)DataContext).DockedPage}">
+                <ContentControl.DataTemplates>
+                    <DataTemplate x:DataType="pages:WorkItemPageViewModel">
+                        <pageViews:WorkItemPageView />
+                    </DataTemplate>
+                </ContentControl.DataTemplates>
+            </ContentControl>
+        </Border>
+    </Panel>
     <!-- Last child so it hit-tests above the workspace column it overhangs. -->
     <GridSplitter x:Name="ContextSplitter" Grid.Column="1" HorizontalAlignment="Left" Width="6"
                   Margin="-3,0,0,0" Background="Transparent" ResizeDirection="Columns" />

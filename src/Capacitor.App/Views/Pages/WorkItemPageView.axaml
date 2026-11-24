@@ -617,13 +617,30 @@
         </DataTemplate>
     </UserControl.Resources>
 
-    <Grid x:Name="SplitGrid" ColumnDefinitions="*,320" Background="{StaticResource KcapCanvasBrush}">
+    <!-- Before the work item has a main chat, an empty one sits left of the page; its composer starts it. -->
+    <Grid x:Name="StarterGrid" ColumnDefinitions="0,*" Background="{StaticResource KcapCanvasBrush}">
+    <Border x:Name="StarterPane" Grid.Column="0" IsVisible="False" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,1,0">
+        <DockPanel>
+            <Border DockPanel.Dock="Top" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1" Padding="20,16,16,16">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="Main chat" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}" />
+                    <TextBlock Text="Sees every slice, session and loose end of this work item" FontSize="13"
+                               Foreground="{StaticResource KcapMutedBrush}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Border>
+            <views:LaunchComposerView x:Name="StarterComposer" DockPanel.Dock="Bottom" DataContext="{Binding Launcher}" Compact="True"
+                                      ImpliedSourceKey="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OwnSourceKey}"
+                                      Margin="20,0,16,16" />
+            <Panel />
+        </DockPanel>
+    </Border>
+    <Grid x:Name="SplitGrid" Grid.Column="1" ColumnDefinitions="*,320" Background="{StaticResource KcapCanvasBrush}">
         <DockPanel Grid.Column="0">
             <Border x:Name="WorkItemHeader" DockPanel.Dock="Top" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
                     Padding="20,16,16,16">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                     <StackPanel Spacing="2" VerticalAlignment="Center" Margin="-6,0,8,0">
-                        <Panel>
+                        <Panel IsVisible="{Binding !IsDocked}">
                             <Button x:Name="WorkItemTitle" Classes="inlineEdit" Command="{Binding TitleEditor.BeginEditCommand}"
                                     IsVisible="{Binding !TitleEditor.IsEditing}" ToolTip.Tip="{Binding Title}"
                                     AutomationProperties.Name="{Binding Title, StringFormat='Rename {0}'}">
@@ -639,7 +656,7 @@
                                     IsVisible="{Binding !GoalEditor.IsEditing}" ToolTip.Tip="{Binding Goal}" AutomationProperties.Name="Edit goal">
                                 <Panel>
                                     <TextBlock Text="{Binding Goal}" FontSize="13" TextTrimming="CharacterEllipsis"
-                                               Foreground="{StaticResource KcapMutedBrush}" />
+                                               TextWrapping="Wrap" MaxLines="3" Foreground="{StaticResource KcapMutedBrush}" />
                                     <TextBlock Text="Add a goal" FontSize="13" Foreground="{StaticResource KcapFaintBrush}"
                                                IsVisible="{Binding Goal, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
                                 </Panel>
@@ -651,6 +668,16 @@
                         </Panel>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button x:Name="OpenMainChatButton" Classes="kcapGhost kcapIcon" Command="{Binding OpenMainChatCommand}"
+                                IsVisible="{Binding CanOpenMainChat}"
+                                ToolTip.Tip="Open main chat" AutomationProperties.Name="Open main chat">
+                            <views:AppIcon Kind="MessagesSquare" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                        </Button>
+                        <Button x:Name="ExpandButton" Classes="kcapGhost kcapIcon" Command="{Binding ExpandCommand}"
+                                IsVisible="{Binding IsCompact}"
+                                ToolTip.Tip="Expand" AutomationProperties.Name="Expand the work item">
+                            <views:AppIcon Kind="Maximize2" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                        </Button>
                         <Button x:Name="WorkItemOpenInWeb" Classes="kcapGhost kcapIcon" Command="{Binding OpenInWebCommand}"
                                 ToolTip.Tip="Open in the web app" AutomationProperties.Name="Open in the web app">
                             <views:AppIcon Kind="ExternalLink" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
@@ -665,7 +692,7 @@
 
             <views:LaunchComposerView x:Name="WorkItemComposer" DockPanel.Dock="Bottom" DataContext="{Binding Launcher}" Compact="True"
                                       ImpliedSourceKey="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OwnSourceKey}"
-                                      IsVisible="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).CanStartSession}"
+                                      IsVisible="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).ShowsComposer}"
                                       Margin="20,0,16,16" />
             <Panel>
                 <DockPanel x:Name="WorkItemPageHost" IsVisible="{Binding PageViewer, Converter={x:Static ObjectConverters.IsNotNull}}">
@@ -804,7 +831,7 @@
                 </ScrollViewer>
                 <!-- Fades the slices out above the composer rather than cutting a row in half. -->
                 <Border Height="32" VerticalAlignment="Bottom" IsHitTestVisible="False"
-                        Background="{StaticResource KcapCanvasBrush}" IsVisible="{Binding CanStartSession}">
+                        Background="{StaticResource KcapCanvasBrush}" IsVisible="{Binding ShowsComposer}">
                     <Border.OpacityMask>
                         <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
                             <GradientStop Offset="0" Color="Transparent" />
@@ -935,5 +962,8 @@
                 </StackPanel>
             </Border>
         </Border>
+    </Grid>
+    <GridSplitter x:Name="StarterSplitter" Grid.Column="1" HorizontalAlignment="Left" Width="6" Margin="-3,0,0,0"
+                  Background="Transparent" ResizeDirection="Columns" IsVisible="False" />
     </Grid>
 </UserControl>

@@ -187,7 +187,10 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// one's tracked teardown.
     public ISessionWorkspace? CurrentWorkspace {
         get => _currentWorkspace;
-        private set => this.RaiseAndSetIfChanged(ref _currentWorkspace, value);
+        private set {
+            this.RaiseAndSetIfChanged(ref _currentWorkspace, value);
+            RaiseDock();
+        }
     }
 
     /// The session id of the open workspace, null while none is open or its session is unknown.
@@ -256,7 +259,29 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         private set {
             this.RaiseAndSetIfChanged(ref field, value);
             if (Rail is not null) Rail.OpenWorkItemId = (value?.Key as PageKey.WorkItem)?.Id;
+            RaiseDock();
         }
+    }
+
+    readonly WorkItemMainSessions? _mainSessions;
+    bool _pageDocked;
+    /// The page drawn beside the open workspace, its work item's main chat; null while none is.
+    public IPage? DockedPage => _pageDocked && CurrentWorkspace is not null ? Page : null;
+    /// The work item whose main chat is open; its title heads the chat in place of the session's.
+    public WorkItemPageViewModel? DockedWorkItem => DockedPage as WorkItemPageViewModel;
+    /// The page drawn across the main area; null while none is, or while it is docked.
+    public IPage? ShownPage => DockedPage is null ? Page : null;
+
+    void SetPageDocked(bool docked) {
+        _pageDocked = docked;
+        RaiseDock();
+    }
+
+    void RaiseDock() {
+        this.RaisePropertyChanged(nameof(DockedPage));
+        this.RaisePropertyChanged(nameof(DockedWorkItem));
+        this.RaisePropertyChanged(nameof(ShownPage));
+        if (Page is WorkItemPageViewModel item) item.IsDocked = DockedPage is not null;
     }
 
     /// Null without a server sessions service; null for a page the server cannot serve.
@@ -441,8 +466,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
             Func<string, RemoteSessionViewModel?>? serverWorkspaceFactory = null,
             Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory = null,
             IServerSessionsService? sessions = null, string? appServerUrl = null,
-            Func<PageKey, IPage?>? pages = null) {
+            Func<PageKey, IPage?>? pages = null, WorkItemMainSessions? mainSessions = null) {
         _service = service;
+        _mainSessions = mainSessions;
         _appServerUrl = appServerUrl ?? "";
         _serverFactory = serverWorkspaceFactory;
         Time = time;
@@ -554,6 +580,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .ObserveOn(RxSchedulers.MainThreadScheduler));
 
         this.WhenActivated(disposables => {
+            Home?.WorkItemLaunches.Subscribe(NoteWorkItemLaunch).DisposeWith(disposables);
             canStart.CombineLatest(canRetry, (startVisible, retryVisible) => startVisible || retryVisible)
                 .Subscribe(available => _localDaemonRecoveryAvailable = available)
                 .DisposeWith(disposables);
@@ -891,11 +918,13 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         ClosePages();
         Page = page;
         _navigation.Bump();
+        if (page is WorkItemPageViewModel item) AttachMainChat(item);
         if (record) RecordLeaving(from);
     }
 
     void ClosePage() {
         var page = Page;
+        _pageDocked = false;
         Page = null;
         page?.Dispose();
     }
@@ -1048,7 +1077,65 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// the user opened while the launch was in flight.
     public void OpenSessionIfCurrent(string agentId, AgentOrigin origin, int generation) {
         if (generation != _navigation.Generation) return;
+        if (Page is WorkItemPageViewModel item && _mainSessions?.Get(item.WorkItemId) == agentId) {
+            DockMainChat(item, (agentId, origin));
+            return;
+        }
         OpenSession(agentId, origin);
+    }
+
+    /// The first session started from a work item's own page becomes its main chat, as does one
+    /// started there after the last main chat's row is gone.
+    void NoteWorkItemLaunch((string WorkItemId, string AgentId) launch) {
+        if (_mainSessions is null || Page is not WorkItemPageViewModel item || item.WorkItemId != launch.WorkItemId
+            || MainChatRow(item.WorkItemId) is not null) return;
+        _mainSessions.Set(item.WorkItemId, launch.AgentId);
+        item.MainChat = launch.AgentId;
+    }
+
+    (string Id, AgentOrigin Origin)? MainChatRow(string workItemId) {
+        if (_mainSessions?.Get(workItemId) is not { } id) return null;
+        if (_directory?.RowForSession(id) is { } row) return row;
+        return _originOf(id) is { } lane ? (id, lane) : null;
+    }
+
+    void AttachMainChat(WorkItemPageViewModel item) {
+        if (_mainSessions is null) return;
+        item.MainChat = _mainSessions.Get(item.WorkItemId);
+        item.Dock = dock => {
+            if (Page != item) return;
+            if (dock) DockMainChat(item);
+            else SetPageDocked(false);
+        };
+        item.ChooseMainChat = sessionId => {
+            if (Page != item) return;
+            if (sessionId is null) {
+                _mainSessions.Remove(item.WorkItemId);
+                item.MainChat = null;
+                SetPageDocked(false);
+                return;
+            }
+            _mainSessions.Set(item.WorkItemId, sessionId);
+            item.MainChat = sessionId;
+            DockMainChat(item);
+        };
+        item.StartInLauncher = StartInWorkItemAsync;
+        DockMainChat(item);
+    }
+
+    /// Opens the work item's main chat with its page beside it; the page stays across the main area
+    /// when the chat has no row to open.
+    void DockMainChat(WorkItemPageViewModel item, (string Id, AgentOrigin Origin)? row = null) {
+        if ((row ?? MainChatRow(item.WorkItemId)) is not { } open || !OpenSessionCore(open.Id, open.Origin, revealInRail: true)) {
+            SetPageDocked(false);
+            return;
+        }
+        SetPageDocked(true);
+        // A launch records its agent id; the session id outlives the agent, so it replaces it once known.
+        if (SessionOfOpen() is { Length: > 0 } sessionId && _mainSessions is not null) {
+            _mainSessions.Set(item.WorkItemId, sessionId);
+            item.MainChat = sessionId;
+        }
     }
 
     /// The launcher words a launch failure, and an open workspace covers the launcher. Only a

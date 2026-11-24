@@ -85,7 +85,7 @@
                             <ContentControl.IsVisible>
                                 <MultiBinding Converter="{x:Static BoolConverters.And}">
                                     <Binding Path="CurrentWorkspace" Converter="{x:Static ObjectConverters.IsNotNull}" />
-                                    <Binding Path="Page" Converter="{x:Static ObjectConverters.IsNull}" />
+                                    <Binding Path="ShownPage" Converter="{x:Static ObjectConverters.IsNull}" />
                                 </MultiBinding>
                             </ContentControl.IsVisible>
                             <ContentControl.DataTemplates>
@@ -99,8 +99,8 @@
                         </ContentControl>
 
                         <!-- Unclipped, like the rail, so a page's drag ghost can follow the pointer out of it. -->
-                        <ContentControl x:Name="PageHost" Content="{Binding Page}" ClipToBounds="False"
-                                        IsVisible="{Binding Page, Converter={x:Static ObjectConverters.IsNotNull}}">
+                        <ContentControl x:Name="PageHost" Content="{Binding ShownPage}" ClipToBounds="False"
+                                        IsVisible="{Binding ShownPage, Converter={x:Static ObjectConverters.IsNotNull}}">
                             <ContentControl.DataTemplates>
                                 <DataTemplate x:DataType="pages:SessionsPageViewModel">
                                     <pageViews:SessionsPageView />

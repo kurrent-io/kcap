@@ -5,6 +5,7 @@ using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Capacitor.Remote.Models;
 using Lucide.Avalonia;
 using ReactiveUI.Reactive;
@@ -108,6 +109,52 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     public ReactiveCommand<WorkItemPagePart, Unit> StartSliceSessionCommand { get; }
     public bool CanStartSession { get; }
     string? _picked;
+
+    bool _isDocked;
+    /// Shown beside its main chat rather than across the main area.
+    public bool IsDocked {
+        get => _isDocked;
+        set {
+            var undocked = _isDocked && !value;
+            this.RaiseAndSetIfChanged(ref _isDocked, value);
+            RaiseModes();
+            if (undocked && AimsComposer && _read is not null) _ = PickAsync(WorkItemId, Title);
+        }
+    }
+    string? _mainChat;
+    /// The main chat's session id, or its hosted agent's id until the session is known; null when there is none.
+    public string? MainChat {
+        get => _mainChat;
+        set {
+            this.RaiseAndSetIfChanged(ref _mainChat, value);
+            RaiseModes();
+        }
+    }
+    bool _expanded;
+    /// Beside an empty main chat whose composer starts it, until there is a main chat or the page is expanded.
+    public bool IsStarting => !IsDocked && !_expanded && MainChat is null && CanStartSession;
+    /// Drawn as the narrow pane beside a chat, without its details.
+    public bool IsCompact => IsDocked || IsStarting;
+    /// The composer under the slices, shown only while the page spreads across the main area.
+    public bool ShowsComposer => CanStartSession && !IsCompact;
+    bool AimsComposer => CanStartSession && !IsDocked;
+    public bool CanOpenMainChat => !IsCompact && (MainChat is not null || CanStartSession);
+
+    void RaiseModes() {
+        this.RaisePropertyChanged(nameof(IsStarting));
+        this.RaisePropertyChanged(nameof(IsCompact));
+        this.RaisePropertyChanged(nameof(ShowsComposer));
+        this.RaisePropertyChanged(nameof(CanOpenMainChat));
+    }
+
+    /// Set by the window hosting the page: docks it beside its main chat (true) or spreads it across the main area.
+    public Action<bool>? Dock { get; set; }
+    /// Set by the window hosting the page: makes a session the main chat, or clears it with null.
+    public Action<string?>? ChooseMainChat { get; set; }
+    /// Set by the window hosting the page: opens the launcher aimed at a work item, since a docked page has no composer.
+    public Func<string, string, Task>? StartInLauncher { get; set; }
+    public ReactiveCommand<Unit, Unit> OpenMainChatCommand { get; }
+    public ReactiveCommand<Unit, Unit> ExpandCommand { get; }
     bool _disposed;
     public ReactiveCommand<WorkItemPageLink, Unit> OpenLinkCommand { get; }
     public ReactiveCommand<WorkItemPublishedPage, Unit> OpenPageCommand { get; }
@@ -160,6 +207,16 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
             else openUrl?.Invoke(page.Url);
         }).DisposeWith(_disposables);
         ClosePageCommand = ReactiveCommand.Create(ClosePage).DisposeWith(_disposables);
+        OpenMainChatCommand = ReactiveCommand.Create(() => {
+            _expanded = false;
+            if (MainChat is not null) Dock?.Invoke(true);
+            RaiseModes();
+        }).DisposeWith(_disposables);
+        ExpandCommand = ReactiveCommand.Create(() => {
+            _expanded = true;
+            if (IsDocked) Dock?.Invoke(false);
+            RaiseModes();
+        }).DisposeWith(_disposables);
         OpenSessionCommand = ReactiveCommand.Create<WorkItemPageSession>(session => openSession?.Invoke(session.SessionId)).DisposeWith(_disposables);
         MakePartCommand = ReactiveCommand.CreateFromTask<WorkItemPageLooseEnd>(looseEnd =>
             ChangeAsync(ct => _api.MakePartAsync(WorkItemId, looseEnd.LooseEndId, ct), "Couldn't make a slice from that loose end")).DisposeWith(_disposables);
@@ -206,7 +263,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
                 _read = read;
                 Message = null;
                 Rebuild();
-                if (first && CanStartSession) _ = PickAsync(WorkItemId, Title);
+                if (first && AimsComposer) _ = PickAsync(WorkItemId, Title);
             })
             .DisposeWith(_disposables);
         needsYou?.ObserveOn(RxSchedulers.MainThreadScheduler)
@@ -217,10 +274,16 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
             .DisposeWith(_disposables);
     }
 
-    public IReadOnlyList<RowMenuItem> MenuFor(WorkItemPageSession session) => [
-        new(LucideIconKind.X, "Remove from work item",
-            () => _ = ChangeAsync(ct => _api.RemoveSessionAsync(WorkItemId, session.SessionId, ct), "Couldn't remove that session")),
-    ];
+    public IReadOnlyList<RowMenuItem> MenuFor(WorkItemPageSession session) {
+        var items = new List<RowMenuItem>();
+        if (ChooseMainChat is { } choose)
+            items.Add(SessionIds.SameSession(MainChat, session.SessionId)
+                ? new(LucideIconKind.MessageSquareOff, "Stop using as main chat", () => choose(null))
+                : new(LucideIconKind.MessageSquare, "Use as main chat", () => choose(session.SessionId)));
+        items.Add(new(LucideIconKind.X, "Remove from work item",
+            () => _ = ChangeAsync(ct => _api.RemoveSessionAsync(WorkItemId, session.SessionId, ct), "Couldn't remove that session")));
+        return items;
+    }
 
     /// <param name="pickWaits">Opens the slice's wait picker.</param>
     public IReadOnlyList<RowMenuItem> MenuFor(WorkItemPagePart part, Action<WorkItemPagePart> pickWaits) {
@@ -608,6 +671,10 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
 
     /// Aims the shared launch draft at a work item or slice, so the session the composer starts is attached to it.
     async Task PickAsync(string id, string title) {
+        if (IsDocked && StartInLauncher is { } start) {
+            await start(id, title);
+            return;
+        }
         _picked = NextWork.NextWorkLaneLogic.WorkItemPrefix + id;
         await Launcher!.NextWork!.PickWorkItemAsync(id, title);
         if (_disposed) ReleasePick();

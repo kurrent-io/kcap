@@ -377,6 +377,11 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// property read via WhenAnyValue) so the ctor can compose it — see SessionRailViewModel's
     /// _selectedSessionKeyChanges for why WhenAnyValue is avoided in constructors here.
     readonly BehaviorSubject<bool> _signInRequired = new(false);
+    readonly Subject<(string WorkItemId, string AgentId)> _workItemLaunches = new();
+
+    /// A launch the server accepted for a picked work item, with the id its auto-open will be handed.
+    /// Raised before that open.
+    public IObservable<(string WorkItemId, string AgentId)> WorkItemLaunches => _workItemLaunches;
     /// True after a successful re-auth until the daemon reports server-connected (or goes down).
     /// Keeps the banner from still asking to Sign in while the daemon catches up.
     readonly BehaviorSubject<bool> _awaitingServerAfterSignIn = new(false);
@@ -2349,6 +2354,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
                 : UnusableIdMessage;
             return;
         }
+
+        if (picked?.Key is { } pickedKey && pickedKey.StartsWith(ViewModels.NextWork.NextWorkLaneLogic.WorkItemPrefix, StringComparison.Ordinal))
+            _workItemLaunches.OnNext((pickedKey[ViewModels.NextWork.NextWorkLaneLogic.WorkItemPrefix.Length..], draft.Remote ? outcome.AgentId! : agentId));
 
         // The accepted id is request-accepted, not success — track it until a LaunchFailed or a
         // directory row settles it, holding the sent bytes for that long so a failure can hand the

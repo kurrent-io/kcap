@@ -1090,7 +1090,8 @@ public class SessionRailViewModelTests {
             Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? renameSession = null,
             Func<AgentRow, bool>? canRenameSession = null, Func<string, string, Task<bool>>? renameWorkItem = null,
             IAppNotifier? notifier = null, Func<string, string, Task<string?>>? createWorkItem = null,
-            Action<string>? openWorkItem = null, Func<string, string, Task<string?>>? createProjectWorkItem = null) {
+            Action<string>? openWorkItem = null, Func<string, string, Task<string?>>? createProjectWorkItem = null,
+            IReadOnlyList<RailWorkItem>? alsoListed = null) {
         var directory = new FakeAgentDirectory();
         var sessions = new FakeServerSessionsService();
         sessions.ViewerIdsSubject.OnNext(FrozenSet.Create(StringComparer.Ordinal, "me"));
@@ -1098,7 +1099,7 @@ public class SessionRailViewModelTests {
             new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(Noon)),
             openServerSession: _ => { }, sessions: sessions,
             preferences: RailPreferences.Default with { Project = new RailProject("p", "P", ["h"]) },
-            readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, ServerWorkItems(sessions))),
+            readWorkItems: (_, _) => Task.FromResult<RailWorkItems?>(new(true, [.. ServerWorkItems(sessions), .. alsoListed ?? []])),
             workItemsChanged: sessions.Snapshots.Select(_ => System.Reactive.Unit.Default),
             fileSession: fileSession, unfileSession: unfileSession, renameSession: renameSession, canRenameSession: canRenameSession, renameWorkItem: renameWorkItem,
             notifier: notifier, createWorkItem: createWorkItem, openWorkItem: openWorkItem, createProjectWorkItem: createProjectWorkItem);
@@ -1114,6 +1115,8 @@ public class SessionRailViewModelTests {
                 item.ToFrozenDictionary(dto => dto.SessionId, _ => RailWorkItem.NoPart, StringComparer.Ordinal),
                 [.. item.OrderByDescending(dto => dto.LastActivityAt)
                     .Select(dto => new WorkItemSessionRefDto { SessionId = dto.SessionId, Owner = dto.Owner, LastActivityAt = dto.LastActivityAt })]))];
+
+    static RailWorkItem Empty(string id) => new(id, id, 0, 0, FrozenDictionary<string, string>.Empty, []);
 
     static void List(FakeAgentDirectory directory, FakeServerSessionsService sessions, params RepoSessionDto[] listed) {
         foreach (var dto in listed) {
@@ -1269,7 +1272,8 @@ public class SessionRailViewModelTests {
         });
     }
 
-    /// A new work item is created in the rail's project and opened; a refused one says so and gives the title back.
+    /// A new work item is created in the rail's project, opened, and listed before it has a session, while another
+    /// session-less work item stays out; a refused one says so and gives the title back.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_new_work_item_is_created_in_the_rails_project_and_opened() {
@@ -1281,9 +1285,11 @@ public class SessionRailViewModelTests {
                 createProjectWorkItem: (project, title) => {
                     calls.Add($"{project} {title}");
                     return Task.FromResult<string?>(title == "Faster checkout" ? "AI-9" : null);
-                });
+                },
+                alsoListed: [Empty("AI-9"), Empty("AI-8")]);
             using (directory) using (sessions) using (rail) {
                 await Assert.That(rail.OffersCreateWorkItem).IsTrue();
+                await Assert.That(rail.WorkItemGroups).IsEmpty();
 
                 rail.NewWorkItemTitle = "  Faster checkout ";
                 rail.CreateWorkItemCommand.Execute().Subscribe();
@@ -1292,6 +1298,8 @@ public class SessionRailViewModelTests {
 
                 await Assert.That(calls).IsEquivalentTo(["p Faster checkout", "p Refused"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
                 await Assert.That(opened).IsEquivalentTo(["AI-9"]);
+                await Assert.That(rail.WorkItemGroups.Select(group => group.Label)).IsEquivalentTo(["AI-9"]);
+                await Assert.That(rail.Preferences.Created).IsEquivalentTo(["AI-9"]);
                 await Assert.That(notifier.Notified).IsEquivalentTo(["Couldn't create the work item"]);
                 await Assert.That(rail.NewWorkItemTitle).IsEqualTo("Refused");
             }

@@ -1,6 +1,4 @@
-using System.Collections.Frozen;
 using System.Reactive.Linq;
-using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Pages;
 using Capacitor.Remote.Models;
@@ -8,49 +6,7 @@ using Capacitor.Remote.Models;
 namespace Capacitor.App.Tests.Unit.ViewModels.Pages;
 
 public class WorkItemPageViewModelTests {
-    sealed class FakeApi : IWorkItemPageApi {
-        public List<string> Calls { get; } = [];
-        public bool Accepts { get; set; } = true;
-        public IObservable<System.Reactive.Unit> Changed => Observable.Never<System.Reactive.Unit>();
-        public IObservable<IReadOnlySet<string>> SuggestedSessions => Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty);
-        public List<WorkItemPartDetailDto> Parts { get; init; } = [Part("p1", "in_progress", "s1")];
-        public List<string> SessionIds { get; init; } = [];
-
-        public static WorkItemPartDetailDto Part(string id, string status, params string[] sessions) => new() {
-            WorkItemId = id, Title = id == "p1" ? "Card form" : id, Status = status, SessionIds = [.. sessions],
-            Sessions = [.. sessions.Select(s => new WorkItemPartSessionDto { SessionId = s, Title = "Spike the card form", Vendor = "codex" })],
-        };
-
-        public Task<WorkItemPartsDto?> ReadAsync(string workItemId, CancellationToken ct) => Task.FromResult<WorkItemPartsDto?>(
-            new() { WorkItem = new() { WorkItemId = workItemId, Title = "Checkout" }, Goal = "Pay in two steps", Parts = Parts, SessionIds = SessionIds });
-        public Task<bool> RenameAsync(string workItemId, string title, CancellationToken ct) => Record($"title {title}");
-        public Task<bool> SetGoalAsync(string workItemId, string? goal, CancellationToken ct) => Record($"goal {goal ?? "<none>"}");
-        public Task<bool> SetStatusAsync(string workItemId, string? status, CancellationToken ct) => Record($"status {workItemId} {status ?? "<links>"}");
-        public Task<bool> OrderPartsAsync(string workItemId, IReadOnlyList<string> partIds, CancellationToken ct) => Record($"order {string.Join(",", partIds)}");
-        public Task<bool> MoveSessionAsync(string workItemId, string sessionId, CancellationToken ct) => Record($"move {sessionId} to {workItemId}");
-        public Task<bool> SetWaitAsync(string partId, string waitsOnId, bool waits, CancellationToken ct) =>
-            Record($"{(waits ? "wait" : "stop waiting")} {partId} on {waitsOnId}");
-
-        public async Task<string?> AddPartAsync(string workItemId, string title, CancellationToken ct) =>
-            await Record($"add {title}") ? "p9" : null;
-
-        Task<bool> Record(string call) {
-            Calls.Add(call);
-            return Task.FromResult(Accepts);
-        }
-
-        public Task<bool> MakePartAsync(string workItemId, string looseEndId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<bool> AddLinkAsync(string workItemId, string reference, CancellationToken ct) => throw new NotSupportedException();
-        public Task<string?> CreateAsync(string projectId, string title, CancellationToken ct) => throw new NotSupportedException();
-        public Task<string?> CreateForSessionAsync(string sessionId, string title, CancellationToken ct) => throw new NotSupportedException();
-        public Task<bool> RemoveSessionAsync(string workItemId, string sessionId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<bool> RemovePartAsync(string workItemId, string partId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<WorkItemSuggestionDto?> ReadSuggestionAsync(string sessionId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<bool> AcceptSuggestionAsync(string workItemId, string sessionId, CancellationToken ct) => throw new NotSupportedException();
-        public Task<bool> DismissSuggestionAsync(string workItemId, string sessionId, CancellationToken ct) => throw new NotSupportedException();
-    }
-
-    static WorkItemPageViewModel Page(FakeApi api, FakeAgentDirectory directory) =>
+    static WorkItemPageViewModel Page(FakeWorkItemPageApi api, FakeAgentDirectory directory) =>
         new("w1", api, directory, TimeProvider.System, new HashSet<string>());
 
     /// The title and goal edit in place: an unchanged one sends nothing, a blank goal clears it, and the header shows
@@ -58,7 +14,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task The_title_and_goal_save_in_place_and_a_blank_goal_clears_it() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi();
+        var api = new FakeWorkItemPageApi();
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
 
@@ -87,7 +43,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_refused_save_keeps_the_field_open() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi { Accepts = false };
+        var api = new FakeWorkItemPageApi { Accepts = false };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
 
@@ -101,13 +57,13 @@ public class WorkItemPageViewModelTests {
     });
 
     static WorkItemPartDetailDto Waiting(string id, params string[] on) =>
-        FakeApi.Part(id, "open") with { WaitsOn = [.. on.Select(other => new WorkItemRefDto { WorkItemId = other, Title = other })] };
+        FakeWorkItemPageApi.Part(id, "open") with { WaitsOn = [.. on.Select(other => new WorkItemRefDto { WorkItemId = other, Title = other })] };
 
     /// A wait shows on the slice at once, before any read reports it, and a refused one is put back with a message.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_wait_shows_at_once_and_a_refused_one_is_put_back() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi { Parts = [FakeApi.Part("a", "open"), FakeApi.Part("b", "open")] };
+        var api = new FakeWorkItemPageApi { Parts = [FakeWorkItemPageApi.Part("a", "open"), FakeWorkItemPageApi.Part("b", "open")] };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
         WorkItemPagePart B() => page.Groups.Single().Parts.Single(part => part.Id == "b");
@@ -134,7 +90,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_wait_that_would_loop_is_not_offered() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi { Parts = [Waiting("a"), Waiting("b", "a"), Waiting("c", "b")] };
+        var api = new FakeWorkItemPageApi { Parts = [Waiting("a"), Waiting("b", "a"), Waiting("c", "b")] };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
         var parts = page.Groups.Single().Parts.ToDictionary(part => part.Id);
@@ -156,7 +112,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Picking_an_empty_slice_in_the_graph_keeps_the_graph() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi { Parts = [FakeApi.Part("a", "open"), FakeApi.Part("b", "open", "s1")] };
+        var api = new FakeWorkItemPageApi { Parts = [FakeWorkItemPageApi.Part("a", "open"), FakeWorkItemPageApi.Part("b", "open", "s1")] };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
         var parts = page.Groups.Single().Parts.ToDictionary(part => part.Id);
@@ -175,7 +131,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task The_graph_orders_slices_by_what_they_wait_on() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi { Parts = [Waiting("c", "a", "b"), Waiting("b", "a"), Waiting("a")] };
+        var api = new FakeWorkItemPageApi { Parts = [Waiting("c", "a", "b"), Waiting("b", "a"), Waiting("a")] };
         var flipped = new HashSet<string>();
         using var directory = new FakeAgentDirectory();
         using var page = new WorkItemPageViewModel("w1", api, directory, TimeProvider.System, flipped);
@@ -194,7 +150,7 @@ public class WorkItemPageViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public Task An_unlisted_session_is_named_by_the_work_items_read() => AvaloniaSession.WithImmediateRxScheduler(async () => {
         using var directory = new FakeAgentDirectory();
-        using var page = Page(new FakeApi(), directory);
+        using var page = Page(new FakeWorkItemPageApi(), directory);
 
         var session = page.Groups.Single().Parts.Single().Sessions.Single();
 
@@ -207,7 +163,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_set_status_moves_the_slice_before_the_read_model_has_it() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi();
+        var api = new FakeWorkItemPageApi();
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
 
@@ -226,7 +182,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task The_board_has_a_column_per_status_and_is_remembered() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi { Parts = [FakeApi.Part("p1", "done"), FakeApi.Part("p2", "open"), FakeApi.Part("p3", "done")] };
+        var api = new FakeWorkItemPageApi { Parts = [FakeWorkItemPageApi.Part("p1", "done"), FakeWorkItemPageApi.Part("p2", "open"), FakeWorkItemPageApi.Part("p3", "done")] };
         using var directory = new FakeAgentDirectory();
         var flipped = new HashSet<string>();
         using var page = new WorkItemPageViewModel("w1", api, directory, TimeProvider.System, flipped);
@@ -248,7 +204,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_session_dropped_on_a_status_becomes_a_slice_there() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi { SessionIds = ["s9"] };
+        var api = new FakeWorkItemPageApi { SessionIds = ["s9"] };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
         var session = page.Columns.SelectMany(column => column.Sessions).Single();
@@ -265,7 +221,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_slice_is_added_in_the_status_it_was_typed_into() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi();
+        var api = new FakeWorkItemPageApi();
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
 
@@ -289,7 +245,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_slice_dropped_on_the_other_sessions_hands_them_its_sessions() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi { Parts = [FakeApi.Part("p1", "open", "s1", "s2")] };
+        var api = new FakeWorkItemPageApi { Parts = [FakeWorkItemPageApi.Part("p1", "open", "s1", "s2")] };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
 
@@ -308,7 +264,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_moved_slice_keeps_its_new_place_before_the_read_model_has_it() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi { Parts = [FakeApi.Part("p1", "open"), FakeApi.Part("p2", "open"), FakeApi.Part("p3", "open")] };
+        var api = new FakeWorkItemPageApi { Parts = [FakeWorkItemPageApi.Part("p1", "open"), FakeWorkItemPageApi.Part("p2", "open"), FakeWorkItemPageApi.Part("p3", "open")] };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
 
@@ -329,7 +285,7 @@ public class WorkItemPageViewModelTests {
         static WorkItemPartDetailDto Active(WorkItemPartDetailDto part, int day) => part with {
             Sessions = [.. part.Sessions.Select(session => session with { LastActivityAt = new DateTimeOffset(2026, 1, day, 0, 0, 0, TimeSpan.Zero) })],
         };
-        var api = new FakeApi { Accepts = accepted, Parts = [Active(FakeApi.Part("p1", "open", "s1"), 2), Active(FakeApi.Part("p2", "open", "s2"), 1)] };
+        var api = new FakeWorkItemPageApi { Accepts = accepted, Parts = [Active(FakeWorkItemPageApi.Part("p1", "open", "s1"), 2), Active(FakeWorkItemPageApi.Part("p2", "open", "s2"), 1)] };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
         var parts = page.Groups.Single().Parts;
@@ -345,7 +301,7 @@ public class WorkItemPageViewModelTests {
     [NotInParallel("AvaloniaSession")]
     public Task A_change_during_a_drag_shows_once_the_drag_ends() => AvaloniaSession.WithImmediateRxScheduler(async () => {
         using var directory = new FakeAgentDirectory();
-        using var page = Page(new FakeApi(), directory);
+        using var page = Page(new FakeWorkItemPageApi(), directory);
 
         page.HoldRebuilds(true);
         await page.Groups.Single().Parts.Single().SetStatusCommand.Execute("in_review");
@@ -359,7 +315,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_refused_order_puts_the_slice_back() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi { Accepts = false, Parts = [FakeApi.Part("p1", "open"), FakeApi.Part("p2", "open")] };
+        var api = new FakeWorkItemPageApi { Accepts = false, Parts = [FakeWorkItemPageApi.Part("p1", "open"), FakeWorkItemPageApi.Part("p2", "open")] };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
 
@@ -385,7 +341,7 @@ public class WorkItemPageViewModelTests {
     [Arguments("a session from elsewhere onto a status's group", "outside:x9", "in_review", "asked, add Untitled session;move x9 to p9;status p9 in_review")]
     public Task Each_drop_sends_what_it_changes(string _, string dragged, string target, string calls) =>
         AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var api = new FakeApi { Parts = [FakeApi.Part("p1", "open", "s1"), FakeApi.Part("p2", "open"), FakeApi.Part("p3", "in_review")] };
+            var api = new FakeWorkItemPageApi { Parts = [FakeWorkItemPageApi.Part("p1", "open", "s1"), FakeWorkItemPageApi.Part("p2", "open"), FakeWorkItemPageApi.Part("p3", "in_review")] };
             using var directory = new FakeAgentDirectory();
             using var page = Page(api, directory);
             object Find(string key) =>
@@ -406,7 +362,7 @@ public class WorkItemPageViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_cancelled_drop_onto_a_group_sends_nothing() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeApi { Parts = [FakeApi.Part("p1", "open")] };
+        var api = new FakeWorkItemPageApi { Parts = [FakeWorkItemPageApi.Part("p1", "open")] };
         using var directory = new FakeAgentDirectory();
         using var page = Page(api, directory);
 

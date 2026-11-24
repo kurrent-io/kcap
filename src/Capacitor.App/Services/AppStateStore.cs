@@ -59,7 +59,9 @@ public sealed record AppState(
     // Set once a CloseToTrayHint toast has said that closing the main window keeps kcap running.
     bool CloseToTrayExplained = false,
     // Canonical session ids whose hand-off card the user closed, newest last; see HandoffOutcomeDismissals.
-    IReadOnlyList<string>? DismissedHandoffOutcomes = null);
+    IReadOnlyList<string>? DismissedHandoffOutcomes = null,
+    // Work item id -> its main chat: a session id, or a hosted agent id until the session is known.
+    IReadOnlyDictionary<string, string>? MainSessionByWorkItem = null);
 
 public interface IAppStateStore {
     Task<AppState> LoadAsync();
