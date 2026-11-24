@@ -224,20 +224,20 @@ public class DeliverInputAttachmentsTests : IDisposable {
         await Assert.That(Batches(wt)).IsEmpty();
     }
 
-    /// <summary>What the server is told is the reason token alone: the wording behind it names an
-    /// attachment this daemon refused, which is the owner's business and not the dispatcher's.</summary>
+    /// <summary>An attachment refusal's wording is what the sender is told. The outcome's reason stays
+    /// the drop token.</summary>
     [Test]
-    public async Task Server_caller_reports_only_the_reason_token() {
+    public async Task An_attachment_refusal_is_reported_in_the_senders_words() {
         var server = new CaptureServerConnection();
         await using var orch = Build(server);
         var rt = new FakeAcpRuntime();
-        AgentOrchestratorHarness.SeedAcpAgent(orch, "a1", rt, worktreePath: Tmp.CreateDir("wt"));
+        AgentOrchestratorHarness.SeedAcpAgent(orch, "a1", rt, kind: LaunchKind.Review, worktreePath: Tmp.CreateDir("wt"));
         var dispatch = Guid.NewGuid();
 
-        await orch.HandleSendInputForTest(new SendInputCommand("a1", "hi", ["nope"], dispatch));
+        await orch.HandleSendInputForTest(new SendInputCommand("a1", "hi", [Id(0)], dispatch));
 
         await Assert.That(server.InputRejections)
-            .IsEquivalentTo(new[] { (dispatch, "a1", AgentOrchestrator.SendInputDropReason.DeliveryFailed) });
+            .IsEquivalentTo(new[] { (dispatch, "a1", AttachmentRefusals.ReviewParticipant) });
         await Assert.That(rt.SentInputs).IsEmpty();
         await Assert.That(_server.LogEntries).IsEmpty();
     }

@@ -1316,6 +1316,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 if (!known.IsForeign) {
                     known.MarkQueued(item.DispatchId);
                     if (!known.Acknowledged && !Tracked.Contains(known)) _queuedMessages.Add(known);
+                    NoteRefused(known);
                 }
                 continue;
             }
@@ -1324,6 +1325,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 own.MarkQueued(item.DispatchId);
                 own.SetDelivery(item.DeliveryState, item.DeliveryReason);
                 if (!Tracked.Contains(own)) _queuedMessages.Add(own);
+                NoteRefused(own);
             } else _queuedMessages.Add(QueuedChatMessage.FromServer(item));
         }
         // The server stops listing a message it listed with a state only once that message is over: credited to its
@@ -1621,6 +1623,22 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         else _drafts.SetStash(_origin, _agentId, _history.TakeDraft());
     }
 
+    /// A daemon refusal arrives after the hub has already taken the send, which is when the composer
+    /// was cleared. Put the text and chips back when the user has not started another message, and
+    /// drop the row: the composer is now the copy they resend.
+    void NoteRefused(QueuedChatMessage message) {
+        if (message.IsForeign || message.Acknowledged || message.DeliveryState != "rejected" || message.RefusalNoted) return;
+        message.RefusalNoted = true;
+        var composerFree = ComposerText.Length == 0;
+        if (composerFree && message.Text.Length > 0) ComposerText = message.Text;
+        if (Tray.Count == 0 && message.Files.Count > 0 && (composerFree || ComposerText == message.Text))
+            Tray.AddAll(message.Files);
+        Notice(message.DeliveryNote ?? AttachedAgentCopy.SendAgain);
+        var filesBack = message.Files.All(file => Tray.Items.Any(staged => staged.Id == file.Id));
+        var textBack = message.Text.Length == 0 || ComposerText == message.Text;
+        if (filesBack && textBack) RetireDiscarded(message);
+    }
+
     void RestoreQueuedRow(QueuedChatMessage message, bool isPredecessor = false) {
         if (message.Acknowledged) return;
         if (!_queuedMessages.Contains(message)) {
@@ -1790,6 +1808,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             SentIdle = AgentIsIdle && _awaitingInput == true && !HasTerminalMenu,
             SawIdle = AgentIsIdle || AgentPromptWaits,
             SenderIdentity = sender is null ? null : sender with { Ids = sender.Ids.ToArray() },
+            Files = files,
         };
         if (!queued.HasBaseline) Interlocked.Increment(ref _baselineVersion);
         _lastSent = queued;

@@ -7,7 +7,7 @@ namespace Capacitor.App.ViewModels;
 
 /// An outgoing message stays here until the transcript acknowledges it. Transport acceptance
 /// alone does not mean the runtime has started consuming a prompt queued behind its current turn.
-/// Only the ids are held: the chips themselves live in the tray until a delivery clears them.
+/// The staged files stay here after the tray drops them, so a refusal can put the same chips back.
 public sealed class QueuedChatMessage(string text, int composerEdits, int generation, long? offset, IReadOnlyList<Guid> attachmentIds) : ReactiveObject {
     public const string AwaitingPickupNote = "The agent reads it when its current step ends";
     public const string AttachmentsOnlyText = "Attachments only";
@@ -21,6 +21,9 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     /// with empty text.
     public string DisplayText => string.IsNullOrWhiteSpace(Text) ? AttachmentsOnlyText : Text;
     public IReadOnlyList<Guid> AttachmentIds { get; } = attachmentIds;
+    /// The chips this send took out of the tray. Empty for a row the server listed that this pane did not send.
+    internal IReadOnlyList<StagedAttachment> Files { get; init; } = [];
+    internal bool RefusalNoted { get; set; }
     internal int ComposerEdits { get; } = composerEdits;
     internal bool Acknowledged { get; set; }
     /// Own sends are numbered in the order they were handed to the channel. The file offset
@@ -135,8 +138,10 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     public bool IsForeign { get; private init; }
 
     string? _deliveryReason;
+    internal string? DeliveryReason => _deliveryReason;
 
-    /// Where the server says a message to an attached agent stands; null for a hosted agent's.
+    /// Where the server says the message stands. Null while a hosted send is still in flight; a refusal
+    /// is <c>rejected</c>, for a hosted agent as well as an attached one.
     internal string? DeliveryState { get; private set; }
     public string? DeliveryNote => AttachedAgentCopy.Delivery(DeliveryState, _deliveryReason);
     /// Delivered or not, as far as the server can tell: a notice, no longer a message waiting for the agent.

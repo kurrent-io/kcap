@@ -722,4 +722,76 @@ public partial class ChatTabViewModelTests {
             await chat.TeardownAsync();
         });
     }
+
+    /// <summary>The hub accepting a send clears the composer. A later refusal is what puts the text and chips back,
+    /// and only while the user has not started another message.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_refused_remote_send_returns_its_text_and_files() {
+        await RunOnUiAsync(async () => {
+            var (chat, queue) = RemoteChat();
+            await WaitUntilAsync(() => chat.HasSeed, what: "the seed");
+            var chip = new StagedAttachment("notes.txt", "text/plain", "hi"u8.ToArray());
+            chat.Tray.AddAll([chip]);
+            chat.ComposerText = "see this";
+            await chat.SendCommand.Execute().ToTask();
+            var id = Guid.NewGuid();
+            queue.OnNext([Item("see this", id)]);
+            await Assert.That(chat.ComposerText).IsEqualTo("");
+            await Assert.That(chat.Tray.Count).IsEqualTo(0);
+
+            queue.OnNext([Refused("see this", id, "attachments need a daemon-owned worktree")]);
+
+            await Assert.That(chat.ComposerText).IsEqualTo("see this");
+            await Assert.That(chat.Tray.Items.Single().FileName).IsEqualTo("notes.txt");
+            await Assert.That(chat.Tray.Items.Single().Id).IsEqualTo(chip.Id);
+            await Assert.That(chat.ComposerHint).IsEqualTo("attachments need a daemon-owned worktree");
+            await Assert.That(chat.QueuedMessages).IsEmpty();
+            await Assert.That(chat.DeliveryNotices).IsEmpty();
+            await chat.TeardownAsync();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_refused_remote_send_leaves_a_draft_the_user_started() {
+        await RunOnUiAsync(async () => {
+            var (chat, queue) = RemoteChat();
+            await WaitUntilAsync(() => chat.HasSeed, what: "the seed");
+            chat.Tray.AddAll([new StagedAttachment("notes.txt", "text/plain", "hi"u8.ToArray())]);
+            chat.ComposerText = "see this";
+            await chat.SendCommand.Execute().ToTask();
+            var id = Guid.NewGuid();
+            queue.OnNext([Item("see this", id)]);
+            chat.ComposerText = "next";
+
+            queue.OnNext([Refused("see this", id, "attachments need a daemon-owned worktree")]);
+
+            await Assert.That(chat.ComposerText).IsEqualTo("next");
+            await Assert.That(chat.Tray.Count).IsEqualTo(0);
+            await Assert.That(chat.ComposerHint).IsEqualTo("attachments need a daemon-owned worktree");
+            await Assert.That(chat.QueuedMessages).IsEmpty();
+            await Assert.That(chat.DeliveryNotices.Single().DeliveryNote).IsEqualTo("attachments need a daemon-owned worktree");
+            await chat.TeardownAsync();
+        });
+    }
+
+    static (ChatTabViewModel Chat, Subject<IReadOnlyList<QueuedInputItem>> Queue) RemoteChat() {
+        var session = new BehaviorSubject<ChatSessionInfo>(Session("s1"));
+        var queue = new Subject<IReadOnlyList<QueuedInputItem>>();
+        var chat = new ChatTabViewModel(
+            "a1", AgentOrigin.Remote, session, Observable.Return<string[]?>(null), new AcceptingChatInput(), new ReadyUploader(),
+            _ => new ScriptedFeed { ResetNext = true }, new RecordingOpener(), new FakeTimeProvider(), new FakePermissionService(),
+            new SessionRuns(new FakeTimeProvider()), serverQueue: queue);
+        return (chat, queue);
+    }
+
+    static QueuedInputItem Refused(string text, Guid id, string reason) => new() {
+        DispatchId = id, Text = text, SenderUserId = "u2", DeliveryState = "rejected", DeliveryReason = reason,
+    };
+
+    sealed class ReadyUploader : IAttachmentUploader {
+        public Task<UploadOutcome> UploadAsync(IReadOnlyList<StagedAttachment> files, CancellationToken ct) =>
+            Task.FromResult(new UploadOutcome(UploadKind.Uploaded, files.Select(_ => "file-1").ToList(), null));
+    }
 }
