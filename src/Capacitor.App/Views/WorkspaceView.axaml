@@ -83,7 +83,7 @@
                                        IsHitTestVisible="{Binding ShowsTerminalSurface}"
                                        Opacity="{Binding ShowsTerminalSurface, Converter={x:Static views:BoolToOpacityConverter.Instance}}"
                                        AutomationProperties.IsOffscreenBehavior="{Binding ShowsTerminalSurface, Converter={x:Static views:OffscreenWhenInactiveConverter.Instance}}"
-                                       FontFamily="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace"
+                                       FontFamily="{StaticResource KcapFontFamilyMono}"
                                        CaretBrush="{StaticResource KcapTextBrush}"
                                        Model="{Binding Terminal.Surface, Converter={x:Static views:TerminalSurfaceModelConverter.Instance}}" />
 

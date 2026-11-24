@@ -1,0 +1,255 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Capacitor.App.Views">
+    <Style Selector="Button.kcapChip">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+        <Setter Property="Padding" Value="{StaticResource KcapChoicePadding}" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+    </Style>
+    <Style Selector="Button.kcapChip /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="Button.kcapChip:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapChip:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="Button.kcapChip:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+    </Style>
+    <Style Selector="Button.kcapLink">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+    </Style>
+    <Style Selector="Button.kcapLink /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapLink:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapLink:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+    </Style>
+    <Style Selector="Button.kcapLink TextBlock">
+        <Setter Property="TextDecorations" Value="Underline" />
+    </Style>
+    <!-- A different presenter name keeps Fluent from painting the radio glyph over the chip. -->
+    <Style Selector="RadioButton.kcapChoice">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+        <Setter Property="Padding" Value="{StaticResource KcapChoicePadding}" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+        <Setter Property="Template">
+            <ControlTemplate TargetType="RadioButton">
+                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}"
+                        CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+                    <ContentPresenter Name="ChipContent" Content="{TemplateBinding Content}"
+                                      ContentTemplate="{TemplateBinding ContentTemplate}"
+                                      Foreground="{TemplateBinding Foreground}"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="RadioButton.kcapChoice:pointerover">
+        <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
+    </Style>
+    <Style Selector="RadioButton.kcapChoice:checked,
+                     RadioButton.kcapChoice:checked:pointerover">
+        <Setter Property="Background" Value="{StaticResource KcapPrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapPrimaryBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapOnPrimaryBrush}" />
+    </Style>
+    <Style Selector="RadioButton.kcapChoice:disabled">
+        <Setter Property="Opacity" Value="{StaticResource KcapDisabledOpacity}" />
+    </Style>
+    <Style Selector="Button.kcapPrimary">
+        <Setter Property="Background" Value="{StaticResource KcapPrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapPrimaryBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapOnPrimaryBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+        <Setter Property="Padding" Value="{StaticResource KcapActionPadding}" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.kcapPrimary /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapPrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapPrimaryBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapOnPrimaryBrush}" />
+    </Style>
+    <Style Selector="Button.kcapPrimary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapPrimaryHoverBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapPrimaryHoverBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapOnPrimaryBrush}" />
+    </Style>
+    <Style Selector="Button.kcapPrimary:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapPrimaryPressedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapPrimaryPressedBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapOnPrimaryBrush}" />
+    </Style>
+    <Style Selector="Button.kcapPrimary:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+    </Style>
+    <Style Selector="Button.kcapGhost">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+    </Style>
+    <Style Selector="Button.kcapGhost /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="Button.kcapGhost:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapGhost:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="Button.kcapGhost:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+        <Setter Property="Opacity" Value="{StaticResource KcapDisabledOpacity}" />
+    </Style>
+    <Style Selector="Button.kcapGhost.toastClose:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapGhost.toastClose:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
+    </Style>
+    <Style Selector="Button.kcapGhost.kcapIcon">
+        <Setter Property="Padding" Value="7" />
+        <Setter Property="MinWidth" Value="30" />
+        <Setter Property="MinHeight" Value="30" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.kcapGhost.progressiveDisclosure views|AppIcon">
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="Button.kcapGhost.progressiveDisclosure.on views|AppIcon">
+        <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+    </Style>
+    <Style Selector="Button.kcapGhost.kcapQuiet">
+        <Setter Property="Padding" Value="8,5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
+        <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="Button.kcapGhost.kcapQuiet /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="Button.kcapGhost.kcapQuiet:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapGhost.kcapQuiet:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="Button.kcapGhost.kcapQuiet:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+    </Style>
+    <Style Selector="FlyoutPresenter.kcapPanel Button.kcapGhost">
+        <Setter Property="FocusAdorner" Value="{x:Null}" />
+    </Style>
+    <Style Selector="FlyoutPresenter.kcapPanel Button.kcapGhost:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+    </Style>
+    <Style Selector="Button.kcapDangerFill">
+        <Setter Property="Background" Value="{StaticResource KcapDangerBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapDangerBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapOnPrimaryBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+        <Setter Property="Padding" Value="{StaticResource KcapActionPadding}" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.kcapDangerFill /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapDangerBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapDangerBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapOnPrimaryBrush}" />
+    </Style>
+    <Style Selector="Button.kcapDangerFill:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapDangerFill:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapDangerBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapDangerBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapOnPrimaryBrush}" />
+        <Setter Property="Opacity" Value="0.85" />
+    </Style>
+    <Style Selector="Button.kcapDangerFill:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+    </Style>
+    <Style Selector="Button.kcapDanger">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" />
+        <Setter Property="CornerRadius" Value="7" />
+    </Style>
+    <Style Selector="Button.kcapDanger /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" />
+    </Style>
+    <Style Selector="Button.kcapDanger:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapDanger:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapDangerDimBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" />
+    </Style>
+    <Style Selector="Button.kcapDanger:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" />
+        <Setter Property="Opacity" Value="{StaticResource KcapDisabledOpacity}" />
+    </Style>
+    <Style Selector="Border.kcapSegment">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+        <Setter Property="Padding" Value="3" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.kcapSegmentItem">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+        <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="Button.kcapSegmentItem /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="Button.kcapSegmentItem:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapSegmentItem:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="Button.kcapSegmentItem.active /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapSegmentItem.active:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapSegmentItem.active:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+</Styles>

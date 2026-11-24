@@ -4,16 +4,16 @@
     <!-- Width comes from the surrounding ChatCardRow, which fills the chat column. -->
     <Style Selector="Border.chatSystemCard">
         <Setter Property="HorizontalAlignment" Value="Left" />
-        <Setter Property="Padding" Value="14,10" />
-        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="{StaticResource KcapChatCardPadding}" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapChatCardRadius}" />
         <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
     </Style>
     <Style Selector="Border.chatPromptCard">
         <Setter Property="HorizontalAlignment" Value="Stretch" />
-        <Setter Property="Padding" Value="14,10" />
-        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="{StaticResource KcapChatCardPadding}" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapChatCardRadius}" />
         <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />

@@ -149,6 +149,31 @@ public class ControlVariantTests {
     });
 
     [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public Task The_preview_keeps_unchecked_choice_controls_distinguishable_from_their_surface(bool light) => AvaloniaSession.RunOnUiAsync(async () => {
+        var app = Application.Current!;
+        var palette = new ClassicPreviewPalette(app);
+        var radio = new RadioButton { Content = "Branch" };
+        var check = new CheckBox { Content = "Include drafts" };
+        var window = new Window { Content = new StackPanel { Children = { radio, check } } };
+        try {
+            await Assert.That(palette.TryApply(light ? ClassicAppearance.Light : ClassicAppearance.Dark)).IsTrue();
+            var surface = (ISolidColorBrush)app.FindResource("KcapSurfaceBrush")!;
+            window.Background = surface;
+            window.Show();
+            window.UpdateLayout();
+            var outline = radio.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Ellipse>().Single(shape => shape.Name == "OuterEllipse");
+            var frame = check.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "NormalRectangle");
+            await Assert.That(Contrast(Over(Solid(outline.Stroke), surface.Color), surface.Color)).IsGreaterThanOrEqualTo(3.0);
+            await Assert.That(Contrast(Over(Solid(frame.BorderBrush), surface.Color), surface.Color)).IsGreaterThanOrEqualTo(3.0);
+        } finally {
+            window.Close();
+            palette.TryApply(ClassicAppearance.Original);
+        }
+    });
+
+    [Test]
     public Task A_field_shows_where_it_begins_and_a_readable_placeholder() => AvaloniaSession.RunOnUiAsync(async () => {
         var surface = ((ISolidColorBrush)Application.Current!.FindResource("KcapSurfaceBrush")!).Color;
         var field = new TextBox { Classes = { "kcapField" }, PlaceholderText = "Search" };

@@ -2,7 +2,7 @@ using Avalonia;
 
 namespace Capacitor.App.Views;
 
-/// The type scale defined in App.axaml, for controls built in code.
+/// The desktop type scale, for controls built in code.
 internal static class TypeScale {
     public static double Caption => Size("KcapFontSizeCaption");
     public static double Small => Size("KcapFontSizeSmall");

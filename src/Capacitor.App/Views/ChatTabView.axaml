@@ -218,7 +218,7 @@
         <!-- A command's detail is its text, set like a command in a tool row. -->
         <Style Selector="TextBlock.runDetail.shell">
             <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
-            <Setter Property="FontFamily" Value="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace" />
+            <Setter Property="FontFamily" Value="{StaticResource KcapFontFamilyMono}" />
             <Setter Property="TextTrimming" Value="{x:Static views:ChatTrimming.MiddleEllipsis}" />
         </Style>
         <!-- A card's body is inset from its header on both sides, so a row's status pill reads as
@@ -236,7 +236,7 @@
                          TextBlock.toolLine">
             <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
             <Setter Property="LineHeight" Value="18" />
-            <Setter Property="FontFamily" Value="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace" />
+            <Setter Property="FontFamily" Value="{StaticResource KcapFontFamilyMono}" />
             <Setter Property="TextTrimming" Value="{x:Static views:ChatTrimming.MiddleEllipsis}" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
@@ -1125,7 +1125,7 @@
                                            Foreground="{StaticResource KcapTextBrush}"
                                            IsVisible="{Binding TerminalMenuPrompt, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                 <SelectableTextBlock x:Name="TerminalMenuFallback" Text="{Binding TerminalMenuScreen}" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
-                                                     FontFamily="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace"
+                                                     FontFamily="{StaticResource KcapFontFamilyMono}"
                                                      Foreground="{StaticResource KcapTextBrush}"
                                                      IsVisible="{Binding TerminalMenuScreen, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                 <ItemsControl ItemsSource="{Binding TerminalMenuChoices}">

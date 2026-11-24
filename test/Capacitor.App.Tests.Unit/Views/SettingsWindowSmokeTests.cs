@@ -780,8 +780,63 @@ public class SettingsWindowSmokeTests {
         } finally { window.Close(); }
     });
 
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public Task Appearance_offers_three_keyboard_choices_only_while_the_preview_is_enabled(bool lightAvailable) => AvaloniaSession.RunOnUiAsync(async () => {
+        ConfigMutator.Mutate(Config.Root, config => config with {
+            Profiles = new() { ["work"] = new Profile { ServerUrl = "https://work.example" } },
+        });
+        var state = new AppStateStore(Config.PathTo("app-state.json"));
+        var palette = new ClassicPreviewPalette(Application.Current!);
+        using var preview = new ClassicAppearancePreview(state, null,
+            theme => (theme != ClassicAppearance.Light || lightAvailable) && palette.TryApply(theme), () => true, System.Reactive.Linq.Observable.Never<System.Reactive.Unit>());
+        using var notifications = new NotificationSettingsService(Config.PathTo("notifications.json"));
+        using var vm = MakeViewModel(notifications, appearance: new AppearanceSettingsViewModel(UiScaleSetting.From(state, new AppState()), preview));
+        var window = new SettingsWindow { DataContext = vm };
+        try {
+            window.Show();
+            window.FindControl<TabItem>("AppearanceTab")!.IsSelected = true;
+            Settle(window);
+            var picker = window.FindControl<ListBox>("ColorSchemePicker")!;
+            await Assert.That(picker.IsEffectivelyVisible).IsFalse();
+            preview.SetEnabled(true);
+            Settle(window);
+            var auto = (ListBoxItem)picker.ContainerFromIndex(0)!;
+            await Assert.That(auto.IsSelected).IsTrue();
+            await Assert.That(auto.Focus(NavigationMethod.Tab)).IsTrue();
+            if (lightAvailable) {
+                window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+                window.KeyReleaseQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+                Settle(window);
+                await Assert.That(preview.Selected).IsEqualTo(DesktopColorScheme.Light);
+            }
+            var next = lightAvailable ? PhysicalKey.ArrowRight : PhysicalKey.End;
+            window.KeyPressQwerty(next, RawInputModifiers.None);
+            window.KeyReleaseQwerty(next, RawInputModifiers.None);
+            Settle(window);
+            var dark = (ListBoxItem)picker.ContainerFromIndex(2)!;
+            await Assert.That(dark.IsFocused && dark.IsSelected).IsTrue();
+            await Assert.That(preview.Selected).IsEqualTo(DesktopColorScheme.Dark);
+            await Assert.That(ControlAutomationPeer.CreatePeerForElement(dark).GetName()).IsEqualTo("Dark");
+            Click(window, picker.ContainerFromIndex(1)!);
+            var expected = lightAvailable ? DesktopColorScheme.Light : DesktopColorScheme.Dark;
+            await Assert.That(preview.Selected).IsEqualTo(expected);
+            await Assert.That(picker.SelectedItem).IsEqualTo((object)expected);
+            if (lightAvailable) await preview.SelectAsync(expected);
+            await Assert.That((await state.LoadAsync()).DesktopColorScheme).IsEqualTo(lightAvailable ? "light" : "dark");
+            preview.SetEnabled(false);
+            Settle(window);
+            await Assert.That(picker.IsEffectivelyVisible).IsFalse();
+        } finally {
+            preview.SetEnabled(false);
+            window.Close();
+        }
+    });
+
     SettingsViewModel MakeViewModel(NotificationSettingsService notifications, IDesktopNotificationAccess? access = null,
-            HarnessesSettingsViewModel? harnesses = null, CaptureSettingsViewModel? capture = null, AboutSettingsViewModel? about = null) {
+            HarnessesSettingsViewModel? harnesses = null, CaptureSettingsViewModel? capture = null, AboutSettingsViewModel? about = null,
+            AppearanceSettingsViewModel? appearance = null) {
         var service = new FakeDaemonClientService();
         service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, ["settings/1"]));
         service.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap());
@@ -789,7 +844,7 @@ public class SettingsWindowSmokeTests {
             service, new ScriptedLocalControlOps(), (_, _) => Task.FromResult(false),
             (_, _) => Task.FromResult<MutationOutcome>(new MutationOutcome.Succeeded()),
             (_, _) => Task.FromResult(false), _ => Task.FromResult(false), true, Task.CompletedTask,
-            (_, _) => Task.FromResult(true), notificationSettings: notifications, notificationAccess: access, harnesses: harnesses, capture: capture) { About = about };
+            (_, _) => Task.FromResult(true), notificationSettings: notifications, notificationAccess: access, harnesses: harnesses, capture: capture) { About = about, Appearance = appearance };
     }
 
     static async Task WaitUntilAsync(Func<bool> ready) {

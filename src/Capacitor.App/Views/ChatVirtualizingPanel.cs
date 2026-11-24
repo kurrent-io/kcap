@@ -228,9 +228,8 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     }
 
     internal void DrawRails(DrawingContext context, ChatTopicItem? hovered) {
-        var info  = Brush("KcapTopicBrush");
-        var rest  = new Pen(new SolidColorBrush((info as ISolidColorBrush)?.Color ?? Colors.Gray, 0.55), 1.5);
-        var hover = new Pen(info, 2.5);
+        var rest = new Pen(Brush("KcapTopicRailBrush"), 1.5);
+        var hover = new Pen(Brush("KcapTopicBrush"), 2.5);
         Pen PenFor(ChatTopicItem topic) => ReferenceEquals(topic, hovered) ? hover : rest;
 
         foreach (var (index, row) in _realized) {

@@ -125,7 +125,7 @@
                                                IsEnabled="{Binding Terminal.ShowsSurface, FallbackValue=False}"
                                                AutomationProperties.IsOffscreenBehavior="{Binding Terminal.ShowsSurface, Converter={x:Static views:OffscreenWhenInactiveConverter.Instance}}"
                                                HorizontalAlignment="Left" VerticalAlignment="Top"
-                                               FontFamily="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace"
+                                               FontFamily="{StaticResource KcapFontFamilyMono}"
                                                CaretBrush="{StaticResource KcapTextBrush}"
                                                SourceColumns="{Binding Terminal.SourceColumns}"
                                                SourceRows="{Binding Terminal.SourceRows}"

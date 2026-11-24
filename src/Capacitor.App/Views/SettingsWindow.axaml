@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:app="clr-namespace:Capacitor.App"
         xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
         xmlns:views="clr-namespace:Capacitor.App.Views"
         x:Class="Capacitor.App.Views.SettingsWindow"
@@ -276,8 +277,39 @@
                         <StackPanel Classes="settingsHeader">
                             <TextBlock Classes="kcapTitle" Text="Appearance" />
                             <TextBlock Classes="kcapSubtitle" TextWrapping="Wrap"
-                                       Text="Make kcap easier to read. Changes apply immediately and save on this computer." />
+                                       Text="Make kcap easier to read. Changes apply immediately." />
                         </StackPanel>
+
+                        <Border Classes="settingsCard" IsVisible="{Binding Appearance.Preview.Enabled, FallbackValue=False}">
+                            <StackPanel Margin="16,14" Spacing="8">
+                                <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                    <TextBlock Classes="kcapLabel" Text="Color scheme" VerticalAlignment="Top" Margin="0,8,0,0" />
+                                    <Viewbox Grid.Column="1" Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Right">
+                                        <ListBox x:Name="ColorSchemePicker" Classes="appearancePicker"
+                                                 AutomationProperties.Name="Color scheme"
+                                                 ItemsSource="{x:Static vm:ClassicAppearancePreview.Choices}"
+                                                 SelectedItem="{Binding Appearance.Preview.Selected, Mode=TwoWay}">
+                                            <ListBox.ItemTemplate>
+                                                <DataTemplate x:DataType="app:DesktopColorScheme">
+                                                    <StackPanel Spacing="4">
+                                                        <Border Classes="appearanceFrame" Padding="2" BorderThickness="2" CornerRadius="9">
+                                                            <views:AppearanceThumbnail Scheme="{Binding .}" Height="62" />
+                                                        </Border>
+                                                        <TextBlock Classes="appearanceCaption" Text="{Binding .}" HorizontalAlignment="Center" />
+                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ListBox.ItemTemplate>
+                                        </ListBox>
+                                    </Viewbox>
+                                </Grid>
+                                <TextBlock Classes="kcapHint" TextWrapping="Wrap"
+                                           Text="Auto follows your system. Your color scheme applies across profiles on this computer." />
+                                <TextBlock Classes="kcapHint" TextWrapping="Wrap" Foreground="{StaticResource KcapDangerBrush}"
+                                    AutomationProperties.LiveSetting="Polite"
+                                    IsVisible="{Binding Appearance.Preview.Problem, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}"
+                                    Text="{Binding Appearance.Preview.Problem, FallbackValue={x:Null}}" />
+                            </StackPanel>
+                        </Border>
 
                         <Border Classes="settingsCard">
                             <StackPanel Margin="16,14" Spacing="10">

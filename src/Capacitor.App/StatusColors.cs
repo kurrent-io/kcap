@@ -1,7 +1,7 @@
 namespace Capacitor.App;
 
 /// The status palette colours as hex, for code that runs without the app's resources (the tray
-/// icon) and for tones compared by value. StatusColorsTests holds each equal to its App.axaml brush.
+/// icon) and for tones compared by value. StatusColorsTests holds each equal to its default desktop brush.
 /// Plain strings: a caller that caches must use an immutable brush.
 public static class StatusColors {
     public const string Connected   = "#5BE0B3";

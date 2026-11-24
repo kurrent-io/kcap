@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
-"""WCAG contrast table for the desktop app palette in src/Capacitor.App/App.axaml.
+"""WCAG contrast table for the desktop app palette in src/Capacitor.App/Design/Palette.axaml.
 
 Exits non-zero when a text pair falls below 4.5:1 or a non-text pair below 3:1.
-Usage: python3 tools/ui-audit/contrast.py [path/to/App.axaml]
+Usage: python3 tools/ui-audit/contrast.py [path/to/palette.axaml]
 """
 import re
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-AXAML = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "src/Capacitor.App/App.axaml"
+AXAML = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "src/Capacitor.App/Design/Palette.axaml"
 
 SURFACES = ["KcapCanvasBrush", "KcapSurfaceBrush", "KcapSurfaceRaisedBrush"]
 TEXT = ["KcapTextBrush", "KcapMutedBrush", "KcapFaintBrush", "KcapPlaceholderBrush"]
-STATUS_FILLS = ["KcapSuccessDimBrush", "KcapWarningDimBrush", "KcapDangerDimBrush", "KcapInfoDimBrush", "KcapPurpleDimBrush"]
+STATUS_ROLES = ["Success", "Warning", "Danger", "Info", "Purple"]
+STATUS_INKS = [f"Kcap{role}Brush" for role in STATUS_ROLES]
+STATUS_FILLS = [f"Kcap{role}DimBrush" for role in STATUS_ROLES]
 STATUS_TEXT = ["KcapMutedBrush", "KcapFaintBrush", "KcapDangerBrush", "KcapSuccessBrush", "KcapWarningBrush"]
 EDGES = ["KcapFieldBorderBrush"]
 
@@ -50,38 +53,41 @@ def ratio(a, b):
     return (la + 0.05) / (lb + 0.05)
 
 
-def main():
-    palette = colours(AXAML.read_text())
-    missing = sorted(set(SURFACES + TEXT + STATUS_FILLS + STATUS_TEXT + EDGES) - palette.keys())
+def audit(palette, edges=EDGES):
+    missing = sorted(set(SURFACES + TEXT + STATUS_INKS + STATUS_FILLS + STATUS_TEXT + edges) - palette.keys())
     if missing:
         print("Missing palette entries: " + ", ".join(missing))
         return 1
     failures = []
 
-    def check(fg, bg, need, surface=None):
-        back = rgb(palette[bg], rgb(palette[surface]) if surface else None)
-        background = f"{bg} over {surface}" if surface else bg
-        r = ratio(rgb(palette[fg], back), back)
-        flag = "ok " if r >= need else "LOW"
-        print(f"  {flag} {r:5.2f}:1  {fg:28} on {background}")
-        if r < need:
-            failures.append((fg, background, r, need))
+    def check(fg, bg, need):
+        fill = palette[bg]
+        backing_surfaces = SURFACES if len(fill) == 9 and int(fill[1:3], 16) < 255 else [None]
+        for surface in backing_surfaces:
+            back = rgb(fill, rgb(palette[surface]) if surface else None)
+            background = f"{bg} over {surface}" if surface else bg
+            r = ratio(rgb(palette[fg], back), back)
+            flag = "ok " if r >= need else "LOW"
+            print(f"  {flag} {r:5.2f}:1  {fg:28} on {background}")
+            if r < need:
+                failures.append((fg, background, r, need))
 
     print("Text on surfaces (need 4.5:1)")
     for bg in SURFACES:
-        for fg in TEXT:
+        for fg in [*TEXT, *STATUS_INKS]:
             check(fg, bg, 4.5)
     print("Text on status fills (need 4.5:1)")
     for bg in STATUS_FILLS:
-        fill = palette[bg]
-        surfaces = SURFACES if len(fill) == 9 and int(fill[1:3], 16) < 255 else [None]
-        for surface in surfaces:
-            for fg in STATUS_TEXT:
-                check(fg, bg, 4.5, surface)
+        for fg in STATUS_TEXT:
+            check(fg, bg, 4.5)
     print("Field edges on surfaces (need 3:1)")
     for bg in SURFACES:
-        for fg in EDGES:
+        for fg in edges:
             check(fg, bg, 3.0)
+    for fill in ["KcapPrimaryBrush", "KcapPrimaryHoverBrush", "KcapPrimaryPressedBrush"]:
+        check("KcapOnPrimaryBrush", fill, 4.5)
+    for role in [*TEXT, *STATUS_INKS]:
+        check(role, "KcapSelectionBrush", 4.5)
     if failures:
         print(f"\n{len(failures)} pair(s) below the threshold")
         return 1
@@ -89,4 +95,12 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    base = colours(AXAML.read_text())
+    result = audit(base)
+    if len(sys.argv) == 1:
+        key = "{http://schemas.microsoft.com/winfx/2006/xaml}Key"
+        for variant in ET.parse(AXAML.with_name("ClassicPreview.axaml")).getroot():
+            print(f"\n{variant.attrib[key]}")
+            overrides = {entry.attrib[key]: entry.text.strip() for entry in variant}
+            result |= audit(base | overrides, [*EDGES, "KcapChoiceBorderBrush"])
+    sys.exit(result)
