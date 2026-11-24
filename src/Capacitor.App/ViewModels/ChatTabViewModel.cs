@@ -982,6 +982,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // The note follows whether the chat is empty, which every path that adds or clears rows changes.
         var empty = true;
         _items.CollectionChanged += (_, e) => {
+            AssistantReplies.Refresh(_items, e);
             if (!HasProgressiveDisclosureMarks && (e.NewItems ?? (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset ? _items : null)) is { } added
                 && added.OfType<AssistantTextItem>().Any(static item => ProgressiveDisclosureMarks.Grades(item.Text)))
                 HasProgressiveDisclosureMarks = true;

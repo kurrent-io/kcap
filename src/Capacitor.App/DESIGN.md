@@ -47,22 +47,17 @@ Appearance offers Comfortable and Compact density. Compact reduces padding and r
 
 ## Transcript message metadata
 
-Right-aligned inset prompts and left-aligned assistant prose distinguish roles by shape and placement. In the preview, ordinary author labels are visually hidden at rest. When the transcript identifies a different participant, their name stays visible beside their prompt.
+Right-aligned inset prompts and left-aligned assistant prose distinguish roles by shape and placement. This message chrome applies whether or not the redesign preview is on. Ordinary author labels are hidden. When the transcript identifies a different participant, their name stays visible beside their prompt.
 
-Hover the message body or move keyboard focus into it to reveal the timestamp and Copy together. The pointer can move from the body onto the revealed controls. The timestamp tooltip, accessibility metadata and context menu carry the full sender and time. The context menu opens by right click, Shift+F10 or touch long press and keeps the existing selection, link and image actions. Whole-message Copy retains the message's Markdown flavor.
+A reply is every assistant message between one prompt and the next. Its timestamp and Copy sit once, under its last message, aligned left. Copy puts the whole reply on the clipboard: its messages in order, separated by blank lines, as rich text with Markdown source as plain text. Tool calls, thinking and system notes sit inside a reply without splitting it and stay out of the copy, since they are not part of the answer and read as noise when pasted. A prompt carries its own timestamp and Copy under its bubble, aligned right. When a new assistant message streams in, it takes over the end of its reply.
 
-In sessions that support bookmarks and topics, unmarked actions share the timestamp reveal. Existing marks remain visible and actionable at rest. The side slot reserves space for the two optional targets so revealing them keeps prose and link positions stable. In a 644 DIP Light Comfortable test row with marks enabled, the assistant prose has 447 DIP and stays fixed as the pointer moves from the message onto the actions.
+Hover the last message of a reply, or a prompt, or move keyboard focus into it, to reveal the timestamp and Copy. The pointer can move from the body onto them. The timestamp tooltip, accessibility metadata and context menu carry the full sender and time. The context menu opens by right click, Shift+F10 or touch long press, keeps the existing selection, link and image actions, and its Copy message copies that one message.
 
-Two layouts were measured in the same 1400 × 760 synthetic workspace in Light Comfortable. Heights include the item gaps.
+In sessions that support bookmarks and topics, each message keeps its own marks in a side slot beside its first line, revealed on hover. Existing marks remain visible and actionable at rest. The slot reserves space for both targets so revealing them keeps prose and link positions stable.
 
-| Layout | “ok” prompt | One-line assistant reply | System note / tool group |
-| --- | ---: | ---: | ---: |
-| Reserved header with hover-only time and copy | 92 DIP | 70 DIP | 87 / 81 DIP |
-| Side slot with standard metadata hidden at rest | 66 DIP | 44 DIP | 87 / 81 DIP |
+In a 1400 × 760 synthetic workspace in Light Comfortable, including the item gaps, an “ok” prompt measures 94 DIP, and a one-line assistant message inside and ending a reply 44 and 72 DIP. In Dark Compact at 130% zoom they measure 81, 37 and 65 DIP. Rows hold their bounds on hover.
 
-Both layouts hold their measured bounds on hover. The reserved header leaves a separate line above every body. The side slot gives the controls their own horizontal space and removes that line. In the 644 DIP assistant item, the prose has 523 DIP and the metadata begins 12 DIP beyond it. In Dark Compact at 130% zoom, the prompt, one-line reply and three-line reply with a code link measure 53, 39 and 81 DIP. Turning off the preview restores the 92 and 70 DIP rows and the stock header controls.
-
-The preview toggles the state of the message rows while their styles stay attached. Inline and fenced code keep their own typography when switching reading faces or turning the preview off. In the same Dark Compact sample, the longer reply wraps to four lines and measures 103 DIP with Monospace prose.
+Inline and fenced code keep their own typography when switching reading faces.
 
 ## Baseline measurements
 

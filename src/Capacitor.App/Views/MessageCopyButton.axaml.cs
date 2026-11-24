@@ -41,8 +41,6 @@ public partial class MessageCopyButton : UserControl {
 
     void OnCopyClick(object? sender, RoutedEventArgs e) => PendingCopyForTesting = CopyAsync();
 
-    internal Task CopyFromMenuAsync() => CopyAsync();
-
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change) {
         base.OnPropertyChanged(change);
         if (change.Property == MinimumActionHeightProperty)

@@ -29,19 +29,9 @@
                          Button#AttachButton.kcapGhost:not(:disabled):pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
         </Style>
-        <!-- The bubble's fill is set here, not on the Border, so the undelivered style can replace it. -->
-        <Style Selector="Border.userTurn">
-            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
-        </Style>
-        <Style Selector="Border.userTurn.undelivered">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-        </Style>
         <Style Selector="Border.userTurn.undelivered views|MarkdownView">
             <Setter Property="Opacity" Value="0.6" />
         </Style>
-        <StyleInclude Source="avares://kcap-desktop/Views/ChatMessageStyles.axaml" />
         <Style Selector="Border.toolGroup">
             <Setter Property="Margin" Value="0,4,0,22" />
         </Style>
@@ -96,10 +86,6 @@
         <Style Selector="Grid.topicEnd:pointerover Button.topicEndRemove, Button.topicEndRemove:focus-visible">
             <Setter Property="Opacity" Value="1" />
         </Style>
-        <Style Selector="views|ChatMessageRow:not(:inline-chrome):pointerover Button.topicHere,
-                         views|ChatMessageRow:not(:inline-chrome) Button.topicHere:focus-visible">
-            <Setter Property="Opacity" Value="1" />
-        </Style>
         <!-- A message's bookmark toggle shows on hover like the topic toggle, and stays once taken. -->
         <Style Selector="Button.bookmarkHere">
             <Setter Property="Opacity" Value="0" />
@@ -114,10 +100,6 @@
             <Setter Property="Opacity" Value="1" />
             <Setter Property="ToolTip.Tip" Value="Remove this message's bookmark" />
             <Setter Property="AutomationProperties.Name" Value="Remove message bookmark" />
-        </Style>
-        <Style Selector="views|ChatMessageRow:not(:inline-chrome):pointerover Button.bookmarkHere,
-                         views|ChatMessageRow:not(:inline-chrome) Button.bookmarkHere:focus-visible">
-            <Setter Property="Opacity" Value="1" />
         </Style>
         <!-- A marked message keeps its toggle lit, so a second click in the same place undoes it. -->
         <Style Selector="Button.topicHere.on">
@@ -327,6 +309,8 @@
             <Setter Property="Margin" Value="6,0,0,0" />
             <Setter Property="Padding" Value="14,0,0,0" />
         </Style>
+        <!-- Last, so a message's reveal outranks the resting state of the marks styled above. -->
+        <StyleInclude Source="avares://kcap-desktop/Views/ChatMessageStyles.axaml" />
     </UserControl.Styles>
     <UserControl.Resources>
         <DataTemplate x:Key="ExpandChevron" x:DataType="vm:IExpandableItem">
@@ -386,9 +370,6 @@
              ItemsControl inside an external ScrollViewer is measured at infinite height. -->
         <ItemsControl x:Name="ChatItems" Grid.Row="2" ItemsSource="{Binding Items}"
                       AutomationProperties.Name="Transcript" AutomationProperties.LandmarkType="Main">
-            <ItemsControl.Styles>
-                <StyleInclude Source="avares://kcap-desktop/Views/ChatMessagePreviewStyles.axaml" />
-            </ItemsControl.Styles>
             <ItemsControl.Template>
                 <ControlTemplate>
                     <ScrollViewer x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" BringIntoViewOnFocusChange="False">
@@ -423,16 +404,11 @@
                                 <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).UserTitle" />
                             </MultiBinding>
                         </views:ChatMessageRow.Author>
-                        <Border Classes="userTurn" Classes.undelivered="{Binding IsUndelivered}"
-                                HorizontalAlignment="Right" CornerRadius="10">
+                        <Border Classes="userTurn" Classes.undelivered="{Binding IsUndelivered}" HorizontalAlignment="Right">
                             <DockPanel Classes="messageLayout">
                                 <views:ChatMessageHeader Orientation="Horizontal" Spacing="8">
                                     <TextBlock Classes="toolKindChip messageAuthor"
                                                Text="{Binding $parent[views:ChatMessageRow].Author}" />
-                                    <TextBlock Classes="chatTime messageTime" Text="{Binding Time.Label}"
-                                               AutomationProperties.HelpText="{Binding Time.Tip}"
-                                               IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                                    <views:MessageCopyButton Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}" />
                                     <Button Classes="kcapGhost topicHere" IsVisible="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ShowsMarks}" Classes.on="{Binding StartsTopic}" Click="OnToolSummaryClick"
                                             Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
                                             CommandParameter="{Binding}" />
@@ -446,6 +422,11 @@
                                         </Panel>
                                     </Button>
                                 </views:ChatMessageHeader>
+                                <StackPanel Classes="messageFooter" Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Classes="chatTime messageTime" Text="{Binding Time.Label}" AutomationProperties.HelpText="{Binding Time.Tip}"
+                                               IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <views:MessageCopyButton Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}" />
+                                </StackPanel>
                                 <Border Classes="userMessageBody">
                                     <StackPanel Spacing="6">
                                         <views:MarkdownView Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}"
@@ -500,10 +481,6 @@
                             <views:ChatMessageHeader Orientation="Horizontal" Spacing="8">
                                 <TextBlock Classes="toolKindChip messageAuthor"
                                            Text="{Binding $parent[views:ChatMessageRow].Author}" />
-                                <TextBlock Classes="chatTime messageTime" Text="{Binding Time.Label}"
-                                           AutomationProperties.HelpText="{Binding Time.Tip}"
-                                           IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                                <views:MessageCopyButton Text="{Binding Text}" />
                                 <Button Classes="kcapGhost topicHere" IsVisible="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ShowsMarks}" Classes.on="{Binding StartsTopic}" Click="OnToolSummaryClick"
                                         Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
                                         CommandParameter="{Binding}" />
@@ -517,6 +494,11 @@
                                     </Panel>
                                 </Button>
                             </views:ChatMessageHeader>
+                            <StackPanel Classes="messageFooter" Orientation="Horizontal" Spacing="4">
+                                <TextBlock Classes="chatTime messageTime" Text="{Binding Time.Label}" AutomationProperties.HelpText="{Binding Time.Tip}"
+                                           IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                <views:MessageCopyButton Text="{Binding ReplyText}" />
+                            </StackPanel>
                             <views:MarkdownView Text="{Binding Text}"
                                                 FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
                                                 OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"

@@ -4,14 +4,13 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
+using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
+/// A prompt or assistant message whose time and Copy appear while the pointer or keyboard is on it.
 public sealed class ChatMessageRow : Panel {
-    public static readonly StyledProperty<bool> InlineChromeProperty =
-        AvaloniaProperty.Register<ChatMessageRow, bool>(nameof(InlineChrome));
-
     public static readonly StyledProperty<string?> AuthorProperty =
         AvaloniaProperty.Register<ChatMessageRow, string?>(nameof(Author));
 
@@ -24,11 +23,14 @@ public sealed class ChatMessageRow : Panel {
     FlyoutBase? _openMenu;
     Visual? _messageBody;
     ChatMessageHeader? _header;
+    StackPanel? _footer;
     bool _pointerOnMessage;
+    // Focus a click leaves behind does not hold the actions; only keyboard navigation does.
+    bool _keyboardFocusWithin;
 
-    public bool InlineChrome {
-        get => GetValue(InlineChromeProperty);
-        set => SetValue(InlineChromeProperty, value);
+    public ChatMessageRow() {
+        AddHandler(PointerMovedEvent, OnMessagePointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(GotFocusEvent, OnMessageGotFocus, RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     public string? Author {
@@ -49,6 +51,24 @@ public sealed class ChatMessageRow : Panel {
     internal MessageCopyButton? CopyAction => this.GetVisualDescendants().OfType<MessageCopyButton>()
         .FirstOrDefault(copy => copy is { IsEffectivelyVisible: true, Text.Length: > 0 });
 
+    /// This message alone, even where the visible Copy takes the whole reply.
+    internal (string Text, MarkdownFlavor Flavor)? MessageText => DataContext switch {
+        UserTurnItem { HasText: true } prompt => (prompt.Text, MarkdownFlavor.Prompt),
+        AssistantTextItem { Text.Length: > 0 } reply => (reply.Text, MarkdownFlavor.Chat),
+        _ => null,
+    };
+
+    internal async Task CopyMessageAsync() {
+        if (MessageText is not var (text, flavor)) return;
+        string receipt;
+        try {
+            receipt = await MarkdownClipboard.CopyAsync(this, text, flavor) ? "Copied" : "Copy failed";
+        } catch (Exception) {
+            receipt = "Copy failed";
+        }
+        LiveAnnouncer.Polite(this, receipt);
+    }
+
     internal void SetOpenMenu(FlyoutBase? menu) {
         _openMenu = menu;
         UpdateReveal();
@@ -56,8 +76,7 @@ public sealed class ChatMessageRow : Panel {
 
     protected override void OnKeyDown(KeyEventArgs e) {
         base.OnKeyDown(e);
-        if (!InlineChrome || e.Handled || e.Key != Key.F10 || e.KeyModifiers != KeyModifiers.Shift
-            || e.Source is not InputElement source) return;
+        if (e.Handled || e.Key != Key.F10 || e.KeyModifiers != KeyModifiers.Shift || e.Source is not InputElement source) return;
         var request = new ContextRequestedEventArgs { RoutedEvent = ContextRequestedEvent };
         source.RaiseEvent(request);
         e.Handled = request.Handled;
@@ -82,26 +101,12 @@ public sealed class ChatMessageRow : Panel {
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change) {
         base.OnPropertyChanged(change);
-        if (change.Property == InlineChromeProperty) {
-            if (InlineChrome) {
-                AddHandler(PointerMovedEvent, OnMessagePointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
-            } else {
-                RemoveHandler(PointerMovedEvent, OnMessagePointerMoved);
-                _openMenu?.Hide();
-                SetPointerOnMessage(false);
-                _messageBody = null;
-                _header = null;
-            }
-            PseudoClasses.Set(":inline-chrome", InlineChrome);
+        if (change.Property == IsKeyboardFocusWithinProperty) {
+            if (!IsKeyboardFocusWithin) _keyboardFocusWithin = false;
+            UpdateReveal();
         }
-        if (change.Property == InlineChromeProperty || change.Property == IsKeyboardFocusWithinProperty) UpdateReveal();
-        if (change.Property == InlineChromeProperty || change.Property == AuthorProperty || change.Property == TimestampProperty)
-            AccessibleMetadata = DescribeMessage();
-    }
-
-    string? DescribeMessage() {
-        if (!InlineChrome) return null;
-        return Timestamp is { } stamp ? $"{Author} · {stamp.Tip}" : Author;
+        if (change.Property == AuthorProperty || change.Property == TimestampProperty)
+            AccessibleMetadata = Timestamp is { } stamp ? $"{Author} · {stamp.Tip}" : Author;
     }
 
     void OnMessagePointerMoved(object? sender, PointerEventArgs e) {
@@ -110,16 +115,18 @@ public sealed class ChatMessageRow : Panel {
             ? this.GetVisualDescendants().OfType<Border>().FirstOrDefault(border => border.Classes.Contains("userMessageBody"))
             : this.GetVisualDescendants().OfType<MarkdownView>().FirstOrDefault();
         _header ??= this.GetVisualDescendants().OfType<ChatMessageHeader>().FirstOrDefault();
-        if (_messageBody?.TranslatePoint(default, this) is not { } bodyOrigin
-            || _header?.TranslatePoint(default, this) is not { } headerOrigin) return;
+        _footer ??= this.GetVisualDescendants().OfType<StackPanel>().FirstOrDefault(panel => panel.Classes.Contains("messageFooter"));
+        if (_messageBody?.TranslatePoint(default, this) is not { } bodyOrigin) return;
 
         var point = e.GetPosition(this);
         var body = new Rect(bodyOrigin, _messageBody.Bounds.Size);
-        var header = new Rect(headerOrigin, _header.Bounds.Size);
-        // The gap stays traversable while the actions are revealed.
-        var bridge = new Rect(Math.Min(body.X, header.X), header.Y,
-            Math.Max(body.Right, header.Right) - Math.Min(body.X, header.X), header.Height);
-        SetPointerOnMessage(body.Contains(point) || (ShowsDetails && bridge.Contains(point)));
+        // Once revealed, the actions stay while the pointer crosses from the body onto them.
+        var message = body;
+        foreach (var part in new Visual?[] { _header, _footer }) {
+            if (part is { IsEffectivelyVisible: true } && part.TranslatePoint(default, this) is { } origin)
+                message = message.Union(new Rect(origin, part.Bounds.Size));
+        }
+        SetPointerOnMessage(body.Contains(point) || (ShowsDetails && message.Contains(point)));
     }
 
     void SetPointerOnMessage(bool value) {
@@ -128,7 +135,14 @@ public sealed class ChatMessageRow : Panel {
         UpdateReveal();
     }
 
-    bool ShowsDetails => InlineChrome && (_pointerOnMessage || IsKeyboardFocusWithin || _openMenu is not null);
+    // Focus a menu hands back on closing arrives unspecified and keeps the state it found.
+    void OnMessageGotFocus(object? sender, FocusChangedEventArgs e) {
+        if (e.NavigationMethod is NavigationMethod.Tab or NavigationMethod.Directional) _keyboardFocusWithin = true;
+        else if (e.NavigationMethod == NavigationMethod.Pointer) _keyboardFocusWithin = false;
+        UpdateReveal();
+    }
+
+    bool ShowsDetails => _pointerOnMessage || _keyboardFocusWithin || _openMenu is not null;
 
     void UpdateReveal() =>
         PseudoClasses.Set(":show-details", ShowsDetails);

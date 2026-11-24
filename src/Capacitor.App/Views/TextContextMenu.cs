@@ -96,11 +96,10 @@ public static class TextContextMenu {
 
         ChatMessageRow? current = null;
         flyout.Opening += (_, _) => {
-            current = flyout.Target?.FindAncestorOfType<ChatMessageRow>(includeSelf: true) is { InlineChrome: true } row
-                ? row : null;
+            current = flyout.Target?.FindAncestorOfType<ChatMessageRow>(includeSelf: true);
             details.Text = current?.AccessibleMetadata;
             details.IsVisible = !string.IsNullOrEmpty(details.Text);
-            copy.IsVisible = current?.CopyAction is not null;
+            copy.IsVisible = current?.MessageText is not null;
         };
         flyout.Opened += (_, _) => current?.SetOpenMenu(flyout);
         flyout.Closed += (_, _) => {
@@ -109,9 +108,9 @@ public static class TextContextMenu {
             details.Text = null;
         };
         copy.Click += (_, _) => {
-            var action = current?.CopyAction;
+            var row = current;
             flyout.Hide();
-            if (action is not null) _ = action.CopyFromMenuAsync();
+            if (row is not null) _ = row.CopyMessageAsync();
         };
     }
 }

@@ -311,7 +311,7 @@ public sealed class ChatTopics : ReactiveObject {
 
     void Unfold(ChatTopicItem topic) => _items.InsertRange(_items.IndexOf(topic) + 1, topic.Unfold());
 
-    // Rails and names are laid once the whole edit is done: midway, a topic's rows can be out of the list
+    // Rails, names and replies are laid once the whole edit is done: midway, a topic's rows can be out of the list
     // before they are in its fold.
     void Edit(Action edit) {
         if (_editing) { edit(); return; }
@@ -321,6 +321,7 @@ public sealed class ChatTopics : ReactiveObject {
             Prune();
         } finally { _editing = false; }
         Lay();
+        AssistantReplies.RefreshAll(Everything());
     }
 
     // An end with no topic open before it ends nothing, as when the topic it ended is taken away.
