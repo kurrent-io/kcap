@@ -33,7 +33,7 @@ public partial class RemoteSessionView : UserControl {
         };
         DataContextChanged += (_, _) => {
             ArtefactsPane.Content = null;
-            PullRequestPane.Content = null;
+            PullRequestPane.Reset();
             ArmTabFocus();
             TerminalHost.ReportViewport();
         };
@@ -52,9 +52,7 @@ public partial class RemoteSessionView : UserControl {
                 if (!ReferenceEquals(model, DataContext) || !(pair.Property2 || model is { ShowsTerminalPane: true })) return;
                 if (pair.Property1 == RemoteTab.Artefacts && ArtefactsPane.Content is null && model is not null)
                     ArtefactsPane.Content = new ArtefactsView { DataContext = model.Artefacts };
-                if (pair.Property1 == RemoteTab.PullRequest && PullRequestPane.Content is null && model?.PullRequests is { } pullRequests)
-                    PullRequestPane.Content = new PullRequestReader { DataContext = pullRequests };
-                if (PullRequestPane.Content is PullRequestReader reader) reader.IsVisible = pair.Property1 == RemoteTab.PullRequest;
+                PullRequestPane.Show(model?.PullRequests, pair.Property1 == RemoteTab.PullRequest);
                 if (pair.Property1 == RemoteTab.Chat) ChatHost.FocusComposer();
                 else if (pair.Property1 == RemoteTab.Terminal) TerminalHost.Focus();
             }, DispatcherPriority.Loaded));

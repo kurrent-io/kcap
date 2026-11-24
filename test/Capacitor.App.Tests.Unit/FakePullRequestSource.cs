@@ -19,6 +19,9 @@ internal sealed class FakePullRequestSource(FakeTimeProvider time) : IPullReques
     public readonly Queue<PullRequestRead<PullRequestLinkListDto>> ListResponses = new();
     public int Overviews;
     public int Pages;
+    public readonly List<(int Number, string Section, string? Cursor, string? Resolved, string? Thread)> PageReads = [];
+    public Func<string, string?, string?, object[]?>? PageItems;
+    public string Coverage = "complete";
     public int TotalPages = 3;
     public bool EmptyPages;
     /// Held open, every page read waits on it: the section stays in its first load.
@@ -67,6 +70,7 @@ internal sealed class FakePullRequestSource(FakeTimeProvider time) : IPullReques
     public Task<PullRequestRead<PullRequestPageDto<T>>> PageAsync<T>(string sessionId, PullRequestSubjectDto subject, string section,
         string? cursor, string? resolved, string? threadId, CancellationToken ct) where T : class {
         Pages++;
+        PageReads.Add((subject.Number, section, cursor, resolved, threadId));
         if (RestartNextPage is { } reason) {
             RestartNextPage = null;
             return Task.FromResult(new PullRequestRead<PullRequestPageDto<T>>(PullRequestReadKind.Restart, Subject: subject, Reason: reason));
@@ -84,8 +88,9 @@ internal sealed class FakePullRequestSource(FakeTimeProvider time) : IPullReques
         var next = page + 1 < TotalPages ? (page + 1).ToString("x64", CultureInfo.InvariantCulture) : null;
         var read = new PullRequestRead<PullRequestPageDto<T>>(PullRequestReadKind.Ready, new() {
             SnapshotId = new string('a', 64), SnapshotStartedAt = time.GetUtcNow().UtcDateTime, SnapshotCompletedAt = time.GetUtcNow().UtcDateTime,
-            Coverage = "complete", HeadSha = section == "checks" ? HeadSha : null, Total = new() { Kind = "exact", Value = TotalPages },
-            ExcludedByFilter = new() { Kind = "exact", Value = 0 }, Items = EmptyPages ? [] : [(T)item], PageCursor = page.ToString("x64", CultureInfo.InvariantCulture), NextCursor = next, HasMore = next is not null
+            Coverage = Coverage, HeadSha = section == "checks" ? HeadSha : null, Total = new() { Kind = "exact", Value = TotalPages },
+            ExcludedByFilter = new() { Kind = "exact", Value = 0 },
+            Items = EmptyPages ? [] : PageItems?.Invoke(section, cursor, resolved)?.Cast<T>().ToArray() ?? [(T)item], PageCursor = page.ToString("x64", CultureInfo.InvariantCulture), NextCursor = next, HasMore = next is not null
         }, subject, time.GetUtcNow().UtcDateTime, AccessValidForSeconds: AccessSeconds, RequestStarted: time.GetTimestamp());
         return PageGate is { } gate ? gate.Task.ContinueWith(_ => read, TaskScheduler.Default) : Task.FromResult(read);
     }

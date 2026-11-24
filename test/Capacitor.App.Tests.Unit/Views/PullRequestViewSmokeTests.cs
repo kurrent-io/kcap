@@ -4,6 +4,7 @@ using Avalonia.VisualTree;
 using System.Reactive.Linq;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Threading;
@@ -249,6 +250,110 @@ public class PullRequestViewSmokeTests {
             vm.PullRequests.SetForeground(false);
             await Assert.That(vm.PullRequests.Description).IsNull();
         } finally { window.Close(); await vm.TeardownAsync(); }
+    });
+
+    [Test]
+    public Task Unified_reader_uses_the_workspace_card_shortcuts_and_restores_stock_focus_on_rollback() => RunOnUiAsync(async () => {
+        using var preview = new TooltipPreviewScope();
+        preview.Enable(ClassicAppearance.Light);
+        var daemon = new FakeDaemonClientService();
+        var time = new FakeTimeProvider();
+        var source = new FakePullRequestSource(time) { TotalPages = 1, RollupFor = _ => "failure" };
+        source.OverviewResponses.Enqueue((subject, _) => {
+            var read = source.Overview(subject);
+            return Task.FromResult(read with { Data = read.Data! with { ReviewDecision = "changes_requested", Mergeable = false } });
+        });
+        var vm = new WorkspaceViewModel("agent", daemon, NewActions(), new FakeTerminalAttachClientFactory().Factory,
+            () => new FakeTerminalSurface(), time, new RecordingOpener(), new FakePermissionService(),
+            new FakeWorkContextSource(), new ScriptedLocalControlOps(), new NoAttachmentUploader(), pullRequests: source);
+        var view = new WorkspaceView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1400, Height = 760 };
+        var host = view.FindControl<PullRequestReaderHost>("PullRequestHost")!;
+        window.Resources[PullRequestReaderHost.UnifiedReaderResource] = true;
+        window.Show();
+        try {
+            daemon.Agents.AddOrUpdate(Agent("agent", "claude", false, sessionId: "session"));
+            vm.PullRequests!.SetForeground(true);
+            await WaitUntilAsync(() => vm.PullRequests is { CanReveal: true, IsReading: false });
+            TooltipPreviewScope.Pump(window);
+            await Assert.That(host.Content).IsNull();
+            await Assert.That(source.Pages).IsEqualTo(0);
+
+            var card = view.GetVisualDescendants().OfType<PullRequestCard>().Single();
+            var checks = card.FindControl<Button>("SidebarChecksButton")!;
+            await Assert.That(checks.Focus(NavigationMethod.Tab)).IsTrue();
+            TooltipPreviewScope.Press(window, PhysicalKey.Enter);
+            await WaitUntilAsync(() => host.Content is UnifiedPullRequestReader &&
+                source.PageReads.Any(request => request.Section == "checks") && !vm.PullRequests.IsReading);
+            TooltipPreviewScope.Pump(window);
+            var reader = (UnifiedPullRequestReader)host.Content!;
+            var group = reader.FindControl<UnifiedPullRequestGroupView>("Checks")!;
+            await Assert.That(group.Heading.IsFocused).IsTrue();
+            await Assert.That(reader.GetVisualDescendants().OfType<TabStrip>().Any()).IsFalse();
+
+            var reviews = card.FindControl<Button>("SidebarReviewsButton")!;
+            await Assert.That(reviews.Focus(NavigationMethod.Tab)).IsTrue();
+            TooltipPreviewScope.Press(window, PhysicalKey.Enter);
+            var reviewers = reader.FindControl<UnifiedPullRequestGroupView>("Reviewers")!;
+            await WaitUntilAsync(() => reviewers.Heading.IsFocused && !vm.PullRequests.IsReading);
+            await Assert.That(source.PageReads.Any(request => request.Section == "reviewers")).IsTrue();
+
+            var conflicts = card.FindControl<Button>("SidebarConflictsButton")!;
+            await Assert.That(conflicts.Focus(NavigationMethod.Tab)).IsTrue();
+            TooltipPreviewScope.Press(window, PhysicalKey.Enter);
+            await Assert.That(reader.FindControl<TextBlock>("ConflictsHeading")!.IsFocused).IsTrue();
+
+            checks.Focus(NavigationMethod.Tab);
+            TooltipPreviewScope.Press(window, PhysicalKey.Enter);
+            window.Resources.Remove(PullRequestReaderHost.UnifiedReaderResource);
+            TooltipPreviewScope.Pump(window);
+            var classic = (PullRequestReader)host.Content!;
+            var tabs = classic.FindControl<TabStrip>("ReaderTabs")!;
+            await Assert.That(tabs.SelectedIndex).IsEqualTo(1);
+            await Assert.That(((Control)tabs.SelectedItem!).IsFocused).IsTrue();
+            await Assert.That(card.FindControl<ComboBox>("PullRequestSelector")!.ItemCount).IsEqualTo(2);
+        } finally {
+            window.Close();
+            await vm.TeardownAsync();
+        }
+    });
+
+    [Test]
+    public Task Unified_fix_action_keeps_the_draft_and_returns_to_the_native_composer() => RunOnUiAsync(async () => {
+        using var preview = new TooltipPreviewScope();
+        preview.Enable(ClassicAppearance.Dark);
+        await using var scene = await DocsShotScenes.MainWindowAsync(arrange: main => {
+            main.OpenSessionPullRequest("a1", AgentOrigin.Local, PullRequestWire.Subject(NorthwindPullRequestSource.Link));
+            return Task.CompletedTask;
+        });
+        var window = scene.Window;
+        window.Resources[PullRequestReaderHost.UnifiedReaderResource] = true;
+        window.Show();
+        var workspace = (WorkspaceViewModel)((MainWindowViewModel)window.DataContext!).CurrentWorkspace!;
+        workspace.Chat!.ComposerText = "Keep my existing draft.";
+        await WaitUntilAsync(() => workspace.PullRequests!.ShowsFix &&
+            window.GetVisualDescendants().OfType<UnifiedPullRequestReader>().Any());
+        TooltipPreviewScope.Pump(window);
+        var reader = window.GetVisualDescendants().OfType<UnifiedPullRequestReader>().Single();
+        var fix = reader.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Content, "Fix it"));
+        await Assert.That(fix.Focus(NavigationMethod.Tab)).IsTrue();
+        TooltipPreviewScope.Press(window, PhysicalKey.Enter);
+        await Assert.That(workspace.ActiveTab).IsEqualTo(WorkspaceTab.Chat);
+        await Assert.That(workspace.Chat.ComposerText).StartsWith("Keep my existing draft.");
+        await Assert.That(workspace.Chat.ComposerText).Contains("Get pull request #88 ready to merge");
+        await Assert.That(window.FocusManager!.GetFocusedElement()).IsTypeOf<TextBox>();
+
+        var draft = workspace.Chat.ComposerText;
+        ((MainWindowViewModel)window.DataContext!).OpenSessionPullRequest("a1", AgentOrigin.Local, PullRequestWire.Subject(NorthwindPullRequestSource.Link));
+        await WaitUntilAsync(() => window.GetVisualDescendants().OfType<UnifiedPullRequestReader>().Any());
+        window.Resources.Remove(PullRequestReaderHost.UnifiedReaderResource);
+        TooltipPreviewScope.Pump(window);
+        await Assert.That(window.GetVisualDescendants().OfType<PullRequestReader>().Any()).IsTrue();
+        await Assert.That(workspace.Chat.ComposerText).IsEqualTo(draft);
+        window.Resources[PullRequestReaderHost.UnifiedReaderResource] = true;
+        TooltipPreviewScope.Pump(window);
+        await Assert.That(window.GetVisualDescendants().OfType<UnifiedPullRequestReader>().Any()).IsTrue();
+        await Assert.That(workspace.Chat.ComposerText).IsEqualTo(draft);
     });
 
     [Test]

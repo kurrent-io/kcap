@@ -1490,6 +1490,7 @@ public partial class App : Application {
             agentId => _coordinator?.Window?.DataContext is MainWindowViewModel vm
                 && vm.OpenSession(AgentLinkLabels.HeldIdOf(directory.Rows, agentId) ?? agentId));
         var pageLinks = new PageLinkRouter(() => profiles?.Resolution.ServerUrl);
+        WatchDesktopExperiment(ExperimentalFeatures.UnifiedPullRequestReader, profiles?.Resolution.ProfileName, PullRequestReaderHost.UnifiedReaderResource);
         var webView = new WebViewAvailability();
         var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
         var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);

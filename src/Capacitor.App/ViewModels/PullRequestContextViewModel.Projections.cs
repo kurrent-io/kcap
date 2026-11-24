@@ -140,6 +140,7 @@ public sealed partial class PullRequestContextViewModel {
         NotifyValue(ShowsInstallTool);
         NotifyValue(InstallToolLabel);
         NotifyPresentation();
+        if (_usesUnifiedReader) _unifiedPage?.Update();
         ScheduleTick();
     }
 
@@ -242,6 +243,6 @@ public sealed partial class PullRequestContextViewModel {
                     item.OriginalLine ?? item.Line, item.OriginalLine is null ? item.StartLine : item.OriginalStartLine)
                 : null,
             item.DiffHunk, PrLink(item.Url, subject),
-            "available", item.HunkTruncated || item.RootComment?.BodyTruncated == true, IsThread: true)
+            "available", item.HunkTruncated || item.RootComment?.BodyTruncated == true, IsThread: true, RootCommentId: item.RootComment?.Id)
         : Unavailable(item.Id, "Thread", PrLink(item.Url, subject), item.Availability);
 }

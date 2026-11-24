@@ -2,6 +2,8 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Capacitor.App.ViewModels;
 
@@ -29,6 +31,11 @@ public partial class PullRequestReader : UserControl {
             if (!_restoring && _model is { ShowReaderContent: true, ShowsLoading: false }) _model.ScrollOffset = ReaderScroll.Offset.Y;
         };
     }
+    internal void FocusReader() {
+        if (IsEffectivelyVisible && ReaderTabs.SelectedItem is TabStripItem item && item.Focus(NavigationMethod.Tab)) return;
+        ReaderScroll.Focus(NavigationMethod.Tab);
+    }
+
     void ModelChanged(object? sender, PropertyChangedEventArgs change) {
         if (change.PropertyName is nameof(PullRequestContextViewModel.Section) or nameof(PullRequestContextViewModel.ShowReaderContent)
             or nameof(PullRequestContextViewModel.ShowsLoading)) RestorePosition();

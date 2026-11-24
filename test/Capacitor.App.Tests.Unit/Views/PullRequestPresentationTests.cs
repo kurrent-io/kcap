@@ -18,6 +18,81 @@ namespace Capacitor.App.Tests.Unit.Views;
 [NotInParallel("AvaloniaSession")]
 public class PullRequestPresentationTests {
     [Test]
+    public Task Unified_file_replies_stay_inline_and_preserve_filter_and_place_per_pull_request() => RunOnUiAsync(async () => {
+        using var preview = new TooltipPreviewScope();
+        preview.Enable(ClassicAppearance.Dark);
+        await using var h = new PullRequestViewTestHost(unified: true);
+        h.Window.Height = 580;
+        PullRequestCommentDto parentComment = new() { Id = "root", Body = "Parent discussion", Availability = "available" };
+        PullRequestThreadDto[] fileThreads = [new() { Id = "thread", Path = "src/retry.cs", IsResolved = false, Availability = "available",
+            RootComment = parentComment, DiffHunk = "+await Retry();" }];
+        PullRequestCommentDto[] replies = [parentComment,
+            new() { Id = "reply", Body = "This reply stays under its file discussion.", Availability = "available" }];
+        h.Source.PageItems = (section, _, _) => section switch {
+            "threads" => fileThreads,
+            "thread_comments" => replies,
+            _ => null,
+        };
+        await h.ShowAsync();
+        var reader = (UnifiedPullRequestReader)h.ReaderHost!.Content!;
+        var scroll = reader.FindControl<ScrollViewer>("PageScroll")!;
+        var threads = reader.FindControl<UnifiedPullRequestGroupView>("FileThreads")!;
+        var threadLink = reader.GetVisualDescendants().OfType<Button>().Single(button => Equals(button.Tag, "threads"));
+        await Assert.That(threadLink.Focus(NavigationMethod.Tab)).IsTrue();
+        TooltipPreviewScope.Press(h.Window, PhysicalKey.Enter);
+        await h.SettleAsync();
+        var filterToggle = threads.GetVisualDescendants().OfType<ToggleButton>()
+            .Single(toggle => Equals(toggle.Content, "Show resolved"));
+        Click(h.Window, filterToggle);
+        await h.SettleAsync();
+        await Assert.That(filterToggle.IsChecked).IsTrue();
+        var expand = threads.GetVisualDescendants().OfType<ToggleButton>()
+            .Single(toggle => Equals(toggle.Content, "Show replies"));
+        expand.Focus(NavigationMethod.Tab);
+        TooltipPreviewScope.Pump(h.Window);
+        var collapsedOffset = scroll.Offset.Y;
+        TooltipPreviewScope.Press(h.Window, PhysicalKey.Space);
+        await h.SettleAsync();
+
+        var page = (UnifiedPullRequestPage)reader.DataContext!;
+        var parent = page.Threads.Rows.Single();
+        var threadRow = threads.FindRow(parent.Row.Id)!;
+        await Assert.That(threadRow.IsVisualAncestorOf(expand)).IsTrue();
+        await Assert.That(parent.Row.Body).IsEqualTo("Parent discussion");
+        await Assert.That(parent.Replies!.Rows.Single().Row.Body).IsEqualTo("This reply stays under its file discussion.");
+        var reply = threadRow.GetVisualDescendants().OfType<MarkdownView>()
+            .Single(markdown => markdown.IsEffectivelyVisible && markdown.Text == parent.Replies.Rows.Single().Row.Body);
+        await Assert.That(reply.TranslatePoint(default, expand)!.Value.Y).IsGreaterThanOrEqualTo(expand.Bounds.Height);
+        await Assert.That(expand.IsChecked).IsTrue();
+        await Assert.That(expand.IsFocused).IsTrue();
+
+        TooltipPreviewScope.Press(h.Window, PhysicalKey.Space);
+        await h.SettleAsync();
+        await Assert.That(parent.HasReplies).IsFalse();
+        await Assert.That(reply.IsEffectivelyVisible && threadRow.IsVisualAncestorOf(reply)).IsFalse();
+        await Assert.That(expand.IsFocused).IsTrue();
+        await Assert.That(Math.Abs(scroll.Offset.Y - collapsedOffset)).IsLessThanOrEqualTo(8);
+        TooltipPreviewScope.Press(h.Window, PhysicalKey.Space);
+        await h.SettleAsync();
+        await Assert.That(h.Source.PageReads.Count(call => call.Section == "thread_comments")).IsEqualTo(1);
+
+        var original = h.Model.Selected!;
+        var anchor = page.Anchor;
+        var offset = scroll.Offset.Y;
+        var picker = h.Card.FindControl<ComboBox>("PullRequestSelector")!;
+        picker.SelectedItem = h.Model.Choices.Single(choice => choice != original);
+        await h.SettleAsync();
+        await Assert.That(page.IncludeResolved).IsFalse();
+        await Assert.That(page.Threads.Rows.Any(row => row.HasReplies)).IsFalse();
+        picker.SelectedItem = h.Model.Choices.Single(choice => choice.Subject == original.Subject);
+        await h.SettleAsync();
+        await Assert.That(page.IncludeResolved).IsTrue();
+        await Assert.That(page.Threads.Rows.Single().HasReplies).IsTrue();
+        await Assert.That(page.Anchor).IsEqualTo(anchor);
+        await Assert.That(Math.Abs(scroll.Offset.Y - offset)).IsLessThanOrEqualTo(8);
+    });
+
+    [Test]
     public Task Returning_to_a_PR_restores_its_tab_and_scroll_after_the_page_arrives() => RunOnUiAsync(async () => {
         await using var h = new PullRequestViewTestHost();
         h.Source.PageItem = _ => new PullRequestCommentDto {

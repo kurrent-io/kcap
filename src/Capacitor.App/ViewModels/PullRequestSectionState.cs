@@ -17,6 +17,7 @@ internal sealed class PullRequestSectionState(string key) {
     internal string? Next;
     internal bool Stopped;
     internal string? Error;
+    internal string? StaleReason;
     internal List<string> Earlier { get; } = [];
     internal string? Evicted => Earlier.LastOrDefault();
     internal long Bytes => 512 + 2L * (Key.Length + (Snapshot?.Length ?? 0) + Earlier.Sum(cursor => cursor.Length)) + Pages.Sum(page => page.Bytes);

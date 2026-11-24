@@ -1488,6 +1488,202 @@ public class PullRequestContextViewModelTests {
         await h.Dispose();
     });
 
+    [Test]
+    public Task Unified_pagers_keep_independent_cursors_and_order_checks_for_the_current_head() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        try {
+            h.Source.TotalPages = 3;
+            h.Source.PageItems = (section, cursor, _) => section == "checks" ? CheckPage(cursor) : null;
+            static PullRequestCheckDto[] CheckPage(string? cursor) => [new() {
+                Id = cursor ?? "first", Name = cursor is null ? "Compile" : cursor.EndsWith('1') ? "Integration" : "Formatting",
+                Outcome = cursor is null ? "success" : cursor.EndsWith('1') ? "pending" : "failure",
+                Status = cursor?.EndsWith('1') == true ? "in_progress" : "completed", Availability = "available",
+            }];
+            h.Push();
+            await h.Show();
+            h.Vm.SetReaderVisible(true);
+            var page = h.Vm.SetUnifiedReader(true)!;
+            await Assert.That(h.Source.Pages).IsEqualTo(0);
+            page.Checks.FirstCommand.Execute(null);
+            page.Reviews.FirstCommand.Execute(null);
+            await h.Show();
+            page.Checks.MoreCommand.Execute(null);
+            await h.Show();
+            page.Checks.MoreCommand.Execute(null);
+            await h.Show();
+            await Assert.That(page.Checks.Rows.Select(row => row.Row.Title).ToArray()).IsEquivalentTo(
+                new[] { "Formatting", "Integration" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            await Assert.That(page.Checks.PassingRows).IsEmpty();
+            page.Checks.PassingExpanded = true;
+            await Assert.That(page.Checks.PassingRows.Single().Row.Title).IsEqualTo("Compile");
+            await Assert.That(page.Reviews.Rows.Count).IsEqualTo(1);
+            await Assert.That(page.Reviews.HasMore).IsTrue();
+            page.Reviews.MoreCommand.Execute(null);
+            await h.Show();
+            await Assert.That(page.Reviews.Rows.Count).IsEqualTo(2);
+            await Assert.That(h.Source.PageReads.Count(call => call.Section == "checks")).IsEqualTo(3);
+            await Assert.That(h.Source.PageReads.Count(call => call.Section == "reviews")).IsEqualTo(2);
+        } finally { await h.Dispose(); }
+    });
+
+    [Test]
+    public Task Unified_discussion_polls_refresh_single_pages_and_keep_paginated_rows() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        try {
+            var body = "Initial discussion";
+            var review = new PullRequestReviewDto { Id = "review", State = "commented", Availability = "available" };
+            var comment = new PullRequestCommentDto { Id = "comment", Availability = "available" };
+            h.Source.PageItems = (section, cursor, _) => section switch {
+                "reviews" => [review with { Body = body }],
+                "conversation" => [comment with { Id = cursor ?? comment.Id, Body = body }],
+                _ => null,
+            };
+            h.Push();
+            await h.Show();
+            h.Vm.SetReaderVisible(true);
+            var page = h.Vm.SetUnifiedReader(true)!;
+            page.Reviews.FirstCommand.Execute(null);
+            page.Conversation.FirstCommand.Execute(null);
+            await h.Show();
+            await Assert.That(page.Reviews.Rows.Single().Row.Body).IsEqualTo(body);
+            await Assert.That(page.Conversation.Rows.Single().Row.Body).IsEqualTo(body);
+
+            body = "Discussion updated on the same commit";
+            h.Time.Advance(TimeSpan.FromSeconds(26));
+            await WaitUntilAsync(() => h.Source.Overviews == 2 && !h.Vm.IsReading);
+            await Assert.That(page.Reviews.Rows.Single().Row.Body).IsEqualTo(body);
+            await Assert.That(page.Conversation.Rows.Single().Row.Body).IsEqualTo(body);
+
+            page.Conversation.MoreCommand.Execute(null);
+            await h.Show();
+            body = "Another update on the same commit";
+            h.Time.Advance(TimeSpan.FromSeconds(26));
+            await WaitUntilAsync(() => h.Source.Overviews == 3 && !h.Vm.IsReading);
+            await Assert.That(page.Reviews.Rows.Single().Row.Body).IsEqualTo(body);
+            await Assert.That(page.Conversation.Rows.Count).IsEqualTo(2);
+            await Assert.That(page.Conversation.HasMore).IsTrue();
+            await Assert.That(h.Source.PageReads.Count(call => call.Section == "conversation")).IsEqualTo(3);
+        } finally { await h.Dispose(); }
+    });
+
+    [Test]
+    public Task Unified_late_expired_page_leaves_the_current_pager_usable() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        var gate = new TaskCompletionSource();
+        try {
+            h.Push();
+            await h.Show();
+            h.Vm.SetReaderVisible(true);
+            var page = h.Vm.SetUnifiedReader(true)!;
+            page.Conversation.FirstCommand.Execute(null);
+            await h.Show();
+            var first = page.Conversation.Rows.Single().Row;
+            h.Source.AccessSeconds = 10;
+            h.Source.PageGate = gate;
+            page.Conversation.MoreCommand.Execute(null);
+            await Assert.That(page.Conversation.IsLoading).IsTrue();
+
+            h.Source.AccessSeconds = 30;
+            h.Source.PageGate = null;
+            h.Source.OverviewTitle = "Renewed access";
+            h.Time.Advance(TimeSpan.FromSeconds(26));
+            await WaitUntilAsync(() => h.Vm is { Title: "Renewed access", CanReveal: true });
+            gate.SetResult();
+            await h.Show();
+            await Assert.That(page.Conversation.Rows.Single().Row).IsEqualTo(first);
+            await Assert.That(page.Conversation.Note).IsEmpty();
+            await Assert.That(page.Conversation.HasMore).IsTrue();
+
+            page.Conversation.MoreCommand.Execute(null);
+            await h.Show();
+            await Assert.That(page.Conversation.Rows.Count).IsEqualTo(2);
+            await Assert.That(h.Source.PageReads[2].Cursor).IsEqualTo(h.Source.PageReads[1].Cursor);
+        } finally {
+            gate.TrySetResult();
+            await h.Dispose();
+        }
+    });
+
+    [Test]
+    public Task Unified_restores_expanded_replies_when_evicted_threads_reload() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        try {
+            h.Source.TotalPages = 1;
+            h.Push();
+            await h.Show();
+            h.Vm.SetReaderVisible(true);
+            var page = h.Vm.SetUnifiedReader(true)!;
+            page.Threads.FirstCommand.Execute(null);
+            await h.Show();
+            var original = h.Vm.Selected!;
+            var thread = page.Threads.Rows.Single();
+            thread.RepliesExpanded = true;
+            await h.Show();
+            var reply = thread.Replies!.Rows.Single().Row;
+
+            h.Vm.Selected = h.Vm.Choices.Single(choice => choice != original);
+            await h.Show();
+            h.Vm.TrimUnifiedPageCache(PullRequestContextViewModel.PageCacheBudget);
+            h.Vm.Selected = original;
+            await h.Show();
+            var restored = page.Threads.Rows.Single();
+            await Assert.That(restored.HasReplies).IsTrue();
+            await Assert.That(restored.Replies!.Rows.Single().Row).IsEqualTo(reply);
+            await Assert.That(h.Source.PageReads.Count(call => call.Section == "threads" && call.Number == original.Subject.Number)).IsEqualTo(2);
+            await Assert.That(h.Source.PageReads.Count(call => call.Section == "thread_comments" && call.Thread == thread.Row.Id)).IsEqualTo(2);
+        } finally { await h.Dispose(); }
+    });
+
+    [Test]
+    public Task Unified_rejects_a_late_old_head_and_masks_all_groups_on_access_denial() => RunOnUiAsync(async () => {
+        var h = new Harness();
+        var gate = new TaskCompletionSource();
+        var replacement = new TaskCompletionSource();
+        try {
+            h.Source.TotalPages = 1;
+            h.Source.RollupFor = _ => "success";
+            h.Source.PageItem = section => section == "checks" ? new PullRequestCheckDto {
+                Id = h.Source.HeadSha, Name = h.Source.OverviewTitle, Outcome = "failure", Availability = "available",
+            } : null;
+            h.Push();
+            await h.Show();
+            h.Vm.SetReaderVisible(true);
+            var page = h.Vm.SetUnifiedReader(true)!;
+            page.Threads.FirstCommand.Execute(null);
+            await h.Show();
+            h.Time.Advance(TimeSpan.FromSeconds(20));
+            h.Source.PageGate = gate;
+            page.Checks.FirstCommand.Execute(null);
+            await Assert.That(page.Checks.IsLoading).IsTrue();
+            h.Source.HeadSha = new string('b', 40);
+            h.Source.OverviewTitle = "Replacement head";
+            h.Source.PageGate = replacement;
+            h.Time.Advance(TimeSpan.FromSeconds(6));
+            await WaitUntilAsync(() => h.Vm.Title == "Replacement head");
+            gate.SetResult();
+            await WaitUntilAsync(() => h.Source.PageReads.Count(call => call.Section == "checks") == 2);
+            await Assert.That(page.Checks.Rows).IsEmpty();
+            replacement.SetResult();
+            await h.Show();
+            await Assert.That(page.Checks.Rows.Single().Row.Title).IsEqualTo("Replacement head");
+            await Assert.That(h.Vm.UnifiedSection("checks")!.Head).IsEqualTo(h.Source.HeadSha);
+            await Assert.That(h.Source.PageReads.Count(call => call.Section == "checks")).IsEqualTo(2);
+
+            h.Source.Failure = "denied";
+            h.Time.Advance(TimeSpan.FromSeconds(30));
+            await WaitUntilAsync(() => !h.Vm.IsReading && h.Vm.Notice.Contains("cannot read", StringComparison.Ordinal));
+            await Assert.That(page.ShowContent).IsFalse();
+            await Assert.That(page.Description).IsNull();
+            await Assert.That(page.Checks.Rows).IsEmpty();
+            await Assert.That(page.Threads.Rows).IsEmpty();
+            await Assert.That(h.Vm.ShowsFix).IsFalse();
+        } finally {
+            gate.TrySetResult();
+            replacement.TrySetResult();
+            await h.Dispose();
+        }
+    });
+
     static PullRequestLinkDto Link(int number, string? lifecycle = null) => FakePullRequestSource.Link(number) with { Lifecycle = lifecycle };
 
     sealed class Harness {

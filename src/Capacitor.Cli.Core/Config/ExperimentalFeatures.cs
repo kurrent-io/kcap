@@ -49,7 +49,15 @@ public static class ExperimentalFeatures {
         DesktopAppOnly: true,
         AppWide: true);
 
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance, DesktopStatusRedesign];
+    public static ExperimentalFeature UnifiedPullRequestReader { get; } = new(
+        "unified-pull-request-reader",
+        "Unified pull request reader",
+        "Read checks, reviews and discussions on one page when Desktop redesign preview is on.",
+        AppliesLive: true,
+        DesktopAppOnly: true,
+        OnByDefault: false);
+
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance, DesktopStatusRedesign, UnifiedPullRequestReader];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>

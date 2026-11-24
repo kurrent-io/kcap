@@ -36,17 +36,15 @@ public partial class WorkspaceView : UserControl {
         // The PR reader is created on first use, including for sessions without a PTY.
         DataContextChanged += (_, _) => {
             _tabFocus?.Dispose();
-            PullRequestHost.Content = null;
+            PullRequestHost.Reset();
             ArtefactsHost.Content = null;
             _tabFocus = DataContext is not WorkspaceViewModel model ? null : model
                 .WhenAnyValue(vm => vm.ActiveTab, vm => vm.Chat)
                 .Subscribe(pair => Dispatcher.UIThread.Post(() => {
                     if (!ReferenceEquals(model, DataContext) || model?.ActiveTab != pair.Property1) return;
-                    if (pair.Property1 == WorkspaceTab.PullRequest && PullRequestHost.Content is null && model?.PullRequests is { } pullRequests)
-                        PullRequestHost.Content = new PullRequestReader { DataContext = pullRequests };
+                    PullRequestHost.Show(model?.PullRequests, pair.Property1 == WorkspaceTab.PullRequest);
                     if (pair.Property1 == WorkspaceTab.Artefacts && ArtefactsHost.Content is null && model is not null)
                         ArtefactsHost.Content = new ArtefactsView { DataContext = model.Artefacts };
-                    if (PullRequestHost.Content is PullRequestReader reader) reader.IsVisible = pair.Property1 == WorkspaceTab.PullRequest;
                     if (pair is { Property1: WorkspaceTab.Chat, Property2: not null }) ChatHost.FocusComposer();
                     else if (pair.Property1 == WorkspaceTab.Terminal) TerminalHost.Focus();
                 }, DispatcherPriority.Loaded));
