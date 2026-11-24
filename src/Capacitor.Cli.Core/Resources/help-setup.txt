@@ -305,6 +305,8 @@ changes.
                                         --skip-<agent>-hooks
   Codex sandbox network                 --skip-codex-network-access  yes
   Another Claude/Codex config dir       - (kcap accounts add)   no
+  Record Grok Bot desktop app chats     - (kcap config set      no
+                                        grok_bot.record true)
   Keep provider API keys                --use-provider-api-key  kept
   Daemon name                           --daemon-name           suggested
   Turn on terminal steering (not on     --steering              as it stands

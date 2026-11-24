@@ -1,0 +1,20 @@
+{
+  "name": "kcap",
+  "version": "0.1.0",
+  "description": "Records Grok Bot chats to kcap, and adds session recall, memory and analytics tools",
+  "author": {
+    "name": "Kurrent",
+    "email": "support@kurrent.io"
+  },
+  "homepage": "https://github.com/kurrent-io/kcap-cli",
+  "repository": "https://github.com/kurrent-io/kcap-cli",
+  "keywords": [
+    "kcap",
+    "session-recording",
+    "transcripts",
+    "memory",
+    "analytics"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.cursor-mcp.json"
+}

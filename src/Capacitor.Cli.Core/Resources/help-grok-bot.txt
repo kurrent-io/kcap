@@ -1,0 +1,64 @@
+kcap grok-bot — Record Grok Bot chats
+
+Usage: kcap grok-bot watch [options]
+       kcap grok-bot status
+
+Records every Grok Bot chat — each Bot's own thread and every new chat, which
+Grok Bot keeps as a group — as kcap sessions: a new session starts after the
+thread has been quiet for the gap, and ends once the gap passes with no new
+message. Records the conversation only — user messages, Bot messages and the
+choices made on Bot questions — not tool calls. A question is held until it is
+answered or skipped, or you send another message; an answer given after that,
+or more than two hours after the question, is not recorded.
+
+Reads from one of two places. On a Grok Bot cloud computer it polls the
+computer's local Grok Bot gateway, and keeps recording with your own computer
+off. On a computer with the Grok Bot desktop app it reads the app's own copy of
+each chat. The gateway is used where the computer has one, the desktop app's
+chats otherwise. Both give the same sessions under the same ids, so a chat
+recorded from both places is stored once.
+
+Where a cloud computer no longer lets a Bot's own user read the gateway
+descriptor, --gateway-cmd runs a command whose output is that descriptor — for
+example a sudo read of the file. It is off unless given, since it reads a file
+the computer keeps from the Bot; the connect-kcap skill offers it only after
+saying what it does.
+
+The kcap daemon runs this watcher itself while the profile's grok_bot.record
+setting is on (kcap config set grok_bot.record true; kcap setup asks once on a
+computer with the desktop app), so recording starts with the daemon and needs
+no terminal. This command runs the same watcher by hand.
+
+status says whether a watcher is running on this computer, whoever started it,
+which server it posts to as which profile, and what its last cycle met: an
+accepted delivery, nothing to send, or the server's refusal. A watcher keeps the
+server and profile it started with and stays running while a server refuses what
+it sends, so this is the way to tell where a running one records, and whether.
+
+One watcher runs per computer, the daemon's or this one; --dry-run is the
+exception, since it sends and saves nothing. Delivery state lives under the kcap
+config directory, kept apart per server and profile, so a restarted watcher
+resumes where it stopped and a change of server starts from the beginning
+there. Sessions are always private to you. A chat whose beginning is no longer
+available — a long chat in
+the desktop app — is recorded from its next quiet gap on.
+
+A failed cycle — the gateway unreachable, the server refusing a call, a
+lapsed sign-in — is retried with a doubling wait up to five minutes, and the
+reason is logged once rather than on every retry. Nothing advances until the
+server accepts the call, so a fixed sign-in catches up without losing entries.
+
+Options:
+  --once                  Run one polling cycle and exit (1 if it failed)
+  --dry-run               Log the calls it would make; send and save nothing
+  --gateway <path>        Read this gateway descriptor (default: ~/sand-data/gateway.json)
+  --gateway-cmd <command> Read the gateway descriptor from this command's output
+                          instead of a file. Run directly (no shell), so no
+                          quoting or pipes, and it must be non-interactive and
+                          exit at once, e.g.
+                          sudo -n cat /home/box/sand-data/gateway.json
+  --desktop <dir>         Read the desktop app's chat store in this directory
+  --interval <seconds>    Polling interval (default: 5)
+  --gap-minutes <n>       With --dry-run only: show the sessions another idle gap
+                          would cut. A run that sends always uses 120 minutes,
+                          so that a chat read in two places is stored once.

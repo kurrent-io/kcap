@@ -52,8 +52,37 @@ public class AcpHostedAgentRuntimeReconnectTests {
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
+    /// <summary>Descendants listed per incarnation pid while that incarnation lives, as the OS lists none for a
+    /// dead root; each stays alive until killed unless it refuses</summary>
+    sealed class FakeProcessTree(List<string> events, Func<int, bool> rootAlive) {
+        public readonly Dictionary<int, List<(int Pid, string Identity)>> DescendantsOf = [];
+        public readonly HashSet<int> Unkillable = [];
+        public bool FaultAfterFirstListing;
+        readonly HashSet<int> _killed = [];
+        readonly HashSet<int> _listed = [];
+
+        public bool Listed(int pid) { lock (_listed) return _listed.Contains(pid); }
+
+        public AcpProcessTreeProbe Probe => new(
+            Descendants: pid => {
+                if (!rootAlive(pid) || !DescendantsOf.TryGetValue(pid, out var listed)) return [];
+                lock (_listed) {
+                    if (FaultAfterFirstListing && _listed.Contains(pid)) throw new IOException("simulated process listing failure");
+                    _listed.Add(pid);
+                }
+                return [.. listed];
+            },
+            Kill: (pid, _) => {
+                lock (events) events.Add($"kill:{pid}");
+                if (!Unkillable.Contains(pid)) lock (_killed) _killed.Add(pid);
+            },
+            IsAlive: (pid, _) => { lock (_killed) return !_killed.Contains(pid); });
+    }
+
     sealed class Harness : IAsyncDisposable {
         public readonly List<(FakeAcpAgent Fake, FakeAcpProcess Process)> Incarnations = [];
+        public readonly List<string> Events = [];
+        public readonly FakeProcessTree Tree;
         readonly List<AcpEventEnvelope> Envelopes = [];
         public readonly List<int> RecordedPids = [];
         public int  ClearRecordCalls;
@@ -74,6 +103,9 @@ public class AcpHostedAgentRuntimeReconnectTests {
             var fake0 = new FakeAcpAgent();
             var proc0 = new FakeAcpProcess { Pid = 5000, RefuseTermination = refuseOriginalTermination };
             Incarnations.Add((fake0, proc0));
+            Tree = new FakeProcessTree(Events, pid => {
+                lock (Incarnations) return Incarnations.Any(i => i.Process.Pid == pid && !i.Process.HasExited);
+            });
 
             Support = withSupport
                 ? new AcpReconnectSupport {
@@ -82,7 +114,8 @@ public class AcpHostedAgentRuntimeReconnectTests {
                     AttemptDelays        = [TimeSpan.Zero, TimeSpan.Zero],
                     RetirementWait       = TimeSpan.FromSeconds(2),
                     SettlementWait       = TimeSpan.FromSeconds(5),
-                    MaxResumesPerSession = maxResumes
+                    MaxResumesPerSession = maxResumes,
+                    ProcessTree          = Tree.Probe
                 }
                 : null;
 
@@ -101,19 +134,24 @@ public class AcpHostedAgentRuntimeReconnectTests {
 
         (Stream Input, Stream Output, IAcpProcess Process) SpawnCandidate() {
             var fake = new FakeAcpAgent();
-            var proc = new FakeAcpProcess { Pid = 5000 + Incarnations.Count };
+            FakeAcpProcess proc;
 
-            ConfigureCandidate?.Invoke(fake, Incarnations.Count);
-            Incarnations.Add((fake, proc));
-            _fakeLoops.Add(fake.RunAsync(Cts.Token));
+            // The reconnect owner spawns on its own thread, concurrently with a test's reads and its dispose
+            lock (Incarnations) {
+                proc = new FakeAcpProcess { Pid = 5000 + Incarnations.Count };
+                ConfigureCandidate?.Invoke(fake, Incarnations.Count);
+                lock (Events) Events.Add($"spawn:{proc.Pid}");
+                Incarnations.Add((fake, proc));
+                _fakeLoops.Add(fake.RunAsync(Cts.Token));
+            }
 
             return (fake.ClientWriteStream, fake.ClientReadStream, proc);
         }
 
-        public int CandidateSpawns => Incarnations.Count - 1;
+        public int CandidateSpawns { get { lock (Incarnations) return Incarnations.Count - 1; } }
 
         public async Task StartAsync(string? initialPrompt = null) {
-            _fakeLoops.Add(Incarnations[0].Fake.RunAsync(Cts.Token));
+            lock (Incarnations) _fakeLoops.Add(Incarnations[0].Fake.RunAsync(Cts.Token));
             _envelopeDrain = DrainEnvelopesAsync();
 
             await Runtime.StartAsync("/abs/worktree", initialPrompt, Cts.Token).WaitAsync(HangGuard);
@@ -151,18 +189,30 @@ public class AcpHostedAgentRuntimeReconnectTests {
         public async ValueTask DisposeAsync() {
             Cts.Cancel();
 
-            foreach (var loop in _fakeLoops) {
-                try { await loop.WaitAsync(HangGuard); } catch { /* crashed/cancelled fakes */ }
-            }
+            await AwaitFakeLoopsAsync();
             try { await _envelopeDrain.WaitAsync(HangGuard); } catch { /* cancelled */ }
 
+            // Stops the reconnect owner, so no candidate spawns after this
             await Runtime.DisposeAsync();
+            await AwaitFakeLoopsAsync();
 
-            foreach (var (fake, _) in Incarnations) {
+            (FakeAcpAgent Fake, FakeAcpProcess Process)[] incarnations;
+            lock (Incarnations) incarnations = [.. Incarnations];
+
+            foreach (var (fake, _) in incarnations) {
                 try { await fake.DisposeAsync(); } catch { /* a crashed fake may hold a dispatch fault */ }
             }
 
             Cts.Dispose();
+        }
+
+        async Task AwaitFakeLoopsAsync() {
+            Task[] loops;
+            lock (Incarnations) loops = [.. _fakeLoops];
+
+            foreach (var loop in loops) {
+                try { await loop.WaitAsync(HangGuard); } catch { /* crashed/cancelled fakes */ }
+            }
         }
     }
 
@@ -209,6 +259,174 @@ public class AcpHostedAgentRuntimeReconnectTests {
 
         // And the candidate's pid was durably recorded at spawn.
         await Assert.That(h.RecordedPids).Contains(5001);
+    }
+
+    /// <summary>A wrapper that dies alone leaves its re-execed agent reparented and alive. Retirement kills
+    /// the descendants listed after the handshake before the candidate is spawned</summary>
+    [Test]
+    public async Task Wrapper_only_death_kills_the_reparented_agent_before_the_candidate_spawns() {
+        await using var h = new Harness();
+        h.Tree.DescendantsOf[5000] = [(6000, "start:6000")];
+
+        await h.StartAsync();
+        h.CrashOriginal();
+
+        await Harness.PollUntilAsync(() => h.CandidateSpawns >= 1);
+
+        string[] events;
+        lock (h.Events) events = [.. h.Events];
+        await Assert.That(events).Contains("kill:6000");
+        await Assert.That(Array.IndexOf(events, "kill:6000")).IsLessThan(Array.IndexOf(events, "spawn:5001"));
+    }
+
+    /// <summary>Listing spans the whole handshake, so an agent forked after initialize, during session/new, is
+    /// still killed when its wrapper later dies alone</summary>
+    [Test]
+    public async Task Descendant_forked_during_session_new_is_killed_before_the_candidate_spawns() {
+        await using var h = new Harness();
+        var original = h.Incarnations[0].Fake;
+        original.HoldSessionNewResponse = new TaskCompletionSource();
+
+        var start = h.StartAsync();
+        await Harness.PollUntilAsync(() => original.ReceivedCalls.Any(c => c.Method == "session/new"));
+        h.Tree.DescendantsOf[5000] = [(6000, "start:6000")];
+        await Harness.PollUntilAsync(() => h.Tree.Listed(5000));
+        original.HoldSessionNewResponse.TrySetResult();
+        await start;
+
+        h.CrashOriginal();
+        await Harness.PollUntilAsync(() => h.CandidateSpawns >= 1);
+
+        string[] events;
+        lock (h.Events) events = [.. h.Events];
+        await Assert.That(Array.IndexOf(events, "kill:6000")).IsGreaterThanOrEqualTo(0);
+        await Assert.That(Array.IndexOf(events, "kill:6000")).IsLessThan(Array.IndexOf(events, "spawn:5001"));
+    }
+
+    /// <summary>A launch whose wrapper dies mid-handshake fails to start, and disposing the runtime kills the agent
+    /// it re-execed</summary>
+    [Test]
+    public async Task Failed_launch_kills_the_listed_agent_on_dispose() {
+        await using var h = new Harness();
+        var original = h.Incarnations[0].Fake;
+        original.HoldSessionNewResponse = new TaskCompletionSource();
+        h.Tree.DescendantsOf[5000] = [(6000, "start:6000")];
+
+        var start = h.StartAsync();
+        await Harness.PollUntilAsync(() => h.Tree.Listed(5000) && original.ReceivedCalls.Any(c => c.Method == "session/new"));
+        h.CrashOriginal();
+
+        try { await start; } catch { /* the launch fails; that is the precondition */ }
+        await h.Runtime.DisposeAsync();
+
+        string[] events;
+        lock (h.Events) events = [.. h.Events];
+        await Assert.That(events).Contains("kill:6000");
+        await Assert.That(h.CandidateSpawns).IsEqualTo(0);
+    }
+
+    /// <summary>A listing that faults does not fail the launch, and what was listed is still killed, but the list may
+    /// be incomplete, so retirement is unconfirmed and no candidate spawns</summary>
+    [Test]
+    public async Task Faulted_listing_kills_what_was_listed_and_finalizes_without_a_candidate() {
+        await using var h = new Harness();
+        h.Tree.DescendantsOf[5000] = [(6000, "start:6000")];
+        h.Tree.FaultAfterFirstListing = true;
+
+        await h.StartAsync();
+
+        var terminal = h.RuntimeTerminalAsync();
+        h.CrashOriginal();
+
+        await terminal.WaitAsync(HangGuard);
+
+        string[] events;
+        lock (h.Events) events = [.. h.Events];
+        await Assert.That(events).Contains("kill:6000");
+        await Assert.That(h.CandidateSpawns).IsEqualTo(0);
+    }
+
+    /// <summary>Listing starts before the PID record write, so a candidate whose record fails still has its agent
+    /// killed</summary>
+    [Test]
+    public async Task Pid_record_failure_still_kills_the_candidates_listed_agent() {
+        await using var h = new Harness();
+        string[] events;
+        h.Tree.DescendantsOf[5001] = [(6001, "start:6001")];
+
+        await h.StartAsync();
+        h.FailPidRecord = true;
+
+        var terminal = h.RuntimeTerminalAsync();
+        h.CrashOriginal();
+
+        await terminal.WaitAsync(HangGuard);
+        lock (h.Events) events = [.. h.Events];
+        await Assert.That(events).Contains("kill:6001");
+    }
+
+    /// <summary>A candidate whose wrapper dies during initialize fails its attempt, and the agent it re-execed,
+    /// seen while the wrapper lived, is killed before the next candidate spawns</summary>
+    [Test]
+    public async Task Candidate_wrapper_death_during_initialize_kills_its_agent_before_the_next_spawn() {
+        await using var h = new Harness();
+        h.Tree.DescendantsOf[5001] = [(6001, "start:6001")];
+        var hold = new TaskCompletionSource();
+        h.ConfigureCandidate = (fake, index) => { if (index == 1) fake.HoldInitializeResponse = hold; };
+
+        await h.StartAsync();
+        h.CrashOriginal();
+
+        await Harness.PollUntilAsync(() => h.Tree.Listed(5001));
+        h.Incarnations[1].Process.SignalExited(1);
+        hold.TrySetResult();
+
+        await Harness.PollUntilAsync(() => h.CandidateSpawns >= 2);
+
+        string[] events;
+        lock (h.Events) events = [.. h.Events];
+        await Assert.That(events).Contains("kill:6001");
+        await Assert.That(Array.IndexOf(events, "kill:6001")).IsLessThan(Array.IndexOf(events, "spawn:5002"));
+    }
+
+    /// <summary>A failed candidate whose agent survives its kill ends the incident: no further candidate may
+    /// load the session beside it</summary>
+    [Test]
+    public async Task Failed_candidate_with_a_surviving_agent_finalizes_without_another_spawn() {
+        await using var h = new Harness();
+        h.Tree.DescendantsOf[5001] = [(6001, "start:6001")];
+        h.Tree.Unkillable.Add(6001);
+        var hold = new TaskCompletionSource();
+        h.ConfigureCandidate = (fake, index) => { if (index == 1) fake.HoldInitializeResponse = hold; };
+
+        await h.StartAsync();
+
+        var terminal = h.RuntimeTerminalAsync();
+        h.CrashOriginal();
+
+        await Harness.PollUntilAsync(() => h.Tree.Listed(5001));
+        h.Incarnations[1].Process.SignalExited(1);
+        hold.TrySetResult();
+
+        await terminal.WaitAsync(HangGuard);
+        await Assert.That(h.CandidateSpawns).IsEqualTo(1);
+    }
+
+    /// <summary>A descendant still alive after the retirement wait is an unconfirmed retirement: no candidate
+    /// may load the session beside it</summary>
+    [Test]
+    public async Task Surviving_descendant_finalizes_without_spawning_a_candidate() {
+        await using var h = new Harness();
+        h.Tree.DescendantsOf[5000] = [(6000, "start:6000")];
+        h.Tree.Unkillable.Add(6000);
+
+        await h.StartAsync();
+
+        var terminal = h.RuntimeTerminalAsync();
+        h.CrashOriginal();
+
+        await terminal.WaitAsync(HangGuard);
+        await Assert.That(h.CandidateSpawns).IsEqualTo(0);
     }
 
     [Test]
