@@ -2183,6 +2183,42 @@ public class MainWindowSmokeTests {
         await Assert.That(filter.Classes.Contains("active")).IsFalse();
     });
 
+    /// The harness button sits between the two segments at their height, and its list unchecks a
+    /// harness out of the rail.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Harness_filter_matches_the_segments_and_its_list_narrows_the_rail() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Directory.Rows.AddOrUpdate([
+            AgentRow.FromLocal(new("c1", "agent", "claude", "/repo", "Running", null, null, null, DateTime.UtcNow, null, null), new RepoIdentity("path:/repo", "repo")),
+            AgentRow.FromLocal(new("x1", "agent", "codex", "/repo", "Running", null, null, null, DateTime.UtcNow, null, null), new RepoIdentity("path:/repo", "repo")),
+        ]);
+        Click(host, host.Named<Button>("RailFilterButton"));
+        var harness = host.Named<Button>("RailHarnessButton");
+        var scope = host.Named<Border>("RailScopeSegment");
+        var scopeRight = scope.TranslatePoint(new Point(scope.Bounds.Width, 0), host.Window)!.Value.X;
+        var harnessLeft = harness.TranslatePoint(default, host.Window)!.Value.X;
+        await Assert.That(harness.Bounds.Height).IsEqualTo(scope.Bounds.Height);
+        await Assert.That(harnessLeft).IsGreaterThan(scopeRight);
+        await Assert.That(host.Named<TextBlock>("RailHarnessLabel").Text).IsEqualTo("All");
+
+        Click(host, harness);
+        var codex = host.Window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(c => AutomationProperties.GetName(c) == "Codex");
+        Click(host, codex);
+
+        await Assert.That(host.Rail.Harnesses.Single(h => h.Vendor == "codex").IsChecked).IsFalse();
+        await Assert.That(host.Rail.Groups.SelectMany(g => g.Sessions).Select(s => s.Id)).IsEquivalentTo(["c1"]);
+        await Assert.That(host.Window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Name == "RailHarnessAllCheck").IsChecked).IsNull();
+        await Assert.That(harness.Classes.Contains("narrowed")).IsTrue();
+        if (Environment.GetEnvironmentVariable("KCAP_SHOTS_OUT") is { } dir) {
+            host.Window.SetRenderScaling(2);
+            host.Settle();
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick();
+            host.Window.CaptureRenderedFrame()!.Save(System.IO.Path.Join(dir, "rail-harness-filter.png"), new Avalonia.Media.Imaging.PngBitmapEncoderOptions());
+        }
+    });
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Custom_list_settings_stay_announced_when_controls_close() => AvaloniaSession.RunOnUiAsync(async () => {

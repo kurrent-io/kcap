@@ -74,6 +74,35 @@
             <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
             <Setter Property="CornerRadius" Value="7" />
         </Style>
+        <!-- Stretches to the segments' height on either side; selection brush while narrowed, like an active segment. -->
+        <Style Selector="Button.railHarness">
+            <Setter Property="Padding" Value="6,0" />
+            <Setter Property="Margin" Value="3,0" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Button.railHarness.narrowed /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.railHarness.narrowed:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <!-- "Only" replaces the count while the pointer or focus is on its row. -->
+        <Style Selector="Grid.railHarnessRow Button.railHarnessOnly">
+            <Setter Property="Opacity" Value="0" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeCaption}" />
+            <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+        </Style>
+        <Style Selector="Grid.railHarnessRow:pointerover Button.railHarnessOnly, Grid.railHarnessRow:focus-within Button.railHarnessOnly">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Grid.railHarnessRow:pointerover TextBlock.railHarnessCount, Grid.railHarnessRow:focus-within TextBlock.railHarnessCount">
+            <Setter Property="Opacity" Value="0" />
+        </Style>
         <Style Selector="Button.railPickerRow">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
@@ -214,6 +243,57 @@
                 <StackPanel x:Name="RailControls" DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
                             Margin="10,0,10,8" Spacing="6" IsVisible="{Binding FiltersOpen, FallbackValue=False}">
                     <Grid ColumnDefinitions="Auto,*,Auto">
+                        <Button x:Name="RailHarnessButton" Grid.Column="1" Classes="kcapChip railHarness" Classes.narrowed="{Binding IsHarnessNarrowed}"
+                                ToolTip.Tip="{Binding HarnessTip}" AutomationProperties.Name="{Binding HarnessTip}">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="3">
+                                <Panel Width="14" Height="14" VerticalAlignment="Center">
+                                    <views:AppIcon Kind="Bot" Size="14" IsVisible="{Binding !HasHarnessMark}" />
+                                    <ContentControl HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasHarnessMark}"
+                                                    Content="{Binding HarnessMark, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=14}" />
+                                </Panel>
+                                <TextBlock x:Name="RailHarnessLabel" Grid.Column="1" Text="{Binding HarnessLabel}" IsVisible="{Binding !HasHarnessMark}"
+                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                <views:AppIcon Grid.Column="2" Kind="ChevronDown" Size="10" VerticalAlignment="Center" />
+                            </Grid>
+                            <Button.Flyout>
+                                <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
+                                    <StackPanel Spacing="2" Margin="6" MinWidth="220">
+                                        <TextBlock Text="HARNESS" Classes="eyebrow" Margin="8,4,8,4" />
+                                        <Grid ColumnDefinitions="*,Auto" Margin="8,0">
+                                            <CheckBox x:Name="RailHarnessAllCheck" IsChecked="{Binding AllHarnessesChecked, Mode=OneWay}"
+                                                      Command="{Binding ToggleAllHarnessesCommand}" FontWeight="SemiBold"
+                                                      Content="All harnesses" AutomationProperties.Name="All harnesses" />
+                                        </Grid>
+                                        <Border Height="1" Margin="8,2" Background="{StaticResource KcapBorderBrush}" />
+                                        <ItemsControl x:Name="RailHarnessList" ItemsSource="{Binding Harnesses}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:RailHarnessOption">
+                                                    <Grid Classes="railHarnessRow" ColumnDefinitions="*,Auto" Margin="8,0">
+                                                        <CheckBox IsChecked="{Binding IsChecked}" AutomationProperties.Name="{Binding Label}">
+                                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                                <Panel Width="16" Height="16" VerticalAlignment="Center">
+                                                                    <ContentControl HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                                    Content="{Binding Vendor, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=14}" />
+                                                                </Panel>
+                                                                <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                                            </StackPanel>
+                                                        </CheckBox>
+                                                        <Panel Grid.Column="1" Margin="12,0,0,0">
+                                                            <TextBlock Classes="railHarnessCount" Text="{Binding Count}" HorizontalAlignment="Right"
+                                                                       VerticalAlignment="Center" FontSize="{StaticResource KcapFontSizeCaption}"
+                                                                       Foreground="{StaticResource KcapFaintBrush}" />
+                                                            <Button Classes="kcapGhost railHarnessOnly" Content="only" Command="{Binding OnlyCommand}"
+                                                                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                                    AutomationProperties.Name="{Binding OnlyAccessibleName}" />
+                                                        </Panel>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
                         <Border x:Name="RailScopeSegment" Classes="kcapSegment railScopeSegment" HorizontalAlignment="Left"
                                 IsEnabled="{Binding CanChangeScope}" ToolTip.Tip="{Binding ScopeTip}" ToolTip.ShowOnDisabled="True">
                             <StackPanel Orientation="Horizontal" Spacing="2">

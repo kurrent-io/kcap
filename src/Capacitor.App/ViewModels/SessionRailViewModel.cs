@@ -9,6 +9,7 @@ using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.PullRequests;
 using DynamicData;
 using DynamicData.Binding;
@@ -39,6 +40,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     // first — AvaloniaSession.cs documents the MainThreadScheduler initialization race.
     readonly BehaviorSubject<string?> _selectedSessionKeyChanges = new(null);
     readonly BehaviorSubject<Func<AgentRow, bool>> _stateFilter;
+    readonly BehaviorSubject<RailState> _stateChanges;
+    HashSet<string> _hiddenHarnesses;
     readonly Subject<Unit> _regroup = new();
     IReadOnlyDictionary<string, RunningWork> _work = FrozenDictionary<string, RunningWork>.Empty;
     readonly BehaviorSubject<IComparer<RailSessionViewModel>> _rowComparer;
@@ -93,6 +96,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             this.RaisePropertyChanged(nameof(IsLive));
             this.RaisePropertyChanged(nameof(IsEnded));
             _stateFilter.OnNext(StateFilter());
+            _stateChanges.OnNext(value);
             this.RaisePropertyChanged(nameof(FiltersDiffer));
             Persist();
         }
@@ -166,12 +170,80 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     public string DirectionLabel => _descending ? "Descending" : "Ascending";
 
-    /// True when any of the five controls differs from the defaults, however the panel is collapsed.
+    /// Every harness the filter offers, in the registry's order.
+    public IReadOnlyList<RailHarnessOption> Harnesses { get; }
+
+    /// True with every harness shown, false with none, null in between.
+    public bool? AllHarnessesChecked =>
+        _hiddenHarnesses.Count == 0 ? true : _hiddenHarnesses.Count >= Harnesses.Count ? false : null;
+
+    public bool IsHarnessNarrowed => _hiddenHarnesses.Count > 0;
+
+    /// The trigger's word: All, the one harness shown, or how many are.
+    public string HarnessLabel {
+        get {
+            var shown = Harnesses.Count - _hiddenHarnesses.Count;
+            return shown == Harnesses.Count ? "All" : shown == 0 ? "None" : shown == 1 ? Harnesses.First(IsShown).Label
+                : shown.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// The one harness shown, whose mark stands in for the trigger's word; null otherwise.
+    public string? HarnessMark =>
+        Harnesses.Count - _hiddenHarnesses.Count == 1 ? Harnesses.First(IsShown).Vendor : null;
+
+    public bool HasHarnessMark => HarnessMark is not null;
+
+    public string HarnessTip => !IsHarnessNarrowed ? "Filter by harness"
+        : _hiddenHarnesses.Count == Harnesses.Count ? "Harness: none"
+        : "Harness: " + string.Join(", ", Harnesses.Where(IsShown).Select(h => h.Label));
+
+    public void SetAllHarnessesShown(bool shown) =>
+        SetHiddenHarnesses(shown ? [] : Harnesses.Select(h => h.Vendor));
+
+    /// The All row's click: from all shown it hides every harness, from any other state it shows them all.
+    public void ToggleAllHarnesses() => SetAllHarnessesShown(AllHarnessesChecked != true);
+
+    void ShowOnlyHarness(string vendor) => SetHiddenHarnesses(Harnesses.Select(h => h.Vendor).Where(v => v != vendor));
+
+    bool IsShown(RailHarnessOption option) => !_hiddenHarnesses.Contains(option.Vendor);
+
+    void SetHarnessShown(string vendor, bool shown) =>
+        SetHiddenHarnesses(shown ? _hiddenHarnesses.Where(v => !string.Equals(v, vendor, StringComparison.OrdinalIgnoreCase))
+            : _hiddenHarnesses.Append(vendor));
+
+    void SetHiddenHarnesses(IEnumerable<string> hidden) {
+        if (_disposables.IsDisposed) return;
+        var next = KnownHarnesses(hidden);
+        if (next.SetEquals(_hiddenHarnesses)) return;
+        _hiddenHarnesses = next;
+        foreach (var option in Harnesses) option.Sync(IsShown(option));
+        this.RaisePropertyChanged(nameof(AllHarnessesChecked));
+        this.RaisePropertyChanged(nameof(IsHarnessNarrowed));
+        this.RaisePropertyChanged(nameof(HarnessLabel));
+        this.RaisePropertyChanged(nameof(HarnessMark));
+        this.RaisePropertyChanged(nameof(HasHarnessMark));
+        this.RaisePropertyChanged(nameof(HarnessTip));
+        _stateFilter.OnNext(StateFilter());
+        this.RaisePropertyChanged(nameof(FiltersDiffer));
+        Persist();
+    }
+
+    // A vendor this build does not offer is dropped: it could never be shown again from the list.
+    HashSet<string> KnownHarnesses(IEnumerable<string>? vendors) {
+        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var vendor in vendors ?? [])
+            if (Harnesses.FirstOrDefault(h => string.Equals(h.Vendor, vendor, StringComparison.OrdinalIgnoreCase)) is { } option)
+                known.Add(option.Vendor);
+        return known;
+    }
+
+    /// True when any control differs from the defaults, however the panel is collapsed.
     public bool FiltersDiffer {
         get {
             var defaults = RailPreferences.Default;
             return _scope != defaults.Scope || _state != defaults.State || _grouping != defaults.Grouping
-                || _sort != defaults.Sort || _descending != defaults.Descending;
+                || _sort != defaults.Sort || _descending != defaults.Descending || _hiddenHarnesses.Count > 0;
         }
     }
 
@@ -187,9 +259,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<RailGrouping, Unit> SetGroupingCommand { get; }
     public ReactiveCommand<RailSort, Unit> SetSortCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleDirectionCommand { get; }
+    public ReactiveCommand<Unit, Unit> ToggleAllHarnessesCommand { get; }
 
     public RailPreferences Preferences =>
-        new(Scope, State, Grouping, Sort, Descending, [.. _collapsed.Order(StringComparer.Ordinal)]);
+        new(Scope, State, Grouping, Sort, Descending, [.. _collapsed.Order(StringComparer.Ordinal)],
+            _hiddenHarnesses.Count == 0 ? null : [.. _hiddenHarnesses.Order(StringComparer.Ordinal)]);
 
     readonly ObservableAsPropertyHelper<bool> _isEmpty;
     public bool IsEmpty => _isEmpty.Value;
@@ -242,6 +316,11 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         _sort = initial.Sort;
         _descending = initial.Descending;
         _collapsed = new HashSet<string>(initial.Collapsed, StringComparer.Ordinal);
+        Harnesses = [.. HarnessRegistry.Identities.Select(h => new RailHarnessOption(
+            h.VendorId, h.Label, SetHarnessShown, ShowOnlyHarness))];
+        foreach (var option in Harnesses) option.DisposeWith(_disposables);
+        _hiddenHarnesses = KnownHarnesses(initial.HiddenHarnesses);
+        foreach (var option in Harnesses) option.Sync(IsShown(option));
         _today = LocalDay(_time.GetUtcNow());
         if (sessions is not null) sessions.Scope = _scope;
         SetScopeCommand = ReactiveCommand.Create<RailScope>(scope => Scope = scope).DisposeWith(_disposables);
@@ -249,11 +328,13 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         SetGroupingCommand = ReactiveCommand.Create<RailGrouping>(grouping => Grouping = grouping).DisposeWith(_disposables);
         SetSortCommand = ReactiveCommand.Create<RailSort>(sort => Sort = sort).DisposeWith(_disposables);
         ToggleDirectionCommand = ReactiveCommand.Create(() => { Descending = !Descending; }).DisposeWith(_disposables);
+        ToggleAllHarnessesCommand = ReactiveCommand.Create(ToggleAllHarnesses).DisposeWith(_disposables);
         ToggleFiltersCommand = ReactiveCommand.Create(() => { FiltersOpen = !FiltersOpen; }).DisposeWith(_disposables);
         OpenPreviousSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(-1); }).DisposeWith(_disposables);
         OpenNextSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(1); }).DisposeWith(_disposables);
         _stateFilter = new BehaviorSubject<Func<AgentRow, bool>>(StateFilter()).DisposeWith(_disposables);
         if (shownRows is not null) _stateFilter.Subscribe(shownRows.OnNext).DisposeWith(_disposables);
+        _stateChanges = new BehaviorSubject<RailState>(_state).DisposeWith(_disposables);
         _rowComparer = new BehaviorSubject<IComparer<RailSessionViewModel>>(RowComparer(_sort, _descending)).DisposeWith(_disposables);
         _groupComparer = new BehaviorSubject<IComparer<RailGroupViewModel>>(GroupComparer(_grouping)).DisposeWith(_disposables);
         _groupingChanges = new BehaviorSubject<RailGrouping>(_grouping).DisposeWith(_disposables);
@@ -348,6 +429,15 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             .SortAndBind(_groupsSource, _groupComparer)
             .Subscribe()
             .DisposeWith(_disposables);
+        directory.Rows.Connect()
+            .Filter(_stateChanges.Select(state => (Func<AgentRow, bool>)(row => StateMatches(state, row))))
+            .QueryWhenChanged(rows => rows.Items.CountBy(row => row.Vendor, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(StringComparer.OrdinalIgnoreCase))
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
+            .Subscribe(counts => {
+                foreach (var option in Harnesses) option.Count = counts.GetValueOrDefault(option.Vendor);
+            })
+            .DisposeWith(_disposables);
         work.Subscribe(next => {
             _work = next;
             if (_grouping == RailGrouping.Status) _regroup.OnNext(Unit.Default);
@@ -385,6 +475,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Grouping = preferences.Grouping;
             Sort = preferences.Sort;
             Descending = preferences.Descending;
+            SetHiddenHarnesses(preferences.HiddenHarnesses ?? []);
             _collapsed = new HashSet<string>(preferences.Collapsed, StringComparer.Ordinal);
             foreach (var group in Groups) group.ApplyExpanded(!_collapsed.Contains(group.Key));
         } finally {
@@ -430,16 +521,21 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     Func<AgentRow, bool> StateFilter() {
         var state = _state;
         var selected = _selectedSessionKey;
-        return row => StateAdmits(state, row, selected);
+        IReadOnlySet<string>? shown = _hiddenHarnesses.Count == 0 ? null
+            : Harnesses.Where(IsShown).Select(h => h.Vendor).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+        return row => Admits(state, shown, row, selected);
     }
 
-    /// A row the workspace is on is always shown, whatever the filter says.
-    internal static bool StateAdmits(RailState state, AgentRow row, string? selectedKey) =>
-        row.Key == selectedKey || state switch {
-            RailState.Live => !row.IsEndedSession,
-            RailState.Ended => row.IsEndedSession,
-            _ => true,
-        };
+    /// A row the workspace is on is always shown, whatever the filters say. A null harness set shows
+    /// every vendor, one this build has never heard of included; a narrowed one shows only its own.
+    internal static bool Admits(RailState state, IReadOnlySet<string>? shownHarnesses, AgentRow row, string? selectedKey) =>
+        row.Key == selectedKey || (StateMatches(state, row) && (shownHarnesses is null || shownHarnesses.Contains(row.Vendor)));
+
+    static bool StateMatches(RailState state, AgentRow row) => state switch {
+        RailState.Live => !row.IsEndedSession,
+        RailState.Ended => row.IsEndedSession,
+        _ => true,
+    };
 
     string GroupKeyOf(AgentRow row) => GroupKey(row, _grouping, _time.LocalTimeZone, _work.GetValueOrDefault(row.Key));
 
