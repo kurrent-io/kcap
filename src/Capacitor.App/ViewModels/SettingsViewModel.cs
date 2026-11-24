@@ -85,6 +85,13 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
 
         Observable.FromAsync(startupSettled.WaitAsync).ObserveOn(RxSchedulers.MainThreadScheduler)
             .Subscribe(_ => Refresh(), _ => Refresh()).DisposeWith(_subscriptions);
+        // A profile switch replaced the daemon this tab would rename.
+        if (profiles is not null) {
+            profiles.WhenAnyValue(x => x.Switched).Where(switched => switched)
+                .Subscribe(_ => { _needsAppRestart = true; Refresh(); }).DisposeWith(_subscriptions);
+            // A switch in flight keeps the window from closing on it, as any other operation does.
+            profiles.WhenAnyValue(x => x.IsBusy).Skip(1).Subscribe(_ => Refresh()).DisposeWith(_subscriptions);
+        }
 
         SaveCommand = ReactiveCommand.CreateFromTask(SaveAsync, this.WhenAnyValue(x => x.CanSave)).DisposeWith(_subscriptions);
         RenameCommand = ReactiveCommand.CreateFromTask(RenameAsync, this.WhenAnyValue(x => x.CanRename)).DisposeWith(_subscriptions);
@@ -182,7 +189,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     public string ServerLabel => Uri.TryCreate(_settings.ServerUrl, UriKind.Absolute, out var url) ? url.Authority : _settings.ServerUrl;
     public CaptureSettingsViewModel Capture { get; }
     public HarnessesSettingsViewModel? Harnesses { get; }
-    public bool HasActiveOperation => IsBusy || Capture.Busy || Harnesses?.Busy == true || Intelligence?.Busy == true;
+    public bool HasActiveOperation => IsBusy || Capture.Busy || Harnesses?.Busy == true || Intelligence?.Busy == true || Profiles?.IsBusy == true;
 
     public AccountsSettingsViewModel? Accounts { get; init; }
     public AppearanceSettingsViewModel? Appearance { get; init; }

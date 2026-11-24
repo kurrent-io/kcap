@@ -1665,7 +1665,8 @@ public partial class App : Application {
 
         Func<SettingsTab, bool>? openSettingsOn = profiles?.Resolution is { ProfileName: { Length: > 0 } profileName, ServerUrl: { Length: > 0 } serverUrl }
             ? page => OpenSettings(desktop, new SettingsProfileStore(_config, profileName, serverUrl), service, ops, lane, notifier,
-                lifecycle.PhaseClosed, lifecycle.InstallWindowsServiceAsync, lifecycleCli.ServiceStatusAsync, page, serverLane.Status)
+                lifecycle.PhaseClosed, lifecycle.InstallWindowsServiceAsync, lifecycleCli.ServiceStatusAsync, lifecycleCli.ServiceStatusAsync,
+                page, serverLane.Status)
             : null;
         Action? openSettings = openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.Default);
         _openSearchSettings.OnNext(openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.Search));
@@ -1925,7 +1926,8 @@ public partial class App : Application {
     bool OpenSettings(IClassicDesktopStyleApplicationLifetime desktop, SettingsProfileStore settings,
             IDaemonClientService service, ILocalControlOps ops, DaemonMutationLane lane, IAppNotifier notifier, Task startupSettled,
             Func<CancellationToken, Task<MutationOutcome?>> moveToWindowsService,
-            Func<CancellationToken, Task<ServiceSnapshot?>> serviceStatus, SettingsTab page = SettingsTab.Default,
+            Func<CancellationToken, Task<ServiceSnapshot?>> serviceStatus,
+            Func<string, CancellationToken, Task<ServiceSnapshot?>> namedServiceStatus, SettingsTab page = SettingsTab.Default,
             IObservable<ServerLaneStatus>? appLane = null) {
         if (_shutdownStarted) return false;
         if (_settingsWindow is { } open) {
@@ -1948,7 +1950,16 @@ public partial class App : Application {
                 confirmRemove: (name, ct) => ShowLifecyclePromptDialogAsync(_settingsWindow,
                     new LifecyclePrompt(LifecyclePrompt.KindRemoveProfile, null, null, false,
                         ProfilesSettingsViewModel.RemovePrompt(name, LatestDaemonProfile(service))), ct),
-                appLifetime: _shutdown.Token, appLane: appLane, daemon: service);
+                appLifetime: _shutdown.Token, appLane: appLane, daemon: service,
+                switching: new ProfileSwitchServices(
+                    service.DaemonName, lane.RunAsync,
+                    (text, ct) => ShowLifecyclePromptDialogAsync(_settingsWindow,
+                        new LifecyclePrompt(LifecyclePrompt.KindSwitchProfile, null, null, false, text), ct),
+                    ct => RelaunchForSettingsAsync(desktop, _time, ct), startupSettled,
+                    async (name, ct) => (await LocalControlProbe.ProbeAsync(_daemonStore, name, _time, OneShotProbeTimeout, ct)).Reachable,
+                    namedServiceStatus, lane.CanRetireAsync, () => lane.RestartRequired,
+                    ProfileOverridden: Environment.GetEnvironmentVariable(ProfileOverrides.ProfileVar) is { Length: > 0 },
+                    PlatformSupported: AttachedIdentity.SupportsVerifiedReplace));
 
             vm = new SettingsViewModel(settings, service, ops,
                 async (name, ct) => (await LocalControlProbe.ProbeAsync(_daemonStore, name, _time, OneShotProbeTimeout, ct)).Reachable,

@@ -9,7 +9,7 @@
             <StackPanel Classes="settingsHeader">
                 <TextBlock x:Name="ProfilesTitleText" Classes="kcapTitle" Text="Profiles" />
                 <TextBlock Classes="kcapSubtitle" TextWrapping="Wrap"
-                           Text="Each profile names a server and how this computer signs in to it, if that server needs a sign-in at all. Relaunch kcap to use a different profile." />
+                           Text="Each profile names a server and how this computer signs in to it, if that server needs a sign-in at all. Switching moves this app, its daemon and the kcap command line to another profile." />
             </StackPanel>
 
             <StackPanel Classes="settingsGroup">
@@ -40,8 +40,15 @@
                                             <TextBlock Classes="kcapHint profileConnection" Classes.attention="{Binding ConnectionNeedsAttention}"
                                                        Text="{Binding Connection}" TextWrapping="Wrap"
                                                        IsVisible="{Binding Connection, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                            <TextBlock Classes="kcapHint" Text="{Binding SwitchHint}" TextWrapping="Wrap"
+                                                       IsVisible="{Binding ShowsSwitchHint}" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top" Margin="0,-5,0,0">
+                                            <Button Classes="kcapChip settingsCompact" Content="Switch"
+                                                    IsVisible="{Binding OffersSwitch}" IsEnabled="{Binding CanSwitch}"
+                                                    AutomationProperties.Name="{Binding Name, StringFormat='Switch to {0}'}"
+                                                    Command="{Binding $parent[ItemsControl].((vm:ProfilesSettingsViewModel)DataContext).SwitchCommand}"
+                                                    CommandParameter="{Binding}" />
                                             <Button Classes="kcapChip settingsCompact" Content="{Binding SignInLabel}"
                                                     IsVisible="{Binding NeedsSignIn}"
                                                     Command="{Binding $parent[ItemsControl].((vm:ProfilesSettingsViewModel)DataContext).SignInCommand}"
