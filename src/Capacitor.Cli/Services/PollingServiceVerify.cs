@@ -32,6 +32,9 @@ sealed class PollingServiceVerify(
     static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
     static readonly TimeSpan DefaultKillWait = TimeSpan.FromSeconds(5);
 
+    /// <summary>How long a retirement waits for the old daemon to end its agents, capped at half the forward budget.</summary>
+    static readonly TimeSpan EndWait = TimeSpan.FromSeconds(10);
+
     /// <summary>How long a stopped or ended daemon is given to exit before the operation gives up on it.</summary>
     internal TimeSpan KillWait { get; init; } = DefaultKillWait;
 
@@ -190,6 +193,11 @@ sealed class PollingServiceVerify(
             await fence.AbortAsync(FenceWait, CancellationToken.None);
             return RetireRefusal("fence_unavailable");
         }
+
+        // An uninstall alone stops the daemon keeping its agents for a successor this unit will never start, so it
+        // is asked to end them first. One that does not answer within the wait is left to the uninstall.
+        if (fence is not null)
+            await _endDaemon(retireId, TimeSpan.FromTicks(Math.Min(EndWait.Ticks, _forwardBudget.Ticks / 2)));
 
         if (!manager.Uninstall(retireId, out var retireError)) {
             Say($"retire: {retireError}");
