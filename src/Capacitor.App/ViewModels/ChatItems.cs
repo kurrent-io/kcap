@@ -129,6 +129,10 @@ public sealed partial class SystemNoteItem : ChatItemViewModel, IExpandableItem 
         ToggleCommand = ReactiveCommand.Create(Toggle);
     }
 
+    /// Whether the agent answers this note as a turn of its own, as it does a finished background task
+    /// or another agent's message; such a note ends the reply before it.
+    public bool StartsTurn { get; init; }
+
     public string Text { get; }
     public string Label { get; }
 

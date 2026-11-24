@@ -2122,7 +2122,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                             ChatDisplayKind.Interrupted      => SystemNoteItem.InterruptedLabel,
                             ChatDisplayKind.Trigger or ChatDisplayKind.PeerSession => e.ToolName is { Length: > 0 } trigger ? trigger : SystemNoteItem.NoteLabel,
                             _                                => SystemNoteItem.NoteLabel,
-                        }, e.ToolKind == ChatDisplayKind.PeerSession ? ToolCategoryIcons.AgentMessageIcon : null));
+                        }, e.ToolKind == ChatDisplayKind.PeerSession ? ToolCategoryIcons.AgentMessageIcon : null) {
+                            StartsTurn = e.ToolKind is ChatDisplayKind.AgentReport or ChatDisplayKind.AgentMessage
+                                or ChatDisplayKind.TaskNotification or ChatDisplayKind.Trigger or ChatDisplayKind.PeerSession,
+                        });
                         break;
                     case AcpEventKind.ToolCall: {
                         cursor.OpenShell = null;

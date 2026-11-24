@@ -2,9 +2,9 @@ using System.Collections.Specialized;
 
 namespace Capacitor.App.ViewModels;
 
-/// Groups the assistant messages between two prompts into one reply. Tool calls, thinking and system
-/// notes sit inside a reply without splitting it, and stay out of its copied text. A folded topic's
-/// rows still belong to their replies, so folding never changes what a reply copies.
+/// Groups the assistant messages of one turn into a reply. A turn starts at a prompt or at a note the
+/// agent answers on its own; tool calls, thinking and other notes sit inside a reply and stay out of its
+/// copied text. A folded topic's rows still belong to their replies, so folding never changes what a reply copies.
 static class AssistantReplies {
     public static void Refresh(IReadOnlyList<ChatItemViewModel> items, NotifyCollectionChangedEventArgs change) {
         if (items.Count == 0) return;
@@ -35,11 +35,11 @@ static class AssistantReplies {
     }
 
     static void Refresh(IReadOnlyList<ChatItemViewModel> rows, int start, int end) {
-        while (start > 0 && rows[start - 1] is not UserTurnItem) start--;
-        while (end < rows.Count - 1 && rows[end + 1] is not UserTurnItem) end++;
+        while (start > 0 && !StartsReply(rows[start - 1])) start--;
+        while (end < rows.Count - 1 && !StartsReply(rows[end + 1])) end++;
         var reply = new List<AssistantTextItem>();
         for (var i = start; i <= end + 1; i++) {
-            if (i <= end && rows[i] is not UserTurnItem) {
+            if (i <= end && !StartsReply(rows[i])) {
                 if (rows[i] is AssistantTextItem message) reply.Add(message);
                 continue;
             }
@@ -47,6 +47,8 @@ static class AssistantReplies {
             reply.Clear();
         }
     }
+
+    static bool StartsReply(ChatItemViewModel row) => row is UserTurnItem or SystemNoteItem { StartsTurn: true };
 
     static void Settle(List<AssistantTextItem> reply) {
         if (reply.Count == 0) return;

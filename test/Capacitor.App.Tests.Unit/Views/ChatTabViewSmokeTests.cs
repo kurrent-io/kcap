@@ -2684,8 +2684,8 @@ public class ChatTabViewSmokeTests {
                 host.Window.MouseMove(new Point(4, 4));
                 host.Settle();
                 var messageRows = host.View.GetVisualDescendants().OfType<ChatMessageRow>().ToArray();
-                // The three replies between the prompt and the end are one reply: only the last carries time and Copy.
-                await Assert.That(messageRows.Select(row => row.CopyAction is not null)).IsEquivalentTo([true, false, false, true], CollectionOrdering.Matching);
+                // The background task's note starts a reply of its own; the tool call inside the second does not split it.
+                await Assert.That(messageRows.Select(row => row.CopyAction is not null)).IsEquivalentTo([true, true, false, true], CollectionOrdering.Matching);
                 foreach (var row in messageRows.Where(row => row.CopyAction is not null)) {
                     var prose = row.GetVisualDescendants().OfType<MarkdownView>().Single();
                     var time = MessageTime(row);
@@ -2716,7 +2716,7 @@ public class ChatTabViewSmokeTests {
                 Click(host, replyCopy.FindControl<Button>("CopyButton")!);
                 await replyCopy.PendingCopyForTesting!;
                 const string replyText = "Open [docs](https://example.com/docs) and run `resume`.";
-                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo($"{replyText}\n\n{replyText}\n\n{replyText}");
+                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo($"{replyText}\n\n{replyText}");
                 // The context menu's Copy message copies the message it opened on, not the reply that message ends.
                 var inner = messageRows[^1].GetVisualDescendants().OfType<MarkdownView>().Single();
                 var innerParagraph = inner.GetVisualDescendants().OfType<TextBlock>().First(t => t.Classes.Contains("markdown-paragraph"));
