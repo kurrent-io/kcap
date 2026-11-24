@@ -45,6 +45,22 @@ On the graphite canvas, primary text measures 12.42:1 and secondary text 8.64:1.
 
 Appearance offers Comfortable and Compact density. Compact reduces padding and row gaps while preserving minimum targets. Transcript prose uses 24 DIP line height in Comfortable and 22 DIP in Compact. Density and font changes remeasure visible rows and preserve the user's reading anchor. Inter is the default reading face. Monospace uses embedded Spline Sans Mono with platform fallbacks and leaves code and terminal metrics intact. Higher contrast strengthens text and edges and honors system contrast when the OS reports it. These preferences apply across profiles.
 
+## Transcript message metadata
+
+Right-aligned inset prompts and left-aligned assistant prose distinguish roles by shape and placement. This message chrome applies whether or not the redesign preview is on. Ordinary author labels are hidden. When the transcript identifies a different participant, their name stays visible beside their prompt.
+
+A reply is every assistant message of one turn. A turn starts at a prompt, or at a note the agent answers on its own: a finished background task, a subagent's report, another agent's or session's message, or a trigger. Its timestamp and Copy sit once, under its last message, aligned left. Copy puts the whole reply on the clipboard: its messages in order, separated by blank lines, as rich text with Markdown source as plain text. Tool calls, thinking and other notes, such as compaction and interruption, sit inside a reply without splitting it. All notes stay out of the copy, since they are not part of the answer and read as noise when pasted. A prompt carries its own timestamp and Copy under its bubble, aligned right. When a new assistant message streams in, it takes over the end of its reply.
+
+Hover the last message of a reply, or a prompt, or move keyboard focus into it, to reveal the timestamp and Copy. The pointer can move from the body onto them. The timestamp tooltip, accessibility metadata and context menu carry the full sender and time. The context menu opens by right click, Shift+F10 or touch long press, keeps the existing selection, link and image actions, and its Copy message copies that one message.
+
+In sessions that support bookmarks and topics, each message keeps its own marks in a side slot beside its first line, revealed on hover. Existing marks remain visible and actionable at rest. The slot reserves space for both targets so revealing them keeps prose and link positions stable.
+
+In a 1400 × 760 synthetic workspace in Light Comfortable, including the item gaps, an “ok” prompt measures 94 DIP, and a one-line assistant message inside and ending a reply 44 and 72 DIP. In Dark Compact at 130% zoom they measure 81, 37 and 65 DIP. Rows hold their bounds on hover.
+
+Inline and fenced code keep their own typography when switching reading faces.
+
+## Baseline measurements
+
 Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux before widening the preview.
 
 Compare the stock app, preview-off and default appearance under Light and Dark with the same native synthetic transcript. Compare startup, typing, scrolling and jumps independently.
