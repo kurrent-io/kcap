@@ -422,7 +422,7 @@ public partial class App : Application {
             if (_uninstallMode is { } uninstall) {
                 RunUninstallMode(desktop, uninstall);
             } else {
-                // Before StartAsync: it shows its first window (the install guard or the wizard) synchronously.
+                // Install the menu before startup can show a window.
                 _menuBar = new AppMenuBar(new ShellUrlOpener(), () => desktop.Windows, () => MainWindowAction(_coordinator));
                 _menuBar.Install();
                 _ = StartAsync(desktop);
@@ -452,7 +452,10 @@ public partial class App : Application {
                 if (RunInstallLocationGuard(desktop)) return; // the guard window owns the rest of this run
                 if (await RunLegacyInstallGuardAsync(desktop)) return;
             }
-            ConfigureDesktopAppearance();
+            var appearanceFlag = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profile: null, ExperimentalFeatures.DesktopAppearance);
+            var appearanceEnabled = await Task.Run(() => appearanceFlag.IsOn, _shutdown.Token);
+            if (_shutdown.IsCancellationRequested) return;
+            ConfigureDesktopAppearance(appearanceFlag, appearanceEnabled);
             _updater = CreateUpdater(_betaUpdates);
             if (UpdateCoordinator.TryApplyPendingAtStartup(_updater, Program.Host.UpdateRelaunch,
                     HandOver(AppUpdateTransition.PendingAtStartup), LifecycleLog)) return; // the process is being replaced
@@ -1120,9 +1123,7 @@ public partial class App : Application {
     internal static bool ShouldShowWizard(GateResult gate, string[]? args, bool firstRunAfterInstall = false) =>
         gate is GateResult.Incomplete || firstRunAfterInstall || args?.Contains("--setup", StringComparer.Ordinal) == true;
 
-    // The steady-state graph, over the resolution the gate was evaluated on (never a second resolve).
-    void ConfigureDesktopAppearance() {
-        var flag = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profile: null, ExperimentalFeatures.DesktopAppearance);
+    void ConfigureDesktopAppearance(ExperimentalSwitch flag, bool enabledAtStartup) {
         var palette = new ClassicPreviewPalette(this);
         var platform = PlatformSettings;
         var systemChanges = platform is null ? Observable.Never<Unit>() :
@@ -1157,7 +1158,7 @@ public partial class App : Application {
             }
         }
 
-        SetEnabled(flag.IsOn);
+        SetEnabled(enabledAtStartup);
         _classicPreview = preview;
         _desktopAppearance = appearance;
         _classicPreviewSubscription = new CompositeDisposable(contrastWatch, zoomWatch, _experimentalSaved.Merge(

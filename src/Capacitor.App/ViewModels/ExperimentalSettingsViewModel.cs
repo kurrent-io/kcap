@@ -71,7 +71,7 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
         private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    /// The store as it is now, or null when its last-write time and length match the last read.
+    /// Null when both stores match the fingerprints of a readable revision or a read in progress.
     internal (ExperimentalSettingsRead Settings, ExperimentalSettingsRead AppSettings, long Epoch, long Sequence)? ReadIfChanged() => Read(onlyIfChanged: true);
 
     // The sequence is taken with the fingerprint, so it orders reads by the file state each one recorded.
@@ -84,7 +84,14 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
             _fingerprint = fingerprint;
             sequence = ++_readSequence;
         }
-        return (_store.Load(_profile), _store.LoadAppWide(), epoch, sequence);
+        var profileSettings = _store.Load(_profile);
+        var appSettings = _store.LoadAppWide();
+        if (!profileSettings.Readable || !appSettings.Readable) {
+            lock (_fingerprintLock) {
+                if (sequence == _readSequence) _fingerprint = null;
+            }
+        }
+        return (profileSettings, appSettings, epoch, sequence);
     }
 
     /// A read that a save began or ended after is stale, and a row being saved keeps the value the user
