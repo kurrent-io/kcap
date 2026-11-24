@@ -386,7 +386,7 @@
                 <TextBlock Text="Loading sessions…" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapFaintBrush}"
                            Margin="16,0,16,8" IsVisible="{Binding LoadingSessions}" />
                 <Panel IsVisible="{Binding LoadingSessions}" IsHitTestVisible="False">
-                    <StackPanel IsVisible="{DynamicResource KcapPreviewLoadingSkeleton}" Margin="16,5,16,12" Spacing="10">
+                    <StackPanel x:Name="SessionLoadingPlaceholder" IsVisible="{DynamicResource KcapPreviewLoadingSkeleton}" Margin="16,5,16,12" Spacing="10">
                         <StackPanel Spacing="6">
                             <Border Width="128" Height="8" CornerRadius="4" HorizontalAlignment="Left" Background="{StaticResource KcapBorderBrush}" />
                             <Border Width="72" Height="6" CornerRadius="3" HorizontalAlignment="Left" Background="{StaticResource KcapBorderBrush}" />
