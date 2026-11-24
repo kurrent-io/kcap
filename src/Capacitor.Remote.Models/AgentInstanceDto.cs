@@ -46,6 +46,8 @@ public sealed record AgentInstanceDto {
     [JsonPropertyName("viewer_rights")]     public AgentViewerRightsDto? ViewerRights { get; init; }
     /// A Claude Code session in its owner's own terminal that a daemon steers rather than hosts. False from an older server.
     [JsonPropertyName("attached")]          public bool Attached { get; init; }
+    /// The daemon's launch kind: Default, Review or ReviewFlow. Absent from an older server, which the composer treats as Default.
+    [JsonPropertyName("launch_kind")]       public string? LaunchKind { get; init; }
 }
 
 public sealed record AccessGrant {
