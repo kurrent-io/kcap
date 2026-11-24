@@ -1491,6 +1491,7 @@ public partial class App : Application {
         var webView = new WebViewAvailability();
         var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
         var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
+        WatchDesktopExperiment(ExperimentalFeatures.DesktopZenMode, profiles?.Resolution.ProfileName, MainWindow.ZenModeResource);
         var drafts = new ComposerDrafts();
         var chatMarksOn = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.ChatMarks);
         _chatMarksFiles = new ChatMarksFiles(_config.Path("chat-marks"));
@@ -3532,6 +3533,7 @@ public partial class App : Application {
     void LatchNavigation() {
         _notificationAccessPrompt?.Dispose();
         _desktopNotifications?.Dispose();
+        _desktopExperimentSubscriptions.Dispose();
         _classicPreviewSubscription?.Dispose();
         _classicPreview?.Dispose();
         _desktopAppearance?.Dispose();

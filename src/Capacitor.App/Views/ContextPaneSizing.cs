@@ -11,32 +11,43 @@ public static class ContextPaneSizing {
     public static void Attach(Control view, ColumnDefinition column, Control pane, WorkContextView content,
             GridSplitter splitter, Button showButton) {
         PaneLayout? panes = null;
+        MainWindow? window = null;
         var fit = new ContextPaneFit();
 
         void Apply() {
-            var collapsed = panes is not null && (panes.ContextCollapsed || fit.HidesPane);
+            var inZen = window?.IsInZenMode == true;
+            var collapsed = inZen || panes is not null && (panes.ContextCollapsed || fit.HidesPane);
             column.MinWidth = panes is null ? PaneLayout.ContextMinWidth : 0;
             column.Width = new GridLength(collapsed ? 0 : panes?.ContextWidth ?? PaneLayout.ContextMinWidth);
             pane.IsVisible = !collapsed;
             splitter.IsVisible = !collapsed;
-            showButton.IsVisible = collapsed;
+            showButton.IsVisible = collapsed && !inZen;
             content.HideButton.IsVisible = panes is not null;
         }
 
         void OnChanged(object? sender, EventArgs e) => Apply();
 
+        void OnZenModeChanged(object? sender, EventArgs e) {
+            if (window is { IsInZenMode: false }) fit.Resize(window.WorkspaceWidthWithRail);
+            Apply();
+        }
+
         view.AttachedToVisualTree += (_, _) => {
-            panes = (TopLevel.GetTopLevel(view) as MainWindow)?.Panes;
+            window = TopLevel.GetTopLevel(view) as MainWindow;
+            panes = window?.Panes;
+            if (window is not null) window.ZenModeChanged += OnZenModeChanged;
             if (panes is not null) panes.Changed += OnChanged;
             Apply();
         };
         view.DetachedFromVisualTree += (_, _) => {
             if (panes is not null) panes.Changed -= OnChanged;
+            if (window is not null) window.ZenModeChanged -= OnZenModeChanged;
             panes = null;
+            window = null;
         };
         view.SizeChanged += (_, e) => {
             column.MaxWidth = PaneLayout.MaxWidth(e.NewSize.Width, PaneLayout.ContextMinWidth, PaneLayout.SessionMinWidth);
-            if (fit.Resize(e.NewSize.Width)) Apply();
+            if (window?.IsInZenMode != true && fit.Resize(e.NewSize.Width)) Apply();
         };
         splitter.DragDelta += (_, _) =>
             pane.Opacity = panes is not null && PaneLayout.HidesAt(column.ActualWidth, PaneLayout.ContextMinWidth)

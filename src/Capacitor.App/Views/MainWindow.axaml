@@ -26,6 +26,11 @@
             </Style>
         </ControlTheme>
     </Window.WindowDecorationsTheme>
+    <Window.Styles>
+        <Style Selector=".zenMode TextBox#ComposerInput">
+            <Setter Property="ClearSelectionOnLostFocus" Value="False" />
+        </Style>
+    </Window.Styles>
     <Window.KeyBindings>
         <KeyBinding Gesture="Meta+N" Command="{Binding NewSessionCommand}" />
         <KeyBinding Gesture="Ctrl+N" Command="{Binding NewSessionCommand}" />

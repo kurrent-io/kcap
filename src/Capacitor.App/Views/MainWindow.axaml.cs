@@ -40,6 +40,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             // The pane is drawn over these too, and a control that is only covered is still read out and still
             // answers to its name: the pane has a Back button of its own.
             WindowControls.IsVisible   = value is null;
+            UpdateZenModeAvailability();
             ApplyMinimumSize();
         }
     }
@@ -63,10 +64,13 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     void OnRailToggleClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => ToggleRail();
 
-    void ToggleRail() => Panes.RailCollapsed = !Panes.RailCollapsed;
+    void ToggleRail() {
+        if (IsInZenMode) ExitZenMode();
+        else Panes.RailCollapsed = !Panes.RailCollapsed;
+    }
 
     void ApplyRail() {
-        var collapsed = Panes.RailCollapsed;
+        var collapsed = IsInZenMode || Panes.RailCollapsed;
         RailColumn.Width = new GridLength(collapsed ? 0 : Panes.RailWidth);
         SessionRail.IsVisible = !collapsed;
         RailSplitter.IsVisible = !collapsed;
@@ -76,9 +80,13 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     }
 
     void ApplyRailAttention() {
-        var collapsed = Panes.RailCollapsed;
+        var collapsed = IsInZenMode || Panes.RailCollapsed;
         var attention = ViewModel?.RailAttention ?? RailAttentionSummary.None;
         RailAttentionMark.IsVisible = collapsed && attention.HasAttention;
+        if (_zenExit is { } exit) {
+            ToolTip.SetTip(exit, attention.HasAttention ? attention.Text : null);
+            AutomationProperties.SetName(exit, attention.HasAttention ? $"Exit Zen mode. {attention.Text}" : "Exit Zen mode");
+        }
         var tip = $"{(collapsed ? "Show" : "Hide")} sidebar";
         var summary = collapsed && attention.HasAttention ? attention.Text : null;
         ToolTip.SetTip(RailToggleButton, summary is null
@@ -92,7 +100,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     /// How far a header at the content's leading edge pads to clear the window controls; zero while
     /// the rail shows.
-    public double RailLeading => Panes.RailCollapsed ? RailClearance.Leading(_scale) : 0;
+    public double RailLeading => IsInZenMode || Panes.RailCollapsed ? RailClearance.Leading(_scale) + ZenExitExtraWidth : 0;
 
     public event EventHandler? RailLeadingChanged;
 
@@ -201,6 +209,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     public MainWindow() {
         InitializeComponent();
+        BindZenMode();
         PaneCycle.Attach(this);
         WindowControls.Spacing = RailClearance.Spacing;
         RailToggleButton.Margin = new Thickness(0, 0, RailClearance.ToggleGap - RailClearance.Spacing, 0);

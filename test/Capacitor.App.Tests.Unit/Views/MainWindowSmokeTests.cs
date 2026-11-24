@@ -710,6 +710,113 @@ public class MainWindowSmokeTests {
         }
     });
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Zen_mode_keeps_attention_and_the_draft_and_refits_the_panes_when_exited() => AvaloniaSession.RunOnUiAsync(async () => {
+        const string id = "a1";
+        var service = new FakeDaemonClientService();
+        service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        var agent = WorkspaceFixtures.Agent(id, "claude", hasTerminal: false, sessionId: "s1");
+        service.Agents.AddOrUpdate(agent);
+        using var directory = new FakeAgentDirectory();
+        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+        directory.Rows.AddOrUpdate(AgentRow.FromLocal(agent with { AwaitingInput = true }, new RepoIdentity("repo", "repo")));
+        var permissions = new FakePermissionService();
+        var (actions, _) = NewActions(service);
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+            rail: rail, appMenuInWindow: true, workspaceFactory: key => new WorkspaceViewModel(key, service, actions, new FakeTerminalAttachClientFactory().Factory,
+                () => new FakeTerminalSurface(), TimeProvider.System, new RecordingOpener(), permissions,
+                new FakeWorkContextSource(), new ScriptedLocalControlOps(), new NoAttachmentUploader()));
+        var window = new MainWindow { DataContext = vm, Width = 1600, Height = 720 };
+        new AppMenuBar(new RecordingOpener(), () => [window], () => null).Attach(window);
+        void Settle() {
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+        }
+
+        try {
+            window.Show();
+            vm.OpenSession(id);
+            Settle();
+            var workspace = (WorkspaceViewModel)vm.CurrentWorkspace!;
+            var view = window.FindDescendantOfType<WorkspaceView>()!;
+            var inspector = view.FindControl<WorkContextView>("WorkContextHost")!;
+            var chat = view.FindControl<ChatTabView>("ChatHost")!;
+            var composer = chat.FindControl<TextBox>("ComposerInput")!;
+            var menu = AppMenuFlyout.MenusFor(window).SelectMany(m => m.Items).OfType<NativeMenuItem>()
+                .Single(item => item.Header == "Toggle Zen Mode");
+
+            await Assert.That(menu.IsVisible).IsFalse();
+            window.Resources[MainWindow.ZenModeResource] = true;
+            await Assert.That(menu.IsEnabled).IsTrue();
+            await Assert.That(inspector.IsEffectivelyVisible).IsTrue();
+            workspace.Chat!.ComposerText = "Keep this draft";
+            await Assert.That(composer.Focus()).IsTrue();
+            composer.SelectionStart = 5;
+            composer.SelectionEnd = 9;
+
+            var appMenu = window.FindControl<Button>("AppMenuButton")!;
+            appMenu.Flyout!.ShowAt(appMenu);
+            Settle();
+            var zenRow = window.FindControl<StackPanel>("AppMenuRows")!.Children.OfType<Button>()
+                .Single(row => AutomationProperties.GetName(row) == "Toggle Zen Mode");
+            ClickFlyoutButton(zenRow);
+            Settle();
+            var exit = window.GetVisualDescendants().OfType<Button>()
+                .Single(b => AutomationProperties.GetName(b)?.StartsWith("Exit Zen mode", StringComparison.Ordinal) == true);
+            await Assert.That(exit.IsEffectivelyVisible).IsTrue();
+            await Assert.That(AutomationProperties.GetName(exit)).Contains("1 session needs you");
+            await Assert.That(window.SessionRail.IsEffectivelyVisible).IsFalse();
+            await Assert.That(inspector.IsEffectivelyVisible).IsFalse();
+            await Assert.That(composer.IsFocused).IsTrue();
+            await Assert.That(composer.SelectionEnd).IsEqualTo(9);
+            await Assert.That(window.Panes.RailCollapsed || window.Panes.ContextCollapsed).IsFalse();
+
+            permissions.Add(PermissionEntries.Entry(agentId: id));
+            Settle();
+            await Assert.That(chat.GetVisualDescendants().OfType<Button>()
+                .Any(b => b.IsEffectivelyVisible && b.Content is "Allow")).IsTrue();
+
+            window.Width = 1200;
+            window.Height = 560;
+            Settle();
+            await Assert.That(composer.SelectionEnd).IsEqualTo(9);
+            window.KeyPressQwerty(PhysicalKey.F6, RawInputModifiers.None);
+            await Assert.That(exit.IsFocused).IsTrue();
+            await Assert.That(composer.SelectionEnd).IsEqualTo(9);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Settle();
+            await Assert.That(window.IsInZenMode).IsFalse();
+            await Assert.That(window.SessionRail.IsEffectivelyVisible).IsTrue();
+            await Assert.That(inspector.IsEffectivelyVisible).IsFalse();
+            await Assert.That(view.FindControl<Button>("ContextShowButton")!.IsEffectivelyVisible).IsTrue();
+            await Assert.That(composer.IsFocused).IsTrue();
+            await Assert.That(workspace.Chat.ComposerText).IsEqualTo("Keep this draft");
+            await Assert.That(composer.SelectionStart).IsEqualTo(5);
+            await Assert.That(composer.SelectionEnd).IsEqualTo(9);
+            await Assert.That(workspace.ActiveTab).IsEqualTo(WorkspaceTab.Chat);
+
+            window.Width = 1600;
+            Settle();
+            await Assert.That(inspector.IsEffectivelyVisible).IsTrue();
+            window.Panes.RailCollapsed = true;
+            window.Panes.ContextCollapsed = true;
+            ((INativeMenuItemExporterEventsImplBridge)menu).RaiseClicked();
+            Settle();
+            window.Resources.Remove(MainWindow.ZenModeResource);
+            Settle();
+            await Assert.That(menu.IsVisible).IsFalse();
+            await Assert.That(window.IsInZenMode).IsFalse();
+            await Assert.That(window.Panes.RailCollapsed && window.Panes.ContextCollapsed).IsTrue();
+            await Assert.That(composer.IsFocused).IsTrue();
+        } finally {
+            window.Close();
+            vm.CloseWorkspace();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
+
     /// The window's name is what Windows lists in the taskbar and Alt+Tab and what a screen reader announces,
     /// so it stays set even though the title bar prints no title text.
     [Test]
