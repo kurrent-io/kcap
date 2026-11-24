@@ -2,6 +2,7 @@ using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Recording;
+using Microsoft.Extensions.Time.Testing;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Unit;
@@ -31,8 +32,10 @@ public class LocalDaemonRecordingTests {
             return follows is { } pid ? new ProcessIncarnation(pid, "test:followed") : process;
         });
 
+    /// <summary>The terminal hello wait runs on a clock nobody advances, so a loaded host never reads a fake daemon's
+    /// late hello as none: the wait's expiry is pinned where it is driven, in RecordingIpcTests.</summary>
     LocalDaemonRecording Client(HostedAgent? hosted = null, string? daemonName = DaemonName, TerminalHandOff? terminal = null) =>
-        new(Daemons.Store, hosted ?? Hosted, daemonName, terminal);
+        new(Daemons.Store, hosted ?? Hosted, daemonName, terminal, new FakeTimeProvider());
 
     /// <summary>A daemon on its socket with its recording marker written, as one with recording on leaves it.</summary>
     FakeRecordingDaemon Daemon(params string[] capabilities) {

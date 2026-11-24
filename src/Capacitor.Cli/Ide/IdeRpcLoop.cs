@@ -14,6 +14,27 @@ internal sealed class IdeRpcLoop(TextReader reader, TextWriter writer) : IDispos
 
     public void Dispose() => _writeGate.Dispose();
 
+    /// <summary>Waits out a write in flight, then drops every later one. Called before the writer is disposed: a host
+    /// service still closing can send a notification at any time, and a write racing the writer's own disposal throws
+    /// out of the command.</summary>
+    public async Task CloseAsync() {
+        try {
+            await _writeGate.WaitAsync();
+        } catch (ObjectDisposedException) {
+            return;
+        }
+        _closed = true;
+        ReleaseGate();
+    }
+
+    void ReleaseGate() {
+        try {
+            _writeGate.Release();
+        } catch (ObjectDisposedException) {
+            // Disposed while a write held the gate: nothing waits on it any more.
+        }
+    }
+
     /// <summary>Register before <see cref="RunAsync"/>; the table is not guarded against concurrent change.</summary>
     public void Handle(string method, Func<JsonObject?, CancellationToken, Task<JsonNode?>> handler) =>
         HandleThen(method, async (parameters, ct) => new IdeReply(await handler(parameters, ct)));
@@ -108,7 +129,7 @@ internal sealed class IdeRpcLoop(TextReader reader, TextWriter writer) : IDispos
                 _closed = true;
             }
         } finally {
-            _writeGate.Release();
+            ReleaseGate();
         }
     }
 

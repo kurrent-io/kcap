@@ -61,6 +61,8 @@ public sealed class IdeCommand(
                 ("server connection", lane.DisposeAsync),
                 ("daemon client", daemon.DisposeAsync),
             ], CloseBudget, time, Console.Error);
+            // A step left closing past the budget can still notify; the writer is disposed next.
+            await loop.CloseAsync();
         }
 
         return 0;

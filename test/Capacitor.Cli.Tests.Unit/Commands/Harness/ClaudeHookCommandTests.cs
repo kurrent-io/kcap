@@ -2262,21 +2262,24 @@ public class ClaudeHookCommandTests {
         await Assert.That(fx.Spawner!.Keys).Contains($"{Sid}-a1");
     }
 
+    /// <summary>Both budgets the drain runs under, the hook's and the spool's own, are on clocks nothing advances: on the
+    /// real one a loaded host spends them before the replay starts, and the test reads a backlog left behind.</summary>
     [Test]
     public async Task pending_backlog_is_drained_on_next_hook_when_server_up() {
-        using var fx = new Fixture(Config.Root); // 200 OK
+        using var fx = new Fixture(Config.Root, spoolTime: new FakeTimeProvider()); // 200 OK
         fx.Spool.Append(Sid, "session-end", $$"""{"session_id":"{{Sid}}"}""");
         // A fresh, unrelated stop hook with the server up flushes the backlog.
-        await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+        await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""", clock: Aged(TimeSpan.Zero));
         await Assert.That(fx.RouteOrder).Contains("session-end"); // replayed
         await Assert.That(fx.SpoolFiles.Any()).IsFalse();          // delivered + cleaned
     }
 
+    /// <summary>On frozen budgets, as the backlog test above, so the replay is not cut short before the session end posts.</summary>
     [Test]
     public async Task current_session_start_replays_before_its_session_end() {
-        using var fx = new Fixture(Config.Root);
+        using var fx = new Fixture(Config.Root, spoolTime: new FakeTimeProvider());
         fx.Spool.Append(Sid, "session-start", $$"""{"session_id":"{{Sid}}"}""");
-        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+        await fx.HandleAsync($$"""{"hook_event_name":"SessionEnd","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""", clock: Aged(TimeSpan.Zero));
         var startIdx = fx.RouteOrder.IndexOf("session-start");
         var endIdx   = fx.RouteOrder.IndexOf("session-end");
         await Assert.That(startIdx).IsGreaterThanOrEqualTo(0);
@@ -2780,7 +2783,9 @@ public class ClaudeHookCommandTests {
         /// state.</summary>
         public ProfileContext Profiles { get; }
 
-        public Fixture(ConfigRoot config, HttpStatusCode postStatus = HttpStatusCode.OK, Profile? profile = null) {
+        /// <param name="spoolTime">The clock the spool's drain budget runs on; the real one unless a test needs a drain
+        /// that a loaded host cannot cut short.</param>
+        public Fixture(ConfigRoot config, HttpStatusCode postStatus = HttpStatusCode.OK, Profile? profile = null, TimeProvider? spoolTime = null) {
             // The ephemeral home is what keeps the dev machine's own plugin state out — notably the
             // work-items-nudge availability gate, which reads whether the kcap plugin is effectively
             // installed under it.
@@ -2791,7 +2796,7 @@ public class ClaudeHookCommandTests {
             Profiles    = profile is null
                 ? Resolutions.At(_memoryServer.Url!, config)
                 : Resolutions.Of(profile, serverUrl: _memoryServer.Url);
-            Spool = new HookSpool(_spoolPath, time: TimeProvider.System);
+            Spool = new HookSpool(_spoolPath, time: spoolTime ?? TimeProvider.System);
             Client = new HttpClient(new StubHandler(async (req, ct) => {
                 if (req.Method == HttpMethod.Post) (_clock?.Time as TickingTimeProvider)?.MarkSend();
                 var body = req.Content is null ? "" : await req.Content.ReadAsStringAsync(ct);

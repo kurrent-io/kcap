@@ -379,4 +379,29 @@ public class IdeRpcLoopTests {
         await Assert.That(stderr.GetCapturedError()).Contains("follow-up broke");
         await Assert.That(output.Text).DoesNotContain("follow-up broke");
     }
+
+    /// <summary>The command closes the loop before it disposes the writer: a notification sent after that writes nothing.</summary>
+    [Test]
+    public async Task A_notification_after_close_writes_nothing() {
+        var lines = new Lines();
+        using var loop = new IdeRpcLoop(new StringReader(""), lines);
+
+        await loop.CloseAsync();
+        await loop.NotifyAsync("connection/changed", new JsonObject());
+
+        await Assert.That(lines.Writes).IsEqualTo(0);
+    }
+
+    /// <summary>A notification racing the loop's disposal is dropped, never thrown at its sender.</summary>
+    [Test]
+    public async Task A_notification_racing_disposal_does_not_throw() {
+        var lines = new Lines();
+        var loop = new IdeRpcLoop(new StringReader(""), lines);
+
+        var sends = Enumerable.Range(0, 50).Select(_ => Task.Run(() => loop.NotifyAsync("connection/changed", new JsonObject()))).ToArray();
+        await loop.CloseAsync();
+        loop.Dispose();
+
+        await Task.WhenAll(sends);
+    }
 }

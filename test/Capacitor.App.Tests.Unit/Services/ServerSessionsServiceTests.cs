@@ -115,12 +115,12 @@ public class ServerSessionsServiceTests {
     static void Connect(FakeServerLane lane, string subject = "u1", int epoch = 1) =>
         lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: subject, Epoch: epoch));
 
-    static (FakeServerLane Lane, ScriptedListing Listing, FakeTimeProvider Time, ServerSessionsService Service) Build(
+    static (FakeServerLane Lane, ScriptedListing Listing, ArmedTimeProvider Time, ServerSessionsService Service) Build(
             Func<CancellationToken, Task<SessionOwnerOptionDto[]?>>? owners = null, TimeSpan? reconcileEvery = null,
             TimeSpan? pushDebounce = null, IScheduler? pushScheduler = null) {
         var lane = new FakeServerLane();
         var listing = new ScriptedListing();
-        var time = new FakeTimeProvider();
+        var time = new ArmedTimeProvider();
         var service = new ServerSessionsService(
             lane, listing.Fetch, owners ?? (_ => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("me"))), time,
             pushDebounce: pushDebounce ?? TimeSpan.Zero, reconcileEvery: reconcileEvery, pushScheduler: pushScheduler);
@@ -256,8 +256,10 @@ public class ServerSessionsServiceTests {
         // Yields, so a read that re-requests without holding spins off the test's thread.
         listing.Gate = async _ => await Task.Yield();
         listing.Refuse("ended", "me", 0, TimeSpan.Zero);
+        var mark = time.Armed;
         Connect(lane);
         await Eventually(() => listing.Count("ended", "me", 0) == 1, "refused page");
+        await Eventually(() => time.ArmedSince(mark, TimeSpan.FromSeconds(1)), "the one-second hold");
         await Task.Delay(100);
         await Assert.That(listing.Count("ended", "me", 0)).IsEqualTo(1);
 
