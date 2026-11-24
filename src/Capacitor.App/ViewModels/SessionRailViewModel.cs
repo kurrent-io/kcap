@@ -188,7 +188,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    /// The one harness shown, whose mark stands in for the trigger's word; null otherwise.
+    /// The one harness shown, whose mark leads the trigger beside its name; null otherwise.
     public string? HarnessMark =>
         Harnesses.Count - _hiddenHarnesses.Count == 1 ? Harnesses.First(IsShown).Vendor : null;
 

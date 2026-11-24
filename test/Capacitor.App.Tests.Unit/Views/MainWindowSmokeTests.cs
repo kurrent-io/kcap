@@ -2192,11 +2192,14 @@ public class MainWindowSmokeTests {
             AgentRow.FromLocal(new("c1", "agent", "claude", "/repo", "Running", null, null, null, DateTime.UtcNow, null, null), new RepoIdentity("path:/repo", "repo")),
             AgentRow.FromLocal(new("x1", "agent", "codex", "/repo", "Running", null, null, null, DateTime.UtcNow, null, null), new RepoIdentity("path:/repo", "repo")),
         ]);
+        host.Present();
         Click(host, host.Named<Button>("RailFilterButton"));
+        host.Present();
         var harness = host.Named<Button>("RailHarnessButton");
         await Assert.That(host.Named<TextBlock>("RailHarnessLabel").Text).IsEqualTo("All");
 
         Click(host, harness);
+        host.Present();
         var codex = host.Window.GetVisualDescendants().OfType<CheckBox>()
             .Single(c => AutomationProperties.GetName(c) == "Codex");
         Click(host, codex);

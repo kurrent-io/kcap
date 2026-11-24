@@ -251,7 +251,7 @@
                                     <ContentControl HorizontalAlignment="Center" VerticalAlignment="Center" IsVisible="{Binding HasHarnessMark}"
                                                     Content="{Binding HarnessMark, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=14}" />
                                 </Panel>
-                                <TextBlock x:Name="RailHarnessLabel" Grid.Column="1" Text="{Binding HarnessLabel}" IsVisible="{Binding !HasHarnessMark}"
+                                <TextBlock x:Name="RailHarnessLabel" Grid.Column="1" Text="{Binding HarnessLabel}"
                                            TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                                 <views:AppIcon Grid.Column="2" Kind="ChevronDown" Size="10" VerticalAlignment="Center" />
                             </Grid>
