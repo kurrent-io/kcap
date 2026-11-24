@@ -2280,4 +2280,34 @@ public class DaemonMutationLaneTests {
 
         await Assert.That(await lane.RunAsync(Req(MutationVerb.Replace), CancellationToken.None)).IsTypeOf<MutationOutcome.Succeeded>();
     }
+
+    [Test]
+    public async Task A_switch_whose_executor_throws_before_spawning_does_not_latch() {
+        var cli = new FakeKcapCli { InstallVerifiedBehavior = (_, _) => Task.FromException<ProcessResult>(new InvalidOperationException("no process")) };
+        await using var lane = MakeLane(new RecordingExecutorFactory { Behavior = (_, _) => cli });
+
+        var outcome = await lane.RunAsync(SwitchReq(), CancellationToken.None);
+
+        await Assert.That(outcome).IsTypeOf<MutationOutcome.Failed>();
+        await Assert.That(outcome.Activation).IsEqualTo(ActivationEvidence.NotActivated);
+        await Assert.That(lane.RestartRequired).IsFalse();
+    }
+
+    /// The latch is set where the switch detaches, so an identical switch arriving as it finishes runs afresh
+    /// and is refused, rather than joining the finished switch's outcome.
+    [Test]
+    public async Task An_identical_switch_arriving_after_the_latch_is_refused_not_coalesced() {
+        var gate = new TaskCompletionSource<ProcessResult>();
+        var cli = new FakeKcapCli { InstallVerifiedBehavior = (_, _) => gate.Task };
+        await using var lane = MakeLane(new RecordingExecutorFactory { Behavior = (_, _) => cli }, classify: CannedSucceeded);
+
+        var first = lane.RunAsync(SwitchReq(), CancellationToken.None);
+        gate.SetResult(Activated());
+        await first;
+        var second = await lane.RunAsync(SwitchReq(), CancellationToken.None);
+
+        await Assert.That(second).IsEqualTo(new MutationOutcome.Refused("profile_switched_restart_app", RecoverySurface.Attention) {
+            Activation = ActivationEvidence.NotActivated,
+        });
+    }
 }

@@ -92,6 +92,9 @@ public class PollingServiceVerifyActivateTests {
         new(Config.Root, "target", TargetServer, NewId, Spec().Environment, _ => Task.CompletedTask);
 
     PollingServiceVerify Verify(FakeManager manager, Func<string, bool>? oldAnswers = null) =>
+        Verify(manager, (_, _) => Task.CompletedTask, oldAnswers);
+
+    PollingServiceVerify Verify(FakeManager manager, Func<string, TimeSpan, Task> endDaemon, Func<string, bool>? oldAnswers = null) =>
         new(Daemons.Store, manager,
             id => id == NewId ? (manager.Running ? 4242 : null) : manager.OldRunning ? 1111 : null,
             (id, _) => Task.FromResult(
@@ -99,18 +102,19 @@ public class PollingServiceVerifyActivateTests {
                 : id == OldId && (manager.OldRunning || oldAnswers?.Invoke(id) == true) ? new HelloProbeResult(true, HelloProtocol.CurrentVersion, null, OldId)
                 : new HelloProbeResult(false, null, null, null)),
             TimeProvider.System, () => true, ShortBudget,
-            (_, _) => Task.FromResult(new AdmissionFenceAcquireResult(AdmissionFenceOutcome.Acquired, new AcquiredFence(manager.Calls))));
+            (_, _) => Task.FromResult(new AdmissionFenceAcquireResult(AdmissionFenceOutcome.Acquired, new AcquiredFence(manager.Calls))),
+            endDaemon);
 
     [Test]
     public async Task A_cross_id_switch_retires_the_old_unit_first_then_activates_then_installs() {
         SeedConfig();
         var manager = new FakeManager(Active) { OldRegistered = true, OldRunning = true };
 
-        var exit = await Verify(manager).InstallVerifiedAsync(Spec(), replace: true, expectedVersion: null,
-            retireServiceId: OldId, activation: Activation(), retireProfile: "previous");
+        var exit = await Verify(manager, (name, _) => { manager.Calls.Add($"end:{name}"); return Task.CompletedTask; })
+            .InstallVerifiedAsync(Spec(), replace: true, expectedVersion: null, retireServiceId: OldId, activation: Activation(), retireProfile: "previous");
 
         await Assert.That(exit).IsEqualTo(VerifyExit.Ok);
-        await Assert.That(manager.Calls).IsEquivalentTo(["fence-commit", $"uninstall:{OldId}", "install"],
+        await Assert.That(manager.Calls).IsEquivalentTo(["fence-commit", $"end:{OldId}", $"uninstall:{OldId}", "install"],
             TUnit.Assertions.Enums.CollectionOrdering.Matching);
         await Assert.That(manager.ActiveAtInstall).IsEqualTo("target");
     }

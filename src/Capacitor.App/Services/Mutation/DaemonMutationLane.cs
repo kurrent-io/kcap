@@ -252,13 +252,11 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         }
 
         // The executor's synthetic cli_unsupported never spawned the CLI, so it leaves the selection as it was.
-        if (slot.Request.Activate && slot.Dispatched && slot.Activation != ActivationEvidence.NotActivated) {
-            lock (_gate) _restartRequired = true;
-        }
+        var latches = slot.Request.Activate && slot.Dispatched && slot.Activation != ActivationEvidence.NotActivated;
 
         // Detach BEFORE resolving the outcome below: closes the window where a fresh RunAsync for
         // the SAME request could coalesce onto a slot whose result is already decided.
-        var next = DetachAndAdmitNext(slot);
+        var next = DetachAndAdmitNext(slot, latches);
 
         if (outcome is not null) Deliver(slot, outcome);
         else if (cancelled is not null) DeliverCancelled(slot, cancelled);
@@ -269,9 +267,12 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         if (next is not null) StartAction(next);
     }
 
-    ActionSlot? DetachAndAdmitNext(ActionSlot finished) {
+    // The latch is set in the same critical section that detaches the switch, so no request can coalesce onto
+    // its finished slot after the latch.
+    ActionSlot? DetachAndAdmitNext(ActionSlot finished, bool latchRestart = false) {
         ActionSlot? next = null;
         lock (_gate) {
+            if (latchRestart) _restartRequired = true;
             Debug.Assert(ReferenceEquals(_owned, finished), "DetachAndAdmitNext: the finishing action must still be the owned slot.");
             _owned = null;
             if (_queue.Count > 0) {
@@ -381,7 +382,15 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         ct.ThrowIfCancellationRequested();
         slot.Dispatched = true;
         slot.Activation = ActivationEvidence.Unknown;
-        var result = await Dispatch(executor, request, attemptId, ct).ConfigureAwait(false);
+        ProcessResult result;
+        try {
+            result = await Dispatch(executor, request, attemptId, ct).ConfigureAwait(false);
+        } catch (Exception ex) when (ex is not OperationCanceledException) {
+            // A throw comes from a process that never started, the help probe's or the install's own.
+            slot.Dispatched = false;
+            slot.Activation = ActivationEvidence.NotActivated;
+            throw;
+        }
         if (request.Activate) slot.Activation = ActivationEvidenceOf(request, result);
 
         return await Classify(request, result, executor, observation, attemptId, predecessor, ct).ConfigureAwait(false);
