@@ -56,7 +56,9 @@ public class ExperimentalSwitchTests {
         var disabled = """{"desktop-appearance-preview":false}""";
         await File.WriteAllTextAsync(store.AppWidePath, new string('x', disabled.Length));
         var written = File.GetLastWriteTimeUtc(store.AppWidePath);
+        var startup = new ExperimentalSwitch(store, null, ExperimentalFeatures.DesktopAppearance);
 
+        await Assert.That(startup.IsOn).IsTrue();
         await Assert.That(sut.IsOn).IsTrue();
 
         await File.WriteAllTextAsync(store.AppWidePath, disabled);

@@ -30,7 +30,7 @@ public sealed class ExperimentalSwitch(ExperimentalSettingsStore store, string? 
             lock (_lock) {
                 if (fingerprint == _fingerprint) return field;
                 var settings = feature.AppWide ? store.LoadAppWide() : store.Load(profile!);
-                if (!settings.Readable) return field;
+                if (!settings.Readable) return _fingerprint is null && feature.AppWide ? feature.OnByDefault : field;
                 field = settings.IsOn(feature);
                 _fingerprint = fingerprint;
                 return field;

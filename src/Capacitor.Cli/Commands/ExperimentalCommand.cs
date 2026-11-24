@@ -58,22 +58,26 @@ public sealed class ExperimentalCommand {
         var (profile, daemonName) = Resolve();
         var store = new ExperimentalSettingsStore(_config);
         var profileSettings = store.Load(profile);
-        if (!profileSettings.Readable) return await RefuseCorruptAsync(store.Path, profileSettings);
         var appSettings = store.LoadAppWide();
-        if (!appSettings.Readable) return await RefuseCorruptAsync(store.AppWidePath, appSettings);
-
-        var probe = await _probe(daemonName, CancellationToken.None);
+        var probe = profileSettings.Readable ? await _probe(daemonName, CancellationToken.None) : null;
 
         await Console.Out.WriteLineAsync($"Profile: {profile}");
         foreach (var feature in _features) {
             var saved = feature.AppWide ? appSettings : profileSettings;
+            if (!saved.Readable) {
+                await Console.Out.WriteLineAsync($"{feature.Id}  unavailable");
+                continue;
+            }
             var on = saved.IsOn(feature);
             var state = feature.DesktopAppOnly ? DesktopAppOnlyText : StateText(Classify(saved.IsEnabled(feature.Id), on, probe, feature.Id));
             await Console.Out.WriteLineAsync($"{feature.Id}  {SwitchText(on, saved.IsSet(feature.Id))}  {state}");
             await Console.Out.WriteLineAsync($"  {(feature.AppWide ? "App-wide. " : "")}{feature.Description}");
         }
 
-        return 0;
+        var exit = 0;
+        if (!profileSettings.Readable) exit = await RefuseCorruptAsync(store.Path, profileSettings);
+        if (!appSettings.Readable) exit = await RefuseCorruptAsync(store.AppWidePath, appSettings);
+        return exit;
     }
 
     async Task<int> SetAsync(string[] args, bool enable) {

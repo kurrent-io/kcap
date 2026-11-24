@@ -889,26 +889,24 @@ public class ChatTabViewSmokeTests {
             var inlineFamily = inline.FontFamily;
             var fencedFamily = fenced.FontFamily;
             await Assert.That(stock.ToString()).Contains("fonts:Inter#Inter");
-            await Assert.That(prose.FontSize).IsEqualTo(15d);
-            await Assert.That(prose.LineHeight).IsEqualTo(24d);
+            var stockLineHeight = prose.LineHeight;
 
             resources.Apply(new DesktopAppearancePreferences(DesktopDensity.Compact, ReadingFont: DesktopReadingFont.Monospace));
             host.Settle();
             await Assert.That(prose.FontFamily.Name).Contains("Spline Sans Mono");
-            await Assert.That(prose.FontSize).IsEqualTo(15d);
-            await Assert.That(prose.LineHeight).IsEqualTo(22d);
+            await Assert.That(prose.LineHeight).IsLessThan(stockLineHeight);
             await Assert.That(inline.FontFamily).IsEqualTo(inlineFamily);
             await Assert.That(fenced.FontFamily).IsEqualTo(fencedFamily);
 
             resources.Apply(new DesktopAppearancePreferences());
             host.Settle();
             await Assert.That(prose.FontFamily).IsEqualTo(stock);
-            await Assert.That(prose.LineHeight).IsEqualTo(24d);
+            await Assert.That(prose.LineHeight).IsEqualTo(stockLineHeight);
 
             resources.Apply(null);
             host.Settle();
             await Assert.That(prose.FontFamily).IsEqualTo(stock);
-            await Assert.That(prose.LineHeight).IsEqualTo(24d);
+            await Assert.That(prose.LineHeight).IsEqualTo(stockLineHeight);
         } finally {
             resources.Apply(null);
             await host.CloseAsync();

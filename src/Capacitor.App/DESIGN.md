@@ -35,7 +35,7 @@ Run `tools/ui-audit/contrast.py`, `type_scale.py` and `axaml_a11y.py`. Exercise 
 | Selected row / selection ink | `#E5EDFC` / `#315AA3` | `#304151` / `#86B9F0` |
 | Primary action / label | `#6D1E40` / `#FFFFFF` | `#D6D6D1` / `#262726` |
 
-The work-context pane uses its resize grabber as the divider with the preview enabled. PR lifecycle, health text, and work-in-progress keep their existing meanings during the comparison. The dark preview uses graphite surfaces, soft neutral text, a pearl primary action and slate-blue selection. Modern, density and the transcript experiments have separate review gates.
+The work-context pane uses its resize grabber as the divider with the preview enabled. PR lifecycle, health text, and work-in-progress keep their existing meanings during the comparison. The dark preview uses graphite surfaces, soft neutral text, a pearl primary action and slate-blue selection. Modern and transcript interaction experiments have separate flags.
 
 In Dark, use emerald `#64D998` for success, amber `#EBB64F` for attention, coral `#FF9087` for failure and violet `#C6A0F6` for the purple status role. Each of the five semantic inks, including blue, has at least 5.80:1 contrast across the base surfaces and its own tinted fill. On a selected row, the minimum is 4.79:1 for the danger label. The audit checks every status ink on the selection fill. Bookmarks keep their user-selected colors.
 
@@ -45,4 +45,4 @@ Appearance offers Comfortable and Compact density. Compact reduces padding and r
 
 Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux before widening the preview.
 
-On the M4 Pro synthetic workspace at 1400×760, median startup to a rendered transcript was 1.418 s for the original and 1.425 s with the preview disabled across seven fresh processes each. Median resident memory was 326.8 and 327.3 MiB respectively. Across 90 short-session edits per appearance and size, median UI-thread allocations were identical at 29,888 bytes at 1400×760 and 29,504 bytes at 1200×560. The render timer covered the draft edit, layout and bitmap render. OS input delivery, network startup and compositor presentation require separate measurement.
+Compare the stock app, preview-off and default appearance under Light and Dark with the same native synthetic transcript. Compare startup, typing, scrolling and jumps independently.
