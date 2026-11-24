@@ -14,13 +14,15 @@ namespace Capacitor.App.Tests.Unit;
 /// session AND RxSchedulers.MainThreadScheduler are process-wide, so every test using this
 /// class must carry [NotInParallel("AvaloniaSession")].
 internal static class AvaloniaSession {
+    static readonly AvaloniaHeadlessPlatformOptions PlatformOptions = new() { UseHeadlessDrawing = false };
+
     sealed class TestAppBuilder {
         public static AppBuilder BuildAvaloniaApp() =>
             AppBuilder.Configure<App>()
                 .UseSkia()
                 .WithAppFont()
                 .UseReactiveUI(_ => { })
-                .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false });
+                .UseHeadless(PlatformOptions);
     }
 
     /// One application for the whole assembly, not one per test: per-test isolation releases
@@ -102,6 +104,12 @@ internal static class AvaloniaSession {
             await WithRxScheduler(new UiThreadImmediateScheduler(_uiScheduler!), body);
             return true;
         });
+
+    public static Task RunWithNativePopupRootsAsync(Func<Task> body) => RunOnUiAsync(async () => {
+        var overlayPopups = PlatformOptions.OverlayPopups;
+        PlatformOptions.OverlayPopups = false;
+        try { await body(); } finally { PlatformOptions.OverlayPopups = overlayPopups; }
+    });
 
     /// What the OS does when another app takes focus; headless Show() leaves a window active. The
     /// platform layer's Deactivated hook is internal to Avalonia, so it is reached through the

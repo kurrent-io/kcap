@@ -66,7 +66,7 @@ internal sealed class LocalFrameChatInput : ChatInput {
             : null;
 
     public override string Hint => _notice ?? Availability switch {
-        SendAvailability.Ready       => "Enter sends · Shift+Enter for a new line",
+        SendAvailability.Ready       => ReadyHint,
         SendAvailability.Sending     => "Sending…",
         SendAvailability.Unsupported => "Update the daemon to send messages from the app",
         SendAvailability.Ended       => "This session has ended",

@@ -3,104 +3,135 @@
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              xmlns:views="clr-namespace:Capacitor.App.Views"
              x:Class="Capacitor.App.Views.HandoffComposerView"
+             views:ComposerPresentation.IsPreview="{DynamicResource KcapComposerPreview}"
              x:DataType="vm:HandoffComposerViewModel">
+    <UserControl.Styles>
+        <StyleInclude Source="avares://kcap-desktop/Views/ComposerStyles.axaml" />
+        <Style Selector="views|HandoffComposerView.previewComposer Button.handoffAction">
+            <Setter Property="Grid.Row" Value="1" />
+        </Style>
+        <Style Selector="Border#HandoffErrorBanner">
+            <Setter Property="Grid.Row" Value="1" />
+            <Setter Property="Margin" Value="0,8,0,0" />
+        </Style>
+        <Style Selector="views|HandoffComposerView.previewComposer Grid#HandoffActions">
+            <Setter Property="Grid.Row" Value="1" />
+        </Style>
+        <Style Selector="views|HandoffComposerView.previewComposer Border#HandoffErrorBanner">
+            <Setter Property="Grid.Row" Value="0" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <Style Selector="views|HandoffComposerView.previewComposer StackPanel#HandoffFeedback">
+            <Setter Property="Grid.Column" Value="0" />
+            <Setter Property="Grid.ColumnSpan" Value="6" />
+        </Style>
+    </UserControl.Styles>
     <Border x:Name="HandoffCard" Classes="attachTarget"
             Background="{StaticResource KcapSurfaceRaisedBrush}"
             BorderThickness="1" CornerRadius="10" Padding="13,10,13,12">
         <StackPanel Spacing="8">
-            <!-- Where the new session would start. -->
-            <StackPanel x:Name="HandoffStrip" Spacing="6" IsVisible="{Binding IsStripOpen}">
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="0,0,0,4"
-                      IsVisible="{Binding StripLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                    <views:AppIcon Kind="GitBranch" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
-                                   Foreground="{StaticResource KcapMutedBrush}" />
-                    <StackPanel Grid.Column="1" Spacing="3">
-                        <TextBlock Text="New session in a fresh worktree" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
-                                   TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}" />
-                        <TextBlock x:Name="HandoffStripLabel" Text="{Binding StripSummary}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="17"
-                                   TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
+            <ScrollViewer Classes="composerOverflow" ScrollChanged="OnComposerOverflowChanged"
+                          AutomationProperties.Name="Hand-off setup and attachments">
+                <ScrollViewer.IsVisible>
+                    <MultiBinding Converter="{x:Static BoolConverters.Or}">
+                        <Binding Path="IsStripOpen" />
+                        <Binding Path="Tray.HasAttachments" />
+                    </MultiBinding>
+                </ScrollViewer.IsVisible>
+                <StackPanel Spacing="8">
+                    <StackPanel x:Name="HandoffStrip" Spacing="6" IsVisible="{Binding IsStripOpen}">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="0,0,0,4"
+                              IsVisible="{Binding StripLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                            <views:AppIcon Kind="GitBranch" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
+                                           Foreground="{StaticResource KcapMutedBrush}" />
+                            <StackPanel Grid.Column="1" Spacing="3">
+                                <TextBlock Text="New session in a fresh worktree" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
+                                           TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}" />
+                                <TextBlock x:Name="HandoffStripLabel" Text="{Binding StripSummary}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="17"
+                                           TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />
+                            </StackPanel>
+                            <Button Grid.Column="2" Classes="kcapGhost" Width="24" Height="24" Padding="0"
+                                    VerticalAlignment="Top" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                    AutomationProperties.Name="Starting point details" ToolTip.Tip="Starting point details">
+                                <views:AppIcon Kind="Info" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                                <Button.Flyout>
+                                    <Flyout Placement="BottomEdgeAlignedRight" VerticalOffset="6" FlyoutPresenterClasses="kcapPanel">
+                                        <TextBlock Text="{Binding StripLabel}" MaxWidth="340" TextWrapping="Wrap" Margin="12,10"
+                                                   Foreground="{StaticResource KcapTextBrush}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="18" />
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                        </Grid>
+                        <views:LaunchChipsView x:Name="HandoffChips" DataContext="{Binding Choices}" />
                     </StackPanel>
-                    <Button Grid.Column="2" Classes="kcapGhost" Width="24" Height="24" Padding="0"
-                            VerticalAlignment="Top" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
-                            AutomationProperties.Name="Starting point details" ToolTip.Tip="Starting point details">
-                        <views:AppIcon Kind="Info" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                        <Button.Flyout>
-                            <Flyout Placement="BottomEdgeAlignedRight" VerticalOffset="6" FlyoutPresenterClasses="kcapPanel">
-                                <TextBlock Text="{Binding StripLabel}" MaxWidth="340" TextWrapping="Wrap" Margin="12,10"
-                                           Foreground="{StaticResource KcapTextBrush}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="18" />
-                            </Flyout>
-                        </Button.Flyout>
-                    </Button>
-                </Grid>
-                <views:LaunchChipsView x:Name="HandoffChips" DataContext="{Binding Choices}" />
-            </StackPanel>
-
-            <views:AttachmentChipStrip x:Name="HandoffChipStrip" Tray="{Binding Tray}"
-                                       IsVisible="{Binding Tray.HasAttachments}" />
+                    <views:AttachmentChipStrip x:Name="HandoffChipStrip" Tray="{Binding Tray}" IsVisible="{Binding Tray.HasAttachments}" />
+                </StackPanel>
+            </ScrollViewer>
             <TextBox x:Name="HandoffInput" Classes="kcapEmbedded" Text="{Binding Text}" AcceptsReturn="True" TextWrapping="Wrap"
-                     MinHeight="44" MaxHeight="160" Padding="0"
+                     AutomationProperties.Name="Message for the next session" Padding="0"
                      PlaceholderText="{Binding Placeholder}" />
 
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
-                <Button x:Name="HandoffAttachButton" Classes="kcapGhost"
-                        IsEnabled="{Binding CanAttach}" ToolTip.Tip="{Binding AttachHint}"
-                        ToolTip.ShowOnDisabled="True" AutomationProperties.Name="Attach files"
-                        Width="24" Height="24" Padding="0" Cursor="Hand" Margin="0,0,16,0"
-                        HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
-                    <views:AppIcon Kind="Paperclip" Size="16" />
-                </Button>
-                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                    <Grid x:Name="HandoffCompleteness" ColumnDefinitions="Auto,*" ColumnSpacing="6" Margin="0,0,12,0">
-                        <Grid.IsVisible>
-                            <MultiBinding Converter="{x:Static BoolConverters.And}">
-                                <Binding Path="IsStripOpen" />
-                                <Binding Path="WorkMissingOrUnconfirmed" />
-                            </MultiBinding>
-                        </Grid.IsVisible>
-                        <views:AppIcon Kind="TriangleAlert" Size="12" VerticalAlignment="Center"
-                                       Foreground="{StaticResource KcapWarningBrush}" />
-                        <TextBlock Grid.Column="1" Text="{Binding CompletenessNote}" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap" VerticalAlignment="Center"
-                                   Foreground="{StaticResource KcapMutedBrush}" />
-                    </Grid>
-                    <TextBlock x:Name="HandoffProgress" Text="{Binding Progress}" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
-                               Foreground="{StaticResource KcapMutedBrush}"
-                               IsVisible="{Binding Progress, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                    <TextBlock x:Name="HandoffNotice" Text="{Binding StripNotice}" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
-                               Foreground="{StaticResource KcapFaintBrush}"
-                               IsVisible="{Binding StripNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                </StackPanel>
-                <Button x:Name="CancelHandoffButton" Grid.Column="2" Classes="kcapGhost" Content="Cancel"
-                        Command="{Binding CloseStripCommand}" Margin="12,0,0,0"
-                        Height="24" Padding="10,0" VerticalContentAlignment="Center" FontSize="{StaticResource KcapFontSizeBody}"
-                        IsVisible="{Binding CanCloseStrip}" />
-                <Button x:Name="ResumeButton" Grid.Column="3" Classes="kcapChip" Content="Resume"
-                        Command="{Binding ResumeCommand}" Margin="12,0,0,0"
-                        Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" CornerRadius="7"
-                        IsVisible="{Binding ResumeVisible}" />
-                <Button x:Name="HandoffButton" Grid.Column="4" Classes="kcapPrimary" Content="Hand off"
-                        Command="{Binding OpenStripCommand}" Margin="8,0,0,0"
-                        Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" CornerRadius="7"
-                        Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
-                        IsVisible="{Binding ResumeVisible}" />
-                <Button x:Name="StartHandoffButton" Grid.Column="5" Classes="kcapPrimary" Content="Start hand-off"
-                        Command="{Binding StartCommand}" Margin="12,0,0,0"
-                        Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" CornerRadius="7"
-                        Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
-                        IsVisible="{Binding StartVisible}" />
-            </Grid>
-
-            <!-- A failed launch is an outcome, so it takes the danger status colour the launcher's banner uses. -->
-            <Border x:Name="HandoffErrorBanner" Padding="12,9" CornerRadius="8" BorderThickness="1"
-                    Background="{StaticResource KcapDangerDimBrush}" BorderBrush="{StaticResource KcapDangerBrush}"
-                    IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                <Grid ColumnDefinitions="Auto,*">
-                    <views:AppIcon Kind="CircleAlert" Size="14" Margin="0,2,8,0" VerticalAlignment="Top"
-                                   Foreground="{StaticResource KcapDangerBrush}" />
-                    <TextBlock Grid.Column="1" x:Name="HandoffErrorText" Text="{Binding Error}"
-                               Foreground="{StaticResource KcapDangerBrush}"
-                               FontSize="{StaticResource KcapFontSizeBody}" LineHeight="18" TextWrapping="Wrap" VerticalAlignment="Center" />
+            <Grid RowDefinitions="Auto,Auto">
+                <Grid x:Name="HandoffActions" ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" RowDefinitions="Auto,Auto">
+                    <Button x:Name="HandoffAttachButton" Classes="kcapGhost handoffAction"
+                            IsEnabled="{Binding CanAttach}" ToolTip.Tip="{Binding AttachHint}"
+                            ToolTip.ShowOnDisabled="True" AutomationProperties.Name="Attach files"
+                            Width="24" Height="24" Padding="0" Cursor="Hand" Margin="0,0,16,0"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
+                        <views:AppIcon Kind="Paperclip" Size="16" />
+                    </Button>
+                    <StackPanel x:Name="HandoffFeedback" Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                        <Grid x:Name="HandoffCompleteness" ColumnDefinitions="Auto,*" ColumnSpacing="6" Margin="0,0,12,0">
+                            <Grid.IsVisible>
+                                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                    <Binding Path="IsStripOpen" />
+                                    <Binding Path="WorkMissingOrUnconfirmed" />
+                                </MultiBinding>
+                            </Grid.IsVisible>
+                            <views:AppIcon Kind="TriangleAlert" Size="12" VerticalAlignment="Center"
+                                           Foreground="{StaticResource KcapWarningBrush}" />
+                            <TextBlock Grid.Column="1" Text="{Binding CompletenessNote}" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap" VerticalAlignment="Center"
+                                       Foreground="{StaticResource KcapMutedBrush}" />
+                        </Grid>
+                        <TextBlock x:Name="HandoffProgress" Text="{Binding Progress}" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
+                                   Foreground="{StaticResource KcapMutedBrush}"
+                                   IsVisible="{Binding Progress, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <TextBlock x:Name="HandoffNotice" Text="{Binding StripNotice}" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
+                                   Foreground="{StaticResource KcapFaintBrush}"
+                                   IsVisible="{Binding StripNotice, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+                    <Button x:Name="CancelHandoffButton" Grid.Column="2" Classes="kcapGhost handoffAction" Content="Cancel"
+                            Command="{Binding CloseStripCommand}" Margin="12,0,0,0"
+                            Height="24" Padding="10,0" VerticalContentAlignment="Center" FontSize="{StaticResource KcapFontSizeBody}"
+                            IsVisible="{Binding CanCloseStrip}" />
+                    <Button x:Name="ResumeButton" Grid.Column="3" Classes="kcapChip handoffAction" Content="Resume"
+                            Command="{Binding ResumeCommand}" Click="OnLaunchClick" Margin="12,0,0,0"
+                            Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" CornerRadius="7"
+                            IsVisible="{Binding ResumeVisible}" />
+                    <Button x:Name="HandoffButton" Grid.Column="4" Classes="kcapPrimary handoffAction" Content="Hand off"
+                            Command="{Binding OpenStripCommand}" Margin="8,0,0,0"
+                            Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" CornerRadius="7"
+                            Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
+                            IsVisible="{Binding ResumeVisible}" />
+                    <Button x:Name="StartHandoffButton" Grid.Column="5" Classes="kcapPrimary handoffAction" Content="Start hand-off"
+                            Command="{Binding StartCommand}" Click="OnLaunchClick" Margin="12,0,0,0"
+                            Height="24" Padding="12,0" VerticalContentAlignment="Center" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" CornerRadius="7"
+                            Background="{StaticResource KcapPrimaryBrush}" Foreground="{StaticResource KcapOnPrimaryBrush}"
+                            IsVisible="{Binding StartVisible}" />
                 </Grid>
-            </Border>
+
+                <Border x:Name="HandoffErrorBanner" Padding="12,9" CornerRadius="8" BorderThickness="1"
+                        Background="{StaticResource KcapDangerDimBrush}" BorderBrush="{StaticResource KcapDangerBrush}"
+                        IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <Grid ColumnDefinitions="Auto,*">
+                        <views:AppIcon Kind="CircleAlert" Size="14" Margin="0,2,8,0" VerticalAlignment="Top"
+                                       Foreground="{StaticResource KcapDangerBrush}" />
+                        <views:ComposerLiveText Grid.Column="1" x:Name="HandoffErrorText" Text="{Binding Error}" AutomationProperties.LiveSetting="Polite" ToolTip.Tip="{Binding Error}"
+                                   Foreground="{StaticResource KcapDangerBrush}"
+                                   FontSize="{StaticResource KcapFontSizeBody}" LineHeight="18" TextWrapping="Wrap" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+            </Grid>
         </StackPanel>
     </Border>
 </UserControl>

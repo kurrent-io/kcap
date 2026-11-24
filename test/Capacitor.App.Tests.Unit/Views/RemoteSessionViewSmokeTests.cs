@@ -80,8 +80,13 @@ public class RemoteSessionViewSmokeTests {
     }
 
     [Test]
-    public async Task Reconnecting_keeps_existing_chat_visible_and_uses_the_shared_notice() {
-        await AvaloniaSession.DispatchAsync(async () => {
+    public Task Reconnecting_keeps_existing_chat_visible_and_uses_the_shared_notice() => ReconnectAsync(preview: false);
+
+    [Test]
+    public Task Preview_remote_reconnect_keeps_cached_history_and_recovers_beside_the_draft() => ReconnectAsync(preview: true);
+
+    static Task ReconnectAsync(bool preview) =>
+        AvaloniaSession.DispatchAsync(async () => {
             var source = new FakeWorkContextSource();
             var assignment = new SessionWorkItemAssignmentDto { WorkItemId = "w1", Label = "WK-240", Source = "mcp", Confidence = 1, IsPrimary = true };
             source.Enqueue(new WorkContextRead(WorkContextReadKind.Ready, [assignment], assignment,
@@ -94,8 +99,14 @@ public class RemoteSessionViewSmokeTests {
                 detail: Detail(Event(0, CanonicalEventTypes.UserMessageReceived,
                 """{"content":"Review the session loading states"}"""), Event(1, CanonicalEventTypes.AssistantTextGenerated,
                 """{"content":"I’ll check how chat and work details recover after a connection loss."}""")));
+            var reading = new DesktopReadingResources(Application.Current!);
+            if (preview) reading.Apply(new DesktopAppearancePreferences());
             try {
                 await host.SettleUntilAsync(() => host.Vm is { Access: RemoteSessionAccess.Ready, Chat.Items.Count: > 0, WorkContext.IsReady: true }, "chat and details loaded");
+                var input = Named<TextBox>(host.View, "ComposerInput");
+                input.Focus();
+                host.Window.KeyTextInput("Retain this draft");
+                host.Settle();
                 var count = host.Vm.Chat.Items.Count;
                 host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying));
                 await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Offline, "connection dropped");
@@ -109,6 +120,8 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.View.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Couldn’t reconnect to this session")).IsTrue();
                 CaptureLoading(host, "session-connection-failed");
                 var retry = host.View.GetVisualDescendants().OfType<Button>().Single(b => b is { IsEffectivelyVisible: true, Content: "Retry" });
+                if (preview) await Assert.That(((Grid)retry.Parent!).Children.OfType<TextBlock>().Single().Text)
+                    .IsEqualTo("Couldn’t reconnect to this session");
                 host.Window.MouseMove(new Point(0, 0));
                 host.Settle();
                 retry.Focus(NavigationMethod.Tab);
@@ -117,6 +130,7 @@ public class RemoteSessionViewSmokeTests {
                 host.Window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
                 await host.SettleUntilAsync(() => retries == 1, "keyboard retry reached its callback");
                 await Assert.That(retries).IsEqualTo(1);
+                await Assert.That(host.Vm.Chat.ComposerText).IsEqualTo("Retain this draft");
                 // Re-establishment must keep the transcript visible too, until the watch answers.
                 var watch = new TaskCompletionSource<HubCallOutcome>();
                 host.Lane.AccessWatchHandler = _ => watch.Task;
@@ -126,10 +140,12 @@ public class RemoteSessionViewSmokeTests {
                 watch.SetResult(HubCallOutcome.Ok);
                 await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "recovered");
                 CaptureLoading(host, "session-recovered");
-            } finally { await host.Vm.TeardownAsync(); }
+            } finally {
+                reading.Apply(null);
+                await host.Vm.TeardownAsync();
+            }
             return true;
         });
-    }
 
     /// A stopped local server is the cause a Retry cannot repair, so the notice offers its start instead.
     [Test]
@@ -425,9 +441,13 @@ public class RemoteSessionViewSmokeTests {
     [Test]
     public Task Clicking_resume_launches_it_in_place() => WithHandoffAsync(async (host, fixture, view) => {
         await host.SettleUntilAsync(() => host.Vm.Chat.Handoff!.ResumeOffered, "resume offered");
-        await Assert.That(Named<StackPanel>(view, "HandoffStrip").IsEffectivelyVisible).IsFalse();
+        var settings = view.FindControl<StackPanel>("HandoffStrip")!;
+        await Assert.That(settings.IsVisible).IsFalse();
+        await Assert.That(view.GetVisualDescendants().OfType<Button>().Any(b => b is { Name: "AgentChip", IsEffectivelyVisible: true })).IsFalse();
 
-        Click(host, Named<Button>(view, "ResumeButton"));
+        var resume = Named<Button>(view, "ResumeButton");
+        await Assert.That(resume.IsEffectivelyVisible).IsTrue();
+        Click(host, resume);
         await host.SettleUntilAsync(() => fixture.Launch.Requests.Count == 1, "the launch");
 
         await Assert.That(fixture.Launch.Requests.Single().Resume).IsEqualTo(new ResumeLaunchPayload("s1", HandoffComposerFixture.Checkout));
@@ -926,6 +946,42 @@ public class RemoteSessionViewSmokeTests {
             return true;
         });
     }
+
+    [Test]
+    public Task Preview_narrow_composer_interrupts_from_the_keyboard_menu_without_losing_the_draft() =>
+        AvaloniaSession.DispatchAsync(async () => {
+            var reading = new DesktopReadingResources(Application.Current!);
+            using var host = new Host();
+            try {
+                reading.Apply(new DesktopAppearancePreferences());
+                host.Window.Width = 470;
+                host.Window.Height = 400;
+                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "ready");
+                var composer = Named<TextBox>(host.View, "ComposerInput");
+                var more = Named<Button>(host.View, "ComposerMoreButton");
+                composer.Focus();
+                host.Window.KeyTextInput("keep this draft");
+                host.Settle();
+
+                await Assert.That(more.IsEffectivelyVisible).IsTrue();
+                more.Focus(NavigationMethod.Tab);
+                host.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+                host.Window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+                host.Settle();
+                await Assert.That(((Flyout)more.Flyout!).IsOpen).IsTrue();
+                host.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+                host.Window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+                await host.SettleUntilAsync(() => host.Lane.SpecialKeys.Count == 1, "interrupt delivered");
+                await Assert.That(((Flyout)more.Flyout!).IsOpen).IsFalse();
+                await Assert.That(host.Vm.Chat.ComposerText).IsEqualTo("keep this draft");
+                host.SetStatus("Idle");
+                await Assert.That(more.IsEffectivelyVisible).IsFalse();
+            } finally {
+                reading.Apply(null);
+                await host.Vm.TeardownAsync();
+            }
+            return true;
+        });
 
     /// The tab strip swaps the panes, and the terminal tab is offered only for a PTY harness.
     [Test]

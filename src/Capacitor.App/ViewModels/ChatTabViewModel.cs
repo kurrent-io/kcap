@@ -303,11 +303,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             this.RaiseAndSetIfChanged(ref field, value);
             RaisePhaseNote();
             this.RaisePropertyChanged(nameof(ComposerHint));
+            RaisePreviewComposerFeedback();
         }
     }
     public bool HasWorkspaceNotice => WorkspaceNotice is not null;
     public bool HasMessages => _items.Count > 0;
     public bool ShowsConnectionBanner => HasWorkspaceNotice && HasMessages;
+    public bool ShowsPreviewConnectionBanner => ShowsConnectionBanner && !HasInlineWorkspaceRecovery;
+    bool HasInlineWorkspaceRecovery => ShowsComposer && !_input.CanAcceptText && WorkspaceNotice?.Action is not null;
     public bool ShowsEmptyState => EmptyState is not null;
     public SessionConnectionPresentation? EmptyState => HasMessages ? null : WorkspaceNotice ??
         (PhaseNote.Length == 0 ? null : new SessionConnectionPresentation(PhaseNote,
@@ -325,6 +328,23 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         ChatTabPhase.Failed      => FailureNote(_failureNote),
         _                        => "",
     };
+
+    public bool ShowsPreviewEmptyState => PreviewEmptyState is not null;
+    public SessionConnectionPresentation? PreviewEmptyState {
+        get {
+            if (HasMessages) return null;
+            if (WorkspaceNotice is { } notice) return HasInlineWorkspaceRecovery ? notice with { Action = null } : notice;
+            if (_launchPromptUnconfirmed || ShowsTerminalMenu) return EmptyState;
+            return Phase switch {
+                ChatTabPhase.Waiting or ChatTabPhase.Reading when !_ended && ShowsComposer && CanSendBeforeSeed && _input.CanAcceptText =>
+                    new("Start the conversation", "Write a message below.", false, IsPlain: true),
+                ChatTabPhase.Waiting when !_ended =>
+                    new("Loading chat history…", "", true, "Open Terminal", ShowsTerminalOffer ? ShowTerminalCommand : null),
+                ChatTabPhase.Waiting or ChatTabPhase.Reading => new("No recorded messages", "", false, IsPlain: true),
+                _ => EmptyState
+            };
+        }
+    }
 
     internal const string LaunchPromptUnconfirmedNote = "Your first message may not have been sent";
 
@@ -346,8 +366,15 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         this.RaisePropertyChanged(nameof(HasWorkspaceNotice));
         this.RaisePropertyChanged(nameof(HasMessages));
         this.RaisePropertyChanged(nameof(ShowsConnectionBanner));
+        this.RaisePropertyChanged(nameof(ShowsPreviewConnectionBanner));
         this.RaisePropertyChanged(nameof(EmptyState));
         this.RaisePropertyChanged(nameof(ShowsEmptyState));
+        RaisePreviewEmptyState();
+    }
+
+    void RaisePreviewEmptyState() {
+        this.RaisePropertyChanged(nameof(PreviewEmptyState));
+        this.RaisePropertyChanged(nameof(ShowsPreviewEmptyState));
     }
 
     /// The chips staged for the next prompt. A send clears the ones it carried, never the tray.
@@ -384,6 +411,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         set {
             if (string.Equals(_composerText, value, StringComparison.Ordinal)) return;
             _composerEdits++;
+            SetComposerSendRejected(false);
             Notice(null);
             this.RaiseAndSetIfChanged(ref _composerText, value);
             _drafts?.Set(_origin, _agentId, value);
@@ -491,6 +519,33 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     readonly ObservableAsPropertyHelper<string> _composerHint;
     public string ComposerHint => HasWorkspaceNotice && _input.Availability != SendAvailability.Ready ? "" : _composerHint.Value;
 
+    bool _composerSendRejected;
+    void SetComposerSendRejected(bool rejected) {
+        if (_composerSendRejected == rejected) return;
+        _composerSendRejected = rejected;
+        this.RaisePropertyChanged(nameof(PreviewComposerFeedback));
+    }
+
+    public SessionConnectionPresentation? PreviewComposerFeedback {
+        get {
+            if (HasInlineWorkspaceRecovery) return WorkspaceNotice;
+            if (_input.Availability == SendAvailability.Reattach && !HasTerminalMenu && _input.ReattachCommand is { } reattach)
+                return new(_composerHint.Value, "", false, "Reattach", reattach);
+            if (_composerHint.Value is { Length: > 0 } hint && hint != ChatInput.ReadyHint) {
+                var needsAttention = _composerSendRejected || _intakeNotice.Value is not null || HasTerminalMenu
+                    || _input.Availability is SendAvailability.Unsupported or SendAvailability.ReadOnly;
+                return new(hint, "", false, IsPlain: !needsAttention);
+            }
+            if (_composerSendRejected) return new("Message wasn’t sent. Try Send again.", "", false);
+            return !CanSendBeforeSeed ? new("Waiting for session history before sending…", "", true) : null;
+        }
+    }
+
+    void RaisePreviewComposerFeedback() {
+        this.RaisePropertyChanged(nameof(ShowsPreviewConnectionBanner));
+        this.RaisePropertyChanged(nameof(PreviewComposerFeedback));
+    }
+
     UsageLimitNoticeDto? _usageLimit;
     TerminalDialogDto? _terminalDialog;
     string? _interruption;
@@ -517,6 +572,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             this.RaisePropertyChanged(nameof(ShowsActivityTerminalOffer));
             this.RaisePropertyChanged(nameof(EmptyState));
             this.RaisePropertyChanged(nameof(ShowsEmptyState));
+            RaisePreviewEmptyState();
         }
     }
 
@@ -652,11 +708,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// account has no registry id there.
     public AccountUsageView? AccountStripUsage => _accountStrip.Usage;
 
+    public string? AccountLimitsSummary => AccountStripUsage is { } usage ? usage.LineText : "No usage reading available";
+
     void SetAccountStrip(AccountStripState next) {
         if (Equals(_accountStrip, next)) return;
         _accountStrip = next;
         this.RaisePropertyChanged(nameof(AccountLabel));
         this.RaisePropertyChanged(nameof(AccountStripUsage));
+        this.RaisePropertyChanged(nameof(AccountLimitsSummary));
         this.RaisePropertyChanged(nameof(ShowsAccountUsage));
         this.RaisePropertyChanged(nameof(ShowsAccountDirectory));
         this.RaisePropertyChanged(nameof(AccountReadingNote));
@@ -836,7 +895,15 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// What the hand-off carried over from the previous session, shown above the transcript.
     public HandoffOutcomeViewModel? HandoffOutcome { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    public string ReadOnlyNotice { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public string ReadOnlyNotice {
+        get;
+        private set {
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
+            this.RaisePropertyChanged(nameof(ReadOnlyBannerText));
+        }
+    } = "";
+    public string ReadOnlyBannerText => string.IsNullOrWhiteSpace(ReadOnlyNotice) ? "" : $"Read-only: {ReadOnlyNotice}";
 
     /// Why this session cannot be messaged, or "" when it can. Mirrors the wording of the daemon's
     /// attach-time ProtectionReason so the chat banner and the terminal banner name the same block
@@ -1083,6 +1150,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                             : hint))
             .ToProperty(this, x => x.ComposerHint, initialValue: IsReadOnlyParticipant ? "" : _input.Hint)
             .DisposeWith(_disposables);
+        this.WhenAnyValue(x => x.ComposerHint, x => x.HasSeed)
+            .Skip(1)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(PreviewComposerFeedback)))
+            .DisposeWith(_disposables);
 
         _showsComposer = Observable.CombineLatest(
                 _input.WhenAnyValue(i => i.Availability),
@@ -1091,6 +1162,16 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 (availability, readOnly, handoff) => !readOnly && availability != SendAvailability.Ended && handoff is null)
             .ToProperty(this, x => x.ShowsComposer,
                 initialValue: !IsReadOnlyParticipant && _input.Availability != SendAvailability.Ended && Handoff is null)
+            .DisposeWith(_disposables);
+        Observable.CombineLatest(
+                _input.WhenAnyValue(i => i.Availability, i => i.CanAcceptText),
+                this.WhenAnyValue(x => x.ShowsComposer, x => x.HasTerminalMenu),
+                (input, ui) => (input, ui))
+            .DistinctUntilChanged().Skip(1)
+            .Subscribe(_ => {
+                RaisePreviewEmptyState();
+                RaisePreviewComposerFeedback();
+            })
             .DisposeWith(_disposables);
 
         _controlNote = Observable.CombineLatest(
@@ -1162,7 +1243,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 ChatSendMode.EndTopic => Topics.End(IsEcho),
                 _ => null,
             };
+            var edits = _composerEdits;
+            SetComposerSendRejected(false);
             var outcome = await SendComposerAsync(ComposerText, includeTray: true, bypassRecall: false, onQueued: queued => sent = queued);
+            if (outcome == ChatSendOutcome.Rejected && _composerEdits == edits) SetComposerSendRejected(true);
             if (outcome is ChatSendOutcome.Accepted or ChatSendOutcome.Unconfirmed) SendMode = ChatSendMode.Send;
             else if (opened is not null) Topics.Discard(opened);
         }, canSend);
@@ -1801,10 +1885,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 return null;
             }
         }
-        // The upload can finish after the menu is on screen. The text would be typed into
-        // that menu, so the draft and the chips stay where they are. Or after the pane moved to a
-        // feed not yet seeded; the draft waits for Send to open again.
-        if (HasTerminalMenu || !CanSendBeforeSeed) return null;
+        // Upload can outlast the input gate or the current feed. Recheck before dispatching the draft.
+        if (HasTerminalMenu || IsReadOnlyParticipant || !_input.CanAcceptText || !CanSendBeforeSeed) return null;
         var chipIds = files.Select(f => f.Id).ToList();
         var sender = _input.SenderIdentity;
         var queued = new QueuedChatMessage(snapshot, ownsDraft ? edits : -1, _inputGeneration, CurrentOffset, chipIds) {

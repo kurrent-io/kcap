@@ -111,7 +111,7 @@ internal sealed class ServerChatInput : ChatInput {
     public override string Hint => _notice
         ?? (Availability == SendAvailability.Ready && !_viewer.CanSend ? AgentViewerAccess.ViewOnlyReason : null)
         ?? Availability switch {
-            SendAvailability.Ready   => "Enter sends · Shift+Enter for a new line",
+            SendAvailability.Ready   => ReadyHint,
             SendAvailability.Sending => "Sending…",
             SendAvailability.Ended   => EndedHint,
             _ when _session?.Status == AgentRow.DaemonDownStatus => DaemonDownHint,

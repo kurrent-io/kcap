@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Capacitor.App.ViewModels.Composer;
 
 namespace Capacitor.App.Views;
@@ -7,6 +8,9 @@ namespace Capacitor.App.Views;
 /// and the / and @ picker.
 public sealed class Composer {
     AttachmentDropPaste? _attachments;
+
+    internal TextPresenter? Presenter { get; private set; }
+    internal bool IsComposing => !string.IsNullOrEmpty(Presenter?.PreeditText);
 
     Composer() { }
 
@@ -17,7 +21,8 @@ public sealed class Composer {
     public static Composer Attach(Control card, TextBox input, Button? pick) {
         var composer = new Composer();
         IComposer? Current() => input.DataContext as IComposer;
-        ComposerPickerPopup.Attach(input, () => Current()?.Picker);
+        input.TemplateApplied += (_, e) => composer.Presenter = e.NameScope.Find<TextPresenter>("PART_TextPresenter");
+        ComposerPickerPopup.Attach(input, () => Current()?.Picker, () => composer.IsComposing);
         card.AttachedToVisualTree += (_, _) =>
             composer._attachments ??= AttachmentDropPaste.Attach(card, input, pick, Current, TimeProvider.System);
         card.DetachedFromVisualTree += (_, _) => {
