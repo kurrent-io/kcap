@@ -385,7 +385,8 @@ public class PrivilegedSwapScriptTests {
         await Assert.That(signed.ExitCode).IsEqualTo(0);
         var started = Tmp.CreateDir("service").PathTo("kcap-daemon");
         File.CreateSymbolicLink(started, daemon);
-        using var running = Process.Start(new ProcessStartInfo(started, "60") { UseShellExecute = false })!;
+        // Outlives the test, which ends it: a process that exits first would leave the helper nothing in use to find.
+        using var running = Process.Start(new ProcessStartInfo(started, "86400") { UseShellExecute = false })!;
         try {
             await using var run = Run.Start(Tmp, spec);
 
@@ -887,7 +888,7 @@ public class PrivilegedSwapScriptTests {
                 LinkTargetName: e.Kind == PrivilegedEntryKind.Link ? "1.4.1" : null) {
                 Children = e.Kind == PrivilegedEntryKind.Directory ? ["1.4.1"] : null,
             })],
-            Tmp.PathTo("helper", "control"), Tmp.PathTo("helper", "status"), TimeSpan.FromSeconds(30), PrivilegedNpmInstall.Staging,
+            Tmp.PathTo("helper", "control"), Tmp.PathTo("helper", "status"), PrivilegedNpmInstall.DefaultGoWait, PrivilegedNpmInstall.Staging,
             Tmp.CreateDir("homes"));
         return (spec, root, link);
     }

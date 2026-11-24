@@ -42,7 +42,7 @@ internal sealed record PrivilegedNpmInstall(string Scope, string Sibling, IReadO
     /// <summary>Far past any stall a test can sit through between the helper's swap and its go: a helper that gives up
     /// first restores the install, and the test reads a different outcome. The go timeout itself is pinned by the
     /// test that passes its own.</summary>
-    static readonly TimeSpan DefaultGoWait = TimeSpan.FromMinutes(10);
+    internal static readonly TimeSpan DefaultGoWait = TimeSpan.FromMinutes(10);
 
     /// <summary>Each package must still hold its own name and the recorded version. The homes folder is the test's
     /// own, empty unless a test puts a launch agent in it.</summary>
