@@ -259,7 +259,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
             HandoffOutcomeReader? handoffOutcomes = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
             ComposerPickers? pickers = null,
-            Func<bool>? inAppPages = null, ChatMarks? chatMarks = null) {
+            Func<bool>? inAppPages = null, ChatMarks? chatMarks = null, ChatReadingPositions? readingPositions = null) {
         AgentId = agentId;
         _drafts = drafts;
         _opener = opener;
@@ -494,7 +494,7 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
                     senders, readings?.Local, readings?.Clock, signInCompleted,
                     handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(sessionIds
                         .Select(sid => HandoffOutcomeReader.CardFor(handoffOutcomes, sid))),
-                    openLink: Artefacts.OpenLink, findMemory: finds, chatMarks: chatMarks,
+                    openLink: Artefacts.OpenLink, findMemory: finds, chatMarks: chatMarks, readingPositions: readingPositions,
                     viewerAccess: presence.Select(p => AgentViewerAccess.Unrestricted with { AtTerminal = p.Dto?.Kind == AgentActionService.AttachedKind })
                         .DistinctUntilChanged()) {
                     ShowTerminal = hasTerminal ? () => ActiveTab = WorkspaceTab.Terminal : null,
@@ -597,8 +597,8 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         ReplaceSubagent(new SubagentPaneViewModel(
             _runs, row, Title, AgentOrigin.Local, AgentId, dto.Vendor, path,
             key => new LocalTranscriptFeed(key, projection, subagentId, _time,
-                reason => { if (logged.TryAdd(reason, 0)) Console.Error.WriteLine($"kcap: subagent transcript: {reason}"); }),
-            _opener, _time, _permissions, CloseSubagent));
+                reason => { if (logged.TryAdd(reason, 0)) Console.Error.WriteLine($"kcap: subagent transcript: {reason}"); }, Chat?.ReadingPositions),
+            _opener, _time, _permissions, CloseSubagent, Chat?.ReadingPositions));
         ActiveTab = WorkspaceTab.Chat;
     }
 

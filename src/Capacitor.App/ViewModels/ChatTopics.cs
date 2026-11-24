@@ -224,14 +224,18 @@ public sealed class ChatTopics : ReactiveObject {
     /// Asks the chat to bring <paramref name="row"/> into view, unfolding the topic that holds it, and
     /// to pick out <paramref name="quote"/> in it.
     public void Reveal(ChatItemViewModel row, string? quote = null) {
-        if (!_items.Contains(row)) {
-            if (_items.OfType<ChatTopicItem>().FirstOrDefault(topic => topic.Hidden.Contains(row)) is not { } folded) return;
-            Toggle(folded);
-        }
+        if (!MakeVisible(row)) return;
         _reveal = new ChatReveal(row, quote);
         SetCurrent(row);
         _held = true;
         Revealing?.Invoke();
+    }
+
+    internal bool MakeVisible(ChatItemViewModel row) {
+        if (_items.Contains(row)) return true;
+        if (_items.OfType<ChatTopicItem>().FirstOrDefault(topic => topic.Hidden.Contains(row)) is not { } folded) return false;
+        Toggle(folded);
+        return true;
     }
 
     public void RemoveEnd(ChatTopicEndItem end) => Edit(() => {

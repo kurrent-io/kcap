@@ -58,6 +58,25 @@ public class JsonlTailTests {
     }
 
     [Test]
+    public async Task Verified_continuity_preserves_the_stamp_on_append_and_resets_on_rewrite() {
+        var path = Tmp.CreateFile("continuity.jsonl", "{\"a\":1}\n");
+        var tail = new JsonlTail(path);
+        var first = tail.ReadAppended(verifyContinuity: true);
+
+        File.AppendAllText(path, "{\"b\":2}\n");
+        var appended = tail.ReadAppended(verifyContinuity: true);
+        await Assert.That(first.SourceStamp).IsNotNull();
+        await Assert.That(appended.SourceStamp).IsEqualTo(first.SourceStamp);
+        await Assert.That(appended.Lines).IsEquivalentTo(new[] { "{\"b\":2}" });
+
+        File.WriteAllText(path, "{\"c\":3}\n{\"d\":4}\n");
+        var replacement = tail.ReadAppended(verifyContinuity: true);
+        await Assert.That(replacement.Status).IsEqualTo(TailStatus.Reset);
+        await Assert.That(replacement.SourceStamp).IsNotEqualTo(first.SourceStamp);
+        await Assert.That(replacement.Lines).IsEquivalentTo(new[] { "{\"c\":3}", "{\"d\":4}" });
+    }
+
+    [Test]
     public async Task Missing_file_is_reported_then_read_once_it_appears() {
         var path = Tmp.PathTo("later.jsonl");
         var tail = new JsonlTail(path);

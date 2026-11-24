@@ -28,7 +28,10 @@ public partial class ChatTabView {
     long _rangeLimit;
 
     static ChatTabView() {
-        TranscriptSelectionEnabledProperty.Changed.AddClassHandler<ChatTabView>((view, _) => view.ObserveTranscriptSelection());
+        TranscriptSelectionEnabledProperty.Changed.AddClassHandler<ChatTabView>((view, _) => {
+            view.ObserveReadingPosition();
+            view.ObserveTranscriptSelection();
+        });
     }
 
     void ObserveTranscriptSelection() {
@@ -104,6 +107,7 @@ public partial class ChatTabView {
         if (_range?.Focus is null) EndTranscriptDrag();
         else ChatItems.Focusable = true;
         if (HasTranscriptSelection) {
+            ReadingNavigation();
             FollowTail = false;
             CancelSmoothScroll();
         }
@@ -125,6 +129,8 @@ public partial class ChatTabView {
 
     void RefreshJumpToLatest() {
         if (_range is null) return;
+        // Changing the action row's height during capture would move the viewport edge under the pointer.
+        if (_rangePointer is not null) return;
         var show = !FollowTail && ChatItems.ItemCount > 0;
         var restoreFocus = !show && JumpToLatest.IsFocused;
         if (restoreFocus) {
@@ -267,7 +273,6 @@ public partial class ChatTabView {
         if (_rangePointer == e.Pointer) {
             if (_scroll is not null) ExtendTranscriptDrag(e.GetPosition(_scroll));
             EndTranscriptDrag();
-            // The jump button can take focus when it appears during a captured drag.
             if (HasTranscriptSelection && JumpToLatest.IsFocused) ChatItems.Focus(NavigationMethod.Pointer);
             e.Handled = true;
             return;
@@ -289,6 +294,7 @@ public partial class ChatTabView {
         _rangePointer = null;
         _dragSelecting = false;
         if (ReferenceEquals(pointer.Captured, ChatItems)) pointer.Capture(null);
+        RefreshJumpToLatest();
     }
 
     void OnTranscriptKey(object? sender, KeyEventArgs e) {

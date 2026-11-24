@@ -389,6 +389,23 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         InvalidateMeasure();
     }
 
+    internal (ChatItemViewModel Row, ChatMessageKey Key, double Within)? GetReadingAnchor() {
+        if (_viewport.Height <= 0 || _starts.Length != Items.Count + 1 || Items.Count == 0) return null;
+        var top = Math.Max(0, _viewport.Top);
+        for (var index = IndexAt(top); index < Items.Count && _starts[index] < _viewport.Bottom; index++)
+            if (Items[index] is ChatItemViewModel { SelectionKey: { Line: >= 0 } key } row && _realized.ContainsKey(index)
+                && _starts[index + 1] > _starts[index])
+                return (row, key, top - _starts[index]);
+        return null;
+    }
+
+    internal void ApplyReadingOffset(int index, double within, ScrollViewer scroll) {
+        if (_starts.Length != Items.Count + 1 || index < 0 || index >= Items.Count) return;
+        var bottom = Math.Max(0, _starts[index + 1] - _starts[index] - 1);
+        var inset = scroll.Offset.Y - _viewport.Top;
+        scroll.Offset = new Vector(scroll.Offset.X, _starts[index] + Math.Clamp(within, -scroll.Viewport.Height, bottom) + inset);
+    }
+
     internal bool TryFocusRow(int index, Func<Control, Control?> focus) {
         if (_realized.TryGetValue(index, out var existing)) {
             if (focus(existing.Container) is not { } target) return false;

@@ -79,6 +79,17 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     bool _copyDenied;
     readonly Func<bool>? _canCopySession;
 
+    internal bool HasCurrentReadingAccount {
+        get {
+            if (_cache is null) return true;
+            int generation;
+            lock (_lock) generation = _stamp.Generation;
+            return generation == _cache.Stamp(_sessionId).Generation;
+        }
+    }
+
+    internal bool ReadingAccessRevoked { get { lock (_lock) return _copyDenied || !(_canCopySession?.Invoke() ?? true); } }
+
     internal bool CanCopy(int revision) {
         lock (_lock) return !_disposed && !_copyDenied && revision == _copyRevision && (_canCopySession?.Invoke() ?? true);
     }

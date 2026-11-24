@@ -62,32 +62,41 @@ public partial class ChatTabViewSmokeTests {
             var jump = host.View.FindControl<Button>("JumpToLatest")!;
             var items = host.View.FindControl<ItemsControl>("ChatItems")!;
             var clipboard = host.Window.Clipboard!;
-            var from = TranscriptTextPosition(host, first, 0);
-            var to = TranscriptTextPosition(host, last, "You 👩🏽‍💻".Length);
             var expected = $"Alpha café.\n{summary}\nYou 👩🏽‍💻";
-            foreach (var (start, end) in new[] { (from, to), (to, from) }) {
+            foreach (var forward in new[] { true, false }) {
+                var firstText = TranscriptTextPosition(host, first, 0);
+                var lastText = TranscriptTextPosition(host, last, "You 👩🏽‍💻".Length);
+                var (start, end) = forward ? (firstText, lastText) : (lastText, firstText);
+                var viewportHeight = host.Scroll.Viewport.Height;
                 await clipboard.SetTextAsync("before drag");
                 host.Window.MouseMove(start);
                 host.Window.MouseDown(start, MouseButton.Left);
                 host.Window.MouseMove(end, RawInputModifiers.LeftMouseButton);
-                if (start == from) {
+                if (forward) {
                     var during = host.Scroll.Offset.Y;
                     await host.AppendLinesAndTickAsync(path, UserLine, UserLine);
                     await Assert.That(host.Scroll.Offset.Y).IsEqualTo(during);
+                    await Assert.That(host.Scroll.Viewport.Height).IsEqualTo(viewportHeight);
+                    await Assert.That(jump.IsVisible).IsFalse();
+                } else {
+                    await Assert.That(jump.Focus()).IsTrue();
                 }
-                await Assert.That(jump.Focus()).IsTrue();
+                await Assert.That(host.Chat.Selection.CopyText()).IsEqualTo(expected);
                 host.Window.MouseUp(end, MouseButton.Left);
                 host.Settle();
+                await Assert.That(jump.IsVisible).IsTrue();
                 await Assert.That(host.View.TranscriptSelectionEnabled).IsTrue();
                 await Assert.That(host.Chat.Selection.CopyText()).IsEqualTo(expected);
                 await Assert.That(host.Window.FocusManager.GetFocusedElement()).IsSameReferenceAs(items);
                 CopyShortcut(host.Window);
                 await Assert.That(await clipboard.TryGetTextAsync()).IsEqualTo(expected);
                 await Assert.That(live.Text).IsEqualTo("Copied");
-                if (start == from) {
+                if (forward) {
                     host.Window.KeyPressQwerty(PhysicalKey.ArrowLeft, RawInputModifiers.Shift);
                     CopyShortcut(host.Window);
                     await Assert.That(await clipboard.TryGetTextAsync()).IsEqualTo(expected[..^"👩🏽‍💻".Length]);
+                    host.Scroll.Offset += new Vector(0, viewportHeight - host.Scroll.Viewport.Height);
+                    host.Settle();
                 }
             }
 

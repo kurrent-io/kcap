@@ -156,12 +156,36 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     object? _selectionFeed;
     int _selectionAccess;
     bool _hasSelectionFeed;
-    internal ChatSelection Selection => _selection ??= new(_items, () =>
-        _hasSelectionFeed && !_feedReleased && _lease is not null && (_lease.Feed switch {
-            RemoteTranscriptFeed remote => remote.CanCopy(_selectionAccess),
-            RemoteSubagentFeed child => child.CanCopy(_selectionAccess),
-            _ => true,
-        }) ? _selectionFeed ??= new() : null);
+    bool CanUseTranscript => _hasSelectionFeed && !_feedReleased && _lease is { } lease && (lease.Feed switch {
+        RemoteTranscriptFeed remote => remote.CanCopy(_selectionAccess),
+        RemoteSubagentFeed child => child.CanCopy(_selectionAccess),
+        _ => true,
+    });
+
+    internal ChatSelection Selection => _selection ??= new(_items, () => CanUseTranscript ? _selectionFeed ??= new() : null);
+
+    internal ChatReadingPositions? ReadingPositions { get; }
+    internal string? ReadingFeedKey => _feedKey == _queueKey ? _feedKey : null;
+    internal string? ReadingSourceStamp { get; private set; }
+    internal bool ReadingPositionIsInvalid => _readingInvalidated;
+    internal bool ReadingFeedReady => _readingFeedReady && CanUseTranscript
+        && _lease?.Feed is not RemoteTranscriptFeed { HasCurrentReadingAccount: false };
+    bool IsRemoteReadingFeed => _origin == AgentOrigin.Remote;
+    internal event Action? ReadingFeedChanging;
+    internal event Action? ReadingRowsReady;
+    internal event Action? ReadingPositionInvalidated;
+    bool _readingFeedReady;
+    bool _readingInvalidated;
+    string? _readingFeedSubject;
+
+    internal bool AllowsReadingSubject(string subject, bool admit = false) {
+        if (!IsRemoteReadingFeed) return true;
+        if (admit) _readingFeedSubject ??= subject;
+        return _readingFeedSubject is null || _readingFeedSubject == subject;
+    }
+
+    internal string ReadingScope(string subject, string feed) =>
+        ReadingPositions!.Key(subject, _origin, _origin == AgentOrigin.Local ? _agentId : feed, feed);
 
     void ResetSelectionFeed(bool seeded = false, int? access = null) {
         _hasSelectionFeed = seeded;
@@ -892,10 +916,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     /// The dedup is per pane, not per feed: a projection failure that survives a transcript switch
     /// would otherwise be logged again by every feed the pane opens.
-    static Func<string, IChatTranscriptFeed> LocalFeed(string agentId, IChatTranscriptProjection projection, TimeProvider time, LocalTranscripts? transcripts) {
+    static Func<string, IChatTranscriptFeed> LocalFeed(string agentId, IChatTranscriptProjection projection, TimeProvider time, LocalTranscripts? transcripts, ChatReadingPositions? positions) {
         var logged = new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
         Action<string> log = reason => { if (logged.TryAdd(reason, 0)) Console.Error.WriteLine($"kcap: chat transcript: {reason}"); };
-        return path => transcripts?.Open(path, projection, agentId, time, log) ?? new LocalTranscriptFeed(path, projection, agentId, time, log);
+        return path => transcripts?.Open(path, projection, agentId, time, log, positions) ?? new LocalTranscriptFeed(path, projection, agentId, time, log, positions);
     }
 
     /// Test-only seam: the read in flight, or the last one started. A switch that loses the
@@ -916,13 +940,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             IObservable<DateTimeOffset>? usageClock = null, IObservable<Unit>? signInCompleted = null,
             IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, Action<string>? openLink = null,
             IObservable<AgentViewerAccess>? viewerAccess = null, ChatFindMemory? findMemory = null,
-            ChatMarks? chatMarks = null)
+            ChatMarks? chatMarks = null, ChatReadingPositions? readingPositions = null)
         : this(agentId, AgentOrigin.Local, LocalSession(agentId, daemon), daemon.Snapshots.Select(s => s.Daemon.SupportedVendors),
-               input, uploader, projection is null ? null : LocalFeed(agentId, projection, time, transcripts), opener, time, permissions,
+               input, uploader, projection is null ? null : LocalFeed(agentId, projection, time, transcripts, readingPositions), opener, time, permissions,
                runs, unavailableNote, null, sessionId, localDaemonOnAppServer, planActivity: planActivity, openCard: openCard,
                drafts: drafts, senders: senders, accountReadings: accountReadings, usageClock: usageClock,
                signInCompleted: signInCompleted, handoffOutcome: handoffOutcome, openLink: openLink, viewerAccess: viewerAccess,
-               findMemory: findMemory, chatMarks: chatMarks) { }
+               findMemory: findMemory, chatMarks: chatMarks, readingPositions: readingPositions) { }
 
     public ChatTabViewModel(
             string agentId, AgentOrigin origin, IObservable<ChatSessionInfo> session, IObservable<string[]?> supportedVendors,
@@ -935,7 +959,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             IObservable<Unit>? signInCompleted = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null,
             Action<string>? openLink = null, IObservable<AgentViewerAccess>? viewerAccess = null,
             HeldMessagesViewModel? heldMessages = null, ChatFindMemory? findMemory = null,
-            ChatMarks? chatMarks = null) {
+            ChatMarks? chatMarks = null, ChatReadingPositions? readingPositions = null) {
+        ReadingPositions = readingPositions;
         Topics = new(_items, chatMarks);
         Bookmarks = new(Topics, chatMarks) { LoadOlder = LoadOlderForBookmark };
         ShowsMarks = chatMarks is not null;
@@ -1414,7 +1439,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // A foreign row is the server's answer for one session. Moving to another — or to none,
         // where no snapshot can ever arrive to retire it — leaves nothing to keep it honest.
         if (info.FeedKey != _queueKey) {
+            if (info.FeedKey is null) ReadingFeedChanging?.Invoke();
             _queueKey = info.FeedKey;
+            if (_queueKey is not null && _queueKey == _feedKey) ReadingRowsReady?.Invoke();
             foreach (var foreign in _queuedMessages.Where(q => q.IsForeign).ToList()) _queuedMessages.Remove(foreign);
         }
         var switched = _openFeed is not null && info.FeedKey is { } key && key != _feedKey;
@@ -1572,6 +1599,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     void SwitchFeed(string key, Func<string, IChatTranscriptFeed> open) {
         // A released tab's runs belong to the monitor that took its feed; this tab reads nothing more.
         if (_feedReleased) return;
+        ReadingFeedChanging?.Invoke();
+        _readingFeedReady = _readingInvalidated = false;
+        ReadingSourceStamp = null;
+        _readingFeedSubject = null;
         ResetSelectionFeed();
         Topics.Reset(key);
         Bookmarks.Reset(key);
@@ -1600,6 +1631,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _settleEpoch++;
         var previous = _lease;
         _lease = new FeedLease(open(key), Interlocked.Increment(ref _generation), SignalFeedRead);
+        ReadingRowsReady?.Invoke();
         _runs.KeepsHistory = _lease.Feed is RemoteTranscriptFeed;
         HasSeed = false;
         previous?.Dispose();
@@ -1968,6 +2000,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 : await Task.Run(lease.Feed.ReadAppended).ConfigureAwait(false);
             if (read.Status != FeedStatus.Failed) Volatile.Write(ref _settledEpoch, settleEpoch);
             if (canSkipEmpty && read is { Status: FeedStatus.Ok, Lines.Count: 0, Runs.Count: 0, Older.Count: 0 }
+                && (ReadingPositions is null || !ReadingPositions.PreviewEnabled
+                    || !ReadingAccessRevoked && !_readingInvalidated && (read.SourceStamp is null || read.SourceStamp == ReadingSourceStamp))
                 && baselineVersion == Volatile.Read(ref _baselineVersion) && inputGeneration == Volatile.Read(ref _inputGeneration)) return;
             await Dispatcher.UIThread.InvokeAsync(() => ApplyAsync(lease.Generation, read));
         } catch (Exception ex) {
@@ -2021,6 +2055,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (generation != Volatile.Read(ref _generation)) return false;
 
         _selection?.CheckFeed();
+        if (ReadingPositions?.PreviewEnabled == true && ReadingAccessRevoked) InvalidateReadingPosition();
         switch (read.Status) {
             case FeedStatus.Ok when read.CopyRevision is { } access:
                 if (_selectionAccess != access) ResetSelectionFeed(seeded: true, access);
@@ -2029,10 +2064,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 _hasSelectionFeed = true;
                 break;
             case FeedStatus.Missing:
+                InvalidateReadingPosition();
                 ResetSelectionFeed();
                 Phase = ChatTabPhase.Missing;
                 return false;
             case FeedStatus.Failed:
+                if (IsRemoteReadingFeed && !CanUseTranscript) InvalidateReadingPosition();
                 var reason = read.Failure ?? "read failed";
                 LogOnce(reason);
                 var changed = !string.Equals(_failureNote, reason, StringComparison.Ordinal);
@@ -2046,6 +2083,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 }
                 return false;
             case FeedStatus.Reset:
+                if (_readingFeedReady) {
+                    if (IsRemoteReadingFeed) {
+                        ReadingFeedChanging?.Invoke();
+                        _readingFeedReady = false;
+                    } else InvalidateReadingPosition();
+                }
                 ResetSelectionFeed(seeded: true, read.CopyRevision);
                 HasSeed = true;
                 // Skip everything the new source replays: it may be history, not receipts. The feed
@@ -2263,7 +2306,45 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (hasOlder && (older.Fresh.Count == 0 || !_ended || prefetch)) RequestOlder();
     }
 
+    bool ReadingAccessRevoked => _lease?.Feed switch {
+        RemoteTranscriptFeed remote => remote.ReadingAccessRevoked,
+        RemoteSubagentFeed child => child.ReadingAccessRevoked,
+        _ => false,
+    };
+
+    internal void InvalidateReadingPosition(string? deniedFeed = null) {
+        if (ReadingPositions is not { } positions) return;
+        if (deniedFeed is not null) {
+            _ = WithdrawReadingPositionAsync(positions, deniedFeed, expectedSubject: null);
+            if (deniedFeed != ReadingFeedKey) return;
+        }
+        _readingFeedReady = false;
+        if (_readingInvalidated || deniedFeed is null && !positions.PreviewEnabled) return;
+        _readingInvalidated = true;
+        ReadingPositionInvalidated?.Invoke();
+        if (deniedFeed is null && ReadingFeedKey is { } feed
+            && _lease?.Feed is not RemoteTranscriptFeed { HasCurrentReadingAccount: false })
+            _ = WithdrawReadingPositionAsync(positions, feed, _readingFeedSubject);
+    }
+
+    async Task WithdrawReadingPositionAsync(ChatReadingPositions positions, string feed, string? expectedSubject) {
+        var subject = await positions.Subjects.FirstOrDefaultAsync();
+        if (string.IsNullOrEmpty(subject) || expectedSubject is not null && subject != expectedSubject) return;
+        var key = ReadingScope(subject, feed);
+        // Queue the removal before any asynchronous load so a fast regrant can save a new position.
+        positions.Remember(key, null);
+        await positions.FlushAsync();
+    }
+
+    void PublishReadingRows() {
+        if (ReadingPositions is null || _readingFeedReady || !CanUseTranscript || ShowsNoTranscriptRows()) return;
+        _readingFeedReady = true;
+        _readingInvalidated = false;
+        ReadingRowsReady?.Invoke();
+    }
+
     void Finish(FeedRead read, LineCursor? cursor, ReceiptCandidates candidates) {
+        ReadingSourceStamp = read.SourceStamp ?? ReadingSourceStamp;
         if (cursor is not null) {
             _openGroup = cursor.OpenGroup;
             _openShell = cursor.OpenShell;
@@ -2302,6 +2383,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 RequestOlderUnasked();
             }
             Topics.Restore();
+            PublishReadingRows();
             return;
         }
         RefreshQueue();
@@ -2309,6 +2391,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         SyncPendingCardItems();
         RefreshActivityNote();
         Topics.Restore();
+        PublishReadingRows();
         if (read.Status == FeedStatus.Reset) RequestOlderUnasked();
     }
 
@@ -2537,6 +2620,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (_lease is not { Feed: LocalTranscriptFeed or LocalTranscripts.Reader } lease || _feedKey is not { } key) return null;
         if (Interlocked.CompareExchange(ref _readInFlight, 1, 0) != 0) return null;
         Interlocked.Increment(ref _generation);
+        ReadingFeedChanging?.Invoke();
         _feedReleased = true;
         ResetSelectionFeed();
         _lease = null;
@@ -2544,6 +2628,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     }
 
     public Task TeardownAsync() {
+        ReadingFeedChanging?.Invoke();
         ResetSelectionFeed();
         PreserveStash();
         Interlocked.Increment(ref _generation);
@@ -2568,6 +2653,6 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _rootSubject.Dispose();
         _intakeNotice.Dispose();
         _lifetime.Dispose();
-        return Task.CompletedTask;
+        return ReadingPositions?.FlushAsync() ?? Task.CompletedTask;
     }
 }

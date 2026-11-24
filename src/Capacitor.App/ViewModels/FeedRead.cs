@@ -8,6 +8,7 @@ namespace Capacitor.App.ViewModels;
 public sealed record FeedRead(FeedStatus Status, IReadOnlyList<ProjectedLine> Lines, long? SnapshotOffset = null, string? Failure = null) {
     // A remote range must still belong to the access grant that admitted its rows.
     internal int? CopyRevision { get; init; }
+    internal string? SourceStamp { get; init; }
 
     /// Run signals the feed read outside its lines, applied after them.
     public IReadOnlyList<RunSignal> Runs { get; init; } = [];

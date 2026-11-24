@@ -132,14 +132,15 @@ public partial class ChatTabViewSmokeTests {
         /// ScrollViewer until Show() is called — the order production takes, where the tab's
         /// first read starts before the workspace view exists.
         public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null,
-                ChatFindMemory? findMemory = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, bool marks = true) {
+                ChatFindMemory? findMemory = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, bool marks = true,
+                ChatReadingPositions? readingPositions = null, ChatMarks? chatMarks = null) {
             Runs = new SessionRuns(Time);
             Terminal = new TerminalTabViewModel("a1", Daemon, Attach.Factory, () => new FakeTerminalSurface(), Time);
             Chat = new ChatTabViewModel(
                 "a1", Daemon, new TerminalChatInput(Terminal, "a1", Daemon, new ScriptedLocalControlOps(), _presence), new NoAttachmentUploader(), TranscriptChat.For("claude"), Opener, Time, Permissions, Runs,
                 sessionId: sessionId, localDaemonOnAppServer: Observable.Return(true),
                 accountReadings: accountReadings, usageClock: Observable.Return(StripReadings.Now), findMemory: findMemory,
-                handoffOutcome: handoffOutcome, chatMarks: marks ? new ChatMarks() : null);
+                handoffOutcome: handoffOutcome, chatMarks: marks ? chatMarks ?? new ChatMarks() : null, readingPositions: readingPositions);
             View = new ChatTabView { DataContext = Chat };
             Window = new Window { Content = View, Width = 800, Height = 600 };
             if (!show) return;

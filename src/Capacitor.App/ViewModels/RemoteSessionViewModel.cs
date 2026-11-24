@@ -219,6 +219,11 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         get;
         private set {
             this.RaiseAndSetIfChanged(ref field, value);
+            if (value == RemoteSessionAccess.Denied) {
+                Chat?.InvalidateReadingPosition(_sessionIds.Value);
+                if (Subagent?.Chat is { ReadingFeedKey: { } subagentFeed } child)
+                    child.InvalidateReadingPosition(subagentFeed);
+            }
             this.RaisePropertyChanged(nameof(AccessNote));
             RaiseTabProjections();
         }
@@ -330,7 +335,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             HandoffOutcomeReader? handoffOutcomes = null, IHeldMessagesApi? heldMessages = null,
             IPageContentSource? pageContent = null, PageLinkRouter? pageLinks = null, IWebViewAvailability? webView = null,
             Func<bool>? inAppPages = null, Func<Task>? retryConnection = null, LocalServerRecoveryViewModel? localServer = null,
-            IAttachmentUploader? uploader = null, RemoteTranscriptCache? transcripts = null, ChatMarks? chatMarks = null) {
+            IAttachmentUploader? uploader = null, RemoteTranscriptCache? transcripts = null, ChatMarks? chatMarks = null, ChatReadingPositions? readingPositions = null) {
         _drafts = drafts;
         _localMachine = localMachine;
         _handoffFactory = handoff;
@@ -427,7 +432,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
                 .Select(sid => sid is null
                     ? Observable.Empty<IReadOnlyList<QueuedInputItem>>()
                     : lane.PendingInputChanged.Where(u => u.SessionId == sid).Select(u => u.Items))),
-            planActivity: planActivity, openCard: OpenCard, drafts: drafts, chatMarks: chatMarks, senders: senders,
+            planActivity: planActivity, openCard: OpenCard, drafts: drafts, chatMarks: chatMarks, readingPositions: readingPositions, senders: senders,
             accountReadings: row.MachineBadge is { } daemon ? readings?.Remote(daemon) : null, usageClock: readings?.Clock,
             signInCompleted: signInCompleted,
             handoffOutcome: handoffOutcomes is null ? null : Observable.Switch(_sessionIds.DistinctUntilChanged()
@@ -760,7 +765,7 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             _runs, row, Title, AgentOrigin.Remote, AgentId, vendor, $"{sessionId}/{subagentId}",
             _ => new RemoteSubagentFeed(sessionId, subagentId, vendor, read, () => pane?.IsRunning ?? row.IsRunning, _time, Log,
                 _accessStates, () => CanCopyTranscript(sessionId)),
-            _opener, _time, _permissions, CloseSubagent);
+            _opener, _time, _permissions, CloseSubagent, Chat?.ReadingPositions);
         ReplaceSubagent(pane);
         ActiveTab = RemoteTab.Chat;
     }
