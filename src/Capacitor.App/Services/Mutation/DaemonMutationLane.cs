@@ -382,16 +382,9 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         ct.ThrowIfCancellationRequested();
         slot.Dispatched = true;
         slot.Activation = ActivationEvidence.Unknown;
-        ProcessResult result;
-        try {
-            result = await Dispatch(executor, request, attemptId, ct).ConfigureAwait(false);
-        } catch (System.ComponentModel.Win32Exception) {
-            // Process.Start failing, for the help probe or the install: the CLI never ran. Anything thrown once it
-            // started may follow a write, so it keeps the latch.
-            slot.Dispatched = false;
-            slot.Activation = ActivationEvidence.NotActivated;
-            throw;
-        }
+        // Whatever is thrown from here on, nothing proves the CLI never ran, so a switch keeps Unknown and latches:
+        // a needless restart is the safe failure.
+        var result = await Dispatch(executor, request, attemptId, ct).ConfigureAwait(false);
         if (request.Activate) slot.Activation = ActivationEvidenceOf(request, result);
 
         return await Classify(request, result, executor, observation, attemptId, predecessor, ct).ConfigureAwait(false);
