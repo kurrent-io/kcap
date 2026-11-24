@@ -71,7 +71,7 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
             Action<string>? openServer, IObservable<RailGrouping> grouping,
             IObservable<IComparer<RailSessionViewModel>> rowComparer, IObservable<RailSort> sort,
             IRailSessionActions? sessionActions = null,
-            IObservable<bool>? endedListPartial = null) {
+            IObservable<bool>? endedListPartial = null, IObservable<bool>? statusPreview = null) {
         Key = group.Key;
         Kind = kind;
         _label = label;
@@ -94,9 +94,9 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
                 rows.Items.Where(row => work.ContainsKey(row.Key))
                     .ToDictionary(row => row.Key, row => work[row.Key], StringComparer.Ordinal))
             .DistinctUntilChanged(EqualityComparer<Dictionary<string, RunningWork>>.Create((a, b) => a!.Count == b!.Count && a.All(item => b.GetValueOrDefault(item.Key) == item.Value)));
-        var header = query.CombineLatest(pendingHere, answeringHere, workHere, _expanded,
-                (rows, pending, answering, work, visible) => visible ? null
-                    : SessionStatusDots.Rollup(rows.Items, pending, answering, work))
+        var header = query.CombineLatest(pendingHere, answeringHere, workHere, _expanded, statusPreview ?? Observable.Return(false),
+                (rows, pending, answering, work, visible, preview) => visible ? null
+                    : SessionStatusDots.Rollup(rows.Items, pending, answering, work, preview))
             .Replay(1).RefCount();
         _headerStatus = header.ToProperty(this, x => x.HeaderStatus, initialValue: null).DisposeWith(_disposables);
         _showsHeaderBadge = header.Select(status => status is not null)

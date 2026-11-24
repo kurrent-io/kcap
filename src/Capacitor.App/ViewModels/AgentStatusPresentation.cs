@@ -31,4 +31,33 @@ public sealed record AgentStatusPresentation(
     public bool ShowsCross => Kind == AgentStatusKind.Failed;
     public bool IsDone => Kind == AgentStatusKind.Done;
     public bool ShowsSettledMark => Kind is AgentStatusKind.Done or AgentStatusKind.Other && !IsRunningUnknownTurn;
+
+    public bool WaitsForInput { get; init; }
+    public bool IsDirectRequest => Kind is AgentStatusKind.Answer or AgentStatusKind.NeedsYou
+        || ShowsInputRequest;
+
+    bool ShowsInputRequest => WaitsForInput && !Ended
+        && Kind is AgentStatusKind.Idle or AgentStatusKind.Working or AgentStatusKind.Stale or AgentStatusKind.Other;
+
+    public bool IsActionable => IsDirectRequest || IsWarning || IsDanger;
+
+    internal string? RollupLabel { get; init; }
+    public string PreviewLabel => RollupLabel ?? (ShowsInputRequest ? "Waiting for input"
+        : Ended && Kind is AgentStatusKind.Done or AgentStatusKind.Other ? "Ended" : Label);
+
+    public string PreviewAccessibleName => PreviewLabel == AccessibleName || PreviewLabel != Label
+        ? PreviewLabel : $"{PreviewLabel}. {AccessibleName}";
+
+    public StatusGlyphKind PreviewGlyph => Kind switch {
+        AgentStatusKind.Failed => StatusGlyphKind.Failure,
+        AgentStatusKind.Answer => StatusGlyphKind.Input,
+        AgentStatusKind.NeedsYou => StatusGlyphKind.Attention,
+        AgentStatusKind.Interrupted or AgentStatusKind.DaemonDown => StatusGlyphKind.Interrupted,
+        _ when ShowsInputRequest => StatusGlyphKind.Input,
+        AgentStatusKind.Idle or AgentStatusKind.Stale => StatusGlyphKind.Stale,
+        AgentStatusKind.Done => Ended ? StatusGlyphKind.Stopped : StatusGlyphKind.Success,
+        _ when IsInFlight && !Ended => StatusGlyphKind.Activity,
+        _ when Ended || Label is "Stopped" or "Cancelled" or "Ended" => StatusGlyphKind.Stopped,
+        _ => StatusGlyphKind.Unknown,
+    };
 }

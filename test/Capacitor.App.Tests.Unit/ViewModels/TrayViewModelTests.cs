@@ -1123,9 +1123,11 @@ public class TrayViewModelTests {
 
             service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, []));
             service.SnapshotsSubject.OnNext(Snap("connected", 0));
+            await Assert.That(vm.MenuModel.PreviewGlyph).IsEqualTo(StatusGlyphKind.Healthy);
             consent.Add(Entry("a1", "p1"));
 
             await Assert.That(vm.MenuModel.State).IsEqualTo(TrayState.Attention);
+            await Assert.That(vm.MenuModel.PreviewGlyph).IsEqualTo(StatusGlyphKind.Attention);
             await Assert.That(vm.MenuModel.Header).IsEqualTo("daemon-a: 1 launch awaiting approval");
             await Assert.That(vm.MenuModel.RunningCount).IsEqualTo(0);
             await Assert.That(vm.MenuModel.PendingConsent).IsEqualTo(1);
@@ -1136,6 +1138,7 @@ public class TrayViewModelTests {
             consent.Add(Entry("a3", "p3", requestedAt: T0.AddSeconds(2)));
 
             await Assert.That(vm.MenuModel.State).IsEqualTo(TrayState.Attention);
+            await Assert.That(vm.MenuModel.PreviewGlyph).IsEqualTo(StatusGlyphKind.Attention);
             await Assert.That(vm.MenuModel.Header).IsEqualTo("daemon-a: 3 launches awaiting approval");
             await Assert.That(vm.MenuModel.RunningCount).IsEqualTo(2);
             await Assert.That(vm.MenuModel.PendingConsent).IsEqualTo(3);
@@ -1186,6 +1189,7 @@ public class TrayViewModelTests {
             lifecycleAttention.OnNext("restore-verification failed — see terminal for repair steps");
 
             await Assert.That(vm.MenuModel.State).IsEqualTo(TrayState.Attention);
+            await Assert.That(vm.MenuModel.PreviewGlyph).IsEqualTo(StatusGlyphKind.Attention);
             await Assert.That(vm.MenuModel.Header).IsEqualTo("daemon-a: restore-verification failed — see terminal for repair steps");
         });
     }

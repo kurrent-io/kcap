@@ -258,7 +258,20 @@ public sealed class TrayViewModel : ReactiveObject, IDisposable {
             state, count,
             HeaderText(daemonName, status, snap, state, count, pendingAttention, pendingConsent,
                 lifecycleAttentionActive ? lifecycleAttention : null, pendingSummary, remote.SessionsNeedingAttention, usageLimits, terminalDialogs),
-            BuildEntries(status, snap, stopsInFlight, remote), BuildPause(status, pauseState), pendingConsent);
+            BuildEntries(status, snap, stopsInFlight, remote), BuildPause(status, pauseState), pendingConsent) {
+            PreviewGlyph = state switch {
+                TrayState.Running or TrayState.Connecting => StatusGlyphKind.Activity,
+                TrayState.Idle => StatusGlyphKind.Healthy,
+                TrayState.Stopped => StatusGlyphKind.Stopped,
+                _ when pendingAttention || lifecycleAttentionActive => StatusGlyphKind.Attention,
+                _ => DaemonStatusText.ServerGlyph(status, snap?.Daemon) switch {
+                    StatusGlyphKind.Activity => StatusGlyphKind.Activity,
+                    StatusGlyphKind.Attention => StatusGlyphKind.Attention,
+                    _ when status.Reason == IncompatibleReason => StatusGlyphKind.Attention,
+                    _ => StatusGlyphKind.Unknown,
+                },
+            },
+        };
     }
 
     /// The local daemon's entry stands for a session it steers; the registry's row for the same agent is not a second

@@ -96,6 +96,28 @@ public class TrayAdapterTests {
         await Assert.That(seen[1].Header).IsEqualTo("v2");
     }
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Preview_tray_renders_activity_attention_health_and_stopped_without_changing_the_stock_cache() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var states = new (TrayState State, StatusGlyphKind Kind, int Count)[] {
+                (TrayState.Connecting, StatusGlyphKind.Activity, 0),
+                (TrayState.Attention, StatusGlyphKind.Attention, 0),
+                (TrayState.Attention, StatusGlyphKind.Failure, 0),
+                (TrayState.Idle, StatusGlyphKind.Healthy, 0),
+                (TrayState.Stopped, StatusGlyphKind.Stopped, 0),
+                (TrayState.Running, StatusGlyphKind.Activity, 2),
+            };
+            foreach (var (state, glyph, count) in states) {
+                var stock = TrayIconRenderer.Get(state, count);
+                var preview = TrayIconRenderer.Get(state, count, glyph);
+                await Assert.That(ReferenceEquals(stock, preview)).IsFalse();
+                await Assert.That(ReferenceEquals(preview, TrayIconRenderer.Get(state, count, glyph))).IsTrue();
+                await Assert.That(ReferenceEquals(stock, TrayIconRenderer.Get(state, count))).IsTrue();
+            }
+        });
+    }
+
     // ---- TrayIconRenderer.Get (needs a real Avalonia asset loader for Assets/kcap-icon.png) ----
 
     [Test]

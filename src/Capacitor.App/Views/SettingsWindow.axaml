@@ -12,6 +12,13 @@
         ExtendClientAreaToDecorationsHint="True">
     <Window.Styles>
         <StyleInclude Source="avares://kcap-desktop/Views/SettingsStyles.axaml" />
+        <Style Selector="SelectableTextBlock#DaemonStateText" x:DataType="vm:SettingsViewModel">
+            <Setter Property="views:StatusGlyph.IsPreview" Value="{DynamicResource KcapStatusPreview}" />
+            <Setter Property="Text" Value="{Binding DaemonState}" />
+        </Style>
+        <Style Selector="SelectableTextBlock#DaemonStateText[(views|StatusGlyph.IsPreview)=True]" x:DataType="vm:SettingsViewModel">
+            <Setter Property="Text" Value="{Binding PreviewDaemonState}" />
+        </Style>
     </Window.Styles>
     <Panel>
         <LayoutTransformControl x:Name="ScaleHost">
@@ -97,9 +104,12 @@
                                 <StackPanel>
                                     <Grid Classes="settingsRow" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto">
                                         <TextBlock Classes="kcapLabel" Text="Daemon" VerticalAlignment="Center" />
-                                        <SelectableTextBlock x:Name="DaemonStateText" Grid.Column="1" Text="{Binding DaemonState}"
+                                        <DockPanel Grid.Column="1">
+                                            <views:StatusGlyph Kind="{Binding DaemonGlyph}" DockPanel.Dock="Left" Margin="0,0,5,0" />
+                                            <SelectableTextBlock x:Name="DaemonStateText"
                                                              FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
                                                              Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
+                                        </DockPanel>
                                         <TextBlock x:Name="DaemonStateHintText" Grid.Row="1" Grid.Column="1" Classes="kcapHint" Margin="0,4,0,0"
                                                    Text="{Binding DaemonStateHint}" TextWrapping="Wrap"
                                                    IsVisible="{Binding DaemonStateHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -108,9 +118,12 @@
                                         <Border Classes="settingsDivider" />
                                         <Grid Classes="settingsRow" ColumnDefinitions="140,*" RowDefinitions="Auto,Auto">
                                             <TextBlock Classes="kcapLabel" Text="Server connection" VerticalAlignment="Center" />
-                                            <SelectableTextBlock x:Name="ServerStateText" Grid.Column="1" Text="{Binding ServerState}"
+                                            <DockPanel Grid.Column="1">
+                                            <views:StatusGlyph Kind="{Binding ServerGlyph}" DockPanel.Dock="Left" Margin="0,0,5,0" />
+                                            <SelectableTextBlock x:Name="ServerStateText" Text="{Binding ServerState}"
                                                                  FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
                                                                  Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
+                                        </DockPanel>
                                             <TextBlock x:Name="ServerStateHintText" Grid.Row="1" Grid.Column="1" Classes="kcapHint" Margin="0,4,0,0"
                                                        Text="{Binding ServerStateHint}" TextWrapping="Wrap"
                                                        IsVisible="{Binding ServerStateHint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />

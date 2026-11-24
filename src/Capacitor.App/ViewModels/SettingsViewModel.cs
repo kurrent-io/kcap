@@ -288,10 +288,13 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
 
     /// Whether the daemon runs and this app is attached to it.
     public string DaemonState => DaemonStatusText.Attach(_status, _snapshot?.Daemon);
+    public string PreviewDaemonState => DaemonStatusText.Attach(_status, _snapshot?.Daemon, preview: true);
+    public StatusGlyphKind DaemonGlyph => DaemonStatusText.AttachGlyph(_status);
     public string? DaemonStateHint => DaemonStatusText.AttachHint(_status);
 
     /// The daemon's own connection to its server, apart from whether it runs; null while it is not attached.
     public string? ServerState => DaemonStatusText.Server(_status, _snapshot?.Daemon);
+    public StatusGlyphKind? ServerGlyph => DaemonStatusText.ServerGlyph(_status, _snapshot?.Daemon);
     public string? ServerStateHint => DaemonStatusText.ServerHint(_status, _snapshot?.Daemon);
 
     public string StatusTip => _status.State switch {
@@ -529,8 +532,11 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         this.RaisePropertyChanged(nameof(StatusShowsAgents));
         this.RaisePropertyChanged(nameof(StatusTip));
         this.RaisePropertyChanged(nameof(DaemonState));
+        this.RaisePropertyChanged(nameof(PreviewDaemonState));
+        this.RaisePropertyChanged(nameof(DaemonGlyph));
         this.RaisePropertyChanged(nameof(DaemonStateHint));
         this.RaisePropertyChanged(nameof(ServerState));
+        this.RaisePropertyChanged(nameof(ServerGlyph));
         this.RaisePropertyChanged(nameof(ServerStateHint));
     }
 

@@ -5,6 +5,15 @@
              x:Class="Capacitor.App.Views.PullRequestCard"
              x:DataType="vm:PullRequestContextViewModel">
     <UserControl.Styles>
+        <Style Selector="Button.prChecksStatus" x:DataType="vm:PullRequestContextViewModel">
+            <Setter Property="views:StatusGlyph.IsPreview" Value="{DynamicResource KcapStatusPreview}" />
+            <Setter Property="ToolTip.Tip" Value="{Binding ChecksStatus.LabelTip}" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding ChecksStatus.Text, StringFormat='Open checks: {0}'}" />
+        </Style>
+        <Style Selector="Button.prChecksStatus[(views|StatusGlyph.IsPreview)=True]" x:DataType="vm:PullRequestContextViewModel">
+            <Setter Property="ToolTip.Tip" Value="{Binding ChecksStatus.PreviewLabelTip}" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding ChecksStatus.PreviewText, StringFormat='Open checks: {0}'}" />
+        </Style>
         <Style Selector="Button.prLinkTip" x:DataType="vm:PullRequestContextViewModel">
             <Setter Property="views:StructuredTooltip.Model" Value="{Binding PullRequestTip}" />
         </Style>
@@ -64,9 +73,8 @@
                         <views:AppIcon Kind="ChevronRight" Size="14" Grid.Column="1" Classes="prChevron" />
                     </Grid>
                 </Button>
-                <Button x:Name="SidebarChecksButton" Classes="prStatusRow" Command="{Binding ShowSectionCommand}" CommandParameter="checks"
-                        IsEnabled="{Binding CanNavigate}" ToolTip.Tip="{Binding ChecksStatus.LabelTip}"
-                        AutomationProperties.Name="{Binding ChecksStatus.Text, StringFormat='Open checks: {0}'}">
+                <Button x:Name="SidebarChecksButton" Classes="prStatusRow prChecksStatus" Command="{Binding ShowSectionCommand}" CommandParameter="checks"
+                        IsEnabled="{Binding CanNavigate}">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                         <views:PullRequestStatusLabel DataContext="{Binding ChecksStatus}" />
                         <views:AppIcon Kind="ChevronRight" Size="14" Grid.Column="1" Classes="prChevron" />

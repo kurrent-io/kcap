@@ -8,6 +8,10 @@ public sealed record SessionConnectionPresentation(string Title, string Detail, 
         string ActionLabel = "", ICommand? Action = null, bool IsPlain = false) {
     /// The action fixes the named cause, so it is the primary button; any other action is secondary.
     public bool RepairsCause { get; init; }
+    public bool FailedAttempt { get; init; }
+    public StatusGlyphKind? Glyph => IsBusy ? StatusGlyphKind.Activity : IsPlain ? null
+        : FailedAttempt ? StatusGlyphKind.Failure : StatusGlyphKind.Attention;
+
     public bool HasDetail => Detail.Length > 0;
     public bool HasAction => Action is not null;
     public bool ShowsAlert => !IsBusy && !IsPlain;
@@ -19,12 +23,12 @@ public sealed record SessionConnectionPresentation(string Title, string Detail, 
     public static SessionConnectionPresentation Reconnecting(string detail = "Retrying automatically. Your chat and work details are kept.") =>
         new("Reconnecting to session…", detail, true);
     public static SessionConnectionPresentation Failed(ICommand retry) =>
-        new("Couldn’t reconnect to this session", "Retry the connection to continue.", false, "Retry", retry);
+        new("Couldn’t reconnect to this session", "Retry the connection to continue.", false, "Retry", retry) { FailedAttempt = true };
     /// <param name="failure">Why the last start did not take, so a second press is not a blind guess.</param>
     public static SessionConnectionPresentation DaemonStopped(ICommand start, string? failure = null) =>
         failure is null
             ? new("The daemon isn’t running", "Start it to reconnect this session.", false, "Start daemon", start) { RepairsCause = true }
-            : new("The daemon didn’t start", failure, false, "Try again", start) { RepairsCause = true };
+            : new("The daemon didn’t start", failure, false, "Try again", start) { RepairsCause = true, FailedAttempt = true };
     public static SessionConnectionPresentation DaemonStarting() =>
         new("Starting the daemon…", "This session reconnects when it’s ready.", true);
     public static SessionConnectionPresentation LocalServerStopped(ICommand start) =>

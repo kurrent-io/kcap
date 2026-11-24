@@ -122,13 +122,20 @@ public class ClassicAppearancePreviewTests {
         var originals = brushes.ToDictionary(pair => pair.Key, pair => pair.Value.Color);
         var variant = app.RequestedThemeVariant;
         try {
-            for (var run = 0; run < 2; run++) {
+            foreach (var statusPreview in new[] { false, true }) {
+                palette.SetStatusPreview(statusPreview);
                 foreach (var theme in new[] { ClassicAppearance.Dark, ClassicAppearance.Light, ClassicAppearance.Dark }) {
                     await Assert.That(palette.TryApply(theme)).IsTrue();
                     var expected = theme == ClassicAppearance.Light ? light : dark;
                     foreach (var (key, brush) in brushes) {
                         await Assert.That(ReferenceEquals(app.FindResource(key), brush)).IsTrue();
-                        await Assert.That(brush.Color).IsEqualTo((Color)expected[key]!);
+                        var expectedKey = statusPreview ? key : key switch {
+                            "KcapActivityBrush" => "KcapPurpleBrush",
+                            "KcapActivityDimBrush" => "KcapPurpleDimBrush",
+                            "KcapRetryBrush" => "KcapMutedBrush",
+                            _ => key,
+                        };
+                        await Assert.That(brush.Color).IsEqualTo((Color)expected[expectedKey]!);
                     }
                 }
                 await Assert.That(palette.TryApply(ClassicAppearance.Original)).IsTrue();

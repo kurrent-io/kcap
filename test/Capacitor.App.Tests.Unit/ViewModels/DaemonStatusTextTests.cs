@@ -13,6 +13,19 @@ public class DaemonStatusTextTests {
         FakeDaemonClientService.Snap(daemon: "work-pc", serverUrl: serverUrl, connection: connection, credential: credential).Daemon;
 
     [Test]
+    public async Task Preview_distinguishes_a_healthy_local_attach_from_a_server_reconnect() {
+        var daemon = Daemon("reconnecting");
+        await Assert.That(DaemonStatusText.Attach(Attached, daemon, preview: true)).IsEqualTo("connected · work-pc");
+        await Assert.That(DaemonStatusText.AttachGlyph(Attached)).IsEqualTo(StatusGlyphKind.Healthy);
+        await Assert.That(DaemonStatusText.ServerGlyph(Attached, daemon)).IsEqualTo(StatusGlyphKind.Activity);
+
+        var connecting = new AttachStatus(AttachState.Connecting, null, null);
+        await Assert.That(DaemonStatusText.Attach(connecting, daemon, preview: true)).IsEqualTo("connecting");
+        await Assert.That(DaemonStatusText.AttachGlyph(connecting)).IsEqualTo(StatusGlyphKind.Activity);
+        await Assert.That(DaemonStatusText.ServerGlyph(connecting, daemon)).IsNull();
+    }
+
+    [Test]
     [Arguments(AttachState.Connecting, null, "connecting", null)]
     [Arguments(AttachState.Unreachable, "daemon_unreachable", "not running", "Start it from the main window, or run kcap daemon start.")]
     [Arguments(AttachState.Unreachable, "daemon_incompatible", "version doesn't match the app", "Update kcap so the app and the daemon are the same version.")]

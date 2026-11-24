@@ -65,16 +65,26 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public RailPullRequestSummary? PullRequest => _pullRequest;
     public string PullRequestLabel => PullRequest?.Label ?? "";
     public PullRequestStatus? PullRequestStatus => PullRequest?.Status;
+    public IEnumerable<PullRequestStatus> PullRequestSignals => PullRequest?.PreviewSignals ?? [];
+    public string PreviewPullRequestAccessibleName => string.Join(", ", new[] {
+        $"{(HasMultiplePullRequests ? "Choose from" : "Open")} {PullRequestLabel}",
+    }.Concat(PullRequestSignals.Select(status => status.PreviewText)).Append($"for {Primary ?? Vendor}"));
     public bool HasPullRequestLifecycle => PullRequest?.HasLifecycle == true;
     public bool HasMultiplePullRequests => PullRequest?.Count > 1;
     public KcapTip? LinkedPullRequestTip => PullRequest switch {
         { Count: 1 } summary => SinglePullRequestTip(summary.MenuItems[0]),
         { Count: > 1 } summary => new(summary.Description,
-            Details: KcapTipDetail.Present(KcapTipDetail.Field("Linked session", Primary))),
+            Details: KcapTipDetail.Present(KcapTipDetail.Field("Linked session", Primary))) {
+                PullRequestSignals = summary.PreviewSignals.ToArray(),
+            },
         _ => null,
     };
-    KcapTip SinglePullRequestTip(RailPullRequestMenuItem item) => KcapTip.PullRequest(
-        item.Subject.Number, item.Title, item.Status, item.Repository, KcapTipDetail.Field("Linked session", Primary));
+    KcapTip SinglePullRequestTip(RailPullRequestMenuItem item) {
+        var tip = item.PickerTip;
+        return tip with { Details = [.. tip.Details ?? [], .. KcapTipDetail.Present(
+            PullRequest?.IncompleteCoverage == true || item.IsIncomplete ? KcapTipDetail.Note("Status incomplete") : null,
+            KcapTipDetail.Field("Linked session", Primary))] };
+    }
 
     public bool HasPullRequest => PullRequest is not null;
     public string PullRequestAccessibleName => $"{(HasMultiplePullRequests ? "Choose from" : "Open")} {PullRequestLabel}{(HasPullRequestLifecycle ? $", {PullRequest?.Lifecycle}" : "")} for {Primary ?? Vendor}";
@@ -134,6 +144,8 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
                 this.RaiseAndSetIfChanged(ref _pullRequest, summary, nameof(PullRequest));
                 this.RaisePropertyChanged(nameof(PullRequestLabel));
                 this.RaisePropertyChanged(nameof(PullRequestStatus));
+                this.RaisePropertyChanged(nameof(PullRequestSignals));
+                this.RaisePropertyChanged(nameof(PreviewPullRequestAccessibleName));
                 this.RaisePropertyChanged(nameof(HasPullRequestLifecycle));
                 this.RaisePropertyChanged(nameof(HasMultiplePullRequests));
                 this.RaisePropertyChanged(nameof(LinkedPullRequestTip));
@@ -242,6 +254,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             this.RaisePropertyChanged(nameof(SessionAccessibleName));
             this.RaisePropertyChanged(nameof(LinkedPullRequestTip));
             this.RaisePropertyChanged(nameof(PullRequestAccessibleName));
+            this.RaisePropertyChanged(nameof(PreviewPullRequestAccessibleName));
         }
         if (oldMachine != MachineBadge) {
             this.RaisePropertyChanged(nameof(MachineLabel));

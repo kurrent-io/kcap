@@ -11,12 +11,17 @@ internal sealed class TooltipPreviewScope : IDisposable {
     readonly ClassicPreviewPalette _palette = new(Application.Current!);
     readonly DesktopReadingResources _reading = new(Application.Current!);
 
-    public void Enable(ClassicAppearance appearance) {
+    public void Enable(ClassicAppearance appearance, bool previewStatuses = false) {
+        if (previewStatuses) Application.Current!.Resources["KcapStatusPreview"] = true;
+        else Application.Current!.Resources.Remove("KcapStatusPreview");
+        _palette.SetStatusPreview(previewStatuses);
         if (!_palette.TryApply(appearance)) throw new InvalidOperationException($"Could not apply {appearance}");
         _reading.Apply(new());
     }
 
     public void Disable() {
+        Application.Current!.Resources.Remove("KcapStatusPreview");
+        _palette.SetStatusPreview(false);
         _reading.Apply(null);
         _palette.TryApply(ClassicAppearance.Original);
     }

@@ -22,6 +22,23 @@
             <Setter Property="views:StructuredTooltip.Model" Value="{Binding LinkTip}" />
             <Setter Property="ToolTip.ShowOnDisabled" Value="True" />
         </Style>
+        <Style Selector="ItemsControl#PlanCounts" x:DataType="vm:WorkContextViewModel">
+            <Setter Property="ItemsSource" Value="{Binding Plan.Counts}" />
+        </Style>
+        <Style Selector="ItemsControl#PlanCounts[(views|StatusGlyph.IsPreview)=True]" x:DataType="vm:WorkContextViewModel">
+            <Setter Property="ItemsSource" Value="{Binding Plan.PreviewCounts}" />
+        </Style>
+        <Style Selector="ItemsControl.statusCounts">
+            <Setter Property="ItemsPanel">
+                <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="10" /></ItemsPanelTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="ItemsControl.statusCounts[(views|StatusGlyph.IsPreview)=True]">
+            <Setter Property="MaxWidth" Value="200" />
+            <Setter Property="ItemsPanel">
+                <ItemsPanelTemplate><WrapPanel ItemSpacing="8" LineSpacing="4" /></ItemsPanelTemplate>
+            </Setter>
+        </Style>
         <!-- Section titles are headings, so a screen reader can step through the pane by them. -->
         <Style Selector="TextBlock.eyebrow">
             <Setter Property="AutomationProperties.HeadingLevel" Value="2" />
@@ -205,22 +222,25 @@
         <!-- Shared Lucide status marks for subagent rows and collapsed counts. -->
         <DataTemplate x:Key="SubagentMark" x:DataType="vm:RunState">
             <Panel Width="12" Height="12">
-                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Running}}">
-                    <views:AppIcon Kind="Circle" Size="12" Foreground="{StaticResource KcapPurpleBrush}" />
-                    <!-- 5px in a 12px disc starts at 3.5px; rounding that snaps the dot off centre. -->
-                    <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapPurpleBrush}"
-                            HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False"
-                            views:PulseClock.IsActive="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Running}}" />
+                <views:StatusGlyph Kind="{Binding Converter={x:Static views:StatusGlyph.Run}}" />
+                <Panel Classes="stockStatus">
+                    <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Running}}">
+                        <views:AppIcon Kind="Circle" Size="12" Foreground="{StaticResource KcapActivityBrush}" />
+                        <!-- 5px in a 12px disc starts at 3.5px; rounding that snaps the dot off centre. -->
+                        <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapActivityBrush}"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False"
+                                views:PulseClock.IsActive="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Running}}" />
+                    </Panel>
+                    <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Done}}">
+                        <views:AppIcon Kind="CircleCheck" Size="12" Foreground="{StaticResource KcapSuccessBrush}" />
+                    </Panel>
+                    <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Failed}}">
+                        <views:AppIcon Kind="CircleX" Size="12" Foreground="{StaticResource KcapDangerBrush}" />
+                    </Panel>
+                    <views:AppIcon Kind="Circle" Size="12"
+                                   IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Stopped}}"
+                                   Foreground="{StaticResource KcapBorderBrush}" />
                 </Panel>
-                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Done}}">
-                    <views:AppIcon Kind="CircleCheck" Size="12" Foreground="{StaticResource KcapSuccessBrush}" />
-                </Panel>
-                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Failed}}">
-                    <views:AppIcon Kind="CircleX" Size="12" Foreground="{StaticResource KcapDangerBrush}" />
-                </Panel>
-                <views:AppIcon Kind="Circle" Size="12"
-                               IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Stopped}}"
-                               Foreground="{StaticResource KcapBorderBrush}" />
             </Panel>
         </DataTemplate>
         <!-- One template for the rows and the folded counts alike, so the two cannot drift apart. -->
@@ -231,7 +251,7 @@
                                Foreground="{StaticResource KcapFaintBrush}" />
                 <views:AppIcon Kind="Circle" Size="12"
                                IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlanTaskState.InProgress}}"
-                               Foreground="{StaticResource KcapPurpleBrush}" />
+                               Foreground="{StaticResource KcapActivityBrush}" />
                 <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlanTaskState.Completed}}">
                     <views:AppIcon Kind="CircleCheck" Size="12" Foreground="{StaticResource KcapSuccessBrush}" />
                 </Panel>
@@ -245,34 +265,40 @@
                 <!-- The pulse is the row's own: it stops when the session ends, and the
                      ring stays so the task still reads as started. -->
                 <Panel Width="12" Height="16" VerticalAlignment="Top">
-                    <ContentControl Content="{Binding State}" ContentTemplate="{StaticResource PlanMark}" VerticalAlignment="Center" />
-                    <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapPurpleBrush}"
-                            HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False"
-                            IsVisible="{Binding IsActive}" views:PulseClock.IsActive="{Binding IsActive}" />
+                    <views:StatusGlyph Kind="{Binding StatusGlyph}" VerticalAlignment="Center" />
+                    <Panel Classes="stockStatus">
+                        <ContentControl Content="{Binding State}" ContentTemplate="{StaticResource PlanMark}" VerticalAlignment="Center" />
+                        <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapActivityBrush}"
+                                HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False"
+                                IsVisible="{Binding IsActive}" views:PulseClock.IsActive="{Binding IsActive}" />
+                    </Panel>
                 </Panel>
                 <StackPanel Grid.Column="1" Spacing="2">
                     <TextBlock Text="{Binding Title}" Classes="planTask" Classes.settled="{Binding IsSettled}"
                                TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Title}" />
+                    <TextBlock Classes="kcapStatusWord previewStatus" Text="{Binding StatusLabel}" />
                     <TextBlock Text="{Binding Note}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="16" Foreground="{StaticResource KcapFaintBrush}"
                                TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Note}"
                                IsVisible="{Binding Note, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 </StackPanel>
             </Grid>
         </DataTemplate>
-        <!-- Settled is green (outcome). This session is purple like IN FLIGHT — location, not done.
-             One template for the rows and the folded counts alike. -->
+        <!-- The part marker distinguishes the current session from a settled outcome. -->
         <DataTemplate x:Key="PartMark" x:DataType="vm:WorkContextPartMark">
             <Panel Width="12" Height="12">
-                <views:AppIcon Kind="Circle" Size="12"
-                               IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:WorkContextPartMark.Unknown}}"
-                               Foreground="{StaticResource KcapBorderBrush}" />
-                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:WorkContextPartMark.ThisSession}}">
-                    <views:AppIcon Kind="Circle" Size="12" Foreground="{StaticResource KcapPurpleBrush}" />
-                    <Ellipse Width="5" Height="5" Fill="{StaticResource KcapPurpleBrush}"
-                             HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False" />
-                </Panel>
-                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:WorkContextPartMark.Settled}}">
-                    <views:AppIcon Kind="CircleCheck" Size="12" Foreground="{StaticResource KcapSuccessBrush}" />
+                <views:StatusGlyph Kind="{Binding Converter={x:Static views:StatusGlyph.Part}}" />
+                <Panel Classes="stockStatus">
+                    <views:AppIcon Kind="Circle" Size="12"
+                                   IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:WorkContextPartMark.Unknown}}"
+                                   Foreground="{StaticResource KcapBorderBrush}" />
+                    <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:WorkContextPartMark.ThisSession}}">
+                        <views:AppIcon Kind="Circle" Size="12" Foreground="{StaticResource KcapPurpleBrush}" />
+                        <Ellipse Width="5" Height="5" Fill="{StaticResource KcapPurpleBrush}"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False" />
+                    </Panel>
+                    <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:WorkContextPartMark.Settled}}">
+                        <views:AppIcon Kind="CircleCheck" Size="12" Foreground="{StaticResource KcapSuccessBrush}" />
+                    </Panel>
                 </Panel>
             </Panel>
         </DataTemplate>
@@ -443,10 +469,16 @@
                                     <TextBlock x:Name="WorkContextKey" Text="{Binding Key}" FontSize="{StaticResource KcapFontSizeLarge}" FontWeight="SemiBold"
                                                Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center"
                                                IsVisible="{Binding Key, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                    <views:StatusBadge x:Name="StatePill" Grid.Column="1" Classes="inflight"
-                                                       Classes.success="{Binding IsShipped}" Classes.neutral="{Binding IsClosed}"
-                                                       Text="{Binding StateLabel}"
-                                                       IsVisible="{Binding StateLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <Panel Grid.Column="1" IsVisible="{Binding StateLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                        <views:StatusBadge x:Name="StatePill" Classes="inflight stockStatus"
+                                                           Classes.success="{Binding IsShipped}" Classes.neutral="{Binding IsClosed}"
+                                                           Text="{Binding StateLabel}" />
+                                        <DockPanel Classes="previewStatus" VerticalAlignment="Center">
+                                            <views:StatusGlyph Kind="{Binding WorkItemGlyph}" DockPanel.Dock="Left" Margin="0,0,5,0"
+                                                               VerticalAlignment="Center" />
+                                            <TextBlock Classes="kcapStatusWord" Text="{Binding StateLabel}" />
+                                        </DockPanel>
+                                    </Panel>
                                 </Grid>
                                 <TextBlock x:Name="WorkContextTitle" Text="{Binding DisplayTitle}" FontSize="{StaticResource KcapFontSizeLarge}" LineHeight="20"
                                            Foreground="{StaticResource KcapTextBrush}" TextWrapping="Wrap"
@@ -796,28 +828,27 @@
                                         </MultiBinding>
                                     </TextBlock.IsVisible>
                                 </TextBlock>
-                                <ItemsControl x:Name="PlanCounts" ItemsSource="{Binding Plan.Counts}" VerticalAlignment="Center">
+                                <ItemsControl x:Name="PlanCounts" Classes="statusCounts" views:StatusGlyph.IsPreview="{DynamicResource KcapStatusPreview}" VerticalAlignment="Center">
                                     <ItemsControl.IsVisible>
                                         <MultiBinding Converter="{x:Static BoolConverters.And}">
                                             <Binding Path="!Plan.IsExpanded" />
                                             <Binding Path="Plan.HasTasks" />
                                         </MultiBinding>
                                     </ItemsControl.IsVisible>
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <StackPanel Orientation="Horizontal" Spacing="10" />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:PlanTaskCount">
                                             <StackPanel Orientation="Horizontal" Spacing="5" Background="Transparent" ToolTip.Tip="{Binding Label}">
                                                 <Panel Width="12" Height="12" VerticalAlignment="Center">
-                                                    <ContentControl Content="{Binding State}" ContentTemplate="{StaticResource PlanMark}" VerticalAlignment="Center" />
-                                                    <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapPurpleBrush}"
-                                                            HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False"
-                                                            IsVisible="{Binding IsActive}" views:PulseClock.IsActive="{Binding IsActive}" />
+                                                    <views:StatusGlyph Kind="{Binding StatusGlyph}" VerticalAlignment="Center" />
+                                                    <Panel Classes="stockStatus">
+                                                        <ContentControl Content="{Binding State}" ContentTemplate="{StaticResource PlanMark}" VerticalAlignment="Center" />
+                                                        <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapActivityBrush}"
+                                                                HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False"
+                                                                IsVisible="{Binding IsActive}" views:PulseClock.IsActive="{Binding IsActive}" />
+                                                    </Panel>
                                                 </Panel>
-                                                <TextBlock Text="{Binding Count}" Classes="sectionMeta" />
+                                                <TextBlock Text="{Binding Count}" Classes="sectionMeta stockStatus" />
+                                                <TextBlock Text="{Binding PreviewLabel}" Classes="sectionMeta previewStatus" />
                                             </StackPanel>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
@@ -885,19 +916,15 @@
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <TextBlock x:Name="SubagentsHeaderText" Text="{Binding SubagentsHeader}" Classes="sectionMeta"
                                            IsVisible="{Binding SubagentsExpanded}" />
-                                <ItemsControl x:Name="SubagentsSummary" ItemsSource="{Binding SubagentCounts}" VerticalAlignment="Center"
+                                <ItemsControl x:Name="SubagentsSummary" Classes="statusCounts" views:StatusGlyph.IsPreview="{DynamicResource KcapStatusPreview}" ItemsSource="{Binding SubagentCounts}" VerticalAlignment="Center"
                                               IsVisible="{Binding !SubagentsExpanded}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <StackPanel Orientation="Horizontal" Spacing="10" />
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:RunCount">
                                             <StackPanel Orientation="Horizontal" Spacing="5" Background="Transparent" ToolTip.Tip="{Binding Label}">
                                                 <ContentControl Content="{Binding State}" ContentTemplate="{StaticResource SubagentMark}" VerticalAlignment="Center"
                                                                 />
-                                                <TextBlock Text="{Binding Count}" Classes="sectionMeta" />
+                                                <TextBlock Text="{Binding Count}" Classes="sectionMeta stockStatus" />
+                                                <TextBlock Text="{Binding Label}" Classes="sectionMeta previewStatus" />
                                             </StackPanel>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
