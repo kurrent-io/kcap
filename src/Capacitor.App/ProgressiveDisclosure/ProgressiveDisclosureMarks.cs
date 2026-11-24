@@ -45,6 +45,7 @@ public sealed class ProgressiveDisclosureMarks : IMarkdownExtension {
             } else if (spans.Current is { } span && basis.For(span.Level) == ProgressiveDisclosureDisplay.Hidden) {
                 RemoveBlock(leaf);
             }
+            spans.EndBlock();
         }
     }
 
@@ -176,6 +177,9 @@ public sealed class ProgressiveDisclosureMarks : IMarkdownExtension {
         }
 
         bool IsActive(Span span) => span.Block == Block || closed[span.Id];
+
+        /// Drops the block's spans that never close. No close reaches them, so the rest keep their order.
+        public void EndBlock() => _open.RemoveAll(span => !closed[span.Id]);
 
         public void OpenRun(int run) {
             foreach (var level in Opened(run)) _open.Add(new(level, _next++, Block));
