@@ -73,7 +73,7 @@ public class SessionStatusDotsTests {
         var local = SessionStatusDots.ForRow(Local("a1", awaiting: true), pending: false);
         await Assert.That(remote.Kind).IsEqualTo(local.Kind);
         await Assert.That(remote.ShowsClock).IsTrue();
-        await Assert.That(remote.ShowsDash).IsFalse();
+        await Assert.That(remote.ShowsSettledMark).IsFalse();
         await Assert.That(remote.IsWarning).IsTrue();
         // Presentation parity does not fabricate the local daemon's input/attention facts.
         await Assert.That(row.AwaitingInput).IsNull();
@@ -186,7 +186,7 @@ public class SessionStatusDotsTests {
         var done = SessionStatusDots.ForRow(Local("a", status: "Completed"), pending: false);
         await Assert.That(done.Kind).IsEqualTo(AgentStatusKind.Done);
         await Assert.That(done.Label).IsEqualTo("Done");
-        await Assert.That(done.ShowsDash).IsTrue();
+        await Assert.That(done.ShowsSettledMark).IsTrue();
         await Assert.That(done.ShowsRing).IsFalse();
     }
 
@@ -200,7 +200,7 @@ public class SessionStatusDotsTests {
         await Assert.That(ended.Label).IsEqualTo("Running");
         await Assert.That(ended.ShowsRing).IsFalse();
         await Assert.That(ended.IsInFlight).IsFalse();
-        await Assert.That(ended.ShowsDash).IsTrue();
+        await Assert.That(ended.ShowsSettledMark).IsTrue();
     }
 
     [Test]

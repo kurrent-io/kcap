@@ -2,12 +2,14 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Styling;
+using Lucide.Avalonia;
 
 namespace Capacitor.App;
 
 internal sealed class ClassicPreviewPalette(Application application) {
     const string ContextDividerThickness = "KcapContextDividerThickness";
     const string WorkspaceSelectionWeight = "KcapWorkspaceSelectionWeight";
+    const string DoneSessionGlyph = "KcapDoneSessionGlyph";
 
     readonly Dictionary<SolidColorBrush, Color> _original = new();
     ThemeVariant? _originalVariant;
@@ -29,6 +31,7 @@ internal sealed class ClassicPreviewPalette(Application application) {
             application.RequestedThemeVariant = _originalVariant;
             application.Resources.Remove(ContextDividerThickness);
             application.Resources.Remove(WorkspaceSelectionWeight);
+            application.Resources.Remove(DoneSessionGlyph);
             _original.Clear();
             return true;
         }
@@ -47,6 +50,7 @@ internal sealed class ClassicPreviewPalette(Application application) {
             _originalVariant = application.RequestedThemeVariant;
             application.Resources[ContextDividerThickness] = new Thickness(0);
             application.Resources[WorkspaceSelectionWeight] = FontWeight.SemiBold;
+            application.Resources[DoneSessionGlyph] = LucideIconKind.Check;
         }
         foreach (var (brush, color) in colors) {
             _original.TryAdd(brush, brush.Color);

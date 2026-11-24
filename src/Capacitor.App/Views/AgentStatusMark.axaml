@@ -8,6 +8,12 @@
              IsVisible="{Binding HasLabel, FallbackValue=False}"
              AutomationProperties.Name="{Binding AccessibleName}">
     <UserControl.Styles>
+        <Style Selector="views|AppIcon.settledMark">
+            <Setter Property="Kind" Value="Minus" />
+        </Style>
+        <Style Selector="views|AppIcon.settledMark.done">
+            <Setter Property="Kind" Value="{DynamicResource KcapDoneSessionGlyph}" />
+        </Style>
         <Style Selector="views|AgentStatusMark.header TextBlock#StatusWord">
             <Setter Property="AutomationProperties.LiveSetting" Value="Polite" />
         </Style>
@@ -36,7 +42,8 @@
                            VerticalAlignment="Center" IsVisible="{Binding ShowsPause}" />
             <views:AppIcon Kind="X" Size="12" IsVisible="{Binding ShowsCross}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                            Foreground="{StaticResource KcapDangerBrush}" />
-            <views:AppIcon Kind="Minus" Size="12" Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding ShowsDash}" />
+            <views:AppIcon Classes="settledMark" Classes.done="{Binding IsDone}" Size="12"
+                           Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding ShowsSettledMark}" />
         </Panel>
         <TextBlock x:Name="StatusWord" Classes="kcapStatusWord" Text="{Binding Label}"
                    Classes.inflight="{Binding IsInFlight}" Classes.warning="{Binding IsWarning}"
