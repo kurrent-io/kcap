@@ -10,7 +10,7 @@ public static class MutationRequestFactory {
     /// Non-null return means refused (no request built); null return means `request` is usable.
     public static MutationOutcome? TryBuild(
             MutationVerb verb, string? profileName, string? serverUrl, string daemonName, out MutationRequest? request,
-            string? retireServiceId = null) {
+            string? retireServiceId = null, string? retireProfile = null, bool activate = false) {
         var canonical = ServerIdentity.Canonicalize(serverUrl);
         if (string.IsNullOrWhiteSpace(profileName) || canonical is null) {
             request = null;
@@ -23,8 +23,18 @@ public static class MutationRequestFactory {
             return new MutationOutcome.Refused("invalid_retire_target", RecoverySurface.Attention);
         }
 
+        if (retireProfile is not null && (retireServiceId is null || string.IsNullOrWhiteSpace(retireProfile))) {
+            request = null;
+            return new MutationOutcome.Refused("invalid_retire_target", RecoverySurface.Attention);
+        }
+
+        if (activate && verb != MutationVerb.Replace) {
+            request = null;
+            return new MutationOutcome.Refused("invalid_activation", RecoverySurface.Attention);
+        }
+
         request = new MutationRequest(verb, profileName, canonical, daemonName,
-            retireServiceId is null ? null : DaemonStore.Sanitize(retireServiceId));
+            retireServiceId is null ? null : DaemonStore.Sanitize(retireServiceId), RetireProfile: retireProfile, Activate: activate);
         return null;
     }
 

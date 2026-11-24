@@ -2128,4 +2128,188 @@ public class DaemonMutationLaneTests {
         await Assert.That(capture.GetCapturedError()).Contains(nameof(InvalidOperationException));
         await AssertChannelEmptyAsync(channel);
     }
+
+    static MutationRequest SwitchReq(string? retire = null) =>
+        Req(MutationVerb.Replace, profile: "target") with {
+            Activate = true, RetireServiceId = retire, RetireProfile = retire is null ? null : "default",
+        };
+
+    static ProcessResult Activated(string profile = "target") => new(0, $"Service 'daemon-a' installed.\nactivated={profile}\n", "", false);
+
+    /// Every dispatched switch latches the lane, whatever came of it, so nothing queued behind it can act on a
+    /// daemon or selection the switch may have replaced; a refusal that never reached the CLI does not.
+    [Test]
+    [Arguments("succeeded", true)]
+    [Arguments("refused_after_bootstrap", true)]
+    [Arguments("timed_out", true)]
+    [Arguments("cli_unsupported", false)]
+    public async Task A_dispatched_switch_latches_the_lane_and_refuses_queued_and_later_requests(string mode, bool latches) {
+        var gate = new TaskCompletionSource<ProcessResult>();
+        var cli = new FakeKcapCli { InstallVerifiedBehavior = (_, _) => gate.Task };
+        var factory = new RecordingExecutorFactory { Behavior = (_, _) => cli };
+        await using var lane = MakeLane(factory, classify: CannedSucceeded);
+
+        var switching = lane.RunAsync(SwitchReq(), CancellationToken.None);
+        var queued = new[] { MutationVerb.Replace, MutationVerb.Install, MutationVerb.StartVerified }
+            .Select(verb => lane.RunAsync(Req(verb), CancellationToken.None)).ToList();
+        gate.SetResult(mode switch {
+            "succeeded"               => Activated(),
+            "refused_after_bootstrap" => new ProcessResult(VerifyExitCodes.ReadinessTimeout, "activated=target\n", "verify_readiness_timeout", false),
+            "timed_out"               => new ProcessResult(-1, "", "", true),
+            _                         => new ProcessResult(VerifyExitCodes.RetireRefused, "", "retire_reason=cli_unsupported", false),
+        });
+        await switching;
+
+        var refused = new MutationOutcome.Refused("profile_switched_restart_app", RecoverySurface.Attention);
+        foreach (var later in queued) {
+            if (latches) await Assert.That(await later).IsEqualTo(refused);
+            else await Assert.That(await later).IsTypeOf<MutationOutcome.Succeeded>();
+        }
+        await Assert.That(lane.RestartRequired).IsEqualTo(latches);
+        if (latches) await Assert.That(await lane.RunAsync(Req(MutationVerb.Install), CancellationToken.None)).IsEqualTo(refused);
+        await Assert.That(factory.Calls.Count).IsEqualTo(latches ? 1 : 4);
+    }
+
+    [Test]
+    public async Task A_rename_without_activate_does_not_latch_the_lane() {
+        await using var lane = MakeLane(new RecordingExecutorFactory(), classify: CannedSucceeded);
+
+        await lane.RunAsync(Req(MutationVerb.Replace, daemonName: "new-name") with { RetireServiceId = "daemon-a" }, CancellationToken.None);
+
+        await Assert.That(lane.RestartRequired).IsFalse();
+        await Assert.That(await lane.RunAsync(Req(MutationVerb.Install, daemonName: "new-name"), CancellationToken.None)).IsTypeOf<MutationOutcome.Succeeded>();
+    }
+
+    [Test]
+    [Arguments("line", ActivationEvidence.Activated)]
+    [Arguments("no_line", ActivationEvidence.Unknown)]
+    [Arguments("other_profile_line", ActivationEvidence.Unknown)]
+    [Arguments("timeout", ActivationEvidence.Unknown)]
+    [Arguments("cli_unsupported", ActivationEvidence.NotActivated)]
+    public async Task A_switch_outcome_carries_what_its_cli_output_proves_about_the_selection(string mode, ActivationEvidence expected) {
+        var cli = new FakeKcapCli {
+            InstallVerifiedBehavior = (_, _) => Task.FromResult(mode switch {
+                "line"               => Activated(),
+                "no_line"            => new ProcessResult(VerifyExitCodes.ReadinessTimeout, "", "verify_readiness_timeout", false),
+                "other_profile_line" => Activated("default"),
+                "timeout"            => new ProcessResult(-1, "", "", true),
+                _                    => new ProcessResult(VerifyExitCodes.RetireRefused, "", "retire_reason=cli_unsupported", false),
+            }),
+        };
+        await using var lane = MakeLane(new RecordingExecutorFactory { Behavior = (_, _) => cli }, classify: CannedSucceeded);
+
+        var outcome = await lane.RunAsync(SwitchReq(), CancellationToken.None);
+
+        await Assert.That(outcome.Activation).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task A_switch_refused_before_any_spawn_carries_not_activated_and_does_not_latch() {
+        await using var lane = MakeLane(new RecordingExecutorFactory(), pinnedCli: () => new CliPin(null, OverrideMissing: true));
+
+        var outcome = await lane.RunAsync(SwitchReq(), CancellationToken.None);
+
+        await Assert.That(outcome).IsTypeOf<MutationOutcome.Refused>();
+        await Assert.That(outcome.Activation).IsEqualTo(ActivationEvidence.NotActivated);
+        await Assert.That(lane.RestartRequired).IsFalse();
+    }
+
+    [Test]
+    public async Task A_request_that_does_not_switch_carries_no_activation_evidence() {
+        await using var lane = MakeLane(new RecordingExecutorFactory(), classify: CannedSucceeded);
+
+        var outcome = await lane.RunAsync(Req(MutationVerb.Replace), CancellationToken.None);
+
+        await Assert.That(outcome.Activation).IsNull();
+    }
+
+    [Test]
+    public async Task A_switch_forwards_the_retired_profile_and_activate_to_the_executor() {
+        var cli = new FakeKcapCli();
+        await using var lane = MakeLane(new RecordingExecutorFactory { Behavior = (_, _) => cli }, classify: CannedSucceeded);
+
+        await lane.RunAsync(SwitchReq(retire: "old-name"), CancellationToken.None);
+
+        await Assert.That(cli.LastRetireServiceId).IsEqualTo("old-name");
+        await Assert.That(cli.LastRetireProfile).IsEqualTo("default");
+        await Assert.That(cli.LastActivate).IsTrue();
+    }
+
+    [Test]
+    public async Task A_refused_activation_keeps_the_clis_reason() {
+        var cli = new FakeKcapCli {
+            InstallVerifiedBehavior = (_, _) => Task.FromResult(new ProcessResult(
+                VerifyExitCodes.ActivationRefused, "", "activation_reason=expect_server_mismatch\nverify_activation_refused", false)),
+        };
+        await using var lane = MakeLane(new RecordingExecutorFactory { Behavior = (_, _) => cli });
+
+        var outcome = await lane.RunAsync(SwitchReq(), CancellationToken.None);
+
+        await Assert.That(outcome).IsEqualTo(new MutationOutcome.Failed(VerifyExitCodes.ActivationRefused, "expect_server_mismatch", RecoverySurface.Attention) {
+            Activation = ActivationEvidence.Unknown,
+        });
+    }
+
+    /// A switched daemon that reports another profile is not the one the switch installed; one too old to
+    /// report a profile is judged on server and name, as before.
+    [Test]
+    [Arguments("default", false)]
+    [Arguments(null, true)]
+    [Arguments("target", true)]
+    public async Task A_switch_succeeds_only_when_the_daemon_reports_the_target_profile_or_none(string? reported, bool succeeds) {
+        var cli = new FakeKcapCli {
+            InstallVerifiedBehavior = (_, _) => Task.FromResult(Activated()),
+            StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Ownership()),
+        };
+        var evidence = MatchingEvidence() with { Profile = reported };
+        await using var lane = MakeLane(new RecordingExecutorFactory { Behavior = (_, _) => cli },
+            oneShotFactory: _ => new ScriptedObservation { Behavior = (_, _) => Task.FromResult<ObservedEvidence?>(evidence) });
+
+        var outcome = await lane.RunAsync(SwitchReq(), CancellationToken.None);
+
+        if (succeeds) await Assert.That(outcome).IsTypeOf<MutationOutcome.Succeeded>();
+        else await Assert.That(outcome).IsTypeOf<MutationOutcome.AttentionSkew>();
+    }
+
+    [Test]
+    public async Task A_plain_replace_ignores_the_reported_profile() {
+        var cli = new FakeKcapCli { StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(Ownership()) };
+        var evidence = MatchingEvidence() with { Profile = "someone-else" };
+        await using var lane = MakeLane(new RecordingExecutorFactory { Behavior = (_, _) => cli },
+            oneShotFactory: _ => new ScriptedObservation { Behavior = (_, _) => Task.FromResult<ObservedEvidence?>(evidence) });
+
+        await Assert.That(await lane.RunAsync(Req(MutationVerb.Replace), CancellationToken.None)).IsTypeOf<MutationOutcome.Succeeded>();
+    }
+
+    /// The latch is set where the switch detaches, so an identical switch arriving as it finishes runs afresh
+    /// and is refused, rather than joining the finished switch's outcome.
+    [Test]
+    public async Task An_identical_switch_arriving_after_the_latch_is_refused_not_coalesced() {
+        var gate = new TaskCompletionSource<ProcessResult>();
+        var cli = new FakeKcapCli { InstallVerifiedBehavior = (_, _) => gate.Task };
+        await using var lane = MakeLane(new RecordingExecutorFactory { Behavior = (_, _) => cli }, classify: CannedSucceeded);
+
+        var first = lane.RunAsync(SwitchReq(), CancellationToken.None);
+        gate.SetResult(Activated());
+        await first;
+        var second = await lane.RunAsync(SwitchReq(), CancellationToken.None);
+
+        await Assert.That(second).IsEqualTo(new MutationOutcome.Refused("profile_switched_restart_app", RecoverySurface.Attention) {
+            Activation = ActivationEvidence.NotActivated,
+        });
+    }
+
+    [Test]
+    [Arguments("start_failed")]
+    [Arguments("pipe_closed")]
+    public async Task A_switch_whose_executor_throws_latches_since_nothing_proves_the_cli_never_ran(string mode) {
+        Exception fault = mode == "start_failed" ? new System.ComponentModel.Win32Exception(2) : new IOException("pipe closed");
+        var cli = new FakeKcapCli { InstallVerifiedBehavior = (_, _) => Task.FromException<ProcessResult>(fault) };
+        await using var lane = MakeLane(new RecordingExecutorFactory { Behavior = (_, _) => cli });
+
+        var outcome = await lane.RunAsync(SwitchReq(), CancellationToken.None);
+
+        await Assert.That(outcome.Activation).IsEqualTo(ActivationEvidence.Unknown);
+        await Assert.That(lane.RestartRequired).IsTrue();
+    }
 }

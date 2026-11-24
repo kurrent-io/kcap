@@ -7,7 +7,7 @@ namespace Capacitor.App.Services.Mutation;
 public sealed record ObservedEvidence(
     bool Reachable, IReadOnlyList<string>? Capabilities, string? DaemonVersion,
     string? ServerUrl, string? DaemonName, int? Pid, string? InstanceId,
-    bool IdentityConsistent);
+    bool IdentityConsistent, string? Profile = null);
 
 /// One evidence source for the mutation lane; null means "cannot observe this target", never Reachable=false.
 public interface IDaemonObservation {
@@ -33,6 +33,7 @@ public sealed class OneShotObservation(DaemonStore store, TimeProvider time, Tim
             DaemonName: result.Snapshot?.Daemon.Name,
             Pid: result.Hello?.Pid,
             InstanceId: result.Hello?.InstanceId,
-            IdentityConsistent: result.IdentityConsistent);
+            IdentityConsistent: result.IdentityConsistent,
+            Profile: result.Snapshot?.Daemon.Profile);
     }
 }

@@ -71,6 +71,8 @@ public sealed class LateBoundKcapCli(Func<IKcapCli> bind, string? cliPath) : IKc
         bind().ServiceStatusAsync(daemonName, ct);
 
     public Task<bool> SupportsServiceRetireAsync(CancellationToken ct) => bind().SupportsServiceRetireAsync(ct);
+    public Task<bool> SupportsServiceInstallFlagsAsync(IReadOnlyList<string> flags, CancellationToken ct) =>
+        bind().SupportsServiceInstallFlagsAsync(flags, ct);
 
     public Task<ProcessResult> ServiceStartVerifiedAsync(CancellationToken ct) => bind().ServiceStartVerifiedAsync(ct);
 
@@ -79,8 +81,9 @@ public sealed class LateBoundKcapCli(Func<IKcapCli> bind, string? cliPath) : IKc
 
     public Task<ProcessResult> ServiceInstallWindowsServiceAsync(CancellationToken ct) => bind().ServiceInstallWindowsServiceAsync(ct);
 
-    public Task<ProcessResult> ServiceInstallVerifiedAsync(bool replace, CancellationToken ct, string? retireServiceId = null) =>
-        bind().ServiceInstallVerifiedAsync(replace, ct, retireServiceId);
+    public Task<ProcessResult> ServiceInstallVerifiedAsync(
+            bool replace, CancellationToken ct, string? retireServiceId = null, string? retireProfile = null, bool activate = false) =>
+        bind().ServiceInstallVerifiedAsync(replace, ct, retireServiceId, retireProfile, activate);
 
     public Task<ProcessResult> DetachedStartAsync(string bootAttemptId, CancellationToken ct) =>
         bind().DetachedStartAsync(bootAttemptId, ct);

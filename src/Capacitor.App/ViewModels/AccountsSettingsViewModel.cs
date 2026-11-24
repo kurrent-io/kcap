@@ -186,6 +186,7 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
         "cli_below_floor" or "cli_version_unknown" or "cli_override_missing" => UpdateKcap,
         "cli_not_found"                                                        => "Reinstall kcap to manage accounts",
         "daemon_renamed_restart_app"                                           => "Restart the app to manage accounts",
+        "profile_switched_restart_app"                                         => "Restart the app to manage accounts",
         _                                                                      => null,
     };
 
