@@ -12,9 +12,9 @@
     <!-- DataContext is INHERITED from the window (never assigned here), so Rail is null on any
          window built without one — every Rail.* binding below carries a fallback for that. -->
     <UserControl.Styles>
-        <Style Selector="Button.railRow[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:RailSessionViewModel">
-            <Setter Property="views:PreviewTooltip.Model">
-                <MultiBinding Converter="{x:Static views:PreviewTooltip.Session}">
+        <Style Selector="Button.railRow" x:DataType="vm:RailSessionViewModel">
+            <Setter Property="views:StructuredTooltip.Model">
+                <MultiBinding Converter="{x:Static views:StructuredTooltip.Session}">
                     <Binding Path="Status" />
                     <Binding Path="Primary" />
                     <Binding Path="MachineBadge" />
@@ -22,10 +22,10 @@
                 </MultiBinding>
             </Setter>
         </Style>
-        <Style Selector="Button.railPr[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:RailSessionViewModel">
-            <Setter Property="views:PreviewTooltip.Model" Value="{Binding LinkedPullRequestTip}" />
+        <Style Selector="Button.railPr" x:DataType="vm:RailSessionViewModel">
+            <Setter Property="views:StructuredTooltip.Model" Value="{Binding LinkedPullRequestTip}" />
         </Style>
-        <Style Selector="Button.railPr[(views|PreviewTooltip.Enabled)=True] views|PullRequestStatusLabel">
+        <Style Selector="Button.railPr views|PullRequestStatusLabel">
             <Setter Property="IsHitTestVisible" Value="False" />
         </Style>
         <!-- A row's resting Background and BorderThickness MUST come from this class style, never a
@@ -612,23 +612,7 @@
                                                             <Button Command="{Binding OpenCommand}" HorizontalAlignment="Stretch"
                                                                     HorizontalContentAlignment="Stretch" Padding="{DynamicResource KcapSessionRowPadding}"
                                                                     AutomationProperties.Name="{Binding SessionAccessibleName}"
-                                                                    Classes="railRow kcapStructuredTip" Classes.selected="{Binding IsSelected}">
-                                                                <ToolTip.Tip>
-                                                                    <StackPanel Spacing="10" MaxWidth="320">
-                                                                        <!-- The row trims its title; the tip carries it whole. -->
-                                                                        <TextBlock x:Name="SessionTitleTip" Text="{Binding Primary}" TextWrapping="Wrap"
-                                                                                   IsVisible="{Binding HasTitle}" />
-                                                                        <views:AgentStatusTip DataContext="{Binding Status}" />
-                                                                        <StackPanel Spacing="1" IsVisible="{Binding MachineBadge, Converter={x:Static ObjectConverters.IsNotNull}}">
-                                                                            <TextBlock Text="Machine · remote daemon" Classes="kcapTipCaption" />
-                                                                            <TextBlock Text="{Binding MachineBadge}" TextWrapping="Wrap" />
-                                                                        </StackPanel>
-                                                                        <StackPanel Spacing="1" IsVisible="{Binding CheckoutPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                                                            <TextBlock Text="Checkout" Classes="kcapTipCaption" />
-                                                                            <TextBlock Text="{Binding CheckoutPath}" TextWrapping="Wrap" />
-                                                                        </StackPanel>
-                                                                    </StackPanel>
-                                                                </ToolTip.Tip>
+                                                                    Classes="railRow" Classes.selected="{Binding IsSelected}">
                                                                 <StackPanel Spacing="3">
                                                                     <TextBlock Text="{Binding Primary}" FontSize="{StaticResource KcapFontSizeLarge}" LineHeight="20"
                                                                                Classes="rowTitle" IsVisible="{Binding HasTitle}"
@@ -692,10 +676,9 @@
                                                                 </Grid>
                                                             </StackPanel>
                                                         </Button>
-                                                            <Button x:Name="SessionPullRequestLink" Classes="railPr kcapStructuredTip" Command="{Binding OpenPullRequestCommand}" Click="OnPullRequestClick"
+                                                            <Button x:Name="SessionPullRequestLink" Classes="railPr" Command="{Binding OpenPullRequestCommand}" Click="OnPullRequestClick"
                                                                 IsVisible="{Binding HasPullRequest}"
                                                                 AutomationProperties.Name="{Binding PullRequestAccessibleName}"
-                                                                ToolTip.Tip="{Binding PullRequestTooltip}"
                                                                 HorizontalAlignment="Right" HorizontalContentAlignment="Left" VerticalAlignment="Bottom" Margin="4,0,4,4"
                                                                 FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapMutedBrush}">
                                                             <StackPanel Orientation="Horizontal" Spacing="6">

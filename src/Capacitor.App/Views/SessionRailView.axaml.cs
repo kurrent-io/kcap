@@ -133,9 +133,9 @@ public partial class SessionRailView : UserControl {
                 Content = body, DataContext = item, MinWidth = 240, MaxWidth = 360, Padding = new Thickness(10, 8),
                 HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
             };
-            option.Classes.AddRange(["kcapGhost", "railPrChoiceTip", "kcapStructuredTip"]);
+            option.Classes.Add("kcapGhost");
             AutomationProperties.SetName(option, $"Open {item.Detail}: {item.Label}");
-            ToolTip.SetTip(option, $"{item.Label}\n{item.Detail}");
+            StructuredTooltip.SetModel(option, item.PickerTip);
             option.Click += (_, _) => {
                 flyout.Hide();
                 vm.OpenPullRequestChoiceCommand.Execute(item).Subscribe();

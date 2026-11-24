@@ -250,10 +250,12 @@ public class WorkContextViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Structured_issue_tips_show_available_metadata_and_keep_link_access() => RunOnUiAsync(async () => {
+    [Arguments(false)]
+    [Arguments(true)]
+    public Task Structured_issue_tips_show_available_metadata_and_keep_link_access(bool appearancePreview) => RunOnUiAsync(async () => {
         const string title = "Keep the linked issue title readable when the work context pane is narrow";
         using var preview = new TooltipPreviewScope();
-        preview.Enable(ClassicAppearance.Light);
+        if (appearancePreview) preview.Enable(ClassicAppearance.Light);
         var openedWorkItems = new List<string>();
         await using var host = new Host(openedWorkItems.Add);
         var read = KeyOnlyRead("WK-2200", title);

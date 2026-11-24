@@ -8,18 +8,18 @@
              AutomationProperties.Name="Work context" AutomationProperties.ControlTypeOverride="Group"
              AutomationProperties.LandmarkType="Complementary">
     <UserControl.Styles>
-        <Style Selector="Button.workItemTip[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:WorkContextViewModel">
-            <Setter Property="views:PreviewTooltip.Model" Value="{Binding WorkItemTip}" />
+        <Style Selector="Button.workItemTip" x:DataType="vm:WorkContextViewModel">
+            <Setter Property="views:StructuredTooltip.Model" Value="{Binding WorkItemTip}" />
         </Style>
-        <Style Selector="Button.issueHeaderTip[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:WorkContextViewModel">
-            <Setter Property="views:PreviewTooltip.Model" Value="{Binding IssueHeaderTip}" />
+        <Style Selector="Button.issueHeaderTip" x:DataType="vm:WorkContextViewModel">
+            <Setter Property="views:StructuredTooltip.Model" Value="{Binding IssueHeaderTip}" />
         </Style>
-        <Style Selector="Button.singleIssueTip[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:WorkContextViewModel">
-            <Setter Property="views:PreviewTooltip.Model" Value="{Binding SeparateIssue.LinkTip}" />
+        <Style Selector="Button.singleIssueTip" x:DataType="vm:WorkContextViewModel">
+            <Setter Property="views:StructuredTooltip.Model" Value="{Binding SeparateIssue.LinkTip}" />
             <Setter Property="ToolTip.ShowOnDisabled" Value="True" />
         </Style>
-        <Style Selector="Button.workLinkTip[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:WorkContextLinkViewModel">
-            <Setter Property="views:PreviewTooltip.Model" Value="{Binding LinkTip}" />
+        <Style Selector="Button.workLinkTip" x:DataType="vm:WorkContextLinkViewModel">
+            <Setter Property="views:StructuredTooltip.Model" Value="{Binding LinkTip}" />
             <Setter Property="ToolTip.ShowOnDisabled" Value="True" />
         </Style>
         <!-- Section titles are headings, so a screen reader can step through the pane by them. -->
@@ -188,7 +188,7 @@
     </UserControl.Styles>
     <UserControl.Resources>
         <DataTemplate x:Key="LinkCard" x:DataType="vm:WorkContextLinkViewModel">
-            <Button Command="{Binding OpenCommand}" Classes="toggle workLinkTip kcapStructuredTip" ToolTip.Tip="{Binding Url}"
+            <Button Command="{Binding OpenCommand}" Classes="toggle workLinkTip" ToolTip.Tip="{Binding Url}"
                     AutomationProperties.Name="{Binding AccessibleName}">
                 <Border Classes="card" Padding="13,11">
                     <StackPanel Spacing="6">
@@ -402,7 +402,7 @@
                         <Ellipse x:Name="StaleDot" Width="6" Height="6" Fill="{StaticResource KcapWarningBrush}"
                                  IsVisible="{Binding IsStale}" ToolTip.Tip="Last refresh failed; showing the previous result"
                                  VerticalAlignment="Center" Margin="0,0,2,0" />
-                        <Button x:Name="OpenWorkItemButton" Classes="iconButton workItemTip kcapStructuredTip" Command="{Binding OpenWorkItemCommand}"
+                        <Button x:Name="OpenWorkItemButton" Classes="iconButton workItemTip" Command="{Binding OpenWorkItemCommand}"
                                 VerticalAlignment="Center" ToolTip.Tip="Open in web" ToolTip.ShowOnDisabled="True"
                                 AutomationProperties.Name="Open work item in web">
                             <views:AppIcon Kind="ExternalLink" Size="14" Classes="prExternal" />
@@ -674,7 +674,7 @@
                 </StackPanel>
 
                 <StackPanel x:Name="IssueSection" Margin="0,18,0,0" IsVisible="{Binding HasSeparateIssue}">
-                    <Button x:Name="IssueHeader" Classes="sectionHeader issueHeaderTip kcapStructuredTip"
+                    <Button x:Name="IssueHeader" Classes="sectionHeader issueHeaderTip"
                             Classes.expandable="{Binding IssuesOverflows}"
                             Command="{Binding ToggleIssuesCommand}"
                             ToolTip.Tip="{Binding SeparateIssue.Url}" AutomationProperties.Name="Issues">
@@ -692,7 +692,7 @@
                     </Button>
                     <Border Classes="sectionBody">
                         <Panel>
-                            <Button x:Name="IssueTitleButton" Classes="copyValue singleIssueTip kcapStructuredTip"
+                            <Button x:Name="IssueTitleButton" Classes="copyValue singleIssueTip"
                                     Command="{Binding SeparateIssue.OpenCommand}"
                                     IsVisible="{Binding !HasMultipleIssues}"
                                     ToolTip.Tip="{Binding SeparateIssue.Url}"
@@ -715,7 +715,7 @@
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:WorkContextLinkViewModel">
-                                        <Button Classes="copyValue workLinkTip kcapStructuredTip"
+                                        <Button Classes="copyValue workLinkTip"
                                                 Command="{Binding OpenCommand}"
                                                 ToolTip.Tip="{Binding Url}" AutomationProperties.Name="{Binding AccessibleName}"
                                                 HorizontalAlignment="Stretch">

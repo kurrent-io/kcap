@@ -5,30 +5,24 @@
              x:Class="Capacitor.App.Views.PullRequestCard"
              x:DataType="vm:PullRequestContextViewModel">
     <UserControl.Styles>
-        <Style Selector="Button.prLinkTip[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:PullRequestContextViewModel">
-            <Setter Property="views:PreviewTooltip.Model" Value="{Binding PullRequestTip}" />
+        <Style Selector="Button.prLinkTip" x:DataType="vm:PullRequestContextViewModel">
+            <Setter Property="views:StructuredTooltip.Model" Value="{Binding PullRequestTip}" />
         </Style>
-        <Style Selector="ComboBox.prSelectorTip[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:PullRequestContextViewModel">
-            <Setter Property="views:PreviewTooltip.Model" Value="{Binding Selected.ChoiceTip, FallbackValue={x:Null}}" />
+        <Style Selector="ComboBox.prSelectorTip" x:DataType="vm:PullRequestContextViewModel">
+            <Setter Property="views:StructuredTooltip.Model" Value="{Binding Selected.ChoiceTip, FallbackValue={x:Null}}" />
         </Style>
-        <Style Selector="ComboBox.prSelectorTip[(views|PreviewTooltip.Enabled)=True] ComboBoxItem" x:DataType="vm:PullRequestChoice">
-            <Setter Property="views:PreviewTooltip.Model" Value="{Binding ChoiceTip}" />
-        </Style>
-        <Style Selector="TextBlock.prChoiceTip[(views|PreviewTooltip.Enabled)=True]">
-            <Setter Property="IsHitTestVisible" Value="False" />
-        </Style>
-        <Style Selector="Button.prLinkTip[(views|PreviewTooltip.Enabled)=True] TextBlock.prReaderTitle">
-            <Setter Property="IsHitTestVisible" Value="False" />
+        <Style Selector="ComboBox.prSelectorTip ComboBoxItem" x:DataType="vm:PullRequestChoice">
+            <Setter Property="views:StructuredTooltip.Model" Value="{Binding ChoiceTip}" />
         </Style>
     </UserControl.Styles>
     <StackPanel Spacing="9">
-            <ComboBox x:Name="PullRequestSelector" Classes="kcapField prSelectorTip kcapStructuredTip"
+            <ComboBox x:Name="PullRequestSelector" Classes="kcapField prSelectorTip"
                       ItemsSource="{Binding Choices}" SelectedItem="{Binding Selected, Mode=TwoWay}"
                       IsVisible="{Binding HasMultipleChoices}" HorizontalAlignment="Stretch" FontSize="{StaticResource KcapFontSizeBody}"
                       AutomationProperties.Name="Linked pull request">
                 <ComboBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:PullRequestChoice">
-                        <TextBlock Classes="prChoiceTip kcapStructuredTip" Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}" />
+                        <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" IsHitTestVisible="False" />
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
@@ -45,7 +39,7 @@
                                ToolTip.Tip="{Binding RepositoryLabel}" />
                 </StackPanel>
                 <Button x:Name="OpenGitHubButton" Grid.Column="1" Command="{Binding OpenGitHubCommand}" IsEnabled="{Binding CanOpenSource}"
-                        IsVisible="{Binding ShowsOpenSource}" Classes="kcapGhost kcapQuiet prLinkTip kcapStructuredTip" VerticalAlignment="Center"
+                        IsVisible="{Binding ShowsOpenSource}" Classes="kcapGhost kcapQuiet prLinkTip" VerticalAlignment="Center"
                         AutomationProperties.Name="Open pull request in browser">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <TextBlock Text="{Binding ProviderLabel}" VerticalAlignment="Center" />
@@ -53,12 +47,12 @@
                     </StackPanel>
                 </Button>
             </Grid>
-            <Button x:Name="PullRequestTitleButton" Classes="copyValue prLinkTip kcapStructuredTip" Command="{Binding OpenReaderCommand}"
+            <Button x:Name="PullRequestTitleButton" Classes="copyValue prLinkTip" Command="{Binding OpenReaderCommand}"
                     IsEnabled="{Binding CanOpenReader}" HorizontalAlignment="Stretch"
                     IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                     AutomationProperties.Name="Open pull request overview">
-                <TextBlock Classes="prReaderTitle" Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="3"
-                           TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" />
+                <TextBlock IsHitTestVisible="False" Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="3"
+                           TextTrimming="CharacterEllipsis" Foreground="{StaticResource KcapTextBrush}" />
             </Button>
             <TextBlock x:Name="SelectionLoading" Text="Loading…" IsVisible="{Binding IsSelectionLoading}" Classes="prNote" />
             <StackPanel IsVisible="{Binding CanDisplay}">

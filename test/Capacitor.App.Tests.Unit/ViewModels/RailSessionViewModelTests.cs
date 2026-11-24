@@ -60,7 +60,7 @@ public class RailSessionViewModelTests {
             });
             await Assert.That(row.PullRequestLabel).IsEqualTo("PR #142");
             await Assert.That(row.PullRequestStatus!.Text).IsEqualTo("Draft");
-            await Assert.That(row.PullRequestTooltip).Contains("Linked to this session: Fix the flaky test");
+            await Assert.That(row.LinkedPullRequestTip!.Description).Contains("Linked session · Fix the flaky test");
             await Assert.That(row.Primary).IsEqualTo("Fix the flaky test");
             await Assert.That(changes).Contains(nameof(RailSessionViewModel.PullRequestLabel));
             row.OpenPullRequestCommand.Execute().Subscribe();

@@ -1,6 +1,5 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
         xmlns:views="clr-namespace:Capacitor.App.Views"
         xmlns:notifications="using:Avalonia.Controls.Notifications">
     <!-- Fluent targets the notification part names when it opens and closes a toast. -->
@@ -87,12 +86,6 @@
     </Style>
     <Style Selector="Popup">
         <Setter Property="InheritsTransform" Value="True" />
-    </Style>
-    <Style Selector=":is(Control).kcapStructuredTip">
-        <Setter Property="views:PreviewTooltip.Enabled" Value="{DynamicResource KcapStructuredTooltips}" />
-    </Style>
-    <Style Selector="Button.railPrChoiceTip[(views|PreviewTooltip.Enabled)=True]" x:DataType="vm:RailPullRequestMenuItem">
-        <Setter Property="views:PreviewTooltip.Model" Value="{Binding PickerTip}" />
     </Style>
     <Style Selector="ToolTip">
         <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />

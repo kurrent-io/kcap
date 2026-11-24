@@ -10,13 +10,11 @@ using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
-public sealed class PreviewTooltip : AvaloniaObject, IDisposable {
-    public static readonly AttachedProperty<bool> EnabledProperty =
-        AvaloniaProperty.RegisterAttached<PreviewTooltip, Control, bool>("Enabled");
+public sealed class StructuredTooltip : AvaloniaObject, IDisposable {
     public static readonly AttachedProperty<KcapTip?> ModelProperty =
-        AvaloniaProperty.RegisterAttached<PreviewTooltip, Control, KcapTip?>("Model");
-    static readonly AttachedProperty<PreviewTooltip?> ActiveProperty =
-        AvaloniaProperty.RegisterAttached<PreviewTooltip, Control, PreviewTooltip?>("Active");
+        AvaloniaProperty.RegisterAttached<StructuredTooltip, Control, KcapTip?>("Model");
+    static readonly AttachedProperty<StructuredTooltip?> ActiveProperty =
+        AvaloniaProperty.RegisterAttached<StructuredTooltip, Control, StructuredTooltip?>("Active");
     static readonly IDataTemplate Template = new FuncDataTemplate<KcapTip>((model, _) => new KcapTooltip { DataContext = model });
 
     public static IMultiValueConverter Session { get; } = new FuncMultiValueConverter<object?, KcapTip?>(values => {
@@ -31,17 +29,15 @@ public sealed class PreviewTooltip : AvaloniaObject, IDisposable {
     IDisposable? _description;
     IDisposable? _keyboardPlacement;
 
-    static PreviewTooltip() => ModelProperty.Changed.AddClassHandler<Control>((target, _) => Update(target));
+    static StructuredTooltip() => ModelProperty.Changed.AddClassHandler<Control>((target, _) => Update(target));
 
-    public static bool GetEnabled(Control control) => control.GetValue(EnabledProperty);
-    public static void SetEnabled(Control control, bool value) => control.SetValue(EnabledProperty, value);
     public static KcapTip? GetModel(Control control) => control.GetValue(ModelProperty);
     public static void SetModel(Control control, KcapTip? value) => control.SetValue(ModelProperty, value);
 
     static void Update(Control target) {
         var active = target.GetValue(ActiveProperty);
         if (GetModel(target) is { } model) {
-            if (active is null) target.SetValue(ActiveProperty, new PreviewTooltip(target, model));
+            if (active is null) target.SetValue(ActiveProperty, new StructuredTooltip(target, model));
             else active.Apply(model);
         } else if (active is not null) {
             active.Dispose();
@@ -49,7 +45,7 @@ public sealed class PreviewTooltip : AvaloniaObject, IDisposable {
         }
     }
 
-    PreviewTooltip(Control target, KcapTip model) {
+    StructuredTooltip(Control target, KcapTip model) {
         _target = target;
         _tip = new ToolTip { ContentTemplate = Template };
         Apply(model);

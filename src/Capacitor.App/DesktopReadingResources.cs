@@ -32,7 +32,6 @@ internal sealed class DesktopReadingResources(Application application) {
         Set(resources, "KcapComposerPadding", compact ? new Thickness(10, 6, 10, 9) : null);
         Set(resources, "KcapSessionRowPadding", compact ? new Thickness(6, 4) : null);
         Set(resources, "KcapProseLineHeight", compact ? 22d : null);
-        Set(resources, "KcapStructuredTooltips", preferences is null ? null : true);
         Set(resources, "KcapReadingFamily", mono ? new FontFamily(MonospaceReadingFamily) : null);
         Set(resources, "KcapUseMonospaceReading", mono ? true : null);
         PublishLayout();

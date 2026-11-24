@@ -84,14 +84,17 @@ public class PullRequestViewSmokeTests {
         await Assert.That(TooltipPreviewScope.Text(select)).Contains("Second linked PR");
         preview.Disable();
         TooltipPreviewScope.Pump(host.Window);
-        await Assert.That(ToolTip.GetIsOpen(select)).IsFalse();
-        await Assert.That(string.IsNullOrEmpty(AutomationProperties.GetHelpText(select))).IsTrue();
+        await Assert.That(select.IsFocused).IsTrue();
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(TooltipPreviewScope.Text(select)).Contains("Second linked PR");
+        await Assert.That(AutomationProperties.GetHelpText(select)).Contains("Second linked PR");
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
         await Assert.That(select.IsDropDownOpen).IsTrue();
-        var legacyChoice = (ComboBoxItem)select.ContainerFromIndex(1)!;
-        await Assert.That(legacyChoice.IsFocused).IsTrue();
+        var choice = (ComboBoxItem)select.ContainerFromIndex(1)!;
+        await Assert.That(choice.IsFocused).IsTrue();
         TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
-        await Assert.That(ToolTip.GetIsOpen(legacyChoice)).IsFalse();
+        await Assert.That(TooltipPreviewScope.Text(choice)).Contains("Merged");
     });
 
     [Test]
