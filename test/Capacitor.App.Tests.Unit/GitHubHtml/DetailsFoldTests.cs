@@ -1,4 +1,6 @@
 using Capacitor.App.GitHubHtml;
+using Markdig.Extensions.TaskLists;
+using Markdig.Syntax;
 
 namespace Capacitor.App.Tests.Unit.GitHubHtml;
 
@@ -100,6 +102,60 @@ public class DetailsFoldTests {
     public async Task A_summary_holds_no_links() =>
         await Assert.That(Trees.Dump("<details>\n<summary><a href=\"https://u.example\">L</a> <img src=\"https://h/i.png\"></summary>\n\nb\n\n</details>"))
             .IsEqualTo("doc(details#0{'L',' ','i.png'}(p('b')))");
+
+    [Test]
+    public async Task A_heading_wrapped_disclosure_keeps_its_nested_sections_and_task_list() {
+        const string markdown = """
+            <details>
+            <summary>Earlier review</summary>
+            <dl>
+            <dd>
+
+            Body
+
+            </dd>
+            </dl>
+            </details>
+            <!-- task:start -->
+            - [ ] <!-- metadata --> <strong>Autofix</strong>
+            <!-- task:end -->
+
+            <h6>
+            <details>
+            <summary><strong>Review: <picture><img src="https://h/info.svg" alt=""></picture> Recent info</strong></summary>
+            <dl>
+            <dd>
+
+            <details>
+            <summary>Run configuration</summary>
+
+            Nested body
+
+            </details>
+
+            </dd>
+            </dl>
+            </details>
+            </h6>
+
+            <h6>Ordinary heading</h6>
+            """;
+
+        var document = Trees.Parse(markdown);
+        await Assert.That(document.Descendants<HtmlBlock>()).IsEmpty();
+        await Assert.That(document.Descendants<TaskList>().Count()).IsEqualTo(1);
+        var dump = TreeDump.Of(document);
+        await Assert.That(dump).Contains("details#1{em*2('Review: ','Recent info')}(details#2{'Run configuration'}(p('Nested body')))");
+        await Assert.That(dump).Contains("h6('Ordinary heading')");
+    }
+
+    [Test]
+    public async Task A_task_marker_inside_an_html_comment_stays_hidden() {
+        const string markdown = "<details><summary>Title</summary>\n<!--\n</details>\n- [ ] Hidden\n-->\n</details>";
+        var document = Trees.Parse(markdown);
+        await Assert.That(document.Descendants<TaskList>()).IsEmpty();
+        await Assert.That(TreeDump.Of(document)).IsEqualTo("doc(details#0{'Title'}())");
+    }
 
     [Test]
     public async Task A_pre_directly_inside_the_pair_is_accepted() =>

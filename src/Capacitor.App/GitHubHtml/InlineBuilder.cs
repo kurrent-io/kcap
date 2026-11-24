@@ -63,6 +63,10 @@ static class InlineBuilder {
         }
 
         void Append(string text) {
+            if (mode == InlineBuildMode.Summary && text.StartsWith(' ') &&
+                _target.LastChild is LiteralInline previous && previous.Content.AsSpan().EndsWith(" "))
+                text = text[1..];
+
             if (_code is not null) _code.Append(text);
             else if (text.Length > 0) _target.AppendChild(new LiteralInline(text));
         }
@@ -80,7 +84,9 @@ static class InlineBuilder {
             }
             if (token.Name != "img") return;
             var source = token.Attribute("src")?.Trim() ?? "";
-            var label = ImageLabel.For(token.Attribute("alt"), source);
+            var alt = token.Attribute("alt");
+            if (mode == InlineBuildMode.Summary && alt is "") return;
+            var label = ImageLabel.For(alt, source);
             if (_code is not null || mode == InlineBuildMode.Summary) { Append(label); return; }
             var image = new LinkInline(source, "") { IsImage = true };
             image.AppendChild(new LiteralInline(label));
