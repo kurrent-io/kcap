@@ -4,6 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.App.Views;
 
@@ -253,6 +254,60 @@ public class PaneLayoutMemoryTests {
             window.UpdateLayout();
             await Assert.That(pane.Bounds.Width).IsEqualTo(450);
             window.Close();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Narrow_local_and_remote_workspaces_keep_details_reachable_by_keyboard(bool remote) {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var window = new MainWindow { Width = WindowSizeMemory.MinWidth, Height = WindowSizeMemory.MinHeight };
+            window.Panes.ContextWidth = 380;
+            UserControl view = remote ? new RemoteSessionView() : new WorkspaceView();
+            window.ContentPane.Children.Add(view);
+            void Settle() {
+                Dispatcher.UIThread.RunJobs();
+                window.UpdateLayout();
+                Dispatcher.UIThread.RunJobs();
+            }
+            void Resize(double width) {
+                window.Width = width;
+                Settle();
+            }
+            window.Show();
+            try {
+                Settle();
+                var pane = view.FindControl<WorkContextView>("WorkContextHost")!;
+                var show = view.FindControl<Button>("ContextShowButton")!;
+                await Assert.That(pane.IsEffectivelyVisible).IsFalse();
+                await Assert.That(window.Panes.ContextCollapsed).IsFalse();
+
+                await Assert.That(show.Focus(NavigationMethod.Tab)).IsTrue();
+                window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+                Settle();
+                await Assert.That(pane.IsEffectivelyVisible).IsTrue();
+                await Assert.That(pane.HideButton.IsFocused).IsTrue();
+
+                Resize(WindowSizeMemory.DefaultWidth);
+                await Assert.That(view.Bounds.Width).IsGreaterThanOrEqualTo(ContextPaneFit.RoomNeeded);
+                Resize(WindowSizeMemory.MinWidth);
+                await Assert.That(pane.IsEffectivelyVisible).IsFalse();
+                await Assert.That(show.IsFocused).IsTrue();
+                await Assert.That(window.Panes.ContextWidth).IsEqualTo(380);
+
+                Resize(WindowSizeMemory.DefaultWidth);
+                await Assert.That(pane.HideButton.IsFocused).IsTrue();
+                window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+                Settle();
+                await Assert.That(show.IsFocused).IsTrue();
+                await Assert.That(window.Panes.ContextCollapsed).IsTrue();
+
+                Resize(WindowSizeMemory.MinWidth);
+                Resize(WindowSizeMemory.DefaultWidth);
+                await Assert.That(pane.IsEffectivelyVisible).IsFalse();
+            } finally { window.Close(); }
         });
     }
 

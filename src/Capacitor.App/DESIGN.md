@@ -48,3 +48,9 @@ Appearance offers Comfortable and Compact density. Compact reduces padding and r
 Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux before widening the preview.
 
 Compare the stock app, preview-off and default appearance under Light and Dark with the same native synthetic transcript. Compare startup, typing, scrolling and jumps independently.
+
+## Work-context focus
+
+Keep a keyboard path back to Details as the inspector fits, collapses or reopens. If focus is inside a pane that must hide, move it to the visible Details control. Opening that control puts focus on the inspector’s Hide details action.
+
+Show static row placeholders while the session list loads in the preview. Keep the loading label as the text status and remove the placeholders as soon as the list settles.
