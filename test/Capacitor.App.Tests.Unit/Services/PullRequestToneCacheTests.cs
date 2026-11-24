@@ -358,9 +358,9 @@ public class PullRequestToneCacheTests {
         await Assert.That(source.Lists).IsEqualTo(1);
     }
 
-    static (FakeAgentDirectory Directory, FakePullRequestSource Source, FakeTimeProvider Time, PullRequestToneCache Cache) Build() {
+    static (FakeAgentDirectory Directory, FakePullRequestSource Source, ArmedTimeProvider Time, PullRequestToneCache Cache) Build() {
         var directory = new FakeAgentDirectory();
-        var time = new FakeTimeProvider();
+        var time = new ArmedTimeProvider();
         var source = new FakePullRequestSource(time) { AccessSeconds = 300 };
         var cache = new PullRequestToneCache(directory, source, time);
         return (directory, source, time, cache);
@@ -574,8 +574,10 @@ public class PullRequestToneCacheTests {
         // Refused with a retry time of the moment it is answered.
         source.ListResponses.Enqueue(new(PullRequestReadKind.Unavailable, Reason: "server_unavailable", AccessFailure: "transient",
             RetryAt: time.GetUtcNow().UtcDateTime.AddMinutes(2), StatusCode: 429));
+        var mark = time.Armed;
         time.Advance(TimeSpan.FromMinutes(2));
         await WaitUntilAsync(() => source.Lists == 2, what: "the refused read");
+        await WaitUntilAsync(() => time.ArmedSince(mark, TimeSpan.FromSeconds(1)), what: "the one-second hold");
         await Task.Delay(100);
         await Assert.That(source.Lists).IsEqualTo(2);
 

@@ -3,7 +3,6 @@ using System.Reactive.Threading.Tasks;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core.Handoff;
 using Capacitor.Cli.Core.LocalIpc;
-using Microsoft.Extensions.Time.Testing;
 using static Capacitor.App.Tests.Unit.WorkspaceFixtures;
 
 namespace Capacitor.App.Tests.Unit.Services;
@@ -11,10 +10,13 @@ namespace Capacitor.App.Tests.Unit.Services;
 public class HandoffOutcomeReaderTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
+    // Generous: it only bounds how long a broken poll takes to fail, and a loaded host stalls for seconds.
+    static readonly TimeSpan StepWait = TimeSpan.FromSeconds(30);
+
     sealed class Rig : IDisposable {
         public FakeDaemonClientService Daemon { get; } = new();
         public ScriptedLocalControlOps Ops { get; } = new();
-        public FakeTimeProvider Time { get; } = new();
+        public ArmedTimeProvider Time { get; } = new();
         public List<HandoffOutcomeDto> Seen { get; } = [];
         public bool Completed;
         public int Reads;
@@ -44,16 +46,15 @@ public class HandoffOutcomeReaderTests {
             }
         }
 
-        /// Advances poll gaps until reads stop: the window has lapsed and the poll has ended.
+        /// Steps the poll through its null window one gap at a time, each step waiting for the delay that follows a
+        /// read to be armed, so every gap is exactly one poll interval and the window ends on a known read.
         public async Task LapseWindowAsync() {
-            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
-            var still = 0;
-            while (still < 10) {
-                if (DateTime.UtcNow > deadline) throw new TimeoutException("the window to lapse");
-                var before = Volatile.Read(ref Reads);
+            var lastRead = (int)(HandoffOutcomeReader.NullWindow / HandoffOutcomeReader.PollInterval) + 1;
+            while (Volatile.Read(ref Reads) < lastRead) {
+                var reads = Volatile.Read(ref Reads);
+                await WaitUntilAsync(() => Time.Armed >= reads, StepWait, "the delay after a read");
                 Time.Advance(HandoffOutcomeReader.PollInterval);
-                await Task.Delay(5);
-                still = Volatile.Read(ref Reads) == before ? still + 1 : 0;
+                await WaitUntilAsync(() => Volatile.Read(ref Reads) > reads, StepWait, "the next read");
             }
         }
 
@@ -110,6 +111,7 @@ public class HandoffOutcomeReaderTests {
         await rig.LapseWindowAsync();
 
         var reads = rig.Reads;
+        var armed = rig.Time.Armed;
         rig.Time.Advance(TimeSpan.FromMinutes(5));
         await Task.Delay(50);
 
@@ -117,6 +119,7 @@ public class HandoffOutcomeReaderTests {
         await Assert.That(reads).IsGreaterThanOrEqualTo(2);
         await Assert.That(reads).IsLessThanOrEqualTo((int)(HandoffOutcomeReader.NullWindow / HandoffOutcomeReader.PollInterval) + 2);
         await Assert.That(rig.Reads).IsEqualTo(reads);
+        await Assert.That(rig.Time.Armed).IsEqualTo(armed).Because("the poll ended instead of waiting for another read");
     }
 
     [Test]

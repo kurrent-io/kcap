@@ -197,9 +197,11 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await Assert.That(File.Exists(Path.Combine(f.Checkout, "work.txt"))).IsTrue();
     }
 
+    /// <summary>The runtime exits a moment after it starts; the window is far longer than any stall a loaded runner puts
+    /// between the two, so the exit always lands inside it.</summary>
     [Test]
     public async Task A_runtime_that_exits_inside_the_readiness_window_is_reported_and_leaves_nothing() {
-        await using var f = new Fixture(Tmp, new LoadableFactory("claude") { ExitsLater = true }, readiness: TimeSpan.FromSeconds(5));
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude") { ExitsLater = true }, readiness: TimeSpan.FromMinutes(2));
 
         await f.Orch.HandleLaunchAgentForTest(f.Launch());
 

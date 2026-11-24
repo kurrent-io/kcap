@@ -247,7 +247,8 @@ public class WorkspaceViewModelTests {
             await Assert.That(vm.IsArtefactsActive).IsTrue();
 
             gate.SetResult(Ready());
-            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            // The tab stays while either read is loading, so both must have settled before it can go.
+            await Task.WhenAll(vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask, vm.Artefacts.PendingPagesForTesting ?? Task.CompletedTask);
             await Assert.That(vm.ShowsArtefactsTab).IsFalse();
             await Assert.That(vm.ActiveTab).IsEqualTo(WorkspaceTab.Chat);
             await vm.TeardownAsync();
