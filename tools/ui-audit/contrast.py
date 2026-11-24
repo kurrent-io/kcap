@@ -28,12 +28,13 @@ def colours(text):
     return found
 
 
-def rgb(hexvalue, behind=None):
+def rgb(hexvalue, behind=None, opacity=1.0):
     h = hexvalue.lstrip("#")
     if len(h) == 8:
         alpha, h = int(h[:2], 16) / 255, h[2:]
     else:
         alpha = 1.0
+    alpha *= opacity
     c = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
     if alpha < 1 and behind is not None:
         c = [round(a * alpha + b * (1 - alpha)) for a, b in zip(c, behind)]
@@ -53,7 +54,7 @@ def ratio(a, b):
     return (la + 0.05) / (lb + 0.05)
 
 
-def audit(palette, edges=EDGES):
+def audit(palette, opacities, edges=EDGES):
     missing = sorted(set(SURFACES + TEXT + STATUS_INKS + STATUS_FILLS + STATUS_TEXT + edges) - palette.keys())
     if missing:
         print("Missing palette entries: " + ", ".join(missing))
@@ -66,7 +67,7 @@ def audit(palette, edges=EDGES):
         for surface in backing_surfaces:
             back = rgb(fill, rgb(palette[surface]) if surface else None)
             background = f"{bg} over {surface}" if surface else bg
-            r = ratio(rgb(palette[fg], back), back)
+            r = ratio(rgb(palette[fg], back, opacities.get(fg, 1.0)), back)
             flag = "ok " if r >= need else "LOW"
             print(f"  {flag} {r:5.2f}:1  {fg:28} on {background}")
             if r < need:
@@ -79,6 +80,9 @@ def audit(palette, edges=EDGES):
     print("Text on status fills (need 4.5:1)")
     for bg in STATUS_FILLS:
         for fg in STATUS_TEXT:
+            check(fg, bg, 4.5)
+    for fg, bg in zip(STATUS_INKS, STATUS_FILLS):
+        if fg not in STATUS_TEXT:
             check(fg, bg, 4.5)
     print("Field edges on surfaces (need 3:1)")
     for bg in SURFACES:
@@ -96,11 +100,13 @@ def audit(palette, edges=EDGES):
 
 if __name__ == "__main__":
     base = colours(AXAML.read_text())
-    result = audit(base)
+    key = "{http://schemas.microsoft.com/winfx/2006/xaml}Key"
+    opacities = {entry.attrib[key]: float(entry.attrib["Opacity"])
+                 for entry in ET.parse(AXAML).getroot().iter() if key in entry.attrib and "Opacity" in entry.attrib}
+    result = audit(base, opacities)
     if len(sys.argv) == 1:
-        key = "{http://schemas.microsoft.com/winfx/2006/xaml}Key"
         for variant in ET.parse(AXAML.with_name("ClassicPreview.axaml")).getroot():
             print(f"\n{variant.attrib[key]}")
             overrides = {entry.attrib[key]: entry.text.strip() for entry in variant}
-            result |= audit(base | overrides, [*EDGES, "KcapChoiceBorderBrush"])
+            result |= audit(base | overrides, opacities, [*EDGES, "KcapChoiceBorderBrush", "KcapTopicRailBrush"])
     sys.exit(result)

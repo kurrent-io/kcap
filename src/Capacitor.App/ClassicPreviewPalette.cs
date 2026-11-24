@@ -68,7 +68,7 @@ internal sealed class ClassicPreviewPalette(Application application) {
         "ProgressiveDisclosureFootnoteFadeBrush"
             => Between((Color)palette["KcapFaintBrush"]!, (Color)palette["KcapTextBrush"]!),
         "KcapBorderBrush" or "KcapBorderStrongBrush" => Between(color, (Color)palette["KcapFieldBorderBrush"]!),
-        "KcapChoiceBorderBrush" or "KcapFieldBorderBrush" => (Color)palette["KcapTextBrush"]!,
+        "KcapChoiceBorderBrush" or "KcapFieldBorderBrush" or "KcapTopicRailBrush" => (Color)palette["KcapTextBrush"]!,
         "ProgressiveDisclosureDetailCodeFadeBrush" or "ProgressiveDisclosureFootnoteCodeFadeBrush"
             => (Color)palette["KcapSurfaceRaisedBrush"]!,
         _ => color,
