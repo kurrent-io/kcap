@@ -2,7 +2,6 @@ using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Recording;
-using Microsoft.Extensions.Time.Testing;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Unit;
@@ -32,10 +31,16 @@ public class LocalDaemonRecordingTests {
             return follows is { } pid ? new ProcessIncarnation(pid, "test:followed") : process;
         });
 
-    /// <summary>The terminal hello wait runs on a clock nobody advances, so a loaded host never reads a fake daemon's
-    /// late hello as none: the wait's expiry is pinned where it is driven, in RecordingIpcTests.</summary>
+    /// <summary>The real clock with every wait stretched to a minute: a fake daemon's late hello always lands inside it
+    /// however a loaded host stalls, and one that never answers still fails rather than hangs. The wait's own length is
+    /// pinned in RecordingIpcTests.</summary>
+    sealed class StretchedClock : TimeProvider {
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            System.CreateTimer(callback, state, dueTime == Timeout.InfiniteTimeSpan ? dueTime : TimeSpan.FromMinutes(1), period);
+    }
+
     LocalDaemonRecording Client(HostedAgent? hosted = null, string? daemonName = DaemonName, TerminalHandOff? terminal = null) =>
-        new(Daemons.Store, hosted ?? Hosted, daemonName, terminal, new FakeTimeProvider());
+        new(Daemons.Store, hosted ?? Hosted, daemonName, terminal, new StretchedClock());
 
     /// <summary>A daemon on its socket with its recording marker written, as one with recording on leaves it.</summary>
     FakeRecordingDaemon Daemon(params string[] capabilities) {
