@@ -5,6 +5,7 @@ using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Capacitor.App.Services;
 using Markdig.Syntax;
 using MarkView.Avalonia.Rendering;
 using MarkView.Avalonia.SyntaxHighlighting;
@@ -74,7 +75,7 @@ public sealed class CodeBlockActionRenderer(MarkdownView view, CodeBlockActions 
             if (TopLevel.GetTopLevel(button)?.Clipboard is not { } clipboard) return;
             var mine = ++copies;
             try {
-                await clipboard.SetTextAsync(text);
+                await MarkdownClipboard.InOrder(() => clipboard.SetTextAsync(text));
                 button.Content = "Copied";
             } catch (Exception) {
                 button.Content = "Copy failed";

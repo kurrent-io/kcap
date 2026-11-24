@@ -419,7 +419,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             : new HeldMessagesViewModel(row.Id, heldMessages, lane.HeldMessagesChanged, HeldViewer(lane.Status, _rows));
         Chat = new ChatTabViewModel(
             row.Id, AgentOrigin.Remote, _session, Observable.Return<string[]?>(null), input, uploader ?? new NoAttachmentUploader(),
-            key => new RemoteTranscriptFeed(key, row.Vendor, _accessStates, readEvents, lane, time, Log, cache: transcripts),
+            key => new RemoteTranscriptFeed(key, row.Vendor, _accessStates, readEvents, lane, time, Log, cache: transcripts,
+                canCopySession: () => CanCopyTranscript(key)),
             // A session-only chat has no agent here to answer for it: no session, no cards, no send.
             opener, time, permissions, runs, missingNote: MissingNote, sessionId: IsSessionOnly ? Observable.Return<string?>(null) : _sessionIds,
             serverQueue: Observable.Switch(_sessionIds
@@ -741,6 +742,10 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         _accessStates.OnNext(SessionAccessState.Unavailable);
     }
 
+    bool CanCopyTranscript(string sessionId) =>
+        _sessionIds.Value == sessionId && Access != RemoteSessionAccess.Denied
+            && (_row.Origin != AgentOrigin.Server || _row.AccessLevel is null or "" or "full");
+
     static void Log(string note) => Console.Error.WriteLine($"kcap: remote chat: {note}");
 
     public void HandDraftTo(AgentOrigin origin) => _drafts?.Move(AgentOrigin.Remote, origin, AgentId);
@@ -753,7 +758,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         // The chat opens its feed while the pane is still being built; until then the row it opened on answers.
         pane = new SubagentPaneViewModel(
             _runs, row, Title, AgentOrigin.Remote, AgentId, vendor, $"{sessionId}/{subagentId}",
-            _ => new RemoteSubagentFeed(sessionId, subagentId, vendor, read, () => pane?.IsRunning ?? row.IsRunning, _time, Log),
+            _ => new RemoteSubagentFeed(sessionId, subagentId, vendor, read, () => pane?.IsRunning ?? row.IsRunning, _time, Log,
+                _accessStates, () => CanCopyTranscript(sessionId)),
             _opener, _time, _permissions, CloseSubagent);
         ReplaceSubagent(pane);
         ActiveTab = RemoteTab.Chat;

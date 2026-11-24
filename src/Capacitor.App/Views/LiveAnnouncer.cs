@@ -1,4 +1,6 @@
 using Avalonia;
+using Avalonia.Automation;
+using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 
 namespace Capacitor.App.Views;
@@ -15,9 +17,10 @@ public static class LiveAnnouncer {
     public static void Assertive(Visual from, string text) => Announce(from, text, AssertiveName);
 
     static void Announce(Visual from, string text, string region) {
-        if (TopLevel.GetTopLevel(from) is not Window window || NameScope.GetNameScope(window)?.Find<TextBlock>(region) is not { } live) return;
-        // Cleared first, so the same words twice in a row are still a change the reader hears.
-        live.Text = "";
-        live.Text = text;
+        if (string.IsNullOrEmpty(text) || TopLevel.GetTopLevel(from) is not Window window
+            || NameScope.GetNameScope(window)?.Find<TextBlock>(region) is not { } live) return;
+        // AppKit requires a nonempty announcement, including when the same text is announced again.
+        if (live.Text != text) live.Text = text;
+        else ControlAutomationPeer.FromElement(live)?.RaisePropertyChangedEvent(AutomationElementIdentifiers.NameProperty, text, text);
     }
 }

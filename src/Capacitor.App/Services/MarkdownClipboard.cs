@@ -24,7 +24,7 @@ public static class MarkdownClipboard {
     public static DataFormat HtmlFormat { get; } =
         OperatingSystem.IsMacOS() ? DataFormat.CreateStringPlatformFormat("public.html")
         : OperatingSystem.IsWindows() ? DataFormat.CreateBytesPlatformFormat("HTML Format")
-        : DataFormat.CreateStringPlatformFormat("text/html");
+        : DataFormat.CreateBytesPlatformFormat("text/html");
 
     public static (string Text, string Html) Content(string markdown, MarkdownFlavor flavor) {
         try {
@@ -40,7 +40,7 @@ public static class MarkdownClipboard {
         var (text, html) = Content(markdown, flavor);
         var item = new DataTransferItem();
         item.SetText(text);
-        if (HtmlFormat is DataFormat<byte[]> bytes) item.Set(bytes, WindowsEnvelope(html));
+        if (HtmlFormat is DataFormat<byte[]> bytes) item.Set(bytes, OperatingSystem.IsWindows() ? WindowsEnvelope(html) : Encoding.UTF8.GetBytes(html));
         else item.Set((DataFormat<string>)HtmlFormat, html);
         var transfer = new DataTransfer();
         transfer.Add(item);

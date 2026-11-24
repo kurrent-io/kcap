@@ -131,4 +131,16 @@ public class MarkdownClipboardTests {
         await Assert.That(item.Formats.Count).IsEqualTo(2);
         await Assert.That(item.Formats.Any(f => f == MarkdownClipboard.HtmlFormat)).IsTrue();
     }
+
+    [Test]
+    public async Task Linux_HTML_uses_the_byte_format_requested_by_the_native_X11_clipboard() {
+        if (!OperatingSystem.IsLinux()) return;
+        using var transfer = MarkdownClipboard.Transfer("**café**", MarkdownFlavor.Chat);
+        var item = transfer.Items.Single();
+        var bytes = item.TryGetRaw(DataFormat.CreateBytesPlatformFormat("text/html")) as byte[];
+
+        await Assert.That(bytes).IsNotNull();
+        await Assert.That(Encoding.UTF8.GetString(bytes!)).Contains("<strong>café</strong>");
+    }
+
 }

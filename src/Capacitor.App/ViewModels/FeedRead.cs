@@ -6,6 +6,9 @@ namespace Capacitor.App.ViewModels;
 /// names where that history ends, so a send is rebased past the replay yet can still be
 /// acknowledged by anything that arrived after it.
 public sealed record FeedRead(FeedStatus Status, IReadOnlyList<ProjectedLine> Lines, long? SnapshotOffset = null, string? Failure = null) {
+    // A remote range must still belong to the access grant that admitted its rows.
+    internal int? CopyRevision { get; init; }
+
     /// Run signals the feed read outside its lines, applied after them.
     public IReadOnlyList<RunSignal> Runs { get; init; } = [];
     /// Lines from before everything the feed delivered so far, oldest first; they go above the rows on screen.

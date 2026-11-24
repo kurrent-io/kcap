@@ -35,7 +35,7 @@ namespace Capacitor.App.Tests.Unit.Views;
 /// ChatTabViewModel DataContext, so what is under test is exactly ChatTabView's list virtualization
 /// and follow-tail, not WorkspaceView's tab swap. Same session rules as every UI suite here —
 /// RunOnUiAsync plus [NotInParallel("AvaloniaSession")].
-public class ChatTabViewSmokeTests {
+public partial class ChatTabViewSmokeTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     const string UserLine = """{"type":"user","message":{"role":"user","content":"hello"}}""";
@@ -2656,6 +2656,50 @@ public class ChatTabViewSmokeTests {
             await host.CloseAsync();
         });
     }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Copying_a_whole_message_twice_emits_two_nonempty_live_receipts() =>
+        RunOnUiAsync(async () => {
+            var reading = new DesktopReadingResources(Application.Current!);
+            Host? host = null;
+            try {
+                reading.Apply(new DesktopAppearancePreferences());
+                host = new Host(show: false, marks: false);
+                var live = new TextBlock { Width = 1, Height = 1, Opacity = 0, IsHitTestVisible = false };
+                AutomationProperties.SetLiveSetting(live, AutomationLiveSetting.Polite);
+                var names = new NameScope();
+                names.Register(LiveAnnouncer.PoliteName, live);
+                NameScope.SetNameScope(host.Window, names);
+                host.Window.Content = null;
+                host.Window.Content = new Panel { Children = { host.View, live } };
+                var peer = ControlAutomationPeer.CreatePeerForElement(live);
+                var announcements = new List<string>();
+                peer.PropertyChanged += (_, e) => {
+                    if (e.Property == AutomationElementIdentifiers.NameProperty && peer.GetLiveSetting() == AutomationLiveSetting.Polite)
+                        announcements.Add(peer.GetName());
+                };
+                host.Show();
+                await host.LoadAsync(Tmp.CreateFile("copy-receipt.jsonl", [UserLine]));
+                var action = host.View.GetVisualDescendants().OfType<MessageCopyButton>().Single(c => c.IsEffectivelyVisible);
+                var button = action.FindControl<Button>("CopyButton")!;
+                var clipboard = host.Window.Clipboard!;
+                for (var repeat = 0; repeat < 2; repeat++) {
+                    await clipboard.SetTextAsync("clipboard sentinel");
+                    host.Window.MouseMove(PresentAndLocate(host, button));
+                    Click(host, button);
+                    await action.PendingCopyForTesting!;
+                    await Assert.That(await clipboard.TryGetTextAsync()).IsEqualTo("hello");
+                }
+                await Assert.That(announcements).IsEquivalentTo(["Copied", "Copied"], CollectionOrdering.Matching);
+            } finally {
+                try {
+                    if (host is not null) await host.CloseAsync();
+                } finally {
+                    reading.Apply(null);
+                }
+            }
+        });
 
     /// Pins the fold: settled calls become one summary line, live calls stay as rows, and a click
     /// on the summary reveals every call and hides them again.

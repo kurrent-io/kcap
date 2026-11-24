@@ -1,3 +1,4 @@
+using System.Reactive.Disposables;
 using System.Text.Json;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
@@ -10,7 +11,47 @@ namespace Capacitor.App.ViewModels;
 /// more slowly still.
 internal sealed class RemoteSubagentFeed(
         string sessionId, string agentId, string vendor, SubagentEventsReader read, Func<bool> running,
-        TimeProvider time, Action<string> log) : IChatTranscriptFeed {
+        TimeProvider time, Action<string> log, IObservable<SessionAccessState>? access = null,
+        Func<bool>? isCurrentSession = null) : IChatTranscriptFeed {
+    readonly Lock _copyLock = new();
+    readonly SingleAssignmentDisposable _accessSubscription = new();
+    int _observingAccess;
+    int _copyRevision;
+    bool _parentDenied;
+    bool _copyAllowed;
+
+    internal bool CanCopy(int revision) {
+        lock (_copyLock)
+            return _copyAllowed && revision == _copyRevision && (isCurrentSession?.Invoke() ?? true);
+    }
+
+    void ObserveAccess() {
+        if (access is null || Interlocked.Exchange(ref _observingAccess, 1) != 0) return;
+        _accessSubscription.Disposable = access.Subscribe(state => {
+            lock (_copyLock) {
+                _parentDenied = state == SessionAccessState.Denied
+                    || _parentDenied && state != SessionAccessState.Established;
+                if (_parentDenied) DenyCopyLocked();
+            }
+        });
+    }
+
+    void DenyCopy() {
+        lock (_copyLock) DenyCopyLocked();
+    }
+
+    void DenyCopyLocked() {
+        _copyAllowed = false;
+        _copyRevision++;
+    }
+
+    int? AdmitCopy(int revision) {
+        lock (_copyLock) {
+            if (_accessSubscription.IsDisposed || _parentDenied || revision != _copyRevision) return null;
+            _copyAllowed = true;
+            return revision;
+        }
+    }
     internal static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     /// Once its subagent has ended the feed still looks now and then: nothing bounds how long its last
     /// events can trail the parent's word that it ended.
@@ -41,6 +82,7 @@ internal sealed class RemoteSubagentFeed(
         CancellationToken token;
         try { token = _lifetime.Token; } catch (ObjectDisposedException) { return new(FeedStatus.Ok, []); }
         if (token.IsCancellationRequested) return new(FeedStatus.Ok, []);
+        ObserveAccess();
         var now = time.GetUtcNow();
         if (_fetchedAt is { } last && now - last < (_complete ? EndedPollInterval : PollInterval)) return _standing;
         _fetchedAt = now;
@@ -52,22 +94,30 @@ internal sealed class RemoteSubagentFeed(
     FeedRead Fetch(CancellationToken token) {
         // Read before fetching: a subagent that ended before this fetch began is complete once it lands.
         var ended = !running();
+        int revision;
+        lock (_copyLock) revision = _copyRevision;
+        int? admitted = null;
         var lines = new List<ProjectedLine>();
         try {
             for (var page = 0; page < MaxPagesPerRead; page++) {
                 var fetch = read(sessionId, agentId, _next, token).GetAwaiter().GetResult();
                 // The server admits the route once its subagent row projects, which can trail the start record.
                 if (fetch.NotFound) {
+                    DenyCopy();
                     // An ended subagent the server still cannot find counts toward completion, so its polls slow down.
                     if (ended) Settle(ended);
                     return new(lines.Count > 0 || !ended ? FeedStatus.Ok : FeedStatus.Missing, lines);
                 }
-                if (fetch.Unauthorized) return Failed(lines, "not authorized to read this subagent");
+                if (fetch.Unauthorized) {
+                    DenyCopy();
+                    return Failed(lines, "not authorized to read this subagent");
+                }
                 if (fetch.Page is not { } dto) {
                     if (fetch.Failure is { } why && why != _loggedFailure) log($"subagent read: {why}");
                     _loggedFailure = fetch.Failure;
                     return Failed(lines, fetch.Failure is null ? "could not reach the server" : "could not read this subagent");
                 }
+                admitted = AdmitCopy(revision);
                 _loggedFailure = null;
                 var from = _next;
                 var received = 0;
@@ -92,7 +142,7 @@ internal sealed class RemoteSubagentFeed(
             log($"subagent read: {ex.Message}");
             return Failed(lines, "could not read this subagent");
         }
-        return new(FeedStatus.Ok, lines);
+        return new(FeedStatus.Ok, lines) { CopyRevision = admitted };
     }
 
     void Settle(bool ended) {
@@ -118,6 +168,8 @@ internal sealed class RemoteSubagentFeed(
     }
 
     public void Dispose() {
+        _accessSubscription.Dispose();
+        DenyCopy();
         _lifetime.Cancel();
         _lifetime.Dispose();
     }

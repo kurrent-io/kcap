@@ -17,7 +17,13 @@ public abstract class ChatItemViewModel : ReactiveObject {
     public bool StartsTopic { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// Where a message row came from in its transcript; null for any other row, and for one built outside a feed.
-    public ChatMessageKey? Key { get; init; }
+    public ChatMessageKey? Key {
+        get => SelectionKey is { Index: >= 0 } key ? key : null;
+        init => SelectionKey = value;
+    }
+
+    // Non-bookmarkable transcript rows occupy the negative ordinals.
+    internal ChatMessageKey? SelectionKey { get; init; }
 
     /// The bookmark marking this whole message, if the user took one.
     public ChatBookmark? Bookmark { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
