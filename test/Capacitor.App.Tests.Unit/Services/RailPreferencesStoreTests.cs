@@ -31,6 +31,18 @@ public class RailPreferencesStoreTests {
     }
 
     [Test]
+    public async Task Hidden_harnesses_round_trip_and_none_equals_an_empty_list() {
+        using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+        var store = new RailPreferencesStore(new AppStateStore(path));
+        var narrowed = Teams with { HiddenHarnesses = ["codex", "grok"] };
+
+        await store.SaveAsync(Url, "u1", narrowed);
+        await Assert.That(await store.BindUserAsync(Url, "kurrent", "u1")).IsEqualTo(narrowed);
+        await Assert.That(Teams with { HiddenHarnesses = [] }).IsEqualTo(Teams);
+        await Assert.That((Teams with { HiddenHarnesses = [] }).GetHashCode()).IsEqualTo(Teams.GetHashCode());
+    }
+
+    [Test]
     public async Task Last_user_is_null_until_a_profile_binds_one() {
         using var tmp = TempDir.WithPathTo("app-state.json", out var path);
         var state = new AppStateStore(path);

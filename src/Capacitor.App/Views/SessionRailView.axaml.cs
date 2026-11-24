@@ -19,7 +19,7 @@ namespace Capacitor.App.Views;
 public partial class SessionRailView : UserControl {
     public SessionRailView() {
         InitializeComponent();
-        foreach (var anchor in new[] { RailHelpButton, RailGroupButton, RailSortButton }) KeyboardDismissible(anchor);
+        foreach (var anchor in new[] { RailHelpButton, RailGroupButton, RailSortButton, RailHarnessButton }) KeyboardDismissible(anchor);
         RailKeyboard.Attach(RailGroups);
     }
 
