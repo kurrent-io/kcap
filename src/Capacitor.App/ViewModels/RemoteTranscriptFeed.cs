@@ -116,6 +116,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     /// Whether events before the oldest loaded one remain on the server.
     internal bool HasOlder { get { lock (_lock) return _earliest > 0 && !_olderRefused; } }
+    internal bool IsLoadingOlder { get { lock (_lock) return _olderRun is not null; } }
 
     /// Whether the next older page is loaded without the reader asking for it.
     internal bool PrefetchesOlder { get { lock (_lock) return _earliest > 0 && !_olderRefused && _position - _oldest + 1 < _prefetch; } }

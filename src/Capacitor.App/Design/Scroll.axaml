@@ -111,6 +111,21 @@
         <Setter Property="Opacity" Value="1" />
         <Setter Property="RenderTransform" Value="scale(0.97, 0.72)" />
     </Style>
+    <Style Selector="ScrollViewer.turnNavigator /template/ ScrollBar:vertical /template/ Rectangle#TrackRect">
+        <Setter Property="Fill" Value="{StaticResource KcapInfoDimBrush}" />
+        <Setter Property="StrokeThickness" Value="0" />
+        <Setter Property="Transitions" Value="{x:Null}" />
+        <Setter Property="Opacity" Value="1" />
+    </Style>
+    <Style Selector="ScrollViewer.turnNavigator /template/ ScrollBar:vertical /template/ Thumb /template/ Border#ThumbPill">
+        <Setter Property="Background" Value="{StaticResource KcapNavigatorThumbBrush}" />
+        <Setter Property="Transitions">
+            <Transitions>
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.12" Easing="CubicEaseOut" />
+            </Transitions>
+        </Setter>
+        <Setter Property="Opacity" Value="1" />
+    </Style>
     <Style Selector="GridSplitter.sidebarSplitter">
         <Setter Property="Width" Value="12" />
         <Setter Property="Background" Value="Transparent" />

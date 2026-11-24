@@ -32,6 +32,9 @@
     <SolidColorBrush x:Key="KcapControlHoverBrush" Color="#2A3040" />
     <SolidColorBrush x:Key="KcapControlPressedBrush" Color="#2A3040" />
     <SolidColorBrush x:Key="KcapSelectionBrush" Color="#1E2E52" />
+    <SolidColorBrush x:Key="KcapNavigatorThumbBrush" Color="#789AC7" />
+    <SolidColorBrush x:Key="KcapNavigatorMarkBrush" Color="#696E79" />
+    <SolidColorBrush x:Key="KcapNavigatorViewportBrush" Color="#A5C5EE" />
     <SolidColorBrush x:Key="KcapTopicRailBrush" Color="#B0B7C6" Opacity="0.55" />
     <SolidColorBrush x:Key="KcapTopicBrush" Color="#B0B7C6" />
     <SolidColorBrush x:Key="KcapBookmarkRedBrush" Color="#F87171" />

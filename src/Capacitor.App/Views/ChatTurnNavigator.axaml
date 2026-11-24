@@ -1,0 +1,72 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.ChatTurnNavigator">
+    <UserControl.Styles>
+        <Style Selector="Button#TurnMapButton /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+        </Style>
+        <Style Selector="ListBox#TurnList > ListBoxItem">
+            <Setter Property="Padding" Value="{DynamicResource KcapChoicePadding}" />
+            <Setter Property="MinHeight" Value="{StaticResource KcapMinTargetSize}" />
+        </Style>
+        <Style Selector="ListBox#TurnList > ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        </Style>
+        <Style Selector="ListBox#TurnList > ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter,
+                         ListBox#TurnList > ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+    </UserControl.Styles>
+    <Grid>
+        <views:ChatTurnMapButton x:Name="TurnMapButton" Classes="kcapGhost" HorizontalAlignment="Right" VerticalAlignment="Stretch"
+                HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                MinWidth="28" Width="28" Padding="0" CornerRadius="5"
+                AutomationProperties.Name="Turn navigator"
+                AutomationProperties.HelpText="Show or hide the outline of loaded turns.">
+            <Grid>
+                <views:ChatTurnMap x:Name="TurnMap" IsHitTestVisible="False" ClipToBounds="True"
+                                   MarkBrush="{StaticResource KcapNavigatorMarkBrush}"
+                                   ViewportBrush="{StaticResource KcapNavigatorViewportBrush}"
+                                   AutomationProperties.AccessibilityView="Raw" />
+                <views:AppIcon Kind="List" Size="14" VerticalAlignment="Top" Margin="0,9,0,0"
+                               IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw" />
+            </Grid>
+        </views:ChatTurnMapButton>
+        <Border x:Name="TurnOutline" IsVisible="False" Width="318" MaxHeight="400"
+                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8,6,44,6"
+                Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderStrongBrush}"
+                BorderThickness="1" CornerRadius="8" ClipToBounds="True">
+            <Grid RowDefinitions="Auto,*,Auto">
+                <StackPanel Margin="12,10,12,8" Spacing="3">
+                    <TextBlock Text="Loaded turns" FontSize="{StaticResource KcapFontSizeLarge}" FontWeight="SemiBold" />
+                    <TextBlock x:Name="HistoryStatus" FontSize="{StaticResource KcapFontSizeSmall}"
+                               Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" />
+                </StackPanel>
+                <views:ChatTurnList x:Name="TurnList" Grid.Row="1" Background="Transparent" BorderThickness="0" Focusable="True"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         AutomationProperties.Name="Loaded turns and navigation actions"
+                         AutomationProperties.HelpText="Use arrow keys to explore, Enter to activate, and Escape to return.">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="views:ChatTurnOutlineEntry">
+                            <StackPanel Spacing="2">
+                                <TextBlock Text="{Binding Title}" Foreground="{StaticResource KcapTextBrush}"
+                                           FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding Detail}" IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}"
+                                           TextTrimming="CharacterEllipsis" MaxLines="1">
+                                    <ToolTip.Tip><TextBlock Text="{Binding Detail}" MaxWidth="280" TextWrapping="Wrap" /></ToolTip.Tip>
+                                </TextBlock>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </views:ChatTurnList>
+                <TextBlock Grid.Row="2" Text="↑ ↓ Explore · Enter Jump · Esc Close" Margin="12,8"
+                           FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}"
+                           TextWrapping="Wrap" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

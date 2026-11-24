@@ -66,6 +66,9 @@
             <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
         </Style>
+        <Style Selector="Border.findBar.navigatorReserved">
+            <Setter Property="Margin" Value="0,10,50,0" />
+        </Style>
         <Style Selector="Button.findAction">
             <Setter Property="Padding" Value="5" />
             <Setter Property="Focusable" Value="False" />
@@ -398,6 +401,11 @@
              ItemsControl inside an external ScrollViewer is measured at infinite height. -->
         <ItemsControl x:Name="ChatItems" Grid.Row="2" ItemsSource="{Binding Items}" KeyboardNavigation.IsTabStop="False"
                       AutomationProperties.Name="Transcript" AutomationProperties.LandmarkType="Main">
+            <ItemsControl.Styles>
+                <Style Selector="ScrollViewer#ChatScroll">
+                    <Setter Property="AllowAutoHide" Value="{DynamicResource KcapTranscriptAutoHideScrollbar}" />
+                </Style>
+            </ItemsControl.Styles>
             <ItemsControl.Template>
                 <ControlTemplate>
                     <ScrollViewer x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" BringIntoViewOnFocusChange="False">

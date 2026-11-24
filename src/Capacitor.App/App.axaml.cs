@@ -1496,6 +1496,7 @@ public partial class App : Application {
                 && vm.OpenSession(AgentLinkLabels.HeldIdOf(directory.Rows, agentId) ?? agentId));
         var pageLinks = new PageLinkRouter(() => profiles?.Resolution.ServerUrl);
         var webView = new WebViewAvailability();
+        WatchDesktopExperiment(ExperimentalFeatures.ChatTurnNavigator, profiles?.Resolution.ProfileName, ChatTabView.TurnNavigatorResource);
         var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
         var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
         var drafts = new ComposerDrafts();
@@ -3541,6 +3542,7 @@ public partial class App : Application {
         (_coordinator?.Window?.DataContext as MainWindowViewModel)?.LatchShutdown();
         _notificationAccessPrompt?.Dispose();
         _desktopNotifications?.Dispose();
+        _desktopExperimentSubscriptions.Dispose();
         _classicPreviewSubscription?.Dispose();
         _classicPreview?.Dispose();
         _desktopAppearance?.Dispose();
