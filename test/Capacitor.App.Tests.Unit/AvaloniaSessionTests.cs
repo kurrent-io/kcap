@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 namespace Capacitor.App.Tests.Unit;
 
 [NotInParallel("AvaloniaSession")]
@@ -14,7 +15,7 @@ public class AvaloniaSessionTests {
         });
         try {
             await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            await Task.WhenAny(dispatch, Task.Delay(TimeSpan.FromMilliseconds(100)));
+            await dispatch.FinishedWithinAsync(TimeSpan.FromMilliseconds(100), TimeProvider.System);
             await Assert.That(dispatch.IsCompleted).IsFalse();
         } finally {
             release.TrySetResult();

@@ -478,7 +478,7 @@ public class OpenCodeDbTests {
 
         using var ocdb = new OpenCodeDb(db);
         var roles = ocdb.SynthesizeLines("ses_x")
-            .Select(l => System.Text.Json.JsonDocument.Parse(l).RootElement.GetProperty("info").GetProperty("role").GetString())
+            .Select(l => System.Text.Json.JsonElement.Parse(l).GetProperty("info").GetProperty("role").GetString())
             .ToList();
 
         await Assert.That(string.Join(",", roles)).IsEqualTo("user,assistant");
@@ -495,7 +495,7 @@ public class OpenCodeDbTests {
         var lines = ocdb.SynthesizeLines("ses_x").ToList();
 
         await Assert.That(lines.Count).IsEqualTo(1);
-        var parts = System.Text.Json.JsonDocument.Parse(lines[0]).RootElement.GetProperty("parts");
+        var parts = System.Text.Json.JsonElement.Parse(lines[0]).GetProperty("parts");
         await Assert.That(parts.GetArrayLength()).IsEqualTo(0);
     }
 

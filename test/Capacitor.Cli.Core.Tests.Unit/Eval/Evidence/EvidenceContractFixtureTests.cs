@@ -11,7 +11,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.Eval.Evidence;
 /// server's coverage measure asserts against, so the two producers cannot drift apart silently.</summary>
 public class EvidenceContractFixtureTests {
     static readonly JsonElement Fixture =
-        JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "eval-evidence", "contract.json"))).RootElement;
+        JsonElement.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "eval-evidence", "contract.json")));
 
     static List<string> Strings(JsonElement e) => [.. e.EnumerateArray().Select(x => x.GetString()!).Order(StringComparer.Ordinal)];
 

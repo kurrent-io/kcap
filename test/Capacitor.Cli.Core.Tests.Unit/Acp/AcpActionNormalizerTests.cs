@@ -8,7 +8,7 @@ using Capacitor.Cli.Core.Policy;
 /// canonical kind, and anything unmapped or missing a required field becomes Other rather than
 /// escaping evaluation.
 public class AcpActionNormalizerTests {
-    static JsonElement ToolCall(string json) => JsonDocument.Parse(json).RootElement.Clone();
+    static JsonElement ToolCall(string json) => JsonElement.Parse(json);
 
     [Test]
     public async Task Execute_with_a_command_maps_to_shell() {

@@ -30,7 +30,7 @@ public class ClaudeStatusLineReadingTests {
             root["rate_limits"] = limits;
         }
 
-        return JsonDocument.Parse(root.ToJsonString()).RootElement.Clone();
+        return JsonElement.Parse(root.ToJsonString());
     }
 
     static ReadingFile Run(ReadingFile held, JsonElement payload, DateTimeOffset at, bool afterSwitch = false) =>
@@ -101,7 +101,7 @@ public class ClaudeStatusLineReadingTests {
     public async Task Missing_rate_limits_writes_nothing() {
         await Assert.That(ClaudeStatusLineReading.Apply(Empty, Payload(rateLimits: false), false, T0)).IsNull();
         await Assert.That(ClaudeStatusLineReading.Apply(Empty, Payload(five: null, seven: null), false, T0)).IsNull();
-        await Assert.That(ClaudeStatusLineReading.Apply(Empty, JsonDocument.Parse("[]").RootElement, false, T0)).IsNull();
+        await Assert.That(ClaudeStatusLineReading.Apply(Empty, JsonElement.Parse("[]"), false, T0)).IsNull();
     }
 
     [Test]

@@ -596,8 +596,8 @@ public class DaemonClientServiceTests {
         // App shutdown proceeds without waiting on the outstanding start — the start's own
         // caller-supplied ct is what abandons ITS wait, not the service's dispose.
         var disposeTask = svc.DisposeAsync().AsTask();
-        var completed = await Task.WhenAny(disposeTask, Task.Delay(TimeSpan.FromSeconds(5)));
-        await Assert.That(completed).IsEqualTo(disposeTask);
+        var completed = await disposeTask.FinishedWithinAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
+        await Assert.That(completed).IsTrue();
 
         startCts.Cancel();
         await Assert.ThrowsAsync<OperationCanceledException>(() => startTask);

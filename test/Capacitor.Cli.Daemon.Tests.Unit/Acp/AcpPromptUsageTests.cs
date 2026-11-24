@@ -26,7 +26,7 @@ public class AcpPromptUsageTests {
                                           "cachedReadTokens":70},"_meta":{}}
         """;
 
-    static JsonElement Result(string json) => JsonDocument.Parse(json).RootElement.Clone();
+    static JsonElement Result(string json) => JsonElement.Parse(json);
 
     [Test]
     public async Task Gemini_names_its_own_model() {

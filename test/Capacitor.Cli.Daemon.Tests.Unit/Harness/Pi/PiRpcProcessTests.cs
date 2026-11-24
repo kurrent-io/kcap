@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Harness.Pi;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -241,9 +242,9 @@ public class PiRpcProcessTests {
         var disposeTask = proc.DisposeAsync().AsTask();
 
         var all    = Task.WhenAll(writeA, writeB, disposeTask);
-        var winner = await Task.WhenAny(all, Task.Delay(TimeSpan.FromSeconds(5)));
+        var finished = await all.FinishedWithinAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
 
-        await Assert.That(ReferenceEquals(winner, all)).IsTrue()
+        await Assert.That(finished).IsTrue()
             .Because("neither the blocked writer, the writer queued behind it, nor dispose itself " +
                       "may hang — the defect under test was disposing the stdin semaphore while a " +
                       "waiter was queued on it");

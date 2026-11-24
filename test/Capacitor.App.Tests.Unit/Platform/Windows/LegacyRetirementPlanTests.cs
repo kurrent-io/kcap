@@ -10,7 +10,7 @@ public class LegacyRetirementPlanTests {
     static readonly string OwnCli  = Path.Combine(OwnRoot, "current", "bin", "kcap.exe");
     static readonly DateTime Started = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Local);
 
-    static string In(params string[] segments) => Path.Combine(Root, Path.Combine(segments));
+    static string In(params string[] segments) => Path.Combine([Root, ..segments]);
 
     static LegacyRetirementFacts Facts => new(
         new LegacyWindowsInstall(Root, "1.4.0"), OwnRoot, OwnCli, [], [], [], [], null, []);

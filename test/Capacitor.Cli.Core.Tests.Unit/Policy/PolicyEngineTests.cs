@@ -20,7 +20,7 @@ public class PolicyEngineTests {
     }
 
     static JsonElement Fetch(string url) =>
-        JsonDocument.Parse($$"""{"url":"{{url}}"}""").RootElement.Clone();
+        JsonElement.Parse($$"""{"url":"{{url}}"}""");
 
     const string UserDoc = """
         version: 1

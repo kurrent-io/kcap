@@ -164,7 +164,7 @@ public class EvalContextCacheTests : IDisposable {
     public async Task A_slow_hold_release_never_holds_up_retiring_the_run() {
         // The release takes five seconds unless the test lets it finish sooner.
         var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var (connection, _) = Daemon(heldRelease: () => Task.WhenAny(finish.Task, Task.Delay(TimeSpan.FromSeconds(5))));
+        var (connection, _) = Daemon(heldRelease: () => finish.Task.FinishedWithinAsync(TimeSpan.FromSeconds(5), TimeProvider.System));
         await connection.PrepareEvalHandler!(Prepare("run-1"));
         await Assert.That(_stub.Requests("evidence-scope/holds").Count).IsEqualTo(1);
 

@@ -80,7 +80,7 @@ public class GrokImportTests : IDisposable {
         await Assert.That(sub.RootElement.GetProperty("agent_type").GetString()).IsEqualTo("general-purpose");
 
         var batches = _server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript")
-            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement).ToList();
+            .Select(e => JsonElement.Parse(e.RequestMessage.Body!)).ToList();
         await Assert.That(batches.All(b => b.GetProperty("vendor").GetString() == "grok")).IsTrue();
         await Assert.That(batches[1].GetProperty("agent_id").GetString()).IsEqualTo(Child.Replace("-", ""));
     }
@@ -108,7 +108,7 @@ public class GrokImportTests : IDisposable {
         await source.ImportSessionAsync(classified.Single(), new ImportContext(client, _server.Url!, ForcePrivate: false), CancellationToken.None);
 
         var batches = _server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript")
-            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement).ToList();
+            .Select(e => JsonElement.Parse(e.RequestMessage.Body!)).ToList();
 
         await Assert.That(detectedFor).IsEquivalentTo(new[] { "/repo/demo" });
         await Assert.That(batches[0].GetProperty("lines").GetArrayLength()).IsEqualTo(0);
@@ -144,7 +144,7 @@ public class GrokImportTests : IDisposable {
         await Assert.That(result.SentChildContent).IsTrue();
 
         var batches = _server.LogEntries.Where(e => e.RequestMessage.Path == "/hooks/transcript")
-            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement).ToList();
+            .Select(e => JsonElement.Parse(e.RequestMessage.Body!)).ToList();
         await Assert.That(batches.Single().GetProperty("agent_id").GetString()).IsEqualTo(Child.Replace("-", ""));
     }
 

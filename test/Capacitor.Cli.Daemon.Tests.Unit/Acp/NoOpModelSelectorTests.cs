@@ -31,7 +31,7 @@ public class NoOpModelSelectorTests {
 
         // A deliberately malformed JsonElement — NoOpModelSelector must not even attempt
         // TryGetProperty("models", ...) on it.
-        var malformed = JsonDocument.Parse("""{"unexpected":"shape"}""").RootElement;
+        var malformed = JsonElement.Parse("""{"unexpected":"shape"}""");
 
         var result = await NoOpModelSelector.Instance
             .TrySelectAsync(connection, sessionId: "any-session", malformed, requestedModel: "claude-sonnet-4-5", NullLogger.Instance, CancellationToken.None);
@@ -42,7 +42,7 @@ public class NoOpModelSelectorTests {
     [Test]
     public async Task TrySelectAsync_NoRequestedModel_ReturnsNull_NeverTouchesConnection() {
         var connection = new AcpConnection(new ThrowingStream(), new ThrowingStream(), NullLogger.Instance);
-        var malformed  = JsonDocument.Parse("""{"unexpected":"shape"}""").RootElement;
+        var malformed  = JsonElement.Parse("""{"unexpected":"shape"}""");
 
         var result = await NoOpModelSelector.Instance
             .TrySelectAsync(connection, sessionId: "any-session", malformed, requestedModel: null, NullLogger.Instance, CancellationToken.None);

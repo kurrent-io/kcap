@@ -441,7 +441,7 @@ public class SessionImporterProgressTests : IDisposable {
         await Assert.That(TranscriptPosts().Distinct()).IsEquivalentTo([CanonicalRoute.HttpPath]);
 
         var agents = _server.LogEntries.Where(e => e.RequestMessage.Path == CanonicalRoute.HttpPath)
-            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.TryGetProperty("agent_id", out var a) ? a.GetString() : null);
+            .Select(e => JsonElement.Parse(e.RequestMessage.Body!).TryGetProperty("agent_id", out var a) ? a.GetString() : null);
         await Assert.That(agents.Distinct()).IsEquivalentTo([null, agentId]);
     }
 

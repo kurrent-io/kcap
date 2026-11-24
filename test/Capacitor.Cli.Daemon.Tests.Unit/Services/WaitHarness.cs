@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
@@ -49,8 +50,8 @@ internal static class WaitHarness {
     /// which is a far worse signal than a named failure. Every <c>Submit*ForTest</c> call (the seams that
     /// must return WITHOUT execution) goes through here for exactly that reason.</summary>
     internal static async Task WaitBoundedAsync(Task task, string because) {
-        var finished = await Task.WhenAny(task, Task.Delay(Bounded));
-        await Assert.That(finished == task).IsTrue().Because(because);
+        var finished = await task.FinishedWithinAsync(Bounded, TimeProvider.System);
+        await Assert.That(finished).IsTrue().Because(because);
         await task;
     }
 }

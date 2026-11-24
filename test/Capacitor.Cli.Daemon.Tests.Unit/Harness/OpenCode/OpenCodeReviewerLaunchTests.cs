@@ -53,7 +53,7 @@ public class OpenCodeReviewerLaunchTests {
             resolveGeminiVersion: _ => InstalledVersion);
 
     static JsonElement Permission(System.Diagnostics.ProcessStartInfo psi) =>
-        JsonDocument.Parse(psi.Environment[OpenCodeLaunchEnvironment.PermissionVariable]!).RootElement;
+        JsonElement.Parse(psi.Environment[OpenCodeLaunchEnvironment.PermissionVariable]!);
 
     static void SkipOnWindows() =>
         Skip.Unless(!OperatingSystem.IsWindows(),
@@ -272,7 +272,7 @@ public class OpenCodeReviewerLaunchTests {
 
         await Assert.That(psi.Environment.ContainsKey(OpenCodeLaunchEnvironment.ConfigFileVariable)).IsFalse();
 
-        var passed = JsonDocument.Parse(psi.Environment[OpenCodeLaunchEnvironment.ConfigContentVariable]!).RootElement;
+        var passed = JsonElement.Parse(psi.Environment[OpenCodeLaunchEnvironment.ConfigContentVariable]!);
         await Assert.That(passed.EnumerateObject().Select(p => p.Name).Order()).IsEquivalentTo(["model", "provider"]);
         await Assert.That(passed.GetProperty("model").GetString()).IsEqualTo("a/inline");
         await Assert.That(passed.GetProperty("provider").TryGetProperty("from-file", out _)).IsTrue();
@@ -452,7 +452,7 @@ public class OpenCodeReviewerLaunchTests {
     public async Task AnOrdinaryInjectedServerName_IsAdmitted(string name) {
         var spec = new AcpMcpServerSpec(Name: name, Command: "kcap", Args: [], Env: []);
 
-        var permission = JsonDocument.Parse(OpenCodeReviewerPermissions.Build([spec])).RootElement;
+        var permission = JsonElement.Parse(OpenCodeReviewerPermissions.Build([spec]));
 
         await Assert.That(permission.GetProperty($"{name}_*").GetString()).IsEqualTo("allow");
     }

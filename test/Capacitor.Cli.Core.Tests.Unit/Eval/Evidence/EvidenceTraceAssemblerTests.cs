@@ -20,7 +20,7 @@ public class EvidenceTraceAssemblerTests : IDisposable {
     }];
 
     static JsonElement FirstCall(string traceJson) =>
-        JsonDocument.Parse(traceJson).RootElement[0].GetProperty("entries")[0].GetProperty("calls")[0];
+        JsonElement.Parse(traceJson)[0].GetProperty("entries")[0].GetProperty("calls")[0];
 
     [Test]
     public async Task Inline_arguments_are_carried_through_unchanged() {
@@ -45,7 +45,7 @@ public class EvidenceTraceAssemblerTests : IDisposable {
         var trace = await Assembler().AssembleAsync(Source(0), 400_000, CancellationToken.None);
 
         await Assert.That(trace.Fits).IsTrue();
-        var entryElement = JsonDocument.Parse(trace.TraceJson).RootElement[0].GetProperty("entries")[0];
+        var entryElement = JsonElement.Parse(trace.TraceJson)[0].GetProperty("entries")[0];
         await Assert.That(entryElement.TryGetProperty("arguments[0]", out _)).IsFalse();
         var arguments = FirstCall(trace.TraceJson).GetProperty("arguments");
         await Assert.That(arguments.IsObject).IsTrue();
@@ -63,7 +63,7 @@ public class EvidenceTraceAssemblerTests : IDisposable {
         var trace = await Assembler().AssembleAsync(Source(0), 400_000, CancellationToken.None);
 
         await Assert.That(trace.Fits).IsTrue();
-        var calls = JsonDocument.Parse(trace.TraceJson).RootElement[0].GetProperty("entries")[0].GetProperty("calls");
+        var calls = JsonElement.Parse(trace.TraceJson)[0].GetProperty("entries")[0].GetProperty("calls");
         await Assert.That(calls.GetArrayLength()).IsEqualTo(2);
         await Assert.That(calls[0].GetProperty("arguments").GetProperty("cmd").GetString()).IsEqualTo("ls");
         await Assert.That(calls[1].GetProperty("arguments").GetProperty("path").GetString()).IsEqualTo("a.txt");
@@ -158,7 +158,7 @@ public class EvidenceTraceAssemblerTests : IDisposable {
         var trace = await Assembler().AssembleAsync(Source(0), 400_000, CancellationToken.None);
 
         await Assert.That(trace.Fits).IsTrue();
-        var written = JsonDocument.Parse(trace.TraceJson).RootElement[0].GetProperty("entries")[0];
+        var written = JsonElement.Parse(trace.TraceJson)[0].GetProperty("entries")[0];
         await Assert.That(written.GetProperty("plan_kind").GetString()).IsEqualTo("tasks");
         await Assert.That(written.GetProperty("plan_content").GetProperty("tasks")[0].GetProperty("title").GetString()).IsEqualTo("Wr\u00eete");
         await Assert.That(trace.TraceJson.All(char.IsAscii)).IsTrue();

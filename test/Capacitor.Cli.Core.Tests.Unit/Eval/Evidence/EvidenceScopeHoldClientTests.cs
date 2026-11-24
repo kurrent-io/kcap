@@ -22,8 +22,10 @@ public class EvidenceScopeHoldClientTests : IDisposable {
         public List<string?> HoldKeys { get; } = [];
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
-            if (request.Method == HttpMethod.Post)
-                HoldKeys.Add(JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct)).RootElement.GetProperty("request_id").GetString());
+            if (request.Method == HttpMethod.Post) {
+                var body = await request.Content!.ReadAsStringAsync(ct);
+                HoldKeys.Add(JsonElement.Parse(body).GetProperty("request_id").GetString());
+            }
             var sending = base.SendAsync(request, ct);
             if (request.Method == HttpMethod.Post && !caller.IsCancellationRequested) {
                 await Task.Delay(200, CancellationToken.None);
@@ -44,7 +46,7 @@ public class EvidenceScopeHoldClientTests : IDisposable {
     void ServeRenewal(string version, string token, DateTimeOffset issued, int status = 200) =>
         _stub.Route("POST", "evidence-scope/renewal", status, status == 200 ? Held(EvidenceServerStub.Manifest(version, token, null, issued, issued.AddMinutes(30))) : "");
 
-    string? ReleasedToken() => _stub.Requests("evidence-scope/hold").Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.GetProperty("token").GetString()).SingleOrDefault();
+    string? ReleasedToken() => _stub.Requests("evidence-scope/hold").Select(e => JsonElement.Parse(e.RequestMessage.Body!).GetProperty("token").GetString()).SingleOrDefault();
 
     [Test]
     public async Task A_held_scope_is_taken_with_a_request_key_and_renewed_without_resolving_again() {
@@ -53,7 +55,7 @@ public class EvidenceScopeHoldClientTests : IDisposable {
         var client = Client(time);
 
         await Assert.That(await client.ResolveAsync(CancellationToken.None)).IsEqualTo(EvidenceScopeStatus.Ok);
-        var take = JsonDocument.Parse(_stub.Requests("evidence-scope/holds").Single().RequestMessage.Body!).RootElement;
+        var take = JsonElement.Parse(_stub.Requests("evidence-scope/holds").Single().RequestMessage.Body!);
         await Assert.That(take.GetProperty("request_id").GetString()!.Length).IsEqualTo(32);
         await Assert.That(take.GetProperty("continuations").GetBoolean()).IsFalse();
         await Assert.That(take.GetProperty("adopted_children").GetBoolean()).IsFalse();

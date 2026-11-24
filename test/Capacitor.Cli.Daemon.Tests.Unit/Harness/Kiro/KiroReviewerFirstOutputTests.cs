@@ -52,7 +52,7 @@ public class KiroReviewerFirstOutputTests {
         // plain fake is not the peer this bound is about. An empty update list plus a held
         // response models a child that accepted the turn and then produced nothing at all.
         agent.EnqueuePromptScript(
-            updates ?? [], JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());
+            updates ?? [], JsonElement.Parse("""{"stopReason":"end_turn"}"""));
         agent.HoldPromptResponses = new TaskCompletionSource();
 
         _ = agent.RunAsync(ct);

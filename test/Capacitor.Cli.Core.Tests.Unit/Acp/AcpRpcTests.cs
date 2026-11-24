@@ -7,7 +7,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.Acp;
 public class AcpRpcTests {
     [Test]
     public async Task AcpRequest_serializes_jsonrpc_envelope_and_round_trips() {
-        var paramsJson = JsonDocument.Parse("""{"protocolVersion":1}""").RootElement;
+        var paramsJson = JsonElement.Parse("""{"protocolVersion":1}""");
         var request    = new AcpRequest(1, "initialize", paramsJson);
 
         var json = JsonSerializer.Serialize(request, CapacitorJsonContext.Default.AcpRequest);
@@ -34,7 +34,7 @@ public class AcpRpcTests {
     public async Task AcpNotification_serializes_the_jsonrpc_envelope() {
         var notification = new AcpNotification(
             "session/cancel",
-            JsonDocument.Parse("""{"sessionId":"s-1"}""").RootElement
+            JsonElement.Parse("""{"sessionId":"s-1"}""")
         );
 
         var json = JsonSerializer.Serialize(notification, CapacitorJsonContext.Default.AcpNotification);
@@ -92,7 +92,7 @@ public class AcpRpcTests {
 
     [Test]
     public async Task AcpResponse_serializes_result_without_error_key() {
-        var resultJson = JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement;
+        var resultJson = JsonElement.Parse("""{"stopReason":"end_turn"}""");
         var response   = new AcpResponse(1, resultJson, null);
 
         var json = JsonSerializer.Serialize(response, CapacitorJsonContext.Default.AcpResponse);

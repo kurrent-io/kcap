@@ -33,7 +33,7 @@ public class CodexHookInputWaitRelayTests {
 
         await Assert.That(exit).IsEqualTo(0);
         var relayed = bridge.LogEntries.Single(e => e.RequestMessage.Path == "/tok/codex/input-wait");
-        var body    = JsonDocument.Parse(relayed.RequestMessage.Body!).RootElement;
+        var body    = JsonElement.Parse(relayed.RequestMessage.Body!);
         await Assert.That(body.GetProperty("waiting").GetBoolean()).IsEqualTo(waiting);
         await Assert.That(body.GetProperty("agent_id").GetString()).IsEqualTo("agent-1");
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo("019e032205fc7570be6575719c3ea861");
@@ -69,7 +69,7 @@ public class CodexHookInputWaitRelayTests {
             }
 
             await Assert.That(await run.WaitAsync(TimeSpan.FromSeconds(10))).IsEqualTo(0);
-            await Assert.That(JsonDocument.Parse(stdout.ToString()).RootElement.GetProperty("continue").GetBoolean()).IsTrue();
+            await Assert.That(JsonElement.Parse(stdout.ToString()).GetProperty("continue").GetBoolean()).IsTrue();
         } finally {
             foreach (var socket in held) socket.Dispose();
         }

@@ -86,14 +86,14 @@ public class AcpUsageUpdateTests {
         // A vendor frame is untrusted input. JsonElement.TryGetInt64 THROWS on a non-Number
         // ValueKind, so a helper that calls it unguarded would let a schema-drift frame escape
         // Reduce() and kill the whole notification rather than dropping one bad update.
-        var el = JsonDocument.Parse($$"""{"sessionUpdate":"usage_update","used":{{usedJson}},"size":200000}""").RootElement;
+        var el = JsonElement.Parse($$"""{"sessionUpdate":"usage_update","used":{{usedJson}},"size":200000}""");
 
         await Assert.That(el.Num("used")).IsNull();
     }
 
     [Test]
     public async Task Fractional_numbers_are_absent_not_truncated() {
-        var el = JsonDocument.Parse("""{"used":10.5}""").RootElement;
+        var el = JsonElement.Parse("""{"used":10.5}""");
         await Assert.That(el.Num("used")).IsNull();
     }
 }

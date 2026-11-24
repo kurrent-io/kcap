@@ -386,7 +386,7 @@ public class AcpHostedAgentRuntimePermissionTests {
 
         // No updates at all — the turn ends on stopReason alone, exactly like a vendor that reports
         // the rejection to itself but never turns it into assistant text.
-        fake.EnqueuePromptScript([], JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());
+        fake.EnqueuePromptScript([], JsonElement.Parse("""{"stopReason":"end_turn"}"""));
 
         await runtime.SendUserInputAsync("do it").WaitAsync(HangGuard);
 
@@ -467,7 +467,7 @@ public class AcpHostedAgentRuntimePermissionTests {
 
         fake.EnqueuePromptScript(
             [FakeAcpAgent.DefaultAgentMessageChunkUpdate(FakeAcpAgent.FixedSessionId, "I can't run that.")],
-            JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());
+            JsonElement.Parse("""{"stopReason":"end_turn"}"""));
 
         await runtime.SendUserInputAsync("do it").WaitAsync(HangGuard);
 
@@ -507,7 +507,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             toolCallJson: """{"toolCallId":"call-1","title":"Run ls"}""",
             optionsJson: """[{"optionId":"allow-once","name":"Allow","kind":"allow_once"}]""");
 
-        fake.EnqueuePromptScript([], JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());
+        fake.EnqueuePromptScript([], JsonElement.Parse("""{"stopReason":"end_turn"}"""));
 
         await runtime.SendUserInputAsync("run ls").WaitAsync(HangGuard);
 

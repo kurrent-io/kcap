@@ -464,7 +464,7 @@ public class RemoteTranscriptFeedTests {
     [Arguments(false)]
     public async Task A_codex_line_the_kinds_call_the_persons_shows_in_the_seed(bool kinds) {
         var evt = Event(0, CanonicalEventTypes.UserMessageReceived, TagLed);
-        if (kinds) evt = evt with { Vendors = System.Text.Json.JsonDocument.Parse("""{"codex":{"turn_id":"t1","content_item_kinds":["user.text"]}}""").RootElement.Clone() };
+        if (kinds) evt = evt with { Vendors = System.Text.Json.JsonElement.Parse("""{"codex":{"turn_id":"t1","content_item_kinds":["user.text"]}}""") };
         using var h = new Harness(vendor: "codex") { NextDetail = new(Detail(evt)) };
         h.Access.OnNext(SessionAccessState.Established);
         await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");

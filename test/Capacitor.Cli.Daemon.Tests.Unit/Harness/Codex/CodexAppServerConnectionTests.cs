@@ -102,11 +102,11 @@ public class CodexAppServerConnectionTests {
 
         var requestA = harness.Connection.RequestAsync("newThread", null, CancellationToken.None);
         var frameA   = await harness.ReadFrameFromConnectionAsync();
-        var idA      = JsonDocument.Parse(frameA).RootElement.GetProperty("id").GetInt64();
+        var idA      = JsonElement.Parse(frameA).GetProperty("id").GetInt64();
 
         var requestB = harness.Connection.RequestAsync("sendTurn", null, CancellationToken.None);
         var frameB   = await harness.ReadFrameFromConnectionAsync();
-        var idB      = JsonDocument.Parse(frameB).RootElement.GetProperty("id").GetInt64();
+        var idB      = JsonElement.Parse(frameB).GetProperty("id").GetInt64();
 
         await Assert.That(idA).IsNotEqualTo(idB);
 
@@ -132,7 +132,7 @@ public class CodexAppServerConnectionTests {
 
         var requestTask = harness.Connection.RequestAsync("sendTurn", null, CancellationToken.None);
         var frame       = await harness.ReadFrameFromConnectionAsync();
-        var id          = JsonDocument.Parse(frame).RootElement.GetProperty("id").GetInt64();
+        var id          = JsonElement.Parse(frame).GetProperty("id").GetInt64();
 
         await harness.WriteFrameToConnectionAsync(
             $$$"""{"jsonrpc":"2.0","id":{{{id}}},"error":{"code":-32602,"message":"invalid thread"}}"""
@@ -339,7 +339,7 @@ public class CodexAppServerConnectionTests {
 
         var requestTask = harness.Connection.RequestAsync("sendTurn", null, CancellationToken.None);
         var frame       = await harness.ReadFrameFromConnectionAsync();
-        var id          = JsonDocument.Parse(frame).RootElement.GetProperty("id").GetInt64();
+        var id          = JsonElement.Parse(frame).GetProperty("id").GetInt64();
 
         // Well-formed JSON with a wrong-typed error.code — must fault the caller, not orphan it.
         await harness.WriteFrameToConnectionAsync(
@@ -361,7 +361,7 @@ public class CodexAppServerConnectionTests {
 
         var requestTask = harness.Connection.RequestAsync("sendTurn", null, CancellationToken.None);
         var frame       = await harness.ReadFrameFromConnectionAsync();
-        var id          = JsonDocument.Parse(frame).RootElement.GetProperty("id").GetInt64();
+        var id          = JsonElement.Parse(frame).GetProperty("id").GetInt64();
 
         await harness.WriteFrameToConnectionAsync(
             $$"""{"jsonrpc":"2.0","id":{{id}},"error":"totally-not-an-object"}"""

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Capacitor.Cli.Core;
 using Microsoft.Win32.SafeHandles;
 
 namespace Capacitor.Cli.Tests.Unit;
@@ -107,9 +108,9 @@ public class ProcessHelpersDetachedStdinTests {
 
                 // A read that never settles IS the failure: it means a child is still holding the
                 // write end, so the assertion is on completion first and EOF second.
-                var finished = await Task.WhenAny(read, Task.Delay(TimeSpan.FromSeconds(10)));
+                var finished = await read.FinishedWithinAsync(TimeSpan.FromSeconds(10), TimeProvider.System);
 
-                await Assert.That(finished == read).IsTrue();
+                await Assert.That(finished).IsTrue();
                 await Assert.That(await read).IsEqualTo(0);
 
                 // The payload pipe is the one handle that DID cross, so it still works.

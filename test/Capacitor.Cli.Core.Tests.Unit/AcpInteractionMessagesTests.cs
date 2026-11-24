@@ -14,7 +14,7 @@ namespace Capacitor.Cli.Core.Tests.Unit;
 public class AcpInteractionMessagesTests {
     [Test]
     public async Task SessionRequestPermissionParams_round_trips_with_camelCase_wire_shape() {
-        var toolCall = JsonDocument.Parse("""{"name":"bash","input":{"command":"ls"}}""").RootElement.Clone();
+        var toolCall = JsonElement.Parse("""{"name":"bash","input":{"command":"ls"}}""");
         var src = new SessionRequestPermissionParams(
             SessionId: "sess-1",
             ToolCall:  toolCall,
@@ -108,13 +108,13 @@ public class AcpInteractionMessagesTests {
     [Test]
     public async Task ElicitationResponse_serializes_stabilized_action_content_shape_exactly() {
         var multi = new ElicitationResponse("accept", new Dictionary<string, JsonElement> {
-            ["areas"] = JsonDocument.Parse("""["a","b"]""").RootElement.Clone()
+            ["areas"] = JsonElement.Parse("""["a","b"]""")
         });
         var multiJson = JsonSerializer.Serialize(multi, CapacitorJsonContext.Default.ElicitationResponse);
         await Assert.That(multiJson).IsEqualTo("""{"action":"accept","content":{"areas":["a","b"]}}""");
 
         var single = new ElicitationResponse("accept", new Dictionary<string, JsonElement> {
-            ["choice"] = JsonDocument.Parse("\"a\"").RootElement.Clone()
+            ["choice"] = JsonElement.Parse("\"a\"")
         });
         var singleJson = JsonSerializer.Serialize(single, CapacitorJsonContext.Default.ElicitationResponse);
         await Assert.That(singleJson).IsEqualTo("""{"action":"accept","content":{"choice":"a"}}""");
@@ -174,8 +174,8 @@ public class AcpInteractionMessagesTests {
 
     [Test]
     public async Task AcpInteractionRequest_round_trips_and_uses_snake_case_server_contract_wire_shape() {
-        var toolInput = JsonDocument.Parse("""{"command":"ls"}""").RootElement.Clone();
-        var schema    = JsonDocument.Parse("""{"type":"object"}""").RootElement.Clone();
+        var toolInput = JsonElement.Parse("""{"command":"ls"}""");
+        var schema    = JsonElement.Parse("""{"type":"object"}""");
         var src = new AcpInteractionRequest(
             AgentId:       "agent-1",
             AcpSessionId:  "acp-sess-1",
@@ -214,7 +214,7 @@ public class AcpInteractionMessagesTests {
 
     [Test]
     public async Task AcpInteractionDecision_and_resolution_round_trip() {
-        var updatedInput = JsonDocument.Parse("""{"command":"ls -la"}""").RootElement.Clone();
+        var updatedInput = JsonElement.Parse("""{"command":"ls -la"}""");
         var decision = new AcpInteractionDecision(
             Outcome:             "selected",
             SelectedOptionId:    "opt-1",

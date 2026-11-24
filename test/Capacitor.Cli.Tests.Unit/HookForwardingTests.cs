@@ -98,7 +98,7 @@ public class InlineDrainTests : IDisposable {
 
         await Assert.That(requests.Count).IsEqualTo(1);
 
-        var root = JsonDocument.Parse(requests[0].RequestMessage.Body!).RootElement;
+        var root = JsonElement.Parse(requests[0].RequestMessage.Body!);
         await Assert.That(root.GetProperty("session_id").GetString()).IsEqualTo(sessionId);
         await Assert.That(root.GetProperty("lines").GetArrayLength()).IsEqualTo(2);
         await Assert.That(root.GetProperty("line_numbers")[0].GetInt32()).IsEqualTo(0);
@@ -126,7 +126,7 @@ public class InlineDrainTests : IDisposable {
         var requests = _server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost());
         await Assert.That(requests.Count).IsEqualTo(1);
 
-        var numbers = JsonDocument.Parse(requests[0].RequestMessage.Body!).RootElement.GetProperty("line_numbers")
+        var numbers = JsonElement.Parse(requests[0].RequestMessage.Body!).GetProperty("line_numbers")
             .EnumerateArray().Select(n => n.GetInt32()).ToArray();
         await Assert.That(numbers).IsEquivalentTo([0, 1, 2]);
     }
@@ -180,7 +180,7 @@ public class InlineDrainTests : IDisposable {
 
         await Assert.That(requests.Count).IsEqualTo(1);
 
-        var root = JsonDocument.Parse(requests[0].RequestMessage.Body!).RootElement;
+        var root = JsonElement.Parse(requests[0].RequestMessage.Body!);
         await Assert.That(root.GetProperty("vendor").GetString()).IsEqualTo("codex");
     }
 
@@ -230,7 +230,7 @@ public class InlineDrainTests : IDisposable {
         await Assert.That(Posts()).IsEquivalentTo([CanonicalRoute.HttpPath]);
 
         var sent   = _server.LogEntries.Single(e => e.RequestMessage.Method == "POST").RequestMessage.Body!;
-        var events = JsonDocument.Parse(sent).RootElement.GetProperty("events");
+        var events = JsonElement.Parse(sent).GetProperty("events");
         await Assert.That(events.EnumerateArray().Select(e => e.GetProperty("event_id").GetGuid())).IsEquivalentTo(expected.Events.Select(e => e.EventId));
         await Assert.That(events.GetRawText()).IsEqualTo(JsonSerializer.Serialize(expected.Events, CapacitorJsonContext.Default.CanonicalBatchEventArray));
     }
@@ -394,7 +394,7 @@ public class InlineDrainTests : IDisposable {
         await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null);
 
         return _server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost())
-            .Select(request => JsonDocument.Parse(request.RequestMessage.Body!).RootElement)
+            .Select(request => JsonElement.Parse(request.RequestMessage.Body!))
             .ToList();
     }
 }

@@ -26,13 +26,13 @@ public class AcpInteractionBridgeTests {
             $$"""{"optionId":"{{o.Id}}","name":"{{o.Id}}","kind":"{{o.Kind}}"}"""));
         var json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[{{optionsJson}}]}""";
 
-        return JsonDocument.Parse(json).RootElement.Clone();
+        return JsonElement.Parse(json);
     }
 
     static JsonElement PermissionRequestParams(string[] optionIds) {
         var optionsJson = string.Join(",", optionIds.Select(id => $$"""{"optionId":"{{id}}","name":"{{id}}","kind":"allow_once"}"""));
         var json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[{{optionsJson}}]}""";
-        return JsonDocument.Parse(json).RootElement.Clone();
+        return JsonElement.Parse(json);
     }
 
     /// <summary>
@@ -269,7 +269,7 @@ public class AcpInteractionBridgeTests {
             logger: NullLogger.Instance, time: TimeProvider.System);
 
         const string json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"} }""";
-        var request = new AcpRequest(1, "session/request_permission", JsonDocument.Parse(json).RootElement.Clone());
+        var request = new AcpRequest(1, "session/request_permission", JsonElement.Parse(json));
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);
 
@@ -293,7 +293,7 @@ public class AcpInteractionBridgeTests {
             logger: NullLogger.Instance, time: TimeProvider.System);
 
         const string json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":null}""";
-        var request = new AcpRequest(1, "session/request_permission", JsonDocument.Parse(json).RootElement.Clone());
+        var request = new AcpRequest(1, "session/request_permission", JsonElement.Parse(json));
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);
 
@@ -316,7 +316,7 @@ public class AcpInteractionBridgeTests {
             logger: NullLogger.Instance, time: TimeProvider.System);
 
         const string json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[null,{"optionId":"allow-once","name":"Allow","kind":"allow_once"}]}""";
-        var request = new AcpRequest(1, "session/request_permission", JsonDocument.Parse(json).RootElement.Clone());
+        var request = new AcpRequest(1, "session/request_permission", JsonElement.Parse(json));
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);
 
@@ -342,7 +342,7 @@ public class AcpInteractionBridgeTests {
             logger: NullLogger.Instance, time: TimeProvider.System);
 
         const string json = $$"""{"sessionId":"{{AcpSessionId}}","message":"Proceed?"}""";
-        var request = new AcpRequest(1, "elicitation/create", JsonDocument.Parse(json).RootElement.Clone());
+        var request = new AcpRequest(1, "elicitation/create", JsonElement.Parse(json));
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);
 
@@ -366,7 +366,7 @@ public class AcpInteractionBridgeTests {
 
         const string sessionIdFromParams = "session-from-params-only";
         const string json = $$"""{"sessionId":"{{sessionIdFromParams}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[{"optionId":"allow-once","name":"Allow","kind":"allow_once"}]}""";
-        var request = new AcpRequest(1, "session/request_permission", JsonDocument.Parse(json).RootElement.Clone());
+        var request = new AcpRequest(1, "session/request_permission", JsonElement.Parse(json));
 
         await bridge.HandleAsync(request, CancellationToken.None);
 
@@ -389,7 +389,7 @@ public class AcpInteractionBridgeTests {
             logger: NullLogger.Instance, time: TimeProvider.System);
 
         const string json = """{"sessionId":"","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[{"optionId":"allow-once","name":"Allow","kind":"allow_once"}]}""";
-        var request = new AcpRequest(1, "session/request_permission", JsonDocument.Parse(json).RootElement.Clone());
+        var request = new AcpRequest(1, "session/request_permission", JsonElement.Parse(json));
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);
 
@@ -461,7 +461,7 @@ public class AcpInteractionBridgeTests {
             logger: NullLogger.Instance, TimeProvider.System);
 
         const string json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":[{"optionId":"allow-first","name":"Allow","kind":"allow_once"},{"optionId":"allow-second","name":"Allow","kind":"allow_always"},{"optionId":"deny","name":"Deny","kind":"reject_once"}]}""";
-        var request = new AcpRequest(1, "session/request_permission", JsonDocument.Parse(json).RootElement.Clone());
+        var request = new AcpRequest(1, "session/request_permission", JsonElement.Parse(json));
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);
 
@@ -525,7 +525,7 @@ public class AcpInteractionBridgeTests {
             agentId: AgentId,
             logger: NullLogger.Instance, time: TimeProvider.System);
 
-        var request = new AcpRequest(1, "fs/read_text_file", Params: JsonDocument.Parse("{}").RootElement.Clone());
+        var request = new AcpRequest(1, "fs/read_text_file", Params: JsonElement.Parse("{}"));
 
         var result = await bridge.HandleAsync(request, CancellationToken.None);
 
@@ -755,7 +755,7 @@ public class AcpInteractionBridgeTests {
 
     static JsonElement PermissionParamsWithOptions(string optionsJson) {
         var json = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"},"options":{{optionsJson}}}""";
-        return JsonDocument.Parse(json).RootElement.Clone();
+        return JsonElement.Parse(json);
     }
 
     [Test]
@@ -972,7 +972,7 @@ public class AcpInteractionBridgeTests {
     // ── Stabilized elicitation: shared helpers ──────────────────────────────────────────────────
 
     static AcpRequest ElicitationRequest(string paramsJson) =>
-        new(1, "elicitation/create", JsonDocument.Parse(paramsJson).RootElement.Clone());
+        new(1, "elicitation/create", JsonElement.Parse(paramsJson));
 
     static string FormParams(string schemaJson, string message = "Pick") =>
         $$"""{"sessionId":"{{AcpSessionId}}","message":"{{message}}","mode":"form","requestedSchema":{{schemaJson}}}""";
@@ -1341,9 +1341,8 @@ public class AcpInteractionBridgeTests {
     const string Admitted = "@kcap-flow-result-abc/submit_review_result";
 
     static JsonElement PermissionParamsFor(string title, string optionsJson) =>
-        JsonDocument.Parse(
-            $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"{{title}}"},"options":{{optionsJson}}}""")
-            .RootElement.Clone();
+        JsonElement.Parse(
+            $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"{{title}}"},"options":{{optionsJson}}}""");
 
     static (AcpInteractionBridge Bridge, List<string> Reaped, Func<int> Routed) AdmissionBridge() {
         var routed = 0;

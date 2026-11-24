@@ -4,7 +4,7 @@ using Capacitor.Cli.Core.Harness.Pi;
 namespace Capacitor.Cli.Core.Tests.Unit.Harness.Pi;
 
 public class PiCommandsTests {
-    static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
+    static JsonElement Parse(string json) => JsonElement.Parse(json);
 
     [Test]
     public async Task Extract_reads_each_command_with_its_description() {

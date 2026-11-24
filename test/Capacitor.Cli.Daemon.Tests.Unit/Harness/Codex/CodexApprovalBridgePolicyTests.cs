@@ -35,8 +35,8 @@ public class CodexApprovalBridgePolicyTests {
             TimeProvider.System, seam);
     }
 
-    static AcpRequest Command(string command) => new(1, "item/commandExecution/requestApproval", JsonDocument.Parse(
-        $$"""{"threadId":"{{ThreadId}}","turnId":"turn-1","itemId":"exec-1","startedAtMs":1,"command":"{{command}}","cwd":"/wt"}""").RootElement.Clone());
+    static AcpRequest Command(string command) => new(1, "item/commandExecution/requestApproval", JsonElement.Parse(
+        $$"""{"threadId":"{{ThreadId}}","turnId":"turn-1","itemId":"exec-1","startedAtMs":1,"command":"{{command}}","cwd":"/wt"}"""));
 
     static readonly AcpInteractionDecision Allow   = new("allow", "accept", "Allow", null, null, null);
     static readonly AcpInteractionDecision Decline = new("reject_once", "decline", "Deny", null, null, null);
@@ -80,8 +80,8 @@ public class CodexApprovalBridgePolicyTests {
 
     [Test]
     public async Task A_permissions_grant_decline_is_not_a_refusal() {
-        var grant = new AcpRequest(1, "item/permissions/requestApproval", JsonDocument.Parse(
-            $$$"""{"threadId":"{{{ThreadId}}}","turnId":"turn-1","itemId":"perm-1","permissions":{"network":true}}""").RootElement.Clone());
+        var grant = new AcpRequest(1, "item/permissions/requestApproval", JsonElement.Parse(
+            $$$"""{"threadId":"{{{ThreadId}}}","turnId":"turn-1","itemId":"perm-1","permissions":{"network":true}}"""));
 
         await Bridge(Decline).HandleAsync(grant, CancellationToken.None);
 

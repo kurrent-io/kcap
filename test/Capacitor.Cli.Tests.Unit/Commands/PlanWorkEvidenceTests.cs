@@ -17,7 +17,7 @@ public class PlanWorkEvidenceTests {
         new(type, session, agent, null, "", path, T0.AddMinutes(minute));
 
     static ErrorEntry Failure(string tool, string inputJson, int minute, string session = Session, string? agent = null) =>
-        new(session, null, agent, 0, tool, "failed", T0.AddMinutes(minute)) { ToolInput = JsonDocument.Parse(inputJson).RootElement.Clone() };
+        new(session, null, agent, 0, tool, "failed", T0.AddMinutes(minute)) { ToolInput = JsonElement.Parse(inputJson) };
 
     [Test]
     public async Task Rows_reported_under_the_canonical_id_belong_to_a_dashed_session_id() {

@@ -8,9 +8,9 @@ public class GrokSubagentSignalsTests {
     const string Child = "01a14f26-a703-7de1-aa37-7eda7334fe82";
 
     static AcpNotification Notification(string method, string sessionUpdate) =>
-        new(method, JsonDocument.Parse($$$"""
+        new(method, JsonElement.Parse($$$"""
             {"sessionId":"parent","update":{"sessionUpdate":"{{{sessionUpdate}}}","child_session_id":"{{{Child}}}","subagent_type":"general-purpose"}}
-            """).RootElement.Clone());
+            """));
 
     [Test]
     public async Task A_spawned_subagent_starts_with_its_child_session_and_type() {

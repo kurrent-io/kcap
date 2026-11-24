@@ -43,7 +43,7 @@ public class AcpHostedAgentRuntimeTests {
 
         public async Task WaitForExitAsync(TimeSpan? timeout = null) {
             if (timeout is { } t) {
-                await Task.WhenAny(_exited.Task, Task.Delay(t)).ConfigureAwait(false);
+                await _exited.Task.FinishedWithinAsync(t, TimeProvider.System).ConfigureAwait(false);
             } else {
                 await _exited.Task.ConfigureAwait(false);
             }
@@ -157,7 +157,7 @@ public class AcpHostedAgentRuntimeTests {
         var update = FakeAcpAgent.BuildSessionUpdateNotification(
             FakeAcpAgent.FixedSessionId,
             FakeAcpAgent.BuildAgentMessageChunkUpdate("hello there"));
-        var result = System.Text.Json.JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+        var result = System.Text.Json.JsonElement.Parse("""{"stopReason":"end_turn"}""");
         h.Fake.EnqueuePromptScript(new[] { update }, result);
 
         h.StartFakeAgentLoop();
@@ -174,9 +174,9 @@ public class AcpHostedAgentRuntimeTests {
     public async Task Unknown_sessionUpdate_variant_is_surfaced_as_Unknown_with_Raw_and_does_not_throw() {
         await using var h = new Harness();
 
-        var weirdUpdate = System.Text.Json.JsonDocument.Parse("""{"sessionUpdate":"some_future_variant","foo":"bar"}""").RootElement.Clone();
+        var weirdUpdate = System.Text.Json.JsonElement.Parse("""{"sessionUpdate":"some_future_variant","foo":"bar"}""");
         var notification = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, weirdUpdate);
-        var result = System.Text.Json.JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+        var result = System.Text.Json.JsonElement.Parse("""{"stopReason":"end_turn"}""");
         h.Fake.EnqueuePromptScript(new[] { notification }, result);
 
         h.StartFakeAgentLoop();
@@ -196,7 +196,7 @@ public class AcpHostedAgentRuntimeTests {
 
         var infoUpdate   = FakeAcpAgent.BuildSessionInfoUpdate("Shell Reporter");
         var notification = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, infoUpdate);
-        var result       = System.Text.Json.JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+        var result       = System.Text.Json.JsonElement.Parse("""{"stopReason":"end_turn"}""");
         h.Fake.EnqueuePromptScript(new[] { notification }, result);
 
         h.StartFakeAgentLoop();
@@ -215,9 +215,9 @@ public class AcpHostedAgentRuntimeTests {
         // A schema-drift session_info_update whose title is a NUMBER, not a string. GetStringOrNull
         // must treat it as absent (Title=null) rather than throwing — a thrown GetString() would
         // bubble up and make the read loop skip the whole notification frame.
-        var badTitle     = System.Text.Json.JsonDocument.Parse("""{"sessionUpdate":"session_info_update","title":123}""").RootElement.Clone();
+        var badTitle     = System.Text.Json.JsonElement.Parse("""{"sessionUpdate":"session_info_update","title":123}""");
         var notification = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, badTitle);
-        var result       = System.Text.Json.JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+        var result       = System.Text.Json.JsonElement.Parse("""{"stopReason":"end_turn"}""");
         h.Fake.EnqueuePromptScript(new[] { notification }, result);
 
         h.StartFakeAgentLoop();
@@ -239,7 +239,7 @@ public class AcpHostedAgentRuntimeTests {
             "call-1", "Run shell command", "execute", "pending",
             rawInputJson: """{"command":"echo hi"}""");
         var notification = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, toolCall);
-        var result = System.Text.Json.JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+        var result = System.Text.Json.JsonElement.Parse("""{"stopReason":"end_turn"}""");
         h.Fake.EnqueuePromptScript(new[] { notification }, result);
 
         h.StartFakeAgentLoop();
@@ -259,7 +259,7 @@ public class AcpHostedAgentRuntimeTests {
 
         var toolCall = FakeAcpAgent.BuildToolCallUpdate("call-1", "Run shell command", "execute", "pending");
         var notification = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, toolCall);
-        var result = System.Text.Json.JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+        var result = System.Text.Json.JsonElement.Parse("""{"stopReason":"end_turn"}""");
         h.Fake.EnqueuePromptScript(new[] { notification }, result);
 
         h.StartFakeAgentLoop();
@@ -276,7 +276,7 @@ public class AcpHostedAgentRuntimeTests {
 
         var statusUpdate = FakeAcpAgent.BuildToolCallStatusUpdate("call-1", "in_progress");
         var notification = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, statusUpdate);
-        var result = System.Text.Json.JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+        var result = System.Text.Json.JsonElement.Parse("""{"stopReason":"end_turn"}""");
         h.Fake.EnqueuePromptScript(new[] { notification }, result);
 
         h.StartFakeAgentLoop();
@@ -296,7 +296,7 @@ public class AcpHostedAgentRuntimeTests {
 
         var statusUpdate = FakeAcpAgent.BuildToolCallStatusUpdate("call-1", "completed", resultText: "hi\n");
         var notification = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, statusUpdate);
-        var result = System.Text.Json.JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+        var result = System.Text.Json.JsonElement.Parse("""{"stopReason":"end_turn"}""");
         h.Fake.EnqueuePromptScript(new[] { notification }, result);
 
         h.StartFakeAgentLoop();
@@ -315,7 +315,7 @@ public class AcpHostedAgentRuntimeTests {
 
         var statusUpdate = FakeAcpAgent.BuildToolCallStatusUpdate("call-1", "failed", resultText: "boom");
         var notification = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, statusUpdate);
-        var result = System.Text.Json.JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+        var result = System.Text.Json.JsonElement.Parse("""{"stopReason":"end_turn"}""");
         h.Fake.EnqueuePromptScript(new[] { notification }, result);
 
         h.StartFakeAgentLoop();
@@ -335,7 +335,7 @@ public class AcpHostedAgentRuntimeTests {
         var statusUpdate = FakeAcpAgent.BuildToolCallStatusUpdate(
             "call-1", "completed", rawOutputJson: """{"exitCode":0}""");
         var notification = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, statusUpdate);
-        var result = System.Text.Json.JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+        var result = System.Text.Json.JsonElement.Parse("""{"stopReason":"end_turn"}""");
         h.Fake.EnqueuePromptScript(new[] { notification }, result);
 
         h.StartFakeAgentLoop();
