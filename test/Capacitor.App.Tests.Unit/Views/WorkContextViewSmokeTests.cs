@@ -47,11 +47,11 @@ public class WorkContextViewSmokeTests {
         public List<string> Drafted { get; } = [];
         public bool CanDraft { get; set; } = true;
 
-        public Host() {
+        public Host(bool isRemote = false) {
             Runs = new SessionRuns(Time);
             Vm = new WorkContextViewModel(Presence, Source, Time, Opener, Runs, plans: Plans, planActivity: PlanActivity,
                 artefacts: new ArtefactsTabViewModel(Artefacts, PlanActivity, Time, opener: Opener),
-                canDraftForAgent: () => CanDraft, draftForAgent: Drafted.Add);
+                canDraftForAgent: () => CanDraft, draftForAgent: Drafted.Add, isRemote: isRemote);
             Window = new Window { Content = new WorkContextView { DataContext = Vm }, Width = 320, Height = 900 };
         }
 
@@ -75,6 +75,53 @@ public class WorkContextViewSmokeTests {
             Dispatcher.UIThread.RunJobs();
             await Vm.TeardownAsync();
         }
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task The_branch_widget_is_opt_in_and_can_be_dismissed_from_the_keyboard(bool isRemote) {
+        await RunOnUiAsync(async () => {
+            await using var host = new Host(isRemote);
+            var agent = WorkspaceFixtures.Agent("a1", "claude", hasTerminal: true, sessionId: SessionA);
+            await host.ShowAsync(KeyOnlyRead(), agent);
+            var resources = host.Window.Resources;
+            IEnumerable<Button> DismissButtons() => host.Window.GetVisualDescendants().OfType<Button>()
+                .Where(button => AutomationProperties.GetName(button) == "Hide this branch row");
+            void SetWidget(bool enabled) {
+                if (enabled) resources[WorkContextView.BranchWidgetResource] = true;
+                else resources.Remove(WorkContextView.BranchWidgetResource);
+                host.Window.UpdateLayout();
+            }
+
+            SetWidget(true);
+            await Assert.That(DismissButtons()).IsEmpty();
+            SetWidget(false);
+            host.Presence.OnNext(agent with { Branch = "feature/widget" });
+            await Assert.That(host.Vm.Branch).IsEqualTo("feature/widget");
+            await Assert.That(DismissButtons()).IsEmpty();
+
+            var reads = host.Source.Requested.Count;
+            SetWidget(true);
+            var dismiss = DismissButtons().Single();
+            await Assert.That(dismiss.IsEffectivelyVisible).IsTrue();
+            await Assert.That(host.Window.GetVisualDescendants().OfType<TextBlock>()
+                .Any(text => text is { Text: "feature/widget", IsEffectivelyVisible: true })).IsTrue();
+            dismiss.Focus();
+            host.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            host.Window.UpdateLayout();
+            await Assert.That(DismissButtons()).IsEmpty();
+            await Assert.That(host.Find<Button>("RefreshButton").IsFocused).IsTrue();
+
+            SetWidget(false);
+            SetWidget(true);
+            DismissButtons().Single().Focus();
+            SetWidget(false);
+            await Assert.That(DismissButtons()).IsEmpty();
+            await Assert.That(host.Find<Button>("RefreshButton").IsFocused).IsTrue();
+            await Assert.That(host.Source.Requested.Count).IsEqualTo(reads);
+        });
     }
 
     [Test]

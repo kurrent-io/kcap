@@ -8,6 +8,9 @@
              AutomationProperties.Name="Work context" AutomationProperties.ControlTypeOverride="Group"
              AutomationProperties.LandmarkType="Complementary">
     <UserControl.Styles>
+        <Style Selector="ContentControl#BranchWidgetHost.branchWidgetEnabled.hasBranch:not(.dismissed)" x:DataType="vm:WorkContextViewModel">
+            <Setter Property="Content" Value="{Binding}" />
+        </Style>
         <!-- Section titles are headings, so a screen reader can step through the pane by them. -->
         <Style Selector="TextBlock.eyebrow">
             <Setter Property="AutomationProperties.HeadingLevel" Value="2" />
@@ -418,6 +421,24 @@
                         </Button>
                     </StackPanel>
                 </Grid>
+
+                <ContentControl x:Name="BranchWidgetHost" Classes.hasBranch="{Binding CanCopyBranch}">
+                    <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:WorkContextViewModel">
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" Margin="0,4,0,0">
+                                <TextBlock Text="Branch" VerticalAlignment="Center" FontSize="{DynamicResource KcapFontSizeSmall}"
+                                           Foreground="{DynamicResource KcapMutedBrush}" />
+                                <TextBlock Grid.Column="1" Text="{Binding Branch}" VerticalAlignment="Center"
+                                           FontSize="{DynamicResource KcapFontSizeSmall}" TextTrimming="CharacterEllipsis"
+                                           ToolTip.Tip="{Binding Branch}" />
+                                <Button Grid.Column="2" Classes="kcapGhost kcapIcon" Click="OnDismissBranchWidgetClick"
+                                        ToolTip.Tip="Hide this branch row" AutomationProperties.Name="Hide this branch row">
+                                    <views:AppIcon Kind="X" Size="12" />
+                                </Button>
+                            </Grid>
+                        </DataTemplate>
+                    </ContentControl.ContentTemplate>
+                </ContentControl>
 
                 <!-- Work item card. -->
                 <Border Classes="card" Margin="0,16,0,0" Background="Transparent" BorderThickness="0" Padding="0">
