@@ -743,6 +743,16 @@ public partial class ChatTabView : UserControl {
         if (_selectedMarkdown.Remove(view)) RefreshSelectionFollowTail();
     }
 
+    internal Visual? CapturedTranscriptElement => _primaryPointer?.Captured as Visual;
+
+    internal void ReleaseRecycledMarkdown(MarkdownView view) {
+        if (_dragView == view) {
+            _dragView = null;
+            _dragSelecting = false;
+        }
+        if (_currentFindView == view) _currentFindView = null;
+    }
+
     bool SelectionHeld() => _selectedMarkdown.Any(static view => view.IsEffectivelyVisible);
 
     static bool OriginatesFromMarkdown(RoutedEventArgs e) =>

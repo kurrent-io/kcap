@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -18,9 +19,10 @@ namespace Capacitor.App.Views;
 /// Rows inside a chat topic are indented by its rail, and clicking the rail folds the topic.
 /// </summary>
 public sealed class ChatVirtualizingPanel : VirtualizingPanel {
-    sealed record Row(object Item, Control Container, object? RecycleKey, bool OwnContainer);
+    readonly record struct Row(object Item, Control Container, object? RecycleKey, bool OwnContainer);
     const double EstimatedHeight = 80;
     const double KeepAliveOverscan = 240;
+    const int MessagePoolLimit = 12;
     internal const double RailWidth = 16;
     // Centres the rail under a topic header's 14px icon.
     const double RailInset = 7;
@@ -29,6 +31,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     readonly Dictionary<object, double> _measured = new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<int, Row> _realized = [];
     readonly Dictionary<object, Stack<Control>> _pool = [];
+    List<ChatMessageContainer>? _messagePool;
     double[] _starts = [0];
     Rect _viewport;
     double _lastWidth = double.NaN;
@@ -128,6 +131,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         MeasuredAtEstimatedEnd = scroll is not null && scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 2;
         EnsureRailLayer();
         var readingLayout = ReadingLayout;
+        if (readingLayout == 0) ClearMessagePool();
         var reset = readingLayout != _lastReadingLayout || _resetReadingMeasurements;
         _lastReadingLayout = readingLayout;
         _resetReadingMeasurements = false;
@@ -145,6 +149,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         var first = buffered ? _first : IndexAt(Math.Max(0, _viewport.Top));
         var end = Math.Max(_viewport.Bottom, _viewport.Top + 1);
         var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() as Visual;
+        var captured = view?.CapturedTranscriptElement;
         var scrollAnchor = this.FindAncestorOfType<IScrollAnchorProvider>()?.CurrentAnchor;
         if (!reset && availableSize.Width != _lastWidth && scrollAnchor is not null && scroll is not null)
             PreserveResizeAnchor(scroll, scrollAnchor);
@@ -152,8 +157,8 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         var overscan = view?.IsSmoothScrolling == true ? KeepAliveOverscan : 0;
         // Keep the presenter's anchor until arrange has compensated for any newly measured rows.
         foreach (var entry in _realized.ToArray()) {
-            if ((entry.Key < first || entry.Key > anchor && _starts[entry.Key] >= end) && !KeepAlive(entry.Value, focused, scrollAnchor, overscan))
-                Unrealize(entry.Key);
+            if ((entry.Key < first || entry.Key > anchor && _starts[entry.Key] >= end) && !KeepAlive(entry.Value, focused, captured, scrollAnchor, overscan))
+                Unrealize(entry.Key, recycleMessage: true);
         }
         var last = first;
         var width = 0.0;
@@ -178,12 +183,13 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         _last = last;
         foreach (var entry in _realized.ToArray()) {
             if (entry.Key >= first && entry.Key <= last) continue;
-            if (!KeepAlive(entry.Value, focused, scrollAnchor, overscan)) { Unrealize(entry.Key); continue; }
+            if (!KeepAlive(entry.Value, focused, captured, scrollAnchor, overscan)) {
+                Unrealize(entry.Key, recycleMessage: readingLayout != 0);
+                continue;
+            }
             // A warm row above the viewport keeps its stored height. Remeasuring it shifts every
             // start below it, and the presenter follows by moving the reader's offset.
-            var pinned = entry.Value.OwnContainer || ReferenceEquals(entry.Value.Container, scrollAnchor)
-                || focused is not null && (ReferenceEquals(focused, entry.Value.Container) || entry.Value.Container.IsVisualAncestorOf(focused));
-            if (entry.Key < first && !pinned) continue;
+            if (entry.Key < first && !IsPinned(entry.Value, focused, captured, scrollAnchor)) continue;
             entry.Value.Container.Measure(new Size(RowWidth(entry.Value.Item, availableSize.Width), double.PositiveInfinity));
             var height = entry.Value.Container.DesiredSize.Height;
             var delta = height - (_starts[entry.Key + 1] - _starts[entry.Key]);
@@ -191,6 +197,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
             if (delta != 0)
                 for (var i = entry.Key + 1; i < _starts.Length; i++) _starts[i] += delta;
         }
+        if (readingLayout == 0) ClearMessagePool();
         return new Size(width, _starts[^1]);
     }
 
@@ -227,10 +234,16 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         }, DispatcherPriority.Render);
     }
 
-    bool KeepAlive(Row row, Visual? focused, Control? scrollAnchor, double overscan) => row.OwnContainer
-        || row.Container.Bounds.Intersects(overscan > 0 ? _viewport.Inflate(new Thickness(0, overscan)) : _viewport)
-        || ReferenceEquals(row.Container, scrollAnchor)
-        || focused is not null && (ReferenceEquals(focused, row.Container) || row.Container.IsVisualAncestorOf(focused));
+    bool KeepAlive(Row row, Visual? focused, Visual? captured, Control? scrollAnchor, double overscan) =>
+        row.Container.Bounds.Intersects(overscan > 0 ? _viewport.Inflate(new Thickness(0, overscan)) : _viewport)
+        || IsPinned(row, focused, captured, scrollAnchor);
+
+    static bool IsPinned(Row row, Visual? focused, Visual? captured, Control? scrollAnchor) =>
+        row.OwnContainer || ReferenceEquals(row.Container, scrollAnchor) ||
+        ContainsInput(row.Container, focused) || ContainsInput(row.Container, captured);
+
+    static bool ContainsInput(Control container, Visual? target) =>
+        target is not null && (ReferenceEquals(container, target) || container.IsVisualAncestorOf(target));
 
     protected override Size ArrangeOverride(Size finalSize) {
         if (_insertAnchor is not null && !_insertArranged && this.FindAncestorOfType<ScrollViewer>() is { } scroll) {
@@ -285,8 +298,14 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
             var top = _starts[index];
             var bottom = _starts[index + 1];
             // Past the last row's own gap the rail would read as more chat below.
-            if (index == Items.Count - 1 && row.Container is ContentPresenter { Child: Layoutable { Margin.Bottom: > 0 } child })
-                bottom = Math.Max(top, bottom - child.Margin.Bottom);
+            if (index == Items.Count - 1) {
+                var child = row.Container switch {
+                    ContentPresenter presenter => presenter.Child,
+                    ChatMessageContainer message => message.Child,
+                    _ => null,
+                };
+                if (child is { Margin.Bottom: > 0 }) bottom = Math.Max(top, bottom - child.Margin.Bottom);
+            }
             if (item.Topic is { } topic)
                 context.DrawLine(PenFor(topic), new Point(RailInset, top), new Point(RailInset, bottom));
             // A topic's own rail starts just under its header's icon.
@@ -319,6 +338,22 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         var generator = ItemContainerGenerator!;
         var item = Items[index]!;
         var needsContainer = generator.NeedsContainer(item, index, out var key);
+        if (needsContainer && item is UserTurnItem or AssistantTextItem
+            && ItemsControl is { } owner && owner.FindDataTemplate(item, owner.ItemTemplate) is { } template
+            && GetMessageContainer(template, item) is { } message) {
+            generator.PrepareItemContainer(message, item, index);
+            if (message.GetVisualParent() is null) AddInternalChild(message);
+            else {
+                // Match the traversal order of newly realized containers.
+                var position = Children.IndexOf(message);
+                if (position < Children.Count - 1) Children.Move(position, Children.Count - 1);
+                message.IsVisible = true;
+            }
+            generator.ItemContainerPrepared(message, item, index);
+            var realized = new Row(item, message, null, false);
+            _realized.Add(index, realized);
+            return realized;
+        }
         Control? container = null;
         var pooled = needsContainer && key is not null && _pool.TryGetValue(key, out var pool) && pool.TryPop(out container);
         if (!pooled) container = needsContainer ? generator.CreateContainer(item, index, key) : (Control)item;
@@ -331,7 +366,26 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         return row;
     }
 
-    void Unrealize(int index) {
+    ChatMessageContainer? GetMessageContainer(IDataTemplate template, object item) {
+        if (_messagePool is { } pool) {
+            for (var i = pool.Count - 1; i >= 0; i--) {
+                var parked = pool[i];
+                if (!ReferenceEquals(parked.Template, template)) continue;
+                pool.RemoveAt(i);
+                return parked;
+            }
+        }
+        if (template.Build(item) is not ChatMessageRow row) return null;
+        return new ChatMessageContainer(template, row);
+    }
+
+    void ClearMessagePool() {
+        if (_messagePool is not { } pool) return;
+        _messagePool = null;
+        foreach (var message in pool) RemoveInternalChild(message);
+    }
+
+    void Unrealize(int index, bool recycleMessage) {
         if (!_realized.Remove(index, out var row)) return;
         this.FindAncestorOfType<IScrollAnchorProvider>()?.UnregisterAnchorCandidate(row.Container);
         if (row.OwnContainer) {
@@ -339,6 +393,20 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
             return;
         }
         ItemContainerGenerator!.ClearItemContainer(row.Container);
+        if (row.Container is ChatMessageContainer message) {
+            var view = this.FindAncestorOfType<ChatTabView>();
+            if (ItemsControl is { } owner && KeyboardNavigation.GetTabOnceActiveElement(owner) is Visual active
+                && (active == message || message.IsVisualAncestorOf(active)))
+                KeyboardNavigation.SetTabOnceActiveElement(owner, null);
+            var canPark = recycleMessage && (_messagePool?.Count ?? 0) < MessagePoolLimit
+                && !message.IsKeyboardFocusWithin && !ContainsInput(message, view?.CapturedTranscriptElement);
+            message.IsVisible = false;
+            message.ResetMessage(view);
+            if (canPark) {
+                (_messagePool ??= []).Add(message);
+                return;
+            }
+        }
         if (row.RecycleKey is { } key) {
             row.Container.IsVisible = false;
             if (!_pool.TryGetValue(key, out var pool)) _pool.Add(key, pool = new Stack<Control>());
@@ -354,7 +422,8 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         var within = inserted > 0 ? _viewport.Top - _starts[reading] : 0;
         if (e.Action != NotifyCollectionChangedAction.Add || e.NewStartingIndex != _starts.Length - 1) {
             if (e.Action == NotifyCollectionChangedAction.Reset) {
-                foreach (var index in _realized.Keys.ToArray()) Unrealize(index);
+                foreach (var index in _realized.Keys.ToArray()) Unrealize(index, recycleMessage: false);
+                ClearMessagePool();
                 _measured.Clear();
             } else {
                 var indices = new Dictionary<object, int>(ReferenceEqualityComparer.Instance);
@@ -362,7 +431,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
                     if (items[i] is { } item) indices[item] = i;
                 var retained = new Dictionary<int, Row>();
                 foreach (var entry in _realized.ToArray()) {
-                    if (!indices.TryGetValue(entry.Value.Item, out var index)) Unrealize(entry.Key);
+                    if (!indices.TryGetValue(entry.Value.Item, out var index)) Unrealize(entry.Key, recycleMessage: ReadingLayout != 0);
                     else {
                         retained.Add(index, entry.Value);
                         if (index != entry.Key) ItemContainerGenerator!.ItemContainerIndexChanged(entry.Value.Container, entry.Key, index);
@@ -400,7 +469,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         var row = Realize(index);
         row.Container.Measure(new Size(RowWidth(row.Item, _lastWidth), double.PositiveInfinity));
         if (focus(row.Container) is null) {
-            Unrealize(index);
+            Unrealize(index, recycleMessage: ReadingLayout != 0);
             return false;
         }
         ScrollIntoView(index);
@@ -428,7 +497,8 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         return row.Container;
     }
 
-    protected override Control? ContainerFromIndex(int index) => _realized.GetValueOrDefault(index)?.Container;
+    protected override Control? ContainerFromIndex(int index) =>
+        _realized.TryGetValue(index, out var row) ? row.Container : null;
     protected override int IndexFromContainer(Control container) {
         foreach (var entry in _realized)
             if (ReferenceEquals(entry.Value.Container, container)) return entry.Key;

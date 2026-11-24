@@ -64,6 +64,8 @@ Both layouts hold their measured bounds on hover. The reserved header leaves a s
 
 The preview toggles the state of the message rows while their styles stay attached. Inline and fenced code keep their own typography when switching reading faces or turning the preview off. In the same Dark Compact sample, the longer reply wraps to four lines and measures 103 DIP with Monospace prose.
 
+When the viewport moves, a prompt or reply row can serve another message with the same template. Clear its message data and interaction state before reuse. With the preview off, release unused rows at the end of each layout pass. Classic can keep up to 12 empty rows attached between passes. Resetting the feed or turning the preview off releases those rows.
+
 ## Baseline measurements
 
 Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux before widening the preview.

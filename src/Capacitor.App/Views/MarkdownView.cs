@@ -159,6 +159,14 @@ public sealed class MarkdownView : ContentControl {
 
     internal bool IsSelecting => Content is MarkdownViewer && MarkViewSelection.IsSelecting(_viewer);
 
+    internal void ResetMessageState() {
+        ContextLinkUrl = null;
+        ContextListItems = null;
+        ContextImage = null;
+        _nonLeftRelease = false;
+        ClearSelection();
+    }
+
     internal bool TryStartSelectionFromLeft(PointerPressedEventArgs e) {
         if (Content is not MarkdownViewer) return false;
         var point = e.GetPosition(this);
