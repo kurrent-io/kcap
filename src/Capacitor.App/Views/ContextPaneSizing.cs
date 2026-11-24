@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Input;
 using Capacitor.App.Services;
 
 namespace Capacitor.App.Views;
@@ -15,12 +16,16 @@ public static class ContextPaneSizing {
 
         void Apply() {
             var collapsed = panes is not null && (panes.ContextCollapsed || fit.HidesPane);
+            var focusShow = collapsed && (pane.IsKeyboardFocusWithin || splitter.IsFocused);
+            var focusHide = !collapsed && showButton.IsFocused;
             column.MinWidth = panes is null ? PaneLayout.ContextMinWidth : 0;
             column.Width = new GridLength(collapsed ? 0 : panes?.ContextWidth ?? PaneLayout.ContextMinWidth);
             pane.IsVisible = !collapsed;
             splitter.IsVisible = !collapsed;
             showButton.IsVisible = collapsed;
             content.HideButton.IsVisible = panes is not null;
+            if (focusShow && showButton.IsEffectivelyVisible) showButton.Focus(NavigationMethod.Tab);
+            if (focusHide) content.HideButton.Focus(NavigationMethod.Tab);
         }
 
         void OnChanged(object? sender, EventArgs e) => Apply();
@@ -42,7 +47,6 @@ public static class ContextPaneSizing {
             pane.Opacity = panes is not null && PaneLayout.HidesAt(column.ActualWidth, PaneLayout.ContextMinWidth)
                 ? PaneLayout.HidingOpacity
                 : 1;
-        // Released below the minimum, the pane hides and reopens at the minimum.
         splitter.DragCompleted += (_, _) => {
             pane.Opacity = 1;
             if (panes is null) return;
