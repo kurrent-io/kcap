@@ -53,9 +53,9 @@ public class PullRequestViewSmokeTests {
         select.Focus(NavigationMethod.Tab);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
         await Assert.That(TooltipPreviewScope.Text(select)).IsEquivalentTo(
-            new[] { "First linked PR", "Open", "example/repo · Pull request #1", "Select linked pull request" },
+            new[] { "First linked PR", "Open", "Pull request", "example/repo #1", "Select linked pull request" },
             CollectionOrdering.Matching);
-        await Assert.That(AutomationProperties.GetHelpText(select)).Contains("First linked PR");
+        await Assert.That(AutomationProperties.GetHelpText(select)).Contains("First linked PR").And.Contains("Pull request · example/repo #1");
         TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
         await Assert.That(ToolTip.GetIsOpen(select)).IsFalse();
         await Assert.That(select.IsFocused).IsTrue();
@@ -68,7 +68,7 @@ public class PullRequestViewSmokeTests {
         await Assert.That(AutomationProperties.GetHelpText(second)).Contains("Second linked PR");
         TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
         await Assert.That(TooltipPreviewScope.Text(second)).IsEquivalentTo(
-            new[] { "Second linked PR", "Merged", "example/repo · Pull request #2", "Select linked pull request" },
+            new[] { "Second linked PR", "Merged", "Pull request", "example/repo #2", "Select linked pull request" },
             CollectionOrdering.Matching);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
         await Assert.That(ToolTip.GetIsOpen(second)).IsFalse();

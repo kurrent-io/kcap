@@ -1039,7 +1039,7 @@ public class MainWindowSmokeTests {
             TooltipPreviewScope.Pump(window);
             await Assert.That(ToolTip.GetIsOpen(row)).IsFalse();
             await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
-                new[] { link.Title!, "Merged", "example/repo · Pull request #142", "Linked session", title, "Open pull request details" },
+                new[] { link.Title!, "Merged", "Pull request", "example/repo #142", "Linked session", title, "Open pull request details" },
                 CollectionOrdering.Matching);
             await Assert.That(AutomationProperties.GetHelpText(pr)).Contains("Merged").And.Contains($"Linked session · {title}");
 
@@ -1056,7 +1056,7 @@ public class MainWindowSmokeTests {
             summaries.OnNext(new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([single with { Title = null }]) });
             TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
             await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
-                new[] { "Pull request #142", "Merged", "example/repo", "Linked session", title, "Open pull request details" },
+                new[] { "Pull request #142", "Merged", "Repository", "example/repo", "Linked session", title, "Open pull request details" },
                 CollectionOrdering.Matching);
             TooltipPreviewScope.Press(window, PhysicalKey.Escape);
 

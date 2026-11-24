@@ -5,10 +5,9 @@ namespace Capacitor.App.ViewModels;
 
 public sealed record RailPullRequestMenuItem(PullRequestSubjectDto Subject, string? Title, string Lifecycle) {
     public string Label => string.IsNullOrWhiteSpace(Title) ? $"PR #{Subject.Number}" : Title;
-    public string Identity => $"Pull request #{Subject.Number.ToString(CultureInfo.InvariantCulture)}";
     public string Repository => $"{Subject.Owner}/{Subject.RepoName}";
     public PullRequestStatus Status => new(Lifecycle, Lifecycle.ToLowerInvariant());
-    public KcapTip PickerTip => KcapTip.PullRequest(Identity, Title, Status, Repository, "Open pull request details");
+    public KcapTip PickerTip => KcapTip.PullRequest(Subject.Number, Title, Status, Repository, "Open pull request details");
     public string Detail => $"{Subject.Owner}/{Subject.RepoName} #{Subject.Number} · {Lifecycle}";
 }
 

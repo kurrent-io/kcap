@@ -1,3 +1,4 @@
+using System.Globalization;
 using static Capacitor.App.ViewModels.KcapTipDetail;
 
 namespace Capacitor.App.ViewModels;
@@ -21,12 +22,17 @@ public sealed record KcapTip(string Title, string? State = null, string? Tone = 
         return new(string.IsNullOrWhiteSpace(title) ? "Session" : title, status.Label, tone, details, "Open session");
     }
 
-    public static KcapTip PullRequest(string identity, string? title, PullRequestStatus? lifecycle,
-            string? repository, string? action, KcapTipDetail? context = null, string? checks = null) =>
-        new(string.IsNullOrWhiteSpace(title) ? identity : title,
+    public static KcapTip PullRequest(int number, string? title, PullRequestStatus? lifecycle,
+            string? repository, string? action, KcapTipDetail? context = null, string? checks = null) {
+        var numberLabel = "#" + number.ToString(CultureInfo.InvariantCulture);
+        title = string.IsNullOrWhiteSpace(title) ? null : title;
+        var reference = title is null ? Field("Repository", repository)
+            : Field("Pull request", string.IsNullOrWhiteSpace(repository) ? numberLabel : $"{repository} {numberLabel}");
+        return new(title ?? $"Pull request {numberLabel}",
             lifecycle?.Text,
             lifecycle is { IsDanger: true } ? "danger" : null,
-            Present(Note(string.IsNullOrWhiteSpace(title) ? repository : Join(repository, identity)), Note(checks), context), action);
+            Present(reference, Note(checks), context), action);
+    }
 
     public static string? Join(string? label, string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : string.IsNullOrWhiteSpace(label) ? value : $"{label} · {value}";

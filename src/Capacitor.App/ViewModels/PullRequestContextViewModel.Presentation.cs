@@ -14,16 +14,16 @@ public sealed partial class PullRequestContextViewModel {
     public KcapTip? ReaderLinkTip => LinkTip(CanOpenReader ? "Open pull request overview" : null);
     public KcapTip? SourceLinkTip => LinkTip(CanOpenSource ? $"Open in {ProviderLabel}" : null);
 
-    (string Identity, string? Title, PullRequestStatus? Lifecycle, string Repository, string? Context, string? Checks)? LinkTipContent =>
+    (int Number, string? Title, PullRequestStatus? Lifecycle, string Repository, string? Context, string? Checks)? LinkTipContent =>
         _selected is { } choice
-        ? ($"Pull request {NumberLabel}",
+        ? (choice.Link.Number,
             CanDisplay ? _overview?.Title ?? choice.Link.Title : choice.IsAvailable ? choice.Link.Title : null,
             CanDisplay ? LifecycleStatus : choice.IsAvailable ? choice.LinkedLifecycle : null,
             RepositoryLabel, choice.IsAvailable ? null : "Pull request unavailable", CanDisplay ? ChecksStatus.Text : null)
         : null;
 
     KcapTip? LinkTip(string? action) => LinkTipContent is { } content
-        ? KcapTip.PullRequest(content.Identity, content.Title, content.Lifecycle, content.Repository, action,
+        ? KcapTip.PullRequest(content.Number, content.Title, content.Lifecycle, content.Repository, action,
             KcapTipDetail.Note(content.Context), content.Checks)
         : null;
 
