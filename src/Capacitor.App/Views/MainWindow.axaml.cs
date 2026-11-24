@@ -40,6 +40,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             // The pane is drawn over these too, and a control that is only covered is still read out and still
             // answers to its name: the pane has a Back button of its own.
             WindowControls.IsVisible   = value is null;
+            UpdateCommandPaletteAvailability();
             ApplyMinimumSize();
         }
     }
@@ -201,6 +202,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
 
     public MainWindow() {
         InitializeComponent();
+        BindCommandPalette();
         PaneCycle.Attach(this);
         WindowControls.Spacing = RailClearance.Spacing;
         RailToggleButton.Margin = new Thickness(0, 0, RailClearance.ToggleGap - RailClearance.Spacing, 0);

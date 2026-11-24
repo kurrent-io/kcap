@@ -41,7 +41,14 @@ public static class ExperimentalFeatures {
         OnByDefault: true,
         AppWide: true);
 
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance];
+    public static ExperimentalFeature DesktopCommandPalette { get; } = new(
+        "desktop-command-palette",
+        "Command palette",
+        "Find desktop navigation and actions from the Window menu.",
+        AppliesLive: true,
+        DesktopAppOnly: true);
+
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance, DesktopCommandPalette];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>

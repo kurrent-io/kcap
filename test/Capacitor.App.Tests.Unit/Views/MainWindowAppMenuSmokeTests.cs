@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
 using Capacitor.App.Views;
 using static Capacitor.Tests.Helpers.FakeDaemonClientService;
@@ -76,6 +77,74 @@ public class MainWindowAppMenuSmokeTests {
         Dispatcher.UIThread.RunJobs();
         await Assert.That(host.Menu.IsOpen).IsFalse();
         await Assert.That(opener.Opened).IsEquivalentTo([AppMenuBar.ChangelogUrl]);
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_palette_opens_from_the_app_menu_and_returns_focus_on_escape_or_rollback() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new Host(inWindow: true);
+        var window = host.Window;
+        var previous = window.FindControl<Button>("RailToggleButton")!;
+        previous.Focus();
+        var modifier = ShortcutLabels.UsesCommandKey ? RawInputModifiers.Meta : RawInputModifiers.Control;
+        void OpenByShortcut() => window.KeyPressQwerty(PhysicalKey.P, modifier | RawInputModifiers.Shift);
+        CommandPalette? Palette() => window.FindDescendantOfType<CommandPalette>();
+
+        OpenByShortcut();
+        await Assert.That(Palette()).IsNull();
+        window.Resources[MainWindow.CommandPaletteResource] = true;
+        host.Menu.ShowAt(host.MenuButton);
+        Dispatcher.UIThread.RunJobs();
+        MainWindowSmokeTests.ClickFlyoutButton(host.Row("Command Palette…"));
+        Dispatcher.UIThread.RunJobs();
+
+        var palette = Palette()!;
+        await Assert.That(palette.QueryField.IsFocused).IsTrue();
+        window.KeyTextInput("unmatched");
+        Dispatcher.UIThread.RunJobs();
+        await Assert.That(palette.FindControl<TextBlock>("EmptyResults")!.IsEffectivelyVisible).IsTrue();
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        await Assert.That(previous.IsFocused).IsTrue();
+
+        OpenByShortcut();
+        Dispatcher.UIThread.RunJobs();
+        await Assert.That(Palette()?.QueryField.IsFocused).IsTrue();
+        window.Resources.Remove(MainWindow.CommandPaletteResource);
+        Dispatcher.UIThread.RunJobs();
+        await Assert.That(Palette()).IsNull();
+        await Assert.That(previous.IsFocused).IsTrue();
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Palette_keyboard_selection_runs_existing_actions_and_keeps_session_search_available() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        var window = host.Window;
+        window.Resources[MainWindow.CommandPaletteResource] = true;
+        var modifier = ShortcutLabels.UsesCommandKey ? RawInputModifiers.Meta : RawInputModifiers.Control;
+        window.KeyPressQwerty(PhysicalKey.P, modifier | RawInputModifiers.Shift);
+        host.Settle();
+
+        var palette = window.FindDescendantOfType<CommandPalette>()!;
+        await Assert.That(palette.QueryField.IsFocused).IsTrue();
+        var commands = palette.GetVisualDescendants().OfType<Button>().Select(AutomationProperties.GetName).ToArray();
+        await Assert.That(commands).Contains("Search sessions");
+        await Assert.That(commands).DoesNotContain("Back");
+        await Assert.That(commands).DoesNotContain("Settings");
+
+        window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.ArrowUp, RawInputModifiers.None);
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        host.Settle();
+        await Assert.That(host.Vm.IsSearchOpen).IsTrue();
+        await Assert.That(window.FindDescendantOfType<CommandPalette>()).IsNull();
+
+        window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+        host.Settle();
+        await Assert.That(host.Vm.IsSearchOpen).IsFalse();
+        window.KeyPressQwerty(PhysicalKey.K, modifier);
+        host.Settle();
+        await Assert.That(host.Vm.IsSearchOpen).IsTrue();
     });
 
     [Test]

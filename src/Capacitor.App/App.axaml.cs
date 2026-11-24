@@ -1490,6 +1490,7 @@ public partial class App : Application {
         var pageLinks = new PageLinkRouter(() => profiles?.Resolution.ServerUrl);
         var webView = new WebViewAvailability();
         var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
+        WatchDesktopExperiment(ExperimentalFeatures.DesktopCommandPalette, profiles?.Resolution.ProfileName, MainWindow.CommandPaletteResource);
         var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
         var drafts = new ComposerDrafts();
         var chatMarksOn = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.ChatMarks);
@@ -3532,6 +3533,7 @@ public partial class App : Application {
     void LatchNavigation() {
         _notificationAccessPrompt?.Dispose();
         _desktopNotifications?.Dispose();
+        _desktopExperimentSubscriptions.Dispose();
         _classicPreviewSubscription?.Dispose();
         _classicPreview?.Dispose();
         _desktopAppearance?.Dispose();

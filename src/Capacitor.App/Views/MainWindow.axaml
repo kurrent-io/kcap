@@ -46,7 +46,7 @@
                 PointerPressed="OnChromePointerPressed" />
 
         <LayoutTransformControl x:Name="ScaleHost">
-            <Panel>
+            <Panel x:Name="ScaledSurface">
                 <Grid x:Name="SessionsSurface">
                     <!-- The rail column is sized from Panes in code-behind. -->
                     <Grid.ColumnDefinitions>
