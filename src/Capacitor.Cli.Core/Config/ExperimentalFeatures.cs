@@ -41,7 +41,15 @@ public static class ExperimentalFeatures {
         OnByDefault: true,
         AppWide: true);
 
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance];
+    public static ExperimentalFeature DesktopZenMode { get; } = new(
+        "desktop-zen-mode",
+        "Zen mode",
+        "Temporarily hide the sidebar and work context from the Window menu while keeping session attention in view.",
+        AppliesLive: true,
+        DesktopAppOnly: true,
+        OnByDefault: false);
+
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance, DesktopZenMode];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>

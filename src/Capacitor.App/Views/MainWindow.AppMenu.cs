@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
@@ -9,6 +10,7 @@ namespace Capacitor.App.Views;
 public partial class MainWindow {
     readonly AltTap _altTap = new();
     IDisposable? _appMenuRows;
+    IDisposable? _appMenuTextSelection;
     IInputElement? _focusBeforeAppMenu;
 
     Flyout AppMenuPopup => (Flyout)AppMenuButton.Flyout!;
@@ -20,6 +22,8 @@ public partial class MainWindow {
         var content = (Control)menu.Content!;
         menu.Opening += (_, _) => {
             _focusBeforeAppMenu = FocusManager?.GetFocusedElement();
+            if (ZenModeEnabled && _focusBeforeAppMenu is TextBox editor)
+                _appMenuTextSelection = editor.SetValue(TextBox.ClearSelectionOnLostFocusProperty, false, BindingPriority.Animation);
             _appMenuRows?.Dispose();
             _appMenuRows = AppMenuFlyout.Populate(AppMenuRows, AppMenuFlyout.MenusFor(this), menu.Hide);
         };
@@ -28,6 +32,8 @@ public partial class MainWindow {
             _altTap.Cancel();
             if (_focusBeforeAppMenu is Visual previous && previous.IsAttachedToVisualTree()) ((IInputElement)previous).Focus();
             _focusBeforeAppMenu = null;
+            _appMenuTextSelection?.Dispose();
+            _appMenuTextSelection = null;
         };
         content.AddHandler(KeyDownEvent, OnAppMenuKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         content.AddHandler(KeyUpEvent, (_, e) => {
