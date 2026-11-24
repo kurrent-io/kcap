@@ -570,14 +570,15 @@ public class MainWindowSmokeTests {
             bool awaitingInput = false, int? liveSubagents = null, string? model = null, string? siblingWorktree = null,
             string? firstStatus = null, IReadOnlySet<string>? pendingIds = null, PendingLaunchDto? pending = null,
             IObservable<IReadOnlyDictionary<string, RailPullRequestSummary>>? pullRequestSummaries = null,
-            IPullRequestSource? pullRequests = null, DateTime? firstCreatedAt = null) {
+            IPullRequestSource? pullRequests = null, DateTime? firstCreatedAt = null,
+            string firstTitle = "Fix the flaky test", string firstPath = "/dev/alpha/wt/feature-x") {
         var service = new FakeDaemonClientService();
         service.SnapshotsSubject.OnNext(Snap());
         service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
         if (pending is not null) service.Pending.AddOrUpdate(pending);
         service.Agents.AddOrUpdate(new AgentStatusDto(
-            "a1", "agent", "claude", "/dev/alpha/wt/feature-x", firstStatus ?? "Running",
-            null, null, null, firstCreatedAt ?? DateTime.UtcNow, model, null, Title: "Fix the flaky test",
+            "a1", "agent", "claude", firstPath, firstStatus ?? "Running",
+            null, null, null, firstCreatedAt ?? DateTime.UtcNow, model, null, Title: firstTitle,
             AwaitingInput: awaitingInput ? true : null, LiveSubagents: liveSubagents, SessionId: "s1"));
         service.Agents.AddOrUpdate(new AgentStatusDto(
             "a2", "agent", "claude", "/dev/alpha/wt/feature-x", "Running",
@@ -998,6 +999,99 @@ public class MainWindowSmokeTests {
         } finally {
             window.Close();
             Dispatcher.UIThread.RunJobs();
+        }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Structured_rail_tips_follow_pointer_and_keyboard_and_keep_the_pr_picker() => AvaloniaSession.RunOnUiAsync(async () => {
+        const string title = "Investigate the mismatch between linked session titles and repository labels";
+        const string checkout = "/synthetic/source/wt/branch-with-a-long-path-for-testing-wrapped-checkout-metadata";
+        var link = FakePullRequestSource.Link(142) with { Title = "Preserve the full pull request title across a narrow session sidebar" };
+        var single = new RailPullRequestMenuItem(PullRequestWire.Subject(link), link.Title, "Merged");
+        using var summaries = new BehaviorSubject<IReadOnlyDictionary<string, RailPullRequestSummary>>(
+            new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([single]) });
+        var (vm, window) = RailWindow(firstStatus: "Completed", pullRequestSummaries: summaries,
+            firstTitle: title, firstPath: checkout);
+        using var preview = new TooltipPreviewScope();
+        try {
+            vm.Rail!.State = RailState.All;
+            TooltipPreviewScope.Pump(window);
+            var row = RailRow(window, title);
+            var pr = row.GetVisualParent()!.GetVisualChildren().OfType<Button>().Single(button => button.Name == "SessionPullRequestLink");
+            await Assert.That(ToolTip.GetTip(row)).IsTypeOf<StackPanel>();
+            await Assert.That(ToolTip.GetTip(pr) as string).Contains("Merged");
+
+            preview.Enable(ClassicAppearance.Dark);
+            TooltipPreviewScope.Pump(window);
+            ToolTip.SetShowDelay(row, 0);
+            ToolTip.SetShowDelay(pr, 0);
+            window.MouseMove(row.TranslatePoint(new Point(8, 8), window)!.Value);
+            await WorkspaceFixtures.WaitUntilAsync(() => ToolTip.GetIsOpen(row), what: "rail session hover tooltip");
+            TooltipPreviewScope.Pump(window);
+            await Assert.That(TooltipPreviewScope.Text(row)).IsEquivalentTo(
+                new[] { title, "Done", "Harness · Claude Code", $"Checkout · {checkout}", "Open session" },
+                CollectionOrdering.Matching);
+
+            window.MouseMove(new Point(window.Bounds.Width - 3, 3));
+            window.MouseMove(pr.TranslatePoint(new Point(pr.Bounds.Width / 2, pr.Bounds.Height / 2), window)!.Value);
+            await WorkspaceFixtures.WaitUntilAsync(() => ToolTip.GetIsOpen(pr), what: "nested pull request hover tooltip");
+            TooltipPreviewScope.Pump(window);
+            await Assert.That(ToolTip.GetIsOpen(row)).IsFalse();
+            await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
+                new[] { link.Title!, "Merged", "example/repo · Pull request #142", $"Linked session · {title}", "Open pull request details" },
+                CollectionOrdering.Matching);
+            await Assert.That(AutomationProperties.GetHelpText(pr)).Contains("Merged");
+
+            window.MouseMove(new Point(window.Bounds.Width - 3, 3));
+            row.Focus(NavigationMethod.Directional);
+            TooltipPreviewScope.Press(window, PhysicalKey.ArrowRight);
+            await Assert.That(pr.IsFocused).IsTrue();
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(ToolTip.GetIsOpen(pr)).IsTrue();
+            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+            await Assert.That(ToolTip.GetIsOpen(pr)).IsFalse();
+            await Assert.That(pr.IsFocused).IsTrue();
+
+            summaries.OnNext(new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([single with { Title = null }]) });
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
+                new[] { "Pull request #142", "Merged", "example/repo", $"Linked session · {title}", "Open pull request details" },
+                CollectionOrdering.Matching);
+            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+
+            summaries.OnNext(new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([
+                single, new(PullRequestWire.Subject(FakePullRequestSource.Link(143)), null, "Open"),
+            ]) });
+            preview.Enable(ClassicAppearance.Light);
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
+                new[] { "2 pull requests", $"Linked session · {title}", "Choose a pull request" }, CollectionOrdering.Matching);
+            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+            TooltipPreviewScope.Press(window, PhysicalKey.Enter);
+            await Assert.That(window.FocusManager.GetFocusedElement()).IsTypeOf<Button>();
+            var choice = (Button)window.FocusManager.GetFocusedElement()!;
+            await Assert.That(AutomationProperties.GetName(choice)).Contains("#142");
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(TooltipPreviewScope.Text(choice)).Contains("Merged");
+            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+
+            pr.Focus(NavigationMethod.Directional);
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(ToolTip.GetIsOpen(pr)).IsTrue();
+            preview.Disable();
+            TooltipPreviewScope.Pump(window);
+            await Assert.That(ToolTip.GetIsOpen(pr)).IsFalse();
+            await Assert.That(pr.IsFocused).IsTrue();
+            await Assert.That(ToolTip.GetTip(row)).IsTypeOf<StackPanel>();
+            await Assert.That(ToolTip.GetTip(pr) as string).Contains("Choose a pull request");
+            await Assert.That(AutomationProperties.GetHelpText(pr)).IsNullOrEmpty();
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(ToolTip.GetIsOpen(pr)).IsFalse();
+        } finally {
+            window.Close();
+            TooltipPreviewScope.Pump(window);
         }
     });
 

@@ -48,3 +48,7 @@ Appearance offers Comfortable and Compact density. Compact reduces padding and r
 Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux before widening the preview.
 
 Compare the stock app, preview-off and default appearance under Light and Dark with the same native synthetic transcript. Compare startup, typing, scrolling and jumps independently.
+
+## Session and linked-work tooltips
+
+In Desktop redesign preview, show the full title first and place the state directly below it. Use compact, wrapping metadata and a separate action hint. Omit missing values. The pull request lifecycle and check results keep their own lines. Focus a tooltip target and press Shift+F1 to show its details, or Escape to dismiss them. In an open PR chooser, Escape dismisses the tooltip and keeps the highlighted choice available. Switching applications dismisses the tooltip.

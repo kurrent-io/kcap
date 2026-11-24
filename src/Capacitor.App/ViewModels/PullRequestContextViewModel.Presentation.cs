@@ -11,6 +11,22 @@ public sealed partial class PullRequestContextViewModel {
     public string SectionMeta => _choices.Count > 0 ? _choices.Count.ToString(CultureInfo.InvariantCulture) : "";
     public string RepositoryLabel => _selected is { } choice ? $"{choice.Link.Owner}/{choice.Link.RepoName}" : "";
     public string NumberLabel => _selected is { } choice ? "#" + choice.Link.Number.ToString(CultureInfo.InvariantCulture) : "";
+    public KcapTip? ReaderLinkTip => LinkTip(CanOpenReader ? "Open pull request overview" : null);
+    public KcapTip? SourceLinkTip => LinkTip(CanOpenSource ? $"Open in {ProviderLabel}" : null);
+
+    (string Identity, string? Title, PullRequestStatus? Lifecycle, string Repository, string? Context, string? Checks)? LinkTipContent =>
+        _selected is { } choice
+        ? ($"Pull request {NumberLabel}",
+            CanDisplay ? _overview?.Title ?? choice.Link.Title : choice.IsAvailable ? choice.Link.Title : null,
+            CanDisplay ? LifecycleStatus : choice.IsAvailable ? choice.LinkedLifecycle : null,
+            RepositoryLabel, choice.IsAvailable ? null : "Pull request unavailable", CanDisplay ? ChecksStatus.Text : null)
+        : null;
+
+    KcapTip? LinkTip(string? action) => LinkTipContent is { } content
+        ? KcapTip.PullRequest(content.Identity, content.Title, content.Lifecycle, content.Repository, action,
+            content.Context, content.Checks)
+        : null;
+
     public bool HasNumberLabel => NumberLabel.Length > 0;
     /// The repository GitHub references in a body are read against; none off github.com, where the
     /// reader cannot tell a reference from text.
@@ -192,6 +208,9 @@ public sealed partial class PullRequestContextViewModel {
         NotifyValue(SelectedTabIndex);
         NotifyValue(SelectedReviewTabIndex);
         NotifyValue(LifecycleStatus);
+        var linkTip = LinkTipContent;
+        NotifyValue((linkTip, CanOpenReader), nameof(ReaderLinkTip));
+        NotifyValue((linkTip, CanOpenSource ? ProviderLabel : null), nameof(SourceLinkTip));
         NotifyValue(MergedPullRequests);
         NotifyValue(ReviewStatus);
         NotifyValue(ChecksStatus);

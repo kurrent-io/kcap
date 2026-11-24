@@ -133,7 +133,7 @@ public partial class SessionRailView : UserControl {
                 Content = body, DataContext = item, MinWidth = 240, MaxWidth = 360, Padding = new Thickness(10, 8),
                 HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
             };
-            option.Classes.Add("kcapGhost");
+            option.Classes.AddRange(["kcapGhost", "railPrChoiceTip", "kcapStructuredTip"]);
             AutomationProperties.SetName(option, $"Open {item.Detail}: {item.Label}");
             ToolTip.SetTip(option, $"{item.Label}\n{item.Detail}");
             option.Click += (_, _) => {
