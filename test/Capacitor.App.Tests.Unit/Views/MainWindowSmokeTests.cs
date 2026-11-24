@@ -767,6 +767,31 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public Task Rail_loading_placeholders_follow_both_loading_and_preview_state() => AvaloniaSession.RunOnUiAsync(async () => {
+        var service = new FakeDaemonClientService();
+        using var directory = new FakeAgentDirectory();
+        using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, rail: rail);
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connecting, null, null));
+            Dispatcher.UIThread.RunJobs();
+            var placeholder = window.SessionRail.FindControl<StackPanel>("SessionLoadingPlaceholder")!;
+            await Assert.That(placeholder.IsEffectivelyVisible).IsFalse();
+
+            window.Resources["KcapPreviewLoadingSkeleton"] = true;
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(placeholder.IsEffectivelyVisible).IsTrue();
+
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(placeholder.IsEffectivelyVisible).IsFalse();
+        } finally { window.Close(); }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public Task Rail_pagination_tracks_the_filter_and_disappears_when_fully_loaded() => AvaloniaSession.RunOnUiAsync(async () => {
         var service = new FakeDaemonClientService();
         using var directory = new FakeAgentDirectory();

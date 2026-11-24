@@ -54,3 +54,19 @@ Compare the stock app, preview-off and default appearance under Light and Dark w
 Keep a keyboard path back to Details as the inspector fits, collapses or reopens. If focus is inside a pane that must hide, move it to the visible Details control. Opening that control puts focus on the inspector’s Hide details action.
 
 Show static row placeholders while the session list loads in the preview. Keep the loading label as the text status and remove the placeholders as soon as the list settles.
+
+## Verification
+
+Use the same synthetic sessions for the original appearance, Classic, and Modern. Include a long streaming transcript, a pending permission request, and a pull request with failing checks. Start at 1400 × 760 DIP and repeat at 1200 × 560 DIP and enlarged text.
+
+| Surface | Acceptance check |
+| --- | --- |
+| Appearance | Start in Auto, Light, and Dark with both visual modes and densities. Change the OS appearance while Auto is active. Repeat with higher contrast and Reduce Motion. Verify that the saved choices survive a restart and that disabling the preview restores the original appearance. |
+| Transcript | Select across turns while content streams. Compare plain-text and rich clipboard output. Reopen at the saved message or the live edge. Toggle the navigator with its outline open and verify focus and the native thumb. |
+| Composer | Type and edit a multiline draft at both sizes. Check attachment, account limits, interrupt, and recovery. Open and close the command palette and Zen using the keyboard. Confirm the draft, reading position, and focus return. |
+| Work context | Jump from the full PR card into checks, reviews, and discussions. Check that lifecycle and blockers remain distinct. Hide Details while it owns focus, then reopen it. Turn the branch widget off while its dismiss button is focused. |
+| Platform | Verify macOS decorations and VoiceOver, Windows Snap and mixed DPI, and Linux decorations, scale, and Orca. Use the opaque fallback when effects are unavailable. |
+
+Run the contrast, typography, and accessibility audits in `tools/ui-audit/`. The contrast audit checks normal text against 4.5:1 and meaningful graphics and control boundaries against 3:1. Use native captures for focus, context menus, disabled controls, and contrast against translucent fills.
+
+Use `tools/app-perf/` with identical synthetic input for paired Classic and Modern runs. Record p95 typing-to-paint, frame times, retained memory, and realized transcript rows. Keep the standard scrollbar available through the retrieval pilot. Keep the coordinated status switch opt-in through the recognition pilot.
