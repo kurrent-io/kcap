@@ -153,6 +153,7 @@ internal static class EnsureFailureMap {
         VerifyExit.StartGate           => "verify_start_gate",
         VerifyExit.StartGateDrift      => "verify_start_gate_drift",
         VerifyExit.RetireRefused       => "verify_retire_refused",
+        VerifyExit.ActivationRefused   => VerifyExit.ActivationRefusedToken,
         _                              => $"verify_unknown_{exit}",
     };
 }

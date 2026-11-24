@@ -95,7 +95,7 @@ Options for doctor:
                           --clean, doctor reports state without modifying.
 
 Subcommands for service (per-user; restarts the daemon if it crashes, starts it at login):
-  install [--name N] [--profile P] [--max-agents N] [--no-start] [--replace] [--verify] [--retire ID]
+  install [--name N] [--profile P] [--max-agents N] [--no-start] [--replace] [--verify] [--retire ID [--retire-profile P]] [--activate]
                           Register the daemon as an OS service and start it.
                           Pins the profile via KCAP_PROFILE and captures PATH so
                           claude/codex resolve as they do in your shell. --verify
@@ -112,6 +112,15 @@ Subcommands for service (per-user; restarts the daemon if it crashes, starts it 
                           leaves behind. Refused unless that unit is pinned to
                           the same profile; a live daemon under the NEW name is
                           contended, never taken over.
+                          --retire-profile P (requires --retire) pins the
+                          retired unit to profile P instead.
+                          --activate (requires --replace --verify and
+                          KCAP_EXPECT_SERVER_URL) also makes the installed
+                          profile the active one, once the old daemon is
+                          confirmed stopped and before the new unit is written,
+                          and prints activated=<profile>. Refused, changing
+                          nothing, when the profile no longer names that server
+                          or this daemon name.
                           --no-start cannot be combined with --verify (verify
                           proves the STARTED daemon is ready).
                           Refused, changing nothing, from inside an agent that
@@ -123,7 +132,10 @@ Subcommands for service (per-user; restarts the daemon if it crashes, starts it 
                           this daemon to it. Needs the desktop app's install,
                           which carries kcap-service.exe. A declined prompt
                           exits 1223 and changes nothing. A local server its
-                          Scheduled Task runs moves to kcap-service too.
+                          Scheduled Task runs moves to kcap-service too. An
+                          --activate target is checked before the prompt; a
+                          --retire refusal comes after it and leaves the
+                          service updated, your daemon units as they were.
   uninstall [--name N]    Stop and remove the service unit.
   uninstall --system      Windows: move the local server and this daemon back
                           to their Scheduled Tasks, then remove the machine's

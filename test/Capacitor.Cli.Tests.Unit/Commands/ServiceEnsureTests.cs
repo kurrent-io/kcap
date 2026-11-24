@@ -426,6 +426,8 @@ public class EnsureFlowMapTests {
             [VerifyExit.StartGate]           = FirstRunMachineActionReasons.NeedsAttention,
             [VerifyExit.StartGateDrift]      = null,
             [VerifyExit.RetireRefused]       = FirstRunMachineActionReasons.NotConfigured,
+            // An activation can stop after the matrix has already stopped the old owner.
+            [VerifyExit.ActivationRefused]   = null,
         };
 
         var codes = typeof(VerifyExit)
