@@ -7,11 +7,6 @@ using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
-/// Draws one 32x32 WindowIcon per (TrayState, capped Running count): ProductIcon.TrayBitmap with
-/// a bottom-right overlay — CountBadge(count) on a dark-green circle for Running, otherwise a
-/// StatusColors dot, the palette MainWindow's status line shares so the two never disagree.
-/// Cached per key so a (state, count) always returns the same WindowIcon reference. UI-thread-only,
-/// so the cache needs no locking.
 public static class TrayIconRenderer {
     const int IconSize = 32;
     const int OverlayDiameter = 12; // bottom-right state overlay
@@ -23,13 +18,16 @@ public static class TrayIconRenderer {
 
     static readonly IBrush BadgeText = Brushes.White;
     static readonly IBrush BadgeBackground = new SolidColorBrush(Color.Parse(BadgeBackgroundHex));
-    static readonly Dictionary<(TrayState State, int CappedCount), WindowIcon> Cache = new();
+    static readonly IBrush PreviewBackground = new SolidColorBrush(Color.Parse("#292B2D"));
+    static readonly Dictionary<(TrayState State, int CappedCount, StatusGlyphKind? Glyph), WindowIcon> Cache = new();
 
-    public static WindowIcon Get(TrayState state, int count) {
-        var key = (state, CappedCount: state == TrayState.Running ? Math.Clamp(count, 0, CountCap) : 0);
+    public static WindowIcon Get(TrayState state, int count) => Get(state, count, null);
+
+    internal static WindowIcon Get(TrayState state, int count, StatusGlyphKind? glyph) {
+        var key = (state, CappedCount: state == TrayState.Running ? Math.Clamp(count, 0, CountCap) : 0, glyph);
         if (Cache.TryGetValue(key, out var cached)) return cached;
 
-        var icon = Render(state, key.CappedCount);
+        var icon = Render(state, key.CappedCount, glyph);
         Cache[key] = icon;
         return icon;
     }
@@ -40,11 +38,12 @@ public static class TrayIconRenderer {
         _ => "9+",
     };
 
-    static WindowIcon Render(TrayState state, int cappedCount) {
+    static WindowIcon Render(TrayState state, int cappedCount, StatusGlyphKind? glyph) {
         var bitmap = new RenderTargetBitmap(new PixelSize(IconSize, IconSize));
         using (var context = bitmap.CreateDrawingContext()) {
             context.DrawImage(ProductIcon.TrayBitmap, new Rect(0, 0, IconSize, IconSize));
-            if (state == TrayState.Running) DrawCountBadge(context, cappedCount);
+            if (state == TrayState.Running) DrawCountBadge(context, cappedCount, glyph is not null);
+            else if (glyph is { } kind) DrawStatusGlyph(context, kind);
             else DrawStatusDot(context, state);
         }
         return new WindowIcon(bitmap);
@@ -56,9 +55,29 @@ public static class TrayIconRenderer {
         context.DrawEllipse(brush, null, center, radius, radius);
     }
 
-    static void DrawCountBadge(DrawingContext context, int cappedCount) {
+    static void DrawStatusGlyph(DrawingContext context, StatusGlyphKind kind) {
         var (center, radius) = OverlayCircle();
-        context.DrawEllipse(BadgeBackground, null, center, radius, radius);
+        var ink = kind switch {
+            StatusGlyphKind.Healthy => StatusColors.Connected,
+            StatusGlyphKind.Attention => StatusColors.InProgress,
+            StatusGlyphKind.Failure => StatusColors.Disrupted,
+            _ => "#E2E2E0",
+        };
+        context.DrawEllipse(PreviewBackground, null, center, radius + 1, radius + 1);
+        var icon = new AppIcon { Kind = StatusGlyph.Appearance(kind).Icon, Size = OverlayDiameter,
+            Foreground = new SolidColorBrush(Color.Parse(ink)) };
+        var size = new Size(OverlayDiameter, OverlayDiameter);
+        icon.Measure(size);
+        icon.Arrange(new Rect(size));
+        using var glyph = new RenderTargetBitmap(new PixelSize(OverlayDiameter, OverlayDiameter));
+        glyph.Render(icon);
+        context.DrawImage(glyph, new Rect(center - new Point(radius, radius), size));
+        if (kind == StatusGlyphKind.Activity) context.DrawEllipse(icon.Foreground, null, center, 2, 2);
+    }
+
+    static void DrawCountBadge(DrawingContext context, int cappedCount, bool preview) {
+        var (center, radius) = OverlayCircle();
+        context.DrawEllipse(preview ? PreviewBackground : BadgeBackground, null, center, radius, radius);
 
         var text = new FormattedText(
             CountBadge(cappedCount), CultureInfo.InvariantCulture, FlowDirection.LeftToRight,

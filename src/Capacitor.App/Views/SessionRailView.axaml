@@ -28,6 +28,60 @@
         <Style Selector="Button.railPr views|PullRequestStatusLabel">
             <Setter Property="IsHitTestVisible" Value="False" />
         </Style>
+        <Style Selector="Button.statusPr" x:DataType="vm:RailSessionViewModel">
+            <Setter Property="AutomationProperties.Name" Value="{Binding PullRequestAccessibleName}" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="ContentTemplate">
+                <DataTemplate x:DataType="vm:RailSessionViewModel">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <views:PullRequestStatusLabel DataContext="{Binding PullRequestStatus}" ShowText="False"
+                            IsVisible="{Binding $parent[Button].((vm:RailSessionViewModel)DataContext).HasPullRequestLifecycle}" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding PullRequestLabel}" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </DataTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="Button.statusPr[(views|StatusGlyph.IsPreview)=True]" x:DataType="vm:RailSessionViewModel">
+            <Setter Property="Grid.Row" Value="1" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding PreviewPullRequestAccessibleName}" />
+            <Setter Property="ContentTemplate">
+                <DataTemplate x:DataType="vm:RailSessionViewModel">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="{Binding PullRequestLabel}" Foreground="{StaticResource KcapMutedBrush}" />
+                        <ItemsControl ItemsSource="{Binding PullRequestSignals}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><WrapPanel Orientation="Horizontal" ItemSpacing="8" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:PullRequestStatus">
+                                    <DockPanel>
+                                        <views:StatusGlyph Kind="{Binding PreviewGlyph}" DockPanel.Dock="Left" Margin="0,0,4,0"
+                                                           VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding PreviewText}" Foreground="{StaticResource KcapMutedBrush}" />
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </DataTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="TextBlock#RailAlertText">
+            <Setter Property="AutomationProperties.LiveSetting" Value="Assertive" />
+        </Style>
+        <Style Selector="TextBlock#RailAlertText[(views|StatusGlyph.IsPreview)=True]">
+            <Setter Property="AutomationProperties.LiveSetting" Value="Off" />
+        </Style>
+        <Style Selector="TextBlock#RailAlertText.actionable[(views|StatusGlyph.IsPreview)=True]">
+            <Setter Property="AutomationProperties.LiveSetting" Value="Polite" />
+        </Style>
+        <Style Selector="Border.railSession" x:DataType="vm:RailSessionViewModel">
+            <Setter Property="Opacity" Value="{Binding IsStale, Converter={x:Static views:StaleOpacityConverter.Instance}}" />
+        </Style>
+        <Style Selector="Border.railSession[(views|StatusGlyph.IsPreview)=True]">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
         <!-- A row's resting Background and BorderThickness MUST come from this class style, never a
              local attribute on the Button: a local value outranks a style trigger, which would leave
              the highlight styles below permanently inert (and suppress the theme's hover/pressed
@@ -437,17 +491,22 @@
                                 Command="{Binding OpenRailAlertCommand}"
                                 AutomationProperties.Name="{Binding Alert.Text, StringFormat='{}{0}: open the launcher', FallbackValue={x:Null}}">
                             <StackPanel Orientation="Horizontal" Spacing="4">
+                                <views:StatusGlyph Kind="{Binding Alert.Glyph}" />
                                 <TextBlock x:Name="RailAlertText" Text="{Binding Alert.Text, FallbackValue={x:Null}}" Classes="footerValue"
-                                           AutomationProperties.LiveSetting="Assertive"
+                                           Classes.actionable="{Binding Alert.IsActionable, FallbackValue=False}"
+                                           views:StatusGlyph.IsPreview="{DynamicResource KcapStatusPreview}"
                                            Foreground="{Binding StatusBrush}" TextWrapping="Wrap" VerticalAlignment="Center"
                                            ToolTip.Tip="{Binding Alert.Detail, FallbackValue={x:Null}}" />
                                 <views:AppIcon Kind="ChevronRight" Size="12" VerticalAlignment="Center" />
                             </StackPanel>
                         </Button>
                     </StackPanel>
+                    <DockPanel IsVisible="{Binding ShowsConnected}">
+                    <views:StatusGlyph Kind="Healthy" DockPanel.Dock="Left" Margin="0,0,4,0" />
                     <TextBlock x:Name="RailConnectedText" Text="{x:Static vm:MainWindowViewModel.ConnectedText}"
                                Classes="footerValue" Foreground="{StaticResource KcapSuccessBrush}"
                                IsVisible="{Binding ShowsConnected}" />
+                    </DockPanel>
                     <TextBlock x:Name="RailTenantText" Text="{Binding FooterIdentity}" Classes="footerValue"
                                Foreground="{StaticResource KcapFaintBrush}" TextTrimming="CharacterEllipsis"
                                IsVisible="{Binding FooterIdentity, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
@@ -607,8 +666,8 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:RailSessionViewModel">
                                                     <Border Classes="railSession" Classes.selected="{Binding IsSelected}" Margin="0,2,0,0"
-                                                            Opacity="{Binding IsStale, Converter={x:Static views:StaleOpacityConverter.Instance}}">
-                                                        <Grid>
+                                                            views:StatusGlyph.IsPreview="{DynamicResource KcapStatusPreview}">
+                                                        <Grid RowDefinitions="Auto,Auto">
                                                             <Button Command="{Binding OpenCommand}" HorizontalAlignment="Stretch"
                                                                     HorizontalContentAlignment="Stretch" Padding="{DynamicResource KcapSessionRowPadding}"
                                                                     AutomationProperties.Name="{Binding SessionAccessibleName}"
@@ -640,6 +699,12 @@
                                                                         </Border>
                                                                         <views:AgentStatusMark DataContext="{Binding Status}" MaxWidth="160" ToolTip.Tip="{x:Null}"
                                                                                                Margin="0,0,6,0" VerticalAlignment="Center" />
+                                                                        <Panel IsVisible="{Binding IsStale}">
+                                                                            <StackPanel Classes="previewStatus" Orientation="Horizontal" Spacing="4" Margin="0,0,6,0">
+                                                                                <views:StatusGlyph Kind="Stale" />
+                                                                                <TextBlock Text="Earlier status" Classes="railMeta" Foreground="{StaticResource KcapMutedBrush}" />
+                                                                            </StackPanel>
+                                                                        </Panel>
                                                                         <Border x:Name="SessionMachineBadge" Classes="railChip" IsVisible="{Binding MachineBadge, Converter={x:Static ObjectConverters.IsNotNull}}"
                                                                                 MaxWidth="140" Margin="0,0,6,0"
                                                                                 ToolTip.Tip="{Binding MachineTooltip}" AutomationProperties.Name="{Binding MachineTooltip}">
@@ -671,25 +736,18 @@
                                                                                TextTrimming="CharacterEllipsis" HorizontalAlignment="Left"
                                                                                Foreground="{StaticResource KcapFaintBrush}" />
                                                                     </WrapPanel>
-                                                                    <Border Grid.Column="1" Width="{Binding #SessionPullRequestLink.Bounds.Width}" Margin="8,0,0,0"
-                                                                            IsVisible="{Binding HasPullRequest}" />
+                                                                    <Panel Grid.Column="1" IsVisible="{Binding HasPullRequest}">
+                                                                        <Border Classes="stockStatus" Width="{Binding #SessionPullRequestLink.Bounds.Width}" Margin="8,0,0,0" />
+                                                                    </Panel>
                                                                 </Grid>
                                                             </StackPanel>
                                                         </Button>
-                                                            <Button x:Name="SessionPullRequestLink" Classes="railPr" Command="{Binding OpenPullRequestCommand}" Click="OnPullRequestClick"
-                                                                IsVisible="{Binding HasPullRequest}"
-                                                                AutomationProperties.Name="{Binding PullRequestAccessibleName}"
-                                                                HorizontalAlignment="Right" HorizontalContentAlignment="Left" VerticalAlignment="Bottom" Margin="4,0,4,4"
-                                                                FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapMutedBrush}">
-                                                            <StackPanel Orientation="Horizontal" Spacing="6">
-                                                                <views:PullRequestStatusLabel DataContext="{Binding PullRequestStatus}"
-                                                                                              ShowText="False"
-                                                                                              IsVisible="{Binding $parent[Button].((vm:RailSessionViewModel)DataContext).HasPullRequestLifecycle}"
-                                                                                              VerticalAlignment="Center" />
-                                                                <TextBlock Text="{Binding PullRequestLabel}" Foreground="{StaticResource KcapMutedBrush}"
-                                                                           VerticalAlignment="Center" />
-                                                            </StackPanel>
-                                                        </Button>
+                                                            <Button x:Name="SessionPullRequestLink" Classes="railPr statusPr"
+                                                                Command="{Binding OpenPullRequestCommand}" Click="OnPullRequestClick"
+                                                                IsVisible="{Binding HasPullRequest}" Content="{Binding}"
+                                                                views:StatusGlyph.IsPreview="{DynamicResource KcapStatusPreview}"
+                                                                HorizontalContentAlignment="Left" VerticalAlignment="Bottom" Margin="4,0,4,4"
+                                                                FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapMutedBrush}" />
                                                         </Grid>
                                                     </Border>
                                                 </DataTemplate>

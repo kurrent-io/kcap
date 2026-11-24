@@ -74,23 +74,31 @@
                         <DataTemplate x:DataType="vm:InstallStepRow">
                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                                 <Panel Width="14" Height="14" VerticalAlignment="Center">
-                                    <icons:AppIcon Kind="Circle" Size="14" Foreground="{StaticResource OnboardingMutedBrush}"
-                                                   AutomationProperties.Name="Waiting"
-                                                   IsVisible="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Pending}" />
-                                    <Panel Classes="onboardingSpinner"
-                                           IsVisible="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Running}">
-                                        <icons:AppIcon Kind="LoaderCircle" Size="14" Foreground="{StaticResource OnboardingAccentBrush}"
-                                                       AutomationProperties.Name="In progress"
-                                                       icons:BusyIndicator.IsBusy="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Running}" />
+                                    <icons:StatusGlyph Kind="{Binding Row.State, Converter={x:Static icons:StatusGlyph.Install}}"
+                                                       VerticalAlignment="Center" HorizontalAlignment="Center" />
+                                    <Panel Classes="stockStatus">
+                                        <icons:AppIcon Kind="Circle" Size="14" Foreground="{StaticResource OnboardingMutedBrush}"
+                                                       AutomationProperties.Name="Waiting"
+                                                       IsVisible="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Pending}" />
+                                        <Panel Classes="onboardingSpinner"
+                                               IsVisible="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Running}">
+                                            <icons:AppIcon Kind="LoaderCircle" Size="14" Foreground="{StaticResource OnboardingAccentBrush}"
+                                                           AutomationProperties.Name="In progress"
+                                                           icons:BusyIndicator.IsBusy="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Running}" />
+                                        </Panel>
+                                        <icons:AppIcon Kind="Check" Size="14" Foreground="{StaticResource KcapSuccessBrush}"
+                                                       AutomationProperties.Name="Done"
+                                                       IsVisible="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Done}" />
+                                        <icons:AppIcon Kind="CircleMinus" Size="14" Foreground="{StaticResource OnboardingMutedBrush}"
+                                                       AutomationProperties.Name="Skipped"
+                                                       IsVisible="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Skipped}" />
                                     </Panel>
-                                    <icons:AppIcon Kind="Check" Size="14" Foreground="{StaticResource KcapSuccessBrush}"
-                                                   AutomationProperties.Name="Done"
-                                                   IsVisible="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Done}" />
-                                    <icons:AppIcon Kind="CircleMinus" Size="14" Foreground="{StaticResource OnboardingMutedBrush}"
-                                                   AutomationProperties.Name="Skipped"
-                                                   IsVisible="{Binding Row.State, Converter={x:Static views:RowStateIsConverter.Instance}, ConverterParameter=Skipped}" />
                                 </Panel>
-                                <TextBlock Grid.Column="1" Classes="onboardingBody" VerticalAlignment="Center" Text="{Binding Label}" />
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Classes="onboardingBody" VerticalAlignment="Center" Text="{Binding Label}" />
+                                    <TextBlock Classes="kcapStatusWord previewStatus"
+                                               Text="{Binding Row.State, Converter={x:Static icons:StatusGlyph.InstallLabel}}" />
+                                </StackPanel>
                             </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

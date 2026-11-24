@@ -37,7 +37,7 @@ Run `tools/ui-audit/contrast.py`, `type_scale.py` and `axaml_a11y.py`. Exercise 
 
 Segmented controls and sidebar filter dropdowns share neutral hover and pressed fills. Selection keeps the blue fill, with a semibold label on the active workspace tab. Higher contrast strengthens borders independently of these fills.
 
-The work-context pane uses its resize grabber as the divider with the preview enabled. PR lifecycle, health text, and work-in-progress keep their existing meanings during the comparison. The dark preview uses graphite surfaces, soft neutral text, a pearl primary action and slate-blue selection. Modern and transcript interaction experiments have separate flags.
+The work-context pane uses its resize grabber as the divider with the preview enabled. The dark preview uses graphite surfaces, soft neutral text, a pearl primary action and slate-blue selection. Modern and transcript interaction experiments have separate flags.
 
 In Dark, use emerald `#64D998` for success, amber `#EBB64F` for attention, coral `#FF9087` for failure and violet `#C6A0F6` for the purple status role. Each of the five semantic inks, including blue, has at least 5.80:1 contrast across the base surfaces and its own tinted fill. On a selected row, the minimum is 4.79:1 for the danger label. The audit checks every status ink on the selection fill. Bookmarks keep their user-selected colors.
 
@@ -52,3 +52,18 @@ Compare the stock app, preview-off and default appearance under Light and Dark w
 ## Session and linked-work tooltips
 
 Show the full title first and place the state directly below it across desktop appearances. Keep the inactivity explanation with the Stale status. Set each semibold metadata label immediately above its value. Align labels, values and wrapped text to the same left edge. Omit missing values. Add a plain browser note when an external work-context link only shows the item title or key. The PR card shows check results in their own row. A tooltip whose only content is the label text opens only when the label is truncated. Focus a structured tooltip target and press Shift+F1 to show its details, or Escape to dismiss them. In an open PR chooser, Escape dismisses the tooltip and keeps the highlighted choice available. Switching applications dismisses the tooltip.
+
+## Desktop status
+
+The separate Desktop status redesign switch applies the GitHub lifecycle and neutral activity mapping together when Desktop redesign preview is enabled. Both mappings use the same activation so a color keeps its meaning across surfaces. Status words stay legible on selected rows. Glyphs and count shapes remain static in the preview and carry meaning in grayscale.
+
+| Evidence | Mark and visible wording |
+| --- | --- |
+| PR lifecycle | Green pull request **Open**, gray dashed pull request **Draft**, violet merge **Merged**, red closed pull request **Closed**. |
+| PR checks and review | Check for **Checks passing** or **Approved**, red cross for **Checks failed**, amber circle alert for **Changes requested**, **Review required** or unresolved threads, amber triangle for **Merge conflicts**. The same marks appear in the rail, card, reader and tooltip. |
+| Routine activity | High-contrast ring with a center dot and a verb such as **Working**, **Starting**, **Running**, **Installing** or **Reconnecting**. |
+| Pending, stopped, skipped, unknown | Hollow ring for **Pending**, stop circle for **Ended**, **Stopped** or a plan task left **Started**, minus circle for **Skipped**, question circle for incomplete or unavailable status. |
+| Action required | Amber question for **Waiting for input**, amber alert for **Needs you** or permission needed, clock for **Idle** or **Stale**, pause for interrupted work or an unavailable daemon. |
+| Verified outcome or health | Green check for completed work, a successful operation or **Connected**. Red cross for a failed operation. Recorded session history renders **Ended** when the source establishes only that the session is over. |
+
+Session rollups prioritize direct input requests, then failures and blockers, then live work. The accessible name uses the visible state or count, with more context in the tooltip. Multi-PR buttons name the number requiring attention and show incomplete coverage when some evidence is unavailable. Access-scoped evidence expires with the overview. Earlier snapshots remain labeled while still revealable. The card and reader expose checks, review and conflicts independently of lifecycle.

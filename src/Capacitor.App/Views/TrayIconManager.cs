@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Capacitor.App.ViewModels;
@@ -44,8 +45,13 @@ public sealed class TrayIconManager : IDisposable {
             };
         }
 
-        _subscription = vm.WhenAnyValue(x => x.MenuModel).Subscribe(model => {
-            _trayIcon.Icon = TrayIconRenderer.Get(model.State, model.RunningCount);
+        var modelChanges = vm.WhenAnyValue(x => x.MenuModel);
+        var preview = app.GetResourceObservable("KcapStatusPreview").Select(value => value is true).DistinctUntilChanged();
+        _subscription = modelChanges.CombineLatest(preview, (model, enabled) => (model, enabled)).Subscribe(update => {
+            var (model, enabled) = update;
+            _trayIcon.Icon = enabled
+                ? TrayIconRenderer.Get(model.State, model.RunningCount, model.PreviewGlyph)
+                : TrayIconRenderer.Get(model.State, model.RunningCount);
             if (rebuildEagerly) {
                 // Windows reads the tooltip as the icon's accessible name.
                 _trayIcon.ToolTipText = model.ToolTip;

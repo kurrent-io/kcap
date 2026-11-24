@@ -6,7 +6,7 @@
              x:DataType="vm:AgentStatusPresentation"
              ClipToBounds="False"
              IsVisible="{Binding HasLabel, FallbackValue=False}"
-             AutomationProperties.Name="{Binding AccessibleName}">
+             views:StatusGlyph.IsPreview="{DynamicResource KcapStatusPreview}">
     <UserControl.Styles>
         <Style Selector="views|AppIcon.settledMark">
             <Setter Property="Kind" Value="Minus" />
@@ -14,7 +14,25 @@
         <Style Selector="views|AppIcon.settledMark.done">
             <Setter Property="Kind" Value="Check" />
         </Style>
+        <Style Selector="views|AgentStatusMark" x:DataType="vm:AgentStatusPresentation">
+            <Setter Property="AutomationProperties.Name" Value="{Binding AccessibleName}" />
+        </Style>
+        <Style Selector="views|AgentStatusMark[(views|StatusGlyph.IsPreview)=True]" x:DataType="vm:AgentStatusPresentation">
+            <Setter Property="AutomationProperties.Name" Value="{Binding PreviewAccessibleName}" />
+        </Style>
+        <Style Selector="TextBlock#StatusWord" x:DataType="vm:AgentStatusPresentation">
+            <Setter Property="Text" Value="{Binding Label}" />
+        </Style>
+        <Style Selector="TextBlock#StatusWord[(views|StatusGlyph.IsPreview)=True]" x:DataType="vm:AgentStatusPresentation">
+            <Setter Property="Text" Value="{Binding PreviewLabel}" />
+        </Style>
         <Style Selector="views|AgentStatusMark.header TextBlock#StatusWord">
+            <Setter Property="AutomationProperties.LiveSetting" Value="Polite" />
+        </Style>
+        <Style Selector="views|AgentStatusMark.header TextBlock#StatusWord[(views|StatusGlyph.IsPreview)=True]">
+            <Setter Property="AutomationProperties.LiveSetting" Value="Off" />
+        </Style>
+        <Style Selector="views|AgentStatusMark.header TextBlock#StatusWord.actionable[(views|StatusGlyph.IsPreview)=True]">
             <Setter Property="AutomationProperties.LiveSetting" Value="Polite" />
         </Style>
     </UserControl.Styles>
@@ -25,27 +43,31 @@
          raw daemon status outgrows its column; the tooltip carries the full text. -->
     <DockPanel VerticalAlignment="Center">
         <!-- Lucide's full canvas keeps the ring stroke inside the status slot. -->
-        <Panel x:Name="Glyph" Classes="kcapStatusGlyph" DockPanel.Dock="Left" Margin="0,0,5,0"
-               VerticalAlignment="Center" ClipToBounds="False"
-               Classes.pulsing="{Binding Pulses}" views:PulseClock.IsActive="{Binding Pulses}">
-            <views:AppIcon Kind="Circle" Size="12" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsVisible="{Binding ShowsRing}"
-                           Foreground="{StaticResource KcapPurpleBrush}" />
-            <Ellipse Width="5" Height="5" Fill="{StaticResource KcapPurpleBrush}"
-                     HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False" IsVisible="{Binding ShowsRing}" />
-            <views:AppIcon Kind="Clock" Size="12" IsVisible="{Binding ShowsClock}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                           Foreground="{StaticResource KcapWarningBrush}" />
-            <views:AppIcon Kind="CircleQuestionMark" Size="12" Foreground="{StaticResource KcapWarningBrush}" HorizontalAlignment="Center"
-                           VerticalAlignment="Center" IsVisible="{Binding ShowsAsk}" />
-            <views:AppIcon Kind="CircleAlert" Size="12" Foreground="{StaticResource KcapWarningBrush}" HorizontalAlignment="Center"
-                           VerticalAlignment="Center" IsVisible="{Binding ShowsBang}" />
-            <views:AppIcon Kind="CirclePause" Size="12" Foreground="{StaticResource KcapWarningBrush}" HorizontalAlignment="Center"
-                           VerticalAlignment="Center" IsVisible="{Binding ShowsPause}" />
-            <views:AppIcon Kind="X" Size="12" IsVisible="{Binding ShowsCross}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                           Foreground="{StaticResource KcapDangerBrush}" />
-            <views:AppIcon Classes="settledMark" Classes.done="{Binding IsDone}" Size="12"
-                           Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding ShowsSettledMark}" />
+        <Panel x:Name="Glyph" Classes="kcapStatusGlyph" DockPanel.Dock="Left" Margin="0,0,5,0" VerticalAlignment="Center">
+            <views:StatusGlyph Kind="{Binding PreviewGlyph}" VerticalAlignment="Center" HorizontalAlignment="Center" />
+            <Panel Classes="stockStatus" ClipToBounds="False"
+                   Classes.pulsing="{Binding Pulses}" views:PulseClock.IsActive="{Binding Pulses}">
+                <views:AppIcon Kind="Circle" Size="12" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsVisible="{Binding ShowsRing}"
+                               Foreground="{StaticResource KcapActivityBrush}" />
+                <Ellipse Width="5" Height="5" Fill="{StaticResource KcapActivityBrush}"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False" IsVisible="{Binding ShowsRing}" />
+                <views:AppIcon Kind="Clock" Size="12" IsVisible="{Binding ShowsClock}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                               Foreground="{StaticResource KcapWarningBrush}" />
+                <views:AppIcon Kind="CircleQuestionMark" Size="12" Foreground="{StaticResource KcapWarningBrush}" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" IsVisible="{Binding ShowsAsk}" />
+                <views:AppIcon Kind="CircleAlert" Size="12" Foreground="{StaticResource KcapWarningBrush}" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" IsVisible="{Binding ShowsBang}" />
+                <views:AppIcon Kind="CirclePause" Size="12" Foreground="{StaticResource KcapWarningBrush}" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" IsVisible="{Binding ShowsPause}" />
+                <views:AppIcon Kind="X" Size="12" IsVisible="{Binding ShowsCross}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                               Foreground="{StaticResource KcapDangerBrush}" />
+                <views:AppIcon Classes="settledMark" Classes.done="{Binding IsDone}" Size="12"
+                               Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding ShowsSettledMark}" />
+            </Panel>
         </Panel>
-        <TextBlock x:Name="StatusWord" Classes="kcapStatusWord" Text="{Binding Label}"
+        <TextBlock x:Name="StatusWord" Classes="kcapStatusWord"
+                   views:StatusGlyph.IsPreview="{DynamicResource KcapStatusPreview}"
+                   Classes.actionable="{Binding IsActionable}"
                    Classes.inflight="{Binding IsInFlight}" Classes.warning="{Binding IsWarning}"
                    Classes.danger="{Binding IsDanger}" TextTrimming="CharacterEllipsis" />
     </DockPanel>

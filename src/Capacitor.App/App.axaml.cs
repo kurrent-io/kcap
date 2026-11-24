@@ -1165,6 +1165,7 @@ public partial class App : Application {
                 Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default))
             .ObserveOn(TaskPoolScheduler.Default).Select(_ => flag.IsOn).DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(SetEnabled));
+        WatchDesktopExperiment(ExperimentalFeatures.DesktopStatusRedesign, profile: null, "KcapStatusPreview", palette.SetStatusPreview);
     }
 
     void BuildDaemonGraph(
@@ -1370,7 +1371,8 @@ public partial class App : Application {
         _remoteTranscripts = remoteTranscripts;
         // Sessions the rail hides are not read: nothing would show their PRs.
         var railShown = new ReplaySubject<Func<AgentRow, bool>>(1);
-        var pullRequestTones = new PullRequestToneCache(directory, readers, TimeProvider.System, railShown);
+        var pullRequestTones = new PullRequestToneCache(directory, readers, TimeProvider.System, railShown,
+            statusPreview: this.GetResourceObservable("KcapStatusPreview").Select(value => value is true).DistinctUntilChanged());
         _pullRequestTones = pullRequestTones;
         _permissionFeed = permissionFeed;
         _attention = attention;
@@ -2717,7 +2719,8 @@ public partial class App : Application {
             openServerSession: sessionId => vm?.OpenSession(sessionId, AgentOrigin.Server),
             sessions: sessions, preferences: initialRail, persistPreferences: persistRail,
             scopeLocked: localServer?.IsLocalServer == true, shownRows: railShown, sessionActions: railActions,
-            bindUserPreferences: bindRailUser);
+            bindUserPreferences: bindRailUser, statusPreview: Current?.GetResourceObservable("KcapStatusPreview")
+                .Select(value => value is true).DistinctUntilChanged());
         // The page mutates on whatever thread its inputs arrive on, so every input lands on the UI thread.
         Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory =
             search is null || sessions is null ? null : open => new SessionSearchViewModel(
@@ -3532,6 +3535,7 @@ public partial class App : Application {
     void LatchNavigation() {
         _notificationAccessPrompt?.Dispose();
         _desktopNotifications?.Dispose();
+        _desktopExperimentSubscriptions.Dispose();
         _classicPreviewSubscription?.Dispose();
         _classicPreview?.Dispose();
         _desktopAppearance?.Dispose();

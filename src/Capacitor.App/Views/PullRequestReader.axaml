@@ -5,6 +5,17 @@
              x:Class="Capacitor.App.Views.PullRequestReader"
              x:DataType="vm:PullRequestContextViewModel"
              Background="{StaticResource KcapCanvasBrush}">
+    <UserControl.Styles>
+        <Style Selector="TabStripItem#ChecksTab" x:DataType="vm:PullRequestContextViewModel">
+            <Setter Property="views:StatusGlyph.IsPreview" Value="{DynamicResource KcapStatusPreview}" />
+            <Setter Property="ToolTip.Tip" Value="{Binding ChecksStatus.Tip}" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding ChecksStatus.Text, StringFormat='Checks: {0}'}" />
+        </Style>
+        <Style Selector="TabStripItem#ChecksTab[(views|StatusGlyph.IsPreview)=True]" x:DataType="vm:PullRequestContextViewModel">
+            <Setter Property="ToolTip.Tip" Value="{Binding ChecksStatus.PreviewTip}" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding ChecksStatus.PreviewText, StringFormat='Checks: {0}'}" />
+        </Style>
+    </UserControl.Styles>
     <Grid RowDefinitions="Auto,Auto,*,Auto">
         <StackPanel Margin="24,20,24,0" Spacing="8">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="10" IsVisible="{Binding HasChoice}">
@@ -37,6 +48,14 @@
                        MaxLines="3" TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" />
             <TextBlock Text="{Binding Branches}" Classes="prMuted" TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Branches}"
                        IsVisible="{Binding HasBranches}" />
+            <Panel IsVisible="{Binding CanDisplay}">
+                <WrapPanel Classes="previewStatus" Orientation="Horizontal" ItemSpacing="14" LineSpacing="4">
+                    <views:PullRequestStatusLabel DataContext="{Binding ChecksStatus}" />
+                    <views:PullRequestStatusLabel DataContext="{Binding ReviewStatus}" />
+                    <views:PullRequestStatusLabel DataContext="{Binding ConflictsStatus}"
+                        IsVisible="{Binding $parent[views:PullRequestReader].((vm:PullRequestContextViewModel)DataContext).HasConflicts}" />
+                </WrapPanel>
+            </Panel>
             <Border IsVisible="{Binding HasNotice}" HorizontalAlignment="Left" Background="{StaticResource KcapWarningDimBrush}" CornerRadius="6" Padding="10,8">
                 <TextBlock Text="{Binding Notice}" Classes="prNote" Foreground="{StaticResource KcapWarningBrush}" />
             </Border>
@@ -47,20 +66,21 @@
                           ItemContainerTheme="{StaticResource PullRequestTabTheme}" AutomationProperties.Name="Pull request sections">
                     <TabStrip.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></TabStrip.ItemsPanel>
                     <TabStripItem Content="Overview" />
-                    <TabStripItem x:Name="ChecksTab" ToolTip.Tip="{Binding ChecksStatus.Tip}"
-                                  AutomationProperties.Name="{Binding ChecksStatus.Text, StringFormat='Checks: {0}'}">
+                    <TabStripItem x:Name="ChecksTab">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Text="Checks" />
-                            <Ellipse Classes="prTabDot" Classes.success="{Binding ChecksStatus.IsSuccess}" Classes.warning="{Binding ChecksStatus.IsWarning}"
+                            <Ellipse Classes="prTabDot stockStatus" Classes.success="{Binding ChecksStatus.IsSuccess}" Classes.warning="{Binding ChecksStatus.IsWarning}"
                                      Classes.danger="{Binding ChecksStatus.IsDanger}" Classes.pending="{Binding ChecksStatus.IsPulsing}" views:PulseClock.IsActive="{Binding ChecksStatus.IsPulsing}" />
+                            <views:StatusGlyph Kind="{Binding ChecksStatus.PreviewGlyph}" />
                         </StackPanel>
                     </TabStripItem>
                     <TabStripItem x:Name="ReviewsTab" ToolTip.Tip="{Binding ReviewStatus.Tip}"
                                   AutomationProperties.Name="{Binding ReviewStatus.Text, StringFormat='Reviews: {0}'}">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Text="Reviews" />
-                            <Ellipse Classes="prTabDot" Classes.success="{Binding ReviewStatus.IsSuccess}" Classes.warning="{Binding ReviewStatus.IsWarning}"
+                            <Ellipse Classes="prTabDot stockStatus" Classes.success="{Binding ReviewStatus.IsSuccess}" Classes.warning="{Binding ReviewStatus.IsWarning}"
                                      Classes.danger="{Binding ReviewStatus.IsDanger}" Classes.pending="{Binding ReviewStatus.IsPulsing}" views:PulseClock.IsActive="{Binding ReviewStatus.IsPulsing}" />
+                            <views:StatusGlyph Kind="{Binding ReviewStatus.PreviewGlyph}" />
                         </StackPanel>
                     </TabStripItem>
                     <TabStripItem Content="Comments" />
@@ -68,7 +88,8 @@
                                   AutomationProperties.Name="Merge conflicts">
                         <StackPanel Orientation="Horizontal" Spacing="7">
                             <TextBlock Text="Conflicts" />
-                            <Ellipse Classes="prTabDot" Classes.warning="{Binding HasConflicts}" />
+                            <Ellipse Classes="prTabDot stockStatus" Classes.warning="{Binding HasConflicts}" />
+                            <views:StatusGlyph Kind="{Binding ConflictsStatus.PreviewGlyph}" />
                         </StackPanel>
                     </TabStripItem>
                 </TabStrip>

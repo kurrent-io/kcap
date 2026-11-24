@@ -6,6 +6,39 @@
              x:Class="Capacitor.App.Views.ChatTabView"
              x:DataType="vm:ChatTabViewModel">
     <UserControl.Styles>
+        <Style Selector="ContentPresenter.toolStatusPresenter">
+            <Setter Property="ContentTemplate">
+                <DataTemplate x:DataType="vm:ToolCallItem">
+                    <Panel>
+                        <Border x:Name="ToolStatusPill" Classes="toolStatus" Width="8" Height="8"
+                                CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
+                                IsVisible="{Binding IsSettled}"
+                                Background="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />
+                        <Border Classes="toolRunning toolStatus" Width="8" Height="8"
+                                CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
+                                IsVisible="{Binding IsRunning}" views:PulseClock.IsActive="{Binding IsRunning}"
+                                Background="{StaticResource KcapActivityBrush}" />
+                        <Border x:Name="ToolUnknownStatusPill" Classes="toolStatus" Width="8" Height="8"
+                                CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
+                                IsVisible="{Binding IsOutcomeUnknown}" Background="{StaticResource KcapMutedBrush}"
+                                ToolTip.Tip="Outcome unknown" AutomationProperties.Name="Outcome unknown" />
+                        <views:AppIcon Kind="CircleQuestionMark" Size="14" Margin="16,0,0,0" VerticalAlignment="Center"
+                                       IsVisible="{Binding IsAwaitingPermission}"
+                                       Foreground="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />
+                    </Panel>
+                </DataTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="ContentPresenter.toolStatusPresenter[(views|StatusGlyph.IsPreview)=True]">
+            <Setter Property="ContentTemplate">
+                <DataTemplate x:DataType="vm:ToolCallItem">
+                    <DockPanel Margin="8,0,0,0" VerticalAlignment="Center">
+                        <views:StatusGlyph Kind="{Binding StatusGlyph}" DockPanel.Dock="Left" Margin="0,0,4,0" VerticalAlignment="Center" />
+                        <TextBlock Classes="kcapStatusWord" Text="{Binding StatusLabel}" />
+                    </DockPanel>
+                </DataTemplate>
+            </Setter>
+        </Style>
         <Style Selector="views|MarkdownView">
             <Setter Property="UseMonospaceReading" Value="{DynamicResource KcapUseMonospaceReading}" />
         </Style>
@@ -629,23 +662,8 @@
                                             </MultiBinding>
                                         </TextBlock.IsVisible>
                                     </TextBlock>
-                                    <Panel Grid.Column="2">
-                                        <Border x:Name="ToolStatusPill" Classes="toolStatus" Width="8" Height="8"
-                                                CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
-                                                IsVisible="{Binding IsSettled}"
-                                                Background="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />
-                                        <Border Classes="toolRunning toolStatus" Width="8" Height="8"
-                                                CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
-                                                IsVisible="{Binding IsRunning}" views:PulseClock.IsActive="{Binding IsRunning}"
-                                                Background="{StaticResource KcapPurpleBrush}" />
-                                        <Border x:Name="ToolUnknownStatusPill" Classes="toolStatus" Width="8" Height="8"
-                                                CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
-                                                IsVisible="{Binding IsOutcomeUnknown}" Background="{StaticResource KcapMutedBrush}"
-                                                ToolTip.Tip="Outcome unknown" AutomationProperties.Name="Outcome unknown" />
-                                        <views:AppIcon Kind="CircleQuestionMark" Size="14" Margin="16,0,0,0" VerticalAlignment="Center"
-                                                       IsVisible="{Binding IsAwaitingPermission}"
-                                                       Foreground="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />
-                                    </Panel>
+                                    <ContentPresenter Grid.Column="2" Classes="toolStatusPresenter" Content="{Binding}"
+                                                      views:StatusGlyph.IsPreview="{DynamicResource KcapStatusPreview}" />
                                     <Panel Grid.Column="3" Width="12" Height="12" Margin="8,0,0,0" VerticalAlignment="Center">
                                         <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
                                                        Foreground="{StaticResource KcapMutedBrush}" />
@@ -871,10 +889,10 @@
                                            Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                 <!-- Only the fill pulses, so the count stays legible. -->
                                 <Panel x:Name="BackgroundTasksCount" Grid.Column="1" VerticalAlignment="Center" ToolTip.Tip="{Binding CountTip}">
-                                    <Border Classes="toolRunning" Background="{StaticResource KcapPurpleDimBrush}" CornerRadius="999"
+                                    <Border Classes="toolRunning" Background="{StaticResource KcapActivityDimBrush}" CornerRadius="999"
                                             views:PulseClock.IsActive="{Binding HasRows}" />
                                     <TextBlock Text="{Binding Count}" Margin="7,1" FontSize="{StaticResource KcapFontSizeSmall}" FontWeight="SemiBold"
-                                               Foreground="{StaticResource KcapPurpleBrush}" VerticalAlignment="Center" />
+                                               Foreground="{StaticResource KcapActivityBrush}" VerticalAlignment="Center" />
                                 </Panel>
                                 <Panel Grid.Column="3" Width="12" Height="12" VerticalAlignment="Center">
                                     <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"

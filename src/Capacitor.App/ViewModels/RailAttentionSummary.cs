@@ -5,6 +5,13 @@ namespace Capacitor.App.ViewModels;
 public sealed record RailAttentionSummary(int SessionCount, string Text, string Tone) {
     public static RailAttentionSummary None { get; } = new(0, "", StatusColors.Unavailable);
 
+    public StatusGlyphKind Glyph => Tone switch {
+        StatusColors.Pending => StatusGlyphKind.Activity,
+        StatusColors.Disrupted => StatusGlyphKind.Failure,
+        StatusColors.InProgress => StatusGlyphKind.Attention,
+        _ => StatusGlyphKind.Unknown,
+    };
+
     public bool HasAttention => Text.Length > 0;
     public bool HasSessionCount => SessionCount > 0;
     public string CountText => SessionCount > 9 ? "9+" : SessionCount.ToString(CultureInfo.InvariantCulture);

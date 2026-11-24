@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Remote.Models;
@@ -6,6 +7,29 @@ namespace Capacitor.App.Tests.Unit.ViewModels;
 
 /// The shared session verdict: who counts as working, and the one status word every surface shows.
 public class SessionStatusDotsTests {
+    [Test]
+    public async Task Preview_puts_typed_input_first_and_distinguishes_ended_history_from_success() {
+        var working = Local("working", status: "Running", awaiting: false);
+        var waiting = Local("waiting", status: "Running", awaiting: true) with { LiveSubagents = 2 };
+        var failed = Local("failed", status: "Failed");
+        var stale = Local("stale", status: "Running") with { IsStale = true };
+        var idle = Local("idle", status: "Idle");
+        var ended = SessionStatusDots.Present("Completed", null, false, null, false, null, null, null, ended: true);
+        var success = SessionStatusDots.ForRow(Local("done", status: "Completed"), false);
+
+        await Assert.That(SessionStatusDots.ForRow(waiting, false).PreviewLabel).IsEqualTo("Waiting for input");
+        await Assert.That(SessionStatusDots.ForRow(waiting, false).Facts.Any(f => f.Text == "2 subagents running")).IsTrue();
+        await Assert.That(SessionStatusDots.Rollup([working, waiting, failed, stale], FrozenSet<string>.Empty, preview: true)!.PreviewLabel)
+            .IsEqualTo("1 waiting for input");
+        await Assert.That(SessionStatusDots.Rollup([working, waiting, failed, stale], FrozenSet<string>.Empty)!.Kind).IsEqualTo(AgentStatusKind.Failed);
+        await Assert.That(SessionStatusDots.Rollup([working, failed, stale], FrozenSet<string>.Empty, preview: true)!.PreviewGlyph).IsEqualTo(StatusGlyphKind.Failure);
+        await Assert.That(SessionStatusDots.Rollup([working, stale], FrozenSet<string>.Empty, preview: true)!.PreviewGlyph).IsEqualTo(StatusGlyphKind.Stale);
+        await Assert.That(SessionStatusDots.Rollup([working, idle], FrozenSet<string>.Empty, preview: true)!.PreviewGlyph).IsEqualTo(StatusGlyphKind.Activity);
+        await Assert.That(ended.PreviewLabel).IsEqualTo("Ended");
+        await Assert.That(ended.PreviewGlyph).IsEqualTo(StatusGlyphKind.Stopped);
+        await Assert.That(success.PreviewGlyph).IsEqualTo(StatusGlyphKind.Success);
+    }
+
     [Test]
     [Arguments("Running", false, null, true)]
     [Arguments("Running", false, 0, true)]

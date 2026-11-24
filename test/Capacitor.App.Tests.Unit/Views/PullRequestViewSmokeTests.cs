@@ -1,9 +1,12 @@
+using Avalonia;
+using Capacitor.Cli.Core.PullRequests;
+using Avalonia.VisualTree;
 using System.Reactive.Linq;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Threading;
-using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.Views;
@@ -18,12 +21,102 @@ namespace Capacitor.App.Tests.Unit.Views;
 [NotInParallel("AvaloniaSession")]
 public class PullRequestViewSmokeTests {
     [Test]
+    public Task Pointer_opened_PR_picker_commits_the_first_choice_with_Home_and_Return() => RunOnUiAsync(async () => {
+        using var preview = new TooltipPreviewScope();
+        preview.Enable(ClassicAppearance.Light, previewStatuses: true);
+        await using var host = new PullRequestViewTestHost();
+        host.Window.Width = 1400;
+        host.Window.Height = 760;
+        host.Source.Links = Enumerable.Range(1, 5).Select(FakePullRequestSource.Link).ToArray();
+        host.Source.Lifecycles[5] = "closed";
+        host.Source.TitleFor = subject => subject.Number == 1 ? "Correct the gateway retry policy" : "Other pull request";
+        host.Source.RollupFor = subject => subject.Number == 1 ? "failure" : "success";
+        await host.ShowAsync();
+
+        var picker = host.Card.FindControl<ComboBox>("PullRequestSelector")!;
+        picker.SelectedIndex = 4;
+        await host.SettleAsync();
+        await Assert.That(host.Model.LifecycleStatus.Text).IsEqualTo("Closed");
+
+        var point = picker.TranslatePoint(new Point(picker.Bounds.Width / 2, picker.Bounds.Height / 2), host.Window)!.Value;
+        host.Window.MouseDown(point, MouseButton.Left);
+        host.Window.MouseUp(point, MouseButton.Left);
+        TooltipPreviewScope.Pump(host.Window);
+        await Assert.That(picker.IsDropDownOpen).IsTrue();
+
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Home);
+        await Assert.That(picker.ContainerFromIndex(0)!.IsFocused).IsTrue();
+        await Assert.That(picker.SelectedIndex).IsEqualTo(4);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+        await host.SettleAsync();
+
+        await Assert.That(picker.IsDropDownOpen).IsFalse();
+        await Assert.That(picker.IsFocused).IsTrue();
+        var labels = host.Card.GetVisualDescendants().OfType<TextBlock>()
+            .Where(text => text.IsEffectivelyVisible).Select(text => text.Text).ToArray();
+        foreach (var label in new[] { "Correct the gateway retry policy", "Open", "Checks failed" })
+            await Assert.That(labels).Contains(label);
+    });
+
+    [Test]
+    public Task Lifecycle_and_actionable_evidence_survive_keyboard_selection_theme_switch_and_rollback() => RunOnUiAsync(async () => {
+        using var preview = new TooltipPreviewScope();
+        preview.Enable(ClassicAppearance.Light, previewStatuses: true);
+        await using var host = new PullRequestViewTestHost();
+        host.Source.Links = Enumerable.Range(1, 4).Select(number => FakePullRequestSource.Link(number)).ToArray();
+        host.Source.Lifecycles[2] = "draft";
+        host.Source.Lifecycles[3] = "merged";
+        host.Source.Lifecycles[4] = "closed";
+        host.Source.OverviewResponses.Enqueue((subject, _) => {
+            var read = host.Source.Overview(subject);
+            return Task.FromResult(read with { Data = read.Data! with {
+                Checks = new() { Availability = new() { Status = "ready" }, Rollup = "failure" },
+                Mergeable = false, ReviewDecision = "changes_requested",
+            } });
+        });
+        host.Model.SelectSubject(PullRequestWire.Subject(host.Source.Links[0]));
+        await host.ShowAsync();
+        var title = host.Card.FindControl<Button>("PullRequestTitleButton")!;
+        title.Focus(NavigationMethod.Tab);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        var lines = TooltipPreviewScope.Text(title);
+        await Assert.That(lines).Contains("Open");
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
+        await Assert.That(title.IsFocused).IsTrue();
+        var visibleCardText = host.Card.GetVisualDescendants().OfType<TextBlock>()
+            .Where(text => text.IsEffectivelyVisible).Select(text => text.Text).ToArray();
+        foreach (var text in new[] { "Checks failed", "Merge conflicts", "Changes requested" }) {
+            await Assert.That(visibleCardText).Contains(text);
+            await Assert.That(lines.Contains(text)).IsFalse();
+        }
+
+        var picker = host.Card.FindControl<ComboBox>("PullRequestSelector")!;
+        picker.Focus(NavigationMethod.Tab);
+        foreach (var lifecycle in new[] { "Draft", "Merged", "Closed" }) {
+            TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+            TooltipPreviewScope.Press(host.Window, PhysicalKey.ArrowDown);
+            TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+            await host.SettleAsync();
+            await Assert.That(host.Reader.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text == lifecycle)).IsTrue();
+        }
+
+        preview.Enable(ClassicAppearance.Dark, previewStatuses: true);
+        TooltipPreviewScope.Pump(host.Window);
+        await Assert.That(picker.IsFocused).IsTrue();
+        await Assert.That(host.Model.LifecycleStatus.Text).IsEqualTo("Closed");
+        preview.Disable();
+        TooltipPreviewScope.Pump(host.Window);
+        await Assert.That(picker.IsFocused).IsTrue();
+        await Assert.That(host.Reader.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text == "Closed")).IsTrue();
+    });
+
+    [Test]
     [Arguments("merged", "success", "Merged", "Checks passing")]
     [Arguments("open", "failure", "Open", "Checks failing")]
     public Task Structured_PR_card_tip_leaves_check_results_in_the_card(
             string lifecycle, string rollup, string stateText, string checksText) => RunOnUiAsync(async () => {
         using var preview = new TooltipPreviewScope();
-        preview.Enable(ClassicAppearance.Dark);
+        preview.Enable(ClassicAppearance.Dark, previewStatuses: lifecycle == "merged");
         await using var host = new PullRequestViewTestHost();
         foreach (var link in host.Source.Links) host.Source.Lifecycles[link.Number] = lifecycle;
         host.Source.RollupFor = _ => rollup;

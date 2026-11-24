@@ -17,7 +17,7 @@ public sealed partial class PullRequestContextViewModel {
         ? (choice.Link.Number,
             CanDisplay ? _overview?.Title ?? choice.Link.Title : choice.IsAvailable ? choice.Link.Title : null,
             CanDisplay ? LifecycleStatus : choice.IsAvailable ? choice.LinkedLifecycle : null,
-            RepositoryLabel, choice.IsAvailable ? null : "Pull request unavailable")
+            RepositoryLabel, choice.IsAvailable ? (HasStaleOverview ? OverviewFreshnessLabel : null) : "Pull request unavailable")
         : null;
 
     public KcapTip? PullRequestTip => LinkTipContent is { } content
@@ -103,14 +103,7 @@ public sealed partial class PullRequestContextViewModel {
             };
         }
     }
-    public PullRequestStatus ReviewStatus => CanDisplay
-        ? _overview?.ReviewDecision switch {
-            "approved" => new("Approved", "success", "All required reviews are approved."),
-            "changes_requested" => new("Changes requested", "failure", "A reviewer requested changes before merge."),
-            "review_required" => new("Review required", "warning", "Waiting on a required review before this PR can merge."),
-            _ => new("Review decision unknown", "neutral", "GitHub has not reported a review decision yet."),
-        }
-        : new("");
+    public PullRequestStatus ReviewStatus => CanDisplay ? PullRequestTones.ReviewStatus(_overview) : new("");
     public PullRequestStatus ChecksStatus {
         get {
             if (!CanDisplay) return new("");
@@ -125,32 +118,18 @@ public sealed partial class PullRequestContextViewModel {
                 var passed = rows.Count(row => row.Outcome == "success");
                 var other = rows.Length - failed - pending - passed;
                 var counts = $"{failed} failed · {pending} pending · {passed} passed" + (other > 0 ? $" · {other} other" : "");
-                // Sidebar is a verdict; Tip carries a sentence (and counts when useful). Fail and
-                // pending keep a count in Text because that changes urgency; all-green stays short.
                 return failed > 0 ? new($"{failed} failed", "failure", $"One or more checks failed ({counts}).")
-                    : pending > 0 ? new("Checks pending" + (rows.Any(row => row.Outcome is null or "unknown") ? "" : $" · {rows.Length - pending}/{rows.Length}"), "pending", $"Checks are still running ({counts}).")
+                    : pending > 0 ? PullRequestTones.PendingChecksStatus(
+                        rows.Any(row => row.Outcome is null or "unknown") ? "" : $" · {rows.Length - pending}/{rows.Length}",
+                        rows.Any(row => row.Status?.PreviewGlyph == StatusGlyphKind.Activity), counts)
                     : other > 0 ? new("Checks completed", Detail: $"Checks finished with mixed outcomes ({counts}).")
                     : new("Checks passing", "success", $"All checks have passed ({counts}).");
             }
-            return _overview?.Checks?.Availability.Status != "ready" ? new("Checks unavailable", Detail: "Checks could not be loaded for this pull request.")
-                : _overview.Checks.Rollup switch {
-                    "success" => new("Checks passing", "success", "All checks have passed."),
-                    "failure" => new("Checks failing", "failure", "One or more checks failed."),
-                    "pending" => new("Checks pending" + Progress(_overview.Checks.Counts), "pending", "Checks are still running."),
-                    _ => new("Checks unknown", Detail: "GitHub has not reported a check summary yet.")
-                };
+            return PullRequestTones.ChecksStatus(_overview);
         }
     }
 
-    /// Empty when the overview carries no thread summary, as a server without one sends, or when a zero is only
-    /// a lower bound, which says nothing about the threads it could not read.
-    public PullRequestStatus ThreadsStatus =>
-        CanDisplay && _overview?.Threads is { Availability.Status: "ready", Unresolved: { Value: { } count } unresolved }
-            ? count == 0
-                ? unresolved.Kind == "exact" ? new("No unresolved threads", "success", "Every review thread is resolved.") : new("")
-                : new($"{count}{(unresolved.Kind == "exact" ? "" : "+")} unresolved thread{(count == 1 && unresolved.Kind == "exact" ? "" : "s")}",
-                      "warning", "Review threads are still waiting on a reply or a fix.")
-            : new("");
+    public PullRequestStatus ThreadsStatus => CanDisplay ? PullRequestTones.ThreadsStatus(_overview) : new("");
     public bool HasThreadsStatus => ThreadsStatus.Text.Length > 0;
 
     /// What the agent is asked to do about everything that keeps an open pull request from merging, or
@@ -170,15 +149,6 @@ public sealed partial class PullRequestContextViewModel {
 
     /// Call when the host's composer gains or loses the ability to send, so <see cref="ShowsFix"/> is read again.
     internal void FixAvailabilityChanged() => NotifyValue(ShowsFix);
-
-    // A capped list reports lower bounds, which would misstate the total, and an unknown outcome
-    // (a status with no state) may still be running, so either leaves the fraction off.
-    static string Progress(Dictionary<string, PullRequestCountDto>? counts) {
-        if (counts is not { Count: > 0 } || counts.ContainsKey("unknown") || counts.Values.Any(count => count is not { Kind: "exact", Value: not null })) return "";
-        var total = counts.Values.Sum(count => count.Value!.Value);
-        var done = total - (counts.GetValueOrDefault("pending")?.Value ?? 0);
-        return $" · {done}/{total}";
-    }
 
     void NotifyPresentation() {
         NotifyValue(HasMultipleChoices);

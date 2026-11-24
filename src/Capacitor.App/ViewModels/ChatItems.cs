@@ -361,6 +361,7 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
             this.RaisePropertyChanged(nameof(IsSettled));
             this.RaisePropertyChanged(nameof(IsRunning));
             this.RaisePropertyChanged(nameof(IsOutcomeUnknown));
+            NotifyStatus();
             InvalidateInspection();
         }
     }
@@ -386,6 +387,7 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
             _isAwaitingPermission = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(IsRunning));
+            NotifyStatus();
             InvalidateInspection();
         }
     }
@@ -401,6 +403,7 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
             this.RaisePropertyChanged(nameof(IsRunning));
             this.RaisePropertyChanged(nameof(IsAwaitingPermission));
             this.RaisePropertyChanged(nameof(IsOutcomeUnknown));
+            NotifyStatus();
             InvalidateInspection();
         }
     }
@@ -444,6 +447,27 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     /// True while the call is in flight and not waiting on a permission prompt — drives the
     /// pulsing status pill so a live row is never blank.
     public bool IsRunning => _outcome == ToolOutcome.Running && !_isAwaitingPermission && !_sessionOver;
+
+    public StatusGlyphKind StatusGlyph => _outcome switch {
+        ToolOutcome.Error => StatusGlyphKind.Failure,
+        ToolOutcome.Done => StatusGlyphKind.Success,
+        _ when IsAwaitingPermission => StatusGlyphKind.Attention,
+        _ when IsRunning => StatusGlyphKind.Activity,
+        _ => StatusGlyphKind.Unknown,
+    };
+
+    public string StatusLabel => StatusGlyph switch {
+        StatusGlyphKind.Attention => "Permission needed",
+        StatusGlyphKind.Activity => "Running",
+        StatusGlyphKind.Failure => "Failed",
+        StatusGlyphKind.Success => "Done",
+        _ => "Outcome unknown",
+    };
+
+    void NotifyStatus() {
+        this.RaisePropertyChanged(nameof(StatusGlyph));
+        this.RaisePropertyChanged(nameof(StatusLabel));
+    }
 
     public string? PreviewPath {
         get;

@@ -49,6 +49,15 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     public string HeaderText => $"{DoneCount} of {_tasks.Count} done";
     /// Pending, in progress, done: one entry per state something is in, so the numbers add up
     /// to the list.
+    public IReadOnlyList<PlanTaskCount> PreviewCounts {
+        get {
+            var skipped = _tasks.Count(task => task.State == PlanTaskState.Skipped);
+            if (skipped == 0) return Counts;
+            return [.. Counts.Select(count => count.State == PlanTaskState.Completed ? count with { Count = count.Count - skipped } : count)
+                .Where(count => count.Count > 0), new(PlanTaskState.Skipped, skipped)];
+        }
+    }
+
     public IReadOnlyList<PlanTaskCount> Counts { get; private set; } = [];
 
     public bool IsExpanded {
@@ -181,6 +190,7 @@ public sealed class PlanSectionViewModel : ReactiveObject {
             Counts = counts;
             this.RaisePropertyChanged(nameof(Counts));
         }
+        this.RaisePropertyChanged(nameof(PreviewCounts));
     }
 
     void RaiseLoading() {

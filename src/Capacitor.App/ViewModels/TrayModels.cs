@@ -33,6 +33,8 @@ public sealed record TrayMenuModel(
     TrayState State, int RunningCount, string Header,
     IReadOnlyList<TrayAgentEntry> Agents, TrayPauseItem Pause, int PendingConsent, bool ShimInstallVisible = false,
     string? UpdateItemLabel = null, bool FinishSwitchVisible = false, string? ToolTipHint = null) {
+    public StatusGlyphKind? PreviewGlyph { get; init; }
+
     const int ToolTipLimit = 127;
 
     /// The tray icon's tooltip, which screen readers also read as its name. Windows keeps only

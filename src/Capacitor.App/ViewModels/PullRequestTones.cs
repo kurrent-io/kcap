@@ -47,4 +47,46 @@ public static class PullRequestTones {
         "closed" => new("Closed", "closed"),
         _ => new("Unknown"),
     };
+
+    internal static PullRequestStatus ReviewStatus(PullRequestOverviewDto? overview) => overview?.ReviewDecision switch {
+        "approved" => new("Approved", "success", "All required reviews are approved."),
+        "changes_requested" => new("Changes requested", "failure", "A reviewer requested changes before merge.") {
+            PreviewOverride = StatusGlyphKind.Attention,
+        },
+        "review_required" => new("Review required", "warning", "Waiting on a required review before this PR can merge."),
+        _ => new("Review decision unknown", "neutral", "GitHub has not reported a review decision yet."),
+    };
+
+    internal static PullRequestStatus ChecksStatus(PullRequestOverviewDto? overview) =>
+        overview?.Checks?.Availability.Status != "ready"
+            ? new("Checks unavailable", Detail: "Checks could not be loaded for this pull request.")
+            : overview.Checks.Rollup switch {
+                "success" => new("Checks passing", "success", "All checks have passed."),
+                "failure" => new("Checks failing", "failure", "One or more checks failed."),
+                "pending" => PendingChecksStatus(Progress(overview.Checks.Counts)),
+                _ => new("Checks unknown", Detail: "GitHub has not reported a check summary yet."),
+            };
+
+    internal static PullRequestStatus PendingChecksStatus(string progress, bool running = false, string? counts = null) {
+        var detail = counts is null ? "." : $" ({counts}).";
+        return new("Checks pending" + progress, "pending", "Checks are still running" + detail) {
+            PreviewOverride = running ? StatusGlyphKind.Activity : null,
+            PreviewDetail = running ? null : "Checks are pending" + detail,
+        };
+    }
+
+    internal static PullRequestStatus ThreadsStatus(PullRequestOverviewDto? overview) =>
+        overview?.Threads is { Availability.Status: "ready", Unresolved: { Value: { } count } unresolved }
+            ? count == 0
+                ? unresolved.Kind == "exact" ? new("No unresolved threads", "success", "Every review thread is resolved.") : new("")
+                : new($"{count}{(unresolved.Kind == "exact" ? "" : "+")} unresolved thread{(count == 1 && unresolved.Kind == "exact" ? "" : "s")}",
+                      "warning", "Review threads are still waiting on a reply or a fix.")
+            : new("");
+
+    static string Progress(Dictionary<string, PullRequestCountDto>? counts) {
+        if (counts is not { Count: > 0 } || counts.ContainsKey("unknown") || counts.Values.Any(count => count is not { Kind: "exact", Value: not null })) return "";
+        var total = counts.Values.Sum(count => count.Value!.Value);
+        var done = total - (counts.GetValueOrDefault("pending")?.Value ?? 0);
+        return $" · {done}/{total}";
+    }
 }
