@@ -69,7 +69,8 @@ public sealed class ExperimentalCommand {
                 continue;
             }
             var on = saved.IsOn(feature);
-            var state = feature.DesktopAppOnly ? DesktopAppOnlyText : StateText(Classify(saved.IsEnabled(feature.Id), on, probe, feature.Id));
+            var state = feature.DesktopAppOnly ? DesktopAppOnlyText
+                : probe is null ? "unavailable" : StateText(Classify(saved.IsEnabled(feature.Id), on, probe, feature.Id));
             await Console.Out.WriteLineAsync($"{feature.Id}  {SwitchText(on, saved.IsSet(feature.Id))}  {state}");
             await Console.Out.WriteLineAsync($"  {(feature.AppWide ? "App-wide. " : "")}{feature.Description}");
         }
