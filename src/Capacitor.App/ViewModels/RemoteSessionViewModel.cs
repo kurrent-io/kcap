@@ -702,9 +702,11 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     /// Only a session hosted by one of the signed-in account's daemons, which fetches the files with its
     /// owner's credential. The daemon listing is that proof: the server folds it through the account's
     /// aliases and the service empties it on an account switch, so a daemon kept under a merged older id
-    /// still qualifies. An attached terminal session submits text alone, so its daemon refuses files.
+    /// still qualifies. An attached terminal session submits text alone, and a review participant's daemon
+    /// refuses files. A missing launch kind stays attachable: an older server does not send one.
     internal static bool AcceptsAttachments(AgentRow row, IReadOnlyList<DaemonInfo> daemons, string? viewer) =>
-        !row.IsAttached && viewer is { Length: > 0 } && row is { OwnerUserId: { Length: > 0 } owner, MachineBadge: { } name }
+        !row.IsAttached && row.LaunchKind is null or "Default"
+        && viewer is { Length: > 0 } && row is { OwnerUserId: { Length: > 0 } owner, MachineBadge: { } name }
         && daemons.FirstOrDefault(d => d.Name == name && d.OwnerUserId == owner) is { } daemon
         && LaunchAttachments.IsCapable(daemon.Version);
 
