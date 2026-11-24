@@ -385,8 +385,9 @@ public sealed class DaemonMutationLane : IAsyncDisposable {
         ProcessResult result;
         try {
             result = await Dispatch(executor, request, attemptId, ct).ConfigureAwait(false);
-        } catch (Exception ex) when (ex is not OperationCanceledException) {
-            // A throw comes from a process that never started, the help probe's or the install's own.
+        } catch (System.ComponentModel.Win32Exception) {
+            // Process.Start failing, for the help probe or the install: the CLI never ran. Anything thrown once it
+            // started may follow a write, so it keeps the latch.
             slot.Dispatched = false;
             slot.Activation = ActivationEvidence.NotActivated;
             throw;
